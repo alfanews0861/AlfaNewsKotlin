@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Rounded Blue Gradient Background -->
+    <path
+        android:pathData="M16,0 L92,0 A16,16 0 0 1 108,16 L108,92 A16,16 0 0 1 92,108 L16,108 A16,16 0 0 1 0,92 L0,16 A16,16 0 0 1 16,0 z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="54"
+                android:startY="0"
+                android:endX="54"
+                android:endY="108">
+                <item android:offset="0" android:color="#061339"/>
+                <item android:offset="1" android:color="#326190"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- White Logo 'a' (Clean and Centered) -->
+    <path
+        android:pathData="M78,32v43h-9v-6.5c-3.5,4.5-9,7.5-15.5,7.5C40,76,30,66,30,53.5S40,31,53.5,31c6.5,0,12,3,15.5,7.5V32H78z M54,67.5c8,0,14.5-6.5,14.5-14.5s-6.5-14.5-14.5-14.5s-14.5,6.5-14.5,14.5S46,67.5,54,67.5z"
+        android:fillColor="#FFFFFF"/>
+</vector>

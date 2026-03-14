@@ -1,0 +1,103 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // User Profiles
+    match /users/{userId} {
+      allow read: if true;
+      // Allow user to create their own profile, or admins/editors to manage them.
+      allow write: if request.auth != null && (
+          request.auth.uid == userId || 
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN' ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'EDITOR' &&
+             (resource.data.role == 'SUBSCRIBER' || resource.data.promotedBy == request.auth.uid)
+          )
+      );
+    }
+    
+    // News Posts
+    match /news/{postId} {
+      allow read: if true;
+      // Allow reporters/admins to create posts OR 
+      // any user with an existing user document (i.e., a role) to create a citizen post.
+      allow create: if request.auth != null && (
+                      (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['REPORTER', 'EDITOR', 'ADMIN']) ||
+                      (request.resource.data.isCitizen == true)
+                    );
+      allow update, delete: if request.auth != null && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['EDITOR', 'ADMIN'] ||
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'REPORTER' && resource.data.reporter.id == request.auth.uid))
+      );
+      
+      // Comments Sub-collection
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if request.auth != null;
+        allow delete: if request.auth != null && (resource.data.userId == request.auth.uid ||
+                       (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN'));
+      }
+    }
+    
+    // RSS, Social & Scraping Feeds (Admin only write)
+    match /rss_feeds/{feedId} {
+      allow read: if true;
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+    }
+    match /social_feeds/{feedId} {
+      allow read: if true;
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+    }
+    match /scraping_sources/{sourceId} {
+      allow read: if true;
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+    }
+
+    // System Settings - Public Read, Admin Write
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+    }
+
+    // System Settings (Old name, kept for compatibility) - Public Read, Admin Write
+    match /system_settings/{settingId} {
+      allow read: if true;
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+    }
+    
+    // Contact Messages (Public write, Admin read)
+    match /contact_messages/{messageId} {
+      allow create: if true;
+      allow read, delete, update: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+    }
+    
+    // Classifieds
+    match /classifieds/{adId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && (resource.data.userId == request.auth.uid ||
+                             (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN'));
+    }
+    
+    // Analytics
+    match /user_analytics/{eventId} {
+      allow create: if true;
+      allow read: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+    }
+
+    // Ads Manager
+    match /local_ads/{adId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && (resource.data.userId == request.auth.uid ||
+                    (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                     get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN'));
+    }
+  }
+}

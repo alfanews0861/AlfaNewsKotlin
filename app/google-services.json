@@ -1,0 +1,63 @@
+{
+  "project_info": {
+    "project_number": "930598073690",
+    "project_id": "alfa-news-31bf7",
+    "storage_bucket": "alfa-news-31bf7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:930598073690:android:98285cceee23c5f6e92f63",
+        "android_client_info": {
+          "package_name": "com.alfanews.telugu"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "930598073690-fttnn2jdd7ue6nk9n6bv27c01nfkgvop.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.alfanews.telugu",
+            "certificate_hash": "5d0b7e70dfce70ca4b15e4ea0158a0719d4eeadd"
+          }
+        },
+        {
+          "client_id": "930598073690-ke1iif61esu56v47s4pjqqh1s0lm225t.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.alfanews.telugu",
+            "certificate_hash": "65fb994b874c29e909de50e7fff8525414818569"
+          }
+        },
+        {
+          "client_id": "930598073690-q2re02f1fe2f394mg1l7fs01nq61cq0u.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.alfanews.telugu",
+            "certificate_hash": "df0bdbdc50bbb30471c3edd546534195489b9fad"
+          }
+        },
+        {
+          "client_id": "930598073690-s447bufr334kq84tjdfeit6aa2v92v0n.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAjX68RQvPZgyfwUfpuJp74SD3TPs8kZ1E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "930598073690-s447bufr334kq84tjdfeit6aa2v92v0n.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
