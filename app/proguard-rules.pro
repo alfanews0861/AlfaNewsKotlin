@@ -109,3 +109,11 @@
 
 -keep class com.alfanews.telugu.AlfaNewsApplication { *; }
 -keep class com.alfanews.telugu.** { *; }
+
+# Application class ని రక్షించడానికి
+-keep class com.alfanews.telugu.AlfaNewsApplication { *; }
+
+# Firebase మరియు ఇతర సర్వీసుల కోసం
+-keepattributes Signature, *Annotation*, EnclosingMethod
+-keep class com.google.firebase.** { *; }
+-dontwarn com.google.firebase.**
