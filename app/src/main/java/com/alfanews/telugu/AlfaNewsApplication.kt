@@ -7,70 +7,58 @@ import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.alfanews.telugu.services.AnalyticsService
 import com.google.firebase.messaging.FirebaseMessaging
-import com.alfanews.telugu.BuildConfig
 import androidx.work.*
 import com.alfanews.telugu.workers.NewsNotificationWorker
 import java.util.concurrent.TimeUnit
 import java.util.Calendar
 
-/**
- * ఆల్ఫా న్యూస్ అప్లికేషన్ యొక్క ప్రధాన అప్లికేషన్ క్లాస్.
- * 
- * ఈ క్లాస్ అప్లికేషన్ ప్రారంభమైనప్పుడు ఫైర్‌బేస్ (Firebase), అనలిటిక్స్ (Analytics) 
- * మరియు ఇతర ముఖ్యమైన సేవలను ప్రారంభించడానికి బాధ్యత వహిస్తుంది.
- */
 class AlfaNewsApplication : Application() {
 
-    /**
-     * అప్లికేషన్ సృష్టించబడినప్పుడు పిలవబడే పద్ధతి.
-     * ఇక్కడ ఫైర్‌బేస్ మరియు నోటిఫికేషన్ సేవలు కాన్ఫిగర్ చేయబడతాయి.
-     */
     override fun onCreate() {
         super.onCreate()
 
-        // ఫైర్‌బేస్‌ను ప్రారంభించడం (Initialize Firebase)
-        FirebaseApp.initializeApp(this)
+        try {
+            // ఫైర్‌బేస్‌ను ప్రారంభించడం
+            FirebaseApp.initializeApp(this)
 
-        // ఫైర్‌బేస్ యాప్ చెక్‌ను ప్రారంభించడం (Initialize Firebase App Check)
-        val firebaseAppCheck = FirebaseAppCheck.getInstance()
-        if (BuildConfig.DEBUG) {
-            // డీబగ్ మోడ్‌లో ఉన్నప్పుడు, డీబగ్ ప్రొవైడర్ ఫ్యాక్టరీని ఉపయోగించడం జరుగుతుంది.
-            try {
-                val debugFactoryClass = Class.forName("com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory")
-                val getInstanceMethod = debugFactoryClass.getMethod("getInstance")
-                val factory = getInstanceMethod.invoke(null) as com.google.firebase.appcheck.AppCheckProviderFactory
-                firebaseAppCheck.installAppCheckProviderFactory(factory)
-            } catch (e: Exception) {
-                firebaseAppCheck.installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())
-            }
-        } else {
+            // ఫైర్‌బేస్ యాప్ చెక్ - దీన్ని మరింత సేఫ్ గా మార్చాను
+            val firebaseAppCheck = FirebaseAppCheck.getInstance()
+            
+            // Play Integrity ని డిఫాల్ట్ గా వాడటం మంచిది
             firebaseAppCheck.installAppCheckProviderFactory(
                 PlayIntegrityAppCheckProviderFactory.getInstance()
             )
+
+            // ఫైర్‌బేస్ అనలిటిక్స్
+            FirebaseAnalytics.getInstance(this)
+
+            // అనలిటిక్స్ సర్వీస్
+            AnalyticsService.initialize(this)
+
+            // పుష్ నోటిఫికేషన్లు
+            FirebaseMessaging.getInstance().subscribeToTopic("all_users")
+            
+            scheduleNotificationWork()
+        } catch (e: Exception) {
+            // ఏదైనా ఎర్రర్ వస్తే యాప్ క్రాష్ అవ్వకుండా ఉండటానికి
+            e.printStackTrace()
         }
-
-        // ఫైర్‌బేస్ అనలిటిక్స్‌ను ప్రారంభించడం
-        FirebaseAnalytics.getInstance(this)
-
-        // అనలిటిక్స్ సర్వీస్‌ను ప్రారంభించడం
-        AnalyticsService.initialize(this)
-
-        // పుష్ నోటిఫికేషన్ల కోసం 'all_users' టాపిక్‌కు సభ్యత్వం పొందడం
-        FirebaseMessaging.getInstance().subscribeToTopic("all_users")
-        
-        scheduleNotificationWork()
     }
 
     private fun scheduleNotificationWork() {
-        val notificationWork = PeriodicWorkRequestBuilder<NewsNotificationWorker>(24, TimeUnit.HOURS)
-            .setInitialDelay(calculateDelay(7, 0), TimeUnit.MILLISECONDS)
-            .build()
-        
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            "DailyNewsNotifications",
-            ExistingPeriodicWorkPolicy.KEEP,
-            notificationWork
-        )
+        try {
+            val notificationWork = PeriodicWorkRequestBuilder<NewsNotificationWorker>(24, TimeUnit.HOURS)
+                .setInitialDelay(calculateDelay(7, 0), TimeUnit.MILLISECONDS)
+                .build()
+            
+            WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+                "DailyNewsNotifications",
+                ExistingPeriodicWorkPolicy.KEEP,
+                notificationWork
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     private fun calculateDelay(hour: Int, minute: Int): Long {
