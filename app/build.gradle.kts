@@ -61,13 +61,16 @@ android {
     }
 
     packaging {
-        jniLibs {
-            useLegacyPackaging = true
-        }
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
+    jniLibs {
+        useLegacyPackaging = true // ఇది ఇప్పటికే ఉంది
     }
+    dex {
+        useLegacyPackaging = true // దీన్ని కూడా యాడ్ చేయండి
+    }
+    resources {
+        excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    }
+}
     
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
