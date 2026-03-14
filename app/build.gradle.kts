@@ -6,14 +6,6 @@ plugins {
     id("com.google.gms.google-services")
 }
 
-val localProperties = Properties()
-val localPropertiesFile = rootProject.file("local.properties")
-if (localPropertiesFile.exists()) {
-    localProperties.load(localPropertiesFile.inputStream())
-}
-
-fun getProp(key: String): String? = project.findProperty(key)?.toString() ?: localProperties.getProperty(key)
- 
 android {
     namespace = "com.alfanews.telugu"
     compileSdk = 35
@@ -23,7 +15,7 @@ android {
         applicationId = "com.alfanews.telugu"
         minSdk = 24
         targetSdk = 35
-        versionCode = 557
+        versionCode = 558 // నేను ఒకటి పెంచాను (Play Store కోసం)
         versionName = "Sree_4.4"
         multiDexEnabled = true
 
@@ -45,27 +37,11 @@ android {
 
     signingConfigs {
         create("release") {
-            val storeFileProp = getProp("ALFANEWS_KEYSTORE_FILE")
-            val storePasswordProp = getProp("ALFANEWS_KEYSTORE_PASSWORD")
-            val keyAliasProp = getProp("ALFANEWS_KEY_ALIAS")
-            val keyPasswordProp = getProp("ALFANEWS_KEY_PASSWORD")
-
-            if (storeFileProp != null) {
-                // Handle backslashes in path from local.properties
-                val normalizedPath = storeFileProp.replace("\\", "/")
-                val fileObj = if (normalizedPath.startsWith("C:/", ignoreCase = true)) {
-                    file(normalizedPath)
-                } else {
-                    rootProject.file(normalizedPath)
-                }
-                
-                if (fileObj.exists()) {
-                    storeFile = fileObj
-                    storePassword = storePasswordProp
-                    keyAlias = keyAliasProp
-                    keyPassword = keyPasswordProp
-                }
-            }
+            // GitHub Actions Environment Variables నుండి డేటా తీసుకుంటుంది
+            storeFile = file("release.jks")
+            storePassword = System.getenv("RELEASE_STORE_PASSWORD")
+            keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+            keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
         }
     }
 
@@ -73,14 +49,13 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            // ఇక్కడ signingConfig ని కచ్చితంగా సెట్ చేస్తున్నాను
+            signingConfig = signingConfigs.getByName("release")
+            
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            val releaseSigning = signingConfigs.findByName("release")
-            if (releaseSigning != null && releaseSigning.storeFile != null) {
-                signingConfig = releaseSigning
-            }
         }
         debug {
             isDebuggable = true
@@ -106,7 +81,6 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.constraintlayout:constraintlayout:2.2.0")
 
-    // Updated BOM to latest stable
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -114,12 +88,10 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     
-    // Updated Navigation Compose
     implementation("androidx.navigation:navigation-compose:2.8.5")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.work:work-runtime-ktx:2.11.1")
  
-    // Updated Firebase BOM
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
@@ -134,7 +106,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 
-    // Updated Coil to stable 3.0.4
     implementation("io.coil-kt.coil3:coil-compose:3.0.4")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.0.4")
 
@@ -147,12 +118,10 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("com.google.android.play:app-update-ktx:2.1.0")
 
-    // Updated Media3 to 1.5.0
     implementation("androidx.media3:media3-exoplayer:1.5.0")
     implementation("androidx.media3:media3-ui:1.5.0")
     implementation("androidx.media3:media3-session:1.5.0")
 
-    // YouTube Player
     implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0")
 
     testImplementation("junit:junit:4.13.2")
