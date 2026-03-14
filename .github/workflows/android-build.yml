@@ -2,7 +2,7 @@ name: Android Build
 
 on:
   push:
-    branches: [ "main" ] # మీ మెయిన్ బ్రాంచ్ పేరు 'master' అయితే అది ఇవ్వండి
+    branches: [ "master" ] # మీ మెయిన్ బ్రాంచ్ పేరు 'master' అయితే అది ఇవ్వండి
 
 jobs:
   build:
