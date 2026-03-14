@@ -132,8 +132,3 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
-
-// dependencies సెక్షన్ మీ పాత ఫైల్ లో ఉన్నట్లే ఉంచండి (మార్చవద్దు)
-dependencies {
-    // ... మీ పాత dependencies కోడ్ ఇక్కడ ఉంటుంది ...
-}
