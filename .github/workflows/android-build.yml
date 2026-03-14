@@ -19,7 +19,8 @@ jobs:
         cache: gradle
 
     - name: Decode Keystore
-      run: echo "${{ secrets.KEYSTORE }}" | base64 --decode > app/release.jks
+      run: |
+        echo "${{ secrets.KEYSTORE }}" | tr -d '[:space:]' | base64 --decode > app/release.jks
 
     - name: Build Release AAB
       run: ./gradlew bundleRelease
