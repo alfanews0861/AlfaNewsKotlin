@@ -30,9 +30,11 @@ android {
         compose = true
     }
 
-    signingConfigs {
+   signingConfigs {
         create("release") {
-            storeFile = file("release.jks")
+            // YAML env నుండి వచ్చే వేరియబుల్స్ ఇక్కడ వాడుతున్నాము
+            val keystoreFile = System.getenv("RELEASE_STORE_FILE") ?: "release.jks"
+            storeFile = file(keystoreFile)
             storePassword = System.getenv("RELEASE_STORE_PASSWORD")
             keyAlias = System.getenv("RELEASE_KEY_ALIAS")
             keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
