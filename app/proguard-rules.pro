@@ -106,3 +106,6 @@
 
 # Workaround for duplicate classes
 -keep class kotlinx.coroutines.** { *; }
+
+-keep class com.alfanews.telugu.AlfaNewsApplication { *; }
+-keep class com.alfanews.telugu.** { *; }
