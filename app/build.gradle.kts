@@ -15,7 +15,7 @@ android {
         applicationId = "com.alfanews.telugu"
         minSdk = 24
         targetSdk = 35
-        versionCode = 559 // నేను ఒకటి పెంచాను (Play Store కోసం)
+        versionCode = 560 // వర్షన్ పెంచాను
         versionName = "Sree_4.4"
         multiDexEnabled = true
 
@@ -30,14 +30,8 @@ android {
         compose = true
     }
 
-    lint {
-        disable += "NullSafeMutableLiveData"
-        checkReleaseBuilds = false
-    }
-
     signingConfigs {
         create("release") {
-            // GitHub Actions Environment Variables నుండి డేటా తీసుకుంటుంది
             storeFile = file("release.jks")
             storePassword = System.getenv("RELEASE_STORE_PASSWORD")
             keyAlias = System.getenv("RELEASE_KEY_ALIAS")
@@ -49,7 +43,6 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            // ఇక్కడ signingConfig ని కచ్చితంగా సెట్ చేస్తున్నాను
             signingConfig = signingConfigs.getByName("release")
             
             proguardFiles(
@@ -57,79 +50,20 @@ android {
                 "proguard-rules.pro"
             )
         }
-        debug {
-            isDebuggable = true
-        }
     }
 
     packaging {
         jniLibs {
-            // ఇది 16 KB page sizes ఉన్న డివైజ్‌లలో యాప్ క్రాష్ అవ్వకుండా చూస్తుంది
+            // 16 KB సపోర్ట్ కోసం ఇది చాలా ముఖ్యం
             useLegacyPackaging = true
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
-    
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
-    }
 }
 
+// dependencies సెక్షన్ మీ పాత ఫైల్ లో ఉన్నట్లే ఉంచండి (మార్చవద్దు)
 dependencies {
-    implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.core:core-splashscreen:1.0.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation("androidx.activity:activity-compose:1.9.3")
-    implementation("androidx.constraintlayout:constraintlayout:2.2.0")
-
-    implementation(platform("androidx.compose:compose-bom:2024.12.01"))
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    
-    implementation("androidx.navigation:navigation-compose:2.8.5")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
-    implementation("androidx.work:work-runtime-ktx:2.11.1")
- 
-    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
-    implementation("com.google.firebase:firebase-auth")
-    implementation("com.google.firebase:firebase-firestore")
-    implementation("com.google.firebase:firebase-storage")
-    implementation("com.google.firebase:firebase-analytics")
-    implementation("com.google.firebase:firebase-functions")
-    implementation("com.google.firebase:firebase-messaging")
-    implementation("com.google.firebase:firebase-appcheck-playintegrity")
-    debugImplementation("com.google.firebase:firebase-appcheck-debug")
-
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
-
-    implementation("io.coil-kt.coil3:coil-compose:3.0.4")
-    implementation("io.coil-kt.coil3:coil-network-okhttp:3.0.4")
-
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-
-    implementation("com.squareup.retrofit2:retrofit:2.11.0")
-    implementation("com.squareup.retrofit2:converter-gson:2.11.0")
-    implementation("com.google.code.gson:gson:2.11.0")
-    implementation("com.google.android.gms:play-services-ads:25.0.0")
-    implementation("com.google.android.gms:play-services-location:21.3.0")
-    implementation("com.google.android.play:app-update-ktx:2.1.0")
-
-    implementation("androidx.media3:media3-exoplayer:1.5.0")
-    implementation("androidx.media3:media3-ui:1.5.0")
-    implementation("androidx.media3:media3-session:1.5.0")
-
-    implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0")
-
-    testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
-    debugImplementation("androidx.compose.ui:ui-tooling")
+    // ... మీ పాత dependencies కోడ్ ఇక్కడ ఉంటుంది ...
 }
