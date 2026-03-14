@@ -1,0 +1,235 @@
+package com.alfanews.telugu.views
+
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import coil3.request.ImageRequest
+import com.alfanews.telugu.models.Language
+import com.alfanews.telugu.models.NewsPost
+import com.alfanews.telugu.models.User
+import com.alfanews.telugu.services.AdMobService
+import com.alfanews.telugu.utils.SafeImageLoader
+import com.alfanews.telugu.viewmodels.NewsFeedViewModel
+import com.google.android.gms.ads.nativead.NativeAd
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun NewsFeedView(
+    language: Language,
+    currentUser: User?,
+    viewModel: NewsFeedViewModel,
+    onProfileClick: () -> Unit = {},
+    onReporterClick: (String) -> Unit = {},
+    onDistrictClick: () -> Unit = {},
+    initialPostId: String? = null
+) {
+    val news by viewModel.news.collectAsState()
+    val loading by viewModel.loading.collectAsState()
+    val hasMore by viewModel.hasMore.collectAsState()
+    val sharedPostId by viewModel.sharedPostId.collectAsState()
+    val userDistrict by viewModel.userDistrict.collectAsState()
+    val preloadedAds = remember { mutableStateMapOf<Int, NativeAd?>() }
+
+    val context = LocalContext.current
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            viewModel.detectLocation(context, currentUser, language)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.loadNews(language, currentUser, initialPostId)
+        
+        if (userDistrict == null) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                viewModel.detectLocation(context, currentUser, language)
+            } else {
+                permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
+        }
+    }
+
+    fun loadAdForPage(page: Int) {
+        if (!preloadedAds.containsKey(page)) {
+            preloadedAds[page] = null 
+            val activity = context as? android.app.Activity
+            activity?.let {
+                AdMobService.loadNativeAd(it) { ad ->
+                    preloadedAds[page] = ad
+                }
+            }
+        }
+    }
+
+    // Image Pre-loading Logic
+    val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
+    LaunchedEffect(news) {
+        if (news.isNotEmpty()) {
+            val limit = if (news.size > 5) 5 else news.size
+            var i = 0
+            while (i < limit) {
+                val post = news[i]
+                if (post.mediaUrl != "") {
+                    val request = ImageRequest.Builder(context)
+                        .data(post.mediaUrl)
+                        .build()
+                    imageLoader.enqueue(request)
+                }
+                i++
+            }
+        }
+    }
+
+    val totalCount = if (news.isEmpty()) 0 else news.size + (news.size / 5)
+    val pagerState = rememberPagerState(pageCount = { totalCount })
+
+    LaunchedEffect(pagerState, news.size) { 
+        snapshotFlow { pagerState.currentPage }.collect { page ->
+            val currentNewsIndex = page - (page / 6)
+            if (currentNewsIndex >= news.size - 3 && hasMore && !loading) {
+                viewModel.loadMore(language, currentUser)
+            }
+
+            // Pre-load images for upcoming posts
+            var offset = 1
+            while (offset <= 4) {
+                val nextPageIndex = page + offset
+                val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
+                if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
+                    val post = news[nextNewsIndex]
+                    if (post.mediaUrl != "") {
+                        val request = ImageRequest.Builder(context)
+                            .data(post.mediaUrl)
+                            .build()
+                        imageLoader.enqueue(request)
+                    }
+                }
+                offset++
+            }
+
+            val currentAdSlot = page / 6
+            val nextAdPage = (currentAdSlot * 6) + 5
+            if (nextAdPage < totalCount) {
+                loadAdForPage(nextAdPage)
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        if (loading && news.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(40.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "వార్తలు సిద్ధమవుతున్నాయి...",
+                        color = MaterialTheme.colorScheme.onBackground,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                }
+            }
+        } else if (!loading && news.isEmpty()) {
+             Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "ప్రస్తుతానికి వార్తలు ఏమీ లేవు. కాసేపయ్యాక మళ్ళీ ప్రయత్నించండి.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(32.dp),
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            VerticalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                userScrollEnabled = true,
+                key = { page ->
+                    val isAd = (page + 1) % 6 == 0
+                    if (isAd) "ad_$page" else {
+                        val idx = page - (page / 6)
+                        if (idx < news.size) news[idx].id else "empty_$page"
+                    }
+                }
+            ) { page ->
+                val isAdPage = (page + 1) % 6 == 0
+                if (isAdPage) {
+                    val nativeAd = preloadedAds[page]
+                    if (nativeAd != null) {
+                        AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                             if (preloadedAds.containsKey(page)) {
+                                Text(
+                                    text = "Sponsored Content",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    fontSize = 12.sp
+                                )
+                            } else {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                    strokeWidth = 2.dp
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    val newsIndex = page - (page / 6)
+                    if (newsIndex >= 0 && newsIndex < news.size) {
+                        val post = news[newsIndex]
+                        NewsCardView(
+                            post = post,
+                            language = language,
+                            currentUser = currentUser,
+                            onProfileClick = onProfileClick,
+                            onReporterClick = onReporterClick,
+                            onDistrictClick = onDistrictClick,
+                            autoShare = sharedPostId == post.id,
+                            onAutoShareDone = { viewModel.setSharedPostId(null) },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

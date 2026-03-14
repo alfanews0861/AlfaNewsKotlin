@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "default": "alfa-news-31bf7",
+    "deploy": "alfa-news-31bf7"
+  },
+  "targets": {},
+  "etags": {}
+}

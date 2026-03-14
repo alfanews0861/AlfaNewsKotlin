@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Logo 'a' only (Adaptive Foreground should not have its own background circle) -->
+    <path
+        android:pathData="M66.53,59.84c0,5.66-4.6,10.26-10.26,10.26s-10.26-4.6-10.26-10.26,4.6-10.26,10.26-10.26,10.26,4.6,10.26,10.26Zm-2.7,0c0-4.17-3.39-7.56-7.56-7.56s-7.56,3.39-7.56,7.56,3.39,7.56,7.56,7.56,7.56-3.39,7.56-7.56Z"
+        android:fillColor="#FFFFFF"/>
+    <path
+        android:pathData="M71.21,45.5v22.8c-2.3,1.4-4.99,2.23-7.88,2.23-8.42,0-15.25-6.83-15.25-15.25S54.91,40,63.33,40c2.89,0,5.58,0.83,7.88,2.23V35c-2.61-1-5.38-1.57-8.28-1.57-11.41,0-20.66,9.25-20.66,20.66s9.25,20.66,20.66,20.66c2.9,0,5.67-0.58,8.28-1.57V78h5.4V45.5h-5.4Z"
+        android:fillColor="#FFFFFF"/>
+</vector>

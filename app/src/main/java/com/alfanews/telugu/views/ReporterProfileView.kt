@@ -1,0 +1,451 @@
+package com.alfanews.telugu.views
+
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
+import com.alfanews.telugu.models.Language
+import com.alfanews.telugu.models.NewsPost
+import com.alfanews.telugu.models.User
+import com.alfanews.telugu.models.UserRole
+import com.google.firebase.Timestamp
+import com.alfanews.telugu.services.FirebaseService
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import java.text.SimpleDateFormat
+import java.util.*
+
+private fun getTimestampValue(data: Map<String, Any?>): Long {
+    val timestamp = data["timestamp"] ?: return System.currentTimeMillis()
+    return when (timestamp) {
+        is Timestamp -> timestamp.toDate().time
+        is Long -> timestamp
+        is Number -> timestamp.toLong()
+        else -> System.currentTimeMillis()
+    }
+}
+
+private fun mapDocumentToNewsPost(id: String, data: Map<String, Any?>): NewsPost {
+    return NewsPost(
+        id = id,
+        headline = com.alfanews.telugu.models.Headline(
+            telugu = (data["headline"] as? Map<*, *>)?.get("telugu") as? String ?: "",
+            english = (data["headline"] as? Map<*, *>)?.get("english") as? String ?: ""
+        ),
+        content = com.alfanews.telugu.models.Content(
+            telugu = (data["content"] as? Map<*, *>)?.get("telugu") as? String ?: "",
+            english = (data["content"] as? Map<*, *>)?.get("english") as? String ?: ""
+        ),
+        mediaUrl = data["mediaUrl"] as? String ?: "",
+        mediaType = when (data["mediaType"] as? String) {
+            "VIDEO" -> com.alfanews.telugu.models.MediaType.VIDEO
+            else -> com.alfanews.telugu.models.MediaType.IMAGE
+        },
+        youtubeUrl = data["youtubeUrl"] as? String,
+        postFormat = when (data["postFormat"] as? String) {
+            "16:9" -> com.alfanews.telugu.models.PostFormat.HORIZONTAL
+            else -> com.alfanews.telugu.models.PostFormat.VERTICAL
+        },
+        reporter = com.alfanews.telugu.models.Reporter(
+            id = (data["reporter"] as? Map<*, *>)?.get("id") as? String ?: "",
+            name = (data["reporter"] as? Map<*, *>)?.get("name") as? String ?: ""
+        ),
+        location = data["location"] as? String ?: "",
+        timestamp = getTimestampValue(data),
+        categories = data["categories"] as? List<String> ?: emptyList(),
+        likes = (data["likes"] as? Long)?.toInt() ?: 0,
+        comments = (data["comments"] as? Long)?.toInt() ?: 0,
+        shares = (data["shares"] as? Long)?.toInt() ?: 0,
+        originalUrl = data["originalUrl"] as? String,
+        district = data["district"] as? String,
+        verificationStatus = data["verificationStatus"] as? String ?: "UNVERIFIED"
+    )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun ReporterProfileView(
+    reporterId: String,
+    language: Language,
+    currentUser: User?,
+    onBack: () -> Unit
+) {
+    var reporter by remember { mutableStateOf<User?>(null) }
+    var posts by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var selectedPostId by remember { mutableStateOf<String?>(null) }
+    
+    val scope = rememberCoroutineScope()
+    
+    LaunchedEffect(reporterId) {
+        loading = true
+        
+        try {
+            // Fetch reporter details
+            if (reporterId.startsWith("SYSTEM_")) {
+                reporter = User(
+                    id = reporterId,
+                    name = when (reporterId) {
+                        "SYSTEM_RSS" -> "Web Desk"
+                        "SYSTEM_SOCIAL" -> "Social Desk"
+                        else -> "News Desk"
+                    },
+                    role = UserRole.REPORTER,
+                    photoUrl = "https://ui-avatars.com/api/?name=Alfa+News&background=random"
+                )
+            } else {
+                val userRef = FirebaseService.db.collection("users").document(reporterId)
+                val userSnap = userRef.get().await()
+                
+                if (userSnap.exists()) {
+                    val data = userSnap.data ?: return@LaunchedEffect
+                    reporter = User(
+                        id = userSnap.id,
+                        name = data["name"] as? String ?: "",
+                        email = data["email"] as? String,
+                        phone = data["phone"] as? String,
+                        photoUrl = data["photoUrl"] as? String,
+                        role = try {
+                            UserRole.valueOf(data["role"] as? String ?: "GUEST")
+                        } catch (e: Exception) {
+                            UserRole.GUEST
+                        },
+                        address = data["address"] as? String,
+                        district = data["district"] as? String
+                    )
+                }
+            }
+            
+            // Fetch posts by this reporter
+            val newsRef = FirebaseService.db.collection("news")
+            val query = newsRef.whereEqualTo("reporter.id", reporterId)
+            val querySnapshot = query.get().await()
+            
+            val fetchedPosts = querySnapshot.documents.mapNotNull { doc ->
+                try {
+                    val data = doc.data ?: return@mapNotNull null
+                    mapDocumentToNewsPost(doc.id, data)
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            
+            // Sort by timestamp (newest first)
+            posts = fetchedPosts.sortedByDescending { it.timestamp }
+            
+        } catch (e: Exception) {
+            // Handle error
+        } finally {
+            loading = false
+        }
+    }
+    
+    if (loading) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(40.dp),
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+    } else if (reporter == null) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "Reporter profile not found.",
+                color = Color.Gray,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+            TextButton(onClick = onBack) {
+                Text("Back", color = MaterialTheme.colorScheme.primary)
+            }
+        }
+    } else {
+        if (selectedPostId != null) {
+            // Feed Mode
+            val initialIndex = posts.indexOfFirst { it.id == selectedPostId }.coerceAtLeast(0)
+            val pagerState = rememberPagerState(initialPage = initialIndex, pageCount = { posts.size })
+            
+            Box(modifier = Modifier.fillMaxSize()) {
+                VerticalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize()
+                ) { page ->
+                    NewsCardView(
+                        post = posts[page],
+                        language = language,
+                        currentUser = currentUser,
+                        modifier = Modifier.fillMaxSize(),
+                        onReporterClick = { /* Already on reporter page */ }
+                    )
+                }
+                
+                // Back to Grid button
+                IconButton(
+                    onClick = { selectedPostId = null },
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .align(Alignment.TopStart)
+                        .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                ) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+            }
+        } else {
+            // Grid Mode
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                modifier = Modifier.fillMaxSize().background(Color(0xFFF9FAFB)),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
+                // Header Span
+                item(span = { GridItemSpan(2) }) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shadowElevation = 2.dp,
+                        color = Color.White
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = onBack) {
+                                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                            }
+                            Text(
+                                text = "Reporter Profile",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                // Profile Info Span
+                item(span = { GridItemSpan(2) }) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shadowElevation = 1.dp,
+                        color = Color.White
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            AsyncImage(
+                                model = reporter?.photoUrl ?: "https://ui-avatars.com/api/?name=${reporter?.name ?: "R"}&background=random",
+                                contentDescription = reporter?.name,
+                                modifier = Modifier
+                                    .size(96.dp)
+                                    .clip(CircleShape)
+                                    .border(4.dp, Color(0xFFF3F4F6), CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            Text(
+                                text = reporter?.name ?: "",
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            Surface(
+                                color = Color(0xFFFEE2E2),
+                                shape = MaterialTheme.shapes.small
+                            ) {
+                                Text(
+                                    text = reporter?.role?.name ?: "REPORTER",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                )
+                            }
+                            
+                            if (!reporter?.address.isNullOrEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.LocationOn,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = Color.Gray
+                                    )
+                                    Text(
+                                        text = reporter?.address ?: "",
+                                        fontSize = 14.sp,
+                                        color = Color.Gray
+                                    )
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.height(24.dp))
+                            Divider()
+                            Spacer(modifier = Modifier.height(16.dp))
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = posts.size.toString(),
+                                        fontSize = 24.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Posts",
+                                        fontSize = 12.sp,
+                                        color = Color.Gray
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Section Title Span
+                item(span = { GridItemSpan(2) }) {
+                    Text(
+                        text = "వార్తలు (Stories)",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
+                    )
+                }
+
+                if (posts.isEmpty()) {
+                    item(span = { GridItemSpan(2) }) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "No stories posted yet.",
+                                color = Color.Gray
+                            )
+                        }
+                    }
+                } else {
+                    items(posts) { post ->
+                        Box(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                            PostThumbnailCard(
+                                post = post,
+                                onClick = { selectedPostId = post.id }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PostThumbnailCard(
+    post: NewsPost,
+    onClick: () -> Unit
+) {
+    val dateFormat = remember { SimpleDateFormat("dd MMM", Locale.getDefault()) }
+    val formattedDate = remember(post.timestamp) {
+        dateFormat.format(Date(post.timestamp))
+    }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(128.dp)
+                    .background(Color(0xFFE5E7EB))
+            ) {
+                val mediaUrl = post.mediaUrl
+                if (mediaUrl.isNotEmpty()) {
+                    AsyncImage(
+                        model = mediaUrl,
+                        contentDescription = post.headline.telugu,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+            }
+            
+            Column(
+                modifier = Modifier.padding(8.dp)
+            ) {
+                Text(
+                    text = post.headline.telugu,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.height(40.dp)
+                )
+                
+                Spacer(modifier = Modifier.height(4.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Text(
+                        text = formattedDate,
+                        fontSize = 10.sp,
+                        color = Color.Gray
+                    )
+                }
+            }
+        }
+    }
+}
