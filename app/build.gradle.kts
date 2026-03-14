@@ -15,7 +15,7 @@ android {
         applicationId = "com.alfanews.telugu"
         minSdk = 24
         targetSdk = 35
-        versionCode = 558 // నేను ఒకటి పెంచాను (Play Store కోసం)
+        versionCode = 559 // నేను ఒకటి పెంచాను (Play Store కోసం)
         versionName = "Sree_4.4"
         multiDexEnabled = true
 
@@ -63,6 +63,10 @@ android {
     }
 
     packaging {
+        jniLibs {
+            // ఇది 16 KB page sizes ఉన్న డివైజ్‌లలో యాప్ క్రాష్ అవ్వకుండా చూస్తుంది
+            useLegacyPackaging = true
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
