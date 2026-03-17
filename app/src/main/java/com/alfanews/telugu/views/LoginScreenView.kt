@@ -40,6 +40,18 @@ fun LoginScreenView(
     onClose: () -> Unit
 ) {
     var activeTab by remember { mutableStateOf("phone") }
+
+    LaunchedEffect(Unit) {
+        if (FirebaseService.auth.currentUser != null) {
+            onLoginSuccess()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (FirebaseService.auth.currentUser != null) {
+            onLoginSuccess()
+        }
+    }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
