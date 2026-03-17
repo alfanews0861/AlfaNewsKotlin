@@ -71,6 +71,7 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTube
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
@@ -361,7 +362,7 @@ fun NewsCardView(
                                 count = shareCount.toString(),
                                 isLoading = isSharing,
                                 tint = MaterialTheme.colorScheme.onBackground,
-                                onClick = { performShare(scope, isSharing, shareCount, { isSharing = it }, post, context, uriHandler, cardBounds, view) }
+                                onClick = { if (!isSharing) { performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, uriHandler, cardBounds, view) } }
                             )
 
                             Spacer(modifier = Modifier.width(24.dp))
@@ -495,7 +496,7 @@ fun NewsCardView(
                                 count = shareCount.toString(),
                                 isLoading = isSharing,
                                 tint = MaterialTheme.colorScheme.onBackground,
-                                onClick = { performShare(scope, isSharing, shareCount, { isSharing = it }, post, context, uriHandler, cardBounds, view) }
+                                onClick = { if (!isSharing) { performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, uriHandler, cardBounds, view) } }
                             )
 
                             Spacer(modifier = Modifier.height(24.dp))
@@ -525,7 +526,7 @@ fun NewsCardView(
     }
 }
 
-private fun performShare(scope: CoroutineScope, isSharing: Boolean, shareCount: Int, setSharing: (Boolean) -> Unit, post: NewsPost, context: Context, uriHandler: UriHandler, cardBounds: Rect?, view: View) {
+private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: (Boolean) -> Unit, setShareCount: (Int) -> Unit, post: NewsPost, context: Context, uriHandler: UriHandler, cardBounds: Rect?, view: View) {
     scope.launch {
         setSharing(true)
         val headline = if (LocalContext.current.resources.configuration.locales[0].language == "te") post.headline.telugu else post.headline.english
@@ -538,8 +539,10 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, shareCount: 
                 putExtra(Intent.EXTRA_TEXT, shareText)
             }
             context.startActivity(Intent.createChooser(intent, "వార్తను షేర్ చేయండి"))
-            FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1))
-            shareCount++
+            FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener {
+                setShareCount(1)
+            }
+            
             setSharing(false)
         } else {
             val bitmap = takeScreenshot(view, cardBounds)
@@ -553,8 +556,10 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, shareCount: 
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
                     context.startActivity(Intent.createChooser(intent, "వార్తను షేర్ చేయండి"))
-                    FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1))
-                    shareCount++
+                    FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener {
+                        setShareCount(1)
+                    }
+
                 } else {
                     Toast.makeText(context, "షేర్ చేయడంలో విఫలమైంది", Toast.LENGTH_SHORT).show()
                 }
