@@ -15,8 +15,8 @@ android {
         applicationId = "com.alfanews.telugu"
         minSdk = 24
         targetSdk = 35
-        versionCode = 564 // Version పెంచాను
-        versionName = "Sree_4.4"
+        versionCode = 565
+        versionName = "Sree_4.5"
         multiDexEnabled = true
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

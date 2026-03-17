@@ -228,6 +228,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     @Suppress("UNCHECKED_CAST")
     private fun convertToNewsPost(id: String, data: Map<String, Any?>): NewsPost? {
         try {
+            val type = data["type"] as? String
+            if (type == "greeting" || type == "history") {
+                return null // Exclude greeting and history cards from the main news feed
+            }
+
             return NewsPost(
                 id = id,
                 headline = com.alfanews.telugu.models.Headline(
@@ -259,7 +264,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 comments = (data["comments"] as? Long)?.toInt() ?: 0,
                 shares = (data["shares"] as? Long)?.toInt() ?: 0,
                 originalUrl = data["originalUrl"] as? String,
-                verificationStatus = data["verificationStatus"] as? String ?: "UNVERIFIED"
+                verificationStatus = data["verificationStatus"] as? String ?: "UNVERIFIED",
+                type = type
             )
         } catch(e: Exception) {
             return null

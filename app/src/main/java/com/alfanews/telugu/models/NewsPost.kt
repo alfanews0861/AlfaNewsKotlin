@@ -72,6 +72,7 @@ data class Entities(
  * @property originalUrl అసలు వార్త యొక్క లింక్ (ఉంటే).
  * @property verificationStatus వార్త ధృవీకరణ స్థితి (GENUINE, FAKE, etc.).
  * @property verificationReason ధృవీకరణకు గల కారణం.
+ * @property type పోస్ట్ యొక్క రకం ('news', 'greeting', 'history').
  */
 data class NewsPost(
     val id: String = "",
@@ -95,6 +96,7 @@ data class NewsPost(
     val originalUrl: String? = null,
     val verificationStatus: String = "UNVERIFIED",
     val verificationReason: String? = null,
+    val type: String? = null, // ADDED: To store 'news', 'greeting', 'history'
 
     // పాత వెర్షన్ల కోసం కేటాయించబడిన ఫీల్డ్స్ (Deprecated)
     val category: String? = null,

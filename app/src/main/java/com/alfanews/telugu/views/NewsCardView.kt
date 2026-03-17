@@ -18,7 +18,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Comment
@@ -72,10 +71,10 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTube
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -176,6 +175,8 @@ fun NewsCardView(
             }
         }
     }
+    
+    val isSpecialCard = post.type == "greeting" || post.type == "history"
 
     Box(
         modifier = modifier
@@ -195,35 +196,39 @@ fun NewsCardView(
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .background(MaterialTheme.colorScheme.surface)
-                    .padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Start
-            ) {
-                Text(
-                    text = "alfa",
-                    fontSize = 28.sp,
-                    fontFamily = Ramabhadra,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "news",
-                    fontSize = 28.sp,
-                    fontFamily = Ramabhadra,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Red
-                )
+
+            // HEADER: Rendered only if it is NOT a special card
+            if (!isSpecialCard) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Start
+                ) {
+                    Text(
+                        text = "alfa",
+                        fontSize = 28.sp,
+                        fontFamily = Ramabhadra,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "news",
+                        fontSize = 28.sp,
+                        fontFamily = Ramabhadra,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Red
+                    )
+                }
             }
 
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(0.40f)
+                    .weight(0.40f) // Media section weight
             ) {
                 Box(
                     modifier = Modifier
@@ -245,7 +250,7 @@ fun NewsCardView(
                                     imageLoader = imageLoader,
                                     contentDescription = headline,
                                     modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop,
+                                    contentScale = if (isSpecialCard) ContentScale.Fit else ContentScale.Crop, // Fit for special cards
                                     alignment = Alignment.TopCenter
                                 )
                             }
@@ -291,7 +296,7 @@ fun NewsCardView(
                     }
 
                     // ఇమేజ్ సోర్స్ మరియు రిపోర్టర్ పేరును ఇమేజ్ పై ప్రదర్శించడం
-                    if (post.mediaType == MediaType.IMAGE && post.youtubeUrl.isNullOrBlank()) {
+                    if (post.mediaType == MediaType.IMAGE && post.youtubeUrl.isNullOrBlank() && !isSpecialCard) {
                         Text(
                             text = "Source : ${post.reporter.name}",
                             color = Color.White.copy(alpha = 0.5f),
@@ -310,192 +315,198 @@ fun NewsCardView(
                 }
             }
 
+            // Content/Buttons Section (Weight 0.60f)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(0.60f)
                     .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxSize()
-                ) {
+                if (isSpecialCard) {
+                    // --- SPECIAL CARD: Buttons Only, No Text Content ---
                     Column(
-                        modifier = Modifier
-                            .weight(0.91f)
-                            .fillMaxHeight()
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        Text(
-                            text = headline,
-                            fontSize = 24.sp,
-                            fontFamily = getHeadlineFontFamily(),
-                            fontWeight = getHeadlineFontWeight(),
-                            color = MaterialTheme.colorScheme.onBackground,
-                            lineHeight = 34.sp,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 2.dp)
-                        )
-
-                        Column(
-                            modifier = Modifier.fillMaxWidth()
+                        // Spacer to push buttons to the bottom/right where text content would normally be
+                        Column(modifier = Modifier.weight(1f)) {} 
+                        
+                        // Action Buttons positioned to the right-center, mimicking normal card right column
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End, // Push buttons to the right
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            DottedDivider()
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = post.reporter.name,
-                                    fontSize = 12.sp,
-                                    fontFamily = getHeadlineFontFamily(),
-                                    fontWeight = FontWeight.Medium,
-                                    color = Color.Red.copy(alpha = 0.9f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = LocalIndication.current
-                                    ) { onReporterClick(post.reporter.id) }.weight(0.3f, fill = false)
-                                )
-                                Text("•", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f), fontSize = 12.sp)
-                                Text(
-                                    text = post.location,
-                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-                                    fontSize = 12.sp,
-                                    fontFamily = getContentFontFamily(),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                     modifier = Modifier.weight(0.3f, fill = false)
-                                )
-                                Text("•", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f), fontSize = 12.sp)
-                                Text(
-                                    text = formattedTimestamp,
-                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-                                    fontSize = 12.sp,
-                                    fontFamily = Poppins,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(0.4f, fill = false)
-                                )
-                            }
-                            DottedDivider()
-                        }
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Text(
-                            text = content,
-                            fontSize = 20.sp,
-                            fontFamily = getContentFontFamily(),
-                            fontWeight = FontWeight.Normal,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            lineHeight = 26.sp,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                                .verticalScroll(scrollState)
-                        )
-                    }
-
-                    Column(
-                        modifier = Modifier
-                            .weight(0.09f)
-                            .fillMaxHeight(),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        ActionButton(
-                            icon = Icons.Default.Favorite,
-                            count = likeCount.toString(),
-                            isHighlighted = isLiked,
-                            tint = MaterialTheme.colorScheme.onBackground,
-                            onClick = {
-                                if (currentUser == null) {
-                                    onProfileClick()
-                                } else {
-                                    isLiked = !isLiked
-                                    likeCount = if (isLiked) likeCount + 1 else likeCount - 1
+                            // Like Button (Simplified Logic)
+                            ActionButton(
+                                icon = Icons.Default.Favorite,
+                                count = likeCount.toString(),
+                                isHighlighted = isLiked,
+                                tint = MaterialTheme.colorScheme.onBackground,
+                                onClick = {
                                     scope.launch {
-                                        FirebaseService.db.collection("news")
-                                            .document(post.id)
-                                            .update("likes", FieldValue.increment(if (isLiked) 1 else -1))
+                                        FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(1))
+                                        likeCount++ // Update local count immediately
                                         val params = Bundle().apply { putString("post_id", post.id) }
                                         AnalyticsService.logAnalyticsEvent("like", params)
                                     }
+                                    Toast.makeText(context, "Like registered for this special card!", Toast.LENGTH_SHORT).show()
                                 }
+                            )
+
+                            Spacer(modifier = Modifier.width(24.dp))
+
+                            // Share Button (Simplified Logic)
+                            ActionButton(
+                                icon = Icons.Default.Share,
+                                count = shareCount.toString(),
+                                isLoading = isSharing,
+                                tint = MaterialTheme.colorScheme.onBackground,
+                                onClick = { performShare(scope, isSharing, shareCount, { isSharing = it }, post, context, uriHandler, cardBounds, view) }
+                            )
+
+                            Spacer(modifier = Modifier.width(24.dp))
+
+                            // Comment Button (Simplified Logic)
+                            ActionButton(
+                                icon = Icons.AutoMirrored.Filled.Comment,
+                                count = commentCount.toString(),
+                                tint = MaterialTheme.colorScheme.onBackground,
+                                onClick = { showComments = true }
+                            )
+                        }
+                    }
+                } else {
+                    // --- NORMAL CARD: Content + Buttons (Original Logic) ---
+                    Row(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(0.91f)
+                                .fillMaxHeight()
+                        ) {
+                            Text(
+                                text = headline,
+                                fontSize = 24.sp,
+                                fontFamily = getHeadlineFontFamily(),
+                                fontWeight = getHeadlineFontWeight(),
+                                color = MaterialTheme.colorScheme.onBackground,
+                                lineHeight = 34.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 2.dp)
+                            )
+
+                            Column(
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                DottedDivider()
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = post.reporter.name,
+                                        fontSize = 12.sp,
+                                        fontFamily = getHeadlineFontFamily(),
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color.Red.copy(alpha = 0.9f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = LocalIndication.current
+                                        ) { onReporterClick(post.reporter.id) }.weight(0.3f, fill = false)
+                                    )
+                                    Text("•", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f), fontSize = 12.sp)
+                                    Text(
+                                        text = post.location,
+                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                                        fontSize = 12.sp,
+                                        fontFamily = getContentFontFamily(),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                         modifier = Modifier.weight(0.3f, fill = false)
+                                    )
+                                    Text("•", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f), fontSize = 12.sp)
+                                    Text(
+                                        text = formattedTimestamp,
+                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                                        fontSize = 12.sp,
+                                        fontFamily = Poppins,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(0.4f, fill = false)
+                                    )
+                                }
+                                DottedDivider()
                             }
-                        )
 
-                        fun performShare() {
-                            scope.launch {
-                                isSharing = true
-                                val deepLink = "https://alfanews.app/news/${post.id}"
-                                val shareText = "$headline\n$deepLink"
+                            Spacer(modifier = Modifier.height(4.dp))
 
-                                if (post.mediaType == MediaType.VIDEO || !post.youtubeUrl.isNullOrBlank()) {
-                                    val intent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, shareText)
-                                    }
-                                    context.startActivity(Intent.createChooser(intent, "వార్తను షేర్ చేయండి"))
-                                    FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1))
-                                    shareCount++
-                                    isSharing = false
-                                    return@launch
-                                }
+                            Text(
+                                text = content,
+                                fontSize = 20.sp,
+                                fontFamily = getContentFontFamily(),
+                                fontWeight = FontWeight.Normal,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                lineHeight = 26.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f)
+                                    .verticalScroll(scrollState)
+                            )
+                        }
 
-                                val bitmap = takeScreenshot(view, cardBounds)
-                                if (bitmap != null) {
-                                    val uri = saveImageToCache(context, bitmap)
-                                    if (uri != null) {
-                                        val intent = Intent(Intent.ACTION_SEND).apply {
-                                            type = "image/*"
-                                            putExtra(Intent.EXTRA_STREAM, uri)
-                                            putExtra(Intent.EXTRA_TEXT, shareText)
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                        }
-                                        context.startActivity(Intent.createChooser(intent, "వార్తను షేర్ చేయండి"))
-                                        FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1))
-                                        shareCount++
+                        Column(
+                            modifier = Modifier
+                                .weight(0.09f)
+                                .fillMaxHeight(),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            ActionButton(
+                                icon = Icons.Default.Favorite,
+                                count = likeCount.toString(),
+                                isHighlighted = isLiked,
+                                tint = MaterialTheme.colorScheme.onBackground,
+                                onClick = {
+                                    if (currentUser == null) {
+                                        onProfileClick()
                                     } else {
-                                        Toast.makeText(context, "షేర్ చేయడంలో విఫలమైంది", Toast.LENGTH_SHORT).show()
+                                        isLiked = !isLiked
+                                        likeCount = if (isLiked) likeCount + 1 else likeCount - 1
+                                        scope.launch {
+                                            FirebaseService.db.collection("news")
+                                                .document(post.id)
+                                                .update("likes", FieldValue.increment(if (isLiked) 1 else -1))
+                                            val params = Bundle().apply { putString("post_id", post.id) }
+                                            AnalyticsService.logAnalyticsEvent("like", params)
+                                        }
                                     }
-                                } else {
-                                    Toast.makeText(context, "స్క్రీన్ షాట్ తీయడంలో విఫలమైంది", Toast.LENGTH_SHORT).show()
                                 }
-                                isSharing = false
-                            }
+                            )
+
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            ActionButton(
+                                icon = Icons.Default.Share,
+                                count = shareCount.toString(),
+                                isLoading = isSharing,
+                                tint = MaterialTheme.colorScheme.onBackground,
+                                onClick = { performShare(scope, isSharing, shareCount, { isSharing = it }, post, context, uriHandler, cardBounds, view) }
+                            )
+
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            ActionButton(
+                                icon = Icons.AutoMirrored.Filled.Comment,
+                                count = commentCount.toString(),
+                                tint = MaterialTheme.colorScheme.onBackground,
+                                onClick = { showComments = true }
+                            )
                         }
-
-                        LaunchedEffect(autoShare, cardBounds) {
-                            if (autoShare && cardBounds != null && cardBounds!!.width() > 0) {
-                                delay(2000) // 2 Seconds wait to ensure UI is completely rendered
-                                performShare()
-                                onAutoShareDone()
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        ActionButton(
-                            icon = Icons.Default.Share,
-                            count = shareCount.toString(),
-                            isLoading = isSharing,
-                            tint = MaterialTheme.colorScheme.onBackground,
-                            onClick = {
-                                performShare()
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        ActionButton(
-                            icon = Icons.AutoMirrored.Filled.Comment,
-                            count = commentCount.toString(),
-                            tint = MaterialTheme.colorScheme.onBackground,
-                            onClick = { showComments = true }
-                        )
                     }
                 }
             }
@@ -513,6 +524,48 @@ fun NewsCardView(
         }
     }
 }
+
+private fun performShare(scope: CoroutineScope, isSharing: Boolean, shareCount: Int, setSharing: (Boolean) -> Unit, post: NewsPost, context: Context, uriHandler: UriHandler, cardBounds: Rect?, view: View) {
+    scope.launch {
+        setSharing(true)
+        val headline = if (LocalContext.current.resources.configuration.locales[0].language == "te") post.headline.telugu else post.headline.english
+        val deepLink = "https://alfanews.app/news/${post.id}"
+        val shareText = "$headline\n$deepLink"
+
+        if (post.mediaType == MediaType.VIDEO || !post.youtubeUrl.isNullOrBlank()) {
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, shareText)
+            }
+            context.startActivity(Intent.createChooser(intent, "వార్తను షేర్ చేయండి"))
+            FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1))
+            shareCount++
+            setSharing(false)
+        } else {
+            val bitmap = takeScreenshot(view, cardBounds)
+            if (bitmap != null) {
+                val uri = saveImageToCache(context, bitmap)
+                if (uri != null) {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "image/*"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        putExtra(Intent.EXTRA_TEXT, shareText)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "వార్తను షేర్ చేయండి"))
+                    FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1))
+                    shareCount++
+                } else {
+                    Toast.makeText(context, "షేర్ చేయడంలో విఫలమైంది", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Toast.makeText(context, "స్క్రీన్ షాట్ తీయడంలో విఫలమైంది", Toast.LENGTH_SHORT).show()
+            }
+            setSharing(false)
+        }
+    }
+}
+
 
 /**
  * వ్యూ యొక్క స్క్రీన్ షాట్ తీస్తుంది.
