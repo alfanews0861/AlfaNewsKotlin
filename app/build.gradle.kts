@@ -38,17 +38,10 @@ android {
 
     signingConfigs {
         create("release") {
-            val properties = Properties()
-            val localProperties = file("../local.properties")
-            if (localProperties.exists()) {
-                val inputStream = FileInputStream(localProperties)
-                properties.load(inputStream)
-                inputStream.close()
-                storeFile = file(properties.getProperty("ALFANEWS_KEYSTORE_FILE"))
-                storePassword = properties.getProperty("ALFANEWS_KEYSTORE_PASSWORD")
-                keyAlias = properties.getProperty("ALFANEWS_KEY_ALIAS")
-                keyPassword = properties.getProperty("ALFANEWS_KEY_PASSWORD")
-            }
+            storeFile = System.getenv("RELEASE_STORE_FILE")?.let { file(it) }
+            storePassword = System.getenv("RELEASE_STORE_PASSWORD")
+            keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+            keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
         }
     }
 
