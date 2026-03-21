@@ -1,9 +1,10 @@
 /**
- * Alfa News - Cloud Functions v17.2 (Senior Journalist Style & Punch Dialogue Headlines)
+ * Alfa News - Cloud Functions v17.3 (AI Powered Festivals & Quotes)
  */
 import * as admin from "firebase-admin";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as nodemailer from "nodemailer";
 import { GoogleGenAI, Type } from "@google/genai";
 import { Buffer } from 'buffer';
@@ -23,7 +24,10 @@ setGlobalOptions({
     concurrency: 40
 });
 
-const getAIInstance = () => new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+const getAIInstance = () => new GoogleGenAI({
+    apiKey: process.env.API_KEY || "",
+    apiEndpoint: 'asia-south1-aiplatform.googleapis.com'
+});
 
 // List of 25 Indian names for automated news reporters
 const BOT_REPORTER_NAMES = [
@@ -61,6 +65,373 @@ async function saveImageLocally(externalUrl: string, prefix: string): Promise<st
         return null;
     }
 }
+
+/**
+ * Scheduled function to generate trending news three times a day (10:00, 14:00, 20:00)
+ */
+export const scheduleTrendingNews = onSchedule("0 10,14,20 * * *", async (event) => {
+    console.log("[TRENDING] Starting scheduled trending news generation...");
+    const ai = getAIInstance();
+    try {
+        // 1. Identify trending topics using AI
+        const topicRes = await ai.models.generateContent({
+            model: PRIMARY_MODEL,
+            contents: [{ role: "user", parts: [{ text: "Identify 2 major trending topics in Andhra Pradesh and Telangana today for news." }] }],
+            config: {
+                systemInstruction: "Identify 2 major trending topics. Return a JSON array of strings.",
+                temperature: 0.5,
+                responseMimeType: "application/json"
+            }
+        });
+        const topics = JSON.parse(topicRes.text || "[]");
+
+        // 2. Generate and store each article
+        for (const topic of topics) {
+             const schema = {
+                type: Type.OBJECT,
+                properties: {
+                    headline: { type: Type.STRING },
+                    content: { type: Type.STRING },
+                    headlineEn: { type: Type.STRING },
+                    contentEn: { type: Type.STRING },
+                    location: { type: Type.STRING },
+                    storyFingerprint: { type: Type.STRING },
+                    refinedCategory: { type: Type.STRING },
+                    tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    entities: {
+                        type: Type.OBJECT,
+                        properties: {
+                            people: { type: Type.ARRAY, items: { type: Type.STRING } },
+                            organizations: { type: Type.ARRAY, items: { type: Type.STRING } },
+                            locations: { type: Type.ARRAY, items: { type: Type.STRING } }
+                        }
+                    }
+                },
+                required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory", "tags", "entities"],
+            };
+
+            const response = await ai.models.generateContent({
+                model: PRIMARY_MODEL,
+                contents: [{ role: "user", parts: [{ text: `Write a punchy, senior journalist-style news article about: ${topic}` }] }],
+                config: {
+                    systemInstruction: `You are a Senior Journalist.
+                    1. Content must be approximately 50-60 words in Telugu.
+                    2. Headline must be a PUNCHY single sentence under 12 words.
+                    3. Output JSON only.`,
+                    temperature: 0.6,
+                    responseMimeType: "application/json",
+                    responseSchema: schema,
+                },
+            });
+            const aiRes = JSON.parse(response.text || "{}");
+
+            // Generate representative image
+            const imgRes = await ai.models.generateImages({
+                model: 'models/imagen-3.0-generate-001',
+                prompt: `A relevant photorealistic news image for: ${topic}`,
+                config: { numberOfImages: 1, aspectRatio: '9:16', outputMimeType: 'image/jpeg' }
+            });
+
+            let mediaUrl = "";
+            if (imgRes.generatedImages && imgRes.generatedImages.length > 0 && imgRes.generatedImages[0].image?.imageBytes) {
+                 const buffer = Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
+                 const webpBuffer = await sharp(buffer).webp({ quality: 80 }).toBuffer();
+                 const bucket = admin.storage().bucket();
+                 const fileName = `news-media/TRENDING_${Date.now()}.webp`;
+                 await bucket.file(fileName).save(webpBuffer, { metadata: { contentType: 'image/webp' }, public: true });
+                 mediaUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(fileName)}?alt=media`;
+            }
+
+            // Save post
+            await db.collection('news').add({
+                type: 'news',
+                headline: { telugu: aiRes.headline, english: aiRes.headlineEn },
+                content: { telugu: aiRes.content, english: aiRes.contentEn },
+                mediaUrl,
+                mediaType: 'IMAGE',
+                postFormat: 'VERTICAL',
+                category: aiRes.refinedCategory,
+                location: aiRes.location,
+                likes: 0,
+                comments: 0,
+                shares: 0,
+                tags: aiRes.tags,
+                entities: aiRes.entities,
+                storyFingerprint: aiRes.storyFingerprint,
+                reporter: getRandomReporter(),
+                aiProcessed: true,
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        console.log("[TRENDING] Trending news successfully scheduled.");
+    } catch (e: any) {
+        console.error("[TRENDING] Error:", e.message);
+    }
+});
+
+/**
+ * Scheduled function to automatically generate and post festival greetings using Gemini
+ * Runs at 5:00 AM daily
+ */
+export const scheduleFestivalGreeting = onSchedule("0 5 * * *", async (event) => {
+    console.log("[FESTIVAL] Starting daily festival greeting check...");
+    const ai = getAIInstance();
+    const today = new Date();
+    const dateString = today.toLocaleDateString('te-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    try {
+        // Ask Gemini if today is any major Indian festival
+        const checkRes = await ai.models.generateContent({
+            model: PRIMARY_MODEL,
+            contents: [{ role: "user", parts: [{ text: `Today is ${dateString}. Is there any major Indian festival today? If yes, provide the name in Telugu and English. If no, just return 'None'. Return JSON: { "festivalTe": "...", "festivalEn": "..." }` }] }],
+            config: {
+                systemInstruction: "Output JSON only.",
+                temperature: 0.3,
+                responseMimeType: "application/json"
+            }
+        });
+
+        const data = JSON.parse(checkRes.text || "{}");
+        if (!data.festivalTe || data.festivalTe === "None") {
+            console.log("[FESTIVAL] No festival today according to Gemini.");
+            return;
+        }
+
+        const festivalName = data.festivalTe;
+        console.log(`[FESTIVAL] Today is ${festivalName}. Generating greeting...`);
+
+        const response = await ai.models.generateImages({
+            model: 'models/imagen-3.0-generate-001',
+            prompt: `Create a beautiful, high quality festival greeting card image for ${festivalName} in India, 9:16 aspect ratio, warm and festive atmosphere. No text in the image.`,
+            config: {
+                numberOfImages: 1,
+                outputMimeType: 'image/jpeg',
+                aspectRatio: '9:16'
+            }
+        });
+
+        if (response.generatedImages && response.generatedImages.length > 0 && response.generatedImages[0].image?.imageBytes) {
+            const base64Image = response.generatedImages[0].image.imageBytes;
+            const buffer = Buffer.from(base64Image, 'base64');
+            const webpBuffer = await sharp(buffer).webp({ quality: 80 }).toBuffer();
+
+            const bucket = admin.storage().bucket();
+            const fileName = `greetings/${festivalName.toLowerCase().replace(/\s+/g, '_')}_${Date.now()}.webp`;
+            await bucket.file(fileName).save(webpBuffer, { metadata: { contentType: 'image/webp' }, public: true });
+            const mediaUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(fileName)}?alt=media`;
+
+            // Ask Gemini for greeting text
+            const textRes = await ai.models.generateContent({
+                model: PRIMARY_MODEL,
+                contents: [{ role: "user", parts: [{ text: `Provide a short, warm festival greeting for ${festivalName} in Telugu and English. JSON: { "te": "...", "en": "..." }` }] }],
+                config: {
+                    systemInstruction: "Output JSON only.",
+                    temperature: 0.7,
+                    responseMimeType: "application/json"
+                }
+            });
+            const greetingData = JSON.parse(textRes.text || "{}");
+
+            await db.collection('news').add({
+                type: 'greeting',
+                priority: 0,
+                headline: { telugu: `${festivalName} శుభాకాంక్షలు!`, english: `Happy ${festivalName}!` },
+                content: { telugu: greetingData.te, english: greetingData.en },
+                mediaUrl: mediaUrl,
+                mediaType: 'IMAGE',
+                postFormat: 'VERTICAL',
+                category: 'పండుగలు',
+                likes: 0,
+                comments: 0,
+                shares: 0,
+                reporter: { id: 'system', name: 'AlfaNews Team' },
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            console.log(`[FESTIVAL] Successfully posted greeting for ${festivalName}.`);
+        }
+    } catch (e: any) {
+        console.error(`[FESTIVAL] Error: ${e.message}`);
+    }
+});
+
+/**
+ * Scheduled function to automatically generate and post "Quote of the Day"
+ * Runs at 4:00 AM daily
+ */
+export const scheduleQuoteOfTheDay = onSchedule("0 4 * * *", async (event) => {
+    console.log("[QUOTE] Starting daily quote generation...");
+    const ai = getAIInstance();
+
+    try {
+        // 1. Get an inspiring quote from AI
+        const quoteRes = await ai.models.generateContent({
+            model: PRIMARY_MODEL,
+            contents: [{ role: "user", parts: [{ text: "Provide an inspiring 'Quote of the Day' (meaningful for Indians) in Telugu with its English translation." }] }],
+            config: {
+                systemInstruction: "Output JSON: { \"quoteTe\": \"...\", \"quoteEn\": \"...\" }",
+                temperature: 0.7,
+                responseMimeType: "application/json"
+            }
+        });
+        const quoteData = JSON.parse(quoteRes.text || "{}");
+
+        // 2. Generate a beautiful background image
+        const imgRes = await ai.models.generateImages({
+            model: 'models/imagen-3.0-generate-001',
+            prompt: 'A calm, aesthetic, and inspiring background for a quote. High quality, peaceful, 9:16 aspect ratio. No text.',
+            config: { numberOfImages: 1, outputMimeType: 'image/jpeg', aspectRatio: '9:16' }
+        });
+
+        if (imgRes.generatedImages && imgRes.generatedImages.length > 0 && imgRes.generatedImages[0].image?.imageBytes) {
+            const base64Image = imgRes.generatedImages[0].image.imageBytes;
+            const buffer = Buffer.from(base64Image, 'base64');
+            const webpBuffer = await sharp(buffer).webp({ quality: 80 }).toBuffer();
+
+            const bucket = admin.storage().bucket();
+            const fileName = `quotes/quote_${Date.now()}.webp`;
+            await bucket.file(fileName).save(webpBuffer, { metadata: { contentType: 'image/webp' }, public: true });
+            const mediaUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(fileName)}?alt=media`;
+
+            // 3. Post to Firestore
+            await db.collection('news').add({
+                type: 'greeting',
+                priority: 1,
+                headline: { telugu: "నేటి మంచి మాట", english: "Quote of the Day" },
+                content: { telugu: quoteData.quoteTe, english: quoteData.quoteEn },
+                mediaUrl: mediaUrl,
+                mediaType: 'IMAGE',
+                postFormat: 'VERTICAL',
+                category: 'ప్రేరణ',
+                likes: 0,
+                comments: 0,
+                shares: 0,
+                reporter: { id: 'system', name: 'AlfaNews Team' },
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            console.log("[QUOTE] Successfully posted Quote of the Day.");
+        }
+    } catch (e: any) {
+        console.error(`[QUOTE] Error: ${e.message}`);
+    }
+});
+
+/**
+ * Scheduled function to generate a daily historical significance ("On This Day")
+ * Runs at 4:30 AM daily
+ */
+export const scheduleHistoryOfTheDay = onSchedule("30 4 * * *", async (event) => {
+    console.log("[HISTORY] Starting daily history generation...");
+    const ai = getAIInstance();
+    const today = new Date();
+    const dateString = today.toLocaleDateString('te-IN', { day: 'numeric', month: 'long' });
+
+    try {
+        const historyRes = await ai.models.generateContent({
+            model: PRIMARY_MODEL,
+            contents: [{ role: "user", parts: [{ text: `What is the historical significance of today, ${dateString}? Provide a punchy headline and a brief description (in Telugu) of a major event. Output JSON: { "headlineTe": "...", "contentTe": "..." }` }] }],
+            config: {
+                systemInstruction: "Output JSON only.",
+                temperature: 0.5,
+                responseMimeType: "application/json"
+            }
+        });
+        const historyData = JSON.parse(historyRes.text || "{}");
+
+        if (historyData.headlineTe) {
+             await db.collection('news').add({
+                type: 'history',
+                priority: 2,
+                headline: { telugu: historyData.headlineTe, english: "On This Day in History" },
+                content: { telugu: historyData.contentTe, english: "" },
+                mediaType: 'NONE',
+                postFormat: 'VERTICAL',
+                category: 'చరిత్ర',
+                likes: 0,
+                comments: 0,
+                shares: 0,
+                reporter: { id: 'system', name: 'AlfaNews Team' },
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+            console.log("[HISTORY] Successfully posted History of the Day.");
+        }
+    } catch (e: any) {
+        console.error(`[HISTORY] Error: ${e.message}`);
+    }
+});
+
+/**
+ * Scheduled function to generate a daily political cartoon
+ */
+export const generateDailyCartoon = onSchedule("every day 06:00", async (event) => {
+    console.log("[CARTOON] Starting daily cartoon generation...");
+    const ai = getAIInstance();
+
+    try {
+        const prompt = 'A satirical line art cartoon about current politics and social issues in Telugu states (Andhra Pradesh and Telangana). Clean white background, no text in the image. High contrast line art.';
+
+        console.log(`[CARTOON] Generating image with prompt: ${prompt}`);
+
+        const response = await ai.models.generateImages({
+            model: 'models/imagen-3.0-generate-001',
+            prompt: prompt,
+            config: {
+                numberOfImages: 1,
+                outputMimeType: 'image/jpeg',
+                aspectRatio: '9:16'
+            }
+        });
+
+        if (response.generatedImages && response.generatedImages.length > 0 && response.generatedImages[0].image?.imageBytes) {
+            const base64Image = response.generatedImages[0].image.imageBytes;
+            const buffer = Buffer.from(base64Image, 'base64');
+
+            // Compress and convert to WebP
+            const webpBuffer = await sharp(buffer)
+                .webp({ quality: 80 })
+                .toBuffer();
+
+            const bucket = admin.storage().bucket();
+            const fileName = `news-media/CARTOON_${Date.now()}.webp`;
+            const file = bucket.file(fileName);
+            await file.save(webpBuffer, { metadata: { contentType: 'image/webp' }, public: true });
+            const mediaUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(fileName)}?alt=media`;
+
+            console.log(`[CARTOON] Image saved to storage: ${mediaUrl}`);
+
+            // Save to Firestore
+            const postData = {
+                type: 'cartoon',
+                headline: { telugu: 'నేటి కార్టూన్', english: 'Daily Cartoon' },
+                content: { telugu: '', english: '' },
+                mediaUrl: mediaUrl,
+                mediaType: 'IMAGE',
+                postFormat: 'VERTICAL',
+                category: 'Entertainment',
+                location: 'Telugu States',
+                likes: 0,
+                comments: 0,
+                shares: 0,
+                tags: ['cartoon', 'satire', 'politics'],
+                reporter: { id: 'BOT_Cartoonist', name: 'Alfa Cartoonist' },
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            };
+
+            const newDocRef = await db.collection('news').add(postData);
+            console.log(`[CARTOON] Created new cartoon post: ${newDocRef.id}`);
+
+            return;
+        } else {
+            console.error("[CARTOON] Failed to generate image from AI.");
+        }
+
+    } catch (e: any) {
+        console.error("[CARTOON] Error:", e.message);
+    }
+});
 
 /**
  * Main function to process news posts with AI and image optimization

@@ -74,22 +74,22 @@ val Typography = Typography(
     bodyLarge = TextStyle(
         fontFamily = Mallanna,
         fontWeight = FontWeight.Normal,
-        fontSize = 18.sp,
-        lineHeight = 28.sp,
+        fontSize = 17.sp, // Slightly reduced
+        lineHeight = 24.sp, // Reduced line gap
         letterSpacing = 0.25.sp
     ),
     bodyMedium = TextStyle(
         fontFamily = Mallanna,
         fontWeight = FontWeight.Normal,
-        fontSize = 16.sp,
-        lineHeight = 24.sp,
+        fontSize = 15.sp, // Slightly reduced
+        lineHeight = 20.sp, // Reduced line gap
         letterSpacing = 0.25.sp
     ),
     bodySmall = TextStyle(
         fontFamily = Mallanna,
         fontWeight = FontWeight.Normal,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
+        fontSize = 13.sp, // Slightly reduced
+        lineHeight = 18.sp, // Reduced line gap
         letterSpacing = 0.4.sp
     ),
     labelLarge = TextStyle(

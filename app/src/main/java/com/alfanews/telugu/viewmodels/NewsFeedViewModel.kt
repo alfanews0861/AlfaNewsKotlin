@@ -83,6 +83,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 val preferredCats = AnalyticsService.getUserPreferredCategories().take(10)
 
                 // Parallel fetching using async to speed up loading
+                val greetingBatchDeferred = async {
+                    // Fetch greetings (where type == 'greeting')
+                    fetchGreetingPost()
+                }
+
                 val prefBatchDeferred = async {
                     if (preferredCats.isNotEmpty()) {
                         fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), null, district, strictFilter = false)
@@ -100,6 +105,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     } else Pair(emptyList<NewsPost>(), null)
                 }
 
+                val greetingPost = greetingBatchDeferred.await()
                 val prefBatch = prefBatchDeferred.await()
                 val mainBatch = mainBatchDeferred.await()
                 val localBatch = localBatchDeferred.await()
@@ -109,6 +115,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 localCursor = localBatch.second
 
                 var finalPosts = rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first)
+
+                // Inject greeting at the very top
+                greetingPost?.let {
+                    finalPosts = (listOf(it) + finalPosts).distinctBy { it.id }
+                }
 
                 if (initialPostId != null) {
                     val doc = FirebaseService.db.collection("news").document(initialPostId).get().await()
@@ -201,7 +212,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             val batch = snapshot.documents.mapNotNull { doc ->
                 val post = mapDocumentToNewsPost(doc) ?: return@mapNotNull null
                 
-                if (!strictFilter) return@mapNotNull post // If not strict, include everything from this query
+                if (!strictFilter) return@mapNotNull if (post.district.isNullOrBlank()) post else null // Allow only general news
                 
                 val postDist = post.district
                 if (postDist.isNullOrBlank() || postDist == district || post.categories.any { it in globalCategories }) post else null
@@ -222,13 +233,56 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private fun rankAndBlendPosts(pref: List<NewsPost>, main: List<NewsPost>, local: List<NewsPost>): List<NewsPost> {
         val allPosts = (pref + main + local).distinctBy { it.id }
         
-        // ప్రతి పోస్ట్‌కి పర్సనలైజేషన్ స్కోర్ లెక్కించడం
-        val scoredPosts = allPosts.map { post ->
+        val festivalGreetings = allPosts.filter { it.type == "greeting" && it.likes == 0 }
+        val quoteGreetings = allPosts.filter { it.type == "greeting" && it.likes == 1 }
+        val normalNews = allPosts.filter { it.type != "greeting" }
+
+        // 30% వార్తలను "తాజాదనం" ఆధారంగా, 70% వార్తలను "పర్సనలైజ్డ్ స్కోర్" ఆధారంగా ఎంచుకుందాం
+        val totalToRank = normalNews.size
+        val randomCount = (totalToRank * 0.3).toInt()
+
+        // 1. తాజా వార్తల నుండి 30% తీసుకోవడం (Serendipity)
+        val freshNews = normalNews.sortedByDescending { it.timestamp }.take(randomCount)
+        
+        // 2. మిగిలిన వార్తలకు స్కోర్ ఇవ్వడం (Personalized)
+        val remainingNews = normalNews.filter { it !in freshNews }
+        val scoredNews = remainingNews.map { post ->
             post to AnalyticsService.calculateRelevanceScore(post)
+        }.sortedByDescending { it.second }.map { it.first }.toMutableList()
+
+        // 3. రెండింటినీ కలపడం (FreshNews + Personalized)
+        val blendedNews = (freshNews + scoredNews).toMutableList()
+
+        // కోట్ కార్డును 6-10 స్థానంలో రాండమ్ గా పెట్టడం
+        if (quoteGreetings.isNotEmpty()) {
+            val size = blendedNews.size
+            val minIdx = if (6 < size) 6 else if (size > 0) size - 1 else 0
+            val maxIdx = if (10 < size) 10 else if (size > 0) size - 1 else 0
+            val insertIndex = (minIdx..maxIdx).random()
+            blendedNews.add(insertIndex, quoteGreetings.first())
         }
 
-        // స్కోర్ ఆధారంగా క్రమబద్ధీకరించడం (Descending Order)
-        return scoredPosts.sortedByDescending { it.second }.map { it.first }
+        // పండుగ కార్డును మొదట పెట్టడం
+        if (festivalGreetings.isNotEmpty()) {
+            blendedNews.add(0, festivalGreetings.first())
+        }
+
+        return blendedNews
+    }
+
+    private suspend fun fetchGreetingPost(): NewsPost? {
+        return try {
+            val snapshot = FirebaseService.db.collection("news")
+                .whereEqualTo("type", "greeting")
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+                .limit(1)
+                .get()
+                .await()
+            
+            snapshot.documents.firstOrNull()?.let { mapDocumentToNewsPost(it) }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private fun mapDocumentToNewsPost(doc: DocumentSnapshot): NewsPost? {

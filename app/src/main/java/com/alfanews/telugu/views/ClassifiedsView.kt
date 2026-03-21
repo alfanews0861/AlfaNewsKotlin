@@ -113,25 +113,25 @@ fun ClassifiedsView(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Header
-        ClassifiedsHeader(
-            viewMode = viewMode,
-            selectedCategory = selectedCategory,
-            onBack = {
-                when (viewMode) {
-                    ClassifiedsViewMode.DETAIL -> viewMode = ClassifiedsViewMode.CATEGORY_ADS
-                    ClassifiedsViewMode.CATEGORY_ADS -> viewMode = ClassifiedsViewMode.CATEGORIES
-                    ClassifiedsViewMode.MY_ADS -> viewMode = ClassifiedsViewMode.CATEGORIES
-                    ClassifiedsViewMode.POST -> viewMode = ClassifiedsViewMode.CATEGORIES
-                    else -> {}
-                }
-            },
-            onPostClick = { viewMode = ClassifiedsViewMode.POST },
-            onMyAdsClick = { 
-                viewMode = ClassifiedsViewMode.MY_ADS
-                viewModel.loadAds(currentUser?.id)
-            }
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = when (viewMode) {
+                    ClassifiedsViewMode.CATEGORIES -> "క్లాసిఫైడ్స్"
+                    ClassifiedsViewMode.CATEGORY_ADS -> selectedCategory.split(' ')[0]
+                    ClassifiedsViewMode.MY_ADS -> "నా ప్రకటనలు"
+                    ClassifiedsViewMode.DETAIL -> "వివరాలు"
+                    ClassifiedsViewMode.POST -> "ప్రకటన ఇవ్వండి"
+                    else -> "క్లాసిఫైడ్స్"
+                },
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = com.alfanews.telugu.ui.theme.Ramabhadra
+            )
+        }
 
         Box(modifier = Modifier.fillMaxSize()) {
             when (viewMode) {

@@ -1,0 +1,88 @@
+[
+  {
+    "type": "news",
+    "headline": {
+      "telugu": "ఏపీ గ్రామీణ ప్రాంతాల్లో ఏఐ వైద్యం: ప్రాణాలను కాపాడుతున్న ఆధునిక సాంకేతికత",
+      "english": "AI healthcare in rural AP: Modern technology saving lives"
+    },
+    "content": {
+      "telugu": "ఆంధ్రప్రదేశ్ మారుమూల గ్రామాల్లో ఏఐ ఆధారిత వైద్య సేవలు విప్లవాత్మక మార్పులు తెస్తున్నాయి. ప్రాథమిక ఆరోగ్య కేంద్రాల్లోని రోగులకు కృత్రిమ మేధస్సు ద్వారా వ్యాధి నిర్ధారణ వేగంగా జరుగుతోంది. అత్యవసర సమయంలో వైద్య నిపుణుల సలహాలు అందుబాటులోకి రావడంతో మరణాల రేటు గణనీయంగా తగ్గుతోంది. సాంకేతికతతో సామాన్యులకు మెరుగైన వైద్యం అందుతుండటంతో ప్రజలు హర్షం వ్యక్తం చేస్తున్నారు. ఇది ఆరోగ్య రంగంలో కొత్త శకానికి నాంది పలుకుతోంది.",
+      "english": "AI-based medical services are bringing revolutionary changes in remote villages of Andhra Pradesh. Disease diagnosis is happening rapidly for patients in primary health centers through artificial intelligence. With expert medical advice becoming accessible during emergencies, the mortality rate is decreasing significantly. People are happy as better healthcare reaches the common man through technology, marking a new era in the health sector."
+    },
+    "mediaUrl": "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?q=80&w=1080&auto=format&fit=crop",
+    "mediaType": "IMAGE",
+    "postFormat": "VERTICAL",
+    "category": "Technology",
+    "location": "Andhra Pradesh",
+    "likes": 103,
+    "comments": 22,
+    "shares": 100,
+    "tags": [
+      "AI",
+      "Healthcare",
+      "Andhra Pradesh",
+      "Technology",
+      "Rural Health"
+    ],
+    "entities": {
+      "locations": [
+        "Andhra Pradesh"
+      ],
+      "organizations": [
+        "Primary Health Centers"
+      ],
+      "people": []
+    },
+    "storyFingerprint": "AI-Health-Revolution",
+    "reporter": {
+      "id": "BOT_6fb1b979",
+      "name": "అరవింద్ స్వామి"
+    },
+    "aiProcessed": true,
+    "timestamp": 1773951506440,
+    "lastUpdated": 1773951506440
+  },
+  {
+    "type": "news",
+    "headline": {
+      "telugu": "తెలంగాణలో భారీ సౌర విద్యుత్ పార్కు ప్రారంభం: విద్యుత్ రంగంలో కొత్త చరిత్ర!",
+      "english": "Massive solar power park inaugurated in Telangana: A new milestone in energy sector!"
+    },
+    "content": {
+      "telugu": "తెలంగాణ రాష్ట్రంలో మరో భారీ సౌర విద్యుత్ ప్రాజెక్టును ప్రభుత్వం ఘనంగా ప్రారంభించింది. అత్యాధునిక సాంకేతికతతో నిర్మించిన ఈ సోలార్ పార్కు ద్వారా లక్షలాది ఇళ్లకు నిరంతర విద్యుత్ అందనుంది. పర్యావరణహిత ఇంధన ఉత్పత్తిలో రాష్ట్రం అగ్రగామిగా నిలుస్తోందని అధికారులు ప్రకటించారు. ఈ ప్రాజెక్టుతో స్థానికంగా అనేక ఉపాధి అవకాశాలు లభించనున్నాయి. సౌరశక్తి వినియోగంలో తెలంగాణ మరో కీలక మైలురాయిని అధిగమించింది.",
+      "english": "The government has grandly inaugurated another massive solar power project in Telangana. Built with cutting-edge technology, this solar park will provide continuous electricity to lakhs of homes. Officials stated that the state is leading in eco-friendly energy production. This project will create numerous local job opportunities, marking a significant milestone for Telangana in solar energy usage."
+    },
+    "mediaUrl": "https://images.unsplash.com/photo-1509391366360-2e959784a276?q=80&w=1080&auto=format&fit=crop",
+    "mediaType": "IMAGE",
+    "postFormat": "VERTICAL",
+    "category": "Technology",
+    "location": "Telangana",
+    "likes": 125,
+    "comments": 35,
+    "shares": 96,
+    "tags": [
+      "Telangana",
+      "Solar Energy",
+      "Green Power",
+      "Technology",
+      "Infrastructure"
+    ],
+    "entities": {
+      "locations": [
+        "Telangana"
+      ],
+      "organizations": [
+        "State Government"
+      ],
+      "people": []
+    },
+    "storyFingerprint": "solar-power-telangana",
+    "reporter": {
+      "id": "BOT_f6a1edf3",
+      "name": "రవి కుమార్"
+    },
+    "aiProcessed": true,
+    "timestamp": 1773951509089,
+    "lastUpdated": 1773951509089
+  }
+]

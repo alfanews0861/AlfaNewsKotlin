@@ -53,10 +53,20 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, true)
         AdMobService.initialize(this)
 
+        // Android 13+ నోటిఫికేషన్ పర్మిషన్ అడగడం
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                androidx.core.app.ActivityCompat.requestPermissions(this as android.app.Activity, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+            }
+        }
+
         // Preload news to avoid delay after splash screen
         val language = mainViewModel.language.value
         val currentUser = mainViewModel.currentUser.value
         newsFeedViewModel.loadNews(language, currentUser)
+
+        // Intent డేటాను ఇక్కడే ప్రాసెస్ చేయడం
+        handleDeepLink(intent)
 
         setContent {
             val themeMode by mainViewModel.themeMode.collectAsState()
@@ -75,13 +85,6 @@ class MainActivity : ComponentActivity() {
                     if (showSplash) {
                         SplashScreenView { showSplash = false }
                     } else {
-                        // యాప్ ఓపెన్ అయినప్పుడు డీప్ లింక్ చెక్ చేయడం
-                        LaunchedEffect(Unit) {
-                            intent?.data?.let { uri ->
-                                handleDeepLink(uri)
-                            }
-                        }
-
                         MainScreen(
                             mainViewModel = mainViewModel, 
                             newsFeedViewModel = newsFeedViewModel,
@@ -134,17 +137,17 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.data?.let { uri ->
-            handleDeepLink(uri)
-        }
+        handleDeepLink(intent)
     }
 
-    private fun handleDeepLink(uri: Uri) {
-        val pathSegments = uri.pathSegments
-        if (pathSegments.size >= 2 && pathSegments[0] == "news") {
-            val postId = pathSegments[1]
-            mainViewModel.setActiveTab("home")
-            newsFeedViewModel.loadNews(mainViewModel.language.value, mainViewModel.currentUser.value, initialPostId = postId)
+    private fun handleDeepLink(intent: Intent?) {
+        intent?.data?.let { uri ->
+            val pathSegments = uri.pathSegments
+            if (pathSegments.size >= 2 && pathSegments[0] == "news") {
+                val postId = pathSegments[1]
+                mainViewModel.setActiveTab("home")
+                newsFeedViewModel.loadNews(mainViewModel.language.value, mainViewModel.currentUser.value, initialPostId = postId)
+            }
         }
     }
 }

@@ -44,7 +44,7 @@ export const processSocialPostWithAI = async (
             model: PRIMARY_MODEL,
             contents: [{ role: "user", parts: [{ text: `Platform: ${platform}\nCategory: ${category}\nInput Text:\n${socialText}` }] }],
             config: {
-                systemInstruction: `You are a Senior News Editor. Extract news and write in a single paragraph in Telugu, ensuring people and locations are included without changing the original meaning. Generate a single-sentence Telugu headline of 6-10 words. Match the headline tone to the news sentiment (positive/negative) and make it catchy like a 'punch dialogue'. If no news found, set isNewsFound: false. Output JSON.`,
+                systemInstruction: `You are a Senior News Editor. Extract news and write in a single paragraph in Telugu of maximum 60 words and a single paragraph in English of maximum 60 words, ensuring people and locations are included without changing the original meaning. Generate a single-sentence Telugu headline of 6-10 words and an English headline of maximum 12 words. Both headlines must be punchy like a 'punch dialogue' and match the news sentiment. If no news found, set isNewsFound: false. Output JSON.`,
                 temperature: 0.4,
                 responseMimeType: "application/json",
                 responseSchema: schema,
@@ -98,7 +98,7 @@ export const processCitizenContentWithAI = async (
             model: PRIMARY_MODEL,
             contents: [{ role: "user", parts: [{ text: `Citizen Submission:\n${rawContent}` }] }],
             config: {
-                systemInstruction: `You are a Senior News Editor. Analyze news for public interest. If accepted, write in a single paragraph in Telugu, ensuring people and locations are included without changing the original meaning. Generate a single-sentence Telugu headline of 6-10 words. The headline tone must match the news sentiment (positive/negative) and be catchy like a 'punch dialogue'. Output JSON only.`,
+                systemInstruction: `You are a Senior News Editor. Analyze news for public interest. If accepted, write in a single paragraph in Telugu of maximum 60 words and a single paragraph in English of maximum 60 words, ensuring people and locations are included without changing the original meaning. Generate a single-sentence Telugu headline of 6-10 words and an English headline of maximum 12 words. Both headlines must be punchy like a 'punch dialogue' and match the news sentiment. Output JSON only.`,
                 temperature: 0.4,
                 responseMimeType: "application/json",
                 responseSchema: schema,
@@ -139,7 +139,7 @@ export const processContentWithAI = async (
             model: PRIMARY_MODEL,
             contents: [{ role: "user", parts: [{ text: `Headline: ${rawHeadline || 'N/A'}\nContent: ${rawContent}` }] }],
             config: {
-                systemInstruction: `You are a Senior News Editor. Write the news in a single paragraph in Telugu, ensuring people and locations are included without changing the original meaning. Generate a single-sentence Telugu headline of 6-10 words. The headline tone must match the news sentiment (positive/negative) and be catchy like a 'punch dialogue'. Output JSON.`,
+                systemInstruction: `You are a Senior News Editor. Write the news in a single paragraph in Telugu of maximum 60 words and a single paragraph in English of maximum 60 words, ensuring people and locations are included without changing the original meaning. Generate a single-sentence Telugu headline of 6-10 words and an English headline of maximum 12 words. Both headlines must be punchy like a 'punch dialogue' and match the news sentiment. Output JSON.`,
                 temperature: 0.4,
                 responseMimeType: "application/json",
                 responseSchema: schema,

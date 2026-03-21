@@ -20,6 +20,7 @@ class PreferenceManager(context: Context) {
         private const val KEY_SHOULD_SHOW_ONBOARDING = "key_should_show_onboarding"
         private const val KEY_APP_OPEN_COUNT = "key_app_open_count"
         private const val KEY_HAS_RATED = "key_has_rated"
+        private const val KEY_NOTIFICATIONS_ENABLED = "key_notifications_enabled"
 
         @Volatile
         private var INSTANCE: PreferenceManager? = null
@@ -91,6 +92,12 @@ class PreferenceManager(context: Context) {
         get() = prefs.getBoolean(KEY_HAS_RATED, false)
         set(value) {
             prefs.edit().putBoolean(KEY_HAS_RATED, value).apply()
+        }
+
+    var isNotificationsEnabled: Boolean
+        get() = prefs.getBoolean(KEY_NOTIFICATIONS_ENABLED, true)
+        set(value) {
+            prefs.edit().putBoolean(KEY_NOTIFICATIONS_ENABLED, value).apply()
         }
 
     var newsInterests: Set<String>?

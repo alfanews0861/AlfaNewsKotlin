@@ -20,8 +20,10 @@ import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
 
+private val dateFormat = SimpleDateFormat("dd MMM yyyy", Locale("en", "IN"))
+
 private val priceFormat = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
-private val dateFormat = SimpleDateFormat("dd MMM", Locale.getDefault())
+
 
 @Composable
 fun ClassifiedAdCardView(
@@ -49,7 +51,7 @@ fun ClassifiedAdCardView(
             .fillMaxWidth()
             .height(260.dp),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
@@ -71,13 +73,13 @@ fun ClassifiedAdCardView(
                 // Date badge
                 if (formattedDate.isNotEmpty()) {
                     Surface(
-                        color = Color.Black.copy(alpha = 0.6f),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
                         shape = RoundedCornerShape(bottomStart = 8.dp),
                         modifier = Modifier.align(Alignment.TopEnd)
                     ) {
                         Text(
                             text = formattedDate,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 10.sp,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
@@ -98,8 +100,8 @@ fun ClassifiedAdCardView(
                         ) {
                             Icon(
                                 Icons.Default.Delete,
-                                contentDescription = "Delete",
-                                tint = Color.White,
+                                contentDescription = "డిలీట్ (Delete)",
+                                tint = MaterialTheme.colorScheme.onError,
                                 modifier = Modifier.size(24.dp).padding(4.dp)
                             )
                         }
@@ -138,14 +140,14 @@ fun ClassifiedAdCardView(
                 ) {
                     Icon(
                         Icons.Default.LocationOn,
-                        contentDescription = null,
+                        contentDescription = "లొకేషన్ (Location)",
                         modifier = Modifier.size(14.dp),
-                        tint = Color.Gray
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
                         text = location,
                         fontSize = 11.sp,
-                        color = Color.Gray,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )

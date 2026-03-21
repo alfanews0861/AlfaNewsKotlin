@@ -12,6 +12,7 @@ import android.os.Looper
 import android.view.PixelCopy
 import android.view.View
 import android.widget.Toast
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -178,6 +179,7 @@ fun NewsCardView(
     }
     
     val isSpecialCard = post.type == "greeting" || post.type == "history"
+    val isCartoonCard = post.type == "cartoon"
 
     Box(
         modifier = modifier
@@ -198,8 +200,8 @@ fun NewsCardView(
             modifier = Modifier.fillMaxSize()
         ) {
 
-            // HEADER: Rendered only if it is NOT a special card
-            if (!isSpecialCard) {
+            // HEADER: Rendered only if it is NOT a special card or cartoon card
+            if (!isSpecialCard && !isCartoonCard) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -221,7 +223,7 @@ fun NewsCardView(
                         fontSize = 28.sp,
                         fontFamily = Ramabhadra,
                         fontWeight = FontWeight.Bold,
-                        color = Color.Red
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -251,7 +253,7 @@ fun NewsCardView(
                                     imageLoader = imageLoader,
                                     contentDescription = headline,
                                     modifier = Modifier.fillMaxSize(),
-                                    contentScale = if (isSpecialCard) ContentScale.Fit else ContentScale.Crop, // Fit for special cards
+                                    contentScale = ContentScale.Crop, // మార్పును వెనక్కి తీసుకున్నాను, Crop పాత పద్ధతిలోనే పనిచేస్తుంది
                                     alignment = Alignment.TopCenter
                                 )
                             }
@@ -283,13 +285,13 @@ fun NewsCardView(
                         ) {
                             Icon(
                                 Icons.Default.LocationOn,
-                                contentDescription = null,
-                                tint = Color.Red,
+                                contentDescription = "జిల్లా (District)",
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
                                 text = district,
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 12.sp,
                                 fontFamily = Ramabhadra
                             )
@@ -297,7 +299,7 @@ fun NewsCardView(
                     }
 
                     // ఇమేజ్ సోర్స్ మరియు రిపోర్టర్ పేరును ఇమేజ్ పై ప్రదర్శించడం
-                    if (post.mediaType == MediaType.IMAGE && post.youtubeUrl.isNullOrBlank() && !isSpecialCard) {
+                    if (post.mediaType == MediaType.IMAGE && post.youtubeUrl.isNullOrBlank() && !isSpecialCard && !isCartoonCard) {
                         Text(
                             text = "Source : ${post.reporter.name}",
                             color = Color.White.copy(alpha = 0.5f),
@@ -323,8 +325,8 @@ fun NewsCardView(
                     .weight(0.60f)
                     .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)
             ) {
-                if (isSpecialCard) {
-                    // --- SPECIAL CARD: Buttons Only, No Text Content ---
+                if (isSpecialCard || isCartoonCard) {
+                    // --- SPECIAL CARD OR CARTOON: Buttons Only, No Text Content ---
                     Column(
                         modifier = Modifier.fillMaxSize()
                     ) {
@@ -401,11 +403,12 @@ fun NewsCardView(
                             Column(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
+                                // Reduced padding to pull reporter info and content up
                                 DottedDivider()
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(vertical = 4.dp)
+                                    modifier = Modifier.padding(vertical = 2.dp) // Reduced vertical padding
                                 ) {
                                     Text(
                                         text = post.reporter.name,
@@ -444,7 +447,7 @@ fun NewsCardView(
                                 DottedDivider()
                             }
 
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(2.dp)) // Reduced spacer height
 
                             Text(
                                 text = content,
@@ -529,7 +532,7 @@ fun NewsCardView(
 private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: (Boolean) -> Unit, setShareCount: (Int) -> Unit, post: NewsPost, context: Context, uriHandler: UriHandler, cardBounds: Rect?, view: View) {
     scope.launch {
         setSharing(true)
-        val headline = if (LocalContext.current.resources.configuration.locales[0].language == "te") post.headline.telugu else post.headline.english
+        val headline = if (context.resources.configuration.locales[0].language == "te") post.headline.telugu else post.headline.english
         val deepLink = "https://alfanews.app/news/${post.id}"
         val shareText = "$headline\n$deepLink"
 
@@ -622,6 +625,7 @@ fun ActionButton(
     isHighlighted: Boolean = false,
     isLoading: Boolean = false,
     tint: Color = MaterialTheme.colorScheme.onBackground,
+    contentDescription: String? = null,
     onClick: () -> Unit
 ) {
     Column(
@@ -642,16 +646,16 @@ fun ActionButton(
             } else {
                 Icon(
                     imageVector = icon,
-                    contentDescription = null,
+                    contentDescription = contentDescription,
                     modifier = Modifier.size(28.dp),
-                    tint = if (isHighlighted) Color.Red else tint
+                    tint = if (isHighlighted) MaterialTheme.colorScheme.primary else tint
                 )
             }
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = count,
-            color = if (isHighlighted) Color.Red else tint,
+            color = if (isHighlighted) MaterialTheme.colorScheme.primary else tint,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold
         )

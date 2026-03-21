@@ -6,14 +6,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -21,7 +22,6 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil3.request.ImageRequest
 import com.alfanews.telugu.models.Language
-import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.services.AdMobService
 import com.alfanews.telugu.utils.SafeImageLoader
@@ -80,7 +80,6 @@ fun NewsFeedView(
         }
     }
 
-    // Image Pre-loading Logic
     val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
     LaunchedEffect(news) {
         if (news.isNotEmpty()) {
@@ -109,7 +108,6 @@ fun NewsFeedView(
                 viewModel.loadMore(language, currentUser)
             }
 
-            // Pre-load images for upcoming posts
             var offset = 1
             while (offset <= 4) {
                 val nextPageIndex = page + offset
@@ -177,6 +175,10 @@ fun NewsFeedView(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
                 userScrollEnabled = true,
+                flingBehavior = PagerDefaults.flingBehavior(
+                    state = pagerState,
+                    snapPositionalThreshold = 0.2f
+                ),
                 key = { page ->
                     val isAd = (page + 1) % 6 == 0
                     if (isAd) "ad_$page" else {

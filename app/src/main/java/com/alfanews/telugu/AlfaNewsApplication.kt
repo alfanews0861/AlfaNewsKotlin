@@ -9,6 +9,7 @@ import com.alfanews.telugu.services.AnalyticsService
 import com.google.firebase.messaging.FirebaseMessaging
 import androidx.work.*
 import com.alfanews.telugu.workers.NewsNotificationWorker
+import com.alfanews.telugu.workers.FestivalGreetingWorker
 import java.util.concurrent.TimeUnit
 import java.util.Calendar
 
@@ -55,6 +56,16 @@ class AlfaNewsApplication : Application() {
                 "DailyNewsNotifications",
                 ExistingPeriodicWorkPolicy.KEEP,
                 notificationWork
+            )
+
+            val festivalWork = PeriodicWorkRequestBuilder<FestivalGreetingWorker>(24, TimeUnit.HOURS)
+                .setInitialDelay(calculateDelay(6, 0), TimeUnit.MILLISECONDS)
+                .build()
+            
+            WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+                "DailyFestivalGreeting",
+                ExistingPeriodicWorkPolicy.KEEP,
+                festivalWork
             )
         } catch (e: Exception) {
             e.printStackTrace()

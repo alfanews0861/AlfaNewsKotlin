@@ -18,6 +18,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,6 +37,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
+    
+    private val _generalNews = MutableStateFlow<List<NewsPost>>(emptyList())
+    val generalNews: StateFlow<List<NewsPost>> = _generalNews.asStateFlow()
     
     private val _hasMore = MutableStateFlow(true)
     val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
@@ -94,60 +98,86 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             // 4. ఏమీ లేకపోతేనే కొత్తగా గుర్తించడం
             _isDetecting.value = true
             
-            // GPS ద్వారా ప్రయత్నించడం
+            // GPS ద్వారా ప్రయత్నించడం - 3 సెకన్ల టైమౌట్
             try {
-                val fusedLocationClient = LocationServices.getFusedLocationProviderClient(getApplication<Application>())
-                val location = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null).await()
-                location?.let {
-                    val geocoder = Geocoder(getApplication(), Locale("te"))
-                    @Suppress("DEPRECATION")
-                    val addresses = withContext(Dispatchers.IO) {
-                        geocoder.getFromLocation(it.latitude, it.longitude, 1)
-                    }
-                    if (!addresses.isNullOrEmpty()) {
-                        val adminArea = addresses[0].adminArea ?: ""
-                        if (!adminArea.contains("Andhra", ignoreCase = true) && !adminArea.contains("Telangana", ignoreCase = true)) {
-                            updateDetectedDistrict("హైదరాబాద్", currentUser)
-                            return@launch
+                withContext(Dispatchers.IO) {
+                    try {
+                        withTimeout(3000L) {
+                            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(getApplication<Application>())
+                            val location = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null).await()
+                            location?.let {
+                                val geocoder = Geocoder(getApplication(), Locale("te"))
+                                @Suppress("DEPRECATION")
+                                val addresses = geocoder.getFromLocation(it.latitude, it.longitude, 1)
+                                if (addresses != null && addresses.size > 0) {
+                                    val adminArea = addresses[0].adminArea ?: ""
+                                    if (adminArea.contains("Andhra", ignoreCase = true) || adminArea.contains("Telangana", ignoreCase = true)) {
+                                        val detectedName = addresses[0].subAdminArea ?: addresses[0].locality ?: adminArea
+                                        val mappedDistrict = findMatchingDistrict(detectedName)
+                                        if (mappedDistrict != null) {
+                                            updateDetectedDistrict(mappedDistrict, currentUser)
+                                        }
+                                    }
+                                }
+                            }
                         }
-
-                        val detectedName = addresses[0].subAdminArea ?: addresses[0].locality ?: adminArea
-                        val mappedDistrict = findMatchingDistrict(detectedName)
-                        if (mappedDistrict != null) {
-                            updateDetectedDistrict(mappedDistrict, currentUser)
-                            return@launch
-                        }
-                    }
+                    } catch (e: Exception) { }
                 }
             } catch (e: Exception) { }
 
-            // IP-based location (చివరి ప్రయత్నం)
+            // IP-based location ద్వారా ప్రయత్నించడం - 3 సెకన్ల టైమౌట్
             try {
-                val ipInfo = withContext(Dispatchers.IO) {
-                    val response = URL("http://ip-api.com/json").readText()
-                    JSONObject(response)
-                }
-                val regionName = ipInfo.optString("regionName", "")
-                
-                if (!regionName.contains("Andhra", ignoreCase = true) && !regionName.contains("Telangana", ignoreCase = true)) {
-                    updateDetectedDistrict("హైదరాబాద్", currentUser)
-                } else {
-                    val city = ipInfo.optString("city")
-                    val mappedDistrict = findMatchingDistrict(city) ?: findMatchingDistrict(regionName)
-                    if (mappedDistrict != null) {
-                        updateDetectedDistrict(mappedDistrict, currentUser)
-                    }
+                withContext(Dispatchers.IO) {
+                    try {
+                        withTimeout(3000L) {
+                            val response = URL("http://ip-api.com/json").readText()
+                            val ipInfo = JSONObject(response)
+                            val regionName = ipInfo.optString("regionName", "")
+                            
+                            if (regionName.contains("Andhra", ignoreCase = true) || regionName.contains("Telangana", ignoreCase = true)) {
+                                val city = ipInfo.optString("city")
+                                val mappedDistrict = findMatchingDistrict(city) ?: findMatchingDistrict(regionName)
+                                if (mappedDistrict != null) {
+                                    updateDetectedDistrict(mappedDistrict, currentUser)
+                                }
+                            }
+                        }
+                    } catch (e: Exception) { }
                 }
             } catch (e: Exception) { }
 
+            // చివరగా: లొకేషన్ దొరకకపోతే, default fallback హైదరాబాద్ కాకుండా, 
+            // లొకేషన్ సెలెక్ట్ చేసుకోమని UI కి సూచించాలి
+            _isDetecting.value = false
             if (_activeDistrict.value == null) {
-                 updateDetectedDistrict("హైదరాబాద్", currentUser) // Default fallback
+                _loading.value = false
+                loadGeneralNews()
             } else {
-                _isDetecting.value = false
                 if (_news.value.isEmpty()) loadNews(Language.TELUGU, currentUser)
             }
         }
     }
+
+    private fun loadGeneralNews() {
+        viewModelScope.launch {
+            _loading.value = true
+            try {
+                val newsRef = FirebaseService.db.collection("news")
+                val query = newsRef
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                    .limit(pageSize.toLong())
+                
+                val snapshot = query.get().await()
+                val posts = snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                
+                _generalNews.value = posts
+            } catch (e: Exception) {
+            } finally {
+                _loading.value = false
+            }
+        }
+    }
+
 
     private fun updateDetectedDistrict(district: String, currentUser: User?) {
         prefs.detectedDistrict = district

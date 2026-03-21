@@ -195,4 +195,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    fun toggleNotifications(enabled: Boolean) {
+        viewModelScope.launch {
+            val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
+            try {
+                if (enabled) {
+                    messaging.subscribeToTopic("all_users").await()
+                    prefs.isNotificationsEnabled = true
+                } else {
+                    messaging.unsubscribeFromTopic("all_users").await()
+                    prefs.isNotificationsEnabled = false
+                }
+            } catch (e: Exception) {
+                // Handle error
+            }
+        }
+    }
 }

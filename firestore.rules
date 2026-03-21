@@ -6,16 +6,11 @@ service cloud.firestore {
     // User Profiles
     match /users/{userId} {
       allow read: if true;
-      // Allow user to create their own profile, or admins/editors to manage them.
-      allow write: if request.auth != null && (
-          request.auth.uid == userId || 
-          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN' ||
-          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'EDITOR' &&
-             (resource.data.role == 'SUBSCRIBER' || resource.data.promotedBy == request.auth.uid)
-          )
-      );
+      // Allow user to write their own profile, or admins to manage them.
+      allow write: if request.auth != null && (request.auth.uid == userId ||
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN')
+      ;
     }
     
     // News Posts

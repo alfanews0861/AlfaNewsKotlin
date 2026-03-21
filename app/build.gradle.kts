@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.io.FileInputStream
 
 plugins {
     id("com.android.application")
@@ -37,10 +38,17 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("release.jks")
-            storePassword = System.getenv("RELEASE_STORE_PASSWORD")
-            keyAlias = System.getenv("RELEASE_KEY_ALIAS")
-            keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            val properties = Properties()
+            val localProperties = file("../local.properties")
+            if (localProperties.exists()) {
+                val inputStream = FileInputStream(localProperties)
+                properties.load(inputStream)
+                inputStream.close()
+                storeFile = file(properties.getProperty("ALFANEWS_KEYSTORE_FILE"))
+                storePassword = properties.getProperty("ALFANEWS_KEYSTORE_PASSWORD")
+                keyAlias = properties.getProperty("ALFANEWS_KEY_ALIAS")
+                keyPassword = properties.getProperty("ALFANEWS_KEY_PASSWORD")
+            }
         }
     }
 
@@ -127,8 +135,16 @@ dependencies {
     implementation("androidx.media3:media3-session:1.5.0")
 
     implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0")
+    
+    // Gemini API for image generation
+    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.2")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.2")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
+    testImplementation("org.robolectric:robolectric:4.12.2")
+    testImplementation("androidx.test:core:1.6.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     debugImplementation("androidx.compose.ui:ui-tooling")

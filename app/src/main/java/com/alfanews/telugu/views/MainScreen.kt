@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -24,6 +27,7 @@ import com.alfanews.telugu.views.policy.PrivacyPolicyPageView
 import com.alfanews.telugu.views.policy.TermsOfServicePageView
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     mainViewModel: MainViewModel,
@@ -108,16 +112,31 @@ fun MainScreen(
                         onBack = { reporterIdToShow = null }
                     )
                 } else if (showPostNewsPage && user != null) {
-                    PostNewsPageView(
-                        user = user,
-                        postToEdit = null,
-                        onActionComplete = { postId -> 
-                            showPostNewsPage = false
-                            mainViewModel.setActiveTab("home")
-                            newsFeedViewModel.setSharedPostId(postId)
-                            newsFeedViewModel.loadNews(language, currentUser, initialPostId = postId)
+                    Scaffold(
+                        topBar = {
+                            TopAppBar(
+                                title = { Text("వార్తను పోస్ట్ చేయండి") },
+                                navigationIcon = {
+                                    IconButton(onClick = { showPostNewsPage = false }) {
+                                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                                    }
+                                }
+                            )
                         }
-                    )
+                    ) { innerPadding: PaddingValues ->
+                        Box(modifier = Modifier.padding(innerPadding)) {
+                            PostNewsPageView(
+                                user = user,
+                                postToEdit = null,
+                                onActionComplete = { postId -> 
+                                    showPostNewsPage = false
+                                    mainViewModel.setActiveTab("home")
+                                    newsFeedViewModel.setSharedPostId(postId)
+                                    newsFeedViewModel.loadNews(language, currentUser, initialPostId = postId)
+                                }
+                            )
+                        }
+                    }
                 } else if (showJoinReporterPage) {
                     JoinReporterPageView(
                         onClose = { showJoinReporterPage = false }

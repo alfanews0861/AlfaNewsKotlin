@@ -32,10 +32,10 @@ fun Footer(
         shadowElevation = 16.dp
     ) {
         NavigationBar(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().height(60.dp), // Height 60dp for a sleek look
             containerColor = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
-            windowInsets = WindowInsets.navigationBars
+            tonalElevation = 0.dp // Remove shadow/elevation for a flatter look
         ) {
             FooterItem(
                 icon = Icons.Default.Home,
@@ -92,11 +92,9 @@ fun RowScope.FooterItem(
                 )
                 
                 Surface(
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.size(48.dp), // Original size
                     shape = CircleShape,
-                    color = Color.Transparent,
-                    tonalElevation = 4.dp,
-                    shadowElevation = 4.dp
+                    color = Color.Transparent
                 ) {
                     Box(
                         modifier = Modifier
@@ -107,7 +105,7 @@ fun RowScope.FooterItem(
                         Icon(
                             imageVector = icon,
                             contentDescription = label,
-                            modifier = Modifier.size(32.dp),
+                            modifier = Modifier.size(32.dp), // Original size
                             tint = Color.White
                         )
                     }
@@ -126,7 +124,7 @@ fun RowScope.FooterItem(
                     Icon(
                         imageVector = icon,
                         contentDescription = label,
-                        modifier = Modifier.size(26.dp)
+                        modifier = Modifier.size(26.dp) // Original size
                     )
                 }
             }
@@ -134,11 +132,12 @@ fun RowScope.FooterItem(
         label = {
             Text(
                 text = label,
-                fontSize = 11.sp,
+                fontSize = 10.sp, // Reduced slightly
                 fontFamily = if (label.any { it.code > 127 }) Mallanna else Poppins,
                 fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
                 maxLines = 1,
-                letterSpacing = 0.5.sp
+                lineHeight = 12.sp, // Reduced line height to tighten vertical gap
+                letterSpacing = 0.2.sp
             )
         },
         selected = isActive,
@@ -148,7 +147,7 @@ fun RowScope.FooterItem(
             unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             selectedTextColor = MaterialTheme.colorScheme.primary,
             unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            indicatorColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            indicatorColor = Color.Transparent // Remove background indicator to reduce clutter
         )
     )
 }

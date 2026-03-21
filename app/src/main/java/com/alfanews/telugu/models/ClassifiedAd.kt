@@ -14,15 +14,3 @@ data class ClassifiedAd(
     val whatsappNumber: String? = null,
     val timestamp: Long = System.currentTimeMillis()
 )
-
-object ClassifiedCategories {
-    val categories = listOf(
-        "స్థిరాస్తి (Real Estate)",
-        "వాహనాలు (Vehicles)",
-        "ఎలక్ట్రానిక్స్ (Electronics)",
-        "ఉద్యోగాలు (Jobs)",
-        "సేవలు (Services)",
-        "ఫర్నిచర్ (Furniture)",
-        "ఇతర (Others)"
-    )
-}
