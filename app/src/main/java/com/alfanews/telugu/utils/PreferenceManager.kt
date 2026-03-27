@@ -100,6 +100,13 @@ class PreferenceManager(context: Context) {
             prefs.edit().putBoolean(KEY_NOTIFICATIONS_ENABLED, value).apply()
         }
 
+    /**
+     * జిల్లాను సులభంగా సేవ్ చేయడానికి (మొబైల్ డేటా/GPS డిటెక్షన్ తర్వాత వాడవచ్చు)
+     */
+    fun saveDetectedDistrict(district: String) {
+        prefs.edit().putString(KEY_DETECTED_DISTRICT, district).apply()
+    }
+
     var newsInterests: Set<String>?
         get() = prefs.getStringSet(KEY_NEWS_INTERESTS, null)
         set(value) {

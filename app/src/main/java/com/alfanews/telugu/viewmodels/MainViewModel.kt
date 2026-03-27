@@ -196,19 +196,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateInterestSubscriptions(oldInterests: Set<String>, newInterests: Set<String>, district: String?) {
+        val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
+        val d = district?.lowercase()?.replace(" ", "_") ?: return
+        
+        viewModelScope.launch {
+            try {
+                // Unsubscribe from old interest-based topics
+                oldInterests.forEach { category ->
+                    messaging.unsubscribeFromTopic("district_${d}_${category.lowercase()}").await()
+                }
+                // Subscribe to new interest-based topics
+                newInterests.forEach { category ->
+                    messaging.subscribeToTopic("district_${d}_${category.lowercase()}").await()
+                }
+            } catch (e: Exception) {
+                // Log or handle error appropriately
+            }
+        }
+    }
+
     fun toggleNotifications(enabled: Boolean) {
         viewModelScope.launch {
             val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
+            val user = _currentUser.value
+            val district = user?.district?.lowercase()?.replace(" ", "_") ?: prefs.getEffectiveDistrict()?.lowercase()?.replace(" ", "_")
+            
+            // User interests tracked via categoryScores in User model
+            val interests: Set<String> = user?.categoryScores?.keys ?: emptySet()
+            
             try {
                 if (enabled) {
                     messaging.subscribeToTopic("all_users").await()
+                    
+                    district?.let { d ->
+                        messaging.subscribeToTopic("district_$d").await()
+                        // Subscribe to interest-based topics
+                        interests.forEach { category: String ->
+                            messaging.subscribeToTopic("district_${d}_${category.lowercase()}").await()
+                        }
+                    }
                     prefs.isNotificationsEnabled = true
                 } else {
                     messaging.unsubscribeFromTopic("all_users").await()
+                    
+                    district?.let { d ->
+                        messaging.unsubscribeFromTopic("district_$d").await()
+                        // Unsubscribe from interest-based topics
+                        interests.forEach { category: String ->
+                            messaging.unsubscribeFromTopic("district_${d}_${category.lowercase()}").await()
+                        }
+                    }
                     prefs.isNotificationsEnabled = false
                 }
             } catch (e: Exception) {
-                // Handle error
+                // Log or handle error appropriately
             }
         }
     }

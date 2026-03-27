@@ -69,35 +69,20 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     
     @SuppressLint("MissingPermission")
     fun detectLocation(context: Context, currentUser: User?) {
+        // 1. వెంటనే Cache/Preferences లో ఏ జిల్లా ఉందేమో చూడు (Spinner తగ్గించడానికి)
+        val savedDistrict = prefs.getEffectiveDistrict()
+        if (savedDistrict != null) {
+            _activeDistrict.value = savedDistrict
+            if (_news.value.isEmpty()) loadNews(Language.TELUGU, currentUser)
+            return
+        }
+
+        // 2. ఒకవేళ ఏ జిల్లా దొరకకపోతేనే, లొకేషన్ డిటెక్షన్ ప్రాసెస్ మొదలుపెట్టు
         if (_isDetecting.value) return
-
+        _isDetecting.value = true
+        _loading.value = true 
+        
         viewModelScope.launch {
-            // 1. ప్రాధాన్యత 1: యూజర్ స్వయంగా ఎంచుకున్న జిల్లా (App Session/Prefs)
-            if (prefs.selectedDistrict != null) {
-                _activeDistrict.value = prefs.selectedDistrict
-                if (_news.value.isEmpty()) loadNews(Language.TELUGU, currentUser)
-                return@launch
-            }
-
-            // 2. ప్రాధాన్యత 2: రిజిస్టర్డ్ యూజర్ ప్రొఫైల్ జిల్లా (Database truth)
-            currentUser?.district?.let {
-                if(Constants.ALL_DISTRICTS.contains(it)) {
-                    _activeDistrict.value = it
-                    if (_news.value.isEmpty()) loadNews(Language.TELUGU, currentUser)
-                    return@launch
-                }
-            }
-            
-            // 3. ప్రాధాన్యత 3: గతంలో గుర్తించిన జిల్లా (Cache)
-            if (prefs.detectedDistrict != null) {
-                _activeDistrict.value = prefs.detectedDistrict
-                if (_news.value.isEmpty()) loadNews(Language.TELUGU, currentUser)
-                return@launch
-            }
-
-            // 4. ఏమీ లేకపోతేనే కొత్తగా గుర్తించడం
-            _isDetecting.value = true
-            
             // GPS ద్వారా ప్రయత్నించడం - 3 సెకన్ల టైమౌట్
             try {
                 withContext(Dispatchers.IO) {
@@ -146,11 +131,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 }
             } catch (e: Exception) { }
 
-            // చివరగా: లొకేషన్ దొరకకపోతే, default fallback హైదరాబాద్ కాకుండా, 
-            // లొకేషన్ సెలెక్ట్ చేసుకోమని UI కి సూచించాలి
             _isDetecting.value = false
+            _loading.value = false
+            
             if (_activeDistrict.value == null) {
-                _loading.value = false
                 loadGeneralNews()
             } else {
                 if (_news.value.isEmpty()) loadNews(Language.TELUGU, currentUser)
@@ -170,9 +154,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 val snapshot = query.get().await()
                 val posts = snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
                 
-                _generalNews.value = posts
+                _news.value = posts
+                _loading.value = false
             } catch (e: Exception) {
-            } finally {
                 _loading.value = false
             }
         }
@@ -180,9 +164,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
 
     private fun updateDetectedDistrict(district: String, currentUser: User?) {
-        prefs.detectedDistrict = district
+        prefs.saveDetectedDistrict(district)
         _activeDistrict.value = district
-        _loading.value = true // Set loading TRUE before clearing detecting state
+        _loading.value = false
         _isDetecting.value = false
         loadNews(Language.TELUGU, currentUser)
     }

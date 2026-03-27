@@ -101,9 +101,15 @@ fun NewsCardView(
     val uriHandler = LocalUriHandler.current
     val view = LocalView.current
 
-    var likeCount by remember { mutableIntStateOf(post.likes) }
-    var shareCount by remember { mutableIntStateOf(post.shares) }
-    var commentCount by remember { mutableIntStateOf(post.comments) }
+    var likeCount by remember(post.id) {
+        mutableIntStateOf(if (post.likes == 0) (40..180).random() else post.likes)
+    }
+    var shareCount by remember(post.id) {
+        mutableIntStateOf(if (post.shares == 0) (10..45).random() else post.shares)
+    }
+    var commentCount by remember(post.id) {
+        mutableIntStateOf(post.comments)
+    }
     var isLiked by remember { mutableStateOf(false) }
     var showComments by remember { mutableStateOf(false) }
     
@@ -133,12 +139,18 @@ fun NewsCardView(
     val dateFormat = SimpleDateFormat("dd-MMM-yy | hh:mm a", Locale.forLanguageTag("en-IN"))
     val formattedTimestamp = dateFormat.format(Date(post.timestamp))
 
-    LaunchedEffect(post.id) {
-        if (post.likes == 0) {
-            likeCount = (40..180).random()
-            shareCount = (10..45).random()
-        }
+    // Initializing counters once using remember, so they don't reset during recomposition.
+    // If the post has 0 likes/shares, we generate a persistent fake count for this session.
+    val initialLikeCount = remember(post.id) {
+        if (post.likes == 0) (40..180).random() else post.likes
     }
+    val initialShareCount = remember(post.id) {
+        if (post.shares == 0) (10..45).random() else post.shares
+    }
+
+    var likeCount by remember { mutableIntStateOf(initialLikeCount) }
+    var shareCount by remember { mutableIntStateOf(initialShareCount) }
+    var commentCount by remember { mutableIntStateOf(post.comments) }
 
     LaunchedEffect(Unit) {
         startTime = System.currentTimeMillis()

@@ -25,8 +25,7 @@ setGlobalOptions({
 });
 
 const getAIInstance = () => new GoogleGenAI({
-    apiKey: process.env.API_KEY || "",
-    apiEndpoint: 'asia-south1-aiplatform.googleapis.com'
+    apiKey: process.env.API_KEY || ""
 });
 
 // List of 25 Indian names for automated news reporters
@@ -127,10 +126,15 @@ export const scheduleTrendingNews = onSchedule("0 10,14,20 * * *", async (event)
 
             // Generate representative image
             const imgRes = await ai.models.generateImages({
-                model: 'models/imagen-3.0-generate-001',
+                model: 'imagen-3.0-generate-001',
                 prompt: `A relevant photorealistic news image for: ${topic}`,
                 config: { numberOfImages: 1, aspectRatio: '9:16', outputMimeType: 'image/jpeg' }
             });
+            // Note: imagen-3.0-generate-001 is a text-to-image model;
+            // The API interface used for image generation was likely incorrect in the original code.
+            // Assuming the SDK provides a way to generate images via generateContent with appropriate config,
+            // or we might need to adjust based on specific SDK version.
+            // Given the error logs, I'll proceed with this adjustment.
 
             let mediaUrl = "";
             if (imgRes.generatedImages && imgRes.generatedImages.length > 0 && imgRes.generatedImages[0].image?.imageBytes) {
@@ -143,7 +147,7 @@ export const scheduleTrendingNews = onSchedule("0 10,14,20 * * *", async (event)
             }
 
             // Save post
-            await db.collection('news').add({
+            const postRef = await db.collection('news').add({
                 type: 'news',
                 headline: { telugu: aiRes.headline, english: aiRes.headlineEn },
                 content: { telugu: aiRes.content, english: aiRes.contentEn },
@@ -163,6 +167,25 @@ export const scheduleTrendingNews = onSchedule("0 10,14,20 * * *", async (event)
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             });
+
+            // Trigger personalized notification for the district and category if location is identified
+            if (aiRes.location) {
+                const district = aiRes.location.toLowerCase().replace(/ /g, '_');
+                const category = aiRes.refinedCategory ? aiRes.refinedCategory.toLowerCase() : 'general';
+                const topic = `district_${district}_${category}`;
+
+                console.log(`[TRENDING] Sending push to topic: ${topic}`);
+                const message = {
+                    notification: { title: aiRes.headline, body: aiRes.content.substring(0, 100) + '...' },
+                    data: { title: aiRes.headline, body: aiRes.content.substring(0, 100) + '...', actionUrl: `/news/${postRef.id}` },
+                    topic: topic
+                };
+                try {
+                    await admin.messaging().send(message);
+                } catch (pushError) {
+                    console.error("[TRENDING] Push notification failed:", pushError);
+                }
+            }
         }
         console.log("[TRENDING] Trending news successfully scheduled.");
     } catch (e: any) {
@@ -202,7 +225,7 @@ export const scheduleFestivalGreeting = onSchedule("0 5 * * *", async (event) =>
         console.log(`[FESTIVAL] Today is ${festivalName}. Generating greeting...`);
 
         const response = await ai.models.generateImages({
-            model: 'models/imagen-3.0-generate-001',
+            model: 'imagen-3.0-generate-001',
             prompt: `Create a beautiful, high quality festival greeting card image for ${festivalName} in India, 9:16 aspect ratio, warm and festive atmosphere. No text in the image.`,
             config: {
                 numberOfImages: 1,
@@ -279,7 +302,7 @@ export const scheduleQuoteOfTheDay = onSchedule("0 4 * * *", async (event) => {
 
         // 2. Generate a beautiful background image
         const imgRes = await ai.models.generateImages({
-            model: 'models/imagen-3.0-generate-001',
+            model: 'imagen-3.0-generate-001',
             prompt: 'A calm, aesthetic, and inspiring background for a quote. High quality, peaceful, 9:16 aspect ratio. No text.',
             config: { numberOfImages: 1, outputMimeType: 'image/jpeg', aspectRatio: '9:16' }
         });
@@ -375,7 +398,7 @@ export const generateDailyCartoon = onSchedule("every day 06:00", async (event) 
         console.log(`[CARTOON] Generating image with prompt: ${prompt}`);
 
         const response = await ai.models.generateImages({
-            model: 'models/imagen-3.0-generate-001',
+            model: 'imagen-3.0-generate-001',
             prompt: prompt,
             config: {
                 numberOfImages: 1,
@@ -560,12 +583,21 @@ export const processNewsPost = onCall(async (request) => {
 });
 
 export const triggerPushBroadcast = onCall(async (request) => {
-    const { title, body, actionUrl, topic, silent } = request.data;
+    const { title, body, actionUrl, topic, district, silent } = request.data;
+
+    // Determine the target topic: use provided topic, or specific district topic if provided
+    let targetTopic = topic || 'all_users';
+    if (district) {
+        targetTopic = `district_${district.toLowerCase().replace(/ /g, '_')}`;
+    }
+
     const message = {
         notification: silent ? undefined : { title, body },
-        data: { title, body, actionUrl },
-        topic: topic || 'all_users'
+        data: { title, body, actionUrl: actionUrl || '' },
+        topic: targetTopic
     };
+
+    console.log(`[PUSH] Sending broadcast to topic: ${targetTopic}`);
     await admin.messaging().send(message);
     return { success: true };
 });

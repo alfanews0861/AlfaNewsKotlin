@@ -100,9 +100,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 }
 
                 val localBatchDeferred = async {
-                    if (district != null) {
-                        fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContains("categories", district), null, district, strictFilter = true)
-                    } else Pair(emptyList<NewsPost>(), null)
+                    Pair(emptyList<NewsPost>(), null)
                 }
 
                 val greetingPost = greetingBatchDeferred.await()
@@ -162,9 +160,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 }
 
                 val localBatchDeferred = async {
-                    if (district != null && (localCursor != null || _news.value.size < 60)) {
-                        fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContains("categories", district), localCursor, district, true)
-                    } else Pair(emptyList<NewsPost>(), null)
+                    Pair(emptyList<NewsPost>(), null)
                 }
 
                 val prefBatch = prefBatchDeferred.await()
@@ -242,16 +238,26 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         val randomCount = (totalToRank * 0.3).toInt()
 
         // 1. తాజా వార్తల నుండి 30% తీసుకోవడం (Serendipity)
-        val freshNews = normalNews.sortedByDescending { it.timestamp }.take(randomCount)
+        // 20% వార్తలను కొత్త కేటగిరీల నుండి (Exploration/Discovery) తీసుకుందాం
+        val discoveryCount = (totalToRank * 0.2).toInt()
+        val freshCount = (totalToRank * 0.1).toInt()
+        
+        val discoveryNews = normalNews.filter { post -> 
+            post.categories.none { it in AnalyticsService.getUserPreferredCategories() } 
+        }.shuffled().take(discoveryCount)
+        
+        val freshNews = normalNews.filter { it !in discoveryNews }
+            .sortedByDescending { it.timestamp }
+            .take(freshCount)
         
         // 2. మిగిలిన వార్తలకు స్కోర్ ఇవ్వడం (Personalized)
-        val remainingNews = normalNews.filter { it !in freshNews }
+        val remainingNews = normalNews.filter { it !in discoveryNews && it !in freshNews }
         val scoredNews = remainingNews.map { post ->
             post to AnalyticsService.calculateRelevanceScore(post)
         }.sortedByDescending { it.second }.map { it.first }.toMutableList()
 
-        // 3. రెండింటినీ కలపడం (FreshNews + Personalized)
-        val blendedNews = (freshNews + scoredNews).toMutableList()
+        // 3. రెండింటినీ కలపడం (FreshNews + Discovery + Personalized)
+        val blendedNews = (freshNews + discoveryNews + scoredNews).toMutableList()
 
         // కోట్ కార్డును 6-10 స్థానంలో రాండమ్ గా పెట్టడం
         if (quoteGreetings.isNotEmpty()) {

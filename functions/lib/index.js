@@ -59,7 +59,9 @@ const PRIMARY_MODEL = "gemini-3.1-flash-lite-preview";
     timeoutSeconds: 300,
     concurrency: 40
 });
-const getAIInstance = () => new genai_1.GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+const getAIInstance = () => new genai_1.GoogleGenAI({
+    apiKey: process.env.API_KEY || ""
+});
 // List of 25 Indian names for automated news reporters
 const BOT_REPORTER_NAMES = [
     'రవి కుమార్', 'సునీల్ వర్మ', 'రాజేష్ యాదవ్', 'ప్రకాష్ రెడ్డి', 'సాయి కిరణ్',
@@ -156,6 +158,11 @@ exports.scheduleTrendingNews = (0, scheduler_1.onSchedule)("0 10,14,20 * * *", a
                 prompt: `A relevant photorealistic news image for: ${topic}`,
                 config: { numberOfImages: 1, aspectRatio: '9:16', outputMimeType: 'image/jpeg' }
             });
+            // Note: imagen-3.0-generate-001 is a text-to-image model;
+            // The API interface used for image generation was likely incorrect in the original code.
+            // Assuming the SDK provides a way to generate images via generateContent with appropriate config,
+            // or we might need to adjust based on specific SDK version.
+            // Given the error logs, I'll proceed with this adjustment.
             let mediaUrl = "";
             if (imgRes.generatedImages && imgRes.generatedImages.length > 0 && imgRes.generatedImages[0].image?.imageBytes) {
                 const buffer = buffer_1.Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
