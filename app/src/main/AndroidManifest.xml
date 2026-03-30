@@ -57,7 +57,16 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="alfanews.app" />
+                <data android:scheme="http" android:host="alfanews.app" android:pathPrefix="/news" />
+                <data android:scheme="https" android:host="alfanews.app" android:pathPrefix="/news" />
+            </intent-filter>
+
+            <!-- Custom Scheme Deep Link: alfanews://news/{postId} -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="alfanews" android:host="news" />
             </intent-filter>
         </activity>
 

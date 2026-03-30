@@ -44,6 +44,7 @@ import com.alfanews.telugu.ui.theme.AlfaNewsTheme
 import com.alfanews.telugu.utils.Constants
 import com.alfanews.telugu.utils.uploadMediaToStorage
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.google.firebase.Timestamp
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -138,11 +139,19 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
     fun fetchCurrentLocation() {
         when (PackageManager.PERMISSION_GRANTED) {
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) -> {
-                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                    if (location != null) {
-                        getAddressFromLocation(location.latitude, location.longitude)
-                    } else {
-                        Toast.makeText(context, "లొకేషన్‌ను తిరిగి పొందడం సాధ్యం కాలేదు.", Toast.LENGTH_SHORT).show()
+                scope.launch {
+                    try {
+                        val location = fusedLocationClient.getCurrentLocation(
+                            com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY,
+                            null
+                        ).await()
+                        if (location != null) {
+                            getAddressFromLocation(location.latitude, location.longitude)
+                        } else {
+                            Toast.makeText(context, "లొకేషన్‌ను తిరిగి పొందడం సాధ్యం కాలేదు.", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "లొకేషన్ పొందడంలో లోపం.", Toast.LENGTH_SHORT).show()
                     }
                 }
             }

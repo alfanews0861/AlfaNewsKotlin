@@ -3,6 +3,7 @@ import java.io.FileInputStream
 
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.gms.google-services")
 }
@@ -16,8 +17,8 @@ android {
         applicationId = "com.alfanews.telugu"
         minSdk = 24
         targetSdk = 35
-        versionCode = 565
-        versionName = "Sree_4.5"
+        versionCode = 566
+        versionName = "Sree_4.6"
         multiDexEnabled = true
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -77,16 +78,21 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
+
+    kotlinOptions {
+        jvmTarget = "21"
+    }
 } // ఇక్కడ Android బ్లాక్ క్లోజ్ అవుతుంది
 
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.constraintlayout:constraintlayout:2.2.0")
 
-    implementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    implementation(platform("androidx.compose:compose-bom:2026.03.01"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
@@ -120,6 +126,7 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("com.google.android.gms:play-services-ads:25.0.0")
+    implementation("com.google.android.gms:play-services-auth:21.3.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("com.google.android.play:app-update-ktx:2.1.0")
 

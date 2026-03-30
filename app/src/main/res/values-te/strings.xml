@@ -1,0 +1,386 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ఆల్ఫా న్యూస్</string>
+    <string name="home">హోమ్</string>
+    <string name="local_news">స్థానిక వార్తలు</string>
+    <string name="create">సృష్టించండి</string>
+    <string name="classifieds">ప్రకటనలు</string>
+    <string name="profile">ప్రొఫైల్</string>
+    <string name="login">లాగిన్</string>
+    <string name="logout">లాగ్ అవుట్</string>
+    <string name="loading">లోడ్ అవుతోంది...</string>
+    <string name="error">లోపం</string>
+    <string name="retry">మళ్ళీ ప్రయత్నించండి</string>
+
+    <string name="news_language">వార్తా భాష</string>
+    <string name="about_us">మా గురించి</string>
+    <string name="contact_us">మమ్మల్ని సంప్రదించండి</string>
+    <string name="privacy_policy">గోప్యతా విధానం</string>
+    <string name="terms_of_service">సేవా నిబంధనలు</string>
+    <string name="content_policy">కంటెంట్ విధానం</string>
+    <string name="disclaimer">నిరాకరణ</string>
+    <string name="ad_policy">ప్రకటనల విధానం</string>
+    <string name="data_policy">డేటా సేకరణ విధానం</string>
+    <string name="display_theme">డిస్ప్లే థీమ్</string>
+    <string name="notifications">నోటిఫికేషన్లు</string>
+    <string name="push_notifications">పుష్ నోటిఫికేషన్లు</string>
+    <string name="edit_profile">ప్రొఫైల్ మార్చు</string>
+    <string name="id_card">ID కార్డు</string>
+    <string name="login_signup">లాగిన్ / సైన్ అప్</string>
+    <string name="guest">అతిథి</string>
+    <string name="delete_account">ఖాతాను తొలగించండి</string>
+    <string name="language_telugu">తెలుగు</string>
+    <string name="language_english">English</string>
+    <string name="theme_light">లైట్ (Light)</string>
+    <string name="theme_dark">డార్క్ (Dark)</string>
+    <string name="theme_system">సిస్టమ్ (System)</string>
+    <string name="policies_info">పాలసీలు మరియు సమాచారం</string>
+    <string name="notification_setting_error">నోటిఫికేషన్ సెట్టింగ్స్ అప్‌డేట్ చేయడంలో విఫలం</string>
+    <string name="account_delete_error">ఖాతా తొలగించడంలో సమస్య: %1$s</string>
+
+    <string name="update_required">అందరూ ఈ కొత్త వెర్షన్ కి అప్‌డేట్ అవ్వాలి</string>
+    <string name="update_now">ఇప్పుడే అప్‌డేట్ చేయండి</string>
+    <string name="post_news">వార్తను పోస్ట్ చేయండి</string>
+    <string name="settings_onboarding">ఇక్కడ మీరు మీకు కావలసిన విధంగా సెట్టింగ్స్ మార్చుకోవచ్చు</string>
+    <string name="rate_us_title">మా యాప్‌ను రేట్ చేయండి</string>
+    <string name="rate_us_text">మీకు మా యాప్ నచ్చితే, దయచేసి ప్లే స్టోర్‌లో రేటింగ్ ఇవ్వండి. మీ అభిప్రాయం మాకు ఎంతో విలువైనది.</string>
+    <string name="rate_now">రేట్ చేయండి</string>
+    <string name="later">తర్వాత</string>
+
+    <string name="admin_panel">నిర్వహణ ప్యానెల్</string>
+    <string name="admin_dashboard">Admin Dashboard</string>
+    <string name="manage_news">వార్తలను నిర్వహించండి</string>
+    <string name="manage_reporters">రిపోర్టర్ల నిర్వహణ</string>
+    <string name="manage_users">వినియోగదారు నిర్వహణ</string>
+    <string name="ads_manager">ప్రకటనల నిర్వహణ</string>
+    <string name="push_notifications_title">పుష్ నోటిఫికేషన్లు</string>
+    <string name="web_scraping">వెబ్ స్క్రాపింగ్</string>
+    <string name="gnews_dashboard">GNews Dashboard</string>
+
+    <!-- Navigation Strings -->
+    <string name="nav_home">హోమ్</string>
+    <string name="nav_local">లోకల్</string>
+    <string name="nav_post">పోస్ట్</string>
+    <string name="nav_classifieds">క్లాసిఫైడ్స్</string>
+    <string name="nav_profile">ప్రొఫైల్</string>
+
+    <!-- News Feed Strings -->
+    <string name="news_preparing">వార్తలు సిద్ధమవుతున్నాయి...</string>
+    <string name="no_news_available">ప్రస్తుతానికి వార్తలు ఏమీ లేవు. కాసేపయ్యాక మళ్ళీ ప్రయత్నించండి.</string>
+    <string name="news_source">Source : %1$s</string>
+    <string name="share_news">వార్తను షేర్ చేయండి</string>
+    <string name="share_failed">షేర్ చేయడంలో విఫలమైంది</string>
+    <string name="screenshot_failed">స్క్రీన్ షాట్ తీయడంలో విఫలమైంది</string>
+
+    <!-- Policy - About Us -->
+    <string name="about_us_title">మా గురించి (About Us)</string>
+    <string name="news_aggregator">News Aggregator</string>
+    <string name="about_us_description">Alfa News Telugu అనేది ఒక News Aggregator అప్లికేషన్. మేము వివిధ విశ్వసనీయ వార్తా వనరులు, వెబ్‌సైట్‌లు మరియు సోషల్ మీడియా నుండి సమాచారాన్ని సేకరించి, మా పాఠకులకు క్లుప్తంగా, \"సూటిగా, సుత్తి లేకుండా\" అందిస్తాము. మా లక్ష్యం కేవలం సమాచారాన్ని సంక్షిప్తీకరించి (Summarized), తక్కువ సమయంలో ఎక్కువ విషయాలు తెలుసుకునేలా చేయడం.</string>
+    <string name="time_valuable">ఈ రోజుల్లో సమయం చాలా విలువైందని మేము అర్థం చేసుకున్నాము, అందుకే మేము వార్తలను 60-70 పదాలలో అందిస్తున్నాము.</string>
+    <string name="our_vision">మా దృష్టి</string>
+    <string name="our_vision_description">వార్తా ప్రపంచంలో ఒక నమ్మకమైన మరియు ముఖ్యమైన వేదికగా నిలవడమే మా దృష్టి. మేము కేవలం వార్తలను నివేదించడమే కాకుండా, వాటి వెనుక ఉన్న వాస్తవాలను లోతుగా విశ్లేషించి, మా పాఠకులకు పూర్తి అవగాహన కల్పించాలనుకుంటున్నాము.</string>
+    <string name="our_values">మా విలువలు</string>
+    <string name="value_honesty">• నిజాయితీ: మేము అందించే ప్రతి వార్తలో వాస్తవికత మరియు పారదర్శకతను పాటిస్తాము.</string>
+    <string name="value_speed">• వేగం: సంఘటన జరిగిన వెంటనే, మేము దానిని మీ ముందుకు తీసుకువస్తాము.</string>
+    <string name="value_brevity">• క్లుప్తత: అనవసరమైన వివరాలు లేకుండా, వార్త యొక్క సారాంశాన్ని మాత్రమే అందిస్తాము.</string>
+    <string name="value_public_interest">• ప్రజా పక్షం: మేము ఎల్లప్పుడూ ప్రజల పక్షాన నిలబడి, వారి గొంతును వినిపిస్తాము.</string>
+    <string name="dmca_policy">DMCA / Takedown Policy</string>
+    <string name="dmca_description">మేము ఇతరుల కాపీరైట్ మరియు మేధో సంపత్తి హక్కులను గౌరవిస్తాము. మా యాప్‌లో ఉన్న ఏదైనా కంటెంట్, ఇమేజ్ లేదా వీడియో పట్ల మీకు అభ్యంతరం ఉంటే, లేదా అది మీ కాపీరైట్‌ను ఉల్లంఘిస్తుందని మీరు భావిస్తే, దయచేసి మాకు తెలియజేయండి.</string>
+    <string name="dmca_email">Email: contact@alfanews.app</string>
+    <string name="dmca_response">మీ అభ్యర్థనను స్వీకరించిన 24 గంటల్లో మేము సంబంధిత కంటెంట్‌ను సమీక్షించి, తొలగిస్తాము.</string>
+    <string name="thank_you">మా ప్రయాణంలో మాతో చేరినందుకు ధన్యవాదాలు. మీ సూచనలు మరియు అభిప్రాయాలు మాకు ఎంతో విలువైనవి.</string>
+
+    <!-- Categories -->
+    <string name="cat_local">స్థానిక</string>
+    <string name="cat_politics">రాజకీయం</string>
+    <string name="cat_crime">క్రైమ్</string>
+    <string name="cat_entertainment">వినోదం</string>
+    <string name="cat_sports">క్రీడలు</string>
+    <string name="cat_business">వ్యాపారం</string>
+    <string name="cat_technology">టెక్నాలజీ</string>
+    <string name="cat_devotion">భక్తి</string>
+    <string name="cat_agriculture">వ్యవసాయం</string>
+    <string name="cat_education_jobs">విద్య/ఉద్యోగాలు</string>
+    <string name="cat_health">ఆరోగ్యం</string>
+    <string name="cat_others">ఇతరాలు</string>
+
+    <!-- Policy - Privacy Policy -->
+    <string name="privacy_policy_title">గోప్యతా విధానం (Privacy Policy)</string>
+    <string name="privacy_intro">Alfa News Telugu (\"మేము,\" \"మా,\" \"మాకు\") మీ గోప్యతను గౌరవిస్తుంది. ఈ గోప్యతా విధానం మేము మా వెబ్‌సైట్/అప్లికేషన్ (\"సేవ\") ద్వారా మీ నుండి ఏ సమాచారాన్ని సేకరిస్తాము, దానిని ఎలా ఉపయోగిస్తాము, మరియు ఎలా భద్రపరుస్తాము అనే విషయాలను వివరిస్తుంది.</string>
+    <string name="info_we_collect">మేము సేకరించే సమాచారం</string>
+    <string name="pii_desc">• వ్యక్తిగత గుర్తింపు సమాచారం: మీరు మా సేవలో రిజిస్టర్ అయినప్పుడు, మేము మీ పేరు, ఇమెయిల్ చిరునామా మరియు ప్రొఫైల్ చిత్రం వంటి సమాచారాన్ని సేకరించవచ్చు.</string>
+    <string name="usage_data_desc">• వినియోగ డేటా: మీరు ఏ వార్తలను చదువుతున్నారు, ఎంత సమయం గడుపుతున్నారు, ఏ ఫీచర్లను ఉపయోగిస్తున్నారు వంటి సమాచారాన్ని మేము స్వయంచాలకంగా సేకరించవచ్చు.</string>
+    <string name="device_info_desc">• పరికర సమాచారం: మీ పరికరం రకం, ఆపరేటింగ్ సిస్టమ్, ప్రత్యేక ఐడెంటిఫైయర్‌లు మరియు నెట్‌వర్క్ సమాచారం వంటివి మేము సేకరించవచ్చు.</string>
+    <string name="how_we_use_info">సమాచారాన్ని ఎలా ఉపయోగిస్తాము</string>
+    <string name="use_provide_service">• మా సేవను అందించడానికి మరియు నిర్వహించడానికి.</string>
+    <string name="use_personalize">• మీ అనుభవాన్ని వ్యక్తిగతీకరించడానికి.</string>
+    <string name="use_improve">• మా సేవను మెరుగుపరచడానికి మరియు కొత్త ఫీచర్లను అభివృద్ధి చేయడానికి.</string>
+    <string name="use_communicate">• మీతో కమ్యూనికేట్ చేయడానికి, ముఖ్యమైన నవీకరణలు లేదా నోటిఫికేషన్లు పంపడానికి.</string>
+    <string name="use_fraud_prevention">• మోసాలను నివారించడానికి మరియు మా సేవా నిబంధనలను అమలు చేయడానికి.</string>
+    <string name="data_security">సమాచార భద్రత</string>
+    <string name="data_security_desc">మేము మీ సమాచారాన్ని రక్షించడానికి తగిన సాంకేతిక మరియు సంస్థాగత చర్యలను తీసుకుంటాము. అయినప్పటికీ, ఇంటర్నెట్‌లో డేటా ప్రసారం 100%% సురక్షితం కాదని గమనించండి.</string>
+
+    <!-- Policy - Ad Policy -->
+    <string name="ad_policy_title">ప్రకటనల విధానం (Advertising Policy)</string>
+    <string name="ad_intro">Alfa News Telugu సేవలను మా వినియోగదారులకు ఉచితంగా అందించడానికి, మేము మా అప్లికేషన్ మరియు వెబ్‌సైట్‌లో ప్రకటనలను ప్రదర్శిస్తాము.</string>
+    <string name="ad_purpose">ప్రకటనల ప్రయోజనం</string>
+    <string name="ad_pay_journalists">• జర్నలిస్టులు మరియు సిబ్బందికి చెల్లింపులు చేయడానికి.</string>
+    <string name="ad_cover_costs">• సర్వర్లు, నిర్వహణ మరియు సాంకేతిక మౌలిక సదుపాయాల ఖర్చులను భరించడానికి.</string>
+    <string name="ad_improve_service">• మా సేవలను నిరంతరం మెరుగుపరచడానికి మరియు కొత్త ఫీచర్లను అభివృద్ధి చేయడానికి.</string>
+    <string name="ad_partners">ప్రకటనల భాగస్వాములు</string>
+    <string name="ad_partners_desc">మేము Google AdMob వంటి మూడవ-పక్ష ప్రకటనల నెట్‌వర్క్‌లతో కలిసి పనిచేస్తాము. ఈ భాగస్వాములు మీకు మరింత సంబంధిత ప్రకటనలను చూపించడానికి కుక్కీలు, వెబ్ బీకాన్‌లు మరియు ఇతర సాంకేతికతలను ఉపయోగిస్తారు.</string>
+    <string name="ad_types">ప్రకటనల రకాలు</string>
+    <string name="ad_types_desc">మా ప్లాట్‌ఫారమ్‌పై మీరు బ్యానర్ ప్రకటనలు, ఇంటర్‌స్టీషియల్ (పూర్తి స్క్రీన్) ప్రకటనలు మరియు స్థానిక (నేటివ్) ప్రకటనలు వంటి వివిధ రకాల ప్రకటనలను చూడవచ్చు.</string>
+    <string name="user_choices">వినియోగదారు ఎంపికలు</string>
+    <string name="user_choices_desc">వ్యక్తిగతీకరించిన ప్రకటనలను నియంత్రించడానికి మీకు కొన్ని ఎంపికలు ఉన్నాయి. మీరు మీ మొబైల్ పరికరం యొక్క సెట్టింగ్‌లలో ప్రకటనల ట్రాకింగ్‌ను పరిమితం చేయవచ్చు.</string>
+
+    <!-- Policy - Contact Us -->
+    <string name="contact_us_title">మమ్మల్ని సంప్రదించండి</string>
+    <string name="contact_intro">మా వార్తా సేవ గురించి మీకు ఏవైనా ప్రశ్నలు, సూచనలు లేదా అభిప్రాయాలు ఉన్నాయా? మమ్మల్ని సంప్రదించడానికి సంకోచించకండి.</string>
+    <string name="send_message">మీ సందేశాన్ని మాకు పంపండి</string>
+    <string name="fill_details_error">దయచేసి అన్ని వివరాలను పూరించండి.</string>
+    <string name="message_success">మీ సందేశం మాకు విజయవంతంగా చేరింది! మా ప్రతినిధి మిమ్మల్ని త్వరలో సంప్రదిస్తారు.</string>
+    <string name="message_send_error">సందేశం పంపడంలో లోపం: %1$s</string>
+    <string name="your_name">మీ పేరు</string>
+    <string name="phone_number">ఫోన్ నంబర్</string>
+    <string name="message">సందేశం</string>
+    <string name="sending">పంపుతోంది...</string>
+    <string name="general_inquiries">సాధారణ విచారణల కోసం:</string>
+    <string name="contact_by_email">మీరు మమ్మల్ని ఇమెయిల్ ద్వారా సంప్రదించవచ్చు. మేము వీలైనంత త్వరగా మీకు ప్రత్యుత్తరం ఇస్తాము.</string>
+    <string name="our_office">మా కార్యాలయం:</string>
+
+    <!-- Policy - Content Policy -->
+    <string name="content_policy_title">కంటెంట్ విధానం (Content Policy)</string>
+    <string name="content_policy_intro">Alfa News Telugu ప్లాట్‌ఫారమ్‌పై సురక్షితమైన మరియు గౌరవప్రదమైన వాతావరణాన్ని సృష్టించడానికి మేము కట్టుబడి ఉన్నాము. మా సేవలను ఉపయోగించే ప్రతి ఒక్కరూ ఈ కంటెంట్ విధానాన్ని తప్పనిసరిగా పాటించాలి.</string>
+    <string name="copyright_complaints">కాపీరైట్ ఉల్లంఘన ఫిర్యాదులు:</string>
+    <string name="copyright_objection">ఎవరికైనా మా యాప్‌లోని ఏదైనా కంటెంట్ లేదా ఇమేజ్ పట్ల అభ్యంతరం ఉంటే, దయచేసి మాకు మెయిల్ చేయండి. మేము కాపీరైట్ చట్టాలను గౌరవిస్తాము.</string>
+    <string name="prohibited_content">నిషిద్ధ కంటెంట్</string>
+    <string name="hate_speech_desc">• ద్వేషపూరిత ప్రసంగం: జాతి, మతం, కులం, లింగం ఆధారంగా వ్యక్తులు లేదా సమూహాలపై హింసను ప్రేరేపించే కంటెంట్.</string>
+    <string name="harassment_desc">• వేధింపులు మరియు బెదిరింపులు: ఇతరులను లక్ష్యంగా చేసుకుని వేధించడం, బెదిరించడం లేదా భయపెట్టడం.</string>
+    <string name="obscenity_desc">• అశ్లీలత మరియు లైంగిక కంటెంట్: అశ్లీల చిత్రాలు, వీడియోలు లేదా లైంగికంగా అసభ్యకరమైన కంటెంట్.</string>
+    <string name="violence_desc">• హింసాత్మక మరియు గ్రాఫిక్ కంటెంట్: అనవసరమైన హింసను, రక్తపాతాన్ని లేదా భయానక చిత్రాలను ప్రదర్శించడం.</string>
+
+    <!-- Policy - Data Collection Policy -->
+    <string name="data_collection_title">సమాచార సేకరణ విధానం (Data Collection Policy)</string>
+    <string name="data_collection_intro">మా సేవలను మీకు అందించడానికి మరియు మెరుగుపరచడానికి, మేము నిర్దిష్ట సమాచారాన్ని సేకరిస్తాము.</string>
+    <string name="info_types">మేము సేకరించే సమాచార రకాలు</string>
+    <string name="info_provided">1. మీరు మాకు అందించే సమాచారం:</string>
+    <string name="account_info_desc">• ఖాతా సమాచారం: మీరు Google వంటి మూడవ పక్ష సేవ ద్వారా లాగిన్ అయినప్పుడు, మేము మీ పేరు, ఇమెయిల్ చిరునామా, మరియు ప్రొఫైల్ చిత్రాన్ని స్వీకరిస్తాము.</string>
+    <string name="user_content_desc">• వినియోగదారు కంటెంట్: మీరు మా ప్లాట్‌ఫారమ్‌పై వ్యాఖ్యలు చేసినప్పుడు లేదా ఇతర కంటెంట్‌ను పోస్ట్ చేసినప్పుడు, మేము ఆ సమాచారాన్ని సేకరిస్తాము.</string>
+    <string name="info_automatic">2. మేము స్వయంచాలకంగా సేకరించే సమాచారం:</string>
+    <string name="usage_details_desc">• వినియోగ వివరాలు: మీరు ఏ వార్తా కథనాలను చదువుతారు, ఏ వీడియోలను చూస్తారు, లైక్‌లు, షేర్‌లు మరియు మీరు మా యాప్‌తో ఎలా సంకర్షణ చెందుతారు అనే సమాచారాన్ని మేము లాగ్ చేస్తాము.</string>
+    <string name="technical_info_desc">• పరికర మరియు సాంకేతిక సమాచారం: మీ IP చిరునామా, పరికర రకం, ఆపరేటింగ్ సిస్టమ్, బ్రౌజర్ రకం, మరియు ప్రత్యేక పరికర ఐడెంటిఫైయర్‌ల వంటి సమాచారాన్ని మేము సేకరిస్తాము.</string>
+    <string name="location_info_desc">• లొకేషన్ సమాచారం: మీరు మాకు అనుమతి ఇస్తే, వార్తలను పోస్ట్ చేసేటప్పుడు మీ భౌగోళిక స్థానాన్ని మేము సేకరించవచ్చు.</string>
+    <string name="why_collect_info">సమాచారాన్ని ఎందుకు సేకరిస్తాము</string>
+    <string name="why_personalize">• మీకు వ్యక్తిగతీకరించిన మరియు సంబంధిత కంటెంట్‌ను అందించడానికి.</string>
+    <string name="why_analyze">• మా సేవలను విశ్లేషించడానికి, ఆపరేట్ చేయడానికి మరియు మెరుగుపరచడానికి.</string>
+    <string name="why_prevent_fraud">• మోసాలను నివారించడానికి మరియు మా సేవల భద్రతను నిర్ధారించడానికి.</string>
+
+    <!-- Policy - Disclaimer -->
+    <string name="disclaimer_title">నిరాకరణ (Disclaimer)</string>
+    <string name="aggregator_disclaimer">News Aggregator Disclaimer</string>
+    <string name="aggregator_disclaimer_desc">Alfa News Telugu ఒక వార్తా సేకరణ (Aggregator) వేదిక. ఇందులో ప్రచురించబడే వార్తలు మరియు కంటెంట్ వివిధ మూలాల నుండి సేకరించబడినవి మరియు సంక్షిప్తీకరించబడినవి. మూల వనరులలో ఉండే లోపాలకు మేము బాధ్యత వహించము.</string>
+    <string name="general_info_disclaimer">Alfa News Telugu వెబ్‌సైట్/అప్లికేషన్‌లో అందించబడిన సమాచారం కేవలం సాధారణ సమాచార ప్రయోజనాల కోసం మాత్రమే. మేము సమాచారాన్ని వీలైనంత ఖచ్చితంగా మరియు తాజాగా ఉంచడానికి ప్రయత్నిస్తున్నప్పటికీ, వెబ్‌సైట్‌లోని సమాచారం యొక్క సంపూర్ణత, ఖచ్చితత్వం, విశ్వసనీయత గురించి మేము ఎలాంటి హామీలు ఇవ్వము.</string>
+    <string name="takedown_policy">Takedown Policy (కంటెంట్ తొలగింపు)</string>
+    <string name="takedown_desc">ఎవరికైనా మా యాప్‌లోని ఏదైనా కంటెంట్ లేదా ఇమేజ్ పట్ల అభ్యంతరం ఉంటే మాకు మెయిల్ చేయండి. Email: contact@alfanews.app. మేము 24 గంటల్లో స్పందించి, అభ్యంతరకరమైన కంటెంట్‌ను తొలగిస్తాము.</string>
+    <string name="reliance_disclaimer">సమాచారంపై ఆధారపడటం</string>
+    <string name="reliance_desc">ఈ వెబ్‌సైట్‌లోని సమాచారంపై మీరు ఉంచే ఏదైనా నమ్మకం పూర్తిగా మీ స్వంత పూచీపై ఆధారపడి ఉంటుంది. ఈ వెబ్‌సైట్ వాడకం వలన కలిగే ఏదైనా నష్టం లేదా హానికి మేము బాధ్యత వహించము.</string>
+
+    <!-- Policy - Terms of Service -->
+    <string name="tos_title">సేవా నిబంధనలు (Terms of Service)</string>
+    <string name="tos_welcome">Alfa News Telugu (\"సేవ\")కి స్వాగతం. ఈ సేవను యాక్సెస్ చేయడం లేదా ఉపయోగించడం ద్వారా, మీరు ఈ సేవా నిబంధనలకు (\"నిబంధనలు\") కట్టుబడి ఉంటారని అంగీకరిస్తున్నారు.</string>
+    <string name="tos_use_service">1. సేవ యొక్క ఉపయోగం</string>
+    <string name="tos_use_desc">మీరు మా సేవను కేవలం చట్టబద్ధమైన ప్రయోజనాల కోసం మరియు ఈ నిబంధనలకు అనుగుణంగా మాత్రమే ఉపయోగించడానికి అంగీకరిస్తున్నారు.</string>
+    <string name="tos_user_accounts">2. వినియోగదారు ఖాతాలు</string>
+    <string name="tos_accounts_desc">మా సేవ యొక్క కొన్ని ఫీచర్లను యాక్సెస్ చేయడానికి, మీరు ఒక ఖాతాను సృష్టించాల్సి రావచ్చు. మీ ఖాతా సమాచారం యొక్క గోప్యతను మరియు మీ ఖాతా కింద జరిగే అన్ని కార్యకలాపాలకు మీరే బాధ్యత వహించాలి.</string>
+    <string name="tos_ip_rights">3. మేధో సంపత్తి హక్కులు</string>
+    <string name="tos_ip_desc">ఈ సేవ మరియు దానిలోని అసలు కంటెంట్, ఫీచర్లు మరియు కార్యాచరణ Alfa News Telugu మరియు దాని లైసెన్సర్‌ల యొక్క ప్రత్యేక ఆస్తి. మా వ్రాతపూర్వక అనుమతి లేకుండా మీరు ఈ కంటెంట్‌ను కాపీ చేయడం, పంపిణీ చేయడం లేదా సవరించడం చేయకూడదు.</string>
+    <string name="tos_user_content">4. వినియోగదారు కంటెంట్</string>
+    <string name="tos_user_content_desc">మీరు మా సేవలో కంటెంట్‌ను (ఉదాహరణకు, వ్యాఖ్యలు) పోస్ట్ చేస్తే, ఆ కంటెంట్‌కు మీరే పూర్తి బాధ్యత వహిస్తారు. మీరు పోస్ట్ చేసే కంటెంట్ మా కంటెంట్ విధానానికి అనుగుణంగా ఉండాలి.</string>
+    <string name="tos_termination">5. సేవ రద్దు</string>
+    <string name="tos_termination_desc">మీరు ఈ నిబంధనలను ఉల్లంఘిస్తే, ఎలాంటి ముందస్తు నోటీసు లేకుండా, మీ ఖాతాను మరియు మా సేవకు మీ యాక్సెస్‌ను మేము మా స్వంత అభీష్టానుసారం నిలిపివేయవచ్చు లేదా రద్దు చేయవచ్చు.</string>
+    <string name="tos_changes">6. నిబంధనలలో మార్పులు</string>
+    <string name="tos_changes_desc">మేము ఈ నిబంధనలను ఎప్పుడైనా సవరించే హక్కును కలిగి ఉన్నాము. ఏవైనా మార్పులు చేసిన తర్వాత కూడా మీరు మా సేవను ఉపయోగించడం కొనసాగిస్తే, మీరు సవరించిన నిబంధనలను అంగీకరించినట్లుగా పరిగణించబడుతుంది.</string>
+
+    <!-- File Picker -->
+    <string name="select_media">మీడియాను ఎంచుకోండి</string>
+    <string name="camera">కెమెరా</string>
+    <string name="gallery">గ్యాలరీ</string>
+    <string name="cancel">రద్దు చేయి</string>
+
+    <!-- Classifieds -->
+    <string name="title_classifieds">క్లాసిఫైడ్స్</string>
+    <string name="my_ads">నా ప్రకటనలు</string>
+    <string name="ad_details">వివరాలు</string>
+    <string name="post_ad">ప్రకటన ఇవ్వండి</string>
+    <string name="price_not_available">ధర వివరాలు లేవు</string>
+    <string name="seller">విక్రేత</string>
+    <string name="call_now">కాల్ చేయండి</string>
+    <string name="chat_now">చాట్ చేయండి</string>
+    <string name="no_ads_found">ప్రకటనలు ఏవీ లేవు.</string>
+    <string name="login_to_post_ad">ప్రకటన ఇవ్వడానికి దయచేసి లాగిన్ అవ్వండి.</string>
+    <string name="go_back">వెనక్కి వెళ్ళు</string>
+    <string name="ad_deleted">ప్రకటన తొలగించబడింది</string>
+    <string name="loading_ads">లోడ్ అవుతున్నాయి...</string>
+    <string name="whatsapp_message">నమస్తే, మీ \'%1$s\' ప్రకటన గురించి మరిన్ని వివరాలు తెలుసుకోవాలి.</string>
+
+    <!-- Classified Categories -->
+    <string name="cls_real_estate">స్థిరాస్తి</string>
+    <string name="cls_vehicles">వాహనాలు</string>
+    <string name="cls_electronics">ఎలక్ట్రానిక్స్</string>
+    <string name="cls_jobs">ఉద్యోగాలు</string>
+    <string name="cls_services">సేవలు</string>
+    <string name="cls_furniture">ఫర్నిచర్</string>
+    <string name="cls_personal">వ్యక్తిగతం</string>
+    <string name="cls_others">ఇతరములు</string>
+
+    <!-- Post News -->
+    <string name="news_details">వార్త వివరాలు</string>
+    <string name="headline">హెడ్‌లైన్</string>
+    <string name="news_content">వార్త కంటెంట్</string>
+    <string name="region_category">ప్రాంతం &amp; కేటగిరీ</string>
+    <string name="state">రాష్ట్రం</string>
+    <string name="district">జిల్లా</string>
+    <string name="mandal">మండలం</string>
+    <string name="location_placeholder">స్థానం (మండలం/గ్రామం)</string>
+    <string name="category">కేటగిరీ</string>
+    <string name="news_media">వార్త మీడియా</string>
+    <string name="upload">అప్‌లోడ్</string>
+    <string name="youtube_link">యూట్యూబ్ లింక్ (ఐచ్ఛికం)</string>
+    <string name="publish_news">వార్తను పబ్లిష్ చేయండి</string>
+    <string name="update_news">వార్తను అప్‌డేట్ చేయండి</string>
+    <string name="uploading_media">మీడియాను అప్‌లోడ్ చేస్తోంది...</string>
+    <string name="news_published_successfully">వార్త విజయవంతంగా పబ్లిష్ చేయబడింది!</string>
+    <string name="news_updated_successfully">వార్త విజయవంతంగా అప్‌డేట్ చేయబడింది!</string>
+    <string name="error_publishing_news">వార్తను పబ్లిష్ చేయడంలో లోపం: %1$s</string>
+    <string name="camera_permission_required">కెమెరా పర్మిషన్ అవసరం</string>
+    <string name="telangana">తెలంగాణ</string>
+    <string name="andhra_pradesh">ఆంధ్రప్రదేశ్</string>
+
+    <!-- Reporting -->
+    <string name="citizen_journalism">సిటిజన్ జర్నలిజం</string>
+    <string name="join_reporter">రిపోర్టర్‌గా చేరండి</string>
+    <string name="reporter_registration">రిపోర్టర్ రిజిస్ట్రేషన్</string>
+    <string name="apply_now">ఇప్పుడే దరఖాస్తు చేసుకోండి</string>
+
+    <!-- Create Menu -->
+    <string name="what_to_post">మీరు ఏమి పోస్ట్ చేయాలనుకుంటున్నారు?</string>
+    <string name="share_story">మీ కంటెంట్‌ని ప్రపంచానికి తెలియజేయండి.</string>
+    <string name="public_submission">ప్రజల సమర్పణ</string>
+    <string name="reporter_staff_desk">రిపోర్టర్ / స్టాఫ్ డెస్క్</string>
+    <string name="join_team">మా రిపోర్టింగ్ టీమ్‌లో చేరండి</string>
+    <string name="buy_sell_services">కొనుగోలు, అమ్మకం లేదా సేవలు</string>
+    <string name="go_back_home">తిరిగి హోమ్ కి వెళ్ళు</string>
+    <string name="post_new_classified">కొత్త క్లాసిఫైడ్ పోస్ట్</string>
+    <string name="post_new_news">కొత్త వార్తను పోస్ట్ చెయ్యి</string>
+
+    <!-- Join Reporter -->
+    <string name="reporter_benefits_title">రిపోర్టర్‌గా ఎందుకు చేరాలి?</string>
+    <string name="reporter_benefit_1">• స్థానిక వార్తలను తక్షణమే పంచుకోండి</string>
+    <string name="reporter_benefit_2">• మీ స్వంత ప్రేక్షకులను పెంచుకోండి</string>
+    <string name="reporter_benefit_3">• ప్రొఫెషనల్ ID కార్డ్ పొందండి</string>
+    <string name="reporter_benefit_4">• ప్రకటనల ద్వారా ఆదాయం</string>
+    <string name="fill_reporter_details">దరఖాస్తు చేయడానికి దయచేసి మీ వివరాలను పూరించండి</string>
+    <string name="application_submitted">దరఖాస్తు విజయవంతంగా సమర్పించబడింది!</string>
+    <string name="already_reporter">మీరు ఇప్పటికే ఒక రిపోర్టర్!</string>
+
+    <!-- Join Reporter Form -->
+    <string name="reporter_app_form">రిపోర్టర్ అప్లికేషన్ ఫారం</string>
+    <string name="full_name">పూర్తి పేరు</string>
+    <string name="father_name">తండ్రిపేరు</string>
+    <string name="phone_number_label">ఫోన్ నెంబర్</string>
+    <string name="region_details">ప్రాంతం వివరాలు</string>
+    <string name="select_district">జిల్లా ఎంచుకోండి</string>
+    <string name="select_mandal">మండలం ఎంచుకోండి</string>
+    <string name="no_mandals_available">అందుబాటులో మండలాలు లేవు</string>
+    <string name="position">పోసిషన్</string>
+    <string name="interested_category">ఆసక్తి వున్నా కేటగిరీ (ఉదా: రాజకీయం, క్రైమ్)</string>
+    <string name="education_qualification">విద్య అర్హత</string>
+    <string name="current_organization">ప్రస్తుతం పనిచేస్తున్న సంస్థ</string>
+    <string name="additional_message">మాకు ఏదైనా సందేశం పంపండి (Message)</string>
+    <string name="message_placeholder">మీ గురించి లేదా ఇతర వివరాలు ఇక్కడ రాయండి...</string>
+    <string name="submit">సబ్మిట్ చేయండి</string>
+    <string name="congratulations">అభినందనలు!</string>
+    <string name="ok">సరే</string>
+    <string name="fill_all_details">దయచేసి అన్ని వివరాలు నింపండి</string>
+    <string name="app_success_logged_in">ధన్యవాదాలు, మీ అప్లికేషన్ పరిశీలించబడుతుంది.</string>
+    <string name="app_success_guest">ధన్యవాదాలు, మీ అప్లికేషన్ పరిశీలించబడుతుంది. ఈ లోపు మీరు లాగిన్ అయి ప్రొఫైల్ అప్‌డేట్ చేసుకోండి.</string>
+    <string name="submission_failed">సమర్పించడంలో విఫలమైంది: %1$s</string>
+    <string name="district_staff_reporter">జిల్లా స్టాఫ్ రిపోర్టర్</string>
+    <string name="mandal_reporter">మండల రిపోర్టర్</string>
+
+    <!-- Login -->
+    <string name="welcome_back">స్వాగతం</string>
+    <string name="login_desc">వార్తలు మరియు క్లాసిఫైడ్స్ పోస్ట్ చేయడానికి ఆల్ఫా న్యూస్‌లోకి లాగిన్ అవ్వండి.</string>
+    <string name="google_login">Google తో లాగిన్ అవ్వండి</string>
+    <string name="privacy_consent">లాగిన్ అవ్వడం ద్వారా, మీరు మా గోప్యతా విధానం మరియు సేవా నిబంధనలకు అంగీకరిస్తున్నారు.</string>
+    <string name="login_error">లాగిన్ విఫలమైంది: %1$s</string>
+    <string name="explore_news_world">వార్తా ప్రపంచంలోకి అడుగుపెట్టండి</string>
+    <string name="or_separator">లేదా</string>
+    <string name="send_otp">OTP పంపండి</string>
+    <string name="enter_otp">OTP నమోదు చేయండి</string>
+    <string name="invalid_otp">OTP తప్పుగా ఉంది.</string>
+    <string name="otp_send_failed">OTP పంపడం విఫలమైంది.</string>
+    <string name="change_mobile_number">మొబైల్ నంబర్ మార్చండి</string>
+    <string name="enter_valid_phone">సరైన 10-అంకెల మొబైల్ నంబర్‌ను నమోదు చేయండి.</string>
+    <string name="technical_error">సాంకేతిక సమస్య ఏర్పడింది.</string>
+    <string name="google_login_failed">గూగుల్ లాగిన్ విఫలమైంది: %1$s</string>
+    <string name="google_id_token_missing">Google ID Token లభించలేదు.</string>
+
+    <!-- Admin & Dashboard -->
+    <string name="active_page">ప్రస్తుత పేజీ: %1$s</string>
+    <string name="profile_updated">ప్రొఫైల్ విజయవంతంగా అప్‌డేట్ చేయబడింది!</string>
+    <string name="profile_update_failed">ప్రొఫైల్ అప్‌డేట్ చేయడం విఫలమైంది: %1$s</string>
+    <string name="authorized_signature">అధీకృత సంతకం</string>
+    <string name="verify_reporter">రిపోర్టర్ వెరిఫై</string>
+    <string name="manage_ads">ప్రకటనల నిర్వహణ</string>
+    <string name="scraping_dashboard">స్క్రాపింగ్ డాష్‌బోర్డ్</string>
+    <string name="user_mgmt">వినియోగదారు నిర్వహణ</string>
+    <string name="admin_notify">అడ్మిన్ నోటిఫికేషన్లు</string>
+    <string name="gnews">GNews</string>
+    <string name="post_update">పోస్ట్‌ను అప్‌డేట్ చేయండి</string>
+    <string name="post_publish">పోస్ట్‌ను పబ్లిష్ చేయండి</string>
+    <string name="verified_by_reporter">రిపోర్టర్ ద్వారా ధృవీకరించబడింది</string>
+    <string name="unverified">ధృవీకరించబడలేదు</string>
+    <string name="delete">తొలగించు</string>
+    <string name="edit">సవరించు</string>
+    <string name="confirm">ధృవీకరించు</string>
+
+    <!-- UI - Miscellaneous -->
+    <string name="detecting_location">మీ ప్రాంతాన్ని గుర్తిస్తున్నాము...</string>
+    <string name="select_district_prompt">దయచేసి మీ జిల్లాను ఎంచుకోండి</string>
+    <string name="no_news_in_district">ఈ జిల్లాలో వార్తలు ఏమీ లేవు</string>
+    <string name="go_to_home">హోమ్ పేజీకి వెళ్ళండి</string>
+    <string name="news_not_available">వార్త అందుబాటులో లేదు.</string>
+    <string name="splash_tagline_1">నిమిషం వార్త.. నిమిషంలో మీ ముందుకు.</string>
+    <string name="splash_tagline_2">అక్షరం పొల్లుపోకుండా.. అసలైన వార్త</string>
+    <string name="splash_tagline_3">న్యూస్ అంటే గోల కాదు.. అసలైన సమాచారం.</string>
+    <string name="splash_tagline_4">కోట్లాది తెలుగు ప్రజల గుండె చప్పుడు</string>
+    <string name="word_straight">సూటిగా</string>
+    <string name="word_no_hammer">సుత్తి లేకుండా</string>
+    <string name="word_concise">క్లుప్తంగా</string>
+    <string name="error_occurred">లోపం జరిగింది: %1$s</string>
+
+    <!-- UI/Other -->
+    <string name="back">వెనక్కి</string>
+    <string name="close">ముగించు</string>
+    <string name="menu">మెనూ</string>
+    <string name="news">వార్తలు</string>
+    <string name="district_desc">జిల్లా</string>
+    <string name="sponsored_content">ప్రకటన</string>
+    <string name="loading_dots">లోడ్ అవుతోంది...</string>
+
+    <!-- Edit Profile -->
+    <string name="display_name">పేరు</string>
+    <string name="phone_whatsapp">ఫోన్ నంబర్ (వాట్సాప్)</string>
+    <string name="mobile_placeholder">10 అంకెల మొబైల్ నంబర్</string>
+    <string name="address_full">పూర్తి చిరునామా (ID కార్డ్ కోసం)</string>
+    <string name="address_placeholder">ఇంటి నంబర్, వీధి, మండలం మొదలైనవి.</string>
+    <string name="profile_photo">ప్రొఫైల్ ఫోటో</string>
+    <string name="choose_photo">ఫోటోను ఎంచుకోండి</string>
+    <string name="auth_signature_admin">అధీకృత సంతకం (అడ్మిన్ మాత్రమే)</string>
+    <string name="auth_signature_desc">ఈ సంతకం అందరు సిబ్బంది ID కార్డులపై \"అధీకృత సంతకం\"గా కనిపిస్తుంది.</string>
+    <string name="choose_signature">సంతకాన్ని ఎంచుకోండి</string>
+    <string name="skip">తర్వాత (Skip)</string>
+    <string name="save">సేవ్ చేయండి</string>
+</resources>

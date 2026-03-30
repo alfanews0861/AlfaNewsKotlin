@@ -31,6 +31,10 @@ import com.google.android.play.core.appupdate.AppUpdateOptions
 import com.google.android.play.core.install.model.AppUpdateType
 import com.google.android.play.core.install.model.UpdateAvailability
 
+import android.content.Context
+import com.alfanews.telugu.utils.LocaleHelper
+import com.alfanews.telugu.utils.PreferenceManager
+
 /**
  * ఆల్ఫా న్యూస్ అప్లికేషన్ యొక్క ప్రధాన యాక్టివిటీ (Activity).
  */
@@ -40,6 +44,13 @@ class MainActivity : ComponentActivity() {
     private val updateRequestCode = 123
     private val mainViewModel: MainViewModel by viewModels { ViewModelFactory(application) }
     private val newsFeedViewModel: NewsFeedViewModel by viewModels { ViewModelFactory(application) }
+
+    override fun attachBaseContext(newBase: Context) {
+        val prefs = PreferenceManager.getInstance(newBase)
+        val languageCode = prefs.language.code
+        val context = LocaleHelper.wrap(newBase, languageCode)
+        super.attachBaseContext(context)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -142,11 +153,22 @@ class MainActivity : ComponentActivity() {
 
     private fun handleDeepLink(intent: Intent?) {
         intent?.data?.let { uri ->
-            val pathSegments = uri.pathSegments
-            if (pathSegments.size >= 2 && pathSegments[0] == "news") {
-                val postId = pathSegments[1]
+            val postId = when (uri.scheme) {
+                "alfanews" -> {
+                    // alfanews://news/POST_ID
+                    if (uri.host == "news") uri.lastPathSegment else null
+                }
+                "https" -> {
+                    // https://alfanews.app/news/POST_ID
+                    val pathSegments = uri.pathSegments
+                    if (pathSegments.size >= 2 && pathSegments[0] == "news") pathSegments[1] else null
+                }
+                else -> null
+            }
+
+            postId?.let { id ->
                 mainViewModel.setActiveTab("home")
-                newsFeedViewModel.loadNews(mainViewModel.language.value, mainViewModel.currentUser.value, initialPostId = postId)
+                newsFeedViewModel.loadNews(mainViewModel.language.value, mainViewModel.currentUser.value, initialPostId = id)
             }
         }
     }

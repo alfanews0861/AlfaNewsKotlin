@@ -18,6 +18,8 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,8 +27,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.net.URL
 import java.util.Locale
 
 class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(application) {
@@ -69,76 +69,77 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     
     @SuppressLint("MissingPermission")
     fun detectLocation(context: Context, currentUser: User?) {
-        // 1. వెంటనే Cache/Preferences లో ఏ జిల్లా ఉందేమో చూడు (Spinner తగ్గించడానికి)
-        val savedDistrict = prefs.getEffectiveDistrict()
+        // 1. వెంటనే Cache/Preferences లేదా User Profile లో ఏ జిల్లా ఉందేమో చూడు
+        val savedDistrict = prefs.selectedDistrict ?: currentUser?.district ?: prefs.detectedDistrict
         if (savedDistrict != null) {
             _activeDistrict.value = savedDistrict
+            _isDetecting.value = false
             if (_news.value.isEmpty()) loadNews(Language.TELUGU, currentUser)
             return
         }
 
-        // 2. ఒకవేళ ఏ జిల్లా దొరకకపోతేనే, లొకేషన్ డిటెక్షన్ ప్రాసెస్ మొదలుపెట్టు
+        // 2. ఏ జిల్లా దొరకకపోతేనే, లొకేషన్ డిటెక్షన్ ప్రాసెస్ మొదలుపెట్టు
         if (_isDetecting.value) return
         _isDetecting.value = true
-        _loading.value = true 
         
         viewModelScope.launch {
-            // GPS ద్వారా ప్రయత్నించడం - 3 సెకన్ల టైమౌట్
+            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(getApplication<Application>())
+
+            // A. Last Known Location - ఇది చాలా వేగంగా (Instant) వస్తుంది
             try {
-                withContext(Dispatchers.IO) {
-                    try {
-                        withTimeout(3000L) {
-                            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(getApplication<Application>())
-                            val location = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null).await()
-                            location?.let {
-                                val geocoder = Geocoder(getApplication(), Locale("te"))
-                                @Suppress("DEPRECATION")
-                                val addresses = geocoder.getFromLocation(it.latitude, it.longitude, 1)
-                                if (addresses != null && addresses.size > 0) {
-                                    val adminArea = addresses[0].adminArea ?: ""
-                                    if (adminArea.contains("Andhra", ignoreCase = true) || adminArea.contains("Telangana", ignoreCase = true)) {
-                                        val detectedName = addresses[0].subAdminArea ?: addresses[0].locality ?: adminArea
-                                        val mappedDistrict = findMatchingDistrict(detectedName)
-                                        if (mappedDistrict != null) {
-                                            updateDetectedDistrict(mappedDistrict, currentUser)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e: Exception) { }
+                val lastLoc = fusedLocationClient.lastLocation.await()
+                lastLoc?.let {
+                    val district = getDistrictFromCoords(it.latitude, it.longitude)
+                    if (district != null) {
+                        updateDetectedDistrict(district, currentUser)
+                        finalizeDetection()
+                        return@launch
+                    }
                 }
             } catch (e: Exception) { }
 
-            // IP-based location ద్వారా ప్రయత్నించడం - 3 సెకన్ల టైమౌట్
+            // B. ఒకవేళ Last Location లేకపోతేనే, GPS ద్వారా ప్రయత్నించు
             try {
-                withContext(Dispatchers.IO) {
-                    try {
-                        withTimeout(3000L) {
-                            val response = URL("http://ip-api.com/json").readText()
-                            val ipInfo = JSONObject(response)
-                            val regionName = ipInfo.optString("regionName", "")
-                            
-                            if (regionName.contains("Andhra", ignoreCase = true) || regionName.contains("Telangana", ignoreCase = true)) {
-                                val city = ipInfo.optString("city")
-                                val mappedDistrict = findMatchingDistrict(city) ?: findMatchingDistrict(regionName)
-                                if (mappedDistrict != null) {
-                                    updateDetectedDistrict(mappedDistrict, currentUser)
-                                }
-                            }
+                withTimeout(5000L) {
+                    val loc = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
+                    if (loc != null) {
+                        val detectedDistrict = getDistrictFromCoords(loc.latitude, loc.longitude)
+                        if (detectedDistrict != null) {
+                            updateDetectedDistrict(detectedDistrict, currentUser)
                         }
-                    } catch (e: Exception) { }
+                    }
                 }
             } catch (e: Exception) { }
 
-            _isDetecting.value = false
-            _loading.value = false
-            
+            finalizeDetection()
             if (_activeDistrict.value == null) {
                 loadGeneralNews()
             } else {
                 if (_news.value.isEmpty()) loadNews(Language.TELUGU, currentUser)
             }
+        }
+    }
+
+    private fun finalizeDetection() {
+        _isDetecting.value = false
+        _loading.value = false
+    }
+
+    private suspend fun getDistrictFromCoords(lat: Double, lon: Double): String? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val geocoder = Geocoder(getApplication(), Locale("te"))
+                @Suppress("DEPRECATION")
+                val addresses = geocoder.getFromLocation(lat, lon, 1)
+                if (!addresses.isNullOrEmpty()) {
+                    val adminArea = addresses[0].adminArea ?: ""
+                    if (adminArea.contains("Andhra", ignoreCase = true) || adminArea.contains("Telangana", ignoreCase = true)) {
+                        val detectedName = addresses[0].subAdminArea ?: addresses[0].locality ?: adminArea
+                        return@withContext findMatchingDistrict(detectedName)
+                    }
+                }
+            } catch (e: Exception) { }
+            null
         }
     }
 
@@ -152,7 +153,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     .limit(pageSize.toLong())
                 
                 val snapshot = query.get().await()
-                val posts = snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                val posts = withContext(Dispatchers.Default) {
+                    snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                }
                 
                 _news.value = posts
                 _loading.value = false
@@ -197,7 +200,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     .limit(pageSize.toLong())
                 
                 val snapshot = query.get().await()
-                val posts = snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                val posts = withContext(Dispatchers.Default) {
+                    snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                }
                 
                 _news.value = posts
                 lastDocument = snapshot.documents.lastOrNull()
@@ -226,7 +231,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     .limit(pageSize.toLong())
                 
                 val snapshot = query.get().await()
-                val newPosts = snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                val newPosts = withContext(Dispatchers.Default) {
+                    snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                }
                 
                 _news.value = _news.value + newPosts
                 lastDocument = snapshot.documents.lastOrNull()

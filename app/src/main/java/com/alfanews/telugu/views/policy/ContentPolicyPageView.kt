@@ -12,6 +12,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+import androidx.compose.ui.res.stringResource
+import com.alfanews.telugu.R
+
 @Composable
 fun ContentPolicyPageView() {
     Card(
@@ -29,14 +32,14 @@ fun ContentPolicyPageView() {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                text = "కంటెంట్ విధానం (Content Policy)",
+                text = stringResource(R.string.content_policy_title),
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.Black
             )
             
             Text(
-                text = "Alfa News Telugu ప్లాట్‌ఫారమ్‌పై సురక్షితమైన మరియు గౌరవప్రదమైన వాతావరణాన్ని సృష్టించడానికి మేము కట్టుబడి ఉన్నాము. మా సేవలను ఉపయోగించే ప్రతి ఒక్కరూ ఈ కంటెంట్ విధానాన్ని తప్పనిసరిగా పాటించాలి.",
+                text = stringResource(R.string.content_policy_intro),
                 fontSize = 16.sp
             )
             
@@ -48,19 +51,19 @@ fun ContentPolicyPageView() {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("కాపీరైట్ ఉల్లంఘన ఫిర్యాదులు:", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF991B1B))
-                    Text("ఎవరికైనా మా యాప్‌లోని ఏదైనా కంటెంట్ లేదా ఇమేజ్ పట్ల అభ్యంతరం ఉంటే, దయచేసి మాకు మెయిల్ చేయండి. మేము కాపీరైట్ చట్టాలను గౌరవిస్తాము.", fontSize = 14.sp)
-                    Text("Email: contact@alfanews.app", fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
-                    Text("మేము 24 గంటల్లో స్పందించి, అభ్యంతరకరమైన కంటెంట్‌ను తొలగిస్తాము.", fontSize = 12.sp, color = Color.Gray)
+                    Text(stringResource(R.string.copyright_complaints), fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF991B1B))
+                    Text(stringResource(R.string.copyright_objection), fontSize = 14.sp)
+                    Text(stringResource(R.string.dmca_email), fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                    Text(stringResource(R.string.dmca_response), fontSize = 12.sp, color = Color.Gray)
                 }
             }
             
-            Text("నిషిద్ధ కంటెంట్", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+            Text(stringResource(R.string.prohibited_content), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("• ద్వేషపూరిత ప్రసంగం: జాతి, మతం, కులం, లింగం ఆధారంగా వ్యక్తులు లేదా సమూహాలపై హింసను ప్రేరేపించే కంటెంట్.", fontSize = 16.sp)
-                Text("• వేధింపులు మరియు బెదిరింపులు: ఇతరులను లక్ష్యంగా చేసుకుని వేధించడం, బెదిరించడం లేదా భయపెట్టడం.", fontSize = 16.sp)
-                Text("• అశ్లీలత మరియు లైంగిక కంటెంట్: అశ్లీల చిత్రాలు, వీడియోలు లేదా లైంగికంగా అసభ్యకరమైన కంటెంట్.", fontSize = 16.sp)
-                Text("• హింసాత్మక మరియు గ్రాఫిక్ కంటెంట్: అనవసరమైన హింసను, రక్తపాతాన్ని లేదా భయానక చిత్రాలను ప్రదర్శించడం.", fontSize = 16.sp)
+                Text(stringResource(R.string.hate_speech_desc), fontSize = 16.sp)
+                Text(stringResource(R.string.harassment_desc), fontSize = 16.sp)
+                Text(stringResource(R.string.obscenity_desc), fontSize = 16.sp)
+                Text(stringResource(R.string.violence_desc), fontSize = 16.sp)
             }
         }
     }

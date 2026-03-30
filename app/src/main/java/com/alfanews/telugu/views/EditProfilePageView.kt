@@ -21,6 +21,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import androidx.compose.ui.res.stringResource
+import com.alfanews.telugu.R
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.ui.theme.Poppins
@@ -31,10 +33,11 @@ import com.alfanews.telugu.utils.Constants
 fun EditProfilePageView(
     user: User,
     onClose: () -> Unit,
-    onSave: (name: String, address: String, district: String, photoUri: Uri?, signatureUri: Uri?) -> Unit,
+    onSave: (name: String, phone: String, address: String, district: String, photoUri: Uri?, signatureUri: Uri?) -> Unit,
     saving: Boolean = false
 ) {
     var editName by remember { mutableStateOf(user.name) }
+    var editPhone by remember { mutableStateOf(user.phone ?: "") }
     var editAddress by remember { mutableStateOf(user.address ?: "") }
     var editDistrict by remember { mutableStateOf(user.district ?: "") }
     var photoUri by remember { mutableStateOf<Uri?>(null) }
@@ -62,7 +65,7 @@ fun EditProfilePageView(
         // Name Edit
         Column {
             Text(
-                text = "Display Name",
+                text = stringResource(R.string.display_name),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.Gray,
@@ -82,6 +85,31 @@ fun EditProfilePageView(
             )
         }
 
+        // Phone Edit
+        Column {
+            Text(
+                text = stringResource(R.string.phone_whatsapp),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Gray,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            OutlinedTextField(
+                value = editPhone,
+                onValueChange = { editPhone = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                placeholder = { Text(stringResource(R.string.mobile_placeholder)) },
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone),
+                textStyle = androidx.compose.ui.text.TextStyle(fontFamily = Poppins),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = Color.Gray.copy(alpha = 0.3f)
+                ),
+                shape = RoundedCornerShape(12.dp)
+            )
+        }
+
         // District Selection
         var districtExpanded by remember { mutableStateOf(false) }
         ExposedDropdownMenuBox(
@@ -92,7 +120,7 @@ fun EditProfilePageView(
                 value = editDistrict,
                 onValueChange = {},
                 readOnly = true,
-                label = { Text("District") },
+                label = { Text(stringResource(R.string.district)) },
                 modifier = Modifier.fillMaxWidth().menuAnchor(),
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = districtExpanded) },
             )
@@ -116,7 +144,7 @@ fun EditProfilePageView(
         // Address Edit
         Column {
             Text(
-                text = "Full Address (For ID Card)",
+                text = stringResource(R.string.address_full),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.Gray,
@@ -126,7 +154,7 @@ fun EditProfilePageView(
                 value = editAddress,
                 onValueChange = { editAddress = it },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("H.No, Street, Mandal etc.", fontFamily = Poppins) },
+                placeholder = { Text(stringResource(R.string.address_placeholder), fontFamily = Poppins) },
                 singleLine = true,
                 textStyle = androidx.compose.ui.text.TextStyle(fontFamily = Poppins),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -140,7 +168,7 @@ fun EditProfilePageView(
         // Photo Upload
         Column {
             Text(
-                text = "Profile Photo",
+                text = stringResource(R.string.profile_photo),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.Gray,
@@ -160,7 +188,7 @@ fun EditProfilePageView(
                     contentScale = ContentScale.Crop
                 )
                 TextButton(onClick = { pickPhotoLauncher.launch("image/*") }) {
-                    Text("Choose Photo")
+                    Text(stringResource(R.string.choose_photo))
                 }
             }
         }
@@ -176,14 +204,14 @@ fun EditProfilePageView(
                     modifier = Modifier.padding(12.dp)
                 ) {
                     Text(
-                        text = "Authorized Signature (Admin Only)",
+                        text = stringResource(R.string.auth_signature_admin),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF991B1B),
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
                     Text(
-                        text = "This signature will appear on ALL staff ID cards as the \"Authorized Signature\".",
+                        text = stringResource(R.string.auth_signature_desc),
                         fontSize = 10.sp,
                         color = Color(0xFFDC2626),
                         modifier = Modifier.padding(bottom = 8.dp)
@@ -220,36 +248,51 @@ fun EditProfilePageView(
                             }
                         }
                         TextButton(onClick = { pickSignatureLauncher.launch("image/*") }) {
-                            Text("Choose Signature")
+                            Text(stringResource(R.string.choose_signature))
                         }
                     }
                 }
             }
         }
 
-        // Save Button
-        Button(
-            onClick = {
-                onSave(editName, editAddress, editDistrict, photoUri, signatureUri)
-            },
+        // Action Buttons
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            enabled = !saving,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFFD93025)
-            ),
-            shape = RoundedCornerShape(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (saving) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    color = Color.White
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+            // Next/Skip Button
+            OutlinedButton(
+                onClick = onClose,
+                modifier = Modifier.weight(1f).height(50.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(stringResource(R.string.skip), fontWeight = FontWeight.Bold)
             }
-            Text(
-                text = if (saving) "Saving..." else "Save Changes",
-                fontWeight = FontWeight.Bold
-            )
+
+            // Save Button
+            Button(
+                onClick = {
+                    onSave(editName, editPhone, editAddress, editDistrict, photoUri, signatureUri)
+                },
+                modifier = Modifier.weight(1f).height(50.dp),
+                enabled = !saving,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFD93025)
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                if (saving) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = Color.White
+                    )
+                } else {
+                    Text(
+                        text = stringResource(R.string.save),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
     }
 }

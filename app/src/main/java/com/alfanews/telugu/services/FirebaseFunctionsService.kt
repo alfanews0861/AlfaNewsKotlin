@@ -88,7 +88,12 @@ object FirebaseFunctionsService {
         position: String,
         interestedArea: String,
         education: String,
-        currentOrg: String
+        currentOrg: String,
+        state: String,
+        district: String,
+        mandal: String,
+        message: String,
+        userId: String? = null
     ): Result<Map<String, Any>> {
         return callFunction("submitReporterApplication", mapOf(
             "fullName" to fullName,
@@ -98,7 +103,12 @@ object FirebaseFunctionsService {
             "position" to position,
             "interestedArea" to interestedArea,
             "education" to education,
-            "currentOrg" to currentOrg
+            "currentOrg" to currentOrg,
+            "state" to state,
+            "district" to district,
+            "mandal" to mandal,
+            "message" to message,
+            "userId" to (userId ?: "")
         ))
     }
 }

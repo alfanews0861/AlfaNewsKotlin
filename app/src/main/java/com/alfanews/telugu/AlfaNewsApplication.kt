@@ -12,8 +12,10 @@ import com.alfanews.telugu.workers.NewsNotificationWorker
 import com.alfanews.telugu.workers.FestivalGreetingWorker
 import java.util.concurrent.TimeUnit
 import java.util.Calendar
+import kotlinx.coroutines.*
 
 class AlfaNewsApplication : Application() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onCreate() {
         super.onCreate()
@@ -39,7 +41,9 @@ class AlfaNewsApplication : Application() {
             // పుష్ నోటిఫికేషన్లు
             FirebaseMessaging.getInstance().subscribeToTopic("all_users")
             
-            scheduleNotificationWork()
+            scope.launch(Dispatchers.Default) {
+                scheduleNotificationWork()
+            }
         } catch (e: Exception) {
             // ఏదైనా ఎర్రర్ వస్తే యాప్ క్రాష్ అవ్వకుండా ఉండటానికి
             e.printStackTrace()

@@ -145,6 +145,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateUserProfile(
         name: String,
+        phone: String,
         address: String,
         district: String,
         photoUri: Uri?,
@@ -156,6 +157,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val user = _currentUser.value ?: throw IllegalStateException("User not logged in")
                 val updates = mutableMapOf<String, Any>(
                     "name" to name,
+                    "phone" to phone,
                     "address" to address,
                     "district" to district,
                 )

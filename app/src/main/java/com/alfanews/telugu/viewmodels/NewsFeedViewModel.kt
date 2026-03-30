@@ -112,7 +112,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 mainCursor = mainBatch.second
                 localCursor = localBatch.second
 
-                var finalPosts = rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first)
+                var finalPosts = withContext(Dispatchers.Default) {
+                    rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first)
+                }
 
                 // Inject greeting at the very top
                 greetingPost?.let {
@@ -172,7 +174,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 mainCursor = mainBatch.second
                 localCursor = localBatch.second
 
-                val newPosts = rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first)
+                val newPosts = withContext(Dispatchers.Default) {
+                    rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first)
+                }
 
                 if (newPosts.isNotEmpty()) {
                     val currentIds = _news.value.map { it.id }.toSet()
@@ -226,7 +230,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         return Pair(filteredList, currentCursor)
     }
 
-    private fun rankAndBlendPosts(pref: List<NewsPost>, main: List<NewsPost>, local: List<NewsPost>): List<NewsPost> {
+    private suspend fun rankAndBlendPosts(pref: List<NewsPost>, main: List<NewsPost>, local: List<NewsPost>): List<NewsPost> = withContext(Dispatchers.Default) {
         val allPosts = (pref + main + local).distinctBy { it.id }
         
         val festivalGreetings = allPosts.filter { it.type == "greeting" && it.likes == 0 }
@@ -235,26 +239,31 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
         // 30% వార్తలను "తాజాదనం" ఆధారంగా, 70% వార్తలను "పర్సనలైజ్డ్ స్కోర్" ఆధారంగా ఎంచుకుందాం
         val totalToRank = normalNews.size
-        val randomCount = (totalToRank * 0.3).toInt()
-
+        
         // 1. తాజా వార్తల నుండి 30% తీసుకోవడం (Serendipity)
         // 20% వార్తలను కొత్త కేటగిరీల నుండి (Exploration/Discovery) తీసుకుందాం
         val discoveryCount = (totalToRank * 0.2).toInt()
         val freshCount = (totalToRank * 0.1).toInt()
         
+        val preferredCategories = AnalyticsService.getUserPreferredCategories().toSet()
+        
         val discoveryNews = normalNews.filter { post -> 
-            post.categories.none { it in AnalyticsService.getUserPreferredCategories() } 
+            post.categories.none { it in preferredCategories } 
         }.shuffled().take(discoveryCount)
         
-        val freshNews = normalNews.filter { it !in discoveryNews }
+        val discoveryIds = discoveryNews.map { it.id }.toSet()
+        
+        val freshNews = normalNews.filter { it.id !in discoveryIds }
             .sortedByDescending { it.timestamp }
             .take(freshCount)
         
+        val freshIds = freshNews.map { it.id }.toSet()
+        
         // 2. మిగిలిన వార్తలకు స్కోర్ ఇవ్వడం (Personalized)
-        val remainingNews = normalNews.filter { it !in discoveryNews && it !in freshNews }
+        val remainingNews = normalNews.filter { it.id !in discoveryIds && it.id !in freshIds }
         val scoredNews = remainingNews.map { post ->
             post to AnalyticsService.calculateRelevanceScore(post)
-        }.sortedByDescending { it.second }.map { it.first }.toMutableList()
+        }.sortedByDescending { it.second }.map { it.first }
 
         // 3. రెండింటినీ కలపడం (FreshNews + Discovery + Personalized)
         val blendedNews = (freshNews + discoveryNews + scoredNews).toMutableList()
@@ -273,7 +282,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             blendedNews.add(0, festivalGreetings.first())
         }
 
-        return blendedNews
+        blendedNews
     }
 
     private suspend fun fetchGreetingPost(): NewsPost? {
@@ -285,7 +294,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 .get()
                 .await()
             
-            snapshot.documents.firstOrNull()?.let { mapDocumentToNewsPost(it) }
+            val doc = snapshot.documents.firstOrNull() ?: return null
+            return mapDocumentToNewsPost(doc)
         } catch (e: Exception) {
             null
         }
@@ -344,22 +354,48 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-                val location = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null).await()
-                if (location != null) {
-                    val geocoder = Geocoder(context, Locale("te"))
-                    val addresses = withContext(Dispatchers.IO) { geocoder.getFromLocation(location.latitude, location.longitude, 1) }
-                    if (!addresses.isNullOrEmpty()) {
-                        val detectedName = addresses[0].subAdminArea ?: addresses[0].locality ?: addresses[0].adminArea
-                        Constants.ALL_DISTRICTS.find { it.contains(detectedName ?: "", ignoreCase = true) || (detectedName ?: "").contains(it, ignoreCase = true) }?.let { mappedDistrict ->
-                            if (prefs.detectedDistrict != mappedDistrict) {
-                                prefs.detectedDistrict = mappedDistrict
-                                _userDistrict.value = mappedDistrict
-                                loadNews(language, currentUser)
-                            }
-                        }
+                
+                // 1. First try last location (Instant)
+                val lastLoc = fusedLocationClient.lastLocation.await()
+                if (lastLoc != null) {
+                    if (processLocationUpdate(context, lastLoc.latitude, lastLoc.longitude, language, currentUser)) {
+                        return@launch
+                    }
+                }
+
+                // 2. Try current location with timeout
+                kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                    val location = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
+                    if (location != null) {
+                        processLocationUpdate(context, location.latitude, location.longitude, language, currentUser)
                     }
                 }
             } catch (e: Exception) { }
+        }
+    }
+
+    private suspend fun processLocationUpdate(context: Context, lat: Double, lon: Double, language: Language, currentUser: User?): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val geocoder = Geocoder(context, Locale("te"))
+                @Suppress("DEPRECATION")
+                val addresses = geocoder.getFromLocation(lat, lon, 1)
+                if (!addresses.isNullOrEmpty()) {
+                    val detectedName = addresses[0].subAdminArea ?: addresses[0].locality ?: addresses[0].adminArea
+                    val mappedDistrict = Constants.ALL_DISTRICTS.find { 
+                        it.contains(detectedName ?: "", ignoreCase = true) || (detectedName ?: "").contains(it, ignoreCase = true) 
+                    }
+                    if (mappedDistrict != null && prefs.detectedDistrict != mappedDistrict) {
+                        prefs.detectedDistrict = mappedDistrict
+                        withContext(Dispatchers.Main) {
+                            _userDistrict.value = mappedDistrict
+                            loadNews(language, currentUser)
+                        }
+                        return@withContext true
+                    }
+                }
+            } catch (e: Exception) { }
+            false
         }
     }
 

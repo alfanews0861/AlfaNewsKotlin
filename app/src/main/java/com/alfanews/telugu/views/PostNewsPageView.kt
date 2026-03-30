@@ -34,8 +34,11 @@ import java.io.File
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import androidx.compose.ui.res.stringResource
+import com.alfanews.telugu.R
 import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.models.User
+import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.services.FirebaseFunctionsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.ui.theme.AlfaNewsTheme
@@ -59,28 +62,48 @@ fun PostNewsPageView(
     var youtubeUrl by remember { mutableStateOf(postToEdit?.youtubeUrl ?: "") }
     var mediaUri by remember { mutableStateOf<Uri?>(null) }
     var mediaType by remember { mutableStateOf(postToEdit?.mediaType?.name ?: "IMAGE") }
-    var location by remember { mutableStateOf(postToEdit?.location ?: "") }
+    var location by remember { mutableStateOf(postToEdit?.location ?: user.assignedMandal ?: "") }
     var category by remember { mutableStateOf(postToEdit?.categories?.firstOrNull { !Constants.ALL_DISTRICTS.contains(it) } ?: "రాజకీయం") }
-    var state by remember { mutableStateOf(postToEdit?.state ?: "TS") }
-    var district by remember { mutableStateOf(postToEdit?.district ?: "") }
+    var state by remember { mutableStateOf(postToEdit?.state ?: user.state ?: "TS") }
+    var district by remember { mutableStateOf(postToEdit?.district ?: user.district ?: "") }
     var isSubmitting by remember { mutableStateOf(false) }
-    var statusMessage by remember { mutableStateOf("వార్తను పబ్లిష్ చేయండి") }
+    
+    val publishString = stringResource(R.string.publish_news)
+    val updateString = stringResource(R.string.update_news)
+    var statusMessage by remember { mutableStateOf("") }
+    
+    LaunchedEffect(postToEdit) {
+        statusMessage = if (postToEdit != null) updateString else publishString
+    }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val districts = if (state == "TS") Constants.TS_DISTRICTS else Constants.AP_DISTRICTS
+    val districts = remember(state, user) {
+        val baseDistricts = if (state == "TS") Constants.TS_DISTRICTS else Constants.AP_DISTRICTS
+        if (user.role == UserRole.REGIONAL_INCHARGE) {
+            baseDistricts.filter { user.assignedDistricts.contains(it) }
+        } else {
+            baseDistricts
+        }
+    }
+
+    LaunchedEffect(districts) {
+        if (district.isNotEmpty() && !districts.contains(district)) {
+            district = ""
+        }
+    }
 
     fun handleSubmit() {
         if (headline.isBlank() || content.isBlank() || (category == "స్థానిక" && district.isBlank())) {
-            Toast.makeText(context, "దయచేసి హెడ్‌లైన్, కంటెంట్ మరియు జిల్లా వివరాలు పూరించండి.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.fill_details_error), Toast.LENGTH_SHORT).show()
             return
         }
 
         scope.launch {
             isSubmitting = true
             try {
-                statusMessage = "మీడియాను అప్‌లోడ్ చేస్తోంది..."
+                statusMessage = context.getString(R.string.uploading_media)
                 var finalMediaUrl = mediaUrl
                 if (mediaUri != null) {
                     val isVideo = context.contentResolver.getType(mediaUri!!)?.startsWith("video/") == true
@@ -88,7 +111,7 @@ fun PostNewsPageView(
                     mediaType = if (isVideo) "VIDEO" else "IMAGE"
                 }
 
-                statusMessage = "సబ్ ఎడిటర్ లు ఎడిటింగ్ చేస్తున్నారు..."
+                statusMessage = context.getString(R.string.loading)
                 
                 val finalCategories = listOf(category, district).filter { it.isNotBlank() }
 
@@ -106,7 +129,7 @@ fun PostNewsPageView(
                     "comments" to (postToEdit?.comments ?: 0),
                     "shares" to (postToEdit?.shares ?: 0),
                     "verificationStatus" to "VERIFIED",
-                    "verificationReason" to "రిపోర్టర్ ద్వారా ధృవీకరించబడింది",
+                    "verificationReason" to "VERIFIED BY REPORTER",
                     "meta" to mapOf("location" to location),
                     "headline" to mapOf("telugu" to headline),
                     "content" to mapOf("telugu" to content)
@@ -120,19 +143,18 @@ fun PostNewsPageView(
                     
                     val newPostId = result["postId"] as? String
                     
-                    statusMessage = if (postToEdit != null) "వార్త అప్‌డేట్ అయ్యింది!" else "వార్త పబ్లిష్ అయ్యింది!"
-                    val successMessage = if (postToEdit != null) "వార్త విజయవంతంగా అప్‌డేట్ చేయబడింది!" else "వార్త విజయవంతంగా పబ్లిష్ చేయబడింది!"
+                    val successMessage = if (postToEdit != null) context.getString(R.string.news_updated_successfully) else context.getString(R.string.news_published_successfully)
                     Toast.makeText(context, successMessage, Toast.LENGTH_SHORT).show()
 
                     delay(1500)
                     onActionComplete(newPostId ?: postToEdit?.id ?: "")
                 } catch (e: Exception) {
-                    statusMessage = "పోస్ట్ చేయడంలో లోపం"
-                    Toast.makeText(context, "వార్తను పబ్లిష్ చేయడంలో లోపం: ${e.message}", Toast.LENGTH_LONG).show()
+                    statusMessage = context.getString(R.string.error)
+                    Toast.makeText(context, context.getString(R.string.error_publishing_news, e.message ?: ""), Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
-                statusMessage = "పోస్ట్ చేయడంలో లోపం"
-                Toast.makeText(context, "వార్తను పబ్లిష్ చేయడంలో లోపం: ${e.message}", Toast.LENGTH_LONG).show()
+                statusMessage = context.getString(R.string.error)
+                Toast.makeText(context, context.getString(R.string.error_publishing_news, e.message ?: ""), Toast.LENGTH_LONG).show()
             } finally {
                 isSubmitting = false
             }
@@ -146,34 +168,34 @@ fun PostNewsPageView(
         ) {
             Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text("వార్త వివరాలు", style = MaterialTheme.typography.titleLarge)
-                    OutlinedTextField(value = headline, onValueChange = { headline = it }, label = { Text("హెడ్‌లైన్") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(value = content, onValueChange = { content = it }, label = { Text("వార్త కంటెంట్") }, modifier = Modifier.fillMaxWidth().height(200.dp))
+                    Text(stringResource(R.string.news_details), style = MaterialTheme.typography.titleLarge)
+                    OutlinedTextField(value = headline, onValueChange = { headline = it }, label = { Text(stringResource(R.string.headline)) }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = content, onValueChange = { content = it }, label = { Text(stringResource(R.string.news_content)) }, modifier = Modifier.fillMaxWidth().height(200.dp))
                 }
             }
 
             Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text("ప్రాంతం & కేటగిరీ", style = MaterialTheme.typography.titleLarge)
+                    Text(stringResource(R.string.region_category), style = MaterialTheme.typography.titleLarge)
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Dropdown(label = "రాష్ట్రం", options = listOf("TS" to "తెలంగాణ", "AP" to "ఆంధ్రప్రదేశ్"), selected = state, onSelected = { s -> state = s; district = "" }, modifier = Modifier.weight(1f))
-                        Dropdown(label = "జిల్లా", options = districts.map { it to it }, selected = district, onSelected = { d -> district = d; location = "" }, modifier = Modifier.weight(1f))
+                        Dropdown(label = stringResource(R.string.state), options = listOf("TS" to stringResource(R.string.telangana), "AP" to stringResource(R.string.andhra_pradesh)), selected = state, onSelected = { s -> state = s; district = "" }, modifier = Modifier.weight(1f))
+                        Dropdown(label = stringResource(R.string.district), options = districts.map { it to it }, selected = district, onSelected = { d -> district = d; location = "" }, modifier = Modifier.weight(1f))
                     }
                     
                     val mandals: List<String> = Constants.MANDAL_DATA[district] ?: emptyList()
                     if (mandals.isNotEmpty()) {
-                        Dropdown(label = "మండలం", options = mandals.map { it to it }, selected = location, onSelected = { l -> location = l }, modifier = Modifier.fillMaxWidth())
+                        Dropdown(label = stringResource(R.string.mandal), options = mandals.map { it to it }, selected = location, onSelected = { l -> location = l }, modifier = Modifier.fillMaxWidth())
                     } else {
-                        OutlinedTextField(value = location, onValueChange = { location = it }, label = { Text("స్థానం (మండలం/గ్రామం)") }, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(value = location, onValueChange = { location = it }, label = { Text(stringResource(R.string.location_placeholder)) }, modifier = Modifier.fillMaxWidth())
                     }
 
-                    Dropdown(label = "కేటగిరీ", options = Constants.CATEGORIES.map { it to it }, selected = category, onSelected = { c -> category = c }, modifier = Modifier.fillMaxWidth())
+                    Dropdown(label = stringResource(R.string.category), options = Constants.CATEGORIES.map { cat -> cat to stringResource(Constants.CATEGORY_RES_MAP[cat] ?: R.string.cat_others) }, selected = category, onSelected = { c -> category = c }, modifier = Modifier.fillMaxWidth())
                 }
             }
 
             Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("వార్త మీడియా", style = MaterialTheme.typography.titleLarge)
+                    Text(stringResource(R.string.news_media), style = MaterialTheme.typography.titleLarge)
                     val displayMedia = mediaUri?.toString() ?: mediaUrl
                     if (displayMedia.isNotEmpty()) {
                         AsyncImage(
@@ -212,7 +234,7 @@ fun PostNewsPageView(
                              tempCameraUri = uri
                              cameraLauncher.launch(uri)
                         } else {
-                            Toast.makeText(context, "కెమెరా పర్మిషన్ అవసరం", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.camera_permission_required), Toast.LENGTH_SHORT).show()
                         }
                     }
 
@@ -243,7 +265,7 @@ fun PostNewsPageView(
                         ) {
                             Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.size(8.dp))
-                            Text("అప్‌లోడ్")
+                            Text(stringResource(R.string.upload))
                         }
 
                         // Camera Button (Blue)
@@ -254,14 +276,14 @@ fun PostNewsPageView(
                         ) {
                             Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.size(8.dp))
-                            Text("కెమెరా")
+                            Text(stringResource(R.string.camera))
                         }
                     }
 
                     OutlinedTextField(
                         value = youtubeUrl ?: "",
                         onValueChange = { youtubeUrl = it },
-                        label = { Text("యూట్యూబ్ లింక్ (ఐచ్ఛికం)") },
+                        label = { Text(stringResource(R.string.youtube_link)) },
                         placeholder = { Text("https://www.youtube.com/watch?v=...") },
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -279,7 +301,7 @@ fun PostNewsPageView(
                         Text(statusMessage)
                     }
                 } else {
-                    Text(if (postToEdit != null) "వార్తను అప్‌డేట్ చేయండి" else "వార్తను పబ్లిష్ చేయండి", fontSize = 18.sp)
+                    Text(if (postToEdit != null) updateString else publishString, fontSize = 18.sp)
                 }
             }
         }

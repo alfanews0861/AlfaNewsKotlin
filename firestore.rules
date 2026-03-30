@@ -3,30 +3,37 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
+    // Helper function to get user data
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
     // User Profiles
     match /users/{userId} {
       allow read: if true;
       // Allow user to write their own profile, or admins to manage them.
       allow write: if request.auth != null && (request.auth.uid == userId ||
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN')
+        getUserData().role == 'ADMIN')
       ;
     }
     
     // News Posts
     match /news/{postId} {
       allow read: if true;
-      // Allow reporters/admins to create posts OR 
+      // Allow reporters/admins/regional_incharge to create posts OR
       // any user with an existing user document (i.e., a role) to create a citizen post.
       allow create: if request.auth != null && (
-                      (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['REPORTER', 'EDITOR', 'ADMIN']) ||
+                      (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+                       getUserData().role in ['REPORTER', 'EDITOR', 'ADMIN'] ||
+                       (getUserData().role == 'REGIONAL_INCHARGE' && request.resource.data.district in getUserData().assignedDistricts)
+                      )) ||
                       (request.resource.data.isCitizen == true)
                     );
-      allow update, delete: if request.auth != null && (
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['EDITOR', 'ADMIN'] ||
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'REPORTER' && resource.data.reporter.id == request.auth.uid))
+      allow update, delete: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+        getUserData().role in ['EDITOR', 'ADMIN'] ||
+        (getUserData().role == 'REPORTER' && resource.data.reporter.id == request.auth.uid) ||
+        (getUserData().role == 'REGIONAL_INCHARGE' && resource.data.district in getUserData().assignedDistricts)
       );
       
       // Comments Sub-collection
@@ -35,40 +42,40 @@ service cloud.firestore {
         allow create: if request.auth != null;
         allow delete: if request.auth != null && (resource.data.userId == request.auth.uid ||
                        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-                        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN'));
+                        getUserData().role == 'ADMIN'));
       }
     }
     
     // RSS, Social & Scraping Feeds (Admin only write)
     match /rss_feeds/{feedId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
     }
     match /social_feeds/{feedId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
     }
     match /scraping_sources/{sourceId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
     }
 
     // System Settings - Public Read, Admin Write
     match /settings/{settingId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
     }
 
     // System Settings (Old name, kept for compatibility) - Public Read, Admin Write
     match /system_settings/{settingId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
     }
     
     // Contact Messages (Public write, Admin read)
     match /contact_messages/{messageId} {
       allow create: if true;
-      allow read, delete, update: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+      allow read, delete, update: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
     }
     
     // Classifieds
@@ -77,13 +84,13 @@ service cloud.firestore {
       allow create: if request.auth != null;
       allow update, delete: if request.auth != null && (resource.data.userId == request.auth.uid ||
                              (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-                              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN'));
+                              getUserData().role == 'ADMIN'));
     }
     
     // Analytics
     match /user_analytics/{eventId} {
       allow create: if true;
-      allow read: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+      allow read: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
     }
 
     // Ads Manager
@@ -92,7 +99,7 @@ service cloud.firestore {
       allow create: if request.auth != null;
       allow update: if request.auth != null && (resource.data.userId == request.auth.uid ||
                     (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-                     get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN'));
+                     getUserData().role == 'ADMIN'));
     }
   }
 }

@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.alfanews.telugu.R
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.ui.theme.Poppins
 
@@ -39,32 +41,32 @@ fun Footer(
         ) {
             FooterItem(
                 icon = Icons.Default.Home,
-                label = "హోమ్",
+                label = stringResource(R.string.nav_home),
                 isActive = activeTab == "home",
                 onClick = { onTabChange("home") }
             )
             FooterItem(
                 icon = Icons.Default.LocationOn,
-                label = "లోకల్",
+                label = stringResource(R.string.nav_local),
                 isActive = activeTab == "local",
                 onClick = { onTabChange("local") }
             )
             FooterItem(
                 icon = Icons.Default.AddCircle,
-                label = "పోస్ట్",
+                label = stringResource(R.string.nav_post),
                 isActive = activeTab == "create",
                 isSpecial = true,
                 onClick = { onTabChange("create") }
             )
             FooterItem(
                 icon = Icons.Default.List,
-                label = "క్లాసిఫైడ్స్",
+                label = stringResource(R.string.nav_classifieds),
                 isActive = activeTab == "classifieds",
                 onClick = { onTabChange("classifieds") }
             )
             FooterItem(
                 icon = Icons.Default.Person,
-                label = "ప్రొఫైల్",
+                label = stringResource(R.string.nav_profile),
                 isActive = activeTab == "profile",
                 onClick = { onTabChange("profile") }
             )

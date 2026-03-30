@@ -12,6 +12,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+import androidx.compose.ui.res.stringResource
+import com.alfanews.telugu.R
+
 @Composable
 fun AboutUsPageView() {
     Card(
@@ -29,7 +32,7 @@ fun AboutUsPageView() {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                text = "మా గురించి (About Us)",
+                text = stringResource(R.string.about_us_title),
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.Black
@@ -43,47 +46,47 @@ fun AboutUsPageView() {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("News Aggregator", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color(0xFF1E3A8A))
+                    Text(stringResource(R.string.news_aggregator), fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color(0xFF1E3A8A))
                     Text(
-                        text = "Alfa News Telugu అనేది ఒక News Aggregator అప్లికేషన్. మేము వివిధ విశ్వసనీయ వార్తా వనరులు, వెబ్‌సైట్‌లు మరియు సోషల్ మీడియా నుండి సమాచారాన్ని సేకరించి, మా పాఠకులకు క్లుప్తంగా, \"సూటిగా, సుత్తి లేకుండా\" అందిస్తాము. మా లక్ష్యం కేవలం సమాచారాన్ని సంక్షిప్తీకరించి (Summarized), తక్కువ సమయంలో ఎక్కువ విషయాలు తెలుసుకునేలా చేయడం.",
+                        text = stringResource(R.string.about_us_description),
                         fontSize = 16.sp
                     )
                 }
             }
             
             Text(
-                text = "ఈ రోజుల్లో సమయం చాలా విలువైందని మేము అర్థం చేసుకున్నాము, అందుకే మేము వార్తలను 60-70 పదాలలో అందిస్తున్నాము.",
+                text = stringResource(R.string.time_valuable),
                 fontSize = 16.sp
             )
             
             Text(
-                text = "మా దృష్టి",
+                text = stringResource(R.string.our_vision),
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFFDC2626)
             )
             Text(
-                text = "వార్తా ప్రపంచంలో ఒక నమ్మకమైన మరియు ముఖ్యమైన వేదికగా నిలవడమే మా దృష్టి. మేము కేవలం వార్తలను నివేదించడమే కాకుండా, వాటి వెనుక ఉన్న వాస్తవాలను లోతుగా విశ్లేషించి, మా పాఠకులకు పూర్తి అవగాహన కల్పించాలనుకుంటున్నాము.",
+                text = stringResource(R.string.our_vision_description),
                 fontSize = 16.sp
             )
             
             Text(
-                text = "మా విలువలు",
+                text = stringResource(R.string.our_values),
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFFDC2626)
             )
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("• నిజాయితీ: మేము అందించే ప్రతి వార్తలో వాస్తవికత మరియు పారదర్శకతను పాటిస్తాము.", fontSize = 16.sp)
-                Text("• వేగం: సంఘటన జరిగిన వెంటనే, మేము దానిని మీ ముందుకు తీసుకువస్తాము.", fontSize = 16.sp)
-                Text("• క్లుప్తత: అనవసరమైన వివరాలు లేకుండా, వార్త యొక్క సారాంశాన్ని మాత్రమే అందిస్తాము.", fontSize = 16.sp)
-                Text("• ప్రజా పక్షం: మేము ఎల్లప్పుడూ ప్రజల పక్షాన నిలబడి, వారి గొంతును వినిపిస్తాము.", fontSize = 16.sp)
+                Text(stringResource(R.string.value_honesty), fontSize = 16.sp)
+                Text(stringResource(R.string.value_speed), fontSize = 16.sp)
+                Text(stringResource(R.string.value_brevity), fontSize = 16.sp)
+                Text(stringResource(R.string.value_public_interest), fontSize = 16.sp)
             }
             
             Divider()
             
             Text(
-                text = "DMCA / Takedown Policy",
+                text = stringResource(R.string.dmca_policy),
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -96,16 +99,16 @@ fun AboutUsPageView() {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "మేము ఇతరుల కాపీరైట్ మరియు మేధో సంపత్తి హక్కులను గౌరవిస్తాము. మా యాప్‌లో ఉన్న ఏదైనా కంటెంట్, ఇమేజ్ లేదా వీడియో పట్ల మీకు అభ్యంతరం ఉంటే, లేదా అది మీ కాపీరైట్‌ను ఉల్లంఘిస్తుందని మీరు భావిస్తే, దయచేసి మాకు తెలియజేయండి.",
+                        text = stringResource(R.string.dmca_description),
                         fontSize = 14.sp
                     )
-                    Text("Email: contact@alfanews.app", fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
-                    Text("మీ అభ్యర్థనను స్వీకరించిన 24 గంటల్లో మేము సంబంధిత కంటెంట్‌ను సమీక్షించి, తొలగిస్తాము.", fontSize = 12.sp, color = Color.Gray)
+                    Text(stringResource(R.string.dmca_email), fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                    Text(stringResource(R.string.dmca_response), fontSize = 12.sp, color = Color.Gray)
                 }
             }
             
             Text(
-                text = "మా ప్రయాణంలో మాతో చేరినందుకు ధన్యవాదాలు. మీ సూచనలు మరియు అభిప్రాయాలు మాకు ఎంతో విలువైనవి.",
+                text = stringResource(R.string.thank_you),
                 fontSize = 16.sp
             )
         }

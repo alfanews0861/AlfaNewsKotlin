@@ -1,5 +1,6 @@
 package com.alfanews.telugu.views
 
+import android.app.Activity
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -19,11 +20,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.alfanews.telugu.R
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
@@ -38,17 +41,6 @@ import java.net.URLEncoder
 
 /**
  * వినియోగదారు ప్రొఫైల్ పేజీ (UserProfilePageView).
- * 
- * ఇందులో వినియోగదారు వివరాలు, యాప్ భాష మార్చుకునే సదుపాయం, థీమ్ సెట్టింగ్స్, 
- * మరియు పాలసీ లింక్‌లు ఉంటాయి.
- * 
- * @param user ప్రస్తుత వినియోగదారు వివరాలు.
- * @param language ప్రస్తుతం ఎంచుకున్న భాష.
- * @param setLanguage భాషను మార్చడానికి ఫంక్షన్.
- * @param themeMode ప్రస్తుత థీమ్ మోడ్.
- * @param onThemeModeChange థీమ్ మోడ్‌ను మార్చడానికి ఫంక్షన్.
- * @param onNavigate ఇతర పేజీలకు వెళ్ళడానికి ఫంక్షన్.
- * @param onLoginRequest లాగిన్ కావాలని కోరినప్పుడు పిలవబడే ఫంక్షన్.
  */
 @Composable
 fun UserProfilePageView(
@@ -69,18 +61,18 @@ fun UserProfilePageView(
 
     // ముఖ్యమైన లింక్‌లు
     val mainLinks = listOf(
-        "about" to "మా గురించి (About Us)",
-        "contact" to "మమ్మల్ని సంప్రదించండి (Contact)"
+        "about" to stringResource(R.string.about_us),
+        "contact" to stringResource(R.string.contact_us)
     )
 
     // పాలసీ లింక్‌లు
     val policyLinks = listOf(
-        "privacy-policy" to "గోప్యతా విధానం (Privacy Policy)",
-        "terms" to "సేవా నిబంధనలు (Terms)",
-        "content-policy" to "కంటెంట్ విధానం (Content Policy)",
-        "disclaimer" to "నిరాకరణ (Disclaimer)",
-        "ad-policy" to "ప్రకటనల విధానం (Ad Policy)",
-        "data-collection" to "డేటా సేకరణ విధానం (Data Policy)"
+        "privacy-policy" to stringResource(R.string.privacy_policy),
+        "terms" to stringResource(R.string.terms_of_service),
+        "content-policy" to stringResource(R.string.content_policy),
+        "disclaimer" to stringResource(R.string.disclaimer),
+        "ad-policy" to stringResource(R.string.ad_policy),
+        "data-collection" to stringResource(R.string.data_policy)
     )
 
     /** నోటిఫికేషన్లను ఆన్/ఆఫ్ చేస్తుంది. */
@@ -94,7 +86,7 @@ fun UserProfilePageView(
                     .update("pushEnabled", newValue)
                     .await()
             } catch (e: Exception) {
-                Toast.makeText(context, "నోటిఫికేషన్ సెట్టింగ్స్ అప్‌డేట్ చేయడంలో విఫలం", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.notification_setting_error), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -114,7 +106,7 @@ fun UserProfilePageView(
                     .await()
                 FirebaseService.auth.signOut()
             } catch (e: Exception) {
-                Toast.makeText(context, "ఖాతా తొలగించడంలో సమస్య: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.account_delete_error, e.message ?: ""), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -158,7 +150,7 @@ fun UserProfilePageView(
                         ) {
                             Icon(
                                 Icons.Default.Edit,
-                                contentDescription = "ప్రొఫైల్ మార్చు",
+                                contentDescription = stringResource(R.string.edit_profile),
                                 modifier = Modifier.padding(6.dp),
                                 tint = MaterialTheme.colorScheme.onPrimary
                             )
@@ -181,7 +173,7 @@ fun UserProfilePageView(
                     shape = MaterialTheme.shapes.small
                 ) {
                     Text(
-                        text = if (isGuest) "అతిథి (Guest)" else user.role.name,
+                        text = if (isGuest) stringResource(R.string.guest) else user.role.name,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
@@ -198,7 +190,7 @@ fun UserProfilePageView(
                         shape = MaterialTheme.shapes.medium,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
-                        Text("లాగిన్ / సైన్ అప్", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.login_signup), fontWeight = FontWeight.Bold)
                     }
                 } else {
                     Row(
@@ -211,7 +203,7 @@ fun UserProfilePageView(
                             shape = MaterialTheme.shapes.medium,
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
-                            Text("ప్రొఫైల్ మార్చు", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                            Text(stringResource(R.string.edit_profile), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                         }
                         if (isStaff) {
                             OutlinedButton(
@@ -220,7 +212,7 @@ fun UserProfilePageView(
                                 shape = MaterialTheme.shapes.medium,
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                             ) {
-                                Text("ID కార్డు", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.id_card), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -230,7 +222,7 @@ fun UserProfilePageView(
         
         // భాష ఎంపిక (Language Selector)
         SettingsGroup(
-            title = "వార్తా భాష (News Language)"
+            title = stringResource(R.string.news_language)
         ) {
             Row(
                 modifier = Modifier
@@ -244,10 +236,15 @@ fun UserProfilePageView(
                         .height(40.dp)
                         .clip(MaterialTheme.shapes.small)
                         .background(if (language == Language.TELUGU) MaterialTheme.colorScheme.primary else Color.Transparent)
-                        .clickable { setLanguage(Language.TELUGU) },
+                        .clickable { 
+                            if (language != Language.TELUGU) {
+                                setLanguage(Language.TELUGU)
+                                (context as? Activity)?.recreate()
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("తెలుగు", fontWeight = FontWeight.Bold, color = if (language == Language.TELUGU) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.language_telugu), fontWeight = FontWeight.Bold, color = if (language == Language.TELUGU) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Box(
                     modifier = Modifier
@@ -255,16 +252,21 @@ fun UserProfilePageView(
                         .height(40.dp)
                         .clip(MaterialTheme.shapes.small)
                         .background(if (language == Language.ENGLISH) MaterialTheme.colorScheme.primary else Color.Transparent)
-                        .clickable { setLanguage(Language.ENGLISH) },
+                        .clickable { 
+                            if (language != Language.ENGLISH) {
+                                setLanguage(Language.ENGLISH)
+                                (context as? Activity)?.recreate()
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("English", fontWeight = FontWeight.Bold, color = if (language == Language.ENGLISH) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.language_english), fontWeight = FontWeight.Bold, color = if (language == Language.ENGLISH) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
 
         // థీమ్ ఎంపిక (Theme Selector)
-        SettingsGroup("డిస్ప్లే థీమ్ (Display Theme)") {
+        SettingsGroup(stringResource(R.string.display_theme)) {
              Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -272,19 +274,19 @@ fun UserProfilePageView(
                     .padding(4.dp)
             ) {
                 ThemeOption(
-                    label = "Light",
+                    label = stringResource(R.string.theme_light),
                     isSelected = themeMode == ThemeMode.LIGHT,
                     onClick = { onThemeModeChange(ThemeMode.LIGHT) },
                     modifier = Modifier.weight(1f)
                 )
                 ThemeOption(
-                    label = "Dark",
+                    label = stringResource(R.string.theme_dark),
                     isSelected = themeMode == ThemeMode.DARK,
                     onClick = { onThemeModeChange(ThemeMode.DARK) },
                     modifier = Modifier.weight(1f)
                 )
                 ThemeOption(
-                    label = "System",
+                    label = stringResource(R.string.theme_system),
                     isSelected = themeMode == ThemeMode.SYSTEM,
                     onClick = { onThemeModeChange(ThemeMode.SYSTEM) },
                     modifier = Modifier.weight(1f)
@@ -293,7 +295,7 @@ fun UserProfilePageView(
         }
 
         // నోటిఫికేషన్లు
-        SettingsGroup("నోటిఫికేషన్లు (Notifications)") {
+        SettingsGroup(stringResource(R.string.notifications)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -302,7 +304,7 @@ fun UserProfilePageView(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text("పుష్ నోటిఫికేషన్లు", color = MaterialTheme.colorScheme.onSurface)
+                    Text(stringResource(R.string.push_notifications), color = MaterialTheme.colorScheme.onSurface)
                 }
                 Switch(
                     checked = pushEnabled,
@@ -343,7 +345,7 @@ fun UserProfilePageView(
         }
 
         // ఇతర పాలసీలు
-        SettingsGroup("పాలసీలు మరియు సమాచారం") {
+        SettingsGroup(stringResource(R.string.policies_info)) {
             Column {
                 policyLinks.forEachIndexed { index, (id, label) ->
                     Row(
@@ -375,14 +377,14 @@ fun UserProfilePageView(
                     shape = MaterialTheme.shapes.medium,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer)
                 ) {
-                    Text("లాగ్ అవుట్ (Logout)", color = MaterialTheme.colorScheme.onErrorContainer, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.logout), color = MaterialTheme.colorScheme.onErrorContainer, fontWeight = FontWeight.Bold)
                 }
 
                 TextButton(
                     onClick = { handleDelete() },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("ఖాతాను తొలగించండి (Delete Account)", color = MaterialTheme.colorScheme.outline, fontSize = 12.sp)
+                    Text(stringResource(R.string.delete_account), color = MaterialTheme.colorScheme.outline, fontSize = 12.sp)
                 }
             }
         }

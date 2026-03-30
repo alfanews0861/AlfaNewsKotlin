@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.ui.theme.Ramabhadra
@@ -46,7 +47,7 @@ fun CreateMenuView(
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = "మీరు ఏమి పోస్ట్ చేయాలనుకుంటున్నారు?",
+                text = stringResource(R.string.what_to_post),
                 fontSize = 28.sp,
                 fontFamily = Ramabhadra,
                 color = MaterialTheme.colorScheme.onBackground,
@@ -62,7 +63,7 @@ fun CreateMenuView(
                 modifier = Modifier.padding(bottom = 4.dp)
             )
             Text(
-                text = "మీ కంటెంట్‌ని ప్రపంచానికి తెలియజేయండి.",
+                text = stringResource(R.string.share_story),
                 fontSize = 18.sp,
                 fontFamily = Mallanna,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
@@ -75,8 +76,8 @@ fun CreateMenuView(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 CreateMenuButton(
-                    title = "సిటిజన్ జర్నలిజం",
-                    subtitle = "Public submission",
+                    title = stringResource(R.string.citizen_journalism),
+                    subtitle = stringResource(R.string.public_submission),
                     icon = "📢",
                     gradientColors = listOf(MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.primary),
                     onClick = { onAction("citizen") }
@@ -84,16 +85,16 @@ fun CreateMenuView(
                 
                 if (canPostNews) {
                     CreateMenuButton(
-                        title = "కొత్త వార్తను పోస్ట్ చెయ్యి",
-                        subtitle = "Reporter / Staff Desk",
+                        title = stringResource(R.string.post_new_news),
+                        subtitle = stringResource(R.string.reporter_staff_desk),
                         icon = "📝",
                         gradientColors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary),
                         onClick = { onAction("news") }
                     )
                 } else {
                     CreateMenuButton(
-                        title = "విలేకరి గా చేరండి",
-                        subtitle = "Join our reporting team",
+                        title = stringResource(R.string.join_reporter),
+                        subtitle = stringResource(R.string.join_team),
                         icon = "🎤",
                         gradientColors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary),
                         onClick = { onAction("join_reporter") }
@@ -101,8 +102,8 @@ fun CreateMenuView(
                 }
                 
                 CreateMenuButton(
-                    title = "కొత్త క్లాసిఫైడ్ పోస్ట్",
-                    subtitle = "Buy, Sell or Services",
+                    title = stringResource(R.string.post_new_classified),
+                    subtitle = stringResource(R.string.buy_sell_services),
                     icon = "🏷️",
                     gradientColors = listOf(MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.primary),
                     onClick = { onAction("classified") }
@@ -120,7 +121,7 @@ fun CreateMenuView(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "తిరిగి వెళ్ళు",
+                    text = stringResource(R.string.go_back_home),
                     fontSize = 18.sp,
                     fontFamily = Ramabhadra,
                     color = MaterialTheme.colorScheme.onBackground

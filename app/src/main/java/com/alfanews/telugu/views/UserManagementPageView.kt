@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -50,10 +51,17 @@ fun UserManagementPageView(currentUser: User) {
                 users = fetchedUsers
                 editors = fetchedUsers.filter { it.role == UserRole.EDITOR }
 
-                val baseList = if (currentUser.role == UserRole.EDITOR) {
-                    fetchedUsers.filter { u -> u.role == UserRole.SUBSCRIBER || (u.role == UserRole.REPORTER && u.promotedBy == currentUser.id) }
-                } else {
-                    fetchedUsers
+                val baseList = when (currentUser.role) {
+                    UserRole.EDITOR -> {
+                        fetchedUsers.filter { u -> u.role == UserRole.SUBSCRIBER || (u.role == UserRole.REPORTER && u.promotedBy == currentUser.id) }
+                    }
+                    UserRole.REGIONAL_INCHARGE -> {
+                        fetchedUsers.filter { u -> 
+                            (u.role == UserRole.SUBSCRIBER || u.role == UserRole.REPORTER) && 
+                            u.district != null && currentUser.assignedDistricts.contains(u.district)
+                        }
+                    }
+                    else -> fetchedUsers
                 }
                 
                 val lowercasedFilter = searchTerm.lowercase()
@@ -75,10 +83,17 @@ fun UserManagementPageView(currentUser: User) {
 
     LaunchedEffect(searchTerm) {
         val lowercasedFilter = searchTerm.lowercase()
-        val baseList = if (currentUser.role == UserRole.EDITOR) {
-            users.filter { u -> u.role == UserRole.SUBSCRIBER || (u.role == UserRole.REPORTER && u.promotedBy == currentUser.id) }
-        } else {
-            users
+        val baseList = when (currentUser.role) {
+            UserRole.EDITOR -> {
+                users.filter { u -> u.role == UserRole.SUBSCRIBER || (u.role == UserRole.REPORTER && u.promotedBy == currentUser.id) }
+            }
+            UserRole.REGIONAL_INCHARGE -> {
+                users.filter { u -> 
+                    (u.role == UserRole.SUBSCRIBER || u.role == UserRole.REPORTER) && 
+                    u.district != null && currentUser.assignedDistricts.contains(u.district)
+                }
+            }
+            else -> users
         }
         filteredUsers = if (lowercasedFilter.isBlank()) baseList else baseList.filter { 
             it.name.lowercase().contains(lowercasedFilter) || (it.email?.lowercase()?.contains(lowercasedFilter) == true)
@@ -174,7 +189,7 @@ private fun UserManagementCard(
             // Role Management Section
             if (currentUser.role == UserRole.ADMIN) {
                 AdminRoleManager(user, isUpdating, onUpdate, editors)
-            } else if (currentUser.role == UserRole.EDITOR && user.role == UserRole.SUBSCRIBER) {
+            } else if ((currentUser.role == UserRole.EDITOR || currentUser.role == UserRole.REGIONAL_INCHARGE) && user.role == UserRole.SUBSCRIBER) {
                 EditorRoleManager(user, currentUser, isUpdating, onUpdate)
             }
         }
@@ -186,7 +201,7 @@ private fun UserManagementCard(
 private fun AdminRoleManager(user: User, isUpdating: Boolean, onUpdate: (Map<String, Any>) -> Unit, editors: List<User>) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         var roleExpanded by remember { mutableStateOf(false) }
-        val availableRoles = listOf(UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)
+        val availableRoles = listOf(UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.EDITOR, UserRole.ADMIN)
         
         ExposedDropdownMenuBox(expanded = roleExpanded, onExpandedChange = { if (!isUpdating) roleExpanded = it }) {
             OutlinedTextField(
@@ -208,7 +223,46 @@ private fun AdminRoleManager(user: User, isUpdating: Boolean, onUpdate: (Map<Str
             }
         }
 
+        if (user.role == UserRole.REGIONAL_INCHARGE) {
+            var districtText by remember { mutableStateOf(user.assignedDistricts.joinToString(", ")) }
+            OutlinedTextField(
+                value = districtText,
+                onValueChange = { 
+                    districtText = it
+                },
+                label = { Text("Assigned Districts (comma separated)") },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("e.g. Hyderabad, Rangareddy") },
+                enabled = !isUpdating,
+                trailingIcon = {
+                    IconButton(onClick = {
+                        val list = districtText.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                        onUpdate(mapOf("assignedDistricts" to list))
+                    }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Update Districts")
+                    }
+                }
+            )
+        }
+
         if (user.role == UserRole.REPORTER) {
+            var mandalText by remember { mutableStateOf(user.assignedMandal ?: "") }
+            OutlinedTextField(
+                value = mandalText,
+                onValueChange = { mandalText = it },
+                label = { Text("Assigned Mandal (Reporter)") },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("e.g. Nellore City, Kovur") },
+                enabled = !isUpdating,
+                trailingIcon = {
+                    IconButton(onClick = {
+                        onUpdate(mapOf("assignedMandal" to mandalText))
+                    }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Update Mandal")
+                    }
+                }
+            )
+
             var editorExpanded by remember { mutableStateOf(false) }
             val assignedEditorName = editors.find { it.id == user.promotedBy }?.name ?: "ADMIN"
 
@@ -241,15 +295,37 @@ private fun AdminRoleManager(user: User, isUpdating: Boolean, onUpdate: (Map<Str
 
 @Composable
 private fun EditorRoleManager(user: User, currentUser: User, isUpdating: Boolean, onUpdate: (Map<String, Any>) -> Unit) {
-    Button(
-        onClick = { onUpdate(mapOf("role" to UserRole.REPORTER.name, "promotedBy" to currentUser.id)) },
-        enabled = !isUpdating,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        if (isUpdating) {
-            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
-        } else {
-            Text("Promote to Reporter")
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (user.role == UserRole.SUBSCRIBER) {
+            Button(
+                onClick = { onUpdate(mapOf("role" to UserRole.REPORTER.name, "promotedBy" to currentUser.id)) },
+                enabled = !isUpdating,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isUpdating) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
+                } else {
+                    Text("Promote to Reporter")
+                }
+            }
+        } else if (user.role == UserRole.REPORTER) {
+            // ఎడిటర్లు మరియు రీజనల్ ఇన్‌ఛార్జ్‌లు రిపోర్టర్లకు మండలాన్ని కేటాయించవచ్చు
+            var mandalText by remember { mutableStateOf(user.assignedMandal ?: "") }
+            OutlinedTextField(
+                value = mandalText,
+                onValueChange = { mandalText = it },
+                label = { Text("Assigned Mandal (Reporter)") },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("e.g. Nellore City, Kovur") },
+                enabled = !isUpdating,
+                trailingIcon = {
+                    IconButton(onClick = {
+                        onUpdate(mapOf("assignedMandal" to mandalText))
+                    }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Update Mandal")
+                    }
+                }
+            )
         }
     }
 }

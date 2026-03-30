@@ -1,5 +1,7 @@
 package com.alfanews.telugu.utils
 
+import com.alfanews.telugu.R
+
 object Constants {
     val TS_DISTRICTS = listOf(
         "ఆదిలాబాద్", "భద్రాద్రి కొత్తగూడెం", "హన్మకొండ", "హైదరాబాద్", "జగిత్యాల", "జనగాం", "జయశంకర్ భూపాలపల్లి",
@@ -21,6 +23,21 @@ object Constants {
     val CATEGORIES = listOf(
         "స్థానిక", "రాజకీయం", "క్రైమ్", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "వ్యవసాయం",
         "విద్య/ఉద్యోగాలు", "ఆరోగ్యం", "ఇతరాలు"
+    )
+
+    val CATEGORY_RES_MAP = mapOf(
+        "స్థానిక" to R.string.cat_local,
+        "రాజకీయం" to R.string.cat_politics,
+        "క్రైమ్" to R.string.cat_crime,
+        "వినోదం" to R.string.cat_entertainment,
+        "క్రీడలు" to R.string.cat_sports,
+        "వ్యాపారం" to R.string.cat_business,
+        "టెక్నాలజీ" to R.string.cat_technology,
+        "భక్తి" to R.string.cat_devotion,
+        "వ్యవసాయం" to R.string.cat_agriculture,
+        "విద్య/ఉద్యోగాలు" to R.string.cat_education_jobs,
+        "ఆరోగ్యం" to R.string.cat_health,
+        "ఇతరాలు" to R.string.cat_others
     )
     
     val MANDAL_DATA = mapOf(

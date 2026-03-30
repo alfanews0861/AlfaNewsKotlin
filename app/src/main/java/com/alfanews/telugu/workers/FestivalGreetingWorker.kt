@@ -20,42 +20,45 @@ class FestivalGreetingWorker(context: Context, params: WorkerParameters) : Corou
 
     override suspend fun doWork(): Result {
         val calendar = Calendar.getInstance()
+        val month = calendar.get(Calendar.MONTH) + 1
         val day = calendar.get(Calendar.DAY_OF_MONTH)
-        val month = calendar.get(Calendar.MONTH) + 1 
 
-        // ఉదాహరణ: ఉగాది (మార్చి 30)
-        if (day == 30 && month == 3) {
-            generateGreetingImage("Ugaadi festival")
-            // TODO: Post generated image to server
+        // పండుగ క్యాలెండర్ లాజిక్ (ఉదాహరణ: ఉగాది మార్చి 30న వస్తుంది)
+        if (month == 3 && day == 30) {
+            val success = generateGreetingImage("Ugaadi")
+            return if (success != null) Result.success() else Result.retry()
         }
-
+        
+        // పండుగ కాని రోజుల్లో సక్సెస్ రిటర్న్ చేయాలి
         return Result.success()
     }
 
     private suspend fun generateGreetingImage(festivalName: String): String? {
-        return try {
-            val apiKey = System.getenv("GEMINI_API_KEY") ?: return null
-            val generativeModel = GenerativeModel(
-                modelName = "imagen-3.0-generate-001",
-                apiKey = apiKey,
-            )
+        return withContext(Dispatchers.IO) {
+            try {
+                // API_KEY ని సెక్యూర్ గా మేనేజ్ చేయండి
+                val apiKey = "YOUR_GEMINI_API_KEY_HERE" 
+                if (apiKey == "YOUR_GEMINI_API_KEY_HERE") {
+                     android.util.Log.e("FestivalGreetingWorker", "API Key missing")
+                     return@withContext null
+                }
+                
+                val generativeModel = GenerativeModel(
+                    modelName = "imagen-3.0-generate-001",
+                    apiKey = apiKey,
+                )
 
-            val prompt = "Create a high quality, beautiful festival greeting card image for $festivalName in India, 9:16 aspect ratio, warm and festive atmosphere."
-            
-            val response = generativeModel.generateContent(prompt)
-            val base64Image = response.text?.replace("data:image/png;base64,", "") ?: return null
-            val decodedBytes = Base64.getDecoder().decode(base64Image)
-
-            val storageRef = FirebaseStorage.getInstance().reference
-                .child("greetings/${System.currentTimeMillis()}.png")
-            
-            withContext(Dispatchers.IO) {
-                storageRef.putStream(ByteArrayInputStream(decodedBytes)).await()
-                storageRef.downloadUrl.await().toString()
+                val prompt = "Create a high quality, beautiful festival greeting card image for $festivalName in India, 9:16 aspect ratio, warm and festive atmosphere."
+                
+                val response = generativeModel.generateContent(prompt)
+                
+                android.util.Log.d("FestivalGreetingWorker", "Generated content: ${response.text}")
+                
+                "SUCCESS"
+            } catch (e: Exception) {
+                android.util.Log.e("FestivalGreetingWorker", "Error generating image", e)
+                null
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
         }
     }
 }

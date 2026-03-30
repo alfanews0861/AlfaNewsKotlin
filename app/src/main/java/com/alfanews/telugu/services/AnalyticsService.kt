@@ -26,6 +26,8 @@ object AnalyticsService {
     private val organizationScores = mutableMapOf<String, Int>()
     private val locationScores = mutableMapOf<String, Int>()
 
+    private var cachedPreferredCategories: List<String>? = null
+
     private const val PREFS_NAME = "analytics_prefs_v2"
     private const val KEY_CATEGORY_SCORES = "category_scores"
     private const val KEY_REPORTER_SCORES = "reporter_scores"
@@ -47,6 +49,7 @@ object AnalyticsService {
      */
     fun onUserLogin(user: User) {
         currentUserId = user.id
+        cachedPreferredCategories = null
         // ఒకవేళ లోకల్ స్కోర్లు ఖాళీగా ఉంటే, డేటాబేస్ నుండి తీసుకోవాలి
         if (categoryScores.isEmpty() && reporterScores.isEmpty() && tagScores.isEmpty() && peopleScores.isEmpty() && organizationScores.isEmpty() && locationScores.isEmpty()) {
             categoryScores.putAll(user.categoryScores)
@@ -72,6 +75,7 @@ object AnalyticsService {
 
     fun onUserLogout() {
         currentUserId = null
+        cachedPreferredCategories = null
         categoryScores.clear()
         reporterScores.clear()
         tagScores.clear()
@@ -104,6 +108,8 @@ object AnalyticsService {
     }
 
     fun logCategoryViews(categories: List<String>, weight: Int = 1) {
+        if (categories.isEmpty()) return
+        cachedPreferredCategories = null
         categories.forEach { category ->
             if (category.isNotBlank()) {
                 categoryScores[category] = (categoryScores[category] ?: 0) + weight
@@ -138,6 +144,7 @@ object AnalyticsService {
     }
 
     fun logPostEngagement(post: NewsPost, weight: Int = 1) {
+        if (post.categories.isNotEmpty()) cachedPreferredCategories = null
         post.categories.forEach { category ->
             if (category.isNotBlank()) categoryScores[category] = (categoryScores[category] ?: 0) + weight
         }
@@ -162,6 +169,7 @@ object AnalyticsService {
     }
 
     fun logNegativeSignal(post: NewsPost) {
+        if (post.categories.isNotEmpty()) cachedPreferredCategories = null
         post.categories.forEach { category ->
             val current = categoryScores[category] ?: 0
             if (current > -20) categoryScores[category] = current - 1
@@ -198,10 +206,13 @@ object AnalyticsService {
     }
 
     fun getUserPreferredCategories(): List<String> {
-        return categoryScores.entries
-            .sortedByDescending { it.value }
-            .take(15)
-            .map { it.key }
+        return cachedPreferredCategories ?: synchronized(this) {
+            cachedPreferredCategories ?: categoryScores.entries
+                .sortedByDescending { it.value }
+                .take(15)
+                .map { it.key }
+                .also { cachedPreferredCategories = it }
+        }
     }
 
     /**

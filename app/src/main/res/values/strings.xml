@@ -11,4 +11,378 @@
     <string name="loading">Loading...</string>
     <string name="error">Error</string>
     <string name="retry">Retry</string>
+
+    <string name="news_language">News Language</string>
+    <string name="about_us">About Us</string>
+    <string name="contact_us">Contact Us</string>
+    <string name="privacy_policy">Privacy Policy</string>
+    <string name="terms_of_service">Terms of Service</string>
+    <string name="content_policy">Content Policy</string>
+    <string name="disclaimer">Disclaimer</string>
+    <string name="ad_policy">Ad Policy</string>
+    <string name="data_policy">Data Policy</string>
+    <string name="display_theme">Display Theme</string>
+    <string name="notifications">Notifications</string>
+    <string name="push_notifications">Push Notifications</string>
+    <string name="edit_profile">Edit Profile</string>
+    <string name="id_card">ID Card</string>
+    <string name="login_signup">Login / Sign Up</string>
+    <string name="guest">Guest</string>
+    <string name="delete_account">Delete Account</string>
+    <string name="language_telugu">Telugu</string>
+    <string name="language_english">English</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="theme_system">System</string>
+    <string name="policies_info">Policies and Information</string>
+    <string name="notification_setting_error">Failed to update notification settings</string>
+    <string name="account_delete_error">Problem deleting account: %1$s</string>
+
+    <!-- Main Screen Strings -->
+    <string name="update_required">Everyone should update to this new version</string>
+    <string name="update_now">Update Now</string>
+    <string name="post_news">Post News</string>
+    <string name="settings_onboarding">Here you can change your settings as you wish</string>
+    <string name="rate_us_title">Rate Our App</string>
+    <string name="rate_us_text">If you like our app, please rate us on Play Store. Your feedback is very valuable to us.</string>
+    <string name="rate_now">Rate Now</string>
+    <string name="later">Later</string>
+
+    <!-- Admin Panel Strings -->
+    <string name="admin_panel">Management Panel</string>
+    <string name="admin_dashboard">Admin Dashboard</string>
+    <string name="manage_news">Manage News</string>
+    <string name="manage_reporters">Reporter Management</string>
+    <string name="manage_users">User Management</string>
+    <string name="ads_manager">Ads Manager</string>
+    <string name="push_notifications_title">Push Notifications</string>
+    <string name="web_scraping">Web Scraping</string>
+    <string name="gnews_dashboard">GNews Dashboard</string>
+
+    <!-- Navigation Strings -->
+    <string name="nav_home">Home</string>
+    <string name="nav_local">Local</string>
+    <string name="nav_post">Post</string>
+    <string name="nav_classifieds">Classifieds</string>
+    <string name="nav_profile">Profile</string>
+
+    <!-- News Feed Strings -->
+    <string name="news_preparing">News is being prepared...</string>
+    <string name="no_news_available">No news available at the moment. Please try again later.</string>
+    <string name="news_source">Source : %1$s</string>
+    <string name="share_news">Share News</string>
+    <string name="share_failed">Sharing failed</string>
+    <string name="screenshot_failed">Screenshot failed</string>
+
+    <!-- Policy - About Us -->
+    <string name="about_us_title">About Us</string>
+    <string name="news_aggregator">News Aggregator</string>
+    <string name="about_us_description">Alfa News Telugu is a News Aggregator application. We collect information from various trusted news sources, websites, and social media, and provide it to our readers concisely, \"straight, without a hammer\". Our aim is just to summarize information and make it possible to know more things in less time.</string>
+    <string name="time_valuable">We understand that time is very valuable these days, which is why we provide news in 60-70 words.</string>
+    <string name="our_vision">Our Vision</string>
+    <string name="our_vision_description">Our vision is to stand as a reliable and important platform in the news world. We don\'t just want to report news, but analyze the facts behind them deeply and provide full awareness to our readers.</string>
+    <string name="our_values">Our Values</string>
+    <string name="value_honesty">• Honesty: We follow realism and transparency in every news we provide.</string>
+    <string name="value_speed">• Speed: We bring it before you as soon as the event happens.</string>
+    <string name="value_brevity">• Brevity: Without unnecessary details, we provide only the summary of the news.</string>
+    <string name="value_public_interest">• Pro-People: We always stand on the side of the people and voice their concerns.</string>
+    <string name="dmca_policy">DMCA / Takedown Policy</string>
+    <string name="dmca_description">We respect others\' copyrights and intellectual property rights. If you have an objection to any content, image, or video in our app, or if you feel it violates your copyright, please let us know.</string>
+    <string name="dmca_email">Email: contact@alfanews.app</string>
+    <string name="dmca_response">Within 24 hours of receiving your request, we will review and remove the relevant content.</string>
+    <string name="thank_you">Thank you for joining us on our journey. Your suggestions and feedback are very valuable to us.</string>
+
+    <!-- Categories -->
+    <string name="cat_local">Local</string>
+    <string name="cat_politics">Politics</string>
+    <string name="cat_crime">Crime</string>
+    <string name="cat_entertainment">Entertainment</string>
+    <string name="cat_sports">Sports</string>
+    <string name="cat_business">Business</string>
+    <string name="cat_technology">Technology</string>
+    <string name="cat_devotion">Devotion</string>
+    <string name="cat_agriculture">Agriculture</string>
+    <string name="cat_education_jobs">Education/Jobs</string>
+    <string name="cat_health">Health</string>
+    <string name="cat_others">Others</string>
+
+    <!-- Policy - Privacy Policy -->
+    <string name="privacy_policy_title">Privacy Policy</string>
+    <string name="privacy_intro">Alfa News Telugu (\"we,\" \"us,\" \"our\") respects your privacy. This Privacy Policy explains what information we collect from you through our website/application (\"Service\"), how we use it, and how we protect it.</string>
+    <string name="info_we_collect">Information We Collect</string>
+    <string name="pii_desc">• Personal Identification Information: When you register for our service, we may collect information such as your name, email address, and profile picture.</string>
+    <string name="usage_data_desc">• Usage Data: We may automatically collect information about which news you read, how much time you spend, and which features you use.</string>
+    <string name="device_info_desc">• Device Information: We may collect information such as your device type, operating system, unique identifiers, and network information.</string>
+    <string name="how_we_use_info">How We Use Information</string>
+    <string name="use_provide_service">• To provide and maintain our service.</string>
+    <string name="use_personalize">• To personalize your experience.</string>
+    <string name="use_improve">• To improve our service and develop new features.</string>
+    <string name="use_communicate">• To communicate with you, to send important updates or notifications.</string>
+    <string name="use_fraud_prevention">• To prevent fraud and enforce our terms of service.</string>
+    <string name="data_security">Data Security</string>
+    <string name="data_security_desc">We take appropriate technical and organizational measures to protect your information. However, please note that data transmission over the internet is not 100%% secure.</string>
+
+    <!-- Policy - Ad Policy -->
+    <string name="ad_policy_title">Advertising Policy</string>
+    <string name="ad_intro">To provide Alfa News Telugu services to our users free of charge, we display advertisements on our application and website.</string>
+    <string name="ad_purpose">Purpose of Advertising</string>
+    <string name="ad_pay_journalists">• To make payments to journalists and staff.</string>
+    <string name="ad_cover_costs">• To cover the costs of servers, maintenance, and technical infrastructure.</string>
+    <string name="ad_improve_service">• To constantly improve our services and develop new features.</string>
+    <string name="ad_partners">Advertising Partners</string>
+    <string name="ad_partners_desc">We work with third-party advertising networks like Google AdMob. These partners use cookies, web beacons, and other technologies to show you more relevant advertisements.</string>
+    <string name="ad_types">Types of Advertisements</string>
+    <string name="ad_types_desc">On our platform, you may see various types of advertisements like banner ads, interstitial (full screen) ads, and local (native) ads.</string>
+    <string name="user_choices">User Choices</string>
+    <string name="user_choices_desc">You have some options to control personalized advertisements. You can limit ad tracking in your mobile device\'s settings.</string>
+
+    <!-- Policy - Contact Us -->
+    <string name="contact_us_title">Contact Us</string>
+    <string name="contact_intro">Do you have any questions, suggestions, or feedback about our news service? Feel free to contact us.</string>
+    <string name="send_message">Send your message to us</string>
+    <string name="fill_details_error">Please fill in all details.</string>
+    <string name="message_success">Your message has reached us successfully! Our representative will contact you soon.</string>
+    <string name="message_send_error">Error sending message: %1$s</string>
+    <string name="your_name">Your Name</string>
+    <string name="phone_number">Phone Number</string>
+    <string name="message">Message</string>
+    <string name="sending">Sending...</string>
+    <string name="general_inquiries">For general inquiries:</string>
+    <string name="contact_by_email">You can contact us via email. We will reply to you as soon as possible.</string>
+    <string name="our_office">Our Office:</string>
+
+    <!-- Policy - Content Policy -->
+    <string name="content_policy_title">Content Policy</string>
+    <string name="content_policy_intro">We are committed to creating a safe and respectful environment on the Alfa News Telugu platform. Everyone using our services must comply with this content policy.</string>
+    <string name="copyright_complaints">Copyright Infringement Complaints:</string>
+    <string name="copyright_objection">If anyone has an objection to any content or image in our app, please email us. We respect copyright laws.</string>
+    <string name="prohibited_content">Prohibited Content</string>
+    <string name="hate_speech_desc">• Hate Speech: Content that incites violence against individuals or groups based on race, religion, caste, gender.</string>
+    <string name="harassment_desc">• Harassment and Threats: Targeting, harassing, threatening, or intimidating others.</string>
+    <string name="obscenity_desc">• Obscenity and Sexual Content: Pornographic images, videos, or sexually explicit content.</string>
+    <string name="violence_desc">• Violent and Graphic Content: Displaying unnecessary violence, bloodshed, or horrific images.</string>
+
+    <!-- Policy - Data Collection Policy -->
+    <string name="data_collection_title">Data Collection Policy</string>
+    <string name="data_collection_intro">To provide and improve our services to you, we collect specific information.</string>
+    <string name="info_types">Types of Information We Collect</string>
+    <string name="info_provided">1. Information you provide to us:</string>
+    <string name="account_info_desc">• Account Information: When you log in through a third-party service like Google, we receive your name, email address, and profile picture.</string>
+    <string name="user_content_desc">• User Content: When you make comments or post other content on our platform, we collect that information.</string>
+    <string name="info_automatic">2. Information we collect automatically:</string>
+    <string name="usage_details_desc">• Usage Details: We log information about which news stories you read, what videos you watch, likes, shares, and how you interact with our app.</string>
+    <string name="technical_info_desc">• Device and Technical Information: We collect information such as your IP address, device type, operating system, browser type, and unique device identifiers.</string>
+    <string name="location_info_desc">• Location Information: If you give us permission, we may collect your geographical location when posting news.</string>
+    <string name="why_collect_info">Why We Collect Information</string>
+    <string name="why_personalize">• To provide you with personalized and relevant content.</string>
+    <string name="why_analyze">• To analyze, operate, and improve our services.</string>
+    <string name="why_prevent_fraud">• To prevent fraud and ensure the security of our services.</string>
+
+    <!-- Policy - Disclaimer -->
+    <string name="disclaimer_title">Disclaimer</string>
+    <string name="aggregator_disclaimer">News Aggregator Disclaimer</string>
+    <string name="aggregator_disclaimer_desc">Alfa News Telugu is a news collection (Aggregator) platform. The news and content published here are collected and summarized from various sources. We are not responsible for errors in the original sources.</string>
+    <string name="general_info_disclaimer">The information provided on the Alfa News Telugu website/application is for general information purposes only. While we try to keep the information as accurate and up-to-date as possible, we make no guarantees about the completeness, accuracy, or reliability of the information on the website.</string>
+    <string name="takedown_policy">Takedown Policy (Content Removal)</string>
+    <string name="takedown_desc">If anyone has an objection to any content or image in our app, please email us. Email: contact@alfanews.app. We will respond within 24 hours and remove objectionable content.</string>
+    <string name="reliance_disclaimer">Reliance on Information</string>
+    <string name="reliance_desc">Any reliance you place on the information on this website is strictly at your own risk. We will not be liable for any loss or damage arising from the use of this website.</string>
+
+    <!-- Policy - Terms of Service -->
+    <string name="tos_title">Terms of Service</string>
+    <string name="tos_welcome">Welcome to Alfa News Telugu (\"Service\"). By accessing or using this service, you agree to be bound by these terms of service (\"Terms\").</string>
+    <string name="tos_use_service">1. Use of Service</string>
+    <string name="tos_use_desc">You agree to use our service only for lawful purposes and in accordance with these terms.</string>
+    <string name="tos_user_accounts">2. User Accounts</string>
+    <string name="tos_accounts_desc">To access some features of our service, you may need to create an account. You are responsible for maintaining the confidentiality of your account information and for all activities that occur under your account.</string>
+    <string name="tos_ip_rights">3. Intellectual Property Rights</string>
+    <string name="tos_ip_desc">The service and its original content, features, and functionality are the exclusive property of Alfa News Telugu and its licensors. You may not copy, distribute, or modify this content without our written permission.</string>
+    <string name="tos_user_content">4. User Content</string>
+    <string name="tos_user_content_desc">If you post content (for example, comments) on our service, you are fully responsible for that content. The content you post must comply with our content policy.</string>
+    <string name="tos_termination">5. Service Termination</string>
+    <string name="tos_termination_desc">If you violate these terms, we may, at our sole discretion, suspend or terminate your account and your access to our service without any prior notice.</string>
+    <string name="tos_changes">6. Changes to Terms</string>
+    <string name="tos_changes_desc">We reserve the right to modify these terms at any time. If you continue to use our service even after any changes are made, you will be deemed to have accepted the revised terms.</string>
+
+    <!-- File Picker -->
+    <string name="select_media">Select Media</string>
+    <string name="camera">Camera</string>
+    <string name="gallery">Gallery</string>
+    <string name="cancel">Cancel</string>
+
+    <!-- Classifieds -->
+    <string name="title_classifieds">Classifieds</string>
+    <string name="my_ads">My Ads</string>
+    <string name="ad_details">Details</string>
+    <string name="post_ad">Post Ad</string>
+    <string name="price_not_available">Price not available</string>
+    <string name="seller">Seller</string>
+    <string name="call_now">Call Now</string>
+    <string name="chat_now">Chat Now</string>
+    <string name="no_ads_found">No ads found.</string>
+    <string name="login_to_post_ad">Please login to post an ad.</string>
+    <string name="go_back">Go Back</string>
+    <string name="ad_deleted">Ad deleted</string>
+    <string name="loading_ads">Loading ads...</string>
+    <string name="whatsapp_message">Hello, I want to know more details about your \'%1$s\' ad.</string>
+
+    <!-- Classified Categories -->
+    <string name="cls_real_estate">Real Estate</string>
+    <string name="cls_vehicles">Vehicles</string>
+    <string name="cls_electronics">Electronics</string>
+    <string name="cls_jobs">Jobs</string>
+    <string name="cls_services">Services</string>
+    <string name="cls_furniture">Furniture</string>
+    <string name="cls_personal">Personal</string>
+    <string name="cls_others">Others</string>
+
+    <!-- Post News -->
+    <string name="news_details">News Details</string>
+    <string name="headline">Headline</string>
+    <string name="news_content">News Content</string>
+    <string name="region_category">Region &amp; Category</string>
+    <string name="state">State</string>
+    <string name="district">District</string>
+    <string name="mandal">Mandal</string>
+    <string name="location_placeholder">Location (Mandal/Village)</string>
+    <string name="category">Category</string>
+    <string name="news_media">News Media</string>
+    <string name="upload">Upload</string>
+    <string name="youtube_link">YouTube Link (Optional)</string>
+    <string name="publish_news">Publish News</string>
+    <string name="update_news">Update News</string>
+    <string name="uploading_media">Uploading media...</string>
+    <string name="news_published_successfully">News published successfully!</string>
+    <string name="news_updated_successfully">News updated successfully!</string>
+    <string name="error_publishing_news">Error publishing news: %1$s</string>
+    <string name="camera_permission_required">Camera permission required</string>
+    <string name="telangana">Telangana</string>
+    <string name="andhra_pradesh">Andhra Pradesh</string>
+
+    <!-- Reporting -->
+    <string name="citizen_journalism">Citizen Journalism</string>
+    <string name="join_reporter">Join as Reporter</string>
+    <string name="reporter_registration">Reporter Registration</string>
+    <string name="apply_now">Apply Now</string>
+
+    <!-- Create Menu -->
+    <string name="what_to_post">What would you like to post?</string>
+    <string name="share_story">Share your story with the world.</string>
+    <string name="public_submission">Public submission</string>
+    <string name="reporter_staff_desk">Reporter / Staff Desk</string>
+    <string name="join_team">Join our reporting team</string>
+    <string name="buy_sell_services">Buy, Sell or Services</string>
+    <string name="go_back_home">Go Back Home</string>
+    <string name="post_new_classified">Post New Classified</string>
+    <string name="post_new_news">Post New News</string>
+
+    <!-- Join Reporter -->
+    <string name="reporter_benefits_title">Why join as a Reporter?</string>
+    <string name="reporter_benefit_1">• Share local news instantly</string>
+    <string name="reporter_benefit_2">• Build your audience</string>
+    <string name="reporter_benefit_3">• Professional ID card</string>
+    <string name="reporter_benefit_4">• Earnings through ads</string>
+    <string name="fill_reporter_details">Please fill in your details to apply</string>
+    <string name="application_submitted">Application submitted successfully!</string>
+    <string name="already_reporter">You are already a reporter!</string>
+
+    <!-- Join Reporter Form -->
+    <string name="reporter_app_form">Reporter Application Form</string>
+    <string name="full_name">Full Name</string>
+    <string name="father_name">Father\'s Name</string>
+    <string name="phone_number_label">Phone Number</string>
+    <string name="region_details">Region Details</string>
+    <string name="select_district">Select District</string>
+    <string name="select_mandal">Select Mandal</string>
+    <string name="no_mandals_available">No mandals available</string>
+    <string name="position">Position</string>
+    <string name="interested_category">Interested Category (e.g., Politics, Crime)</string>
+    <string name="education_qualification">Education Qualification</string>
+    <string name="current_organization">Current Organization</string>
+    <string name="additional_message">Send us a message (Optional)</string>
+    <string name="message_placeholder">Write about yourself or other details here...</string>
+    <string name="submit">Submit</string>
+    <string name="congratulations">Congratulations!</string>
+    <string name="ok">OK</string>
+    <string name="fill_all_details">Please fill in all details</string>
+    <string name="app_success_logged_in">Thank you, your application is being reviewed.</string>
+    <string name="app_success_guest">Thank you, your application is being reviewed. In the meantime, please login and update your profile.</string>
+    <string name="submission_failed">Submission failed: %1$s</string>
+    <string name="district_staff_reporter">District Staff Reporter</string>
+    <string name="mandal_reporter">Mandal Reporter</string>
+
+    <!-- Login -->
+    <string name="welcome_back">Welcome Back</string>
+    <string name="login_desc">Login to Alfa News to post news and classifieds.</string>
+    <string name="google_login">Login with Google</string>
+    <string name="privacy_consent">By logging in, you agree to our Privacy Policy and Terms of Service.</string>
+    <string name="login_error">Login failed: %1$s</string>
+    <string name="explore_news_world">Step into the world of news</string>
+    <string name="or_separator">OR</string>
+    <string name="send_otp">Send OTP</string>
+    <string name="enter_otp">Enter OTP</string>
+    <string name="invalid_otp">Invalid OTP</string>
+    <string name="otp_send_failed">Failed to send OTP</string>
+    <string name="change_mobile_number">Change mobile number</string>
+    <string name="enter_valid_phone">Enter a valid 10-digit mobile number</string>
+    <string name="technical_error">A technical error occurred</string>
+    <string name="google_login_failed">Google login failed: %1$s</string>
+    <string name="google_id_token_missing">Google ID Token not found</string>
+
+    <!-- Admin & Dashboard -->
+    <string name="active_page">Active Page: %1$s</string>
+    <string name="profile_updated">Profile updated successfully!</string>
+    <string name="profile_update_failed">Failed to update profile: %1$s</string>
+    <string name="authorized_signature">Authorized Signature</string>
+    <string name="verify_reporter">Verify Reporter</string>
+    <string name="manage_ads">Manage Ads</string>
+    <string name="scraping_dashboard">Scraping Dashboard</string>
+    <string name="user_mgmt">User Management</string>
+    <string name="admin_notify">Admin Notifications</string>
+    <string name="gnews">GNews</string>
+    <string name="post_update">Update Post</string>
+    <string name="post_publish">Publish Post</string>
+    <string name="verified_by_reporter">Verified by Reporter</string>
+    <string name="unverified">Unverified</string>
+    <string name="delete">Delete</string>
+    <string name="edit">Edit</string>
+    <string name="confirm">Confirm</string>
+
+    <!-- UI - Miscellaneous -->
+    <string name="detecting_location">Identifying your region...</string>
+    <string name="select_district_prompt">Please select your district</string>
+    <string name="no_news_in_district">No news in this district</string>
+    <string name="go_to_home">Go to Home Page</string>
+    <string name="news_not_available">News not available</string>
+    <string name="splash_tagline_1">News in a minute.. before you in a minute.</string>
+    <string name="splash_tagline_2">Without a single letter missing.. original news</string>
+    <string name="splash_tagline_3">News is not noise.. it\'s real information.</string>
+    <string name="splash_tagline_4">Heartbeat of millions of people</string>
+    <string name="word_straight">Straight</string>
+    <string name="word_no_hammer">Simple</string>
+    <string name="word_concise">Concise</string>
+    <string name="error_occurred">An error occurred: %1$s</string>
+
+    <!-- UI/Other -->
+    <string name="back">Back</string>
+    <string name="close">Close</string>
+    <string name="menu">Menu</string>
+    <string name="news">news</string>
+    <string name="district_desc">జిల్లా (District)</string>
+    <string name="sponsored_content">Sponsored Content</string>
+    <string name="loading_dots">Loading...</string>
+
+    <!-- Edit Profile -->
+    <string name="display_name">Display Name</string>
+    <string name="phone_whatsapp">Phone Number (WhatsApp)</string>
+    <string name="mobile_placeholder">10 Digit Mobile Number</string>
+    <string name="address_full">Full Address (For ID Card)</string>
+    <string name="address_placeholder">H.No, Street, Mandal etc.</string>
+    <string name="profile_photo">Profile Photo</string>
+    <string name="choose_photo">Choose Photo</string>
+    <string name="auth_signature_admin">Authorized Signature (Admin Only)</string>
+    <string name="auth_signature_desc">This signature will appear on ALL staff ID cards as the \"Authorized Signature\".</string>
+    <string name="choose_signature">Choose Signature</string>
+    <string name="skip">Skip</string>
+    <string name="save">Save</string>
 </resources>

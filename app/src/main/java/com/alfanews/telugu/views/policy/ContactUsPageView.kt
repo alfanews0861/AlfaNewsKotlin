@@ -13,6 +13,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.alfanews.telugu.R
 import com.alfanews.telugu.services.FirebaseFunctionsService
 import kotlinx.coroutines.launch
 
@@ -27,7 +29,7 @@ fun ContactUsPageView() {
     
     fun handleSubmit() {
         if (name.isEmpty() || phone.isEmpty() || message.isEmpty()) {
-            Toast.makeText(context, "దయచేసి అన్ని వివరాలను పూరించండి.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.fill_details_error), Toast.LENGTH_SHORT).show()
             return
         }
         
@@ -36,15 +38,15 @@ fun ContactUsPageView() {
             try {
                 val result = FirebaseFunctionsService.sendContactEmail(name, phone, message)
                 if (result.isSuccess) {
-                    Toast.makeText(context, "మీ సందేశం మాకు విజయవంతంగా చేరింది! మా ప్రతినిధి మిమ్మల్ని త్వరలో సంప్రదిస్తారు.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, context.getString(R.string.message_success), Toast.LENGTH_LONG).show()
                     name = ""
                     phone = ""
                     message = ""
                 } else {
-                    Toast.makeText(context, "సందేశం పంపడంలో లోపం: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.message_send_error, result.exceptionOrNull()?.message ?: ""), Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "సందేశం పంపడంలో లోపం: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.message_send_error, e.message ?: ""), Toast.LENGTH_SHORT).show()
             } finally {
                 isSubmitting = false
             }
@@ -66,14 +68,14 @@ fun ContactUsPageView() {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                text = "మమ్మల్ని సంప్రదించండి",
+                text = stringResource(R.string.contact_us_title),
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.Black
             )
             
             Text(
-                text = "మా వార్తా సేవ గురించి మీకు ఏవైనా ప్రశ్నలు, సూచనలు లేదా అభిప్రాయాలు ఉన్నాయా? మమ్మల్ని సంప్రదించడానికి సంకోచించకండి.",
+                text = stringResource(R.string.contact_intro),
                 fontSize = 16.sp
             )
             
@@ -85,12 +87,12 @@ fun ContactUsPageView() {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("మీ సందేశాన్ని మాకు పంపండి", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                    Text(stringResource(R.string.send_message), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
                     
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
-                        label = { Text("మీ పేరు") },
+                        label = { Text(stringResource(R.string.your_name)) },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !isSubmitting
                     )
@@ -98,7 +100,7 @@ fun ContactUsPageView() {
                     OutlinedTextField(
                         value = phone,
                         onValueChange = { phone = it },
-                        label = { Text("ఫోన్ నంబర్") },
+                        label = { Text(stringResource(R.string.phone_number)) },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !isSubmitting
                     )
@@ -106,7 +108,7 @@ fun ContactUsPageView() {
                     OutlinedTextField(
                         value = message,
                         onValueChange = { message = it },
-                        label = { Text("సందేశం") },
+                        label = { Text(stringResource(R.string.message)) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(120.dp),
@@ -124,16 +126,16 @@ fun ContactUsPageView() {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
                             Spacer(modifier = Modifier.width(8.dp))
                         }
-                        Text(if (isSubmitting) "పంపుతోంది..." else "సందేశాన్ని పంపండి")
+                        Text(if (isSubmitting) stringResource(R.string.sending) else stringResource(R.string.send_message))
                     }
                 }
             }
             
-            Text("సాధారణ విచారణల కోసం:", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
-            Text("మీరు మమ్మల్ని ఇమెయిల్ ద్వారా సంప్రదించవచ్చు. మేము వీలైనంత త్వరగా మీకు ప్రత్యుత్తరం ఇస్తాము.", fontSize = 16.sp)
-            Text("ఇమెయిల్: contact@alfanews.app", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(stringResource(R.string.general_inquiries), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+            Text(stringResource(R.string.contact_by_email), fontSize = 16.sp)
+            Text(stringResource(R.string.dmca_email), fontWeight = FontWeight.Bold, fontSize = 16.sp)
             
-            Text("మా కార్యాలయం:", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+            Text(stringResource(R.string.our_office), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFFF3F4F6)),
                 modifier = Modifier.fillMaxWidth()

@@ -54,6 +54,8 @@ import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
+import androidx.compose.ui.res.stringResource
+import com.alfanews.telugu.R
 import com.alfanews.telugu.utils.SafeImageLoader
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.MediaType
@@ -101,15 +103,6 @@ fun NewsCardView(
     val uriHandler = LocalUriHandler.current
     val view = LocalView.current
 
-    var likeCount by remember(post.id) {
-        mutableIntStateOf(if (post.likes == 0) (40..180).random() else post.likes)
-    }
-    var shareCount by remember(post.id) {
-        mutableIntStateOf(if (post.shares == 0) (10..45).random() else post.shares)
-    }
-    var commentCount by remember(post.id) {
-        mutableIntStateOf(post.comments)
-    }
     var isLiked by remember { mutableStateOf(false) }
     var showComments by remember { mutableStateOf(false) }
     
@@ -122,22 +115,24 @@ fun NewsCardView(
     val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
     val content = if (language == Language.TELUGU) post.content.telugu else post.content.english
 
-    fun getHeadlineFontFamily(): androidx.compose.ui.text.font.FontFamily {
-        return if (language == Language.ENGLISH || headline.contains(Regex("[a-zA-Z]"))) Poppins else Ramabhadra
+    val englishRegex = remember { Regex("[a-zA-Z]") }
+
+    val headlineFontFamily = remember(language, headline) {
+        if (language == Language.ENGLISH || headline.contains(englishRegex)) Poppins else Ramabhadra
     }
 
-    fun getHeadlineFontWeight(): FontWeight {
-        return if (language == Language.ENGLISH || headline.contains(Regex("[a-zA-Z]"))) FontWeight.Bold else FontWeight.Normal
+    val headlineFontWeight = remember(language, headline) {
+        if (language == Language.ENGLISH || headline.contains(englishRegex)) FontWeight.Bold else FontWeight.Normal
     }
 
-    fun getContentFontFamily(): androidx.compose.ui.text.font.FontFamily {
-        return if (language == Language.ENGLISH || content.contains(Regex("[a-zA-Z]"))) Poppins else Mallanna
+    val contentFontFamily = remember(language, content) {
+        if (language == Language.ENGLISH || content.contains(englishRegex)) Poppins else Mallanna
     }
 
     var isSharing by remember { mutableStateOf(false) }
 
-    val dateFormat = SimpleDateFormat("dd-MMM-yy | hh:mm a", Locale.forLanguageTag("en-IN"))
-    val formattedTimestamp = dateFormat.format(Date(post.timestamp))
+    val dateFormat = remember { SimpleDateFormat("dd-MMM-yy | hh:mm a", Locale.forLanguageTag("en-IN")) }
+    val formattedTimestamp = remember(post.timestamp) { dateFormat.format(Date(post.timestamp)) }
 
     // Initializing counters once using remember, so they don't reset during recomposition.
     // If the post has 0 likes/shares, we generate a persistent fake count for this session.
@@ -231,7 +226,7 @@ fun NewsCardView(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "news",
+                        text = stringResource(R.string.news),
                         fontSize = 28.sp,
                         fontFamily = Ramabhadra,
                         fontWeight = FontWeight.Bold,
@@ -260,7 +255,6 @@ fun NewsCardView(
                                 AsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(post.mediaUrl)
-                                        .allowHardware(false)
                                         .build(),
                                     imageLoader = imageLoader,
                                     contentDescription = headline,
@@ -297,7 +291,7 @@ fun NewsCardView(
                         ) {
                             Icon(
                                 Icons.Default.LocationOn,
-                                contentDescription = "జిల్లా (District)",
+                                contentDescription = stringResource(R.string.district_desc),
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -313,7 +307,7 @@ fun NewsCardView(
                     // ఇమేజ్ సోర్స్ మరియు రిపోర్టర్ పేరును ఇమేజ్ పై ప్రదర్శించడం
                     if (post.mediaType == MediaType.IMAGE && post.youtubeUrl.isNullOrBlank() && !isSpecialCard && !isCartoonCard) {
                         Text(
-                            text = "Source : ${post.reporter.name}",
+                            text = context.getString(R.string.news_source, post.reporter.name),
                             color = Color.White.copy(alpha = 0.5f),
                             fontSize = 10.sp,
                             fontFamily = Poppins,
@@ -403,8 +397,8 @@ fun NewsCardView(
                             Text(
                                 text = headline,
                                 fontSize = 24.sp,
-                                fontFamily = getHeadlineFontFamily(),
-                                fontWeight = getHeadlineFontWeight(),
+                                fontFamily = headlineFontFamily,
+                                fontWeight = headlineFontWeight,
                                 color = MaterialTheme.colorScheme.onBackground,
                                 lineHeight = 34.sp,
                                 modifier = Modifier
@@ -425,7 +419,7 @@ fun NewsCardView(
                                     Text(
                                         text = post.reporter.name,
                                         fontSize = 12.sp,
-                                        fontFamily = getHeadlineFontFamily(),
+                                        fontFamily = headlineFontFamily,
                                         fontWeight = FontWeight.Medium,
                                         color = Color.Red.copy(alpha = 0.9f),
                                         maxLines = 1,
@@ -440,7 +434,7 @@ fun NewsCardView(
                                         text = post.location,
                                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
                                         fontSize = 12.sp,
-                                        fontFamily = getContentFontFamily(),
+                                        fontFamily = contentFontFamily,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                          modifier = Modifier.weight(0.3f, fill = false)
@@ -464,7 +458,7 @@ fun NewsCardView(
                             Text(
                                 text = content,
                                 fontSize = 20.sp,
-                                fontFamily = getContentFontFamily(),
+                                fontFamily = contentFontFamily,
                                 fontWeight = FontWeight.Normal,
                                 color = MaterialTheme.colorScheme.onBackground,
                                 lineHeight = 26.sp,
@@ -553,7 +547,7 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
                 type = "text/plain"
                 putExtra(Intent.EXTRA_TEXT, shareText)
             }
-            context.startActivity(Intent.createChooser(intent, "వార్తను షేర్ చేయండి"))
+            context.startActivity(Intent.createChooser(intent, context.getString(R.string.share_news)))
             FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener {
                 setShareCount(1)
             }
@@ -570,16 +564,16 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
                         putExtra(Intent.EXTRA_TEXT, shareText)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
-                    context.startActivity(Intent.createChooser(intent, "వార్తను షేర్ చేయండి"))
+                    context.startActivity(Intent.createChooser(intent, context.getString(R.string.share_news)))
                     FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener {
                         setShareCount(1)
                     }
 
                 } else {
-                    Toast.makeText(context, "షేర్ చేయడంలో విఫలమైంది", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.share_failed), Toast.LENGTH_SHORT).show()
                 }
             } else {
-                Toast.makeText(context, "స్క్రీన్ షాట్ తీయడంలో విఫలమైంది", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.screenshot_failed), Toast.LENGTH_SHORT).show()
             }
             setSharing(false)
         }

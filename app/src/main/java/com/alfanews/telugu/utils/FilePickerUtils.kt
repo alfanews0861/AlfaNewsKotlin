@@ -19,6 +19,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.FileProvider
+import androidx.compose.ui.res.stringResource
+import com.alfanews.telugu.R
 import java.io.File
 
 @Composable
@@ -44,11 +46,11 @@ fun rememberMediaPicker(onMediaSelected: (Uri?) -> Unit): () -> Unit {
     if (showDialog) {
         AlertDialog(
             onDismissRequest = { showDialog = false },
-            title = { Text("మీడియాను ఎంచుకోండి") },
+            title = { Text(stringResource(R.string.select_media)) },
             text = {
                 Column {
                     ListItem(
-                        headlineContent = { Text("కెమెరా") },
+                        headlineContent = { Text(stringResource(R.string.camera)) },
                         leadingContent = { Icon(Icons.Default.CameraAlt, contentDescription = "Camera") },
                         modifier = Modifier.clickable {
                             showDialog = false
@@ -58,7 +60,7 @@ fun rememberMediaPicker(onMediaSelected: (Uri?) -> Unit): () -> Unit {
                         }
                     )
                     ListItem(
-                        headlineContent = { Text("గ్యాలరీ") },
+                        headlineContent = { Text(stringResource(R.string.gallery)) },
                         leadingContent = { Icon(Icons.Default.PhotoLibrary, contentDescription = "Gallery") },
                         modifier = Modifier.clickable {
                             showDialog = false
@@ -68,7 +70,7 @@ fun rememberMediaPicker(onMediaSelected: (Uri?) -> Unit): () -> Unit {
                 }
             },
             confirmButton = { },
-            dismissButton = { TextButton(onClick = { showDialog = false }) { Text("రద్దు చేయి") } },
+            dismissButton = { TextButton(onClick = { showDialog = false }) { Text(stringResource(R.string.cancel)) } },
             containerColor = MaterialTheme.colorScheme.surface,
             textContentColor = MaterialTheme.colorScheme.onSurface,
             titleContentColor = MaterialTheme.colorScheme.onSurface

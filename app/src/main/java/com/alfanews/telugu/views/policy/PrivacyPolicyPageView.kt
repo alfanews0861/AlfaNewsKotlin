@@ -12,6 +12,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+import androidx.compose.ui.res.stringResource
+import com.alfanews.telugu.R
+
 @Composable
 fun PrivacyPolicyPageView() {
     Card(
@@ -29,35 +32,35 @@ fun PrivacyPolicyPageView() {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                text = "గోప్యతా విధానం (Privacy Policy)",
+                text = stringResource(R.string.privacy_policy_title),
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.Black
             )
             
             Text(
-                text = "Alfa News Telugu (\"మేము,\" \"మా,\" \"మాకు\") మీ గోప్యతను గౌరవిస్తుంది. ఈ గోప్యతా విధానం మేము మా వెబ్‌సైట్/అప్లికేషన్ (\"సేవ\") ద్వారా మీ నుండి ఏ సమాచారాన్ని సేకరిస్తాము, దానిని ఎలా ఉపయోగిస్తాము, మరియు ఎలా భద్రపరుస్తాము అనే విషయాలను వివరిస్తుంది.",
+                text = stringResource(R.string.privacy_intro),
                 fontSize = 16.sp
             )
             
-            Text("మేము సేకరించే సమాచారం", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+            Text(stringResource(R.string.info_we_collect), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("• వ్యక్తిగత గుర్తింపు సమాచారం: మీరు మా సేవలో రిజిస్టర్ అయినప్పుడు, మేము మీ పేరు, ఇమెయిల్ చిరునామా మరియు ప్రొఫైల్ చిత్రం వంటి సమాచారాన్ని సేకరించవచ్చు.", fontSize = 16.sp)
-                Text("• వినియోగ డేటా: మీరు ఏ వార్తలను చదువుతున్నారు, ఎంత సమయం గడుపుతున్నారు, ఏ ఫీచర్లను ఉపయోగిస్తున్నారు వంటి సమాచారాన్ని మేము స్వయంచాలకంగా సేకరించవచ్చు.", fontSize = 16.sp)
-                Text("• పరికర సమాచారం: మీ పరికరం రకం, ఆపరేటింగ్ సిస్టమ్, ప్రత్యేక ఐడెంటిఫైయర్‌లు మరియు నెట్‌వర్క్ సమాచారం వంటివి మేము సేకరించవచ్చు.", fontSize = 16.sp)
+                Text(stringResource(R.string.pii_desc), fontSize = 16.sp)
+                Text(stringResource(R.string.usage_data_desc), fontSize = 16.sp)
+                Text(stringResource(R.string.device_info_desc), fontSize = 16.sp)
             }
             
-            Text("సమాచారాన్ని ఎలా ఉపయోగిస్తాము", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+            Text(stringResource(R.string.how_we_use_info), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("• మా సేవను అందించడానికి మరియు నిర్వహించడానికి.", fontSize = 16.sp)
-                Text("• మీ అనుభవాన్ని వ్యక్తిగతీకరించడానికి.", fontSize = 16.sp)
-                Text("• మా సేవను మెరుగుపరచడానికి మరియు కొత్త ఫీచర్లను అభివృద్ధి చేయడానికి.", fontSize = 16.sp)
-                Text("• మీతో కమ్యూనికేట్ చేయడానికి, ముఖ్యమైన నవీకరణలు లేదా నోటిఫికేషన్లు పంపడానికి.", fontSize = 16.sp)
-                Text("• మోసాలను నివారించడానికి మరియు మా సేవా నిబంధనలను అమలు చేయడానికి.", fontSize = 16.sp)
+                Text(stringResource(R.string.use_provide_service), fontSize = 16.sp)
+                Text(stringResource(R.string.use_personalize), fontSize = 16.sp)
+                Text(stringResource(R.string.use_improve), fontSize = 16.sp)
+                Text(stringResource(R.string.use_communicate), fontSize = 16.sp)
+                Text(stringResource(R.string.use_fraud_prevention), fontSize = 16.sp)
             }
             
-            Text("సమాచార భద్రత", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
-            Text("మేము మీ సమాచారాన్ని రక్షించడానికి తగిన సాంకేతిక మరియు సంస్థాగత చర్యలను తీసుకుంటాము. అయినప్పటికీ, ఇంటర్నెట్‌లో డేటా ప్రసారం 100% సురక్షితం కాదని గమనించండి.", fontSize = 16.sp)
+            Text(stringResource(R.string.data_security), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+            Text(stringResource(R.string.data_security_desc), fontSize = 16.sp)
         }
     }
 }

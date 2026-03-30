@@ -33,6 +33,10 @@ import kotlinx.coroutines.tasks.await
 import java.net.URLEncoder
 import java.util.*
 
+import androidx.compose.ui.res.stringResource
+import com.alfanews.telugu.R
+import android.app.Activity
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminPanelView(
@@ -56,23 +60,26 @@ fun AdminPanelView(
     val context = LocalContext.current
 
     val allPages = listOf(
-        PageConfig("profile", "ప్రొఫైల్ (Profile)", listOf(UserRole.GUEST, UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        PageConfig("edit-profile", "ప్రొఫైల్ ను ఎడిట్ చేయండి", listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        PageConfig("id-card", "ID Card", listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        PageConfig("post", "వార్తను పోస్ట్ చేయండి", listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        PageConfig("ads", "ప్రకటనలు (Ads Manager)", listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        PageConfig("manage", "వార్తలను నిర్వహించండి", listOf(UserRole.EDITOR, UserRole.ADMIN)),
-        PageConfig("manageUsers", "వినియోగదారు నిర్వహణ", listOf(UserRole.EDITOR, UserRole.ADMIN)),
-        PageConfig("adminNotify", "Push Notifications", listOf(UserRole.ADMIN)),
-        PageConfig("scraping", "వెబ్ స్క్రాపింగ్", listOf(UserRole.ADMIN)),
-        PageConfig("gnews_dashboard", "GNews Dashboard", listOf(UserRole.ADMIN))
+        PageConfig("profile", stringResource(R.string.profile), listOf(UserRole.GUEST, UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
+        PageConfig("edit-profile", stringResource(R.string.edit_profile), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
+        PageConfig("id-card", stringResource(R.string.id_card), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
+        PageConfig("post", stringResource(R.string.post_news), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
+        PageConfig("ads", stringResource(R.string.ads_manager), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
+        PageConfig("manage", stringResource(R.string.manage_news), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
+        PageConfig("manageReporters", stringResource(R.string.manage_reporters), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
+        PageConfig("manageUsers", stringResource(R.string.manage_users), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
+        PageConfig("adminNotify", stringResource(R.string.push_notifications_title), listOf(UserRole.ADMIN)),
+        PageConfig("scraping", stringResource(R.string.web_scraping), listOf(UserRole.ADMIN)),
+        PageConfig("gnews_dashboard", stringResource(R.string.gnews_dashboard), listOf(UserRole.ADMIN))
     )
 
     val accessiblePages = when (user.role) {
         UserRole.GUEST, UserRole.SUBSCRIBER -> allPages.filter { it.id == "profile" }
         UserRole.REPORTER -> allPages.filter { listOf("profile", "post", "ads", "edit-profile", "id-card").contains(it.id) }
-        UserRole.EDITOR -> allPages.filter { listOf("profile", "post", "ads", "manage", "manageUsers", "edit-profile", "id-card").contains(it.id) }
+        UserRole.REGIONAL_INCHARGE -> allPages.filter { listOf("profile", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card").contains(it.id) }
+        UserRole.EDITOR -> allPages.filter { listOf("profile", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card").contains(it.id) }
         UserRole.ADMIN -> allPages
+        else -> allPages.filter { it.id == "profile" }
     }
 
     LaunchedEffect(user.role) {
@@ -81,7 +88,7 @@ fun AdminPanelView(
         }
     }
     
-    fun saveProfile(name: String, address: String, district: String, photoUri: Uri?, signatureUri: Uri?) {
+    fun saveProfile(name: String, phone: String, address: String, district: String, photoUri: Uri?, signatureUri: Uri?) {
         scope.launch {
             savingProfile = true
             try {
@@ -110,6 +117,7 @@ fun AdminPanelView(
 
                 val updatedUser = user.copy(
                     name = name,
+                    phone = phone,
                     address = address,
                     district = district,
                     photoUrl = photoUrl,
@@ -117,9 +125,9 @@ fun AdminPanelView(
                 )
                 FirebaseService.db.collection("users").document(user.id).set(updatedUser).await()
                 activePage = "profile"
-                Toast.makeText(context, "Profile updated successfully!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.profile_updated), Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
-                Toast.makeText(context, "Failed to update profile: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, context.getString(R.string.profile_update_failed, e.message ?: ""), Toast.LENGTH_LONG).show()
             } finally {
                 savingProfile = false
             }
@@ -150,7 +158,7 @@ fun AdminPanelView(
                 ) {
                     Column {
                         Text(
-                            "నిర్వహణ ప్యానెల్",
+                            stringResource(R.string.admin_panel),
                             style = MaterialTheme.typography.headlineSmall.copy(
                                 fontFamily = Ramabhadra,
                                 fontWeight = FontWeight.Bold,
@@ -158,7 +166,7 @@ fun AdminPanelView(
                             )
                         )
                         Text(
-                            "Admin Dashboard",
+                            stringResource(R.string.admin_dashboard),
                             style = MaterialTheme.typography.labelMedium.copy(
                                 fontFamily = Poppins,
                                 color = MaterialTheme.colorScheme.secondary
@@ -186,7 +194,8 @@ fun AdminPanelView(
                                 "post" -> Icons.Default.AddCircle
                                 "ads" -> Icons.Default.AdsClick
                                 "manage" -> Icons.Default.Article
-                                "manageUsers" -> Icons.Default.Group
+                            "manageReporters" -> Icons.Default.AssignmentInd
+                            "manageUsers" -> Icons.Default.Group
                                 "adminNotify" -> Icons.Default.NotificationsActive
                                 "scraping" -> Icons.Default.CloudDownload
                                 "gnews_dashboard" -> Icons.Default.Dashboard
@@ -211,7 +220,7 @@ fun AdminPanelView(
                 if (user.role != UserRole.GUEST) {
                     Divider(modifier = Modifier.padding(horizontal = 24.dp), color = MaterialTheme.colorScheme.outlineVariant)
                     NavigationDrawerItem(
-                        label = { Text("లాగౌట్ (Logout)", fontFamily = Mallanna, fontWeight = FontWeight.Bold) },
+                        label = { Text(stringResource(R.string.logout), fontFamily = Mallanna, fontWeight = FontWeight.Bold) },
                         selected = false,
                         onClick = onLogout,
                         icon = { Icon(Icons.Default.Logout, contentDescription = null) },
@@ -232,7 +241,7 @@ fun AdminPanelView(
                 CenterAlignedTopAppBar(
                     title = {
                         Text(
-                            text = accessiblePages.find { it.id == activePage }?.label ?: "Alfa News",
+                            text = accessiblePages.find { it.id == activePage }?.label ?: stringResource(R.string.app_name),
                             fontFamily = Ramabhadra,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold
@@ -245,18 +254,18 @@ fun AdminPanelView(
                     navigationIcon = {
                         if (accessiblePages.size > 1 && !listOf("edit-profile", "id-card").contains(activePage)) {
                             IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                Icon(Icons.Default.Menu, contentDescription = "Menu")
+                                Icon(Icons.Default.Menu, contentDescription = stringResource(R.string.menu))
                             }
                         } else {
                              IconButton(onClick = { activePage = "profile" }) {
-                                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                                Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back))
                             }
                         }
                     },
                     actions = {
                         if (isModal) {
                             IconButton(onClick = onClose) {
-                                Icon(Icons.Default.Close, contentDescription = "Close")
+                                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.close))
                             }
                         }
                     }
@@ -299,6 +308,7 @@ fun AdminPanelView(
                         },
                         currentUser = user
                     )
+                    "manageReporters" -> ReporterManagementPageView(currentUser = user)
                     "ads" -> AdsManagerPageView(currentUser = user)
                     "manageUsers" -> UserManagementPageView(currentUser = user)
                     "adminNotify" -> AdminNotificationsPageView()

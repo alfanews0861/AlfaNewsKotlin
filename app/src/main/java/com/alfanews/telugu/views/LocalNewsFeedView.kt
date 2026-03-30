@@ -20,7 +20,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.alfanews.telugu.ViewModelFactory
+import androidx.compose.ui.res.stringResource
+import com.alfanews.telugu.R
 import com.alfanews.telugu.models.*
 import com.alfanews.telugu.services.AdMobService
 import com.alfanews.telugu.ui.theme.Ramabhadra
@@ -40,11 +43,11 @@ fun LocalNewsFeedView(
     val viewModel: LocalNewsFeedViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
         factory = ViewModelFactory(context.applicationContext as Application)
     )
-    val news by viewModel.news.collectAsState()
-    val loading by viewModel.loading.collectAsState()
-    val hasMore by viewModel.hasMore.collectAsState()
-    val activeDistrict by viewModel.activeDistrict.collectAsState()
-    val isDetecting by viewModel.isDetecting.collectAsState()
+    val news by viewModel.news.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val hasMore by viewModel.hasMore.collectAsStateWithLifecycle()
+    val activeDistrict by viewModel.activeDistrict.collectAsStateWithLifecycle()
+    val isDetecting by viewModel.isDetecting.collectAsStateWithLifecycle()
     val preloadedAds = remember { mutableStateMapOf<Int, NativeAd?>() }
 
     var showDistrictPicker by remember { mutableStateOf(false) }
@@ -139,7 +142,7 @@ fun LocalNewsFeedView(
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = if (isDetecting) "మీ ప్రాంతాన్ని గుర్తిస్తున్నాము..." else "ప్రాంతీయ వార్తలు సిద్ధమవుతున్నాయి...",
+                        text = if (isDetecting) stringResource(R.string.detecting_location) else "ప్రాంతీయ వార్తలు సిద్ధమవుతున్నాయి...",
                         color = MaterialTheme.colorScheme.onBackground,
                         style = MaterialTheme.typography.bodyLarge,
                         fontFamily = Ramabhadra
@@ -156,7 +159,7 @@ fun LocalNewsFeedView(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
-                        text = if (activeDistrict == null) "దయచేసి మీ జిల్లాను ఎంచుకోండి" else "ఈ జిల్లాలో వార్తలు అందుబాటులో లేవు",
+                        text = if (activeDistrict == null) stringResource(R.string.select_district_prompt) else stringResource(R.string.no_news_in_district),
                         color = MaterialTheme.colorScheme.onBackground,
                         style = MaterialTheme.typography.bodyLarge,
                         fontFamily = Ramabhadra
@@ -165,7 +168,7 @@ fun LocalNewsFeedView(
                         onClick = { showDistrictPicker = true },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
-                        Text(if (activeDistrict == null) "జిల్లాను ఎంచుకోండి" else "వేరే జిల్లాను ఎంచుకోండి", fontFamily = Ramabhadra)
+                        Text(if (activeDistrict == null) stringResource(R.string.select_district) else "Change District", fontFamily = Ramabhadra)
                     }
                 }
             }

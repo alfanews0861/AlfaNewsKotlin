@@ -80,11 +80,15 @@ fun ManagePostsPageView(
         scope.launch {
             loading = true
             try {
-                val snapshot = FirebaseService.db.collection("news")
+                var query = FirebaseService.db.collection("news")
                     .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(100)
-                    .get()
-                    .await()
+
+                // Regional Incharge అయితే కేటాయించిన జిల్లాల వార్తలు మాత్రమే చూపిస్తాము
+                if (currentUser?.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {
+                    query = query.whereIn("district", currentUser.assignedDistricts)
+                }
+
+                val snapshot = query.limit(100).get().await()
 
                 posts = snapshot.documents.mapNotNull { doc ->
                     val data = doc.data ?: return@mapNotNull null

@@ -4,7 +4,7 @@ package com.alfanews.telugu.models
  * అప్లికేషన్‌లోని వినియోగదారుల రకాలను (Roles) నిర్వచిస్తుంది.
  */
 enum class UserRole {
-    GUEST, SUBSCRIBER, REPORTER, EDITOR, ADMIN
+    GUEST, SUBSCRIBER, REPORTER, REGIONAL_INCHARGE, EDITOR, ADMIN
 }
 
 /**
@@ -24,6 +24,8 @@ data class User(
     val idCardUrl: String? = null,
     val state: String? = null,
     val district: String? = null,
+    val assignedMandal: String? = null, // రిపోర్టర్ కోసం కేటాయించిన మండలం
+    val assignedDistricts: List<String> = emptyList(), // Regional Incharge కోసం కేటాయించిన జిల్లాలు
     val pushEnabled: Boolean = true,
     val fcmTokens: List<String> = emptyList(),
     val lastTokenUpdate: Long? = null,

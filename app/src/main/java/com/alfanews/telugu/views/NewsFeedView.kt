@@ -13,6 +13,7 @@ import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -20,7 +21,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.request.ImageRequest
+import androidx.compose.ui.res.stringResource
+import com.alfanews.telugu.R
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.services.AdMobService
@@ -39,11 +43,11 @@ fun NewsFeedView(
     onDistrictClick: () -> Unit = {},
     initialPostId: String? = null
 ) {
-    val news by viewModel.news.collectAsState()
-    val loading by viewModel.loading.collectAsState()
-    val hasMore by viewModel.hasMore.collectAsState()
-    val sharedPostId by viewModel.sharedPostId.collectAsState()
-    val userDistrict by viewModel.userDistrict.collectAsState()
+    val news by viewModel.news.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val hasMore by viewModel.hasMore.collectAsStateWithLifecycle()
+    val sharedPostId by viewModel.sharedPostId.collectAsStateWithLifecycle()
+    val userDistrict by viewModel.userDistrict.collectAsStateWithLifecycle()
     val preloadedAds = remember { mutableStateMapOf<Int, NativeAd?>() }
 
     val context = LocalContext.current
@@ -82,23 +86,18 @@ fun NewsFeedView(
 
     val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
     LaunchedEffect(news) {
-        if (news.isNotEmpty()) {
-            val limit = if (news.size > 5) 5 else news.size
-            var i = 0
-            while (i < limit) {
-                val post = news[i]
-                if (post.mediaUrl != "") {
-                    val request = ImageRequest.Builder(context)
-                        .data(post.mediaUrl)
-                        .build()
-                    imageLoader.enqueue(request)
-                }
-                i++
+        val postsToPreload = news.take(5)
+        postsToPreload.forEach { post: com.alfanews.telugu.models.NewsPost ->
+            if (post.mediaUrl.isNotEmpty()) {
+                val request = ImageRequest.Builder(context)
+                    .data(post.mediaUrl)
+                    .build()
+                imageLoader.enqueue(request)
             }
         }
     }
 
-    val totalCount = if (news.isEmpty()) 0 else news.size + (news.size / 5)
+    val totalCount = remember(news.size) { if (news.isEmpty()) 0 else news.size + (news.size / 5) }
     val pagerState = rememberPagerState(pageCount = { totalCount })
 
     LaunchedEffect(pagerState, news.size) { 
@@ -108,20 +107,18 @@ fun NewsFeedView(
                 viewModel.loadMore(language, currentUser)
             }
 
-            var offset = 1
-            while (offset <= 4) {
+            (1..4).forEach { offset ->
                 val nextPageIndex = page + offset
                 val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
                 if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
                     val post = news[nextNewsIndex]
-                    if (post.mediaUrl != "") {
+                    if (post.mediaUrl.isNotEmpty()) {
                         val request = ImageRequest.Builder(context)
                             .data(post.mediaUrl)
                             .build()
                         imageLoader.enqueue(request)
                     }
                 }
-                offset++
             }
 
             val currentAdSlot = page / 6
@@ -151,7 +148,7 @@ fun NewsFeedView(
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "వార్తలు సిద్ధమవుతున్నాయి...",
+                        text = stringResource(R.string.news_preparing),
                         color = MaterialTheme.colorScheme.onBackground,
                         style = MaterialTheme.typography.bodyLarge
                     )
@@ -163,7 +160,7 @@ fun NewsFeedView(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "ప్రస్తుతానికి వార్తలు ఏమీ లేవు. కాసేపయ్యాక మళ్ళీ ప్రయత్నించండి.",
+                    text = stringResource(R.string.no_news_available),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(32.dp),
@@ -201,7 +198,7 @@ fun NewsFeedView(
                         ) {
                              if (preloadedAds.containsKey(page)) {
                                 Text(
-                                    text = "Sponsored Content",
+                                    text = stringResource(R.string.sponsored_content),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                                     fontSize = 12.sp
                                 )

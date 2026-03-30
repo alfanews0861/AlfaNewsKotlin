@@ -32,6 +32,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import androidx.compose.ui.res.stringResource
+import com.alfanews.telugu.R
 import com.alfanews.telugu.models.ClassifiedAd
 import com.alfanews.telugu.models.ClassifiedCategories
 import com.alfanews.telugu.models.User
@@ -120,12 +122,12 @@ fun ClassifiedsView(
         ) {
             Text(
                 text = when (viewMode) {
-                    ClassifiedsViewMode.CATEGORIES -> "క్లాసిఫైడ్స్"
+                    ClassifiedsViewMode.CATEGORIES -> stringResource(R.string.title_classifieds)
                     ClassifiedsViewMode.CATEGORY_ADS -> selectedCategory.split(' ')[0]
-                    ClassifiedsViewMode.MY_ADS -> "నా ప్రకటనలు"
-                    ClassifiedsViewMode.DETAIL -> "వివరాలు"
-                    ClassifiedsViewMode.POST -> "ప్రకటన ఇవ్వండి"
-                    else -> "క్లాసిఫైడ్స్"
+                    ClassifiedsViewMode.MY_ADS -> stringResource(R.string.my_ads)
+                    ClassifiedsViewMode.DETAIL -> stringResource(R.string.ad_details)
+                    ClassifiedsViewMode.POST -> stringResource(R.string.post_ad)
+                    else -> stringResource(R.string.title_classifieds)
                 },
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Black,
@@ -164,7 +166,7 @@ fun ClassifiedsView(
                                 scope.launch {
                                     val result = viewModel.deleteAd(adId)
                                     if (result.isSuccess) {
-                                        Toast.makeText(context, "ప్రకటన తొలగించబడింది", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.ad_deleted), Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             }
@@ -235,11 +237,11 @@ fun ClassifiedsHeader(
         title = {
             Text(
                 text = when (viewMode) {
-                    ClassifiedsViewMode.CATEGORIES -> "క్లాసిఫైడ్స్"
+                    ClassifiedsViewMode.CATEGORIES -> stringResource(R.string.title_classifieds)
                     ClassifiedsViewMode.CATEGORY_ADS -> selectedCategory.split(' ')[0]
-                    ClassifiedsViewMode.MY_ADS -> "నా ప్రకటనలు"
-                    ClassifiedsViewMode.DETAIL -> "వివరాలు"
-                    ClassifiedsViewMode.POST -> "ప్రకటన ఇవ్వండి"
+                    ClassifiedsViewMode.MY_ADS -> stringResource(R.string.my_ads)
+                    ClassifiedsViewMode.DETAIL -> stringResource(R.string.ad_details)
+                    ClassifiedsViewMode.POST -> stringResource(R.string.post_ad)
                 },
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
@@ -269,7 +271,7 @@ fun ClassifiedsHeader(
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("పోస్ట్", fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = com.alfanews.telugu.ui.theme.Mallanna)
+                    Text(stringResource(R.string.nav_post), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = com.alfanews.telugu.ui.theme.Mallanna)
                 }
             }
         },
@@ -419,7 +421,7 @@ fun ClassifiedAdDetailView(
                 verticalAlignment = Alignment.Top
             ) {
                 Text(
-                    text = if (ad.price > 0) priceFormat.format(ad.price) else "ధర వివరాలు లేవు",
+                    text = if (ad.price > 0) priceFormat.format(ad.price) else stringResource(R.string.price_not_available),
                     fontSize = 24.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.error
@@ -463,7 +465,7 @@ fun ClassifiedAdDetailView(
             }
 
             Text(
-                text = "వివరాలు",
+                text = stringResource(R.string.ad_details),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -505,7 +507,7 @@ fun ClassifiedAdDetailView(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(text = ad.userName, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text(text = "విక్రేత", fontSize = 12.sp, color = Color.Gray)
+                        Text(text = stringResource(R.string.seller), fontSize = 12.sp, color = Color.Gray)
                     }
                 }
             }
@@ -528,7 +530,7 @@ fun ClassifiedAdDetailView(
                 ) {
                     Icon(Icons.Default.Phone, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("కాల్ చేయండి", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.call_now), fontWeight = FontWeight.Bold)
                 }
 
                 Button(
@@ -536,7 +538,7 @@ fun ClassifiedAdDetailView(
                         val number = ad.whatsappNumber ?: ad.contactPhone
                         val cleanNum = number.replace(Regex("\\D"), "")
                         val finalNum = if (cleanNum.length == 10) "91$cleanNum" else cleanNum
-                        val message = "నమస్తే, మీ '${ad.title}' ప్రకటన గురించి మరిన్ని వివరాలు తెలుసుకోవాలి."
+                        val message = context.getString(R.string.whatsapp_message, ad.title)
                         val intent = Intent(Intent.ACTION_VIEW).apply {
                             data = Uri.parse("https://wa.me/$finalNum?text=${Uri.encode(message)}")
                         }
@@ -548,7 +550,7 @@ fun ClassifiedAdDetailView(
                 ) {
                     Icon(Icons.Default.Chat, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("చాట్ చేయండి", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.chat_now), fontWeight = FontWeight.Bold)
                 }
             }
             
@@ -617,7 +619,7 @@ fun LoadingState() {
                 modifier = Modifier.size(40.dp),
                 color = MaterialTheme.colorScheme.error
             )
-            Text("లోడ్ అవుతున్నాయి...", color = Color.Gray)
+            Text(stringResource(R.string.loading_ads), color = Color.Gray)
         }
     }
 }
@@ -640,7 +642,7 @@ fun EmptyState(viewMode: ClassifiedsViewMode, onPostAdClick: () -> Unit) {
                 tint = Color(0xFFD1D5DB)
             )
             Text(
-                text = "ప్రకటనలు ఏవీ లేవు.",
+                text = stringResource(R.string.no_ads_found),
                 fontSize = 18.sp,
                 color = Color.Gray
             )
@@ -650,7 +652,7 @@ fun EmptyState(viewMode: ClassifiedsViewMode, onPostAdClick: () -> Unit) {
                     containerColor = MaterialTheme.colorScheme.error
                 )
             ) {
-                Text("ప్రకటన ఇవ్వండి", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.post_ad), fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -667,20 +669,23 @@ fun LoginPrompt(onNavigateToLogin: () -> Unit, onCancel: () -> Unit) {
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "ప్రకటన ఇవ్వడానికి దయచేసి లాగిన్ అవ్వండి.",
+            text = stringResource(R.string.login_to_post_ad),
             fontSize = 18.sp,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(bottom = 16.dp)
         )
         Button(
-            onClick = onNavigateToLogin,
+            onClick = {
+                onNavigateToLogin()
+                onCancel()
+            },
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
         ) {
-            Text("లాగిన్ చేయండి", fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.login), fontWeight = FontWeight.Bold)
         }
         Spacer(modifier = Modifier.height(16.dp))
         TextButton(onClick = onCancel) {
-            Text("వెనక్కి వెళ్ళు")
+            Text(stringResource(R.string.go_back))
         }
     }
 }

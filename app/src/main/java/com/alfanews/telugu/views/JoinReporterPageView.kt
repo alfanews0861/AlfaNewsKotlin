@@ -11,20 +11,29 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.alfanews.telugu.R
 import com.alfanews.telugu.services.FirebaseFunctionsService
+import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.ui.theme.AlfaNewsTheme
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.ui.theme.Mallanna
+import com.alfanews.telugu.utils.Constants
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun JoinReporterPageView(onClose: () -> Unit) {
+fun JoinReporterPageView(
+    onClose: () -> Unit,
+    onNavigateToLogin: () -> Unit
+) {
     var fullName by remember { mutableStateOf("") }
     var fatherName by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
@@ -34,13 +43,41 @@ fun JoinReporterPageView(onClose: () -> Unit) {
     var education by remember { mutableStateOf("") }
     var currentOrg by remember { mutableStateOf("") }
     
+    var selectedState by remember { mutableStateOf("TS") }
+    var selectedDistrict by remember { mutableStateOf("") }
+    var selectedMandal by remember { mutableStateOf("") }
+    var additionalMessage by remember { mutableStateOf("") }
+    
+    var occupiedMandals by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var isLoadingOccupied by remember { mutableStateOf(true) }
+    
     var isSubmitting by remember { mutableStateOf(false) }
+    var showSuccessDialog by remember { mutableStateOf<String?>(null) }
     
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     
-    val positions = listOf("జిల్లా స్టాఫ్ రిపోర్టర్", "మండల రిపోర్టర్")
-    var expanded by remember { mutableStateOf(false) }
+    val positions = listOf(
+        stringResource(R.string.district_staff_reporter),
+        stringResource(R.string.mandal_reporter)
+    )
+    
+    // Fetch occupied mandals from Firebase
+    LaunchedEffect(Unit) {
+        try {
+            val snapshot = FirebaseService.db.collection("users")
+                .whereEqualTo("role", "REPORTER")
+                .get()
+                .await()
+            val mandals = snapshot.documents.mapNotNull { it.getString("assignedMandal") }.toSet()
+            occupiedMandals = mandals
+        } catch (e: Exception) {
+            // Error fetching occupied mandals
+            e.printStackTrace()
+        } finally {
+            isLoadingOccupied = false
+        }
+    }
 
     AlfaNewsTheme {
         Scaffold(
@@ -48,14 +85,14 @@ fun JoinReporterPageView(onClose: () -> Unit) {
                 CenterAlignedTopAppBar(
                     title = { 
                         Text(
-                            "విలేకరి గా చేరండి", 
+                            stringResource(R.string.join_reporter), 
                             fontFamily = Ramabhadra,
                             fontSize = 20.sp
                         ) 
                     },
                     navigationIcon = { 
                         IconButton(onClick = onClose) { 
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back") 
+                            Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back)) 
                         } 
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -75,7 +112,7 @@ fun JoinReporterPageView(onClose: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
-                        text = "రిపోర్టర్ అప్లికేషన్ ఫారం",
+                        text = stringResource(R.string.reporter_app_form),
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = Ramabhadra,
@@ -85,7 +122,7 @@ fun JoinReporterPageView(onClose: () -> Unit) {
                     OutlinedTextField(
                         value = fullName,
                         onValueChange = { fullName = it },
-                        label = { Text("పూర్తి పేరు", fontFamily = Mallanna) },
+                        label = { Text(stringResource(R.string.full_name), fontFamily = Mallanna) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -93,7 +130,7 @@ fun JoinReporterPageView(onClose: () -> Unit) {
                     OutlinedTextField(
                         value = fatherName,
                         onValueChange = { fatherName = it },
-                        label = { Text("తండ్రిపేరు", fontFamily = Mallanna) },
+                        label = { Text(stringResource(R.string.father_name), fontFamily = Mallanna) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -101,7 +138,7 @@ fun JoinReporterPageView(onClose: () -> Unit) {
                     OutlinedTextField(
                         value = phone,
                         onValueChange = { phone = it },
-                        label = { Text("ఫోన్ నెంబర్", fontFamily = Mallanna) },
+                        label = { Text(stringResource(R.string.phone_number_label), fontFamily = Mallanna) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(
@@ -109,37 +146,119 @@ fun JoinReporterPageView(onClose: () -> Unit) {
                         )
                     )
                     
-                    OutlinedTextField(
-                        value = address,
-                        onValueChange = { address = it },
-                        label = { Text("అడ్రస్", fontFamily = Mallanna) },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 2
-                    )
+                    Text(stringResource(R.string.region_details), fontWeight = FontWeight.Bold, fontFamily = Ramabhadra)
+                    
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = selectedState == "TS",
+                            onClick = { selectedState = "TS"; selectedDistrict = ""; selectedMandal = "" },
+                            label = { Text(stringResource(R.string.telangana)) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = selectedState == "AP",
+                            onClick = { selectedState = "AP"; selectedDistrict = ""; selectedMandal = "" },
+                            label = { Text(stringResource(R.string.andhra_pradesh)) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    
+                    val districtsList = if (selectedState == "TS") Constants.TS_DISTRICTS else Constants.AP_DISTRICTS
+                    var districtExpanded by remember { mutableStateOf(false) }
                     
                     ExposedDropdownMenuBox(
-                        expanded = expanded,
-                        onExpandedChange = { expanded = !expanded },
-                        modifier = Modifier.fillMaxWidth()
+                        expanded = districtExpanded,
+                        onExpandedChange = { districtExpanded = !districtExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = selectedDistrict,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text(stringResource(R.string.select_district)) },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = districtExpanded) },
+                            modifier = Modifier.fillMaxWidth().menuAnchor()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = districtExpanded,
+                            onDismissRequest = { districtExpanded = false }
+                        ) {
+                            districtsList.forEach { districtName: String ->
+                                DropdownMenuItem(
+                                    text = { Text(districtName) },
+                                    onClick = {
+                                        selectedDistrict = districtName
+                                        selectedMandal = ""
+                                        districtExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    
+                    if (selectedDistrict.isNotEmpty()) {
+                        val mandalsList = Constants.MANDAL_DATA[selectedDistrict] ?: emptyList<String>()
+                        val availableMandalsList = mandalsList.filter { !occupiedMandals.contains(it) }
+                        
+                        var mandalExpanded by remember { mutableStateOf(false) }
+                        
+                        ExposedDropdownMenuBox(
+                            expanded = mandalExpanded,
+                            onExpandedChange = { mandalExpanded = !mandalExpanded }
+                        ) {
+                            OutlinedTextField(
+                                value = selectedMandal,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text(stringResource(R.string.select_mandal)) },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = mandalExpanded) },
+                                modifier = Modifier.fillMaxWidth().menuAnchor()
+                            )
+                            ExposedDropdownMenu(
+                                expanded = mandalExpanded,
+                                onDismissRequest = { mandalExpanded = false }
+                            ) {
+                                if (isLoadingOccupied) {
+                                    DropdownMenuItem(text = { Text(stringResource(R.string.loading)) }, onClick = {})
+                                } else if (availableMandalsList.isEmpty()) {
+                                    DropdownMenuItem(text = { Text(stringResource(R.string.no_mandals_available)) }, onClick = {})
+                                } else {
+                                    availableMandalsList.forEach { mandalName: String ->
+                                        DropdownMenuItem(
+                                            text = { Text(mandalName) },
+                                            onClick = {
+                                                selectedMandal = mandalName
+                                                mandalExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    var posExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                        expanded = posExpanded,
+                        onExpandedChange = { posExpanded = !posExpanded }
                     ) {
                         OutlinedTextField(
                             value = position,
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("పోసిషన్", fontFamily = Mallanna) },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                            label = { Text(stringResource(R.string.position), fontFamily = Mallanna) },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = posExpanded) },
                             modifier = Modifier.fillMaxWidth().menuAnchor()
                         )
                         ExposedDropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false }
+                            expanded = posExpanded,
+                            onDismissRequest = { posExpanded = false }
                         ) {
-                            positions.forEach { selectionOption ->
+                            positions.forEach { selectionOption: String ->
                                 DropdownMenuItem(
                                     text = { Text(selectionOption, fontFamily = Mallanna) },
                                     onClick = {
                                         position = selectionOption
-                                        expanded = false
+                                        posExpanded = false
                                     }
                                 )
                             }
@@ -149,7 +268,7 @@ fun JoinReporterPageView(onClose: () -> Unit) {
                     OutlinedTextField(
                         value = interestedArea,
                         onValueChange = { interestedArea = it },
-                        label = { Text("ఆసక్తి వున్నా ప్రాంతం", fontFamily = Mallanna) },
+                        label = { Text(stringResource(R.string.interested_category), fontFamily = Mallanna) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -157,7 +276,7 @@ fun JoinReporterPageView(onClose: () -> Unit) {
                     OutlinedTextField(
                         value = education,
                         onValueChange = { education = it },
-                        label = { Text("విద్య అర్హత", fontFamily = Mallanna) },
+                        label = { Text(stringResource(R.string.education_qualification), fontFamily = Mallanna) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -165,17 +284,26 @@ fun JoinReporterPageView(onClose: () -> Unit) {
                     OutlinedTextField(
                         value = currentOrg,
                         onValueChange = { currentOrg = it },
-                        label = { Text("ప్రస్తుతం పనిచేస్తున్న సంస్థ", fontFamily = Mallanna) },
+                        label = { Text(stringResource(R.string.current_organization), fontFamily = Mallanna) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
+                    )
+                    
+                    OutlinedTextField(
+                        value = additionalMessage,
+                        onValueChange = { additionalMessage = it },
+                        label = { Text(stringResource(R.string.additional_message), fontFamily = Mallanna) },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3,
+                        placeholder = { Text(stringResource(R.string.message_placeholder)) }
                     )
                     
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     Button(
                         onClick = {
-                            if (fullName.isBlank() || phone.isBlank() || position.isBlank()) {
-                                Toast.makeText(context, "దయచేసి ముఖ్యమైన వివరాలు నింపండి", Toast.LENGTH_SHORT).show()
+                            if (fullName.isBlank() || phone.isBlank() || position.isBlank() || selectedDistrict.isBlank() || selectedMandal.isBlank()) {
+                                Toast.makeText(context, context.getString(R.string.fill_all_details), Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
                             
@@ -189,15 +317,24 @@ fun JoinReporterPageView(onClose: () -> Unit) {
                                     position = position,
                                     interestedArea = interestedArea,
                                     education = education,
-                                    currentOrg = currentOrg
+                                    currentOrg = currentOrg,
+                                    state = selectedState,
+                                    district = selectedDistrict,
+                                    mandal = selectedMandal,
+                                    message = additionalMessage,
+                                    userId = FirebaseService.auth.currentUser?.uid
                                 )
                                 
                                 isSubmitting = false
                                 if (result.isSuccess) {
-                                    Toast.makeText(context, "మీ అప్లికేషన్ విజయవంతంగా పంపబడింది. మేము మిమ్మల్ని సంప్రదిస్తాము.", Toast.LENGTH_LONG).show()
-                                    onClose()
+                                    val isLoggedIn = FirebaseService.auth.currentUser != null
+                                    if (isLoggedIn) {
+                                        showSuccessDialog = context.getString(R.string.app_success_logged_in)
+                                    } else {
+                                        showSuccessDialog = context.getString(R.string.app_success_guest)
+                                    }
                                 } else {
-                                    Toast.makeText(context, "సమర్పించడంలో విఫలమైంది: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, context.getString(R.string.submission_failed, result.exceptionOrNull()?.message ?: ""), Toast.LENGTH_LONG).show()
                                 }
                             }
                         },
@@ -207,11 +344,33 @@ fun JoinReporterPageView(onClose: () -> Unit) {
                         if (isSubmitting) {
                             CircularProgressIndicator(color = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(24.dp))
                         } else {
-                            Text("సబ్మిట్ చేయండి", fontSize = 18.sp, fontFamily = Ramabhadra)
+                            Text(stringResource(R.string.submit), fontSize = 18.sp, fontFamily = Ramabhadra)
                         }
                     }
                 }
             }
         )
+
+        showSuccessDialog?.let { message ->
+            AlertDialog(
+                onDismissRequest = { /* Prevent dismissal by clicking outside */ },
+                title = { Text(stringResource(R.string.congratulations), fontFamily = Ramabhadra) },
+                text = { Text(message, fontFamily = Mallanna) },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val isLoggedIn = FirebaseService.auth.currentUser != null
+                            showSuccessDialog = null
+                            onClose()
+                            if (!isLoggedIn) {
+                                onNavigateToLogin()
+                            }
+                        }
+                    ) {
+                        Text(stringResource(R.string.ok))
+                    }
+                }
+            )
+        }
     }
 }
