@@ -671,6 +671,7 @@ fun ActionButton(
 
 @Composable
 fun DottedDivider() {
+    val color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f)
     androidx.compose.foundation.Canvas(
         modifier = Modifier
             .fillMaxWidth()
@@ -678,11 +679,14 @@ fun DottedDivider() {
     ) {
         val pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
         drawLine(
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f),
+            color = color,
             start = Offset(0f, 0f),
             end = Offset(size.width, 0f),
             pathEffect = pathEffect,
             strokeWidth = 1.dp.toPx()
+        )
+    }
+}
         )
     }
 }

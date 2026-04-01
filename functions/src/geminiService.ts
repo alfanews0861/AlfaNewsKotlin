@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 
 const PRIMARY_MODEL = "gemini-3.1-flash-lite-preview";
@@ -107,9 +106,9 @@ export const processCitizenContentWithAI = async (
         const text = response.text as string;
         if (!text) throw new Error("Empty AI response");
         return JSON.parse(text.trim());
-    } catch (error: any) { 
+    } catch (error: any) {
         console.error("Gemini Citizen Error:", error.message);
-        throw error; 
+        throw error;
     }
 };
 
@@ -148,8 +147,8 @@ export const processContentWithAI = async (
         const text = response.text as string;
         if (!text) throw new Error("Empty AI response");
         return JSON.parse(text.trim());
-    } catch (error: any) { 
+    } catch (error: any) {
         console.error("Gemini Editor Error:", error.message);
-        throw error; 
+        throw error;
     }
 };

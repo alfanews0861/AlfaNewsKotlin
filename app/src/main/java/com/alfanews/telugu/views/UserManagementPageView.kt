@@ -33,16 +33,10 @@ fun UserManagementPageView(currentUser: User) {
     var searchTerm by remember { mutableStateOf("") }
     var updatingUsers by remember { mutableStateOf<Set<String>>(emptySet()) }
     
-    // --- New State for Feedback ---
-    var showSnackbar by remember { mutableStateOf(false) }
-    var snackbarMessage by remember { mutableStateOf("") }
-    var snackbarIsError by remember { mutableStateOf(false) }
-
+    val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     fun refreshUsers() {
-// ... rest of the function is the same
-
         scope.launch {
             loading = true
             try {
@@ -91,7 +85,7 @@ fun UserManagementPageView(currentUser: User) {
         refreshUsers()
     }
 
-    LaunchedEffect(searchTerm) {
+    LaunchedEffect(searchTerm, users) {
         val lowercasedFilter = searchTerm.lowercase()
         val baseList = when (currentUser.role) {
             UserRole.EDITOR -> {
@@ -118,21 +112,11 @@ fun UserManagementPageView(currentUser: User) {
             updatingUsers = updatingUsers + userId
             try {
                 FirebaseService.db.collection("users").document(userId).update(data).await()
-                
-                // --- New Feedback Implementation ---
-                snackbarMessage = "User updated successfully."
-                snackbarIsError = false
-                showSnackbar = true
-                // -----------------------------------
-                
-                refreshUsers() // Refresh the whole list to ensure consistency
+                snackbarHostState.showSnackbar("User updated successfully.")
+                refreshUsers()
             } catch (e: Exception) {
                 e.printStackTrace()
-                // --- New Error Feedback Implementation ---
-                snackbarMessage = "Failed to update user: ${e.message?.take(50)}..."
-                snackbarIsError = true
-                showSnackbar = true
-                // -----------------------------------------
+                snackbarHostState.showSnackbar("Failed to update user: ${e.message?.take(50)}...")
             } finally {
                 updatingUsers = updatingUsers - userId
             }
@@ -141,60 +125,46 @@ fun UserManagementPageView(currentUser: User) {
 
     AlfaNewsTheme {
         Scaffold(
-            snackbarHost = {
-                SnackbarHost(hostState = remember { SnackbarHostState() }.apply {
-                    LaunchedEffect(showSnackbar) {
-                        if (showSnackbar) {
-                            showSnackbar(
-                                message = snackbarMessage,
-                                actionLabel = "Dismiss",
-                                withDismissAction = true,
-                                duration = if (snackbarIsError) SnackbarDuration.Long else SnackbarDuration.Short
-                            )
-                            showSnackbar = false
-                        }
-                    }
-                })
-            }
+            snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
         ) { paddingValues ->
             Column(modifier = Modifier.fillMaxSize().padding(paddingValues).padding(16.dp)) {
                 OutlinedTextField(
-// ... rest of the function is the same
+                    value = searchTerm,
+                    onValueChange = { searchTerm = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("పేరు లేదా ఈమెయిల్ ద్వారా శోధించండి...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                    singleLine = true
+                )
 
-                onValueChange = { searchTerm = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("పేరు లేదా ఈమెయిల్ ద్వారా శోధించండి...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                singleLine = true
-            )
+                Spacer(modifier = Modifier.height(16.dp))
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            if (loading) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (filteredUsers.isEmpty()) {
-                        item {
-                            Text(
-                                text = "వినియోగదారులు ఎవరూ కనుగొనబడలేదు.",
-                                modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
-                                textAlign = TextAlign.Center,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else {
-                        items(filteredUsers, key = { it.id }) { user ->
-                            UserManagementCard(
-                                user = user,
-                                editors = editors,
-                                currentUser = currentUser,
-                                isUpdating = updatingUsers.contains(user.id),
-                                onUpdate = { data -> handleUserUpdate(user.id, data) }
-                            )
+                if (loading) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (filteredUsers.isEmpty()) {
+                            item {
+                                Text(
+                                    text = "వినియోగదారులు ఎవరూ కనుగొనబడలేదు.",
+                                    modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+                                    textAlign = TextAlign.Center,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        } else {
+                            items(filteredUsers, key = { it.id }) { user ->
+                                UserManagementCard(
+                                    user = user,
+                                    editors = editors,
+                                    currentUser = currentUser,
+                                    isUpdating = updatingUsers.contains(user.id),
+                                    onUpdate = { data -> handleUserUpdate(user.id, data) }
+                                )
+                            }
                         }
                     }
                 }
@@ -352,7 +322,6 @@ private fun EditorRoleManager(user: User, currentUser: User, isUpdating: Boolean
                 }
             }
         } else if (user.role == UserRole.REPORTER) {
-            // ఎడిటర్లు మరియు రీజనల్ ఇన్‌ఛార్జ్‌లు రిపోర్టర్లకు మండలాన్ని కేటాయించవచ్చు
             var mandalText by remember { mutableStateOf(user.assignedMandal ?: "") }
             OutlinedTextField(
                 value = mandalText,

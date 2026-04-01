@@ -62,7 +62,7 @@ async function run() {
         };
 
         const response = await ai.models.generateContent({
-            model: "gemini-3.1-flash-lite-preview",
+            model: "gemini-1.5-flash",
             contents: [{ role: "user", parts: [{ text: `Write a news article about: ${t.topic}` }] }],
             config: {
                 systemInstruction: `You are a Senior Journalist.
