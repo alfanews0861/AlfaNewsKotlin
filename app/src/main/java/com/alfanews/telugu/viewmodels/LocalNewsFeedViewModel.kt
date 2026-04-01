@@ -85,37 +85,25 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         viewModelScope.launch {
             val fusedLocationClient = LocationServices.getFusedLocationProviderClient(getApplication<Application>())
 
-            // A. Last Known Location - ఇది చాలా వేగంగా (Instant) వస్తుంది
             try {
-                val lastLoc = fusedLocationClient.lastLocation.await()
-                lastLoc?.let {
-                    val district = getDistrictFromCoords(it.latitude, it.longitude)
-                    if (district != null) {
-                        updateDetectedDistrict(district, currentUser)
+                // Get fresh location instantly without fallback
+                val loc = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
+                if (loc != null) {
+                    val detectedDistrict = getDistrictFromCoords(loc.latitude, loc.longitude)
+                    if (detectedDistrict != null) {
+                        updateDetectedDistrict(detectedDistrict, currentUser)
+                    } else {
+                        // Location found, but district is empty or not matched
                         finalizeDetection()
-                        return@launch
+                        // District is still empty, so UI will pop up the selector
                     }
+                } else {
+                    // Current location returned null
+                    finalizeDetection()
                 }
-            } catch (e: Exception) { }
-
-            // B. ఒకవేళ Last Location లేకపోతేనే, GPS ద్వారా ప్రయత్నించు
-            try {
-                withTimeout(5000L) {
-                    val loc = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
-                    if (loc != null) {
-                        val detectedDistrict = getDistrictFromCoords(loc.latitude, loc.longitude)
-                        if (detectedDistrict != null) {
-                            updateDetectedDistrict(detectedDistrict, currentUser)
-                        }
-                    }
-                }
-            } catch (e: Exception) { }
-
-            finalizeDetection()
-            if (_activeDistrict.value == null) {
-                loadGeneralNews()
-            } else {
-                if (_news.value.isEmpty()) loadNews(Language.TELUGU, currentUser)
+            } catch (e: Exception) {
+                // Ignore exceptions, e.g. Timeout 
+                finalizeDetection()
             }
         }
     }
@@ -134,8 +122,18 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 if (!addresses.isNullOrEmpty()) {
                     val adminArea = addresses[0].adminArea ?: ""
                     if (adminArea.contains("Andhra", ignoreCase = true) || adminArea.contains("Telangana", ignoreCase = true)) {
-                        val detectedName = addresses[0].subAdminArea ?: addresses[0].locality ?: adminArea
-                        return@withContext findMatchingDistrict(detectedName)
+                        val subAdmin = addresses[0].subAdminArea
+                        val locality = addresses[0].locality
+                        
+                        val detectedName = subAdmin ?: locality ?: adminArea
+                        val district = findMatchingDistrict(detectedName)
+                        
+                        if (district != null) return@withContext district
+                        
+                        if (subAdmin != null) {
+                           val secondAttempt = findMatchingDistrict(subAdmin.replace("District", "").trim())
+                           if (secondAttempt != null) return@withContext secondAttempt
+                        }
                     }
                 }
             } catch (e: Exception) { }
@@ -144,25 +142,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
 
     private fun loadGeneralNews() {
-        viewModelScope.launch {
-            _loading.value = true
-            try {
-                val newsRef = FirebaseService.db.collection("news")
-                val query = newsRef
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(pageSize.toLong())
-                
-                val snapshot = query.get().await()
-                val posts = withContext(Dispatchers.Default) {
-                    snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
-                }
-                
-                _news.value = posts
-                _loading.value = false
-            } catch (e: Exception) {
-                _loading.value = false
-            }
-        }
+        // We removed general news loading to force District Selection
     }
 
 
@@ -285,6 +265,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 comments = (data["comments"] as? Long)?.toInt() ?: 0,
                 shares = (data["shares"] as? Long)?.toInt() ?: 0,
                 originalUrl = data["originalUrl"] as? String,
+                district = data["district"] as? String,
                 verificationStatus = data["verificationStatus"] as? String ?: "UNVERIFIED",
                 type = type
             )

@@ -158,10 +158,13 @@ class MainActivity : ComponentActivity() {
                     // alfanews://news/POST_ID
                     if (uri.host == "news") uri.lastPathSegment else null
                 }
-                "https" -> {
-                    // https://alfanews.app/news/POST_ID
-                    val pathSegments = uri.pathSegments
-                    if (pathSegments.size >= 2 && pathSegments[0] == "news") pathSegments[1] else null
+                "http", "https" -> {
+                    // https://alfanews.app/news/POST_ID or https://www.alfanews.app/news/POST_ID
+                    val host = uri.host
+                    if (host == "alfanews.app" || host == "www.alfanews.app") {
+                        val pathSegments = uri.pathSegments
+                        if (pathSegments.size >= 2 && pathSegments[0] == "news") pathSegments[1] else null
+                    } else null
                 }
                 else -> null
             }

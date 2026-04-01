@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import com.alfanews.telugu.R
+import com.alfanews.telugu.utils.glassmorphism
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.ui.theme.Poppins
 
@@ -30,14 +31,19 @@ fun Footer(
     onTabChange: (String) -> Unit
 ) {
     Surface(
-        tonalElevation = 8.dp, // Adds a subtle depth
-        shadowElevation = 16.dp
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .glassmorphism(cornerRadius = 32.dp, blurRadius = 24.dp, opacity = 0.1f),
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
         NavigationBar(
-            modifier = Modifier.fillMaxWidth().height(60.dp), // Height 60dp for a sleek look
-            containerColor = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxWidth().height(64.dp),
+            containerColor = Color.Transparent,
             contentColor = MaterialTheme.colorScheme.onSurface,
-            tonalElevation = 0.dp // Remove shadow/elevation for a flatter look
+            tonalElevation = 0.dp
         ) {
             FooterItem(
                 icon = Icons.Default.Home,

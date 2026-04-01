@@ -150,6 +150,11 @@ fun LocalNewsFeedView(
                 }
             }
         } else if (news.isEmpty()) {
+            LaunchedEffect(activeDistrict) {
+                if (activeDistrict == null) {
+                    showDistrictPicker = true
+                }
+            }
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center

@@ -86,8 +86,21 @@ fun MainScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = if (androidx.compose.foundation.isSystemInDarkTheme()) {
+                        listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364))
+                    } else {
+                        listOf(Color(0xFFE0EAFC), Color(0xFFCFDEF3))
+                    }
+                )
+            )
+    ) {
         Scaffold(
+            containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             bottomBar = {
                 if (!showSplash && !showPostNewsPage && !showJoinReporterPage && !showEditProfilePage && reporterIdToShow == null) {

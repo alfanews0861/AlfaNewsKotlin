@@ -57,6 +57,7 @@ import coil3.request.allowHardware
 import androidx.compose.ui.res.stringResource
 import com.alfanews.telugu.R
 import com.alfanews.telugu.utils.SafeImageLoader
+import com.alfanews.telugu.utils.glassmorphism
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.MediaType
 import com.alfanews.telugu.models.NewsPost
@@ -191,7 +192,6 @@ fun NewsCardView(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
             .onGloballyPositioned { coordinates ->
                 val position = coordinates.positionInWindow()
                 val size = coordinates.size
@@ -213,7 +213,6 @@ fun NewsCardView(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
-                        .background(MaterialTheme.colorScheme.surface)
                         .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Start
@@ -329,7 +328,9 @@ fun NewsCardView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(0.60f)
-                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)
+                    .padding(8.dp)
+                    .glassmorphism(cornerRadius = 24.dp, blurRadius = 20.dp, opacity = 0.05f)
+                    .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 12.dp)
             ) {
                 if (isSpecialCard || isCartoonCard) {
                     // --- SPECIAL CARD OR CARTOON: Buttons Only, No Text Content ---
@@ -677,7 +678,7 @@ fun DottedDivider() {
     ) {
         val pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
         drawLine(
-            color = Color.Gray.copy(alpha = 0.6f),
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.15f),
             start = Offset(0f, 0f),
             end = Offset(size.width, 0f),
             pathEffect = pathEffect,

@@ -355,20 +355,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             try {
                 val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
                 
-                // 1. First try last location (Instant)
-                val lastLoc = fusedLocationClient.lastLocation.await()
-                if (lastLoc != null) {
-                    if (processLocationUpdate(context, lastLoc.latitude, lastLoc.longitude, language, currentUser)) {
-                        return@launch
-                    }
-                }
-
-                // 2. Try current location with timeout
-                kotlinx.coroutines.withTimeoutOrNull(5000L) {
-                    val location = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
-                    if (location != null) {
-                        processLocationUpdate(context, location.latitude, location.longitude, language, currentUser)
-                    }
+                // Always get fresh accurate location
+                val location = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
+                if (location != null) {
+                    processLocationUpdate(context, location.latitude, location.longitude, language, currentUser)
                 }
             } catch (e: Exception) { }
         }

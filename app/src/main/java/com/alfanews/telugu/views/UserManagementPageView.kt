@@ -32,10 +32,17 @@ fun UserManagementPageView(currentUser: User) {
     var loading by remember { mutableStateOf(true) }
     var searchTerm by remember { mutableStateOf("") }
     var updatingUsers by remember { mutableStateOf<Set<String>>(emptySet()) }
+    
+    // --- New State for Feedback ---
+    var showSnackbar by remember { mutableStateOf(false) }
+    var snackbarMessage by remember { mutableStateOf("") }
+    var snackbarIsError by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
 
     fun refreshUsers() {
+// ... rest of the function is the same
+
         scope.launch {
             loading = true
             try {
@@ -53,7 +60,10 @@ fun UserManagementPageView(currentUser: User) {
 
                 val baseList = when (currentUser.role) {
                     UserRole.EDITOR -> {
-                        fetchedUsers.filter { u -> u.role == UserRole.SUBSCRIBER || (u.role == UserRole.REPORTER && u.promotedBy == currentUser.id) }
+                        fetchedUsers.filter { u -> 
+                            u.role == UserRole.SUBSCRIBER || 
+                            (u.role == UserRole.REPORTER && (u.promotedBy == currentUser.id || u.promotedBy.isNullOrBlank() || u.promotedBy == "ADMIN"))
+                        }
                     }
                     UserRole.REGIONAL_INCHARGE -> {
                         fetchedUsers.filter { u -> 
@@ -85,7 +95,10 @@ fun UserManagementPageView(currentUser: User) {
         val lowercasedFilter = searchTerm.lowercase()
         val baseList = when (currentUser.role) {
             UserRole.EDITOR -> {
-                users.filter { u -> u.role == UserRole.SUBSCRIBER || (u.role == UserRole.REPORTER && u.promotedBy == currentUser.id) }
+                users.filter { u -> 
+                    u.role == UserRole.SUBSCRIBER || 
+                    (u.role == UserRole.REPORTER && (u.promotedBy == currentUser.id || u.promotedBy.isNullOrBlank() || u.promotedBy == "ADMIN"))
+                }
             }
             UserRole.REGIONAL_INCHARGE -> {
                 users.filter { u -> 
@@ -105,9 +118,21 @@ fun UserManagementPageView(currentUser: User) {
             updatingUsers = updatingUsers + userId
             try {
                 FirebaseService.db.collection("users").document(userId).update(data).await()
+                
+                // --- New Feedback Implementation ---
+                snackbarMessage = "User updated successfully."
+                snackbarIsError = false
+                showSnackbar = true
+                // -----------------------------------
+                
                 refreshUsers() // Refresh the whole list to ensure consistency
             } catch (e: Exception) {
                 e.printStackTrace()
+                // --- New Error Feedback Implementation ---
+                snackbarMessage = "Failed to update user: ${e.message?.take(50)}..."
+                snackbarIsError = true
+                showSnackbar = true
+                // -----------------------------------------
             } finally {
                 updatingUsers = updatingUsers - userId
             }
@@ -115,9 +140,27 @@ fun UserManagementPageView(currentUser: User) {
     }
 
     AlfaNewsTheme {
-        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            OutlinedTextField(
-                value = searchTerm,
+        Scaffold(
+            snackbarHost = {
+                SnackbarHost(hostState = remember { SnackbarHostState() }.apply {
+                    LaunchedEffect(showSnackbar) {
+                        if (showSnackbar) {
+                            showSnackbar(
+                                message = snackbarMessage,
+                                actionLabel = "Dismiss",
+                                withDismissAction = true,
+                                duration = if (snackbarIsError) SnackbarDuration.Long else SnackbarDuration.Short
+                            )
+                            showSnackbar = false
+                        }
+                    }
+                })
+            }
+        ) { paddingValues ->
+            Column(modifier = Modifier.fillMaxSize().padding(paddingValues).padding(16.dp)) {
+                OutlinedTextField(
+// ... rest of the function is the same
+
                 onValueChange = { searchTerm = it },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("పేరు లేదా ఈమెయిల్ ద్వారా శోధించండి...") },

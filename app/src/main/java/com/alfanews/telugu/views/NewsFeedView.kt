@@ -132,7 +132,6 @@ fun NewsFeedView(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
     ) {
         if (loading && news.isEmpty()) {
             Box(
