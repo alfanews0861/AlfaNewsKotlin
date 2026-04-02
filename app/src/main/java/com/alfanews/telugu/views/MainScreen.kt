@@ -32,7 +32,9 @@ import com.alfanews.telugu.views.policy.TermsOfServicePageView
 import kotlinx.coroutines.launch
 
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import com.alfanews.telugu.R
+import com.alfanews.telugu.utils.glassmorphism
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
