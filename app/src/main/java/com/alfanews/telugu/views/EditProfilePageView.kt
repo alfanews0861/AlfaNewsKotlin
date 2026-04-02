@@ -306,3 +306,4 @@ fun EditProfilePageView(
         }
     }
 }
+}
