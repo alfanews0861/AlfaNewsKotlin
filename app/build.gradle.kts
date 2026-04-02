@@ -137,9 +137,7 @@ dependencies {
     implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0")
     
     // Gemini API for image generation
-    implementation("com.google.ai.client.generativeai:generativeai:0.9.0") {
-        exclude(group = "io.ktor")
-    }
+    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.2")
