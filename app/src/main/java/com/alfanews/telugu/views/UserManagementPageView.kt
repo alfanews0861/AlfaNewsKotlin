@@ -259,22 +259,25 @@ private fun AdminRoleManager(user: User, isUpdating: Boolean, onUpdate: (Map<Str
         }
 
         if (user.role == UserRole.REPORTER) {
-            var mandalText by remember { mutableStateOf(user.assignedMandal ?: "") }
-            OutlinedTextField(
-                value = mandalText,
-                onValueChange = { mandalText = it },
-                label = { Text("Assigned Mandal (Reporter)") },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("e.g. Nellore City, Kovur") },
-                enabled = !isUpdating,
-                trailingIcon = {
-                    IconButton(onClick = {
-                        onUpdate(mapOf("assignedMandal" to mandalText))
-                    }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Update Mandal")
-                    }
+            var district by remember { mutableStateOf(user.district ?: "") }
+            var mandal by remember { mutableStateOf(user.assignedMandal ?: "") }
+
+            LocationSelector(
+                selectedDistrict = district,
+                selectedMandal = mandal,
+                onLocationChange = { d, m -> 
+                    district = d
+                    mandal = m
                 }
             )
+            
+            Button(
+                onClick = { onUpdate(mapOf("district" to district, "assignedMandal" to mandal)) },
+                enabled = !isUpdating && (district != user.district || mandal != user.assignedMandal),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Update Location")
+            }
 
             var editorExpanded by remember { mutableStateOf(false) }
             val assignedEditorName = editors.find { it.id == user.promotedBy }?.name ?: "ADMIN"
@@ -322,22 +325,25 @@ private fun EditorRoleManager(user: User, currentUser: User, isUpdating: Boolean
                 }
             }
         } else if (user.role == UserRole.REPORTER) {
-            var mandalText by remember { mutableStateOf(user.assignedMandal ?: "") }
-            OutlinedTextField(
-                value = mandalText,
-                onValueChange = { mandalText = it },
-                label = { Text("Assigned Mandal (Reporter)") },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("e.g. Nellore City, Kovur") },
-                enabled = !isUpdating,
-                trailingIcon = {
-                    IconButton(onClick = {
-                        onUpdate(mapOf("assignedMandal" to mandalText))
-                    }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Update Mandal")
-                    }
+            var district by remember { mutableStateOf(user.district ?: "") }
+            var mandal by remember { mutableStateOf(user.assignedMandal ?: "") }
+
+            LocationSelector(
+                selectedDistrict = district,
+                selectedMandal = mandal,
+                onLocationChange = { d, m -> 
+                    district = d
+                    mandal = m
                 }
             )
+            
+            Button(
+                onClick = { onUpdate(mapOf("district" to district, "assignedMandal" to mandal)) },
+                enabled = !isUpdating && (district != user.district || mandal != user.assignedMandal),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Update Location")
+            }
         }
     }
 }

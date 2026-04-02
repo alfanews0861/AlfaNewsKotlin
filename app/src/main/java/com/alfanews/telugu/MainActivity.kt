@@ -5,14 +5,16 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModel
@@ -89,19 +91,33 @@ class MainActivity : ComponentActivity() {
             }
 
             AlfaNewsTheme(darkTheme = isDarkTheme) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    if (showSplash) {
-                        SplashScreenView { showSplash = false }
-                    } else {
-                        MainScreen(
-                            mainViewModel = mainViewModel, 
-                            newsFeedViewModel = newsFeedViewModel,
-                            checkForUpdate = this::checkAppUpdate,
-                            completeUpdate = this::completeUpdate
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.background,
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                    MaterialTheme.colorScheme.background
+                                )
+                            )
                         )
+                ) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = Color.Transparent
+                    ) {
+                        if (showSplash) {
+                            SplashScreenView { showSplash = false }
+                        } else {
+                            MainScreen(
+                                mainViewModel = mainViewModel, 
+                                newsFeedViewModel = newsFeedViewModel,
+                                checkForUpdate = this@MainActivity::checkAppUpdate,
+                                completeUpdate = this@MainActivity::completeUpdate
+                            )
+                        }
                     }
                 }
             }

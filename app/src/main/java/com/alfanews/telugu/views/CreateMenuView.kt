@@ -21,6 +21,7 @@ import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.R
+import com.alfanews.telugu.utils.glassmorphism
 
 @Composable
 fun CreateMenuView(
@@ -37,12 +38,13 @@ fun CreateMenuView(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(Color.Transparent)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
+                .padding(24.dp)
+                .glassmorphism(cornerRadius = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {

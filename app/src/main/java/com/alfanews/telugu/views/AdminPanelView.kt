@@ -138,7 +138,7 @@ fun AdminPanelView(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(
-                drawerContainerColor = MaterialTheme.colorScheme.surface,
+                drawerContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
                 drawerTonalElevation = 4.dp,
                 modifier = Modifier.width(320.dp),
                 drawerShape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp)

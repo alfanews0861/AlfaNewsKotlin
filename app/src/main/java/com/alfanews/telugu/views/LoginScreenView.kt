@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -88,8 +89,24 @@ fun LoginScreenView(
         onDismissRequest = onClose,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Column(modifier = Modifier.fillMaxSize()) {
+        Surface(
+            modifier = Modifier.fillMaxSize(), 
+            color = Color.Transparent
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.background,
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                MaterialTheme.colorScheme.background
+                            )
+                        )
+                    )
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
                 TopAppBar(
                     title = { Text(stringResource(R.string.app_name)) },
                     navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.Default.Close, stringResource(R.string.close)) } }
@@ -122,25 +139,7 @@ fun LoginScreenView(
                         )
                     }
 
-                    // Phone Auth Section
-                    PhoneAuthSection(onLoginSuccess, { isLoading = it }, { errorMessage = it }, isLoading)
-
-                    Spacer(modifier = Modifier.height(32.dp))
-
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
-                        HorizontalDivider(modifier = Modifier.weight(1f), thickness = 1.dp, color = Color.LightGray)
-                        Text(
-                            text = stringResource(R.string.or_separator),
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.Gray
-                        )
-                        HorizontalDivider(modifier = Modifier.weight(1f), thickness = 1.dp, color = Color.LightGray)
-                    }
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // Google Login Button
+                    // Google Login Button (Moved to TOP for better visibility)
                     Button(
                         onClick = {
                             val webClientId = context.getString(R.string.default_web_client_id)
@@ -162,16 +161,30 @@ fun LoginScreenView(
                             CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
                         } else {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    painter = painterResource(id = android.R.drawable.ic_menu_info_details),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text(stringResource(R.string.google_login), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                                Text("G", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Text(stringResource(R.string.google_login), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
+                        HorizontalDivider(modifier = Modifier.weight(1f), thickness = 1.dp, color = Color.LightGray)
+                        Text(
+                            text = stringResource(R.string.or_separator),
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                        HorizontalDivider(modifier = Modifier.weight(1f), thickness = 1.dp, color = Color.LightGray)
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // Phone Auth Section
+                    PhoneAuthSection(onLoginSuccess, { isLoading = it }, { errorMessage = it }, isLoading)
                 }
 
                 Text(
@@ -181,6 +194,7 @@ fun LoginScreenView(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     textAlign = TextAlign.Center
                 )
+            }
             }
         }
     }

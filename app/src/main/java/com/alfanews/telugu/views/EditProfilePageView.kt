@@ -27,6 +27,7 @@ import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.ui.theme.Poppins
 import com.alfanews.telugu.utils.Constants
+import com.alfanews.telugu.utils.glassmorphism
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,10 +59,19 @@ fun EditProfilePageView(
         onResult = { uri: Uri? -> signatureUri = uri }
     )
 
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .glassmorphism(cornerRadius = 24.dp)
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
         // Name Edit
         Column {
             Text(
@@ -269,7 +279,6 @@ fun EditProfilePageView(
                 Text(stringResource(R.string.skip), fontWeight = FontWeight.Bold)
             }
 
-            // Save Button
             Button(
                 onClick = {
                     onSave(editName, editPhone, editAddress, editDistrict, photoUri, signatureUri)
@@ -277,9 +286,10 @@ fun EditProfilePageView(
                 modifier = Modifier.weight(1f).height(50.dp),
                 enabled = !saving,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFD93025)
+                    containerColor = MaterialTheme.colorScheme.primary
                 ),
-                shape = RoundedCornerShape(12.dp)
+                shape = MaterialTheme.shapes.medium,
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
             ) {
                 if (saving) {
                     CircularProgressIndicator(

@@ -32,6 +32,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.io.File
 import androidx.compose.ui.unit.dp
+import com.alfanews.telugu.utils.glassmorphism
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import androidx.compose.ui.res.stringResource
@@ -166,7 +167,7 @@ fun PostNewsPageView(
             modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp), modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.fillMaxWidth().glassmorphism(cornerRadius = 16.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(stringResource(R.string.news_details), style = MaterialTheme.typography.titleLarge)
                     OutlinedTextField(value = headline, onValueChange = { headline = it }, label = { Text(stringResource(R.string.headline)) }, modifier = Modifier.fillMaxWidth())
@@ -174,7 +175,7 @@ fun PostNewsPageView(
                 }
             }
 
-            Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp), modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.fillMaxWidth().glassmorphism(cornerRadius = 16.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(stringResource(R.string.region_category), style = MaterialTheme.typography.titleLarge)
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -193,7 +194,7 @@ fun PostNewsPageView(
                 }
             }
 
-            Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp), modifier = Modifier.fillMaxWidth()) {
+            Box(modifier = Modifier.fillMaxWidth().glassmorphism(cornerRadius = 16.dp)) {
                 Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(stringResource(R.string.news_media), style = MaterialTheme.typography.titleLarge)
                     val displayMedia = mediaUri?.toString() ?: mediaUrl

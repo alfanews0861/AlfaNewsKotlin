@@ -83,26 +83,22 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         _isDetecting.value = true
         
         viewModelScope.launch {
-            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(getApplication<Application>())
-
             try {
-                // Get fresh location instantly without fallback
-                val loc = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
-                if (loc != null) {
-                    val detectedDistrict = getDistrictFromCoords(loc.latitude, loc.longitude)
-                    if (detectedDistrict != null) {
-                        updateDetectedDistrict(detectedDistrict, currentUser)
+                withTimeout(5000L) {
+                    val fusedLocationClient = LocationServices.getFusedLocationProviderClient(getApplication<Application>())
+                    val loc = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null).await()
+                    if (loc != null) {
+                        val detectedDistrict = getDistrictFromCoords(loc.latitude, loc.longitude)
+                        if (detectedDistrict != null) {
+                            updateDetectedDistrict(detectedDistrict, currentUser)
+                        } else {
+                            finalizeDetection()
+                        }
                     } else {
-                        // Location found, but district is empty or not matched
                         finalizeDetection()
-                        // District is still empty, so UI will pop up the selector
                     }
-                } else {
-                    // Current location returned null
-                    finalizeDetection()
                 }
             } catch (e: Exception) {
-                // Ignore exceptions, e.g. Timeout 
                 finalizeDetection()
             }
         }
@@ -180,13 +176,27 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     .limit(pageSize.toLong())
                 
                 val snapshot = query.get().await()
-                val posts = withContext(Dispatchers.Default) {
+                var posts = withContext(Dispatchers.Default) {
                     snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
                 }
                 
+                // If local news is empty, fetch generic news so the user doesn't see a blank screen
+                if (posts.isEmpty()) {
+                    val fallbackQuery = FirebaseService.db.collection("news")
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(pageSize.toLong())
+                    val fallbackSnapshot = fallbackQuery.get().await()
+                    posts = withContext(Dispatchers.Default) {
+                        fallbackSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                    }
+                    lastDocument = fallbackSnapshot.documents.lastOrNull()
+                    _hasMore.value = fallbackSnapshot.documents.size == pageSize
+                } else {
+                    lastDocument = snapshot.documents.lastOrNull()
+                    _hasMore.value = snapshot.documents.size == pageSize
+                }
+                
                 _news.value = posts
-                lastDocument = snapshot.documents.lastOrNull()
-                _hasMore.value = snapshot.documents.size == pageSize
             } catch (e: Exception) {
                  _hasMore.value = false
             } finally {
@@ -211,13 +221,30 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     .limit(pageSize.toLong())
                 
                 val snapshot = query.get().await()
-                val newPosts = withContext(Dispatchers.Default) {
+                var newPosts = withContext(Dispatchers.Default) {
                     snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
                 }
                 
+                // If local news fetch is empty on loadMore, try fetching fallback generic news 
+                if (newPosts.isEmpty() && _news.value.size < 50) {
+                     val fallbackQuery = FirebaseService.db.collection("news")
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .startAfter(lastDocument!!)
+                        .limit(pageSize.toLong())
+                     val fallbackSnapshot = fallbackQuery.get().await()
+                     newPosts = withContext(Dispatchers.Default) {
+                         fallbackSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                     }
+                     lastDocument = fallbackSnapshot.documents.lastOrNull()
+                     _hasMore.value = fallbackSnapshot.documents.size == pageSize
+                } else if (newPosts.isNotEmpty()) {
+                    lastDocument = snapshot.documents.lastOrNull()
+                    _hasMore.value = snapshot.documents.size == pageSize
+                } else {
+                    _hasMore.value = false
+                }
+                
                 _news.value = _news.value + newPosts
-                lastDocument = snapshot.documents.lastOrNull()
-                _hasMore.value = snapshot.documents.size == pageSize
             } catch (e: Exception) {
                 _hasMore.value = false
             } finally {

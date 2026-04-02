@@ -136,9 +136,14 @@ fun MainScreen(
                     )
                 } else if (showPostNewsPage && user != null) {
                     Scaffold(
+                        containerColor = Color.Transparent,
                         topBar = {
                             TopAppBar(
                                 title = { Text(stringResource(R.string.post_news)) },
+                                colors = TopAppBarDefaults.topAppBarColors(
+                                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                                ),
                                 navigationIcon = {
                                     IconButton(onClick = { showPostNewsPage = false }) {
                                         Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back))
@@ -147,7 +152,7 @@ fun MainScreen(
                             )
                         }
                     ) { innerPadding ->
-                        Box(modifier = Modifier.padding(innerPadding)) {
+                        Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
                             PostNewsPageView(
                                 user = user,
                                 postToEdit = null,

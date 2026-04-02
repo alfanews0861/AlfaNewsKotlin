@@ -118,6 +118,12 @@ fun NewsCardView(
     val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
     val content = if (language == Language.TELUGU) post.content.telugu else post.content.english
 
+    val isEnglish = language == Language.ENGLISH
+    val headlineSize = if (isEnglish) 18.sp else 20.sp
+    val headlineLineHeight = if (isEnglish) 26.sp else 28.sp
+    val contentSize = if (isEnglish) 15.sp else 16.sp
+    val contentLineHeight = if (isEnglish) 22.sp else 24.sp
+
     val englishRegex = remember { Regex("[a-zA-Z]") }
 
     val headlineFontFamily = remember(language, headline) {
@@ -421,11 +427,11 @@ fun NewsCardView(
                         ) {
                             Text(
                                 text = headline,
-                                fontSize = 24.sp,
+                                fontSize = headlineSize,
                                 fontFamily = headlineFontFamily,
                                 fontWeight = headlineFontWeight,
                                 color = MaterialTheme.colorScheme.onBackground,
-                                lineHeight = 34.sp,
+                                lineHeight = headlineLineHeight,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(bottom = 2.dp)
@@ -482,11 +488,11 @@ fun NewsCardView(
 
                             Text(
                                 text = content,
-                                fontSize = 20.sp,
+                                fontSize = contentSize,
                                 fontFamily = contentFontFamily,
                                 fontWeight = FontWeight.Normal,
                                 color = MaterialTheme.colorScheme.onBackground,
-                                lineHeight = 26.sp,
+                                lineHeight = contentLineHeight,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .weight(1f)

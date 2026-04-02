@@ -25,6 +25,7 @@ import com.alfanews.telugu.ui.theme.AlfaNewsTheme
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.utils.Constants
+import com.alfanews.telugu.utils.glassmorphism
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
@@ -81,6 +82,7 @@ fun JoinReporterPageView(
 
     AlfaNewsTheme {
         Scaffold(
+            containerColor = Color.Transparent,
             topBar = {
                 CenterAlignedTopAppBar(
                     title = { 
@@ -96,9 +98,9 @@ fun JoinReporterPageView(
                         } 
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                        navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                        titleContentColor = MaterialTheme.colorScheme.onSurface,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onSurface
                     )
                 )
             },
@@ -111,192 +113,229 @@ fun JoinReporterPageView(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Text(
-                        text = stringResource(R.string.reporter_app_form),
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = Ramabhadra,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    
-                    OutlinedTextField(
-                        value = fullName,
-                        onValueChange = { fullName = it },
-                        label = { Text(stringResource(R.string.full_name), fontFamily = Mallanna) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    
-                    OutlinedTextField(
-                        value = fatherName,
-                        onValueChange = { fatherName = it },
-                        label = { Text(stringResource(R.string.father_name), fontFamily = Mallanna) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    
-                    OutlinedTextField(
-                        value = phone,
-                        onValueChange = { phone = it },
-                        label = { Text(stringResource(R.string.phone_number_label), fontFamily = Mallanna) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Phone
-                        )
-                    )
-                    
-                    Text(stringResource(R.string.region_details), fontWeight = FontWeight.Bold, fontFamily = Ramabhadra)
-                    
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = selectedState == "TS",
-                            onClick = { selectedState = "TS"; selectedDistrict = ""; selectedMandal = "" },
-                            label = { Text(stringResource(R.string.telangana)) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = selectedState == "AP",
-                            onClick = { selectedState = "AP"; selectedDistrict = ""; selectedMandal = "" },
-                            label = { Text(stringResource(R.string.andhra_pradesh)) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    
-                    val districtsList = if (selectedState == "TS") Constants.TS_DISTRICTS else Constants.AP_DISTRICTS
-                    var districtExpanded by remember { mutableStateOf(false) }
-                    
-                    ExposedDropdownMenuBox(
-                        expanded = districtExpanded,
-                        onExpandedChange = { districtExpanded = !districtExpanded }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .glassmorphism(cornerRadius = 16.dp)
+                            .padding(16.dp)
                     ) {
-                        OutlinedTextField(
-                            value = selectedDistrict,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text(stringResource(R.string.select_district)) },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = districtExpanded) },
-                            modifier = Modifier.fillMaxWidth().menuAnchor()
-                        )
-                        ExposedDropdownMenu(
-                            expanded = districtExpanded,
-                            onDismissRequest = { districtExpanded = false }
-                        ) {
-                            districtsList.forEach { districtName: String ->
-                                DropdownMenuItem(
-                                    text = { Text(districtName) },
-                                    onClick = {
-                                        selectedDistrict = districtName
-                                        selectedMandal = ""
-                                        districtExpanded = false
-                                    }
-                                )
-                            }
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Text(
+                                text = stringResource(R.string.reporter_app_form),
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = Ramabhadra,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            
+                            OutlinedTextField(
+                                value = fullName,
+                                onValueChange = { fullName = it },
+                                label = { Text(stringResource(R.string.full_name), fontFamily = Mallanna) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = MaterialTheme.shapes.medium
+                            )
+                            
+                            OutlinedTextField(
+                                value = fatherName,
+                                onValueChange = { fatherName = it },
+                                label = { Text(stringResource(R.string.father_name), fontFamily = Mallanna) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = MaterialTheme.shapes.medium
+                            )
+                            
+                            OutlinedTextField(
+                                value = phone,
+                                onValueChange = { phone = it },
+                                label = { Text(stringResource(R.string.phone_number_label), fontFamily = Mallanna) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Phone
+                                ),
+                                shape = MaterialTheme.shapes.medium
+                            )
                         }
                     }
                     
-                    if (selectedDistrict.isNotEmpty()) {
-                        val mandalsList = Constants.MANDAL_DATA[selectedDistrict] ?: emptyList<String>()
-                        val availableMandalsList = mandalsList.filter { !occupiedMandals.contains(it) }
-                        
-                        var mandalExpanded by remember { mutableStateOf(false) }
-                        
-                        ExposedDropdownMenuBox(
-                            expanded = mandalExpanded,
-                            onExpandedChange = { mandalExpanded = !mandalExpanded }
-                        ) {
-                            OutlinedTextField(
-                                value = selectedMandal,
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text(stringResource(R.string.select_mandal)) },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = mandalExpanded) },
-                                modifier = Modifier.fillMaxWidth().menuAnchor()
-                            )
-                            ExposedDropdownMenu(
-                                expanded = mandalExpanded,
-                                onDismissRequest = { mandalExpanded = false }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .glassmorphism(cornerRadius = 16.dp)
+                            .padding(16.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Text(stringResource(R.string.region_details), fontWeight = FontWeight.Bold, fontFamily = Ramabhadra)
+                            
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = selectedState == "TS",
+                                    onClick = { selectedState = "TS"; selectedDistrict = ""; selectedMandal = "" },
+                                    label = { Text(stringResource(R.string.telangana)) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                FilterChip(
+                                    selected = selectedState == "AP",
+                                    onClick = { selectedState = "AP"; selectedDistrict = ""; selectedMandal = "" },
+                                    label = { Text(stringResource(R.string.andhra_pradesh)) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            
+                            val districtsList = if (selectedState == "TS") Constants.TS_DISTRICTS else Constants.AP_DISTRICTS
+                            var districtExpanded by remember { mutableStateOf(false) }
+                            
+                            ExposedDropdownMenuBox(
+                                expanded = districtExpanded,
+                                onExpandedChange = { districtExpanded = !districtExpanded }
                             ) {
-                                if (isLoadingOccupied) {
-                                    DropdownMenuItem(text = { Text(stringResource(R.string.loading)) }, onClick = {})
-                                } else if (availableMandalsList.isEmpty()) {
-                                    DropdownMenuItem(text = { Text(stringResource(R.string.no_mandals_available)) }, onClick = {})
-                                } else {
-                                    availableMandalsList.forEach { mandalName: String ->
+                                OutlinedTextField(
+                                    value = selectedDistrict,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text(stringResource(R.string.select_district)) },
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = districtExpanded) },
+                                    modifier = Modifier.fillMaxWidth().menuAnchor(),
+                                    shape = MaterialTheme.shapes.medium
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = districtExpanded,
+                                    onDismissRequest = { districtExpanded = false }
+                                ) {
+                                    districtsList.forEach { districtName: String ->
                                         DropdownMenuItem(
-                                            text = { Text(mandalName) },
+                                            text = { Text(districtName) },
                                             onClick = {
-                                                selectedMandal = mandalName
-                                                mandalExpanded = false
+                                                selectedDistrict = districtName
+                                                selectedMandal = ""
+                                                districtExpanded = false
                                             }
                                         )
                                     }
                                 }
                             }
-                        }
-                    }
-                    
-                    var posExpanded by remember { mutableStateOf(false) }
-                    ExposedDropdownMenuBox(
-                        expanded = posExpanded,
-                        onExpandedChange = { posExpanded = !posExpanded }
-                    ) {
-                        OutlinedTextField(
-                            value = position,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text(stringResource(R.string.position), fontFamily = Mallanna) },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = posExpanded) },
-                            modifier = Modifier.fillMaxWidth().menuAnchor()
-                        )
-                        ExposedDropdownMenu(
-                            expanded = posExpanded,
-                            onDismissRequest = { posExpanded = false }
-                        ) {
-                            positions.forEach { selectionOption: String ->
-                                DropdownMenuItem(
-                                    text = { Text(selectionOption, fontFamily = Mallanna) },
-                                    onClick = {
-                                        position = selectionOption
-                                        posExpanded = false
+                            
+                            if (selectedDistrict.isNotEmpty()) {
+                                val mandalsList = Constants.MANDAL_DATA[selectedDistrict] ?: emptyList<String>()
+                                val availableMandalsList = mandalsList.filter { !occupiedMandals.contains(it) }
+                                
+                                var mandalExpanded by remember { mutableStateOf(false) }
+                                
+                                ExposedDropdownMenuBox(
+                                    expanded = mandalExpanded,
+                                    onExpandedChange = { mandalExpanded = !mandalExpanded }
+                                ) {
+                                    OutlinedTextField(
+                                        value = selectedMandal,
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        label = { Text(stringResource(R.string.select_mandal)) },
+                                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = mandalExpanded) },
+                                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                                        shape = MaterialTheme.shapes.medium
+                                    )
+                                    ExposedDropdownMenu(
+                                        expanded = mandalExpanded,
+                                        onDismissRequest = { mandalExpanded = false }
+                                    ) {
+                                        if (isLoadingOccupied) {
+                                            DropdownMenuItem(text = { Text(stringResource(R.string.loading)) }, onClick = {})
+                                        } else if (availableMandalsList.isEmpty()) {
+                                            DropdownMenuItem(text = { Text(stringResource(R.string.no_mandals_available)) }, onClick = {})
+                                        } else {
+                                            availableMandalsList.forEach { mandalName: String ->
+                                                DropdownMenuItem(
+                                                    text = { Text(mandalName) },
+                                                    onClick = {
+                                                        selectedMandal = mandalName
+                                                        mandalExpanded = false
+                                                    }
+                                                )
+                                            }
+                                        }
                                     }
-                                )
+                                }
                             }
                         }
                     }
-                    
-                    OutlinedTextField(
-                        value = interestedArea,
-                        onValueChange = { interestedArea = it },
-                        label = { Text(stringResource(R.string.interested_category), fontFamily = Mallanna) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    
-                    OutlinedTextField(
-                        value = education,
-                        onValueChange = { education = it },
-                        label = { Text(stringResource(R.string.education_qualification), fontFamily = Mallanna) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    
-                    OutlinedTextField(
-                        value = currentOrg,
-                        onValueChange = { currentOrg = it },
-                        label = { Text(stringResource(R.string.current_organization), fontFamily = Mallanna) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    
-                    OutlinedTextField(
-                        value = additionalMessage,
-                        onValueChange = { additionalMessage = it },
-                        label = { Text(stringResource(R.string.additional_message), fontFamily = Mallanna) },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 3,
-                        placeholder = { Text(stringResource(R.string.message_placeholder)) }
-                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .glassmorphism(cornerRadius = 16.dp)
+                            .padding(16.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            var posExpanded by remember { mutableStateOf(false) }
+                            ExposedDropdownMenuBox(
+                                expanded = posExpanded,
+                                onExpandedChange = { posExpanded = !posExpanded }
+                            ) {
+                                OutlinedTextField(
+                                    value = position,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text(stringResource(R.string.position), fontFamily = Mallanna) },
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = posExpanded) },
+                                    modifier = Modifier.fillMaxWidth().menuAnchor(),
+                                    shape = MaterialTheme.shapes.medium
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = posExpanded,
+                                    onDismissRequest = { posExpanded = false }
+                                ) {
+                                    positions.forEach { selectionOption: String ->
+                                        DropdownMenuItem(
+                                            text = { Text(selectionOption, fontFamily = Mallanna) },
+                                            onClick = {
+                                                position = selectionOption
+                                                posExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            
+                            OutlinedTextField(
+                                value = interestedArea,
+                                onValueChange = { interestedArea = it },
+                                label = { Text(stringResource(R.string.interested_category), fontFamily = Mallanna) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = MaterialTheme.shapes.medium
+                            )
+                            
+                            OutlinedTextField(
+                                value = education,
+                                onValueChange = { education = it },
+                                label = { Text(stringResource(R.string.education_qualification), fontFamily = Mallanna) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = MaterialTheme.shapes.medium
+                            )
+                            
+                            OutlinedTextField(
+                                value = currentOrg,
+                                onValueChange = { currentOrg = it },
+                                label = { Text(stringResource(R.string.current_organization), fontFamily = Mallanna) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = MaterialTheme.shapes.medium
+                            )
+                            
+                            OutlinedTextField(
+                                value = additionalMessage,
+                                onValueChange = { additionalMessage = it },
+                                label = { Text(stringResource(R.string.additional_message), fontFamily = Mallanna) },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 3,
+                                placeholder = { Text(stringResource(R.string.message_placeholder)) },
+                                shape = MaterialTheme.shapes.medium
+                            )
+                        }
+                    }
                     
                     Spacer(modifier = Modifier.height(8.dp))
                     
@@ -339,7 +378,12 @@ fun JoinReporterPageView(
                             }
                         },
                         enabled = !isSubmitting,
-                        modifier = Modifier.fillMaxWidth().height(56.dp)
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = MaterialTheme.shapes.large,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp)
                     ) {
                         if (isSubmitting) {
                             CircularProgressIndicator(color = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(24.dp))

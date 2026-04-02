@@ -17,8 +17,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import com.alfanews.telugu.R
-import com.alfanews.telugu.utils.glassmorphism
 import com.alfanews.telugu.ui.theme.Mallanna
+import com.alfanews.telugu.utils.glassmorphism
 import com.alfanews.telugu.ui.theme.Poppins
 
 /**
@@ -30,52 +30,54 @@ fun Footer(
     activeTab: String,
     onTabChange: (String) -> Unit
 ) {
-    Surface(
+    val bgColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+    val borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        color = Color.Transparent,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
+            .glassmorphism(cornerRadius = 0.dp)
     ) {
-        NavigationBar(
-            modifier = Modifier.fillMaxWidth().height(52.dp), // Reduced height from 64dp
-            containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            tonalElevation = 0.dp,
-            windowInsets = WindowInsets(0, 0, 0, 0) // Remove default insets
-        ) {
-            FooterItem(
-                icon = Icons.Default.Home,
-                label = stringResource(R.string.nav_home),
-                isActive = activeTab == "home",
-                onClick = { onTabChange("home") }
-            )
-            FooterItem(
-                icon = Icons.Default.LocationOn,
-                label = stringResource(R.string.nav_local),
-                isActive = activeTab == "local",
-                onClick = { onTabChange("local") }
-            )
-            FooterItem(
-                icon = Icons.Default.AddCircle,
-                label = stringResource(R.string.nav_post),
-                isActive = activeTab == "create",
-                isSpecial = true,
-                onClick = { onTabChange("create") }
-            )
-            FooterItem(
-                icon = Icons.Default.List,
-                label = stringResource(R.string.nav_classifieds),
-                isActive = activeTab == "classifieds",
-                onClick = { onTabChange("classifieds") }
-            )
-            FooterItem(
-                icon = Icons.Default.Person,
-                label = stringResource(R.string.nav_profile),
-                isActive = activeTab == "profile",
-                onClick = { onTabChange("profile") }
-            )
+        Column {
+            NavigationBar(
+                modifier = Modifier.fillMaxWidth().height(65.dp),
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                tonalElevation = 0.dp,
+                windowInsets = WindowInsets(0, 0, 0, 0)
+            ) {
+                FooterItem(
+                    icon = Icons.Default.Home,
+                    label = stringResource(R.string.nav_home),
+                    isActive = activeTab == "home",
+                    onClick = { onTabChange("home") }
+                )
+                FooterItem(
+                    icon = Icons.Default.LocationOn,
+                    label = stringResource(R.string.nav_local),
+                    isActive = activeTab == "local",
+                    onClick = { onTabChange("local") }
+                )
+                FooterItem(
+                    icon = Icons.Default.AddCircle,
+                    label = stringResource(R.string.nav_post),
+                    isActive = activeTab == "create",
+                    isSpecial = true,
+                    onClick = { onTabChange("create") }
+                )
+                FooterItem(
+                    icon = Icons.Default.List,
+                    label = stringResource(R.string.nav_classifieds),
+                    isActive = activeTab == "classifieds",
+                    onClick = { onTabChange("classifieds") }
+                )
+                FooterItem(
+                    icon = Icons.Default.Person,
+                    label = stringResource(R.string.nav_profile),
+                    isActive = activeTab == "profile",
+                    onClick = { onTabChange("profile") }
+                )
+            }
         }
     }
 }
@@ -97,18 +99,39 @@ fun RowScope.FooterItem(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = label,
-                    modifier = Modifier.size(24.dp), // Unified size for all icons
-                    tint = if (isSpecial) Color.White else (if (isActive) selectedColor else unselectedColor)
-                )
+                if (isSpecial) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary)
+                                ),
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = label,
+                            modifier = Modifier.size(22.dp),
+                            tint = Color.White
+                        )
+                    }
+                } else {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = label,
+                        modifier = Modifier.size(24.dp),
+                        tint = if (isActive) selectedColor else unselectedColor
+                    )
+                }
                 
-                Spacer(modifier = Modifier.height(0.dp)) // Tight gap between icon and text
+                Spacer(modifier = Modifier.height(2.dp))
                 
                 Text(
                     text = label,
-                    fontSize = 9.sp, // Reduced font size
+                    fontSize = 10.sp,
                     fontFamily = if (label.any { it.code > 127 }) Mallanna else Poppins,
                     fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
                     color = if (isActive) selectedColor else unselectedColor,
@@ -117,11 +140,13 @@ fun RowScope.FooterItem(
                 )
             }
         },
-        label = null, // Disable default label slot to use the custom Column layout
+        label = null,
         selected = isActive,
         onClick = onClick,
         colors = NavigationBarItemDefaults.colors(
-            indicatorColor = Color.Transparent // Clean look
+            indicatorColor = Color.Transparent,
+            selectedIconColor = selectedColor,
+            unselectedIconColor = unselectedColor
         )
     )
 }

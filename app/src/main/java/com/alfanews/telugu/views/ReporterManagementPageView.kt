@@ -190,7 +190,12 @@ fun ApplicationCard(
                         scope.launch {
                             isProcessing = true
                             try {
-                                val phone = app["phone"] as String
+                                val phone = app["phone"]?.toString() ?: ""
+                                if (phone.isEmpty()) {
+                                    Toast.makeText(context, "ఫోన్ నెంబర్ లేదు.", Toast.LENGTH_SHORT).show()
+                                    isProcessing = false
+                                    return@launch
+                                }
                                 // Find user by phone
                                 val userQuery = FirebaseService.db.collection("users").whereEqualTo("phone", phone).get().await()
                                 if (userQuery.isEmpty) {
@@ -227,6 +232,20 @@ fun ApplicationCard(
                         scope.launch {
                             isProcessing = true
                             try {
+                                val phone = app["phone"]?.toString() ?: ""
+                                if (phone.isNotEmpty()) {
+                                    val userQuery = FirebaseService.db.collection("users").whereEqualTo("phone", phone).get().await()
+                                    if (!userQuery.isEmpty) {
+                                        FirebaseService.db.collection("users").document(userQuery.documents[0].id)
+                                            .update("role", "SUBSCRIBER").await()
+                                    } else {
+                                        val userQuery2 = FirebaseService.db.collection("users").whereEqualTo("phone", "+91$phone").get().await()
+                                        if (!userQuery2.isEmpty) {
+                                            FirebaseService.db.collection("users").document(userQuery2.documents[0].id)
+                                                .update("role", "SUBSCRIBER").await()
+                                        }
+                                    }
+                                }
                                 FirebaseService.db.collection("reporter_applications").document(app["id"] as String).update("status", "SUSPENDED").await()
                                 Toast.makeText(context, "Suspended", Toast.LENGTH_SHORT).show()
                                 onRefresh()

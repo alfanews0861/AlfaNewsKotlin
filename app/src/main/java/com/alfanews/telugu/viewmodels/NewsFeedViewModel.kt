@@ -212,7 +212,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             val batch = snapshot.documents.mapNotNull { doc ->
                 val post = mapDocumentToNewsPost(doc) ?: return@mapNotNull null
                 
-                if (!strictFilter) return@mapNotNull if (post.district.isNullOrBlank()) post else null // Allow only general news
+                // Allow all news in general feed, or apply strict district filtering if requested
+                if (!strictFilter) return@mapNotNull post
                 
                 val postDist = post.district
                 if (postDist.isNullOrBlank() || postDist == district || post.categories.any { it in globalCategories }) post else null
@@ -353,12 +354,14 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     fun detectLocation(context: Context, currentUser: User?, language: Language = Language.TELUGU) {
         viewModelScope.launch {
             try {
-                val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-                
-                // Always get fresh accurate location
-                val location = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
-                if (location != null) {
-                    processLocationUpdate(context, location.latitude, location.longitude, language, currentUser)
+                kotlinx.coroutines.withTimeout(5000L) {
+                    val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+                    
+                    // Use balanced power accuracy for faster resolution and timeout after 5 seconds to avoid infinite spinners
+                    val location = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null).await()
+                    if (location != null) {
+                        processLocationUpdate(context, location.latitude, location.longitude, language, currentUser)
+                    }
                 }
             } catch (e: Exception) { }
         }
