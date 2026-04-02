@@ -15,10 +15,11 @@ const db = admin.firestore();
 
 const REGION = "asia-south1";
 // Scheduled tasks (Quotes, Festivals etc.) use Flash for speed and stability
-const SCHEDULED_MODEL = "gemini-3.1-flash";
+// Scheduled tasks (Quotes, Festivals etc.) use Lite for speed and cost-effectiveness
+const SCHEDULED_MODEL = "gemini-3.1-flash-lite-preview";
 // Main News/Reporter processing uses Pro for high quality journalistic output
-const PRO_MODEL = "gemini-3.1-flash";
-const IMAGEN_MODEL = "imagen-3.0-generate-001";
+const PRO_MODEL = "gemini-3-flash-preview";
+const IMAGEN_MODEL = "imagen-4.0-generate-001";
 
 setGlobalOptions({
     region: REGION,
@@ -30,8 +31,8 @@ setGlobalOptions({
 
 const getAIInstance = () => new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY || "",
-    apiVersion: "v1",
-    httpOptions: { apiVersion: "v1" }
+    apiVersion: "v1beta",
+    httpOptions: { apiVersion: "v1beta" }
 });
 
 function parseAIJson(text: string) {
@@ -179,14 +180,14 @@ export const scheduleFestivalGreeting = onSchedule({ schedule: "0 5 * * *", time
         try {
             const imgRes = await ai.models.generateImages({
                 model: IMAGEN_MODEL,
-                prompt: `Traditional greeting card image for ${data.festivalTe} festival, no text.`,
+                prompt: "Peaceful nature aesthetic background for quote, no text.",
                 config: { numberOfImages: 1, aspectRatio: '9:16' }
             });
             if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
                 const buffer = Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
-                mediaUrl = await saveBufferToStorage(buffer, "FESTIVAL") || "";
+                mediaUrl = await saveBufferToStorage(buffer, "QUOTE") || "";
             }
-        } catch (err) { console.error("Festival Image Err:", err); }
+        } catch (err) { console.error("Quote Image Err:", err); }
 
         await db.collection('news').add({
             type: 'greeting',
@@ -245,23 +246,54 @@ export const scheduleQuoteOfTheDay = onSchedule({ schedule: "0 4 * * *", timeZon
 export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
     const ai = getAIInstance();
     const dateStr = new Date().toLocaleDateString('te-IN', { day: 'numeric', month: 'long' });
+
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            headlineTe: { type: Type.STRING },
+            contentTe: { type: Type.STRING },
+            headlineEn: { type: Type.STRING },
+            contentEn: { type: Type.STRING },
+            imagePrompt: { type: Type.STRING }
+        },
+        required: ["headlineTe", "contentTe", "headlineEn", "contentEn", "imagePrompt"]
+    };
+
     try {
         const res = await ai.models.generateContent({
             model: SCHEDULED_MODEL,
-            contents: [{ role: "user", parts: [{ text: `History of ${dateStr}? JSON: { "headlineTe": "...", "contentTe": "...", "headlineEn": "...", "contentEn": "..." }` }] }],
-            config: { responseMimeType: "application/json" }
+            contents: [{ role: "user", parts: [{ text: `Out of all historical events that happened on ${dateStr}, pick the single most important event. Write a brief news about it and provide a generic historical image prompt without any text in it. Output JSON.` }] }],
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: schema,
+                temperature: 0.5
+            }
         });
         const data = parseAIJson(res.text || "{}");
-        if (data.headlineTe) {
-             await db.collection('news').add({
-                type: 'history',
-                headline: { telugu: data.headlineTe, english: data.headlineEn || "On This Day" },
-                content: { telugu: data.contentTe, english: data.contentEn || "" },
-                category: 'చరిత్ర',
-                reporter: { id: 'system', name: 'AlfaNews Team' },
-                timestamp: admin.firestore.FieldValue.serverTimestamp()
+        if (!data.headlineTe) return;
+
+        let mediaUrl = "";
+        try {
+            const imgRes = await ai.models.generateImages({
+                model: IMAGEN_MODEL,
+                prompt: `Historical photorealistic image: ${data.imagePrompt}, dramatic lighting, no text.`,
+                config: { numberOfImages: 1, aspectRatio: '9:16' }
             });
-        }
+            if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
+                const buffer = Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
+                mediaUrl = await saveBufferToStorage(buffer, "HISTORY") || "";
+            }
+        } catch (err) { console.error("History Image Err:", err); }
+
+        await db.collection('news').add({
+            type: 'history',
+            headline: { telugu: data.headlineTe, english: data.headlineEn },
+            content: { telugu: data.contentTe, english: data.contentEn },
+            mediaUrl,
+            category: 'చరిత్ర',
+            reporter: { id: 'system', name: 'AlfaNews Team' },
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
     } catch (e: any) { console.error("[HISTORY] Error:", e.message); }
 });
 
@@ -394,6 +426,8 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
     await db.collection('reporter_applications').add({ ...data, timestamp: admin.firestore.FieldValue.serverTimestamp() });
     return { success: true };
 });
+
+export * from './notification_engine';
 
 export const shareNews = onRequest(async (req, res) => {
     const id = req.path.split('/').pop();

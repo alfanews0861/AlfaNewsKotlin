@@ -8,6 +8,7 @@ export const sendPersonalizedNotification = onDocumentCreated('news/{newsId}', a
 
     const news = event.data.data();
     const category = news?.category;
+    const categories = news?.categories || [];
     const newsId = event.params.newsId;
 
     // 1. నెగటివ్ రేషియో ఫిల్టర్ (50% కంటే ఎక్కువ నెగటివ్ సిగ్నల్స్ ఉంటే పంపకూడదు)
@@ -18,7 +19,16 @@ export const sendPersonalizedNotification = onDocumentCreated('news/{newsId}', a
 
     // 2. యూజర్ ఇంట్రెస్ట్ మ్యాపింగ్ మరియు షాడో మోడ్ చెక్
     const usersRef = admin.firestore().collection('users');
-    const users = await usersRef.where(`interests.${category}`, '>', 0).get();
+
+    // ఒకవేళ ప్రధాన కేటగిరీ ఉంటే దాంతో సెర్చ్ చేయాలి, లేదంటే లిస్ట్ లోని మొదటి దానితో
+    const targetCategory = category || (categories.length > 0 ? categories[0] : null);
+
+    if (!targetCategory) {
+        logger.log(`News ${newsId} has no categories. Skipping notification.`);
+        return;
+    }
+
+    const users = await usersRef.where(`categoryScores.${targetCategory}`, '>', 0).get();
 
     const tokens: string[] = [];
     for (const doc of users.docs) {
@@ -30,8 +40,16 @@ export const sendPersonalizedNotification = onDocumentCreated('news/{newsId}', a
             continue;
         }
 
-        if (userData.fcmToken) {
+        if (userData.fcmToken && !tokens.includes(userData.fcmToken)) {
             tokens.push(userData.fcmToken);
+        }
+
+        if (userData.fcmTokens && Array.isArray(userData.fcmTokens)) {
+            for (const t of userData.fcmTokens) {
+                if (t && typeof t === 'string' && !tokens.includes(t)) {
+                    tokens.push(t);
+                }
+            }
         }
     }
 
@@ -40,6 +58,10 @@ export const sendPersonalizedNotification = onDocumentCreated('news/{newsId}', a
             notification: {
                 title: 'మీ కోసం ప్రత్యేక వార్త!',
                 body: news?.headline?.telugu || 'మీకు నచ్చిన కేటగిరీలో తాజా వార్త.'
+            },
+            data: {
+                actionUrl: `alfanews://news/${newsId}`,
+                newsId: newsId
             },
             tokens: tokens
         };

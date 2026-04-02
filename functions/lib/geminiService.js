@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.processContentWithAI = exports.processCitizenContentWithAI = exports.processSocialPostWithAI = void 0;
 const genai_1 = require("@google/genai");
-const PRIMARY_MODEL = "gemini-3.1-flash-lite-preview";
+const PRIMARY_MODEL = "gemini-3-flash-preview";
 /**
  * Robust helper to create AI instance with the correct API key.
  */
@@ -10,7 +10,11 @@ const getAIInstance = () => {
     if (!process.env.API_KEY) {
         console.error("[GEMINI-SERVICE] CRITICAL: API_KEY is missing in environment.");
     }
-    return new genai_1.GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+    return new genai_1.GoogleGenAI({
+        apiKey: process.env.API_KEY || "",
+        apiVersion: "v1beta",
+        httpOptions: { apiVersion: "v1beta" }
+    });
 };
 const processSocialPostWithAI = async (socialText, platform, category) => {
     const ai = getAIInstance();

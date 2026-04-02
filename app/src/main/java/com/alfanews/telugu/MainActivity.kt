@@ -152,17 +152,22 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleDeepLink(intent: Intent?) {
-        intent?.data?.let { uri ->
-            val postId = when (uri.scheme) {
+        val fcmActionUrl = intent?.getStringExtra("actionUrl")
+        val intentData = intent?.data
+        
+        val uri = intentData ?: fcmActionUrl?.let { Uri.parse(it) }
+
+        uri?.let { u ->
+            val postId = when (u.scheme) {
                 "alfanews" -> {
                     // alfanews://news/POST_ID
-                    if (uri.host == "news") uri.lastPathSegment else null
+                    if (u.host == "news") u.lastPathSegment else null
                 }
                 "http", "https" -> {
                     // https://alfanews.app/news/POST_ID or https://www.alfanews.app/news/POST_ID
-                    val host = uri.host
+                    val host = u.host
                     if (host == "alfanews.app" || host == "www.alfanews.app") {
-                        val pathSegments = uri.pathSegments
+                        val pathSegments = u.pathSegments
                         if (pathSegments.size >= 2 && pathSegments[0] == "news") pathSegments[1] else null
                     } else null
                 }

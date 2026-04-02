@@ -62,6 +62,39 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         subscribeToDefaultTopics()
+        saveTokenToFirestore(token)
+    }
+
+    /**
+     * FCM టోకెన్‌ను ఫైర్‌స్టోర్ (Firestore) డేటాబేస్‌లో సేవ్ చేస్తుంది.
+     */
+    private fun saveTokenToFirestore(token: String) {
+        val uid = FirebaseService.auth.currentUser?.uid ?: return
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // Cloud Function expects 'fcmToken' as a string field
+                // And we also update the 'fcmTokens' list for future proofing
+                FirebaseService.db.collection("users").document(uid)
+                    .update(
+                        "fcmToken", token,
+                        "fcmTokens", com.google.firebase.firestore.FieldValue.arrayUnion(token)
+                    ).await()
+                Log.d("MyFirebaseMsgService", "Token updated in Firestore")
+            } catch (e: Exception) {
+                // If the document doesn't exist, use set with merge
+                try {
+                    val data = mapOf(
+                        "fcmToken" to token,
+                        "fcmTokens" to listOf(token)
+                    )
+                    FirebaseService.db.collection("users").document(uid)
+                        .set(data, com.google.firebase.firestore.SetOptions.merge()).await()
+                    Log.d("MyFirebaseMsgService", "Token set in Firestore")
+                } catch (innerE: Exception) {
+                    Log.e("MyFirebaseMsgService", "Failed to update token", innerE)
+                }
+            }
+        }
     }
 
     /**

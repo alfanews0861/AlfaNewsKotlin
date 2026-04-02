@@ -344,7 +344,7 @@ fun ProfileContainer(
         )
     }
 
-    if (showLogin && user == null) {
+    if (showLogin) {
         LoginScreenView(
             onLoginSuccess = { 
                 showLogin = false 

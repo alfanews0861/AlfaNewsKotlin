@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const PRIMARY_MODEL = "gemini-3.1-flash";
+const PRIMARY_MODEL = "gemini-3-flash-preview";
 
 /**
  * Robust helper to create AI instance with the correct API key.
@@ -11,8 +11,8 @@ const getAIInstance = () => {
     }
     return new GoogleGenAI({
         apiKey: process.env.API_KEY || "",
-        apiVersion: "v1",
-        httpOptions: { apiVersion: "v1" }
+        apiVersion: "v1beta",
+        httpOptions: { apiVersion: "v1beta" }
     });
 };
 
