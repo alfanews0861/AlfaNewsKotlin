@@ -101,6 +101,7 @@ fun MainScreen(
                     }
                 )
             )
+            .glassmorphism(cornerRadius = 0.dp, blurRadius = 20.dp, opacity = 0.05f) // Global screen border and glass effect
     ) {
         Scaffold(
             containerColor = Color.Transparent,

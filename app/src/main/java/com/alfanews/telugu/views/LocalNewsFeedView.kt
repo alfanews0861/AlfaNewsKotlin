@@ -230,7 +230,8 @@ fun LocalNewsFeedView(
                             onReporterClick = onReporterClick,
                             onDistrictClick = { showDistrictPicker = true },
                             modifier = Modifier.fillMaxSize(),
-                            district = if (isDetecting) "గుర్తిస్తున్నాము..." else activeDistrict
+                            district = if (isDetecting) "గుర్తిస్తున్నాము..." else activeDistrict,
+                            showDistrictSelector = true
                         )
                     }
                 }

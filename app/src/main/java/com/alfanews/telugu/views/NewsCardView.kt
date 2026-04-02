@@ -96,6 +96,7 @@ fun NewsCardView(
     onReporterClick: (String) -> Unit = {},
     onDistrictClick: () -> Unit = {},
     district: String? = null,
+    showDistrictSelector: Boolean = false,
     autoShare: Boolean = false,
     onAutoShareDone: () -> Unit = {}
 ) {
@@ -215,29 +216,53 @@ fun NewsCardView(
                         .height(48.dp)
                         .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Start
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        text = "alfa",
-                        fontSize = 28.sp,
-                        fontFamily = Ramabhadra,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = stringResource(R.string.news),
-                        fontSize = 28.sp,
-                        fontFamily = Ramabhadra,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "alfa",
+                            fontSize = 28.sp,
+                            fontFamily = Ramabhadra,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "news",
+                            fontSize = 28.sp,
+                            fontFamily = Ramabhadra,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    if (showDistrictSelector) {
+                        TextButton(
+                            onClick = onDistrictClick,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.LocationOn,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = "Dist Selector",
+                                fontSize = 14.sp,
+                                fontFamily = Ramabhadra,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
                 }
             }
 
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(0.40f) // Media section weight
+                    .weight(0.38f) // Reduced media section weight from 0.40f
             ) {
                 Box(
                     modifier = Modifier
@@ -323,14 +348,12 @@ fun NewsCardView(
                 }
             }
 
-            // Content/Buttons Section (Weight 0.60f)
+            // Content/Buttons Section (Weight 0.62f)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(0.60f)
-                    .padding(8.dp)
-                    .glassmorphism(cornerRadius = 24.dp, blurRadius = 20.dp, opacity = 0.05f)
-                    .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 12.dp)
+                    .weight(0.62f)
+                    .padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 12.dp)
             ) {
                 if (isSpecialCard || isCartoonCard) {
                     // --- SPECIAL CARD OR CARTOON: Buttons Only, No Text Content ---

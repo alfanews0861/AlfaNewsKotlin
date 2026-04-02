@@ -33,17 +33,17 @@ fun Footer(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .glassmorphism(cornerRadius = 32.dp, blurRadius = 24.dp, opacity = 0.1f),
+            .padding(horizontal = 12.dp, vertical = 4.dp),
         color = Color.Transparent,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
         NavigationBar(
-            modifier = Modifier.fillMaxWidth().height(64.dp),
+            modifier = Modifier.fillMaxWidth().height(52.dp), // Reduced height from 64dp
             containerColor = Color.Transparent,
             contentColor = MaterialTheme.colorScheme.onSurface,
-            tonalElevation = 0.dp
+            tonalElevation = 0.dp,
+            windowInsets = WindowInsets(0, 0, 0, 0) // Remove default insets
         ) {
             FooterItem(
                 icon = Icons.Default.Home,
@@ -88,74 +88,40 @@ fun RowScope.FooterItem(
     isSpecial: Boolean = false,
     onClick: () -> Unit
 ) {
+    val selectedColor = MaterialTheme.colorScheme.primary
+    val unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    
     NavigationBarItem(
         icon = {
-            if (isSpecial) {
-                // Special "Create" button with a modern gradient background
-                val gradientBrush = Brush.linearGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.primary,
-                        MaterialTheme.colorScheme.tertiary
-                    )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    modifier = Modifier.size(24.dp), // Unified size for all icons
+                    tint = if (isSpecial) Color.White else (if (isActive) selectedColor else unselectedColor)
                 )
                 
-                Surface(
-                    modifier = Modifier.size(48.dp), // Original size
-                    shape = CircleShape,
-                    color = Color.Transparent
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(gradientBrush),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = label,
-                            modifier = Modifier.size(32.dp), // Original size
-                            tint = Color.White
-                        )
-                    }
-                }
-            } else {
-                BadgedBox(
-                    badge = {
-                        if (label == "ప్రొఫైల్" && !isActive) {
-                            Badge(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(6.dp)
-                            )
-                        }
-                    }
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = label,
-                        modifier = Modifier.size(26.dp) // Original size
-                    )
-                }
+                Spacer(modifier = Modifier.height(0.dp)) // Tight gap between icon and text
+                
+                Text(
+                    text = label,
+                    fontSize = 9.sp, // Reduced font size
+                    fontFamily = if (label.any { it.code > 127 }) Mallanna else Poppins,
+                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isActive) selectedColor else unselectedColor,
+                    maxLines = 1,
+                    letterSpacing = 0.sp
+                )
             }
         },
-        label = {
-            Text(
-                text = label,
-                fontSize = 10.sp, // Reduced slightly
-                fontFamily = if (label.any { it.code > 127 }) Mallanna else Poppins,
-                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 1,
-                lineHeight = 12.sp, // Reduced line height to tighten vertical gap
-                letterSpacing = 0.2.sp
-            )
-        },
+        label = null, // Disable default label slot to use the custom Column layout
         selected = isActive,
         onClick = onClick,
         colors = NavigationBarItemDefaults.colors(
-            selectedIconColor = MaterialTheme.colorScheme.primary,
-            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            selectedTextColor = MaterialTheme.colorScheme.primary,
-            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            indicatorColor = Color.Transparent // Remove background indicator to reduce clutter
+            indicatorColor = Color.Transparent // Clean look
         )
     )
 }
