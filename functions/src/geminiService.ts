@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const PRIMARY_MODEL = "gemini-3.1-flash-lite-preview";
+const PRIMARY_MODEL = "gemini-3.1-flash";
 
 /**
  * Robust helper to create AI instance with the correct API key.
@@ -9,7 +9,11 @@ const getAIInstance = () => {
     if (!process.env.API_KEY) {
         console.error("[GEMINI-SERVICE] CRITICAL: API_KEY is missing in environment.");
     }
-    return new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+    return new GoogleGenAI({
+        apiKey: process.env.API_KEY || "",
+        apiVersion: "v1",
+        httpOptions: { apiVersion: "v1" }
+    });
 };
 
 export const processSocialPostWithAI = async (
