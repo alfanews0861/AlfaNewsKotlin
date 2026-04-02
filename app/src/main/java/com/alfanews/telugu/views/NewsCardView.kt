@@ -687,9 +687,6 @@ fun DottedDivider() {
         )
     }
 }
-        )
-    }
-}
 
 @Composable
 fun VideoPlayerView(videoUrl: String) {
