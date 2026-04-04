@@ -24,7 +24,7 @@ import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.services.FirebaseService
-import com.alfanews.telugu.viewmodels.ThemeMode
+import com.alfanews.telugu.models.ThemeMode
 import kotlinx.coroutines.launch
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.ui.theme.Mallanna

@@ -81,7 +81,7 @@ fun CreateMenuView(
                     title = stringResource(R.string.citizen_journalism),
                     subtitle = stringResource(R.string.public_submission),
                     icon = "📢",
-                    gradientColors = listOf(MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.primary),
+                    gradientColors = listOf(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.primaryContainer),
                     onClick = { onAction("citizen") }
                 )
                 
@@ -90,7 +90,7 @@ fun CreateMenuView(
                         title = stringResource(R.string.post_new_news),
                         subtitle = stringResource(R.string.reporter_staff_desk),
                         icon = "📝",
-                        gradientColors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary),
+                        gradientColors = listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.secondaryContainer),
                         onClick = { onAction("news") }
                     )
                 } else {
@@ -98,7 +98,7 @@ fun CreateMenuView(
                         title = stringResource(R.string.join_reporter),
                         subtitle = stringResource(R.string.join_team),
                         icon = "🎤",
-                        gradientColors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary),
+                        gradientColors = listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.secondaryContainer),
                         onClick = { onAction("join_reporter") }
                     )
                 }
@@ -107,7 +107,7 @@ fun CreateMenuView(
                     title = stringResource(R.string.post_new_classified),
                     subtitle = stringResource(R.string.buy_sell_services),
                     icon = "🏷️",
-                    gradientColors = listOf(MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.primary),
+                    gradientColors = listOf(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.primaryContainer),
                     onClick = { onAction("classified") }
                 )
             }
@@ -176,7 +176,7 @@ fun CreateMenuButton(
                         modifier = Modifier
                             .size(52.dp)
                             .background(
-                                Color.White.copy(alpha = 0.2f),
+                                MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f),
                                 RoundedCornerShape(12.dp)
                             ),
                         contentAlignment = Alignment.Center
@@ -191,13 +191,13 @@ fun CreateMenuButton(
                             text = title,
                             fontSize = 20.sp,
                             fontFamily = Ramabhadra,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Text(
                             text = subtitle,
                             fontSize = 12.sp,
                             fontFamily = Poppins,
-                            color = Color.White.copy(alpha = 0.8f),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
                             letterSpacing = 0.5.sp
                         )
                     }
@@ -205,7 +205,7 @@ fun CreateMenuButton(
                 Icon(
                     imageVector = Icons.Default.ArrowForward,
                     contentDescription = "Next",
-                    tint = Color.White.copy(alpha = 0.7f),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                     modifier = Modifier.size(24.dp)
                 )
             }

@@ -109,14 +109,15 @@ fun PostClassifiedAdView(
             Text(
                 text = "కొత్త ప్రకటన",
                 fontSize = 24.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
             )
             TextButton(onClick = onCancel) {
                 Text("రద్దు", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
             }
         }
 
-        Divider()
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
         // Form
         OutlinedTextField(
@@ -196,7 +197,7 @@ fun PostClassifiedAdView(
         // Image Upload
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFF9FAFB))
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
         ) {
             val pickImage = rememberImagePicker { uri ->
                 imageUri = uri
@@ -206,7 +207,7 @@ fun PostClassifiedAdView(
                 modifier = Modifier.padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("ఫోటో", fontWeight = FontWeight.Bold)
+                Text("ఫోటో", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(modifier = Modifier.height(8.dp))
 
                 if (imageUri != null) {
@@ -243,10 +244,10 @@ fun PostClassifiedAdView(
             onClick = { handleSubmit() },
             modifier = Modifier.fillMaxWidth(),
             enabled = !isSubmitting,
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
         ) {
             if (isSubmitting) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
                 Spacer(modifier = Modifier.width(8.dp))
             }
             Text(if (isSubmitting) "పబ్లిష్ అవుతోంది..." else "ప్రకటనను పోస్ట్ చేయి", fontSize = 18.sp, fontWeight = FontWeight.Bold)

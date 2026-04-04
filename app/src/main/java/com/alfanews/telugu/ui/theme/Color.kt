@@ -47,12 +47,12 @@ val Outline = Color(0x40007ACC) // Semi-transparent IDE blue outline
 // Dark Theme - IDE Blue & Glassmorphism
 val DarkPrimary = Color(0xFF4EB3FF) // Lighter IDE blue for dark mode
 val DarkOnPrimary = Color(0xFF003366)
-val DarkPrimaryContainer = Color(0xFF005A9E)
+val DarkPrimaryContainer = Color(0xFF004080)
 val DarkOnPrimaryContainer = Color(0xFFC7E0F4)
 
 val DarkSecondary = Color(0xFF66B2FF)
 val DarkOnSecondary = Color(0xFF002244)
-val DarkSecondaryContainer = Color(0xFF004080)
+val DarkSecondaryContainer = Color(0xFF003366)
 val DarkOnSecondaryContainer = Color(0xFF99CCFF)
 
 val DarkTertiary = Color(0xFF4DB6AC)
@@ -67,9 +67,9 @@ val DarkOnErrorContainer = Color(0xFFFFCDD2)
 
 val DarkBackground = Color(0xFF0A192F) // Deep IDE dark blue
 val DarkOnBackground = Color(0xFFE3E2E6)
-val DarkSurface = Color(0x33FFFFFF) // 20% opacity white for dark glass
+val DarkSurface = Color(0xFF162A48) // Opaque dark surface
 val DarkOnSurface = Color(0xFFE3E2E6)
 
-val DarkSurfaceVariant = Color(0x20005A9E)
+val DarkSurfaceVariant = Color(0xFF1E3A5F)
 val DarkOnSurfaceVariant = Color(0xFFC4C6D0)
 val DarkOutline = Color(0x604EB3FF)

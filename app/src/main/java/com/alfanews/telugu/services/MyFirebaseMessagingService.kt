@@ -11,6 +11,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.alfanews.telugu.MainActivity
 import com.alfanews.telugu.R
+import com.alfanews.telugu.utils.PreferenceManager
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -101,6 +102,9 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
      * ముఖ్యమైన టాపిక్‌లకు (Topics) సభ్యత్వం పొందుతుంది, తద్వారా ఆ టాపిక్ నోటిఫికేషన్లు అందుతాయి.
      */
     private fun subscribeToDefaultTopics() {
+        val prefs = PreferenceManager.getInstance(applicationContext)
+        if (!prefs.isNotificationsEnabled) return
+
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 FirebaseMessaging.getInstance().subscribeToTopic("all_users").await()

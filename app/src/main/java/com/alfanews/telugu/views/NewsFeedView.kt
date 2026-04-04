@@ -61,7 +61,9 @@ fun NewsFeedView(
     }
 
     LaunchedEffect(Unit) {
-        viewModel.loadNews(language, currentUser, initialPostId)
+        if (news.isEmpty()) {
+            viewModel.loadNews(language, currentUser, initialPostId)
+        }
         
         if (userDistrict == null) {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {

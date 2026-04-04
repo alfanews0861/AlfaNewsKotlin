@@ -24,9 +24,9 @@ import androidx.lifecycle.ViewModelProvider
 import com.alfanews.telugu.services.AdMobService
 import com.alfanews.telugu.ui.theme.AlfaNewsTheme
 import com.alfanews.telugu.viewmodels.LocalNewsFeedViewModel
+import com.alfanews.telugu.models.ThemeMode
 import com.alfanews.telugu.viewmodels.MainViewModel
 import com.alfanews.telugu.viewmodels.NewsFeedViewModel
-import com.alfanews.telugu.viewmodels.ThemeMode
 import com.alfanews.telugu.views.MainScreen
 import com.alfanews.telugu.views.SplashScreenView
 import com.google.android.play.core.appupdate.AppUpdateManager
@@ -67,13 +67,6 @@ class MainActivity : ComponentActivity() {
 
         WindowCompat.setDecorFitsSystemWindows(window, true)
         AdMobService.initialize(this)
-
-        // Android 13+ నోటిఫికేషన్ పర్మిషన్ అడగడం
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                androidx.core.app.ActivityCompat.requestPermissions(this as android.app.Activity, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
-            }
-        }
 
         // Preload news to avoid delay after splash screen
         val language = mainViewModel.language.value

@@ -119,10 +119,10 @@ fun NewsCardView(
     val content = if (language == Language.TELUGU) post.content.telugu else post.content.english
 
     val isEnglish = language == Language.ENGLISH
-    val headlineSize = if (isEnglish) 18.sp else 20.sp
-    val headlineLineHeight = if (isEnglish) 26.sp else 28.sp
-    val contentSize = if (isEnglish) 15.sp else 16.sp
-    val contentLineHeight = if (isEnglish) 22.sp else 24.sp
+    val headlineSize = if (isEnglish) 19.sp else 21.sp
+    val headlineLineHeight = if (isEnglish) 27.sp else 29.sp
+    val contentSize = if (isEnglish) 16.sp else 17.sp
+    val contentLineHeight = if (isEnglish) 23.sp else 25.sp
 
     val englishRegex = remember { Regex("[a-zA-Z]") }
 
@@ -194,7 +194,7 @@ fun NewsCardView(
         }
     }
     
-    val isSpecialCard = post.type == "greeting" || post.type == "history"
+    val isSpecialCard = post.type == "greeting" || post.type == "quote"
     val isCartoonCard = post.type == "cartoon"
 
     Box(
@@ -211,12 +211,126 @@ fun NewsCardView(
                 )
             }
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
+        if (isSpecialCard || isCartoonCard) {
+            // --- SPECIAL CARD OR CARTOON: Full Screen Media, Overlay Buttons ---
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                if (!post.youtubeUrl.isNullOrBlank()) {
+                    YouTubePlayerComponent(youtubeUrl = post.youtubeUrl)
+                } else {
+                    when (post.mediaType) {
+                        MediaType.IMAGE -> {
+                            val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(post.mediaUrl)
+                                    .build(),
+                                imageLoader = imageLoader,
+                                contentDescription = headline,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                                alignment = Alignment.Center
+                            )
+                        }
+                        MediaType.VIDEO -> {
+                            VideoPlayerView(videoUrl = post.mediaUrl)
+                        }
+                    }
+                }
 
-            // HEADER: Rendered only if it is NOT a special card or cartoon card
-            if (!isSpecialCard && !isCartoonCard) {
+                // Overlay text for Quote or Greeting
+                if (isSpecialCard) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)),
+                                    startY = 500f
+                                )
+                            )
+                    )
+                    
+                    Text(
+                        text = content,
+                        color = Color.White,
+                        fontSize = 22.sp,
+                        fontFamily = Ramabhadra,
+                        lineHeight = 32.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(start = 24.dp, end = 80.dp, bottom = 48.dp) // Leave space for buttons on right
+                    )
+                }
+
+                // Optional gradient for buttons visibility
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f)),
+                                startX = 0f
+                            )
+                        )
+                )
+
+                // Action Buttons on the right
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    ActionButton(
+                        icon = Icons.Default.Favorite,
+                        count = likeCount.toString(),
+                        isHighlighted = isLiked,
+                        tint = Color.White,
+                        onClick = {
+                            if (currentUser == null) {
+                                onProfileClick()
+                            } else {
+                                isLiked = !isLiked
+                                likeCount = if (isLiked) likeCount + 1 else likeCount - 1
+                                scope.launch {
+                                    FirebaseService.db.collection("news")
+                                        .document(post.id)
+                                        .update("likes", FieldValue.increment(if (isLiked) 1 else -1))
+                                    val params = Bundle().apply { putString("post_id", post.id) }
+                                    AnalyticsService.logAnalyticsEvent("like", params)
+                                }
+                            }
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    ActionButton(
+                        icon = Icons.Default.Share,
+                        count = shareCount.toString(),
+                        isLoading = isSharing,
+                        tint = Color.White,
+                        onClick = { if (!isSharing) { performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, uriHandler, cardBounds, view) } }
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    ActionButton(
+                        icon = Icons.AutoMirrored.Filled.Comment,
+                        count = commentCount.toString(),
+                        tint = Color.White,
+                        onClick = { showComments = true }
+                    )
+                }
+            }
+        } else {
+            // --- NORMAL CARD: Header, Media, Content ---
+            Column(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // HEADER
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -264,159 +378,104 @@ fun NewsCardView(
                         }
                     }
                 }
-            }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(0.38f) // Reduced media section weight from 0.40f
-            ) {
+                // MEDIA
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(0.38f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .background(Color.Black)
+                    ) {
+                        if (!post.youtubeUrl.isNullOrBlank()) {
+                            YouTubePlayerComponent(youtubeUrl = post.youtubeUrl)
+                        } else {
+                            when (post.mediaType) {
+                                MediaType.IMAGE -> {
+                                    val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(context)
+                                            .data(post.mediaUrl)
+                                            .build(),
+                                        imageLoader = imageLoader,
+                                        contentDescription = headline,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop,
+                                        alignment = Alignment.TopCenter
+                                    )
+                                }
+                                MediaType.VIDEO -> {
+                                    VideoPlayerView(videoUrl = post.mediaUrl)
+                                }
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            Color.Transparent,
+                                            Color.Black.copy(alpha = 0.3f)
+                                        )
+                                    )
+                                )
+                        )
+                        
+                        if (district != null) {
+                             Row(
+                                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp).clickable { onDistrictClick() },
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.LocationOn,
+                                    contentDescription = stringResource(R.string.district_desc),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = district,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 12.sp,
+                                    fontFamily = Ramabhadra
+                                )
+                            }
+                        }
+
+                        // ఇమేజ్ సోర్స్ మరియు రిపోర్టర్ పేరును ఇమేజ్ పై ప్రదర్శించడం
+                        if (post.mediaType == MediaType.IMAGE && post.youtubeUrl.isNullOrBlank()) {
+                            Text(
+                                text = context.getString(R.string.news_source, post.reporter.name),
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 10.sp,
+                                fontFamily = Poppins,
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(12.dp)
+                                    .clickable {
+                                        if (!post.originalUrl.isNullOrEmpty()) {
+                                            uriHandler.openUri(post.originalUrl)
+                                        }
+                                    }
+                            )
+                        }
+                    }
+                }
+
+                // CONTENT
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
-                        .background(Color.Black)
+                        .weight(0.62f)
+                        .padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 12.dp)
                 ) {
-                    if (!post.youtubeUrl.isNullOrBlank()) {
-                        YouTubePlayerComponent(youtubeUrl = post.youtubeUrl)
-                    } else {
-                        when (post.mediaType) {
-                            MediaType.IMAGE -> {
-                                val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
-                                AsyncImage(
-                                    model = ImageRequest.Builder(context)
-                                        .data(post.mediaUrl)
-                                        .build(),
-                                    imageLoader = imageLoader,
-                                    contentDescription = headline,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop, // మార్పును వెనక్కి తీసుకున్నాను, Crop పాత పద్ధతిలోనే పనిచేస్తుంది
-                                    alignment = Alignment.TopCenter
-                                )
-                            }
-                            MediaType.VIDEO -> {
-                                VideoPlayerView(videoUrl = post.mediaUrl)
-                            }
-                        }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.Transparent,
-                                        Color.Transparent,
-                                        Color.Black.copy(alpha = 0.3f)
-                                    )
-                                )
-                            )
-                    )
-                    
-                    if (district != null) {
-                         Row(
-                            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp).clickable { onDistrictClick() },
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.LocationOn,
-                                contentDescription = stringResource(R.string.district_desc),
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = district,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 12.sp,
-                                fontFamily = Ramabhadra
-                            )
-                        }
-                    }
-
-                    // ఇమేజ్ సోర్స్ మరియు రిపోర్టర్ పేరును ఇమేజ్ పై ప్రదర్శించడం
-                    if (post.mediaType == MediaType.IMAGE && post.youtubeUrl.isNullOrBlank() && !isSpecialCard && !isCartoonCard) {
-                        Text(
-                            text = context.getString(R.string.news_source, post.reporter.name),
-                            color = Color.White.copy(alpha = 0.5f),
-                            fontSize = 10.sp,
-                            fontFamily = Poppins,
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(12.dp)
-                                .clickable {
-                                    if (!post.originalUrl.isNullOrEmpty()) {
-                                        uriHandler.openUri(post.originalUrl)
-                                    }
-                                }
-                        )
-                    }
-                }
-            }
-
-            // Content/Buttons Section (Weight 0.62f)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(0.62f)
-                    .padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 12.dp)
-            ) {
-                if (isSpecialCard || isCartoonCard) {
-                    // --- SPECIAL CARD OR CARTOON: Buttons Only, No Text Content ---
-                    Column(
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        // Spacer to push buttons to the bottom/right where text content would normally be
-                        Column(modifier = Modifier.weight(1f)) {} 
-                        
-                        // Action Buttons positioned to the right-center, mimicking normal card right column
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End, // Push buttons to the right
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Like Button (Simplified Logic)
-                            ActionButton(
-                                icon = Icons.Default.Favorite,
-                                count = likeCount.toString(),
-                                isHighlighted = isLiked,
-                                tint = MaterialTheme.colorScheme.onBackground,
-                                onClick = {
-                                    scope.launch {
-                                        FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(1))
-                                        likeCount++ // Update local count immediately
-                                        val params = Bundle().apply { putString("post_id", post.id) }
-                                        AnalyticsService.logAnalyticsEvent("like", params)
-                                    }
-                                    Toast.makeText(context, "Like registered for this special card!", Toast.LENGTH_SHORT).show()
-                                }
-                            )
-
-                            Spacer(modifier = Modifier.width(24.dp))
-
-                            // Share Button (Simplified Logic)
-                            ActionButton(
-                                icon = Icons.Default.Share,
-                                count = shareCount.toString(),
-                                isLoading = isSharing,
-                                tint = MaterialTheme.colorScheme.onBackground,
-                                onClick = { if (!isSharing) { performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, uriHandler, cardBounds, view) } }
-                            )
-
-                            Spacer(modifier = Modifier.width(24.dp))
-
-                            // Comment Button (Simplified Logic)
-                            ActionButton(
-                                icon = Icons.AutoMirrored.Filled.Comment,
-                                count = commentCount.toString(),
-                                tint = MaterialTheme.colorScheme.onBackground,
-                                onClick = { showComments = true }
-                            )
-                        }
-                    }
-                } else {
-                    // --- NORMAL CARD: Content + Buttons (Original Logic) ---
                     Row(
                         modifier = Modifier.fillMaxSize()
                     ) {
@@ -440,12 +499,11 @@ fun NewsCardView(
                             Column(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                // Reduced padding to pull reporter info and content up
                                 DottedDivider()
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(vertical = 2.dp) // Reduced vertical padding
+                                    modifier = Modifier.padding(vertical = 2.dp)
                                 ) {
                                     Text(
                                         text = post.reporter.name,
@@ -484,7 +542,7 @@ fun NewsCardView(
                                 DottedDivider()
                             }
 
-                            Spacer(modifier = Modifier.height(2.dp)) // Reduced spacer height
+                            Spacer(modifier = Modifier.height(2.dp))
 
                             Text(
                                 text = content,

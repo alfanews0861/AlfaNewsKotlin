@@ -74,132 +74,174 @@ fun LoginScreenView(
                                     }
                                 }
                             } else {
-                                errorMessage = context.getString(R.string.google_login_failed, authTask.exception?.localizedMessage ?: "")
+                                errorMessage = context.getString(R.string.google_login_failed, authTask.exception?.localizedMessage ?: "Unknown Error")
                             }
                         }
                 } else {
                     errorMessage = context.getString(R.string.google_id_token_missing)
                 }
             } catch (e: ApiException) {
-                errorMessage = context.getString(R.string.google_login_failed, "Code: ${e.statusCode}")
+                errorMessage = context.getString(R.string.google_login_failed, "Status Code: ${e.statusCode}")
+            } catch (e: Exception) {
+                errorMessage = context.getString(R.string.google_login_failed, e.localizedMessage ?: "Unknown Exception")
+            }
+        } else {
+            isLoading = false
+            if (result.resultCode != Activity.RESULT_CANCELED) {
+                errorMessage = "Google Sign In Failed. Result Code: ${result.resultCode}"
             }
         }
     }
 
     Dialog(
         onDismissRequest = onClose,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
         Surface(
-            modifier = Modifier.fillMaxSize(), 
-            color = Color.Transparent
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.background,
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                                MaterialTheme.colorScheme.background
-                            )
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text(stringResource(R.string.app_name)) },
+                        navigationIcon = {
+                            IconButton(onClick = onClose) {
+                                Icon(Icons.Default.Close, stringResource(R.string.close))
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            titleContentColor = MaterialTheme.colorScheme.onSurface,
+                            navigationIconContentColor = MaterialTheme.colorScheme.onSurface
                         )
                     )
-            ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                TopAppBar(
-                    title = { Text(stringResource(R.string.app_name)) },
-                    navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.Default.Close, stringResource(R.string.close)) } }
-                )
-
-                Column(
+                },
+                containerColor = Color.Transparent // Surface provides the background
+            ) { innerPadding ->
+                Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 24.dp)
-                        .verticalScroll(rememberScrollState())
-                        .imePadding(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Top
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.background,
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.1f),
+                                    MaterialTheme.colorScheme.background
+                                )
+                            )
+                        )
                 ) {
-                    Spacer(modifier = Modifier.height(40.dp))
-                    Text(stringResource(R.string.welcome_back), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                    Text(
-                        stringResource(R.string.explore_news_world),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                        modifier = Modifier.padding(top = 4.dp, bottom = 32.dp)
-                    )
-
-                    if (errorMessage != null) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 24.dp)
+                            .verticalScroll(rememberScrollState())
+                            .imePadding(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Top
+                    ) {
+                        Spacer(modifier = Modifier.height(24.dp))
                         Text(
-                            text = errorMessage!!,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(bottom = 16.dp),
+                            stringResource(R.string.welcome_back),
+                            style = MaterialTheme.typography.headlineLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Text(
+                            stringResource(R.string.explore_news_world),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(top = 4.dp, bottom = 32.dp)
+                        )
+
+                        if (errorMessage != null) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                shape = MaterialTheme.shapes.medium,
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                            ) {
+                                Text(
+                                    text = errorMessage!!,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.padding(12.dp),
+                                    textAlign = TextAlign.Center,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                        }
+
+                        // Google Login Button
+                        Button(
+                            onClick = {
+                                try {
+                                    val webClientId = context.getString(R.string.default_web_client_id)
+                                    val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                                        .requestIdToken(webClientId)
+                                        .requestEmail()
+                                        .build()
+                                    val googleSignInClient = GoogleSignIn.getClient(context, gso)
+                                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                                } catch (e: Exception) {
+                                    errorMessage = context.getString(R.string.technical_error) + ": " + e.localizedMessage
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            shape = MaterialTheme.shapes.medium,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFD93025) // Google Red
+                            ),
+                            enabled = !isLoading
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
+                            } else {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("G", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    Text(stringResource(R.string.google_login), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
+                            HorizontalDivider(modifier = Modifier.weight(1f), thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                            Text(
+                                text = stringResource(R.string.or_separator),
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            HorizontalDivider(modifier = Modifier.weight(1f), thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        // Phone Auth Section
+                        PhoneAuthSection(onLoginSuccess, { isLoading = it }, { errorMessage = it }, isLoading)
+                        
+                        Spacer(modifier = Modifier.height(40.dp))
+                        
+                        Text(
+                            text = "© 2024 Alfa News. All rights reserved.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
                             textAlign = TextAlign.Center
                         )
                     }
-
-                    // Google Login Button (Moved to TOP for better visibility)
-                    Button(
-                        onClick = {
-                            val webClientId = context.getString(R.string.default_web_client_id)
-                            val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                                .requestIdToken(webClientId)
-                                .requestEmail()
-                                .build()
-                            val googleSignInClient = GoogleSignIn.getClient(context, gso)
-                            googleSignInLauncher.launch(googleSignInClient.signInIntent)
-                        },
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        shape = MaterialTheme.shapes.medium,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFD93025) // Google Red
-                        ),
-                        enabled = !isLoading
-                    ) {
-                        if (isLoading) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
-                        } else {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("G", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
-                                Spacer(modifier = Modifier.width(16.dp))
-                                Text(stringResource(R.string.google_login), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
-                        HorizontalDivider(modifier = Modifier.weight(1f), thickness = 1.dp, color = Color.LightGray)
-                        Text(
-                            text = stringResource(R.string.or_separator),
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.Gray
-                        )
-                        HorizontalDivider(modifier = Modifier.weight(1f), thickness = 1.dp, color = Color.LightGray)
-                    }
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // Phone Auth Section
-                    PhoneAuthSection(onLoginSuccess, { isLoading = it }, { errorMessage = it }, isLoading)
                 }
-
-                Text(
-                    text = "© 2024 Alfa News. All rights reserved.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    textAlign = TextAlign.Center
-                )
-            }
             }
         }
     }
 }
+
 
 @Composable
 private fun PhoneAuthSection(
@@ -218,12 +260,16 @@ private fun PhoneAuthSection(
         if (!isOtpSent) {
             OutlinedTextField(
                 value = phoneNumber,
-                onValueChange = { if (it.length <= 10) phoneNumber = it },
+                onValueChange = { input -> 
+                    val filtered = input.filter { it.isDigit() }
+                    if (filtered.length <= 10) phoneNumber = filtered 
+                },
                 label = { Text(stringResource(R.string.phone_number_label)) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text(stringResource(R.string.mobile_placeholder)) },
-                shape = MaterialTheme.shapes.medium
+                shape = MaterialTheme.shapes.medium,
+                singleLine = true
             )
             Button(
                 onClick = {
@@ -232,29 +278,38 @@ private fun PhoneAuthSection(
                     context.findActivity()?.let {
                         sendOtp(it, phoneNumber, context) { result ->
                             setLoading(false)
-                            result.onSuccess { id -> verificationId = id; isOtpSent = true }
-                            result.onFailure { setError(context.getString(R.string.otp_send_failed)) }
+                            result.onSuccess { id -> 
+                                verificationId = id
+                                isOtpSent = true 
+                            }
+                            result.onFailure { error -> 
+                                setError(context.getString(R.string.otp_send_failed) + ": " + (error.localizedMessage ?: "")) 
+                            }
                         }
                     } ?: setError(context.getString(R.string.technical_error))
                 },
-                enabled = phoneNumber.length >= 10 && !isLoading,
+                enabled = phoneNumber.length == 10 && !isLoading,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = MaterialTheme.shapes.medium
             ) {
                 if (isLoading && !isOtpSent) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
                 } else {
-                    Text(stringResource(R.string.send_otp), fontSize = 18.sp)
+                    Text(stringResource(R.string.send_otp), fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
             }
         } else {
             OutlinedTextField(
                 value = otp,
-                onValueChange = { if (it.length <= 6) otp = it },
+                onValueChange = { input ->
+                    val filtered = input.filter { it.isDigit() }
+                    if (filtered.length <= 6) otp = filtered 
+                },
                 label = { Text(stringResource(R.string.enter_otp)) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium
+                shape = MaterialTheme.shapes.medium,
+                singleLine = true
             )
             Button(
                 onClick = {
@@ -264,7 +319,9 @@ private fun PhoneAuthSection(
                         verifyOtp(it, otp) { result ->
                             setLoading(false)
                             result.onSuccess { onLoginSuccess() }
-                            result.onFailure { setError(context.getString(R.string.invalid_otp)) }
+                            result.onFailure { error -> 
+                                setError(context.getString(R.string.invalid_otp) + ": " + (error.localizedMessage ?: "")) 
+                            }
                         }
                     }
                 },
@@ -275,10 +332,16 @@ private fun PhoneAuthSection(
                 if (isLoading) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
                 } else {
-                    Text(stringResource(R.string.login), fontSize = 18.sp)
+                    Text(stringResource(R.string.login), fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
             }
-            TextButton(onClick = { isOtpSent = false; otp = "" }) {
+            TextButton(
+                onClick = { 
+                    isOtpSent = false
+                    otp = "" 
+                },
+                modifier = Modifier.align(Alignment.End)
+            ) {
                 Text(stringResource(R.string.change_mobile_number))
             }
         }

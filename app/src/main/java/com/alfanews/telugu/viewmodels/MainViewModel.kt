@@ -10,18 +10,16 @@ import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.PreferenceManager
+import com.alfanews.telugu.models.ThemeMode
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-
-enum class ThemeMode {
-    SYSTEM, LIGHT, DARK
-}
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = PreferenceManager.getInstance(application)
@@ -66,10 +64,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     if (snapshot != null && snapshot.exists()) {
-                        val user = snapshot.toObject(User::class.java)?.copy(id = snapshot.id)
-                        _currentUser.value = user
-                        if (user != null) {
-                            AnalyticsService.onUserLogin(user)
+                        val userObj = snapshot.toObject(User::class.java)?.copy(id = snapshot.id)
+                        val oldUser = _currentUser.value
+                        _currentUser.value = userObj
+                        
+                        if (userObj != null) {
+                            AnalyticsService.onUserLogin(userObj)
+                            
+                            // ఒకవేళ యూజర్ ఆసక్తులు లేదా జిల్లా మారితే, నోటిఫికేషన్ సబ్‌స్క్రిప్షన్లను అప్‌డేట్ చేయడం
+                            if (prefs.isNotificationsEnabled) {
+                                val oldInterests = oldUser?.categoryScores?.keys ?: emptySet()
+                                val newInterests = userObj.categoryScores.keys
+                                val oldDistrict = oldUser?.district
+                                val newDistrict = userObj.district
+                                
+                                if (oldInterests != newInterests || oldDistrict != newDistrict) {
+                                    updateInterestSubscriptions(oldInterests, newInterests, newDistrict)
+                                }
+                            }
                         }
                     } else {
                         viewModelScope.launch {
@@ -151,10 +163,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         photoUri: Uri?,
         signatureUri: Uri?,
     ) {
+        val user = _currentUser.value ?: return
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val user = _currentUser.value ?: throw IllegalStateException("User not logged in")
                 val updates = mutableMapOf<String, Any>(
                     "name" to name,
                     "phone" to phone,
@@ -162,19 +174,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "district" to district,
                 )
 
-                photoUri?.let {
-                    val photoRef = FirebaseStorage.getInstance().reference.child("profile_images/${user.id}")
-                    val uploadTask = photoRef.putFile(it).await()
-                    val downloadUrl = uploadTask.storage.downloadUrl.await()
-                    updates["photoUrl"] = downloadUrl.toString()
+                val photoDeferred = photoUri?.let {
+                    async {
+                        val photoRef = FirebaseStorage.getInstance().reference.child("profile_images/${user.id}")
+                        val uploadTask = photoRef.putFile(it).await()
+                        uploadTask.storage.downloadUrl.await().toString()
+                    }
                 }
 
-                signatureUri?.let {
-                    val signatureRef = FirebaseStorage.getInstance().reference.child("signatures/${user.id}")
-                    val uploadTask = signatureRef.putFile(it).await()
-                    val downloadUrl = uploadTask.storage.downloadUrl.await()
-                    updates["signatureUrl"] = downloadUrl.toString()
+                val signatureDeferred = signatureUri?.let {
+                    async {
+                        val signatureRef = FirebaseStorage.getInstance().reference.child("signatures/${user.id}")
+                        val uploadTask = signatureRef.putFile(it).await()
+                        uploadTask.storage.downloadUrl.await().toString()
+                    }
                 }
+
+                photoDeferred?.await()?.let { updates["photoUrl"] = it }
+                signatureDeferred?.await()?.let { updates["signatureUrl"] = it }
 
                 // ఒకవేళ అడ్మిన్ ప్రొఫైల్ అప్‌డేట్ చేస్తుంటే, గ్లోబల్ సంతకాన్ని కూడా అప్‌డేట్ చేయడం
                 if (user.role == UserRole.ADMIN) {
@@ -230,6 +247,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 if (enabled) {
                     messaging.subscribeToTopic("all_users").await()
+                    messaging.subscribeToTopic("breaking_news").await()
                     
                     district?.let { d ->
                         messaging.subscribeToTopic("district_$d").await()
@@ -238,9 +256,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             messaging.subscribeToTopic("district_${d}_${category.lowercase()}").await()
                         }
                     }
-                    prefs.isNotificationsEnabled = true
                 } else {
                     messaging.unsubscribeFromTopic("all_users").await()
+                    messaging.unsubscribeFromTopic("breaking_news").await()
                     
                     district?.let { d ->
                         messaging.unsubscribeFromTopic("district_$d").await()
@@ -249,7 +267,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             messaging.unsubscribeFromTopic("district_${d}_${category.lowercase()}").await()
                         }
                     }
-                    prefs.isNotificationsEnabled = false
+                }
+
+                // Firestore మరియు Preferences అప్‌డేట్
+                prefs.isNotificationsEnabled = enabled
+                user?.id?.let { uid ->
+                    FirebaseService.db.collection("users").document(uid).update("pushEnabled", enabled).await()
                 }
             } catch (e: Exception) {
                 // Log or handle error appropriately

@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.luminance
 
 /**
  * Glassmorphism effect for Jetpack Compose.
@@ -27,10 +29,13 @@ fun Modifier.glassmorphism(
     shadowElevation: Dp = 8.dp
 ): Modifier = composed {
     val isBlurSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val isDark = isSystemInDarkTheme()
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     
     val baseColor = if (isDark) Color.Black else Color.White
     val accentColor = if (isDark) Color.White else Color.Black
+    
+    val computedOpacity = if (isDark) opacity * 1.5f else opacity
+    val computedBorderOpacity = if (isDark) borderOpacity * 1.2f else borderOpacity
     
     this
         .shadow(
@@ -44,8 +49,8 @@ fun Modifier.glassmorphism(
         .background(
             Brush.verticalGradient(
                 colors = listOf(
-                    baseColor.copy(alpha = opacity + 0.1f),
-                    baseColor.copy(alpha = opacity)
+                    baseColor.copy(alpha = computedOpacity + 0.1f),
+                    baseColor.copy(alpha = computedOpacity)
                 )
             )
         )
@@ -53,8 +58,8 @@ fun Modifier.glassmorphism(
             width = 1.dp,
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    accentColor.copy(alpha = borderOpacity),
-                    accentColor.copy(alpha = borderOpacity - 0.05f)
+                    accentColor.copy(alpha = computedBorderOpacity),
+                    accentColor.copy(alpha = computedBorderOpacity - 0.05f)
                 )
             ),
             shape = RoundedCornerShape(cornerRadius)

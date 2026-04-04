@@ -31,7 +31,7 @@ import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.services.FirebaseService
-import com.alfanews.telugu.viewmodels.ThemeMode
+import com.alfanews.telugu.models.ThemeMode
 import com.alfanews.telugu.ui.theme.Poppins
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.ui.theme.Mallanna
@@ -49,8 +49,9 @@ fun UserProfilePageView(
     setLanguage: (Language) -> Unit,
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     onThemeModeChange: (ThemeMode) -> Unit = {},
-    onNavigate: (String) -> Unit,
-    onLoginRequest: (() -> Unit)? = null
+    onNavigate: (String) -> Unit = {},
+    onLoginRequest: (() -> Unit)? = null,
+    onToggleNotifications: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -77,18 +78,20 @@ fun UserProfilePageView(
 
     /** నోటిఫికేషన్లను ఆన్/ఆఫ్ చేస్తుంది. */
     fun toggleNotifications() {
-        scope.launch {
-            val newValue = !pushEnabled
-            pushEnabled = newValue
-            try {
-                FirebaseService.db.collection("users")
-                    .document(user.id)
-                    .update("pushEnabled", newValue)
-                    .await()
-            } catch (e: Exception) {
-                Toast.makeText(context, context.getString(R.string.notification_setting_error), Toast.LENGTH_SHORT).show()
+        val newValue = !pushEnabled
+        
+        // ఆండ్రాయిడ్ 13+ కోసం పర్మిషన్ చెక్
+        if (newValue && android.os.Build.VERSION.SDK_INT >= 33) { // 33 is TIRAMISU
+            val permission = "android.permission.POST_NOTIFICATIONS"
+            if (androidx.core.content.ContextCompat.checkSelfPermission(context, permission) != 0) { // 0 is PERMISSION_GRANTED
+                (context as? android.app.Activity)?.let { activity ->
+                    androidx.core.app.ActivityCompat.requestPermissions(activity, kotlin.arrayOf(permission), 101)
+                }
             }
         }
+
+        pushEnabled = newValue
+        onToggleNotifications(newValue)
     }
 
     /** సైన్ అవుట్ ప్రక్రియను నిర్వహిస్తుంది. */

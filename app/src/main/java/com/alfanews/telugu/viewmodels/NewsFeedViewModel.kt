@@ -68,7 +68,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         
         viewModelScope.launch {
             isFetching = true
-            if (_news.value.isEmpty()) _loading.value = true
+            _loading.value = true
             
             if (initialPostId == null) {
                 prefCursor = null
@@ -80,27 +80,38 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             try {
                 val district = prefs.selectedDistrict ?: currentUser?.district ?: prefs.detectedDistrict
                 _userDistrict.value = district
-                val preferredCats = AnalyticsService.getUserPreferredCategories().take(10)
+                
+                // Fetch categories once
+                val preferredCats = try { AnalyticsService.getUserPreferredCategories().take(10) } catch (e: Exception) { emptyList<String>() }
 
                 // Parallel fetching using async to speed up loading
+                // Only fetch greeting on first page
                 val greetingBatchDeferred = async {
-                    // Fetch greetings (where type == 'greeting')
-                    fetchGreetingPost()
+                    if (initialPostId == null && _news.value.isEmpty()) {
+                        try { fetchGreetingPost() } catch (e: Exception) { null }
+                    } else null
                 }
 
                 val prefBatchDeferred = async {
                     if (preferredCats.isNotEmpty()) {
-                        fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), null, district, strictFilter = false)
+                        try {
+                            fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), null, district, strictFilter = false)
+                        } catch (e: Exception) { Pair(emptyList<NewsPost>(), null) }
                     } else Pair(emptyList<NewsPost>(), null)
                 }
 
                 val mainBatchDeferred = async {
-                    // Main feed should be diverse, so strictFilter = false
-                    fetchFilteredBatch(FirebaseService.db.collection("news"), null, district, strictFilter = false)
+                    try {
+                        fetchFilteredBatch(FirebaseService.db.collection("news"), null, district, strictFilter = false)
+                    } catch (e: Exception) { Pair(emptyList<NewsPost>(), null) }
                 }
 
                 val localBatchDeferred = async {
-                    Pair(emptyList<NewsPost>(), null)
+                    if (!district.isNullOrBlank()) {
+                        try {
+                            fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContains("categories", district), null, district, strictFilter = true)
+                        } catch (e: Exception) { Pair(emptyList<NewsPost>(), null) }
+                    } else Pair(emptyList<NewsPost>(), null)
                 }
 
                 val greetingPost = greetingBatchDeferred.await()
@@ -116,6 +127,23 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first)
                 }
 
+                // --- CRITICAL FALLBACK ---
+                if (finalPosts.isEmpty()) {
+                    try {
+                        val fallbackSnapshot = FirebaseService.db.collection("news")
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(FETCH_LIMIT.toLong())
+                            .get()
+                            .await()
+                        
+                        val fallbackList = fallbackSnapshot.documents.mapNotNull { doc -> mapDocumentToNewsPost(doc) }
+                        if (fallbackList.isNotEmpty()) {
+                            finalPosts = fallbackList
+                            mainCursor = fallbackSnapshot.documents.lastOrNull()
+                        }
+                    } catch (e: Exception) { }
+                }
+
                 // Inject greeting at the very top
                 greetingPost?.let {
                     finalPosts = (listOf(it) + finalPosts).distinctBy { it.id }
@@ -129,7 +157,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 }
 
                 _news.value = finalPosts.distinctBy { it.id }
-                if (finalPosts.isEmpty() && mainCursor == null) _hasMore.value = false
+                if (_news.value.isEmpty() && mainCursor == null) _hasMore.value = false
 
             } catch (e: Exception) {
                 if (_news.value.isEmpty()) _hasMore.value = false
@@ -233,10 +261,15 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     private suspend fun rankAndBlendPosts(pref: List<NewsPost>, main: List<NewsPost>, local: List<NewsPost>): List<NewsPost> = withContext(Dispatchers.Default) {
         val allPosts = (pref + main + local).distinctBy { it.id }
+        if (allPosts.isEmpty()) return@withContext emptyList<NewsPost>()
         
         val festivalGreetings = allPosts.filter { it.type == "greeting" && it.likes == 0 }
         val quoteGreetings = allPosts.filter { it.type == "greeting" && it.likes == 1 }
         val normalNews = allPosts.filter { it.type != "greeting" }
+
+        if (normalNews.isEmpty()) {
+            return@withContext (festivalGreetings + quoteGreetings).distinctBy { it.id }
+        }
 
         // 30% వార్తలను "తాజాదనం" ఆధారంగా, 70% వార్తలను "పర్సనలైజ్డ్ స్కోర్" ఆధారంగా ఎంచుకుందాం
         val totalToRank = normalNews.size
@@ -246,7 +279,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         val discoveryCount = (totalToRank * 0.2).toInt()
         val freshCount = (totalToRank * 0.1).toInt()
         
-        val preferredCategories = AnalyticsService.getUserPreferredCategories().toSet()
+        val preferredCategories = try { AnalyticsService.getUserPreferredCategories().toSet() } catch (e: Exception) { emptySet() }
         
         val discoveryNews = normalNews.filter { post -> 
             post.categories.none { it in preferredCategories } 
@@ -263,7 +296,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         // 2. మిగిలిన వార్తలకు స్కోర్ ఇవ్వడం (Personalized)
         val remainingNews = normalNews.filter { it.id !in discoveryIds && it.id !in freshIds }
         val scoredNews = remainingNews.map { post ->
-            post to AnalyticsService.calculateRelevanceScore(post)
+            post to (try { AnalyticsService.calculateRelevanceScore(post) } catch (e: Exception) { 0.0 })
         }.sortedByDescending { it.second }.map { it.first }
 
         // 3. రెండింటినీ కలపడం (FreshNews + Discovery + Personalized)
@@ -274,8 +307,12 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             val size = blendedNews.size
             val minIdx = if (6 < size) 6 else if (size > 0) size - 1 else 0
             val maxIdx = if (10 < size) 10 else if (size > 0) size - 1 else 0
-            val insertIndex = (minIdx..maxIdx).random()
-            blendedNews.add(insertIndex, quoteGreetings.first())
+            if (minIdx <= maxIdx) {
+                val insertIndex = (minIdx..maxIdx).random()
+                blendedNews.add(insertIndex, quoteGreetings.first())
+            } else {
+                blendedNews.add(quoteGreetings.first())
+            }
         }
 
         // పండుగ కార్డును మొదట పెట్టడం
@@ -305,49 +342,70 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private fun mapDocumentToNewsPost(doc: DocumentSnapshot): NewsPost? {
         return try {
             val data = doc.data ?: return null
+            
+            // Safe mapping for numbers
+            val likesCount = (data["likes"] as? Number)?.toInt() ?: 0
+            val commentsCount = (data["comments"] as? Number)?.toInt() ?: 0
+            val sharesCount = (data["shares"] as? Number)?.toInt() ?: 0
+            
+            // Safe mapping for timestamp
+            val postTimestamp = when (val ts = data["timestamp"]) {
+                is com.google.firebase.Timestamp -> ts.toDate().time
+                is Number -> ts.toLong()
+                is java.util.Date -> ts.time
+                else -> System.currentTimeMillis()
+            }
+
+            // Categories list fallback
+            val categoriesList = (data["categories"] as? List<*>)?.mapNotNull { it?.toString() }
+                ?: listOfNotNull(data["category"]?.toString(), data["district"]?.toString())
+
             NewsPost(
                 id = doc.id,
                 headline = com.alfanews.telugu.models.Headline(
-                    telugu = (data["headline"] as? Map<*, *>)?.get("telugu") as? String ?: "",
-                    english = (data["headline"] as? Map<*, *>)?.get("english") as? String ?: ""
+                    telugu = (data["headline"] as? Map<*, *>)?.get("telugu")?.toString() ?: "",
+                    english = (data["headline"] as? Map<*, *>)?.get("english")?.toString() ?: ""
                 ),
                 content = com.alfanews.telugu.models.Content(
-                    telugu = (data["content"] as? Map<*, *>)?.get("telugu") as? String ?: "",
-                    english = (data["content"] as? Map<*, *>)?.get("english") as? String ?: ""
+                    telugu = (data["content"] as? Map<*, *>)?.get("telugu")?.toString() ?: "",
+                    english = (data["content"] as? Map<*, *>)?.get("english")?.toString() ?: ""
                 ),
-                mediaUrl = data["mediaUrl"] as? String ?: "",
-                mediaType = when (data["mediaType"] as? String) {
+                mediaUrl = data["mediaUrl"]?.toString() ?: "",
+                mediaType = when (data["mediaType"]?.toString()) {
                     "VIDEO" -> com.alfanews.telugu.models.MediaType.VIDEO
                     else -> com.alfanews.telugu.models.MediaType.IMAGE
                 },
-                youtubeUrl = data["youtubeUrl"] as? String,
-                postFormat = when (data["postFormat"] as? String) {
+                youtubeUrl = data["youtubeUrl"]?.toString(),
+                postFormat = when (data["postFormat"]?.toString()) {
                     "16:9" -> com.alfanews.telugu.models.PostFormat.HORIZONTAL
                     else -> com.alfanews.telugu.models.PostFormat.VERTICAL
                 },
                 reporter = com.alfanews.telugu.models.Reporter(
-                    id = (data["reporter"] as? Map<*, *>)?.get("id") as? String ?: "",
-                    name = (data["reporter"] as? Map<*, *>)?.get("name") as? String ?: ""
+                    id = (data["reporter"] as? Map<*, *>)?.get("id")?.toString() ?: "",
+                    name = (data["reporter"] as? Map<*, *>)?.get("name")?.toString() ?: ""
                 ),
-                location = data["location"] as? String ?: "",
-                timestamp = (data["timestamp"] as? com.google.firebase.Timestamp)?.toDate()?.time ?: System.currentTimeMillis(),
-                categories = data["categories"] as? List<String> ?: emptyList(),
-                likes = (data["likes"] as? Long)?.toInt() ?: 0,
-                comments = (data["comments"] as? Long)?.toInt() ?: 0,
-                shares = (data["shares"] as? Long)?.toInt() ?: 0,
-                originalUrl = data["originalUrl"] as? String,
-                district = data["district"] as? String,
-                verificationStatus = data["verificationStatus"] as? String ?: "UNVERIFIED",
-                tags = data["tags"] as? List<String> ?: emptyList(),
-                entities = (data["entities"] as? Map<String, Any>)?.let { entitiesMap ->
+                location = data["location"]?.toString() ?: "",
+                timestamp = postTimestamp,
+                categories = categoriesList,
+                likes = likesCount,
+                comments = commentsCount,
+                shares = sharesCount,
+                originalUrl = data["originalUrl"]?.toString(),
+                district = data["district"]?.toString(),
+                verificationStatus = data["verificationStatus"]?.toString() ?: "UNVERIFIED",
+                tags = (data["tags"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
+                entities = (data["entities"] as? Map<*, *>)?.let { entitiesMap ->
                     com.alfanews.telugu.models.Entities(
-                        people = entitiesMap["people"] as? List<String> ?: emptyList(),
-                        organizations = entitiesMap["organizations"] as? List<String> ?: emptyList(),
-                        locations = entitiesMap["locations"] as? List<String> ?: emptyList()
+                        people = (entitiesMap["people"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
+                        organizations = (entitiesMap["organizations"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
+                        locations = (entitiesMap["locations"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
                     )
-                } ?: com.alfanews.telugu.models.Entities()
+                } ?: com.alfanews.telugu.models.Entities(),
+                type = data["type"]?.toString() ?: "news"
             )
-        } catch (e: Exception) { null }
+        } catch (e: Exception) { 
+            null 
+        }
     }
 
     @SuppressLint("MissingPermission")

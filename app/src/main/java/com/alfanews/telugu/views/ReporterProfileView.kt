@@ -167,26 +167,26 @@ fun ReporterProfileView(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.White),
+                .background(MaterialTheme.colorScheme.background),
             contentAlignment = Alignment.Center
         ) {
             CircularProgressIndicator(
                 modifier = Modifier.size(40.dp),
-                color = MaterialTheme.colorScheme.error
+                color = MaterialTheme.colorScheme.primary
             )
         }
     } else if (reporter == null) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.White)
+                .background(MaterialTheme.colorScheme.background)
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             Text(
                 text = "Reporter profile not found.",
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                 modifier = Modifier.padding(bottom = 16.dp)
             )
             TextButton(onClick = onBack) {
@@ -228,7 +228,7 @@ fun ReporterProfileView(
             // Grid Mode
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
-                modifier = Modifier.fillMaxSize().background(Color(0xFFF9FAFB)),
+                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 // Header Span
@@ -236,7 +236,7 @@ fun ReporterProfileView(
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shadowElevation = 2.dp,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.surface
                     ) {
                         Row(
                             modifier = Modifier
@@ -246,12 +246,17 @@ fun ReporterProfileView(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             IconButton(onClick = onBack) {
-                                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                                Icon(
+                                    Icons.Default.ArrowBack, 
+                                    contentDescription = "Back",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
                             }
                             Text(
                                 text = "Reporter Profile",
                                 fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
@@ -262,7 +267,7 @@ fun ReporterProfileView(
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shadowElevation = 1.dp,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.surface
                     ) {
                         Column(
                             modifier = Modifier
@@ -276,7 +281,7 @@ fun ReporterProfileView(
                                 modifier = Modifier
                                     .size(96.dp)
                                     .clip(CircleShape)
-                                    .border(4.dp, Color(0xFFF3F4F6), CircleShape),
+                                    .border(4.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), CircleShape),
                                 contentScale = ContentScale.Crop
                             )
                             
@@ -285,13 +290,14 @@ fun ReporterProfileView(
                             Text(
                                 text = reporter?.name ?: "",
                                 fontSize = 24.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             
                             Spacer(modifier = Modifier.height(8.dp))
                             
                             Surface(
-                                color = Color(0xFFFEE2E2),
+                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
                                 shape = MaterialTheme.shapes.small
                             ) {
                                 Text(
@@ -313,18 +319,18 @@ fun ReporterProfileView(
                                         Icons.Default.LocationOn,
                                         contentDescription = null,
                                         modifier = Modifier.size(16.dp),
-                                        tint = Color.Gray
+                                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
                                     Text(
                                         text = reporter?.address ?: "",
                                         fontSize = 14.sp,
-                                        color = Color.Gray
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
                                 }
                             }
                             
                             Spacer(modifier = Modifier.height(24.dp))
-                            Divider()
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
                             Spacer(modifier = Modifier.height(16.dp))
                             
                             Row(
@@ -335,12 +341,13 @@ fun ReporterProfileView(
                                     Text(
                                         text = posts.size.toString(),
                                         fontSize = 24.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
                                         text = "Posts",
                                         fontSize = 12.sp,
-                                        color = Color.Gray
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
                                 }
                             }
@@ -354,6 +361,7 @@ fun ReporterProfileView(
                         text = "వార్తలు (Stories)",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
                     )
                 }
@@ -368,7 +376,7 @@ fun ReporterProfileView(
                         ) {
                             Text(
                                 text = "No stories posted yet.",
-                                color = Color.Gray
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
                             )
                         }
                     }
@@ -401,14 +409,14 @@ fun PostThumbnailCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(128.dp)
-                    .background(Color(0xFFE5E7EB))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 val mediaUrl = post.mediaUrl
                 if (mediaUrl.isNotEmpty()) {
@@ -428,6 +436,7 @@ fun PostThumbnailCard(
                     text = post.headline.telugu,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.height(40.dp)
@@ -442,7 +451,7 @@ fun PostThumbnailCard(
                     Text(
                         text = formattedDate,
                         fontSize = 10.sp,
-                        color = Color.Gray
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
                 }
             }

@@ -170,17 +170,25 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             
             try {
                 val newsRef = FirebaseService.db.collection("news")
-                val query = newsRef
-                    .whereArrayContains("categories", district)
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(pageSize.toLong())
                 
-                val snapshot = query.get().await()
-                var posts = withContext(Dispatchers.Default) {
-                    snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                var posts: List<NewsPost> = emptyList()
+                var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
+
+                try {
+                    val query = newsRef
+                        .whereArrayContains("categories", district)
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(pageSize.toLong())
+                    
+                    snapshot = query.get().await()
+                    posts = withContext(Dispatchers.Default) {
+                        snapshot!!.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                    }
+                } catch (e: Exception) {
+                    // Fallback to general news if index is missing or query fails
                 }
                 
-                // If local news is empty, fetch generic news so the user doesn't see a blank screen
+                // If local news is empty or query failed, fetch generic news so the user doesn't see a blank screen
                 if (posts.isEmpty()) {
                     val fallbackQuery = FirebaseService.db.collection("news")
                         .orderBy("timestamp", Query.Direction.DESCENDING)
@@ -192,8 +200,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     lastDocument = fallbackSnapshot.documents.lastOrNull()
                     _hasMore.value = fallbackSnapshot.documents.size == pageSize
                 } else {
-                    lastDocument = snapshot.documents.lastOrNull()
-                    _hasMore.value = snapshot.documents.size == pageSize
+                    lastDocument = snapshot?.documents?.lastOrNull()
+                    _hasMore.value = snapshot?.documents?.size == pageSize
                 }
                 
                 _news.value = posts
@@ -217,7 +225,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 val query = newsRef
                     .whereArrayContains("categories", district)
                     .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .startAfter(lastDocument!!)
+                    .let { if (lastDocument != null) it.startAfter(lastDocument!!) else it }
                     .limit(pageSize.toLong())
                 
                 val snapshot = query.get().await()
@@ -229,7 +237,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 if (newPosts.isEmpty() && _news.value.size < 50) {
                      val fallbackQuery = FirebaseService.db.collection("news")
                         .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .startAfter(lastDocument!!)
+                        .let { if (lastDocument != null) it.startAfter(lastDocument!!) else it }
                         .limit(pageSize.toLong())
                      val fallbackSnapshot = fallbackQuery.get().await()
                      newPosts = withContext(Dispatchers.Default) {
@@ -256,44 +264,61 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     @Suppress("UNCHECKED_CAST")
     private fun convertToNewsPost(id: String, data: Map<String, Any?>): NewsPost? {
         try {
-            val type = data["type"] as? String
+            val type = data["type"]?.toString() ?: "news"
             if (type == "greeting" || type == "history") {
                 return null // Exclude greeting and history cards from the main news feed
             }
 
+            // Safe mapping for numbers
+            val likesCount = (data["likes"] as? Number)?.toInt() ?: 0
+            val commentsCount = (data["comments"] as? Number)?.toInt() ?: 0
+            val sharesCount = (data["shares"] as? Number)?.toInt() ?: 0
+            
+            // Safe mapping for timestamp
+            val postTimestamp = when (val ts = data["timestamp"]) {
+                is com.google.firebase.Timestamp -> ts.toDate().time
+                is Number -> ts.toLong()
+                is java.util.Date -> ts.time
+                else -> System.currentTimeMillis()
+            }
+
+            // Categories list fallback
+            val categoriesList = (data["categories"] as? List<*>)?.mapNotNull { it?.toString() }
+                ?: listOfNotNull(data["category"]?.toString(), data["district"]?.toString())
+
             return NewsPost(
                 id = id,
                 headline = com.alfanews.telugu.models.Headline(
-                    telugu = (data["headline"] as? Map<*, *>)?.get("telugu") as? String ?: "",
-                    english = (data["headline"] as? Map<*, *>)?.get("english") as? String ?: ""
+                    telugu = (data["headline"] as? Map<*, *>)?.get("telugu")?.toString() ?: "",
+                    english = (data["headline"] as? Map<*, *>)?.get("english")?.toString() ?: ""
                 ),
                 content = com.alfanews.telugu.models.Content(
-                    telugu = (data["content"] as? Map<*, *>)?.get("telugu") as? String ?: "",
-                    english = (data["content"] as? Map<*, *>)?.get("english") as? String ?: ""
+                    telugu = (data["content"] as? Map<*, *>)?.get("telugu")?.toString() ?: "",
+                    english = (data["content"] as? Map<*, *>)?.get("english")?.toString() ?: ""
                 ),
-                mediaUrl = data["mediaUrl"] as? String ?: "",
-                mediaType = when (data["mediaType"] as? String) {
+                mediaUrl = data["mediaUrl"]?.toString() ?: "",
+                mediaType = when (data["mediaType"]?.toString()) {
                     "VIDEO" -> com.alfanews.telugu.models.MediaType.VIDEO
                     else -> com.alfanews.telugu.models.MediaType.IMAGE
                 },
-                youtubeUrl = data["youtubeUrl"] as? String,
-                postFormat = when (data["postFormat"] as? String) {
+                youtubeUrl = data["youtubeUrl"]?.toString(),
+                postFormat = when (data["postFormat"]?.toString()) {
                     "16:9" -> com.alfanews.telugu.models.PostFormat.HORIZONTAL
                     else -> com.alfanews.telugu.models.PostFormat.VERTICAL
                 },
                 reporter = com.alfanews.telugu.models.Reporter(
-                    id = (data["reporter"] as? Map<*, *>)?.get("id") as? String ?: "",
-                    name = (data["reporter"] as? Map<*, *>)?.get("name") as? String ?: ""
+                    id = (data["reporter"] as? Map<*, *>)?.get("id")?.toString() ?: "",
+                    name = (data["reporter"] as? Map<*, *>)?.get("name")?.toString() ?: ""
                 ),
-                location = data["location"] as? String ?: "",
-                timestamp = (data["timestamp"] as? com.google.firebase.Timestamp)?.toDate()?.time ?: System.currentTimeMillis(),
-                categories = data["categories"] as? List<String> ?: emptyList(),
-                likes = (data["likes"] as? Long)?.toInt() ?: 0,
-                comments = (data["comments"] as? Long)?.toInt() ?: 0,
-                shares = (data["shares"] as? Long)?.toInt() ?: 0,
-                originalUrl = data["originalUrl"] as? String,
-                district = data["district"] as? String,
-                verificationStatus = data["verificationStatus"] as? String ?: "UNVERIFIED",
+                location = data["location"]?.toString() ?: "",
+                timestamp = postTimestamp,
+                categories = categoriesList,
+                likes = likesCount,
+                comments = commentsCount,
+                shares = sharesCount,
+                originalUrl = data["originalUrl"]?.toString(),
+                district = data["district"]?.toString(),
+                verificationStatus = data["verificationStatus"]?.toString() ?: "UNVERIFIED",
                 type = type
             )
         } catch(e: Exception) {

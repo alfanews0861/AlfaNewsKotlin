@@ -3,7 +3,7 @@ package com.alfanews.telugu.utils
 import android.content.Context
 import android.content.SharedPreferences
 import com.alfanews.telugu.models.Language
-import com.alfanews.telugu.viewmodels.ThemeMode
+import com.alfanews.telugu.models.ThemeMode
 
 /**
  * అప్లికేషన్ యొక్క [SharedPreferences]ని నిర్వహిస్తుంది.

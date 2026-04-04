@@ -131,7 +131,8 @@ fun ClassifiedsView(
                 },
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Black,
-                fontFamily = com.alfanews.telugu.ui.theme.Ramabhadra
+                fontFamily = com.alfanews.telugu.ui.theme.Ramabhadra,
+                color = MaterialTheme.colorScheme.onBackground
             )
         }
 
@@ -245,20 +246,29 @@ fun ClassifiedsHeader(
                 },
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
-                fontFamily = com.alfanews.telugu.ui.theme.Ramabhadra
+                fontFamily = com.alfanews.telugu.ui.theme.Ramabhadra,
+                color = MaterialTheme.colorScheme.onSurface
             )
         },
         navigationIcon = {
             if (viewMode != ClassifiedsViewMode.CATEGORIES) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack, 
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
                 }
             }
         },
         actions = {
             if (viewMode == ClassifiedsViewMode.CATEGORIES) {
                 IconButton(onClick = onMyAdsClick) {
-                    Icon(Icons.Default.Person, contentDescription = "My Ads", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(
+                        Icons.Default.Person, 
+                        contentDescription = "My Ads", 
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
             
@@ -271,7 +281,12 @@ fun ClassifiedsHeader(
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(stringResource(R.string.nav_post), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = com.alfanews.telugu.ui.theme.Mallanna)
+                    Text(
+                        stringResource(R.string.nav_post), 
+                        fontSize = 12.sp, 
+                        fontWeight = FontWeight.Bold, 
+                        fontFamily = com.alfanews.telugu.ui.theme.Mallanna
+                    )
                 }
             }
         },
@@ -372,7 +387,7 @@ fun CategoryCard(
                     Box(contentAlignment = Alignment.Center) {
                         Text(
                             text = count.toString(),
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -396,7 +411,7 @@ fun ClassifiedAdDetailView(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(MaterialTheme.colorScheme.surface)
             .verticalScroll(rememberScrollState())
     ) {
         // Large Image
@@ -428,7 +443,7 @@ fun ClassifiedAdDetailView(
                 )
                 
                 Surface(
-                    color = Color(0xFFF3F4F6),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
@@ -436,7 +451,7 @@ fun ClassifiedAdDetailView(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.Gray
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -445,36 +460,52 @@ fun ClassifiedAdDetailView(
                 text = ad.title,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
-                lineHeight = 28.sp
+                lineHeight = 28.sp,
+                color = MaterialTheme.colorScheme.onSurface
             )
 
-            HorizontalDivider(color = Color(0xFFE5E7EB))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(20.dp))
+                Icon(
+                    Icons.Default.LocationOn, 
+                    contentDescription = null, 
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant, 
+                    modifier = Modifier.size(20.dp)
+                )
                 Spacer(modifier = Modifier.width(4.dp))
-                Text(text = ad.location, fontSize = 16.sp, color = Color.Gray)
+                Text(
+                    text = ad.location, 
+                    fontSize = 16.sp, 
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Spacer(modifier = Modifier.weight(1f))
-                Icon(Icons.Default.Schedule, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(18.dp))
+                Icon(
+                    Icons.Default.Schedule, 
+                    contentDescription = null, 
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant, 
+                    modifier = Modifier.size(18.dp)
+                )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = dateFormat.format(Date(ad.timestamp)),
                     fontSize = 14.sp,
-                    color = Color.Gray
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
             Text(
                 text = stringResource(R.string.ad_details),
                 fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
             )
 
             Text(
                 text = ad.description,
                 fontSize = 16.sp,
                 lineHeight = 24.sp,
-                color = Color(0xFF374151)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             
             // Native Ad after description
@@ -488,7 +519,7 @@ fun ClassifiedAdDetailView(
             // Seller Info
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = Color(0xFFF9FAFB),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Row(
@@ -497,17 +528,30 @@ fun ClassifiedAdDetailView(
                 ) {
                     Surface(
                         shape = CircleShape,
-                        color = Color(0xFFE5E7EB),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
                         modifier = Modifier.size(48.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.Person, contentDescription = null, tint = Color.Gray)
+                            Icon(
+                                Icons.Default.Person, 
+                                contentDescription = null, 
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
-                        Text(text = ad.userName, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text(text = stringResource(R.string.seller), fontSize = 12.sp, color = Color.Gray)
+                        Text(
+                            text = ad.userName, 
+                            fontWeight = FontWeight.Bold, 
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = stringResource(R.string.seller), 
+                            fontSize = 12.sp, 
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -617,9 +661,12 @@ fun LoadingState() {
         ) {
             CircularProgressIndicator(
                 modifier = Modifier.size(40.dp),
-                color = MaterialTheme.colorScheme.error
+                color = MaterialTheme.colorScheme.primary
             )
-            Text(stringResource(R.string.loading_ads), color = Color.Gray)
+            Text(
+                stringResource(R.string.loading_ads), 
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -639,17 +686,17 @@ fun EmptyState(viewMode: ClassifiedsViewMode, onPostAdClick: () -> Unit) {
                 Icons.Default.Inventory,
                 contentDescription = null,
                 modifier = Modifier.size(64.dp),
-                tint = Color(0xFFD1D5DB)
+                tint = MaterialTheme.colorScheme.outlineVariant
             )
             Text(
                 text = stringResource(R.string.no_ads_found),
                 fontSize = 18.sp,
-                color = Color.Gray
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Button(
                 onClick = onPostAdClick,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error
+                    containerColor = MaterialTheme.colorScheme.primary
                 )
             ) {
                 Text(stringResource(R.string.post_ad), fontWeight = FontWeight.Bold)
@@ -663,7 +710,7 @@ fun LoginPrompt(onNavigateToLogin: () -> Unit, onCancel: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(MaterialTheme.colorScheme.background)
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -672,6 +719,7 @@ fun LoginPrompt(onNavigateToLogin: () -> Unit, onCancel: () -> Unit) {
             text = stringResource(R.string.login_to_post_ad),
             fontSize = 18.sp,
             textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(bottom = 16.dp)
         )
         Button(
@@ -679,13 +727,13 @@ fun LoginPrompt(onNavigateToLogin: () -> Unit, onCancel: () -> Unit) {
                 onNavigateToLogin()
                 onCancel()
             },
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
         ) {
             Text(stringResource(R.string.login), fontWeight = FontWeight.Bold)
         }
         Spacer(modifier = Modifier.height(16.dp))
         TextButton(onClick = onCancel) {
-            Text(stringResource(R.string.go_back))
+            Text(stringResource(R.string.go_back), color = MaterialTheme.colorScheme.primary)
         }
     }
 }

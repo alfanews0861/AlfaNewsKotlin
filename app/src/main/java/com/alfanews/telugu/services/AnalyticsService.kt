@@ -207,7 +207,7 @@ object AnalyticsService {
 
     fun getUserPreferredCategories(): List<String> {
         return cachedPreferredCategories ?: synchronized(this) {
-            cachedPreferredCategories ?: categoryScores.entries
+            cachedPreferredCategories ?: if (categoryScores.isEmpty()) emptyList<String>() else categoryScores.entries
                 .sortedByDescending { it.value }
                 .take(15)
                 .map { it.key }

@@ -134,7 +134,8 @@ fun PostNewsPageView(
                     "verificationReason" to "VERIFIED BY REPORTER",
                     "meta" to mapOf("location" to location),
                     "headline" to mapOf("telugu" to headline),
-                    "content" to mapOf("telugu" to content)
+                    "content" to mapOf("telugu" to content),
+                    "timestamp" to com.google.firebase.Timestamp.now()
                 )
 
                 try {

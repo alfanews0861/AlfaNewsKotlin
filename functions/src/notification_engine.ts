@@ -54,19 +54,28 @@ export const sendPersonalizedNotification = onDocumentCreated('news/{newsId}', a
     }
 
     if (tokens.length > 0) {
-        const message = {
-            notification: {
-                title: 'మీ కోసం ప్రత్యేక వార్త!',
-                body: news?.headline?.telugu || 'మీకు నచ్చిన కేటగిరీలో తాజా వార్త.'
-            },
-            data: {
-                actionUrl: `alfanews://news/${newsId}`,
-                newsId: newsId
-            },
-            tokens: tokens
-        };
-        // 4. sendMulticast కి బదులుగా sendEachForMulticast వాడాలి
-        return admin.messaging().sendEachForMulticast(message);
+        const batchSize = 500;
+        const promises = [];
+
+        for (let i = 0; i < tokens.length; i += batchSize) {
+            const batchTokens = tokens.slice(i, i + batchSize);
+            const message = {
+                notification: {
+                    title: 'మీ కోసం ప్రత్యేక వార్త!',
+                    body: news?.headline?.telugu || 'మీకు నచ్చిన కేటగిరీలో తాజా వార్త.'
+                },
+                data: {
+                    actionUrl: `alfanews://news/${newsId}`,
+                    newsId: newsId
+                },
+                tokens: batchTokens
+            };
+            promises.push(admin.messaging().sendEachForMulticast(message));
+        }
+
+        const results = await Promise.all(promises);
+        logger.log(`Notifications sent in ${results.length} batches for news ${newsId}.`);
+        return results;
     }
     return;
 });

@@ -3,19 +3,17 @@ package com.alfanews.telugu.views
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import com.alfanews.telugu.models.ThemeMode
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.models.Language
@@ -91,12 +89,18 @@ fun MainScreen(
         }
     }
 
+    val isDark = when (themeMode) {
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+        ThemeMode.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = if (androidx.compose.foundation.isSystemInDarkTheme()) {
+                    colors = if (isDark) {
                         listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364))
                     } else {
                         listOf(Color(0xFFE0EAFC), Color(0xFFCFDEF3))
@@ -135,34 +139,37 @@ fun MainScreen(
                         onBack = { reporterIdToShow = null }
                     )
                 } else if (showPostNewsPage && user != null) {
-                    Scaffold(
-                        containerColor = Color.Transparent,
-                        topBar = {
-                            TopAppBar(
-                                title = { Text(stringResource(R.string.post_news)) },
-                                colors = TopAppBarDefaults.topAppBarColors(
-                                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                                ),
-                                navigationIcon = {
-                                    IconButton(onClick = { showPostNewsPage = false }) {
-                                        Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back))
-                                    }
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        PostNewsPageView(
+                            user = user,
+                            postToEdit = null,
+                            onActionComplete = { postId -> 
+                                showPostNewsPage = false
+                                mainViewModel.setActiveTab("home")
+                                newsFeedViewModel.setSharedPostId(postId)
+                                newsFeedViewModel.loadNews(language, user, initialPostId = postId)
+                            }
+                        )
+                        
+                        // Custom Top Bar since we are already inside a Scaffold content
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                            tonalElevation = 4.dp
+                        ) {
+                            Row(
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            ) {
+                                IconButton(onClick = { showPostNewsPage = false }) {
+                                    Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back))
                                 }
-                            )
-                        }
-                    ) { innerPadding ->
-                        Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-                            PostNewsPageView(
-                                user = user,
-                                postToEdit = null,
-                                onActionComplete = { postId -> 
-                                    showPostNewsPage = false
-                                    mainViewModel.setActiveTab("home")
-                                    newsFeedViewModel.setSharedPostId(postId)
-                                    newsFeedViewModel.loadNews(language, user, initialPostId = postId)
-                                }
-                            )
+                                Text(
+                                    text = stringResource(R.string.post_news),
+                                    style = MaterialTheme.typography.titleLarge,
+                                    modifier = Modifier.padding(start = 8.dp)
+                                )
+                            }
                         }
                     }
                 } else if (showJoinReporterPage) {
@@ -266,7 +273,7 @@ fun MainScreen(
         // Show splash screen on top
         if (showSplash) {
             SplashScreenView(
-                isReady = news.isNotEmpty() && !isNewsLoading,
+                isReady = (news.isNotEmpty() || !isNewsLoading),
                 onFinished = { showSplash = false }
             )
         }
@@ -345,7 +352,8 @@ fun ProfileContainer(
             themeMode = themeMode,
             onThemeModeChange = { viewModel.setThemeMode(it) },
             onNavigate = onNavigate,
-            onLoginRequest = { showLogin = true }
+            onLoginRequest = { showLogin = true },
+            onToggleNotifications = { viewModel.toggleNotifications(it) }
         )
     }
 

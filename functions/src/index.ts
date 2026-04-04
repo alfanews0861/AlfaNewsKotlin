@@ -87,14 +87,16 @@ async function saveImageLocally(externalUrl: string, prefix: string): Promise<st
 }
 
 /**
- * 1. Trending News Function
+ * 1. Trending News Function - Runs 4 times a day (8 AM, 12 PM, 5 PM, 9 PM)
  */
-export const scheduleTrendingNews = onSchedule({ schedule: "0 10,14,20 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
+export const scheduleTrendingNews = onSchedule({ schedule: "0 8,12,17,21 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
     const ai = getAIInstance();
+    const standardCategories = ["వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "ఆరోగ్యం", "విద్య/ఉద్యోగాలు", "రాజకీయాలు", "క్రైమ్"];
+
     try {
         const topicRes = await ai.models.generateContent({
             model: SCHEDULED_MODEL,
-            contents: [{ role: "user", parts: [{ text: "Identify 2 major trending topics in AP and Telangana for news. Return JSON array of strings." }] }],
+            contents: [{ role: "user", parts: [{ text: `Identify 2 major trending topics in AP and Telangana for news. Return JSON array of strings.` }] }],
             config: { temperature: 0.5, responseMimeType: "application/json" }
         });
         const topics = parseAIJson(topicRes.text || "[]");
@@ -109,7 +111,7 @@ export const scheduleTrendingNews = onSchedule({ schedule: "0 10,14,20 * * *", t
                         headlineEn: { type: Type.STRING },
                         contentEn: { type: Type.STRING },
                         location: { type: Type.STRING },
-                        refinedCategory: { type: Type.STRING }
+                        refinedCategory: { type: Type.STRING, enum: standardCategories }
                     },
                     required: ["headline", "content", "headlineEn", "contentEn", "location", "refinedCategory"]
                 };
@@ -118,7 +120,7 @@ export const scheduleTrendingNews = onSchedule({ schedule: "0 10,14,20 * * *", t
                     model: SCHEDULED_MODEL,
                     contents: [{ role: "user", parts: [{ text: `Write a news article about: ${topic}. Output JSON.` }] }],
                     config: {
-                        systemInstruction: "You are a Senior Journalist. Write 60 words in Telugu. Output JSON.",
+                        systemInstruction: `You are a Senior Journalist. Write 60 words in Telugu. Output JSON. Choose the best category from: ${standardCategories.join(", ")}`,
                         temperature: 0.4,
                         responseMimeType: "application/json",
                         responseSchema: schema
@@ -140,16 +142,18 @@ export const scheduleTrendingNews = onSchedule({ schedule: "0 10,14,20 * * *", t
                     }
                 } catch (err) { console.error("Trending Image Err:", err); }
 
-                await db.collection('news').add({
+                const newsItem = {
                     type: 'news',
                     headline: { telugu: aiRes.headline, english: aiRes.headlineEn },
                     content: { telugu: aiRes.content, english: aiRes.contentEn },
                     mediaUrl,
                     category: aiRes.refinedCategory,
+                    categories: [aiRes.refinedCategory].filter(c => !!c),
                     location: aiRes.location,
                     reporter: getRandomReporter(),
                     timestamp: admin.firestore.FieldValue.serverTimestamp()
-                });
+                };
+                await db.collection('news').add(newsItem);
             }
         }
     } catch (e: any) { console.error("[TRENDING] Error:", e.message); }
@@ -161,33 +165,41 @@ export const scheduleTrendingNews = onSchedule({ schedule: "0 10,14,20 * * *", t
 export const scheduleFestivalGreeting = onSchedule({ schedule: "0 5 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
     const ai = getAIInstance();
     const dateStr = new Date().toISOString().split('T')[0];
+    console.log(`[FESTIVAL] Checking festivals for ${dateStr}...`);
+
     const schema = {
         type: Type.OBJECT,
-        properties: { isFestival: { type: Type.BOOLEAN }, festivalTe: { type: Type.STRING }, greetingTe: { type: Type.STRING }, greetingEn: { type: Type.STRING } },
-        required: ["isFestival", "festivalTe", "greetingTe", "greetingEn"]
+        properties: { isFestival: { type: Type.BOOLEAN }, festivalTe: { type: Type.STRING }, greetingTe: { type: Type.STRING }, greetingEn: { type: Type.STRING }, imagePrompt: { type: Type.STRING } },
+        required: ["isFestival", "festivalTe", "greetingTe", "greetingEn", "imagePrompt"]
     };
 
     try {
         const checkRes = await ai.models.generateContent({
             model: SCHEDULED_MODEL,
-            contents: [{ role: "user", parts: [{ text: `Today is ${dateStr}. Any Telugu festival? JSON.` }] }],
+            contents: [{ role: "user", parts: [{ text: `Today is ${dateStr}. Any major festival celebrated by Telugu people (including Hindu, Muslim, Christian, or National holidays)? If yes, provide an imagePrompt for it. JSON.` }] }],
             config: { systemInstruction: "Output JSON only.", temperature: 0.3, responseMimeType: "application/json", responseSchema: schema }
         });
         const data = parseAIJson(checkRes.text || "{}");
-        if (!data.isFestival || !data.festivalTe || data.festivalTe === "None") return;
+
+        if (!data.isFestival || !data.festivalTe || data.festivalTe === "None") {
+            console.log(`[FESTIVAL] No major festival found for today (${dateStr}).`);
+            return;
+        }
+
+        console.log(`[FESTIVAL] Found festival: ${data.festivalTe}. Generating greeting...`);
 
         let mediaUrl = "";
         try {
             const imgRes = await ai.models.generateImages({
                 model: IMAGEN_MODEL,
-                prompt: "Peaceful nature aesthetic background for quote, no text.",
+                prompt: `Beautiful aesthetic background for ${data.imagePrompt || data.festivalTe} festival greeting, no text.`,
                 config: { numberOfImages: 1, aspectRatio: '9:16' }
             });
             if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
                 const buffer = Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
-                mediaUrl = await saveBufferToStorage(buffer, "QUOTE") || "";
+                mediaUrl = await saveBufferToStorage(buffer, "GREETING") || "";
             }
-        } catch (err) { console.error("Quote Image Err:", err); }
+        } catch (err) { console.error("Greeting Image Err:", err); }
 
         await db.collection('news').add({
             type: 'greeting',
@@ -198,6 +210,7 @@ export const scheduleFestivalGreeting = onSchedule({ schedule: "0 5 * * *", time
             reporter: { id: 'system', name: 'AlfaNews Team' },
             timestamp: admin.firestore.FieldValue.serverTimestamp()
         });
+        console.log(`[FESTIVAL] Successfully created greeting post for ${data.festivalTe}.`);
     } catch (e: any) { console.error("[FESTIVAL] Error:", e.message); }
 });
 
@@ -206,11 +219,21 @@ export const scheduleFestivalGreeting = onSchedule({ schedule: "0 5 * * *", time
  */
 export const scheduleQuoteOfTheDay = onSchedule({ schedule: "0 4 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
     const ai = getAIInstance();
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            quoteTe: { type: Type.STRING },
+            quoteEn: { type: Type.STRING },
+            author: { type: Type.STRING },
+            imagePrompt: { type: Type.STRING }
+        },
+        required: ["quoteTe", "quoteEn", "author", "imagePrompt"]
+    };
     try {
         const res = await ai.models.generateContent({
             model: SCHEDULED_MODEL,
-            contents: [{ role: "user", parts: [{ text: "Telugu Quote of the Day. JSON: { \"quoteTe\": \"...\", \"quoteEn\": \"...\" }" }] }],
-            config: { responseMimeType: "application/json" }
+            contents: [{ role: "user", parts: [{ text: "Provide an inspirational Telugu quote from a great person (e.g., Gandhi, Socrates, Vivekananda, Bhagavad Gita, Vemana, Chinese Proverb). Output JSON." }] }],
+            config: { responseMimeType: "application/json", responseSchema: schema }
         });
         const data = parseAIJson(res.text || "{}");
         if (!data.quoteTe) return;
@@ -219,7 +242,7 @@ export const scheduleQuoteOfTheDay = onSchedule({ schedule: "0 4 * * *", timeZon
         try {
             const imgRes = await ai.models.generateImages({
                 model: IMAGEN_MODEL,
-                prompt: "Peaceful nature aesthetic background for quote, no text.",
+                prompt: `Photorealistic aesthetic portrait or background of ${data.imagePrompt}, no text.`,
                 config: { numberOfImages: 1, aspectRatio: '9:16' }
             });
             if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
@@ -229,9 +252,9 @@ export const scheduleQuoteOfTheDay = onSchedule({ schedule: "0 4 * * *", timeZon
         } catch (err) { console.error("Quote Image Err:", err); }
 
         await db.collection('news').add({
-            type: 'greeting',
+            type: 'quote',
             headline: { telugu: "నేటి మంచి మాట", english: "Quote of the Day" },
-            content: { telugu: data.quoteTe, english: data.quoteEn },
+            content: { telugu: `${data.quoteTe}\n\n- ${data.author}`, english: `${data.quoteEn}\n\n- ${data.author}` },
             mediaUrl,
             category: 'ప్రేరణ',
             reporter: { id: 'system', name: 'AlfaNews Team' },
@@ -262,7 +285,7 @@ export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", time
     try {
         const res = await ai.models.generateContent({
             model: SCHEDULED_MODEL,
-            contents: [{ role: "user", parts: [{ text: `Out of all historical events that happened on ${dateStr}, pick the single most important event. Write a brief news about it and provide a generic historical image prompt without any text in it. Output JSON.` }] }],
+            contents: [{ role: "user", parts: [{ text: `Out of all historical events that happened on ${dateStr}, pick the single most important event. Write a 60 words detailed news about it and provide a generic historical image prompt. Output JSON.` }] }],
             config: {
                 responseMimeType: "application/json",
                 responseSchema: schema,
@@ -277,7 +300,7 @@ export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", time
             const imgRes = await ai.models.generateImages({
                 model: IMAGEN_MODEL,
                 prompt: `Historical photorealistic image: ${data.imagePrompt}, dramatic lighting, no text.`,
-                config: { numberOfImages: 1, aspectRatio: '9:16' }
+                config: { numberOfImages: 1, aspectRatio: '16:9' } // Changed to 16:9
             });
             if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
                 const buffer = Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
@@ -302,27 +325,38 @@ export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", time
  */
 export const generateDailyCartoon = onSchedule({ schedule: "0 6 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
     const ai = getAIInstance();
-    try {
-        const imgRes = await ai.models.generateImages({
-            model: IMAGEN_MODEL,
-            prompt: "Political satire cartoon about Indian current events, clean background, no text.",
-            config: { numberOfImages: 1, aspectRatio: '9:16' }
-        });
-
-        if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
-            const buffer = Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
-            const mediaUrl = await saveBufferToStorage(buffer, "CARTOON") || "";
-            await db.collection('news').add({
-                type: 'cartoon',
-                headline: { telugu: 'నేటి కార్టూన్', english: 'Daily Cartoon' },
-                content: { telugu: 'నేటి ప్రత్యేక కార్టూన్', english: 'Daily Special Cartoon' },
-                mediaUrl,
-                category: 'Entertainment',
-                reporter: { id: 'BOT_Cartoonist', name: 'Alfa Cartoonist' },
-                timestamp: admin.firestore.FieldValue.serverTimestamp()
+    const states = ["Andhra Pradesh", "Telangana"];
+    for (const state of states) {
+        try {
+            const topicRes = await ai.models.generateContent({
+                model: SCHEDULED_MODEL,
+                contents: [{ role: "user", parts: [{ text: `Identify the most humorous current political or social topic in ${state}.` }] }],
             });
-        }
-    } catch (e: any) { console.error("[CARTOON] Error:", e.message); }
+            const topic = topicRes.text || "political events";
+
+            const imgRes = await ai.models.generateImages({
+                model: IMAGEN_MODEL,
+                prompt: `Humorous political satire cartoon about ${topic} in ${state}, clean line art, comic style, highly humorous, understandable to average audience, no text.`,
+                config: { numberOfImages: 1, aspectRatio: '9:16' }
+            });
+
+            if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
+                const buffer = Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
+                const mediaUrl = await saveBufferToStorage(buffer, `CARTOON_${state.replace(" ", "")}`) || "";
+                await db.collection('news').add({
+                    type: 'cartoon',
+                    headline: { telugu: `${state === 'Andhra Pradesh' ? 'ఆంధ్రప్రదేశ్' : 'తెలంగాణ'} కార్టూన్`, english: `${state} Cartoon` },
+                    content: { telugu: 'నేటి ప్రత్యేక కార్టూన్', english: 'Daily Special Cartoon' },
+                    mediaUrl,
+                    category: 'కార్టూన్',
+                    location: state,
+                    district: state,
+                    reporter: { id: 'BOT_Cartoonist', name: 'Alfa Cartoonist' },
+                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        } catch (e: any) { console.error(`[CARTOON] Error for ${state}:`, e.message); }
+    }
 });
 
 /**
@@ -388,6 +422,11 @@ export const processNewsPost = onCall(async (request) => {
                 mediaUrl: finalMediaUrl,
                 location: aiRes.location,
                 category: aiRes.refinedCategory,
+                categories: Array.from(new Set([
+                    aiRes.refinedCategory,
+                    ...(postData?.categories || []),
+                    ...(postData?.district ? [postData.district] : [])
+                ])).filter(c => !!c),
                 storyFingerprint: aiRes.storyFingerprint,
                 reporter: postData?.reporter || getRandomReporter(),
                 aiProcessed: true,
