@@ -34,6 +34,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.google.firebase.FirebaseException
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.*
 import com.google.firebase.firestore.SetOptions
 import java.util.concurrent.TimeUnit
@@ -61,28 +62,41 @@ fun LoginScreenView(
                     isLoading = true
                     FirebaseService.auth.signInWithCredential(credential)
                         .addOnCompleteListener { authTask ->
-                            isLoading = false
                             if (authTask.isSuccessful) {
                                 val user = authTask.result?.user
                                 if (user != null) {
                                     if (authTask.result?.additionalUserInfo?.isNewUser == true) {
-                                        createUserProfileInFirestore(user, user.displayName ?: "User") {
-                                            onLoginSuccess()
-                                        }
+                                        createUserProfileInFirestore(
+                                            user = user, 
+                                            name = user.displayName ?: "User",
+                                            onComplete = { success, error ->
+                                                isLoading = false
+                                                if (success) onLoginSuccess()
+                                                else errorMessage = context.getString(R.string.technical_error) + ": " + (error?.localizedMessage ?: "Firestore Error")
+                                            }
+                                        )
                                     } else {
+                                        isLoading = false
                                         onLoginSuccess()
                                     }
+                                } else {
+                                    isLoading = false
+                                    errorMessage = "Firebase user is null"
                                 }
                             } else {
+                                isLoading = false
                                 errorMessage = context.getString(R.string.google_login_failed, authTask.exception?.localizedMessage ?: "Unknown Error")
                             }
                         }
                 } else {
+                    isLoading = false
                     errorMessage = context.getString(R.string.google_id_token_missing)
                 }
             } catch (e: ApiException) {
+                isLoading = false
                 errorMessage = context.getString(R.string.google_login_failed, "Status Code: ${e.statusCode}")
             } catch (e: Exception) {
+                isLoading = false
                 errorMessage = context.getString(R.string.google_login_failed, e.localizedMessage ?: "Unknown Exception")
             }
         } else {
@@ -178,6 +192,8 @@ fun LoginScreenView(
                         // Google Login Button
                         Button(
                             onClick = {
+                                isLoading = true
+                                errorMessage = null
                                 try {
                                     val webClientId = context.getString(R.string.default_web_client_id)
                                     val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
@@ -187,6 +203,7 @@ fun LoginScreenView(
                                     val googleSignInClient = GoogleSignIn.getClient(context, gso)
                                     googleSignInLauncher.launch(googleSignInClient.signInIntent)
                                 } catch (e: Exception) {
+                                    isLoading = false
                                     errorMessage = context.getString(R.string.technical_error) + ": " + e.localizedMessage
                                 }
                             },
@@ -273,20 +290,36 @@ private fun PhoneAuthSection(
             )
             Button(
                 onClick = {
-                    setLoading(true)
-                    setError(null)
-                    context.findActivity()?.let {
-                        sendOtp(it, phoneNumber, context) { result ->
-                            setLoading(false)
-                            result.onSuccess { id -> 
+                    val activity = context.findActivity()
+                    if (activity != null) {
+                        setLoading(true)
+                        setError(null)
+                        sendOtp(
+                            activity = activity,
+                            phoneNumber = phoneNumber,
+                            context = context,
+                            onAutoVerify = { credential ->
+                                signInWithPhoneCredential(
+                                    credential = credential,
+                                    onSuccess = { onLoginSuccess() },
+                                    onFailure = { error ->
+                                        setError(context.getString(R.string.login_error, error.localizedMessage ?: "Auto-verification failed"))
+                                    }
+                                )
+                            },
+                            onCodeSent = { id ->
+                                setLoading(false)
                                 verificationId = id
-                                isOtpSent = true 
+                                isOtpSent = true
+                            },
+                            onOtpError = { error ->
+                                setLoading(false)
+                                setError(context.getString(R.string.otp_send_failed) + ": " + (error.localizedMessage ?: ""))
                             }
-                            result.onFailure { error -> 
-                                setError(context.getString(R.string.otp_send_failed) + ": " + (error.localizedMessage ?: "")) 
-                            }
-                        }
-                    } ?: setError(context.getString(R.string.technical_error))
+                        )
+                    } else {
+                        setError(context.getString(R.string.technical_error))
+                    }
                 },
                 enabled = phoneNumber.length == 10 && !isLoading,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -315,14 +348,16 @@ private fun PhoneAuthSection(
                 onClick = {
                     setLoading(true)
                     setError(null)
-                    verificationId?.let {
-                        verifyOtp(it, otp) { result ->
-                            setLoading(false)
-                            result.onSuccess { onLoginSuccess() }
-                            result.onFailure { error -> 
-                                setError(context.getString(R.string.invalid_otp) + ": " + (error.localizedMessage ?: "")) 
+                    verificationId?.let { id ->
+                        val credential = PhoneAuthProvider.getCredential(id, otp)
+                        signInWithPhoneCredential(
+                            credential = credential,
+                            onSuccess = { onLoginSuccess() },
+                            onFailure = { error ->
+                                setLoading(false)
+                                setError(context.getString(R.string.invalid_otp) + ": " + (error.localizedMessage ?: ""))
                             }
-                        }
+                        )
                     }
                 },
                 enabled = otp.length == 6 && !isLoading,
@@ -348,9 +383,16 @@ private fun PhoneAuthSection(
     }
 }
 
-private fun sendOtp(activity: Activity, phoneNumber: String, context: Context, callback: (Result<String>) -> Unit) {
+private fun sendOtp(
+    activity: Activity, 
+    phoneNumber: String, 
+    context: Context, 
+    onAutoVerify: (PhoneAuthCredential) -> Unit,
+    onCodeSent: (String) -> Unit,
+    onOtpError: (Exception) -> Unit
+) {
     if (!phoneNumber.matches(Regex("^\\d{10}$"))) {
-        callback(Result.failure(Exception(context.getString(R.string.enter_valid_phone))))
+        onOtpError(Exception(context.getString(R.string.enter_valid_phone)))
         return
     }
     val options = PhoneAuthOptions.newBuilder(FirebaseService.auth)
@@ -358,42 +400,64 @@ private fun sendOtp(activity: Activity, phoneNumber: String, context: Context, c
         .setTimeout(60L, TimeUnit.SECONDS)
         .setActivity(activity)
         .setCallbacks(object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
-            override fun onVerificationCompleted(credential: PhoneAuthCredential) {}
-            override fun onVerificationFailed(e: FirebaseException) { callback(Result.failure(e)) }
-            override fun onCodeSent(id: String, token: PhoneAuthProvider.ForceResendingToken) { callback(Result.success(id)) }
+            override fun onVerificationCompleted(credential: PhoneAuthCredential) {
+                onAutoVerify(credential)
+            }
+            override fun onVerificationFailed(e: FirebaseException) { 
+                onOtpError(e) 
+            }
+            override fun onCodeSent(
+                verificationId: String,
+                forceResendingToken: PhoneAuthProvider.ForceResendingToken
+            ) {
+                onCodeSent(verificationId)
+            }
         })
         .build()
     PhoneAuthProvider.verifyPhoneNumber(options)
 }
 
-private fun verifyOtp(verificationId: String, code: String, callback: (Result<Unit>) -> Unit) {
-    FirebaseService.auth.signInWithCredential(PhoneAuthProvider.getCredential(verificationId, code))
+private fun signInWithPhoneCredential(
+    credential: PhoneAuthCredential, 
+    onSuccess: () -> Unit,
+    onFailure: (Exception) -> Unit
+) {
+    FirebaseService.auth.signInWithCredential(credential)
         .addOnSuccessListener { authResult ->
             val isNewUser = authResult.additionalUserInfo?.isNewUser ?: false
             if (isNewUser) {
                 val user = authResult.user!!
-                createUserProfileInFirestore(user, user.displayName ?: "") {
-                    callback(Result.success(Unit))
-                }
+                createUserProfileInFirestore(
+                    user = user, 
+                    name = user.displayName ?: "",
+                    onComplete = { success, error ->
+                        if (success) onSuccess()
+                        else onFailure(error ?: Exception("Firestore profile creation failed"))
+                    }
+                )
             } else {
-                callback(Result.success(Unit))
+                onSuccess()
             }
         }
-        .addOnFailureListener { callback(Result.failure(it)) }
+        .addOnFailureListener { onFailure(it) }
 }
 
-private fun createUserProfileInFirestore(user: FirebaseUser, name: String, callback: (Result<Unit>) -> Unit) {
+private fun createUserProfileInFirestore(
+    user: FirebaseUser, 
+    name: String, 
+    onComplete: (Boolean, Exception?) -> Unit
+) {
     val userRef = FirebaseService.db.collection("users").document(user.uid)
     val userData = hashMapOf(
-        "name" to (if (name.isEmpty()) "User" else name),
+        "name" to name.ifEmpty { "User" },
         "email" to user.email,
         "phone" to user.phoneNumber,
         "role" to "SUBSCRIBER",
-        "createdAt" to com.google.firebase.Timestamp.now()
+        "createdAt" to Timestamp.now()
     )
     userRef.set(userData, SetOptions.merge())
-        .addOnSuccessListener { callback(Result.success(Unit)) }
-        .addOnFailureListener { callback(Result.failure(it)) }
+        .addOnSuccessListener { onComplete(true, null) }
+        .addOnFailureListener { onComplete(false, it) }
 }
 
 fun Context.findActivity(): Activity? {

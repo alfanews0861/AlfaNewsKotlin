@@ -51,7 +51,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     val isDetecting: StateFlow<Boolean> = _isDetecting.asStateFlow()
     
     private var lastDocument: DocumentSnapshot? = null
-    private val pageSize = 10
+    private val pageSize = 20 // Increased from 10 to show more news
     private var loadJob: Job? = null
     
     fun setDistrict(district: String) {
