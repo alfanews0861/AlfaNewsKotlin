@@ -193,7 +193,7 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
                 if (localMediaUri != null) {
                     statusMessage = "మీడియా అప్‌లోడ్ చేయబడుతోంది..."
                     val isVideo = context.contentResolver.getType(localMediaUri)?.startsWith("video/") == true
-                    mediaUrl = uploadMediaToStorage(localMediaUri, "citizen-media", isVideo)
+                    mediaUrl = uploadMediaToStorage(context, localMediaUri, "citizen-media", isVideo)
                 }
 
                 statusMessage = "వార్త సిద్ధం చేయబడుతోంది..."

@@ -109,7 +109,7 @@ fun PostNewsPageView(
                 var finalMediaUrl = mediaUrl
                 if (mediaUri != null) {
                     val isVideo = context.contentResolver.getType(mediaUri!!)?.startsWith("video/") == true
-                    finalMediaUrl = uploadMediaToStorage(mediaUri!!, "news-media", isVideo)
+                    finalMediaUrl = uploadMediaToStorage(context, mediaUri!!, "news-media", isVideo)
                     mediaType = if (isVideo) "VIDEO" else "IMAGE"
                 }
 

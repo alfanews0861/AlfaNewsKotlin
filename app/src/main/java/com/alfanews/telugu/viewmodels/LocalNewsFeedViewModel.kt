@@ -84,9 +84,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         
         viewModelScope.launch {
             try {
-                withTimeout(5000L) {
+                // ఫాస్ట్ గా లొకేషన్ డిటెక్ట్ చేయడానికి 2000ms (2 సెకన్లు) మాత్రమే టైమ్ అవుట్ 
+                withTimeout(2000L) {
                     val fusedLocationClient = LocationServices.getFusedLocationProviderClient(getApplication<Application>())
-                    val loc = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null).await()
+                    val loc = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
                     if (loc != null) {
                         val detectedDistrict = getDistrictFromCoords(loc.latitude, loc.longitude)
                         if (detectedDistrict != null) {
@@ -99,6 +100,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     }
                 }
             } catch (e: Exception) {
+                // 2 సెకన్లు దాటితే లేదా ఎర్రర్ వస్తే వెంటనే మాన్యువల్ సెలెక్షన్ కి పంపుతుంది
                 finalizeDetection()
             }
         }

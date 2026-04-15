@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -36,18 +37,25 @@ import com.google.android.gms.common.api.ApiException
 import com.google.firebase.FirebaseException
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.*
-import com.google.firebase.firestore.SetOptions
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.alfanews.telugu.viewmodels.LoginViewModel
 import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreenView(
     onLoginSuccess: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    loginViewModel: LoginViewModel = viewModel()
 ) {
-    var isLoading by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val loginUiState by loginViewModel.uiState.collectAsState()
     val context = LocalContext.current
+
+    LaunchedEffect(loginUiState.isLoginSuccessful) {
+        if (loginUiState.isLoginSuccessful) {
+            onLoginSuccess()
+        }
+    }
 
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -59,50 +67,16 @@ fun LoginScreenView(
                 val idToken: String? = account.idToken
                 if (idToken != null) {
                     val credential = GoogleAuthProvider.getCredential(idToken, null)
-                    isLoading = true
-                    FirebaseService.auth.signInWithCredential(credential)
-                        .addOnCompleteListener { authTask ->
-                            if (authTask.isSuccessful) {
-                                val user = authTask.result?.user
-                                if (user != null) {
-                                    if (authTask.result?.additionalUserInfo?.isNewUser == true) {
-                                        createUserProfileInFirestore(
-                                            user = user, 
-                                            name = user.displayName ?: "User",
-                                            onComplete = { success, error ->
-                                                isLoading = false
-                                                if (success) onLoginSuccess()
-                                                else errorMessage = context.getString(R.string.technical_error) + ": " + (error?.localizedMessage ?: "Firestore Error")
-                                            }
-                                        )
-                                    } else {
-                                        isLoading = false
-                                        onLoginSuccess()
-                                    }
-                                } else {
-                                    isLoading = false
-                                    errorMessage = "Firebase user is null"
-                                }
-                            } else {
-                                isLoading = false
-                                errorMessage = context.getString(R.string.google_login_failed, authTask.exception?.localizedMessage ?: "Unknown Error")
-                            }
-                        }
-                } else {
-                    isLoading = false
-                    errorMessage = context.getString(R.string.google_id_token_missing)
+                    loginViewModel.signInWithCredential(credential, context)
                 }
             } catch (e: ApiException) {
-                isLoading = false
-                errorMessage = context.getString(R.string.google_login_failed, "Status Code: ${e.statusCode}")
+                // TODO: Handle error in ViewModel
             } catch (e: Exception) {
-                isLoading = false
-                errorMessage = context.getString(R.string.google_login_failed, e.localizedMessage ?: "Unknown Exception")
+                // TODO: Handle error in ViewModel
             }
         } else {
-            isLoading = false
             if (result.resultCode != Activity.RESULT_CANCELED) {
-                errorMessage = "Google Sign In Failed. Result Code: ${result.resultCode}"
+                // TODO: Handle error in ViewModel
             }
         }
     }
@@ -173,14 +147,14 @@ fun LoginScreenView(
                             modifier = Modifier.padding(top = 4.dp, bottom = 32.dp)
                         )
 
-                        if (errorMessage != null) {
+                        if (loginUiState.errorMessage != null) {
                             Surface(
                                 color = MaterialTheme.colorScheme.errorContainer,
                                 shape = MaterialTheme.shapes.medium,
                                 modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
                             ) {
                                 Text(
-                                    text = errorMessage!!,
+                                    text = loginUiState.errorMessage!!,
                                     color = MaterialTheme.colorScheme.onErrorContainer,
                                     modifier = Modifier.padding(12.dp),
                                     textAlign = TextAlign.Center,
@@ -192,8 +166,6 @@ fun LoginScreenView(
                         // Google Login Button
                         Button(
                             onClick = {
-                                isLoading = true
-                                errorMessage = null
                                 try {
                                     val webClientId = context.getString(R.string.default_web_client_id)
                                     val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
@@ -203,24 +175,23 @@ fun LoginScreenView(
                                     val googleSignInClient = GoogleSignIn.getClient(context, gso)
                                     googleSignInLauncher.launch(googleSignInClient.signInIntent)
                                 } catch (e: Exception) {
-                                    isLoading = false
-                                    errorMessage = context.getString(R.string.technical_error) + ": " + e.localizedMessage
+                                    // TODO: Handle error in ViewModel
                                 }
                             },
                             modifier = Modifier.fillMaxWidth().height(56.dp),
                             shape = MaterialTheme.shapes.medium,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFD93025) // Google Red
+                                containerColor = colorResource(R.color.google_red)
                             ),
-                            enabled = !isLoading
+                            enabled = !loginUiState.isLoading
                         ) {
-                            if (isLoading) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
+                            if (loginUiState.isLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = colorResource(R.color.white))
                             } else {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("G", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                                    Text(stringResource(R.string.google_logo_text), color = colorResource(R.color.white), fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
                                     Spacer(modifier = Modifier.width(16.dp))
-                                    Text(stringResource(R.string.google_login), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                    Text(stringResource(R.string.google_login), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colorResource(R.color.white))
                                 }
                             }
                         }
@@ -241,12 +212,12 @@ fun LoginScreenView(
                         Spacer(modifier = Modifier.height(24.dp))
 
                         // Phone Auth Section
-                        PhoneAuthSection(onLoginSuccess, { isLoading = it }, { errorMessage = it }, isLoading)
+                        PhoneAuthSection(loginViewModel)
                         
                         Spacer(modifier = Modifier.height(40.dp))
                         
                         Text(
-                            text = "© 2024 Alfa News. All rights reserved.",
+                            text = stringResource(R.string.copyright_text),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                             modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
@@ -262,16 +233,15 @@ fun LoginScreenView(
 
 @Composable
 private fun PhoneAuthSection(
-    onLoginSuccess: () -> Unit,
-    setLoading: (Boolean) -> Unit,
-    setError: (String?) -> Unit,
-    isLoading: Boolean
+    loginViewModel: LoginViewModel
 ) {
     var phoneNumber by remember { mutableStateOf("") }
     var otp by remember { mutableStateOf("") }
     var isOtpSent by remember { mutableStateOf(false) }
     var verificationId by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
+    val loginUiState by loginViewModel.uiState.collectAsState()
+
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (!isOtpSent) {
@@ -292,40 +262,24 @@ private fun PhoneAuthSection(
                 onClick = {
                     val activity = context.findActivity()
                     if (activity != null) {
-                        setLoading(true)
-                        setError(null)
-                        sendOtp(
+                        loginViewModel.sendOtp(
                             activity = activity,
                             phoneNumber = phoneNumber,
                             context = context,
-                            onAutoVerify = { credential ->
-                                signInWithPhoneCredential(
-                                    credential = credential,
-                                    onSuccess = { onLoginSuccess() },
-                                    onFailure = { error ->
-                                        setError(context.getString(R.string.login_error, error.localizedMessage ?: "Auto-verification failed"))
-                                    }
-                                )
-                            },
                             onCodeSent = { id ->
-                                setLoading(false)
                                 verificationId = id
                                 isOtpSent = true
-                            },
-                            onOtpError = { error ->
-                                setLoading(false)
-                                setError(context.getString(R.string.otp_send_failed) + ": " + (error.localizedMessage ?: ""))
                             }
                         )
                     } else {
-                        setError(context.getString(R.string.technical_error))
+                        // TODO: Handle error in ViewModel
                     }
                 },
-                enabled = phoneNumber.length == 10 && !isLoading,
+                enabled = phoneNumber.length == 10 && !loginUiState.isLoading,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = MaterialTheme.shapes.medium
             ) {
-                if (isLoading && !isOtpSent) {
+                if (loginUiState.isLoading && !isOtpSent) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
                 } else {
                     Text(stringResource(R.string.send_otp), fontSize = 18.sp, fontWeight = FontWeight.Bold)
@@ -346,25 +300,16 @@ private fun PhoneAuthSection(
             )
             Button(
                 onClick = {
-                    setLoading(true)
-                    setError(null)
                     verificationId?.let { id ->
                         val credential = PhoneAuthProvider.getCredential(id, otp)
-                        signInWithPhoneCredential(
-                            credential = credential,
-                            onSuccess = { onLoginSuccess() },
-                            onFailure = { error ->
-                                setLoading(false)
-                                setError(context.getString(R.string.invalid_otp) + ": " + (error.localizedMessage ?: ""))
-                            }
-                        )
+                        loginViewModel.signInWithCredential(credential, context)
                     }
                 },
-                enabled = otp.length == 6 && !isLoading,
+                enabled = otp.length == 6 && !loginUiState.isLoading,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = MaterialTheme.shapes.medium
             ) {
-                if (isLoading) {
+                if (loginUiState.isLoading) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
                 } else {
                     Text(stringResource(R.string.login), fontSize = 18.sp, fontWeight = FontWeight.Bold)
@@ -383,82 +328,11 @@ private fun PhoneAuthSection(
     }
 }
 
-private fun sendOtp(
-    activity: Activity, 
-    phoneNumber: String, 
-    context: Context, 
-    onAutoVerify: (PhoneAuthCredential) -> Unit,
-    onCodeSent: (String) -> Unit,
-    onOtpError: (Exception) -> Unit
-) {
-    if (!phoneNumber.matches(Regex("^\\d{10}$"))) {
-        onOtpError(Exception(context.getString(R.string.enter_valid_phone)))
-        return
-    }
-    val options = PhoneAuthOptions.newBuilder(FirebaseService.auth)
-        .setPhoneNumber("+91$phoneNumber")
-        .setTimeout(60L, TimeUnit.SECONDS)
-        .setActivity(activity)
-        .setCallbacks(object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
-            override fun onVerificationCompleted(credential: PhoneAuthCredential) {
-                onAutoVerify(credential)
-            }
-            override fun onVerificationFailed(e: FirebaseException) { 
-                onOtpError(e) 
-            }
-            override fun onCodeSent(
-                verificationId: String,
-                forceResendingToken: PhoneAuthProvider.ForceResendingToken
-            ) {
-                onCodeSent(verificationId)
-            }
-        })
-        .build()
-    PhoneAuthProvider.verifyPhoneNumber(options)
-}
 
-private fun signInWithPhoneCredential(
-    credential: PhoneAuthCredential, 
-    onSuccess: () -> Unit,
-    onFailure: (Exception) -> Unit
-) {
-    FirebaseService.auth.signInWithCredential(credential)
-        .addOnSuccessListener { authResult ->
-            val isNewUser = authResult.additionalUserInfo?.isNewUser ?: false
-            if (isNewUser) {
-                val user = authResult.user!!
-                createUserProfileInFirestore(
-                    user = user, 
-                    name = user.displayName ?: "",
-                    onComplete = { success, error ->
-                        if (success) onSuccess()
-                        else onFailure(error ?: Exception("Firestore profile creation failed"))
-                    }
-                )
-            } else {
-                onSuccess()
-            }
-        }
-        .addOnFailureListener { onFailure(it) }
-}
 
-private fun createUserProfileInFirestore(
-    user: FirebaseUser, 
-    name: String, 
-    onComplete: (Boolean, Exception?) -> Unit
-) {
-    val userRef = FirebaseService.db.collection("users").document(user.uid)
-    val userData = hashMapOf(
-        "name" to name.ifEmpty { "User" },
-        "email" to user.email,
-        "phone" to user.phoneNumber,
-        "role" to "SUBSCRIBER",
-        "createdAt" to Timestamp.now()
-    )
-    userRef.set(userData, SetOptions.merge())
-        .addOnSuccessListener { onComplete(true, null) }
-        .addOnFailureListener { onComplete(false, it) }
-}
+
+
+
 
 fun Context.findActivity(): Activity? {
     var context = this

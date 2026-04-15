@@ -285,7 +285,7 @@ fun CommentItem(comment: Comment) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = comment.text,
-                        fontSize = 14.sp,
+                        fontSize = 15.sp,
                         color = Color.White
                     )
                 }

@@ -265,7 +265,7 @@ fun ManagePostsPageView(
                                     Text(
                                         text = post.headline.telugu,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp,
+                                        fontSize = 17.sp,
                                         maxLines = 2
                                     )
                                     Text(

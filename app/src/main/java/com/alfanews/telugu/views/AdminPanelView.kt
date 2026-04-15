@@ -115,15 +115,16 @@ fun AdminPanelView(
                     }
                 }
 
-                val updatedUser = user.copy(
-                    name = name,
-                    phone = phone,
-                    address = address,
-                    district = district,
-                    photoUrl = photoUrl,
-                    signatureUrl = signatureUrl
+                val updates = mutableMapOf<String, Any>(
+                    "name" to name,
+                    "phone" to phone,
+                    "address" to address,
+                    "district" to district,
+                    "photoUrl" to (photoUrl ?: ""),
                 )
-                FirebaseService.db.collection("users").document(user.id).set(updatedUser).await()
+                if (!signatureUrl.isNullOrBlank()) updates["signatureUrl"] = signatureUrl
+
+                FirebaseService.db.collection("users").document(user.id).update(updates).await()
                 activePage = "profile"
                 Toast.makeText(context, context.getString(R.string.profile_updated), Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {

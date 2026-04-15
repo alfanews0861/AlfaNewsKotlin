@@ -88,7 +88,7 @@ fun NewsFeedView(
 
     val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
     LaunchedEffect(news) {
-        val postsToPreload = news.take(5)
+        val postsToPreload = news.take(10)
         postsToPreload.forEach { post: com.alfanews.telugu.models.NewsPost ->
             if (post.mediaUrl.isNotEmpty()) {
                 val request = ImageRequest.Builder(context)
@@ -109,7 +109,7 @@ fun NewsFeedView(
                 viewModel.loadMore(language, currentUser)
             }
 
-            (1..4).forEach { offset ->
+            (1..10).forEach { offset ->
                 val nextPageIndex = page + offset
                 val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
                 if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {

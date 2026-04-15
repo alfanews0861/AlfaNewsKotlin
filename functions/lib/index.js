@@ -53,6 +53,12 @@ const buffer_1 = require("buffer");
 const sharp_1 = __importDefault(require("sharp"));
 admin.initializeApp();
 const db = admin.firestore();
+function getISTDateString() {
+    const now = new Date();
+    const istString = now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+    const istDate = new Date(istString);
+    return `${istDate.getFullYear()}-${String(istDate.getMonth() + 1).padStart(2, '0')}-${String(istDate.getDate()).padStart(2, '0')}`;
+}
 const REGION = "asia-south1";
 // Scheduled tasks (Quotes, Festivals etc.) use Flash for speed and stability
 // Scheduled tasks (Quotes, Festivals etc.) use Lite for speed and cost-effectiveness
@@ -123,15 +129,22 @@ async function saveImageLocally(externalUrl, prefix) {
     }
 }
 /**
- * 1. Trending News Function
+ * 1. Trending News Function - Runs 4 times a day (8 AM, 12 PM, 5 PM, 9 PM)
  */
-exports.scheduleTrendingNews = (0, scheduler_1.onSchedule)({ schedule: "0 10,14,20 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
+exports.scheduleTrendingNews = (0, scheduler_1.onSchedule)({ schedule: "0 8,12,17,21 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
     const ai = getAIInstance();
+    const standardCategories = ["వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "ఆరోగ్యం", "విద్య/ఉద్యోగాలు", "రాజకీయాలు", "క్రైమ్"];
+    const nowStr = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
     try {
         const topicRes = await ai.models.generateContent({
-            model: SCHEDULED_MODEL,
-            contents: [{ role: "user", parts: [{ text: "Identify 2 major trending topics in AP and Telangana for news. Return JSON array of strings." }] }],
-            config: { temperature: 0.5, responseMimeType: "application/json" }
+            model: PRO_MODEL, // Upgraded to PRO_MODEL (gemini-3-flash) for real-time capability
+            contents: [{ role: "user", parts: [{ text: `Current Date and Time in IST: ${nowStr}. Identify 2 highly specific, real-world trending news topics that broke strictly in the last 5 to 6 hours in Andhra Pradesh and Telangana.
+CRITICAL INSTRUCTION: DO NOT repeat generic or old topics like "Cabinet Expansion" (క్యాబినెట్ విస్తరణ) or "Heavy Rains" (వర్షాలు) unless there is a catastrophic real-time event exactly today. Find unique, fresh, and specific political statements, incidents, or events that just happened today. Return JSON array of strings.` }] }],
+            config: {
+                temperature: 0.8,
+                responseMimeType: "application/json",
+                tools: [{ googleSearch: {} }] // Enable Google Search Grounding to fetch live internet news
+            }
         });
         const topics = parseAIJson(topicRes.text || "[]");
         if (Array.isArray(topics)) {
@@ -144,18 +157,19 @@ exports.scheduleTrendingNews = (0, scheduler_1.onSchedule)({ schedule: "0 10,14,
                         headlineEn: { type: genai_1.Type.STRING },
                         contentEn: { type: genai_1.Type.STRING },
                         location: { type: genai_1.Type.STRING },
-                        refinedCategory: { type: genai_1.Type.STRING }
+                        refinedCategory: { type: genai_1.Type.STRING, enum: standardCategories }
                     },
                     required: ["headline", "content", "headlineEn", "contentEn", "location", "refinedCategory"]
                 };
                 const response = await ai.models.generateContent({
-                    model: SCHEDULED_MODEL,
-                    contents: [{ role: "user", parts: [{ text: `Write a news article about: ${topic}. Output JSON.` }] }],
+                    model: PRO_MODEL, // Upgraded to PRO_MODEL
+                    contents: [{ role: "user", parts: [{ text: `Current Date: ${nowStr}. Search the live internet for the latest real-time updates on this specific topic: "${topic}" and write a fresh news article about it. Output JSON.` }] }],
                     config: {
-                        systemInstruction: "You are a Senior Journalist. Write 60 words in Telugu. Output JSON.",
-                        temperature: 0.4,
+                        systemInstruction: `You are a Senior Journalist. Write 60 words in Telugu covering the most recent facts from today. Do NOT write outdated information. Output JSON. Choose the best category from: ${standardCategories.join(", ")}`,
+                        temperature: 0.5,
                         responseMimeType: "application/json",
-                        responseSchema: schema
+                        responseSchema: schema,
+                        tools: [{ googleSearch: {} }] // Enable Google Search Grounding for writing the article
                     }
                 });
                 const aiRes = parseAIJson(response.text || "{}");
@@ -200,7 +214,7 @@ exports.scheduleTrendingNews = (0, scheduler_1.onSchedule)({ schedule: "0 10,14,
  */
 exports.scheduleFestivalGreeting = (0, scheduler_1.onSchedule)({ schedule: "0 5 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
     const ai = getAIInstance();
-    const dateStr = new Date().toISOString().split('T')[0];
+    const dateStr = getISTDateString();
     console.log(`[FESTIVAL] Checking festivals for ${dateStr}...`);
     const schema = {
         type: genai_1.Type.OBJECT,
@@ -209,9 +223,9 @@ exports.scheduleFestivalGreeting = (0, scheduler_1.onSchedule)({ schedule: "0 5 
     };
     try {
         const checkRes = await ai.models.generateContent({
-            model: SCHEDULED_MODEL,
-            contents: [{ role: "user", parts: [{ text: `Today is ${dateStr}. Any major festival celebrated by Telugu people (including Hindu, Muslim, Christian, or National holidays)? If yes, provide an imagePrompt for it. JSON.` }] }],
-            config: { systemInstruction: "Output JSON only.", temperature: 0.3, responseMimeType: "application/json", responseSchema: schema }
+            model: PRO_MODEL, // Using gemini-3-flash for accurate date reasoning to avoid repeating Sri Rama Navami
+            contents: [{ role: "user", parts: [{ text: `Today's exact date is ${dateStr}. Strictly check if there is a major festival celebrated by Telugu people (Hindu, Muslim, Christian, or National holidays) exactly on this date. Do not invent festivals or hallucinate. If there is no festival today, return isFestival: false. JSON.` }] }],
+            config: { systemInstruction: "Output JSON only. Be highly accurate with calendar dates.", temperature: 0.1, responseMimeType: "application/json", responseSchema: schema }
         });
         const data = parseAIJson(checkRes.text || "{}");
         if (!data.isFestival || !data.festivalTe || data.festivalTe === "None") {
@@ -223,7 +237,7 @@ exports.scheduleFestivalGreeting = (0, scheduler_1.onSchedule)({ schedule: "0 5 
         try {
             const imgRes = await ai.models.generateImages({
                 model: IMAGEN_MODEL,
-                prompt: `Beautiful aesthetic background for ${data.imagePrompt || data.festivalTe} festival greeting, no text.`,
+                prompt: `Beautiful high quality aesthetic background for ${data.imagePrompt || data.festivalTe} festival greeting in India, warm atmosphere, space for text, no text.`,
                 config: { numberOfImages: 1, aspectRatio: '9:16' }
             });
             if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
@@ -236,6 +250,10 @@ exports.scheduleFestivalGreeting = (0, scheduler_1.onSchedule)({ schedule: "0 5 
         }
         await db.collection('news').add({
             type: 'greeting',
+            postFormat: 'VERTICAL', // Force 9:16 Full Screen Card UI
+            likes: 0, // Required for Full Screen Special Card logic
+            comments: 0,
+            shares: 0,
             headline: { telugu: `${data.festivalTe} శుభాకాంక్షలు!`, english: `Happy ${data.festivalTe}!` },
             content: { telugu: data.greetingTe, english: data.greetingEn },
             mediaUrl,
@@ -254,6 +272,11 @@ exports.scheduleFestivalGreeting = (0, scheduler_1.onSchedule)({ schedule: "0 5 
  */
 exports.scheduleQuoteOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "0 4 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
     const ai = getAIInstance();
+    // Add random author/theme based on the current day to ensure a unique quote every single day of the year
+    const authorsAndThemes = ['Swami Vivekananda', 'APJ Abdul Kalam', 'Gautam Buddha', 'Mahatma Gandhi', 'Bhagavad Gita', 'Vemana', 'Sumathi Satakam', 'Chanakya', 'Socrates', 'Albert Einstein', 'Confucius', 'Telugu Proverbs', 'Rumi', 'Thirukkural', 'Jiddu Krishnamurti', 'Osho', 'Marcus Aurelius', 'Mother Teresa'];
+    const todayStr = getISTDateString();
+    const randomSeed = Math.floor(Math.random() * authorsAndThemes.length);
+    const selectedTheme = authorsAndThemes[randomSeed];
     const schema = {
         type: genai_1.Type.OBJECT,
         properties: {
@@ -266,9 +289,9 @@ exports.scheduleQuoteOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "0 4 * *
     };
     try {
         const res = await ai.models.generateContent({
-            model: SCHEDULED_MODEL,
-            contents: [{ role: "user", parts: [{ text: "Provide an inspirational Telugu quote from a great person (e.g., Gandhi, Socrates, Vivekananda, Bhagavad Gita, Vemana, Chinese Proverb). Output JSON." }] }],
-            config: { responseMimeType: "application/json", responseSchema: schema }
+            model: PRO_MODEL, // Upgraded to PRO model
+            contents: [{ role: "user", parts: [{ text: `Today is ${todayStr}. Provide a highly unique, rare, and deeply inspirational Telugu quote by ${selectedTheme}. Do NOT repeat common quotes. Make sure it is 100% unique for this specific date. Output JSON.` }] }],
+            config: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.8 } // Higher temperature for more uniqueness
         });
         const data = parseAIJson(res.text || "{}");
         if (!data.quoteTe)
@@ -277,7 +300,7 @@ exports.scheduleQuoteOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "0 4 * *
         try {
             const imgRes = await ai.models.generateImages({
                 model: IMAGEN_MODEL,
-                prompt: `Photorealistic aesthetic portrait or background of ${data.imagePrompt}, no text.`,
+                prompt: `Photorealistic aesthetic portrait or background of ${data.imagePrompt}, warm lighting, very beautiful, absolutely no text, no words.`,
                 config: { numberOfImages: 1, aspectRatio: '9:16' }
             });
             if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
@@ -289,7 +312,11 @@ exports.scheduleQuoteOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "0 4 * *
             console.error("Quote Image Err:", err);
         }
         await db.collection('news').add({
-            type: 'quote',
+            type: 'greeting', // Changed from 'quote' to 'greeting' so the app treats it as a special full screen card
+            postFormat: 'VERTICAL', // Force 9:16 Full Screen Card UI
+            likes: 1, // 1 like identifies it as a Quote in your NewsFeedViewModel
+            comments: 0,
+            shares: 0,
             headline: { telugu: "నేటి మంచి మాట", english: "Quote of the Day" },
             content: { telugu: `${data.quoteTe}\n\n- ${data.author}`, english: `${data.quoteEn}\n\n- ${data.author}` },
             mediaUrl,
@@ -307,7 +334,7 @@ exports.scheduleQuoteOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "0 4 * *
  */
 exports.scheduleHistoryOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "30 4 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
     const ai = getAIInstance();
-    const dateStr = new Date().toLocaleDateString('te-IN', { day: 'numeric', month: 'long' });
+    const dateStr = new Date().toLocaleDateString('te-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'long' });
     const schema = {
         type: genai_1.Type.OBJECT,
         properties: {
@@ -367,16 +394,30 @@ exports.scheduleHistoryOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "30 4 
 exports.generateDailyCartoon = (0, scheduler_1.onSchedule)({ schedule: "0 6 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
     const ai = getAIInstance();
     const states = ["Andhra Pradesh", "Telangana"];
+    const todayStr = getISTDateString();
     for (const state of states) {
         try {
+            const schema = {
+                type: genai_1.Type.OBJECT,
+                properties: {
+                    topic: { type: genai_1.Type.STRING },
+                    visualDescription: { type: genai_1.Type.STRING },
+                    teluguCaption: { type: genai_1.Type.STRING }
+                },
+                required: ["topic", "visualDescription", "teluguCaption"]
+            };
             const topicRes = await ai.models.generateContent({
-                model: SCHEDULED_MODEL,
-                contents: [{ role: "user", parts: [{ text: `Identify the most humorous current political or social topic in ${state}.` }] }],
+                model: PRO_MODEL, // Using PRO model for deep political satire
+                contents: [{ role: "user", parts: [{ text: `Today's Date: ${todayStr}. You are an expert editorial and political cartoonist for a leading Telugu news daily. Identify a highly relevant, satirical, and humorous current political or social topic in ${state} (India) that happened today or yesterday. Provide: 1. A short topic name. 2. A precise visual description of the cartoon scene. 3. A short, punchy, and highly satirical dialogue or caption strictly in Telugu script.` }] }],
+                config: { temperature: 0.8, responseMimeType: "application/json", responseSchema: schema }
             });
-            const topic = topicRes.text || "political events";
+            const cartoonData = parseAIJson(topicRes.text || "{}");
+            const topic = cartoonData.topic || "political events";
+            const visual = cartoonData.visualDescription || "politicians interacting";
+            const teluguText = cartoonData.teluguCaption || "";
             const imgRes = await ai.models.generateImages({
                 model: IMAGEN_MODEL,
-                prompt: `Humorous political satire cartoon about ${topic} in ${state}, clean line art, comic style, highly humorous, understandable to average audience, no text.`,
+                prompt: `A highly satirical political newspaper cartoon about ${topic} in ${state}, India. Visual scene: ${visual}. Editorial cartoon style, clean line art. IMPORTANT: Include a speech bubble or caption containing EXACTLY these Telugu words: "${teluguText}". DO NOT write anything in English.`,
                 config: { numberOfImages: 1, aspectRatio: '9:16' }
             });
             if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
@@ -384,8 +425,12 @@ exports.generateDailyCartoon = (0, scheduler_1.onSchedule)({ schedule: "0 6 * * 
                 const mediaUrl = await saveBufferToStorage(buffer, `CARTOON_${state.replace(" ", "")}`) || "";
                 await db.collection('news').add({
                     type: 'cartoon',
+                    postFormat: 'VERTICAL', // Force 9:16 Full Screen Card UI
+                    likes: 0,
+                    comments: 0,
+                    shares: 0,
                     headline: { telugu: `${state === 'Andhra Pradesh' ? 'ఆంధ్రప్రదేశ్' : 'తెలంగాణ'} కార్టూన్`, english: `${state} Cartoon` },
-                    content: { telugu: 'నేటి ప్రత్యేక కార్టూన్', english: 'Daily Special Cartoon' },
+                    content: { telugu: `నేటి రాజకీయ వ్యంగ్య చిత్రం: ${topic}`, english: 'Daily Political Satire Cartoon' },
                     mediaUrl,
                     category: 'కార్టూన్',
                     location: state,
@@ -410,13 +455,17 @@ exports.processNewsPost = (0, https_1.onCall)(async (request) => {
         let headline = rawHeadline || postData?.headline?.telugu || "";
         let content = rawContent || postData?.content?.telugu || "";
         let postRef = null;
+        let actualPostData = postData || {};
         if (postId) {
             postRef = db.collection('news').doc(postId);
             const postDoc = await postRef.get();
             if (postDoc.exists) {
                 const data = postDoc.data();
-                headline = rawHeadline || data?.headline?.telugu || headline;
-                content = rawContent || data?.content?.telugu || content;
+                if (data) {
+                    actualPostData = { ...data, ...actualPostData };
+                    headline = rawHeadline || data?.headline?.telugu || headline;
+                    content = rawContent || data?.content?.telugu || content;
+                }
             }
         }
         if (!headline || !content)
@@ -446,14 +495,14 @@ exports.processNewsPost = (0, https_1.onCall)(async (request) => {
         });
         const aiRes = parseAIJson(response.text || "{}");
         if (aiRes.content) {
-            let finalMediaUrl = postData?.mediaUrl || "";
+            let finalMediaUrl = actualPostData?.mediaUrl || "";
             if (finalMediaUrl && !finalMediaUrl.includes('firebasestorage.googleapis.com')) {
                 const optimizedUrl = await saveImageLocally(finalMediaUrl, "POST");
                 if (optimizedUrl)
                     finalMediaUrl = optimizedUrl;
             }
             const finalData = {
-                ...postData,
+                ...actualPostData,
                 headline: { telugu: aiRes.headline, english: aiRes.headlineEn },
                 content: { telugu: aiRes.content, english: aiRes.contentEn },
                 mediaUrl: finalMediaUrl,
@@ -461,13 +510,14 @@ exports.processNewsPost = (0, https_1.onCall)(async (request) => {
                 category: aiRes.refinedCategory,
                 categories: Array.from(new Set([
                     aiRes.refinedCategory,
-                    ...(postData?.categories || []),
-                    ...(postData?.district ? [postData.district] : [])
+                    ...(actualPostData?.categories || []),
+                    ...(actualPostData?.district ? [actualPostData.district] : [])
                 ])).filter(c => !!c),
                 storyFingerprint: aiRes.storyFingerprint,
-                reporter: postData?.reporter || getRandomReporter(),
+                // Only use getRandomReporter if there's no actual reporter AND it's not a citizen post
+                reporter: actualPostData?.reporter || (actualPostData?.isCitizen ? null : getRandomReporter()),
                 aiProcessed: true,
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: actualPostData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             };
             if (postRef) {

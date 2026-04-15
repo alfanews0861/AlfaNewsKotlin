@@ -45,6 +45,7 @@
     <string name="rate_us_title">మా యాప్‌ను రేట్ చేయండి</string>
     <string name="rate_us_text">మీకు మా యాప్ నచ్చితే, దయచేసి ప్లే స్టోర్‌లో రేటింగ్ ఇవ్వండి. మీ అభిప్రాయం మాకు ఎంతో విలువైనది.</string>
     <string name="rate_now">రేట్ చేయండి</string>
+    <string name="already_rated">ఇప్పటికే రేటింగ్ ఇచ్చాను</string>
     <string name="later">తర్వాత</string>
 
     <string name="admin_panel">నిర్వహణ ప్యానెల్</string>

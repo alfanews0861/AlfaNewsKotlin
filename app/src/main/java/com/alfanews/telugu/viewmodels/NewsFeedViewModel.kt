@@ -226,8 +226,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 if (excludeDistricts) {
                     val postDist = post.district
                     val hasDistrict = !postDist.isNullOrBlank() || post.categories.any { it in Constants.ALL_DISTRICTS }
-                    // Only allow if it has NO district OR if it's in a global category which takes precedence
-                    if (hasDistrict && post.categories.none { it in globalCategories }) {
+                    // Only allow if it has NO district OR if it has "క్రైమ్" category
+                    if (hasDistrict && post.categories.none { it == "క్రైమ్" }) {
                         return@mapNotNull null
                     }
                 }
@@ -398,16 +398,19 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     fun detectLocation(context: Context, currentUser: User?, language: Language = Language.TELUGU) {
         viewModelScope.launch {
             try {
-                kotlinx.coroutines.withTimeout(5000L) {
+                // ఫాస్ట్ గా లొకేషన్ డిటెక్ట్ చేయడానికి 2000ms (2 సెకన్లు) మాత్రమే టైమ్ అవుట్
+                kotlinx.coroutines.withTimeout(2000L) {
                     val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
                     
-                    // Use balanced power accuracy for faster resolution and timeout after 5 seconds to avoid infinite spinners
-                    val location = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null).await()
+                    // అత్యంత ఖచ్చితమైన GPS లొకేషన్ (HIGH_ACCURACY) వాడటం
+                    val location = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
                     if (location != null) {
                         processLocationUpdate(context, location.latitude, location.longitude, language, currentUser)
                     }
                 }
-            } catch (e: Exception) { }
+            } catch (e: Exception) {
+                // 2 సెకన్లు దాటితే లేదా ఎర్రర్ వస్తే సైలెంట్ గా వదిలేస్తుంది (తద్వారా లొకేషన్ సెలెక్టర్ ఓపెన్ అవుతుంది)
+            }
         }
     }
 

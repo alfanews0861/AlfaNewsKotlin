@@ -119,10 +119,10 @@ fun NewsCardView(
     val content = if (language == Language.TELUGU) post.content.telugu else post.content.english
 
     val isEnglish = language == Language.ENGLISH
-    val headlineSize = if (isEnglish) 19.sp else 21.sp
-    val headlineLineHeight = if (isEnglish) 27.sp else 29.sp
-    val contentSize = if (isEnglish) 16.sp else 17.sp
-    val contentLineHeight = if (isEnglish) 23.sp else 25.sp
+    val headlineSize = if (isEnglish) 19.sp else 22.sp
+    val headlineLineHeight = if (isEnglish) 27.sp else 30.sp
+    val contentSize = if (isEnglish) 16.sp else 18.sp
+    val contentLineHeight = if (isEnglish) 23.sp else 26.sp
 
     val englishRegex = remember { Regex("[a-zA-Z]") }
 
@@ -253,9 +253,9 @@ fun NewsCardView(
                     Text(
                         text = content,
                         color = Color.White,
-                        fontSize = 22.sp,
+                        fontSize = 23.sp,
                         fontFamily = Ramabhadra,
-                        lineHeight = 32.sp,
+                        lineHeight = 33.sp,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)

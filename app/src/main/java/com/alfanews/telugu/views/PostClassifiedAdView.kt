@@ -55,7 +55,7 @@ fun PostClassifiedAdView(
             isSubmitting = true
             try {
                 val imageUrl = if (imageUri != null) {
-                    uploadImageToStorage(imageUri!!, "classifieds-media")
+                    uploadImageToStorage(context, imageUri!!, "classifieds-media")
                 } else {
                     ""
                 }

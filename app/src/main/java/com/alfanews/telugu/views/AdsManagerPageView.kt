@@ -108,7 +108,7 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
         scope.launch {
             isSubmitting = true
             try {
-                val bannerUrl = uploadImageToStorage(adImageUri!!, "ad-banners")
+                val bannerUrl = uploadImageToStorage(context, adImageUri!!, "ad-banners")
 
                 val newAd = hashMapOf(
                     "userId" to currentUser.id,

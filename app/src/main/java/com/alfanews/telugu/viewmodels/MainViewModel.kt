@@ -64,7 +64,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     if (snapshot != null && snapshot.exists()) {
-                        val userObj = snapshot.toObject(User::class.java)?.copy(id = snapshot.id)
+                        val roleStr = snapshot.getString("role") ?: "SUBSCRIBER"
+                        val userObj = try {
+                            snapshot.toObject(User::class.java)?.copy(
+                                id = snapshot.id,
+                                role = UserRole.valueOf(roleStr.uppercase())
+                            )
+                        } catch (e: Exception) {
+                            snapshot.toObject(User::class.java)?.copy(
+                                id = snapshot.id,
+                                role = UserRole.SUBSCRIBER
+                            )
+                        }
+                        
                         val oldUser = _currentUser.value
                         _currentUser.value = userObj
                         
@@ -90,9 +102,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     id = firebaseUser.uid,
                                     name = firebaseUser.displayName ?: "User",
                                     email = firebaseUser.email,
-                                    photoUrl = firebaseUser.photoUrl?.toString()
+                                    photoUrl = firebaseUser.photoUrl?.toString(),
+                                    role = UserRole.SUBSCRIBER
                                 )
-                                FirebaseService.db.collection("users").document(firebaseUser.uid).set(newUser).await()
+                                // Use merge to avoid overwriting if the document was just created by another process
+                                FirebaseService.db.collection("users").document(firebaseUser.uid)
+                                    .set(newUser, SetOptions.merge()).await()
                             } catch (creationError: Exception) {
                                 _currentUser.value = null
                             }
@@ -101,11 +116,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
         }
 
-        if (!prefs.hasRated) {
+        if (!prefs.hasRated && prefs.ratingDialogShownCount < 5) {
             prefs.appOpenCount += 1
-            if (prefs.appOpenCount >= 10) {
-                _showRatingDialog.value = true
-                AnalyticsService.logAnalyticsEvent("rating_dialog_shown")
+            if (prefs.appOpenCount > 10) {
+                val currentTime = System.currentTimeMillis()
+                val fiveDaysInMillis = 5L * 24 * 60 * 60 * 1000
+                
+                if (prefs.ratingDialogShownCount == 0 || (currentTime - prefs.lastRatingDialogTime) >= fiveDaysInMillis) {
+                    _showRatingDialog.value = true
+                    prefs.ratingDialogShownCount += 1
+                    prefs.lastRatingDialogTime = currentTime
+                    AnalyticsService.logAnalyticsEvent("rating_dialog_shown")
+                }
             }
         }
     }

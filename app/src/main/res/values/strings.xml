@@ -46,6 +46,7 @@
     <string name="rate_us_title">Rate Our App</string>
     <string name="rate_us_text">If you like our app, please rate us on Play Store. Your feedback is very valuable to us.</string>
     <string name="rate_now">Rate Now</string>
+    <string name="already_rated">Already Rated</string>
     <string name="later">Later</string>
 
     <!-- Admin Panel Strings -->
@@ -385,4 +386,21 @@
     <string name="choose_signature">Choose Signature</string>
     <string name="skip">Skip</string>
     <string name="save">Save</string>
+
+    <!-- Login Screen -->
+    <string name="technical_error_with_message">A technical error occurred: %1$s</string>
+    <string name="google_sign_in_failed">Google Sign In Failed. Result Code: %1$d</string>
+    <string name="invalid_otp_with_message">Invalid OTP: %1$s</string>
+    <string name="otp_send_failed_with_message">Failed to send OTP: %1$s</string>
+    <string name="firestore_error">Firestore Error</string>
+    <string name="firebase_user_null">Firebase user is null</string>
+    <string name="login_error_auto_verification_failed">Login failed: Auto-verification failed</string>
+    <string name="user_default_name">User</string>
+    <string name="google_login_status_code">Status Code: %1$s</string>
+    <string name="unknown_error">Unknown Error</string>
+    <string name="unknown_exception">Unknown Exception</string>
+    <string name="firestore_profile_creation_failed">Firestore profile creation failed</string>
+    <string name="copyright_text">© 2024 Alfa News. All rights reserved.</string>
+    <string name="google_logo_text">G</string>
+    <string name="phone_country_code" translatable="false">+91</string>
 </resources>
