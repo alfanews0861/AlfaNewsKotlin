@@ -65,7 +65,7 @@ val DarkOnError = Color(0xFF4A0000)
 val DarkErrorContainer = Color(0xFF930000)
 val DarkOnErrorContainer = Color(0xFFFFCDD2)
 
-val DarkBackground = Color(0xFF0A192F) // Deep IDE dark blue
+val DarkBackground = Color(0xFF000000) // Pure black
 val DarkOnBackground = Color(0xFFE3E2E6)
 val DarkSurface = Color(0xFF162A48) // Opaque dark surface
 val DarkOnSurface = Color(0xFFE3E2E6)

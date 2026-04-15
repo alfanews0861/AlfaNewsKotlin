@@ -40,7 +40,7 @@ fun Footer(
     ) {
         Column {
             NavigationBar(
-                modifier = Modifier.fillMaxWidth().height(65.dp),
+                modifier = Modifier.fillMaxWidth().height(56.dp),
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onSurface,
                 tonalElevation = 0.dp,
@@ -102,7 +102,7 @@ fun RowScope.FooterItem(
                 if (isSpecial) {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(24.dp)
                             .background(
                                 Brush.linearGradient(
                                     colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary)
@@ -112,9 +112,9 @@ fun RowScope.FooterItem(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = icon,
+                            imageVector = Icons.Default.Add,
                             contentDescription = label,
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier.size(18.dp),
                             tint = Color.White
                         )
                     }
@@ -126,8 +126,6 @@ fun RowScope.FooterItem(
                         tint = if (isActive) selectedColor else unselectedColor
                     )
                 }
-                
-                Spacer(modifier = Modifier.height(2.dp))
                 
                 Text(
                     text = label,

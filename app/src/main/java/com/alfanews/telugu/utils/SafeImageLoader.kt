@@ -40,7 +40,7 @@ object SafeImageLoader {
                 .diskCache {
                     DiskCache.Builder()
                         .directory(File(context.cacheDir, "image_cache").absolutePath.toPath())
-                        .maxSizeBytes(100 * 1024 * 1024) // 100 MB
+                        .maxSizeBytes(30 * 1024 * 1024) // 30 MB (Reduced from 100MB to save user storage)
                         .build()
                 }
                 .crossfade(true)

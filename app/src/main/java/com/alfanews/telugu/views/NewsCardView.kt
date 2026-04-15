@@ -705,6 +705,10 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
 private fun saveImageToCache(context: Context, bitmap: Bitmap): Uri? {
     val imagesFolder = File(context.cacheDir, "images")
     imagesFolder.mkdirs()
+    
+    // పాత షేర్ ఇమేజ్‌లను డిలీట్ చేయండి (స్టోరేజ్ ఫ్రీ చేయడానికి)
+    imagesFolder.listFiles()?.forEach { if (it.name.startsWith("shared_image_")) it.delete() }
+
     val file = File(imagesFolder, "shared_image_${System.currentTimeMillis()}.png")
     val stream = FileOutputStream(file)
     bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)

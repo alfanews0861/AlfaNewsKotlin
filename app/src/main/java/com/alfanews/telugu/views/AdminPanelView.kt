@@ -139,7 +139,7 @@ fun AdminPanelView(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(
-                drawerContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                drawerContainerColor = MaterialTheme.colorScheme.surface,
                 drawerTonalElevation = 4.dp,
                 modifier = Modifier.width(320.dp),
                 drawerShape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp)
@@ -238,6 +238,7 @@ fun AdminPanelView(
         gesturesEnabled = accessiblePages.size > 1
     ) {
         Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
             topBar = {
                 CenterAlignedTopAppBar(
                     title = {

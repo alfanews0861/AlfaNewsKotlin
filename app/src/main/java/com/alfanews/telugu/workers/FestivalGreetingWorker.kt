@@ -29,8 +29,8 @@ class FestivalGreetingWorker(context: Context, params: WorkerParameters) : Corou
         return withContext(Dispatchers.IO) {
             try {
                 // 1. ఈరోజు పండుగ ఉందా లేదా అనేది జెమినీ తో చెక్ చేయడం
-                val apiKey = "YOUR_GEMINI_API_KEY_HERE" // దయచేసి దీన్ని సురక్షితంగా మార్చండి
-                if (apiKey == "YOUR_GEMINI_API_KEY_HERE") {
+                val apiKey = com.alfanews.telugu.BuildConfig.GEMINI_API_KEY
+                if (apiKey.isEmpty() || apiKey == "YOUR_GEMINI_API_KEY_HERE") {
                     Log.e(tag, "API Key missing")
                     return@withContext Result.failure()
                 }
@@ -89,7 +89,7 @@ class FestivalGreetingWorker(context: Context, params: WorkerParameters) : Corou
             // NOTE: The v1/models/imagen API is generally NOT yet public, meaning you must use v1beta for Imagen!
             // If v1 doesn't work, this remains v1beta.
             val request = Request.Builder()
-                .url("https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=$apiKey")
+                .url("https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=$apiKey")
                 .post(requestBody)
                 .build()
 

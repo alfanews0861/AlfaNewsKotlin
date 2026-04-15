@@ -92,6 +92,13 @@ fun rememberImagePicker(onImageSelected: (Uri?) -> Unit): () -> Unit {
 
 
 private fun createImageUri(context: Context): Uri {
+    // పాత కెమెరా ఇమేజ్‌లను క్లీన్ చేయండి
+    context.cacheDir.listFiles()?.forEach { 
+        if (it.name.startsWith("JPEG_") && it.name.endsWith(".jpg")) {
+            it.delete()
+        }
+    }
+
     val imageFile = File.createTempFile("JPEG_${System.currentTimeMillis()}_", ".jpg", context.cacheDir)
     return FileProvider.getUriForFile(context, "${context.packageName}.provider", imageFile)
 }

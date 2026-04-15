@@ -17,9 +17,17 @@ android {
         applicationId = "com.alfanews.telugu"
         minSdk = 24
         targetSdk = 35
-        versionCode = 568
-        versionName = "Sree_4.8"
+        versionCode = 569
+        versionName = "Sree_4.9"
         multiDexEnabled = true
+
+        val properties = Properties()
+        val localPropertiesFile = project.rootProject.file("local.properties")
+        if (localPropertiesFile.exists()) {
+            properties.load(FileInputStream(localPropertiesFile))
+        }
+        val geminiApiKey = properties.getProperty("GEMINI_API_KEY", "")
+        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

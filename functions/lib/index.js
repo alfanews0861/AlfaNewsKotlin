@@ -65,7 +65,7 @@ const REGION = "asia-south1";
 const SCHEDULED_MODEL = "gemini-3.1-flash-lite-preview";
 // Main News/Reporter processing uses Pro for high quality journalistic output
 const PRO_MODEL = "gemini-3-flash-preview";
-const IMAGEN_MODEL = "imagen-4.0-generate-001";
+const IMAGEN_MODEL = "imagen-3.0-generate-001";
 (0, v2_1.setGlobalOptions)({
     region: REGION,
     maxInstances: 10,
