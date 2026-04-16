@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Comment
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Share
@@ -100,8 +101,12 @@ fun NewsCardView(
     district: String? = null,
     showDistrictSelector: Boolean = false,
     autoShare: Boolean = false,
-    onAutoShareDone: () -> Unit = {}
+    onAutoShareDone: () -> Unit = {},
+    onEditClick: (NewsPost) -> Unit = {}
 ) {
+    if (autoShare) {
+        onAutoShareDone()
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
@@ -571,6 +576,15 @@ fun NewsCardView(
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
+                            if (currentUser != null && currentUser.id == post.reporter.id) {
+                                ActionButton(
+                                    icon = Icons.Default.Edit,
+                                    tint = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                                    onClick = { onEditClick(post) }
+                                )
+                                Spacer(modifier = Modifier.height(24.dp))
+                            }
+
                             ActionButton(
                                 icon = Icons.Default.Favorite,
                                 count = likeCount.toString(),
@@ -726,7 +740,7 @@ private fun saveImageToCache(context: Context, bitmap: Bitmap): Uri? {
 @Composable
 fun ActionButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    count: String,
+    count: String? = null,
     isHighlighted: Boolean = false,
     isLoading: Boolean = false,
     tint: Color = MaterialTheme.colorScheme.onBackground,
@@ -757,13 +771,15 @@ fun ActionButton(
                 )
             }
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = count,
-            color = if (isHighlighted) MaterialTheme.colorScheme.primary else tint,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold
-        )
+        if (count != null) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = count,
+                color = if (isHighlighted) MaterialTheme.colorScheme.primary else tint,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
     }
 }
 

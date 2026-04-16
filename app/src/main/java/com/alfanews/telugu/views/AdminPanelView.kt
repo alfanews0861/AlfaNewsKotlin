@@ -50,7 +50,8 @@ fun AdminPanelView(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     onThemeModeChange: (ThemeMode) -> Unit = {},
     isModal: Boolean = false,
-    onNavigate: (String) -> Unit = {}
+    onNavigate: (String) -> Unit = {},
+    onPostPublished: (String) -> Unit = {}
 ) {
     var activePage by remember { mutableStateOf(initialPage) }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -301,7 +302,13 @@ fun AdminPanelView(
                     "post" -> PostNewsPageView(
                         user = user,
                         postToEdit = editingPost,
-                        onActionComplete = { _ -> activePage = "manage" }
+                        onActionComplete = { postId -> 
+                            editingPost = null
+                            activePage = if (listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN).contains(user.role)) "manage" else "profile"
+                            if (postId.isNotBlank()) {
+                                onPostPublished(postId)
+                            }
+                        }
                     )
                     "manage" -> ManagePostsPageView(
                         onEditPost = { post ->

@@ -27,6 +27,7 @@ import androidx.compose.ui.res.stringResource
 import com.alfanews.telugu.R
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.User
+import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.services.AdMobService
 import com.alfanews.telugu.utils.SafeImageLoader
 import com.alfanews.telugu.viewmodels.NewsFeedViewModel
@@ -41,7 +42,8 @@ fun NewsFeedView(
     onProfileClick: () -> Unit = {},
     onReporterClick: (String) -> Unit = {},
     onDistrictClick: () -> Unit = {},
-    initialPostId: String? = null
+    initialPostId: String? = null,
+    onEditClick: (NewsPost) -> Unit = {}
 ) {
     val news by viewModel.news.collectAsStateWithLifecycle()
     val loading by viewModel.loading.collectAsStateWithLifecycle()
@@ -225,6 +227,7 @@ fun NewsFeedView(
                             onDistrictClick = onDistrictClick,
                             autoShare = sharedPostId == post.id,
                             onAutoShareDone = { viewModel.setSharedPostId(null) },
+                            onEditClick = onEditClick,
                             modifier = Modifier.fillMaxSize()
                         )
                     }

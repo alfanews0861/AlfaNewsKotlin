@@ -74,7 +74,7 @@ fun ManagePostsPageView(
     val scope = rememberCoroutineScope()
 
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
-    var showBroadcastDialog by remember { mutableStateOf<NewsPost?>(null) }
+    var showBroadcastDialog by remember { mutableStateOf<com.alfanews.telugu.models.NewsPost?>(null) }
 
     fun fetchPosts() {
         scope.launch {
@@ -113,8 +113,8 @@ fun ManagePostsPageView(
                             english = contentData["english"] as? String ?: ""
                         ),
                         mediaUrl = data["mediaUrl"] as? String ?: "",
-                        mediaType = when (data["mediaType"]) {
-                            "video" -> com.alfanews.telugu.models.MediaType.VIDEO
+                        mediaType = when (data["mediaType"]?.toString()?.uppercase()) {
+                            "VIDEO" -> com.alfanews.telugu.models.MediaType.VIDEO
                             else -> com.alfanews.telugu.models.MediaType.IMAGE
                         },
                         reporter = com.alfanews.telugu.models.Reporter(
@@ -126,9 +126,9 @@ fun ManagePostsPageView(
                         district = data["district"] as? String,
                         timestamp = timestamp,
                         categories = data["categories"] as? List<String> ?: emptyList(),
-                        likes = (data["likes"] as? Number)?.toInt() ?: 0,
-                        comments = (data["comments"] as? Number)?.toInt() ?: 0,
-                        shares = (data["shares"] as? Number)?.toInt() ?: 0
+                        likes = (data["likes"] as? Number)?.toInt() ?: (data["likes"] as? String)?.toIntOrNull() ?: 0,
+                        comments = (data["comments"] as? Number)?.toInt() ?: (data["comments"] as? String)?.toIntOrNull() ?: 0,
+                        shares = (data["shares"] as? Number)?.toInt() ?: (data["shares"] as? String)?.toIntOrNull() ?: 0
                     )
                 }
             } catch (e: Exception) {

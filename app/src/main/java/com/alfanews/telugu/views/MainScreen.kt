@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.alfanews.telugu.models.ThemeMode
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
+import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.viewmodels.MainViewModel
 import com.alfanews.telugu.viewmodels.NewsFeedViewModel
@@ -58,6 +59,7 @@ fun MainScreen(
     var showPostNewsPage by remember { mutableStateOf(false) }
     var showJoinReporterPage by remember { mutableStateOf(false) }
     var showEditProfilePage by remember { mutableStateOf(false) }
+    var editingNewsPost by remember { mutableStateOf<NewsPost?>(null) }
     var reporterIdToShow by remember { mutableStateOf<String?>(null) }
     
     var classifiedsInitialMode by remember { mutableStateOf(ClassifiedsViewMode.CATEGORIES) }
@@ -142,12 +144,15 @@ fun MainScreen(
                     Box(modifier = Modifier.fillMaxSize()) {
                         PostNewsPageView(
                             user = user,
-                            postToEdit = null,
+                            postToEdit = editingNewsPost,
                             onActionComplete = { postId -> 
                                 showPostNewsPage = false
-                                mainViewModel.setActiveTab("home")
-                                newsFeedViewModel.setSharedPostId(postId)
-                                newsFeedViewModel.loadNews(language, user, initialPostId = postId)
+                                editingNewsPost = null
+                                if (postId.isNotBlank()) {
+                                    mainViewModel.setActiveTab("home")
+                                    newsFeedViewModel.setSharedPostId(postId)
+                                    newsFeedViewModel.loadNews(language, user, initialPostId = postId)
+                                }
                             }
                         )
                         
@@ -161,7 +166,10 @@ fun MainScreen(
                                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                                 modifier = Modifier.padding(horizontal = 4.dp)
                             ) {
-                                IconButton(onClick = { showPostNewsPage = false }) {
+                                IconButton(onClick = { 
+                                    showPostNewsPage = false
+                                    editingNewsPost = null
+                                }) {
                                     Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back))
                                 }
                                 Text(
@@ -196,13 +204,21 @@ fun MainScreen(
                             language = language, 
                             currentUser = user, 
                             viewModel = newsFeedViewModel,
-                            onReporterClick = { reporterIdToShow = it }
+                            onReporterClick = { reporterIdToShow = it },
+                            onEditClick = { post ->
+                                editingNewsPost = post
+                                showPostNewsPage = true
+                            }
                         )
                         "local" -> LocalNewsFeedView(
                             language = language, 
                             currentUser = user, 
                             onProfileClick = { mainViewModel.setActiveTab("profile") },
-                            onReporterClick = { reporterIdToShow = it }
+                            onReporterClick = { reporterIdToShow = it },
+                            onEditClick = { post ->
+                                editingNewsPost = post
+                                showPostNewsPage = true
+                            }
                         )
                         "create" -> {
                             var showCitizenJournalism by remember { mutableStateOf(false) }
@@ -249,6 +265,13 @@ fun MainScreen(
                                 } else {
                                     mainViewModel.setActiveTab(pageId)
                                 }
+                            },
+                            onPostPublished = { postId ->
+                                if (postId.isNotBlank()) {
+                                    mainViewModel.setActiveTab("home")
+                                    newsFeedViewModel.setSharedPostId(postId)
+                                    newsFeedViewModel.loadNews(language, user, initialPostId = postId)
+                                }
                             }
                         )
                         "about" -> PolicyContainer("about")
@@ -263,7 +286,11 @@ fun MainScreen(
                             language = language, 
                             currentUser = user, 
                             viewModel = newsFeedViewModel,
-                            onReporterClick = { reporterIdToShow = it }
+                            onReporterClick = { reporterIdToShow = it },
+                            onEditClick = { post ->
+                                editingNewsPost = post
+                                showPostNewsPage = true
+                            }
                         )
                     }
                 }
@@ -325,7 +352,8 @@ fun ProfileContainer(
     language: com.alfanews.telugu.models.Language,
     currentUser: com.alfanews.telugu.models.User?,
     viewModel: MainViewModel,
-    onNavigate: (String) -> Unit
+    onNavigate: (String) -> Unit,
+    onPostPublished: (String) -> Unit = {}
 ) {
     var showLogin by remember { mutableStateOf(false) }
     val themeMode by viewModel.themeMode.collectAsState()
@@ -342,7 +370,8 @@ fun ProfileContainer(
             onLogout = { viewModel.signOut() },
             onLoginRequest = { showLogin = true },
             isModal = false,
-            onNavigate = onNavigate
+            onNavigate = onNavigate,
+            onPostPublished = onPostPublished
         )
     } else {
         UserProfilePageView(

@@ -24,7 +24,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.alfanews.telugu.ViewModelFactory
 import androidx.compose.ui.res.stringResource
 import com.alfanews.telugu.R
-import com.alfanews.telugu.models.*
+import com.alfanews.telugu.models.Language
+import com.alfanews.telugu.models.User
+import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.services.AdMobService
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.utils.Constants
@@ -37,7 +39,8 @@ fun LocalNewsFeedView(
     language: Language,
     currentUser: User?,
     onProfileClick: () -> Unit = {},
-    onReporterClick: (String) -> Unit = {}
+    onReporterClick: (String) -> Unit = {},
+    onEditClick: (NewsPost) -> Unit = {}
 ) {
     val context = LocalContext.current
     val viewModel: LocalNewsFeedViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
@@ -229,6 +232,7 @@ fun LocalNewsFeedView(
                             onProfileClick = onProfileClick,
                             onReporterClick = onReporterClick,
                             onDistrictClick = { showDistrictPicker = true },
+                            onEditClick = onEditClick,
                             modifier = Modifier.fillMaxSize(),
                             district = if (isDetecting) "గుర్తిస్తున్నాము..." else activeDistrict,
                             showDistrictSelector = true
