@@ -17,7 +17,7 @@ android {
         applicationId = "com.alfanews.telugu"
         minSdk = 24
         targetSdk = 35
-        versionCode = 569
+        versionCode = 570
         versionName = "Sree_4.9"
         multiDexEnabled = true
 

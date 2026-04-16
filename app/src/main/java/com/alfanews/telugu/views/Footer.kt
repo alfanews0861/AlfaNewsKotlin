@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import com.alfanews.telugu.R
 import com.alfanews.telugu.ui.theme.Mallanna
-import com.alfanews.telugu.utils.glassmorphism
+
 import com.alfanews.telugu.ui.theme.Poppins
 
 /**
@@ -31,12 +31,10 @@ fun Footer(
     onTabChange: (String) -> Unit
 ) {
     val bgColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
-    val borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .glassmorphism(cornerRadius = 0.dp)
+            .background(MaterialTheme.colorScheme.surface)
     ) {
         Column {
             NavigationBar(

@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.UriHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -223,6 +224,8 @@ fun NewsCardView(
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
                                     .data(post.mediaUrl)
+                                    .fallback(R.drawable.fallback_news_image)
+                                    .error(R.drawable.fallback_news_image)
                                     .build(),
                                 imageLoader = imageLoader,
                                 contentDescription = headline,
@@ -400,6 +403,8 @@ fun NewsCardView(
                                     AsyncImage(
                                         model = ImageRequest.Builder(context)
                                             .data(post.mediaUrl)
+                                            .fallback(R.drawable.fallback_news_image)
+                                            .error(R.drawable.fallback_news_image)
                                             .build(),
                                         imageLoader = imageLoader,
                                         contentDescription = headline,
@@ -474,6 +479,7 @@ fun NewsCardView(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(0.62f)
+                        .background(if (isSystemInDarkTheme()) Color.Black else Color.White)
                         .padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 12.dp)
                 ) {
                     Row(
@@ -489,7 +495,7 @@ fun NewsCardView(
                                 fontSize = headlineSize,
                                 fontFamily = headlineFontFamily,
                                 fontWeight = headlineFontWeight,
-                                color = MaterialTheme.colorScheme.onBackground,
+                                color = if (isSystemInDarkTheme()) Color.White else Color.Black,
                                 lineHeight = headlineLineHeight,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -518,20 +524,20 @@ fun NewsCardView(
                                             indication = LocalIndication.current
                                         ) { onReporterClick(post.reporter.id) }.weight(0.3f, fill = false)
                                     )
-                                    Text("•", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f), fontSize = 12.sp)
+                                    Text("•", color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f), fontSize = 12.sp)
                                     Text(
                                         text = post.location,
-                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                                        color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f),
                                         fontSize = 12.sp,
                                         fontFamily = contentFontFamily,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                          modifier = Modifier.weight(0.3f, fill = false)
                                     )
-                                    Text("•", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f), fontSize = 12.sp)
+                                    Text("•", color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f), fontSize = 12.sp)
                                     Text(
                                         text = formattedTimestamp,
-                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                                        color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f),
                                         fontSize = 12.sp,
                                         fontFamily = Poppins,
                                         maxLines = 1,
@@ -549,7 +555,7 @@ fun NewsCardView(
                                 fontSize = contentSize,
                                 fontFamily = contentFontFamily,
                                 fontWeight = FontWeight.Normal,
-                                color = MaterialTheme.colorScheme.onBackground,
+                                color = if (isSystemInDarkTheme()) Color.White else Color.Black,
                                 lineHeight = contentLineHeight,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -569,7 +575,7 @@ fun NewsCardView(
                                 icon = Icons.Default.Favorite,
                                 count = likeCount.toString(),
                                 isHighlighted = isLiked,
-                                tint = MaterialTheme.colorScheme.onBackground,
+                                tint = if (isSystemInDarkTheme()) Color.White else Color.Black,
                                 onClick = {
                                     if (currentUser == null) {
                                         onProfileClick()
@@ -593,7 +599,7 @@ fun NewsCardView(
                                 icon = Icons.Default.Share,
                                 count = shareCount.toString(),
                                 isLoading = isSharing,
-                                tint = MaterialTheme.colorScheme.onBackground,
+                                tint = if (isSystemInDarkTheme()) Color.White else Color.Black,
                                 onClick = { if (!isSharing) { performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, uriHandler, cardBounds, view) } }
                             )
 
@@ -602,7 +608,7 @@ fun NewsCardView(
                             ActionButton(
                                 icon = Icons.AutoMirrored.Filled.Comment,
                                 count = commentCount.toString(),
-                                tint = MaterialTheme.colorScheme.onBackground,
+                                tint = if (isSystemInDarkTheme()) Color.White else Color.Black,
                                 onClick = { showComments = true }
                             )
                         }
