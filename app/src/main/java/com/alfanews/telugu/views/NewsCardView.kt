@@ -224,9 +224,9 @@ fun NewsCardView(
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
                                     .data(post.mediaUrl)
-                                    .fallback(R.drawable.fallback_news_image)
-                                    .error(R.drawable.fallback_news_image)
                                     .build(),
+                                fallback = androidx.compose.ui.res.painterResource(id = R.drawable.fallback_news_image),
+                                error = androidx.compose.ui.res.painterResource(id = R.drawable.fallback_news_image),
                                 imageLoader = imageLoader,
                                 contentDescription = headline,
                                 modifier = Modifier.fillMaxSize(),
@@ -403,9 +403,9 @@ fun NewsCardView(
                                     AsyncImage(
                                         model = ImageRequest.Builder(context)
                                             .data(post.mediaUrl)
-                                            .fallback(R.drawable.fallback_news_image)
-                                            .error(R.drawable.fallback_news_image)
                                             .build(),
+                                        fallback = androidx.compose.ui.res.painterResource(id = R.drawable.fallback_news_image),
+                                        error = androidx.compose.ui.res.painterResource(id = R.drawable.fallback_news_image),
                                         imageLoader = imageLoader,
                                         contentDescription = headline,
                                         modifier = Modifier.fillMaxSize(),
