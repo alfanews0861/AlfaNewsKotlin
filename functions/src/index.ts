@@ -25,7 +25,8 @@ const REGION = "asia-south1";
 // Scheduled tasks (Quotes, Festivals etc.) use Lite for speed and cost-effectiveness
 const SCHEDULED_MODEL = "gemini-3.1-flash-lite-preview";
 // Main News/Reporter processing uses Pro for high quality journalistic output
-const PRO_MODEL = "gemini-3-flash-preview";
+// Downgraded to gemini-1.5-flash as the project hit monthly spending cap
+const PRO_MODEL = "gemini-1.5-flash";
 const IMAGEN_MODEL = "imagen-4.0-generate-001";
 
 setGlobalOptions({

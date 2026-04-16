@@ -64,8 +64,9 @@ const REGION = "asia-south1";
 // Scheduled tasks (Quotes, Festivals etc.) use Lite for speed and cost-effectiveness
 const SCHEDULED_MODEL = "gemini-3.1-flash-lite-preview";
 // Main News/Reporter processing uses Pro for high quality journalistic output
-const PRO_MODEL = "gemini-3-flash-preview";
-const IMAGEN_MODEL = "imagen-3.0-generate-001";
+// Downgraded to gemini-1.5-flash as the project hit monthly spending cap
+const PRO_MODEL = "gemini-1.5-flash";
+const IMAGEN_MODEL = "imagen-4.0-generate-001";
 (0, v2_1.setGlobalOptions)({
     region: REGION,
     maxInstances: 10,
@@ -138,10 +139,10 @@ exports.scheduleTrendingNews = (0, scheduler_1.onSchedule)({ schedule: "0 8,12,1
     try {
         const topicRes = await ai.models.generateContent({
             model: PRO_MODEL, // Upgraded to PRO_MODEL (gemini-3-flash) for real-time capability
-            contents: [{ role: "user", parts: [{ text: `Current Date and Time in IST: ${nowStr}. Identify 2 highly specific, real-world trending news topics that broke strictly in the last 5 to 6 hours in Andhra Pradesh and Telangana.
-CRITICAL INSTRUCTION: DO NOT repeat generic or old topics like "Cabinet Expansion" (క్యాబినెట్ విస్తరణ) or "Heavy Rains" (వర్షాలు) unless there is a catastrophic real-time event exactly today. Find unique, fresh, and specific political statements, incidents, or events that just happened today. Return JSON array of strings.` }] }],
+            contents: [{ role: "user", parts: [{ text: `Current Date and Time in IST: ${nowStr}. Use Google Search to find the absolute latest breaking news that happened STRICTLY within the last 5 to 6 hours in Andhra Pradesh and Telangana.
+CRITICAL INSTRUCTION: DO NOT provide generic, ongoing, or historical news like "Amaravati construction", "Elections", or old arrests. I need highly specific events, statements, or accidents that occurred TODAY. Return ONLY a JSON array of 2 very specific headline strings.` }] }],
             config: {
-                temperature: 0.8,
+                temperature: 0.3, // Lower temperature to reduce hallucination and force factual grounding
                 responseMimeType: "application/json",
                 tools: [{ googleSearch: {} }] // Enable Google Search Grounding to fetch live internet news
             }
@@ -163,10 +164,10 @@ CRITICAL INSTRUCTION: DO NOT repeat generic or old topics like "Cabinet Expansio
                 };
                 const response = await ai.models.generateContent({
                     model: PRO_MODEL, // Upgraded to PRO_MODEL
-                    contents: [{ role: "user", parts: [{ text: `Current Date: ${nowStr}. Search the live internet for the latest real-time updates on this specific topic: "${topic}" and write a fresh news article about it. Output JSON.` }] }],
+                    contents: [{ role: "user", parts: [{ text: `Current Date: ${nowStr}. Use Google Search to find the most recent breaking updates from TODAY about this specific topic: "${topic}". Write a factual news article based ONLY on the live search results. DO NOT hallucinate. Include specific names, places, and times. Output JSON.` }] }],
                     config: {
-                        systemInstruction: `You are a Senior Journalist. Write 60 words in Telugu covering the most recent facts from today. Do NOT write outdated information. Output JSON. Choose the best category from: ${standardCategories.join(", ")}`,
-                        temperature: 0.5,
+                        systemInstruction: `You are a Senior Telugu Journalist. Write a 60-word factual news report in Telugu covering today's most recent facts. Strictly reject outdated information. Choose the best category from: ${standardCategories.join(", ")}. Output JSON.`,
+                        temperature: 0.3,
                         responseMimeType: "application/json",
                         responseSchema: schema,
                         tools: [{ googleSearch: {} }] // Enable Google Search Grounding for writing the article
