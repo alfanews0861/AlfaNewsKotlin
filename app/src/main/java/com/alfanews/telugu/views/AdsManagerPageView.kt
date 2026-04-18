@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -16,10 +17,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
+import com.alfanews.telugu.models.AdMediaType
 import com.alfanews.telugu.models.AdStatus
+import com.alfanews.telugu.models.AdType
 import com.alfanews.telugu.models.LocalAd
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
@@ -32,6 +37,7 @@ import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.text.NumberFormat
+import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.max
 
@@ -89,50 +95,99 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
     var adImageUri by remember { mutableStateOf<Uri?>(null) }
     var targetState by remember { mutableStateOf("ALL") }
     var targetDistrict by remember { mutableStateOf("ALL") }
+    
+    var adType by remember { mutableStateOf(AdType.VIEWS_BASED) }
+    var adMediaType by remember { mutableStateOf(AdMediaType.IMAGE) }
+    
     var viewsOrdered by remember { mutableStateOf(10000) }
+    var durationDays by remember { mutableStateOf(1) }
+    var startDate by remember { mutableStateOf(System.currentTimeMillis()) }
+
+    var phoneNumber by remember { mutableStateOf("") }
+    var actionUrl by remember { mutableStateOf("") }
+    var actionText by remember { mutableStateOf("మరిన్ని వివరాలు") }
+    var htmlContent by remember { mutableStateOf("") }
+
     var isSubmitting by remember { mutableStateOf(false) }
+    var showPreview by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val MIN_AMOUNT = 2000
     val COST_PER_VIEW = 0.20
-    val totalAmount = max(MIN_AMOUNT.toDouble(), viewsOrdered * COST_PER_VIEW)
+    val COST_PER_DAY = 500.0
+    
+    val totalAmount = if (adType == AdType.VIEWS_BASED) {
+        max(2000.0, viewsOrdered * COST_PER_VIEW)
+    } else {
+        durationDays * COST_PER_DAY
+    }
 
     fun handleCreateAd() {
-        if (adImageUri == null) {
-            Toast.makeText(context, "దయచేసి యాడ్ బ్యానర్‌ను అప్‌లోడ్ చేయండి.", Toast.LENGTH_SHORT).show()
+        if (adMediaType != AdMediaType.HTML && adImageUri == null) {
+            Toast.makeText(context, "దయచేసి మీడియాను అప్‌లోడ్ చేయండి.", Toast.LENGTH_SHORT).show()
             return
         }
 
         scope.launch {
             isSubmitting = true
             try {
-                val bannerUrl = uploadImageToStorage(context, adImageUri!!, "ad-banners")
+                val bannerUrl = if (adMediaType != AdMediaType.HTML) {
+                    uploadImageToStorage(context, adImageUri!!, "ad-banners")
+                } else ""
 
                 val newAd = hashMapOf(
                     "userId" to currentUser.id,
                     "userName" to currentUser.name,
                     "bannerUrl" to bannerUrl,
+                    "htmlContent" to htmlContent,
+                    "adMediaType" to adMediaType.name,
                     "targetState" to targetState,
                     "targetDistrict" to targetDistrict,
-                    "viewsOrdered" to viewsOrdered,
+                    "actionUrl" to actionUrl,
+                    "phoneNumber" to phoneNumber,
+                    "actionText" to actionText,
+                    "adType" to adType.name,
+                    "viewsOrdered" to (if (adType == AdType.VIEWS_BASED) viewsOrdered else -1),
                     "viewsCurrent" to 0,
+                    "clicksCurrent" to 0,
                     "costPerView" to COST_PER_VIEW,
+                    "startDate" to startDate,
+                    "endDate" to (startDate + (durationDays * 24 * 60 * 60 * 1000L)),
                     "totalAmount" to totalAmount,
                     "status" to AdStatus.PENDING_PAYMENT.name,
                     "createdAt" to System.currentTimeMillis()
                 )
 
                 FirebaseService.db.collection("local_ads").add(newAd).await()
-                Toast.makeText(context, "యాడ్ రిక్వెస్ట్ సబ్మిట్ చేయబడింది! పేమెంట్ కోసం అడ్మిన్ మిమ్మల్ని సంప్రదిస్తారు.", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "యాడ్ రిక్వెస్ట్ సబ్మిట్ చేయబడింది!", Toast.LENGTH_LONG).show()
                 onAdCreated()
             } catch (e: Exception) {
-                Toast.makeText(context, "యాడ్ సబ్మిట్ చేయడంలో లోపం: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "లోపం: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
                 isSubmitting = false
             }
         }
+    }
+
+    if (showPreview) {
+        AlertDialog(
+            onDismissRequest = { showPreview = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+            text = {
+                Box(Modifier.fillMaxWidth().height(400.dp)) {
+                    LocalAdCardView(ad = LocalAd(
+                        bannerUrl = adImageUri?.toString() ?: "",
+                        adMediaType = adMediaType,
+                        actionText = actionText,
+                        phoneNumber = phoneNumber,
+                        actionUrl = actionUrl,
+                        htmlContent = htmlContent
+                    ))
+                }
+            },
+            confirmButton = { Button(onClick = { showPreview = false }) { Text("Close Preview") } }
+        )
     }
 
     Column(
@@ -141,63 +196,101 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
     ) {
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("నిబంధనలు:", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                Text("• కనీస ఛార్జీ ₹$MIN_AMOUNT.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                Text("• ప్రతి వ్యూ కి ₹${String.format("%.2f", COST_PER_VIEW)} ఛార్జ్ చేయబడుతుంది.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                Text("నిబంధనలు & ధరలు:", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                Text("• వ్యూస్ ఆధారంగా: ₹${String.format("%.2f", COST_PER_VIEW)} ప్రతి వ్యూ కి (కనీసం ₹2,000).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                Text("• సమయం ఆధారంగా: ₹${COST_PER_DAY.toInt()} ప్రతి రోజుకు (అన్‌లిమిటెడ్ వ్యూస్).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
             }
         }
 
         Card(elevation = CardDefaults.cardElevation(2.dp)) {
-            val pickImage = rememberImagePicker { adImageUri = it }
-            Column(Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("యాడ్ బ్యానర్ అప్‌లోడ్", style = MaterialTheme.typography.titleLarge)
-                if (adImageUri != null) {
-                    AsyncImage(model = adImageUri, contentDescription = "Ad Banner", modifier = Modifier.fillMaxWidth().height(200.dp).clip(MaterialTheme.shapes.medium), contentScale = ContentScale.Crop)
+            Column(Modifier.padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("ప్రకటన రకం & మీడియా", style = MaterialTheme.typography.titleLarge)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = adType == AdType.VIEWS_BASED, onClick = { adType = AdType.VIEWS_BASED }, label = { Text("వ్యూస్") })
+                    FilterChip(selected = adType == AdType.TIME_BASED_FIXED, onClick = { adType = AdType.TIME_BASED_FIXED }, label = { Text("రోజులు") })
                 }
-                Button(onClick = { pickImage() }) {
-                    Text(if (adImageUri != null) "బ్యానర్‌ను మార్చండి" else "బ్యానర్‌ను ఎంచుకోండి")
+                HorizontalDivider()
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = adMediaType == AdMediaType.IMAGE, onClick = { adMediaType = AdMediaType.IMAGE }, label = { Text("Image") })
+                    FilterChip(selected = adMediaType == AdMediaType.VIDEO, onClick = { adMediaType = AdMediaType.VIDEO }, label = { Text("Video") })
+                    FilterChip(selected = adMediaType == AdMediaType.HTML, onClick = { adMediaType = AdMediaType.HTML }, label = { Text("HTML") })
                 }
             }
         }
-        
+
+        if (adMediaType == AdMediaType.HTML) {
+            OutlinedTextField(value = htmlContent, onValueChange = { htmlContent = it }, label = { Text("HTML Code") }, modifier = Modifier.fillMaxWidth().height(150.dp))
+        } else {
+            val pickImage = rememberImagePicker { adImageUri = it }
+            Card(elevation = CardDefaults.cardElevation(2.dp)) {
+                Column(Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (adImageUri != null) {
+                        AsyncImage(model = adImageUri, contentDescription = "Preview", modifier = Modifier.fillMaxWidth().height(150.dp).clip(MaterialTheme.shapes.medium), contentScale = ContentScale.Crop)
+                    }
+                    Button(onClick = { pickImage() }) { Text(if (adImageUri != null) "Change Media" else "Select Image/Video") }
+                }
+            }
+        }
+
+        Card(elevation = CardDefaults.cardElevation(2.dp)) {
+            Column(Modifier.padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Call to Action (బటన్ వివరాలు)", style = MaterialTheme.typography.titleLarge)
+                OutlinedTextField(value = actionText, onValueChange = { actionText = it }, label = { Text("బటన్ టెక్స్ట్ (ఉదా: Call Now)") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = phoneNumber, onValueChange = { phoneNumber = it }, label = { Text("ఫోన్ నంబర్ (ఐచ్ఛికం)") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = actionUrl, onValueChange = { actionUrl = it }, label = { Text("వెబ్‌సైట్/వాట్సాప్ లింక్ (ఐచ్ఛికం)") }, modifier = Modifier.fillMaxWidth())
+            }
+        }
+
         Card(elevation = CardDefaults.cardElevation(2.dp)) {
              Column(Modifier.padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("టార్గెట్ ఆడియెన్స్", style = MaterialTheme.typography.titleLarge)
                  Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                     TargetingDropdown(label = "రాష్ట్రం", options = mapOf("ALL" to "అందరికీ", "TS" to "తెలంగాణ", "AP" to "ఆంధ్రప్రదేశ్"), selected = targetState, onSelected = { 
-                         targetState = it
-                         targetDistrict = "ALL"
-                     })
+                     TargetingDropdown(label = "రాష్ట్రం", options = mapOf("ALL" to "అందరికీ", "TS" to "TS", "AP" to "AP"), selected = targetState, onSelected = { targetState = it; targetDistrict = "ALL" })
                      TargetingDropdown(label = "జిల్లా", options = (if(targetState == "ALL") emptyMap() else (if(targetState == "TS") Constants.TS_DISTRICTS else Constants.AP_DISTRICTS).associateWith { it }), selected = targetDistrict, onSelected = { targetDistrict = it }, enabled = targetState != "ALL")
                  }
              }
         }
 
-        Card(elevation = CardDefaults.cardElevation(2.dp)) {
-            Column(Modifier.padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("వ్యూస్ మరియు బడ్జెట్", style = MaterialTheme.typography.titleLarge)
-                OutlinedTextField(value = viewsOrdered.toString(), onValueChange = { viewsOrdered = it.filter { c -> c.isDigit() }.toIntOrNull() ?: 1000 }, label = { Text("ఎన్ని వ్యూస్ కావాలి?") }, modifier = Modifier.fillMaxWidth())
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("మొత్తం చెల్లించాల్సినది:", style = MaterialTheme.typography.titleMedium)
-                    Text("₹ ${NumberFormat.getNumberInstance(Locale.US).format(totalAmount)}", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+        if (adType == AdType.VIEWS_BASED) {
+            Card(elevation = CardDefaults.cardElevation(2.dp)) {
+                Column(Modifier.padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("వ్యూస్ వివరాలు", style = MaterialTheme.typography.titleLarge)
+                    OutlinedTextField(value = viewsOrdered.toString(), onValueChange = { viewsOrdered = it.filter { c -> c.isDigit() }.toIntOrNull() ?: 1000 }, label = { Text("ఎన్ని వ్యూస్ కావాలి?") }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+        } else {
+             Card(elevation = CardDefaults.cardElevation(2.dp)) {
+                Column(Modifier.padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("సమయం మరియు తేదీలు", style = MaterialTheme.typography.titleLarge)
+                    OutlinedTextField(
+                        value = durationDays.toString(), 
+                        onValueChange = { durationDays = it.filter { c -> c.isDigit() }.toIntOrNull() ?: 1 }, 
+                        label = { Text("ఎన్ని రోజులు కనిపించాలి?") }, 
+                        modifier = Modifier.fillMaxWidth(),
+                        suffix = { Text("రోజులు") }
+                    )
+                    val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                    Text("ప్రారంభ తేదీ: ${sdf.format(Date(startDate))}", style = MaterialTheme.typography.bodyMedium)
+                    Text("ముగింపు తేదీ: ${sdf.format(Date(startDate + (durationDays * 24 * 60 * 60 * 1000L)))}", style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
+        
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("మొత్తం చెల్లించాల్సినది:", style = MaterialTheme.typography.titleMedium)
+            Text("₹ ${NumberFormat.getNumberInstance(Locale.US).format(totalAmount)}", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+        }
 
-        Spacer(Modifier.height(16.dp))
-        Button(
-            onClick = { handleCreateAd() },
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            enabled = !isSubmitting
-        ) {
-            if (isSubmitting) {
-                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
-            } else {
-                Text("ప్రకటనను సబ్మిట్ చేయండి", fontSize = 18.sp)
-            }
+        Button(onClick = { showPreview = true }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
+            Text("Preview Ad")
+        }
+
+        Button(onClick = { handleCreateAd() }, modifier = Modifier.fillMaxWidth().height(56.dp), enabled = !isSubmitting) {
+            if (isSubmitting) CircularProgressIndicator(color = Color.White) else Text("Submit Ad Request")
         }
     }
 }
+
 
 @Composable
 private fun MyAdsView(currentUser: User) { 
@@ -304,14 +397,36 @@ fun AdminAdListItem(ad: LocalAd, onUpdate: () -> Unit) {
 private fun AdListItem(ad: LocalAd) {
     Card(modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))) {
         Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            AsyncImage(model = ad.bannerUrl, contentDescription = "Ad", modifier = Modifier.size(120.dp, 75.dp).clip(MaterialTheme.shapes.small))
+            Box(Modifier.size(120.dp, 75.dp)) {
+                AsyncImage(model = ad.bannerUrl, contentDescription = "Ad", modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.small))
+                if (ad.adMediaType != AdMediaType.IMAGE) {
+                    Surface(color = Color.Black.copy(alpha = 0.5f), shape = RoundedCornerShape(4.dp), modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp)) {
+                        Text(ad.adMediaType.name, color = Color.White, fontSize = 8.sp, modifier = Modifier.padding(2.dp))
+                    }
+                }
+            }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(ad.getTargetAudience(), style = MaterialTheme.typography.titleMedium)
-                Surface(color = ad.status.toColor(), shape = MaterialTheme.shapes.small) {
-                    Text(ad.status.name, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = Color.White)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = ad.status.toColor(), shape = MaterialTheme.shapes.small) {
+                        Text(ad.status.name, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = Color.White)
+                    }
+                    Text(if (ad.adType == AdType.VIEWS_BASED) "వ్యూస్ మోడ్" else "రోజుల మోడ్", style = MaterialTheme.typography.labelSmall)
                 }
-                LinearProgressIndicator(progress = ad.progress, modifier = Modifier.fillMaxWidth())
-                Text("${NumberFormat.getNumberInstance(Locale.US).format(ad.viewsCurrent)} / ${NumberFormat.getNumberInstance(Locale.US).format(ad.viewsOrdered)} వ్యూస్", style = MaterialTheme.typography.labelSmall)
+                
+                if (ad.adType == AdType.VIEWS_BASED) {
+                    LinearProgressIndicator(progress = ad.progress, modifier = Modifier.fillMaxWidth())
+                    Text("${NumberFormat.getNumberInstance(Locale.US).format(ad.viewsCurrent)} / ${NumberFormat.getNumberInstance(Locale.US).format(ad.viewsOrdered)} వ్యూస్", style = MaterialTheme.typography.labelSmall)
+                } else {
+                    val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                    Text("వ్యవధి: ${sdf.format(Date(ad.startDate ?: 0))} - ${sdf.format(Date(ad.endDate ?: 0))}", style = MaterialTheme.typography.labelSmall)
+                }
+                
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("క్లిక్స్: ${ad.clicksCurrent}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    val ctr = if (ad.viewsCurrent > 0) (ad.clicksCurrent.toDouble() / ad.viewsCurrent.toDouble()) * 100 else 0.0
+                    Text("CTR: ${String.format("%.2f", ctr)}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                }
             }
         }
     }

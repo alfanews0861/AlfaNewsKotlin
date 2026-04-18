@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,6 +33,7 @@ import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.utils.Constants
 import com.alfanews.telugu.viewmodels.LocalNewsFeedViewModel
 import com.google.android.gms.ads.nativead.NativeAd
+import com.alfanews.telugu.views.LocalAdCardView
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -51,6 +53,7 @@ fun LocalNewsFeedView(
     val hasMore by viewModel.hasMore.collectAsStateWithLifecycle()
     val activeDistrict by viewModel.activeDistrict.collectAsStateWithLifecycle()
     val isDetecting by viewModel.isDetecting.collectAsStateWithLifecycle()
+    val localAds by viewModel.localAds.collectAsStateWithLifecycle()
     val preloadedAds = remember { mutableStateMapOf<Int, NativeAd?>() }
 
     var showDistrictPicker by remember { mutableStateOf(false) }
@@ -185,9 +188,21 @@ fun LocalNewsFeedView(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
                 userScrollEnabled = true,
+                flingBehavior = PagerDefaults.flingBehavior(
+                    state = pagerState,
+                    snapPositionalThreshold = 0.1f
+                ),
                 key = { page ->
                     val isAd = (page + 1) % 6 == 0
-                    if (isAd) "local_ad_$page" else {
+                    if (isAd) {
+                        val adIndex = page / 6
+                        if (localAds.isNotEmpty()) {
+                            val localAd = localAds[adIndex % localAds.size]
+                            "local_ads_${localAd.id}_$page"
+                        } else {
+                            "local_ad_fallback_$page"
+                        }
+                    } else {
                         val idx = page - (page / 6)
                         if (idx < news.size) news[idx].id else "local_empty_$page"
                     }
@@ -195,28 +210,35 @@ fun LocalNewsFeedView(
             ) { page ->
                 val isAdPagePager = (page + 1) % 6 == 0
                 if (isAdPagePager) {
-                    val nativeAd = preloadedAds[page]
-                    if (nativeAd != null) {
-                        AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)
+                    val adIndex = page / 6
+                    val localAd = if (localAds.isNotEmpty()) localAds[adIndex % localAds.size] else null
+                    
+                    if (localAd != null) {
+                        LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize())
                     } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (preloadedAds.containsKey(page)) {
-                                Text(
-                                    text = "Sponsored Content",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    fontSize = 12.sp
-                                )
-                            } else {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                                    strokeWidth = 2.dp
-                                )
+                        val nativeAd = preloadedAds[page]
+                        if (nativeAd != null) {
+                            AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (preloadedAds.containsKey(page)) {
+                                    Text(
+                                        text = "Sponsored Content",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                        fontSize = 12.sp
+                                    )
+                                } else {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                        strokeWidth = 2.dp
+                                    )
+                                }
                             }
                         }
                     }

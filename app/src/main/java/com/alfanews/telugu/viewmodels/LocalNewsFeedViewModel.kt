@@ -47,6 +47,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     private val _activeDistrict = MutableStateFlow(prefs.getEffectiveDistrict())
     val activeDistrict: StateFlow<String?> = _activeDistrict.asStateFlow()
     
+    private val _localAds = MutableStateFlow<List<com.alfanews.telugu.models.LocalAd>>(emptyList())
+    val localAds: StateFlow<List<com.alfanews.telugu.models.LocalAd>> = _localAds.asStateFlow()
+
     private val _isDetecting = MutableStateFlow(false)
     val isDetecting: StateFlow<Boolean> = _isDetecting.asStateFlow()
     
@@ -159,8 +162,42 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    private fun loadLocalAds(district: String) {
+        viewModelScope.launch {
+            try {
+                val now = System.currentTimeMillis()
+                val snapshot = FirebaseService.db.collection("local_ads")
+                    .whereEqualTo("status", com.alfanews.telugu.models.AdStatus.ACTIVE.name)
+                    .get().await()
+                
+                val allAds = snapshot.documents.mapNotNull { com.alfanews.telugu.models.LocalAd.fromSnapshot(it) }
+                
+                // జిల్లా మరియు తేదీల వారీగా ఫిల్టర్ చేయడం
+                val validAds = allAds.filter { ad ->
+                    val isForDistrict = ad.targetDistrict == "ALL" || ad.targetDistrict == district
+                    
+                    val isWithinDate = if (ad.adType == com.alfanews.telugu.models.AdType.TIME_BASED_FIXED) {
+                        (ad.startDate ?: 0) <= now && (ad.endDate ?: Long.MAX_VALUE) >= now
+                    } else true
+                    
+                    val isNotFinished = if (ad.adType == com.alfanews.telugu.models.AdType.VIEWS_BASED) {
+                        ad.viewsCurrent < ad.viewsOrdered
+                    } else true
+                    
+                    isForDistrict && isWithinDate && isNotFinished
+                }
+                
+                _localAds.value = validAds
+            } catch (e: Exception) {
+                _localAds.value = emptyList()
+            }
+        }
+    }
+
     fun loadNews(language: Language, currentUser: User?) {
         val district = _activeDistrict.value ?: return
+        
+        loadLocalAds(district) // లోకల్ యాడ్స్ లోడ్ చేయండి
         
         loadJob?.cancel()
         _loading.value = true

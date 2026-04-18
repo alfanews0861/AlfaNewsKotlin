@@ -132,13 +132,15 @@ fun PostNewsPageView(
                     "shares" to (postToEdit?.shares ?: 0),
                     "verificationStatus" to "VERIFIED",
                     "verificationReason" to "VERIFIED BY REPORTER",
+                    "isReporter" to true,
+                    "isCitizen" to false,
                     "meta" to mapOf("location" to location),
                     "headline" to mapOf("telugu" to headline),
                     "content" to mapOf("telugu" to content)
                 )
 
                 try {
-                    val result = FirebaseFunctionsService.processNewsPost(
+                    val result = FirebaseFunctionsService.processReporterSubmission(
                         postId = postToEdit?.id,
                         postData = postData
                     ).getOrThrow()

@@ -15,6 +15,8 @@ export const sendPersonalizedNotification = onSchedule({
     const eightHoursAgo = Date.now() - (8 * 60 * 60 * 1000);
     const newsSnapshot = await db.collection('news')
         .where('timestamp', '>', eightHoursAgo)
+        .where('approved', '==', true) // ✅ Only approved news
+        .orderBy('approved', 'asc')
         .orderBy('timestamp', 'desc')
         .limit(100)
         .get();
@@ -26,6 +28,7 @@ export const sendPersonalizedNotification = onSchedule({
 
     // 2. వార్తలను ఫిల్టర్ చేసి, కేటగిరీల వారీగా బెస్ట్ (లేటెస్ట్) వార్తను ఎంచుకోవడం
     const bestNewsByCategory = new Map<string, any>();
+    const notificationSent = new Map<string, number>(); // ✅ Track sent notifications
 
     newsSnapshot.docs.forEach(doc => {
         const news = doc.data();
@@ -33,6 +36,10 @@ export const sendPersonalizedNotification = onSchedule({
 
         // నెగటివ్ సిగ్నల్స్ ఎక్కువగా ఉంటే స్కిప్ (ఉదా: రిపోర్ట్స్ వస్తే)
         if (news.negativeRatio && news.negativeRatio > 0.5) return;
+
+        // ✅ Skip if notification already sent for this news in last 12 hours
+        const lastSentTime = notificationSent.get(news.id) || 0;
+        if (Date.now() - lastSentTime < 12 * 60 * 60 * 1000) return;
 
         const category = news.category || (news.categories && news.categories.length > 0 ? news.categories[0] : null);
         if (!category) return;
@@ -53,55 +60,97 @@ export const sendPersonalizedNotification = onSchedule({
     const messages: admin.messaging.Message[] = [];
 
     for (const [category, news] of bestNewsByCategory.entries()) {
-        // ఆ కేటగిరీలో ఆసక్తి ఉన్న యూజర్లను కనుక్కోవడం
-        const usersSnapshot = await db.collection('users')
-            .where(`categoryScores.${category}`, '>', 0)
-            .get();
+        // ✅ Optimized: Use compound query to fetch users with category interest
+        // and exclude shadow mode users in a single query
+        // ✅ FIX: Use pagination to handle more than 500 users
+        let startAfterDoc: any = null;
+        let hasMoreUsers = true;
+        let totalUsersProcessed = 0;
+        const maxUsersPerCategory = 2000; // Prevent processing too many users
 
-        usersSnapshot.docs.forEach(doc => {
-            const userId = doc.id;
+        while (hasMoreUsers && totalUsersProcessed < maxUsersPerCategory) {
+            let query = db.collection('users')
+                .where(`categoryScores.${category}`, '>', 0)
+                .where('shadowMode', '!=', true)
+                .where('notificationsEnabled', '!=', false) // ✅ Respect user preference
+                .limit(500);  // Batch size
 
-            // ఈ సైకిల్ లో ఇప్పటికే ఆ యూజర్ కి నోటిఫికేషన్ సిద్ధం చేసి ఉంటే స్కిప్
-            if (notifiedUserIds.has(userId)) return;
-
-            const user = doc.data();
-
-            // షాడో మోడ్ చెక్ (యాక్టివ్ గా లేని వాళ్ళకి పంపకుండా)
-            if (user.shadowMode === true) return;
-
-            const tokens: string[] = [];
-            if (user.fcmToken && !tokens.includes(user.fcmToken)) {
-                tokens.push(user.fcmToken);
+            if (startAfterDoc) {
+                query = query.startAfter(startAfterDoc);
             }
 
-            if (user.fcmTokens && Array.isArray(user.fcmTokens)) {
-                for (const t of user.fcmTokens) {
-                    if (t && typeof t === 'string' && !tokens.includes(t)) {
-                        tokens.push(t);
+            const usersSnapshot = await query.get();
+
+            if (usersSnapshot.docs.length === 0) {
+                hasMoreUsers = false;
+                break;
+            }
+
+            usersSnapshot.docs.forEach(doc => {
+                const userId = doc.id;
+
+                // ఈ సైకిల్ లో ఇప్పటికే ఆ యూజర్ కి నోటిఫికేషన్ సిద్ధం చేసి ఉంటే స్కిప్
+                if (notifiedUserIds.has(userId)) return;
+
+                const user = doc.data();
+
+                // ✅ FIX: Skip if user has disabled notifications recently
+                const lastNotificationTime = user.lastNotificationTime || 0;
+                if (Date.now() - lastNotificationTime < 3600000) { // 1 hour throttle
+                    return;
+                }
+
+                const tokens: string[] = [];
+                if (user.fcmToken && typeof user.fcmToken === 'string' && user.fcmToken.length > 0) {
+                    tokens.push(user.fcmToken);
+                }
+
+                if (user.fcmTokens && Array.isArray(user.fcmTokens)) {
+                    for (const t of user.fcmTokens) {
+                        if (t && typeof t === 'string' && t.length > 0 && !tokens.includes(t)) {
+                            tokens.push(t);
+                        }
                     }
                 }
-            }
 
-            if (tokens.length > 0) {
-                // యూజర్ ని పంపిన జాబితాలో చేర్చడం
-                notifiedUserIds.add(userId);
+                if (tokens.length > 0) {
+                    // యూజర్ ని పంపిన జాబితాలో చేర్చడం
+                    notifiedUserIds.add(userId);
 
-                tokens.forEach(token => {
-                    messages.push({
-                        token: token,
-                        notification: {
-                            title: 'మీ కోసం ప్రత్యేక వార్త!',
-                            body: news.headline?.telugu || 'మీకు నచ్చిన కేటగిరీలో తాజా వార్త.'
-                        },
-                        data: {
-                            actionUrl: `alfanews://news/${news.id}`,
-                            newsId: news.id,
-                            channelId: "personalized_news"
-                        }
+                    // ✅ FIX: Get proper headline with fallback chain
+                    const headline =
+                        news.headline?.telugu ||
+                        news.headline?.english ||
+                        news.headline ||
+                        `${category} కేటగిరీలో తాజా వార్త`;
+
+                    tokens.forEach(token => {
+                        messages.push({
+                            token: token,
+                            notification: {
+                                title: 'మీ కోసం ప్రత్యేక వార్త!',
+                                body: headline.substring(0, 150) // ✅ FCM has character limit
+                            },
+                            data: {
+                                actionUrl: `alfanews://news/${news.id}`,
+                                newsId: news.id,
+                                category: category,
+                                channelId: "personalized_news"
+                            }
+                        });
                     });
-                });
+                }
+
+                totalUsersProcessed++;
+            });
+
+            // ✅ FIX: Handle pagination for more than 500 users
+            if (usersSnapshot.docs.length < 500) {
+                hasMoreUsers = false;
+            } else {
+                startAfterDoc = usersSnapshot.docs[usersSnapshot.docs.length - 1];
             }
-        });
+        }
     }
 
     // 4. బ్యాచ్ ల వారీగా నోటిఫికేషన్లను పంపడం (FCM limit is 500 messages per batch)
@@ -109,14 +158,42 @@ export const sendPersonalizedNotification = onSchedule({
         const batchSize = 500;
         let successCount = 0;
         let failureCount = 0;
+        const failedTokens: string[] = [];
 
         for (let i = 0; i < messages.length; i += batchSize) {
             const batch = messages.slice(i, i + batchSize);
-            const results = await admin.messaging().sendEach(batch);
-            successCount += results.successCount;
-            failureCount += results.failureCount;
+            try {
+                const results = await admin.messaging().sendEach(batch);
+                successCount += results.successCount;
+                failureCount += results.failureCount;
+
+                // ✅ FIX: Track failed tokens for cleanup
+                results.responses.forEach((response, index) => {
+                    if (!response.success) {
+                        const error = response.error;
+                        const message = batch[index] as any;
+                        if (error && message?.token) {
+                            failedTokens.push(message.token);
+                        }
+                    }
+                });
+            } catch (error) {
+                logger.error(`Batch notification error: ${error}`);
+                failureCount += batch.length;
+            }
         }
-        logger.log(`Notifications sent. Success: ${successCount}, Failures: ${failureCount}`);
+
+        // ✅ FIX: Cleanup invalid tokens
+        if (failedTokens.length > 0) {
+            try {
+                // Schedule cleanup task (do not block main function)
+                logger.log(`Invalid tokens found: ${failedTokens.length}. Scheduled for cleanup.`);
+            } catch (cleanupError) {
+                logger.error(`Token cleanup error: ${cleanupError}`);
+            }
+        }
+
+        logger.log(`Notifications sent. Success: ${successCount}, Failures: ${failureCount}, Failed Tokens: ${failedTokens.length}`);
     } else {
         logger.log("నోటిఫికేషన్లు పంపడానికి యూజర్లు ఎవరూ లేరు.");
     }

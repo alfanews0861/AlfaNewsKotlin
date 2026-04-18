@@ -59,14 +59,47 @@ class LoginViewModel : ViewModel() {
             try {
                 val authResult = FirebaseService.auth.signInWithCredential(credential).await()
                 val isNewUser = authResult.additionalUserInfo?.isNewUser ?: false
+                val user = authResult.user!!
+
+                // వర్తమాన వినియోగదారు డేటా తెలుసుకోవటానికి ప్రయత్నించండి
+                val userRef = FirebaseService.db.collection("users").document(user.uid)
+                val existingUserDoc = userRef.get().await()
+
                 if (isNewUser) {
-                    val user = authResult.user!!
+                    // కొత్త వినియోగదారు - కొత్త ప్రొఫైల్ సృష్టించండి
+                    createUserProfileInFirestore(
+                        user = user,
+                        name = user.displayName ?: "",
+                        context = context
+                    )
+                } else if (existingUserDoc.exists()) {
+                    // ఇప్పటికే ఉన్న వినియోగదారు - తమ రోల్ సంరక్షించండి
+                    // కేవలం ఆధారీకరణ సమాచారం నవీకరించండి (ఫోన్ / ఇమెయిల్ / ఫోటో)
+                    val updateData = mutableMapOf<String, Any>()
+                    if (!user.phoneNumber.isNullOrEmpty()) {
+                        updateData["phone"] = user.phoneNumber!!
+                    }
+                    if (!user.email.isNullOrEmpty()) {
+                        updateData["email"] = user.email!!
+                    }
+                    if (!user.photoUrl.isNullOrEmpty()) {
+                        updateData["photoUrl"] = user.photoUrl!!
+                    }
+                    if (!user.displayName.isNullOrEmpty()) {
+                        updateData["name"] = user.displayName!!
+                    }
+                    if (updateData.isNotEmpty()) {
+                        userRef.update(updateData).await()
+                    }
+                } else {
+                    // నిర్ధారణ లో సమస్య - ప్రొఫైల్ లేదు, కొత్త సృష్టించండి
                     createUserProfileInFirestore(
                         user = user,
                         name = user.displayName ?: "",
                         context = context
                     )
                 }
+
                 _uiState.value = LoginUiState(isLoginSuccessful = true)
             } catch (e: Exception) {
                 _uiState.value = LoginUiState(errorMessage = e.localizedMessage)

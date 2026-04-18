@@ -39,31 +39,24 @@ fun ReporterManagementPageView(currentUser: User) {
         scope.launch {
             loading = true
             try {
-                val snapshot = FirebaseService.db.collection("reporter_applications")
+                // ✅ Optimized: Filter in query, not in memory
+                val baseQuery = FirebaseService.db.collection("reporter_applications")
+                    .orderBy("status", Query.Direction.ASCENDING)  // PENDING first (A before J)
                     .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .get()
-                    .await()
-                
+
+                val snapshot = if (currentUser.role == UserRole.REGIONAL_INCHARGE) {
+                    // Only fetch applications for assigned districts
+                    baseQuery.whereIn("district", currentUser.assignedDistricts).get().await()
+                } else {
+                    baseQuery.get().await()
+                }
+
                 val allApps = snapshot.documents.map { doc -> 
                     doc.data?.plus("id" to doc.id) ?: emptyMap<String, Any>() 
                 }
                 
-                // Filtering based on role
-                val filteredApps = if (currentUser.role == UserRole.REGIONAL_INCHARGE) {
-                    allApps.filter { app -> 
-                        val dist = app["district"] as? String
-                        currentUser.assignedDistricts.contains(dist)
-                    }
-                } else {
-                    allApps
-                }
-                
-                // Sort to keep PENDING at top
-                applications = filteredApps.sortedBy { app -> 
-                    val status = app["status"] as? String ?: "PENDING"
-                    if (status == "PENDING") 0 else 1
-                }
-                
+                applications = allApps
+
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {

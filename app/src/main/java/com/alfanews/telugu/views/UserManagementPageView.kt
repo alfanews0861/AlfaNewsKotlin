@@ -40,36 +40,43 @@ fun UserManagementPageView(currentUser: User) {
         scope.launch {
             loading = true
             try {
-                val snapshot = FirebaseService.db.collection("users")
-                    .orderBy("name", Query.Direction.ASCENDING)
-                    .get()
-                    .await()
-
-                val fetchedUsers = snapshot.documents.mapNotNull { doc -> 
-                    doc.toObject(User::class.java)?.copy(id = doc.id) 
-                }
-
-                users = fetchedUsers
-                editors = fetchedUsers.filter { it.role == UserRole.EDITOR }
-
-                val baseList = when (currentUser.role) {
+                // ✅ Optimized: Role-based queries instead of fetching all users
+                val queries = when (currentUser.role) {
                     UserRole.EDITOR -> {
-                        fetchedUsers.filter { u -> 
-                            u.role == UserRole.SUBSCRIBER || 
-                            (u.role == UserRole.REPORTER && (u.promotedBy == currentUser.id || u.promotedBy.isNullOrBlank() || u.promotedBy == "ADMIN"))
-                        }
+                        val subscribers = FirebaseService.db.collection("users")
+                            .whereEqualTo("role", "SUBSCRIBER")
+                            .get().await().documents.mapNotNull { doc -> doc.toObject(User::class.java)?.copy(id = doc.id) }
+
+                        val reporters = FirebaseService.db.collection("users")
+                            .whereEqualTo("role", "REPORTER")
+                            .get().await().documents.mapNotNull { doc -> doc.toObject(User::class.java)?.copy(id = doc.id) }
+
+                        subscribers + reporters.filter { it.promotedBy == currentUser.id || it.promotedBy.isNullOrBlank() || it.promotedBy == "ADMIN" }
                     }
                     UserRole.REGIONAL_INCHARGE -> {
-                        fetchedUsers.filter { u -> 
-                            (u.role == UserRole.SUBSCRIBER || u.role == UserRole.REPORTER) && 
-                            u.district != null && currentUser.assignedDistricts.contains(u.district)
-                        }
+                        val roles = listOf("SUBSCRIBER", "REPORTER")
+                        roles.flatMap { role ->
+                            FirebaseService.db.collection("users")
+                                .whereEqualTo("role", role)
+                                .get().await().documents.mapNotNull { doc ->
+                                    doc.toObject(User::class.java)?.copy(id = doc.id)
+                                }
+                        }.filter { u -> u.district != null && currentUser.assignedDistricts.contains(u.district) }
                     }
-                    else -> fetchedUsers
+                    else -> {
+                        FirebaseService.db.collection("users")
+                            .orderBy("name", Query.Direction.ASCENDING)
+                            .get()
+                            .await()
+                            .documents.mapNotNull { doc -> doc.toObject(User::class.java)?.copy(id = doc.id) }
+                    }
                 }
-                
+
+                users = queries
+                editors = queries.filter { it.role == UserRole.EDITOR }
+
                 val lowercasedFilter = searchTerm.lowercase()
-                filteredUsers = if (lowercasedFilter.isBlank()) baseList else baseList.filter { 
+                filteredUsers = if (lowercasedFilter.isBlank()) queries else queries.filter {
                     it.name.lowercase().contains(lowercasedFilter) || (it.email?.lowercase()?.contains(lowercasedFilter) == true)
                 }
 
@@ -87,22 +94,8 @@ fun UserManagementPageView(currentUser: User) {
 
     LaunchedEffect(searchTerm, users) {
         val lowercasedFilter = searchTerm.lowercase()
-        val baseList = when (currentUser.role) {
-            UserRole.EDITOR -> {
-                users.filter { u -> 
-                    u.role == UserRole.SUBSCRIBER || 
-                    (u.role == UserRole.REPORTER && (u.promotedBy == currentUser.id || u.promotedBy.isNullOrBlank() || u.promotedBy == "ADMIN"))
-                }
-            }
-            UserRole.REGIONAL_INCHARGE -> {
-                users.filter { u -> 
-                    (u.role == UserRole.SUBSCRIBER || u.role == UserRole.REPORTER) && 
-                    u.district != null && currentUser.assignedDistricts.contains(u.district)
-                }
-            }
-            else -> users
-        }
-        filteredUsers = if (lowercasedFilter.isBlank()) baseList else baseList.filter { 
+        // ✅ Apply search filter to existing users without refetching
+        filteredUsers = if (lowercasedFilter.isBlank()) users else users.filter {
             it.name.lowercase().contains(lowercasedFilter) || (it.email?.lowercase()?.contains(lowercasedFilter) == true)
         }
     }

@@ -101,7 +101,14 @@ fun NewsFeedView(
         }
     }
 
-    val totalCount = remember(news.size) { if (news.isEmpty()) 0 else news.size + (news.size / 5) }
+    // యాడ్ స్లాట్‌ల కారణంగా టోటల్ పేజీ కౌంట్ కాలిక్యులేట్ చేయండి (6 పేజీలకు 1 యాడ్)
+    val totalCount = remember(news.size) {
+        if (news.isEmpty()) 0 else {
+            val newsCount = news.size
+            val adSlots = (newsCount + 5) / 6 // పూర్తిగా చేయండి
+            newsCount + adSlots
+        }
+    }
     val pagerState = rememberPagerState(pageCount = { totalCount })
 
     LaunchedEffect(pagerState, news.size) { 
@@ -177,7 +184,7 @@ fun NewsFeedView(
                 userScrollEnabled = true,
                 flingBehavior = PagerDefaults.flingBehavior(
                     state = pagerState,
-                    snapPositionalThreshold = 0.2f
+                    snapPositionalThreshold = 0.1f
                 ),
                 key = { page ->
                     val isAd = (page + 1) % 6 == 0

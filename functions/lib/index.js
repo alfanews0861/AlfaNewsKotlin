@@ -39,7 +39,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.shareNews = exports.submitReporterApplication = exports.sendContactEmail = exports.triggerPushBroadcast = exports.processNewsPost = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = exports.scheduleTrendingNews = void 0;
+exports.shareNews = exports.submitReporterApplication = exports.sendContactEmail = exports.triggerPushBroadcast = exports.processReporterSubmission = exports.processNewsPost = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = exports.scheduleTrendingNews = void 0;
 /**
  * Alfa News - Cloud Functions v17.7 (Optimized AI Models)
  */
@@ -447,6 +447,7 @@ exports.generateDailyCartoon = (0, scheduler_1.onSchedule)({ schedule: "0 6 * * 
 });
 /**
  * 6. Main News Processing (USING HIGH QUALITY PRO MODEL)
+ * Processes both Citizen and Reporter submissions through AI enhancement
  */
 exports.processNewsPost = (0, https_1.onCall)(async (request) => {
     const { postId, headline: rawHeadline, content: rawContent, postData } = request.data;
@@ -514,9 +515,109 @@ exports.processNewsPost = (0, https_1.onCall)(async (request) => {
                     ...(actualPostData?.district ? [actualPostData.district] : [])
                 ])).filter(c => !!c),
                 storyFingerprint: aiRes.storyFingerprint,
-                // Only use getRandomReporter if there's no actual reporter AND it's not a citizen post
+                // Preserve reporter if available, otherwise keep the original reporter or assign random one
                 reporter: actualPostData?.reporter || (actualPostData?.isCitizen ? null : getRandomReporter()),
+                // Ensure both citizen and reporter submissions are properly flagged
+                isCitizen: actualPostData?.isCitizen || false,
+                isReporter: actualPostData?.isReporter || false,
                 aiProcessed: true,
+                aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: actualPostData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            };
+            if (postRef) {
+                await postRef.update(finalData);
+                return { success: true, postId: postRef.id };
+            }
+            else {
+                const newDocRef = await db.collection('news').add(finalData);
+                return { success: true, postId: newDocRef.id };
+            }
+        }
+        return { success: false };
+    }
+    catch (e) {
+        throw new https_1.HttpsError('internal', e.message);
+    }
+});
+/**
+ * 6.1 Process Reporter Submission
+ * Dedicated function to ensure reporter news submissions are processed with AI enhancement
+ * This function explicitly handles reporter submissions and flags them appropriately
+ */
+exports.processReporterSubmission = (0, https_1.onCall)(async (request) => {
+    const { postId, headline: rawHeadline, content: rawContent, postData } = request.data;
+    const ai = getAIInstance();
+    try {
+        let headline = rawHeadline || postData?.headline?.telugu || "";
+        let content = rawContent || postData?.content?.telugu || "";
+        let postRef = null;
+        let actualPostData = postData || {};
+        if (postId) {
+            postRef = db.collection('news').doc(postId);
+            const postDoc = await postRef.get();
+            if (postDoc.exists) {
+                const data = postDoc.data();
+                if (data) {
+                    actualPostData = { ...data, ...actualPostData };
+                    headline = rawHeadline || data?.headline?.telugu || headline;
+                    content = rawContent || data?.content?.telugu || content;
+                }
+            }
+        }
+        if (!headline || !content)
+            throw new https_1.HttpsError('invalid-argument', 'Headline and content are required');
+        const schema = {
+            type: genai_1.Type.OBJECT,
+            properties: {
+                headline: { type: genai_1.Type.STRING },
+                content: { type: genai_1.Type.STRING },
+                headlineEn: { type: genai_1.Type.STRING },
+                contentEn: { type: genai_1.Type.STRING },
+                location: { type: genai_1.Type.STRING },
+                storyFingerprint: { type: genai_1.Type.STRING },
+                refinedCategory: { type: genai_1.Type.STRING }
+            },
+            required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory"]
+        };
+        const response = await ai.models.generateContent({
+            model: PRO_MODEL, // Using High Quality model for Reporter submissions
+            contents: [{ role: "user", parts: [{ text: `Headline: ${headline}\nContent: ${content}` }] }],
+            config: {
+                systemInstruction: "You are a Senior Editor processing a reporter's news submission. Enhance and refine the 70-word Telugu article. Output JSON.",
+                temperature: 0.4,
+                responseMimeType: "application/json",
+                responseSchema: schema,
+            },
+        });
+        const aiRes = parseAIJson(response.text || "{}");
+        if (aiRes.content) {
+            let finalMediaUrl = actualPostData?.mediaUrl || "";
+            if (finalMediaUrl && !finalMediaUrl.includes('firebasestorage.googleapis.com')) {
+                const optimizedUrl = await saveImageLocally(finalMediaUrl, "POST");
+                if (optimizedUrl)
+                    finalMediaUrl = optimizedUrl;
+            }
+            const finalData = {
+                ...actualPostData,
+                headline: { telugu: aiRes.headline, english: aiRes.headlineEn },
+                content: { telugu: aiRes.content, english: aiRes.contentEn },
+                mediaUrl: finalMediaUrl,
+                location: aiRes.location,
+                category: aiRes.refinedCategory,
+                categories: Array.from(new Set([
+                    aiRes.refinedCategory,
+                    ...(actualPostData?.categories || []),
+                    ...(actualPostData?.district ? [actualPostData.district] : [])
+                ])).filter(c => !!c),
+                storyFingerprint: aiRes.storyFingerprint,
+                // Preserve the reporter information
+                reporter: actualPostData?.reporter,
+                isReporter: true,
+                isCitizen: false,
+                aiProcessed: true,
+                aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
+                processingType: "REPORTER_SUBMISSION",
                 timestamp: actualPostData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             };

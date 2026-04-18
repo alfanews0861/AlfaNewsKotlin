@@ -66,14 +66,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (snapshot != null && snapshot.exists()) {
                         val roleStr = snapshot.getString("role") ?: "SUBSCRIBER"
                         val userObj = try {
+                            // First attempt: Automatic mapping
                             snapshot.toObject(User::class.java)?.copy(
                                 id = snapshot.id,
-                                role = UserRole.valueOf(roleStr.uppercase())
+                                role = try { UserRole.valueOf(roleStr.uppercase()) } catch(e: Exception) { UserRole.SUBSCRIBER }
                             )
                         } catch (e: Exception) {
-                            snapshot.toObject(User::class.java)?.copy(
+                            // Second attempt: Manual mapping if automatic fails (Resilience)
+                            User(
                                 id = snapshot.id,
-                                role = UserRole.SUBSCRIBER
+                                name = snapshot.getString("name") ?: "User",
+                                email = snapshot.getString("email"),
+                                phone = snapshot.getString("phone"),
+                                photoUrl = snapshot.getString("photoUrl"),
+                                role = try { UserRole.valueOf(roleStr.uppercase()) } catch(ev: Exception) { UserRole.SUBSCRIBER },
+                                district = snapshot.getString("district"),
+                                pushEnabled = snapshot.getBoolean("pushEnabled") ?: true
                             )
                         }
                         

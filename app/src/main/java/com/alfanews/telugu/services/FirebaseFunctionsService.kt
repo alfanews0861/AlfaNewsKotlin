@@ -57,6 +57,21 @@ object FirebaseFunctionsService {
         return callFunction("processNewsPost", data)
     }
 
+    suspend fun processReporterSubmission(
+        postId: String? = null,
+        headline: String? = null,
+        content: String? = null,
+        postData: Map<String, Any>? = null
+    ): Result<Map<String, Any>> {
+        val data = mutableMapOf<String, Any>()
+        postId?.let { data["postId"] = it }
+        headline?.let { data["headline"] = it }
+        content?.let { data["content"] = it }
+        postData?.let { data["postData"] = it }
+
+        return callFunction("processReporterSubmission", data)
+    }
+
     suspend fun processSocialFeeds(): Result<Map<String, Any>> {
         return callFunction("processSocialFeeds")
     }

@@ -410,6 +410,7 @@ export const generateDailyCartoon = onSchedule({ schedule: "0 6 * * *", timeZone
 
 /**
  * 6. Main News Processing (USING HIGH QUALITY PRO MODEL)
+ * Processes both Citizen and Reporter submissions through AI enhancement
  */
 export const processNewsPost = onCall(async (request) => {
     const { postId, headline: rawHeadline, content: rawContent, postData } = request.data;
@@ -481,9 +482,111 @@ export const processNewsPost = onCall(async (request) => {
                     ...(actualPostData?.district ? [actualPostData.district] : [])
                 ])).filter(c => !!c),
                 storyFingerprint: aiRes.storyFingerprint,
-                // Only use getRandomReporter if there's no actual reporter AND it's not a citizen post
+                // Preserve reporter if available, otherwise keep the original reporter or assign random one
                 reporter: actualPostData?.reporter || (actualPostData?.isCitizen ? null : getRandomReporter()),
+                // Ensure both citizen and reporter submissions are properly flagged
+                isCitizen: actualPostData?.isCitizen || false,
+                isReporter: actualPostData?.isReporter || false,
                 aiProcessed: true,
+                aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: actualPostData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            };
+
+            if (postRef) {
+                await postRef.update(finalData);
+                return { success: true, postId: postRef.id };
+            } else {
+                const newDocRef = await db.collection('news').add(finalData);
+                return { success: true, postId: newDocRef.id };
+            }
+        }
+        return { success: false };
+    } catch (e: any) { throw new HttpsError('internal', e.message); }
+});
+
+/**
+ * 6.1 Process Reporter Submission
+ * Dedicated function to ensure reporter news submissions are processed with AI enhancement
+ * This function explicitly handles reporter submissions and flags them appropriately
+ */
+export const processReporterSubmission = onCall(async (request) => {
+    const { postId, headline: rawHeadline, content: rawContent, postData } = request.data;
+    const ai = getAIInstance();
+    try {
+        let headline = rawHeadline || postData?.headline?.telugu || "";
+        let content = rawContent || postData?.content?.telugu || "";
+        let postRef: admin.firestore.DocumentReference | null = null;
+        let actualPostData = postData || {};
+
+        if (postId) {
+            postRef = db.collection('news').doc(postId);
+            const postDoc = await postRef.get();
+            if (postDoc.exists) {
+                const data = postDoc.data();
+                if (data) {
+                    actualPostData = { ...data, ...actualPostData };
+                    headline = rawHeadline || data?.headline?.telugu || headline;
+                    content = rawContent || data?.content?.telugu || content;
+                }
+            }
+        }
+
+        if (!headline || !content) throw new HttpsError('invalid-argument', 'Headline and content are required');
+
+        const schema = {
+            type: Type.OBJECT,
+            properties: {
+                headline: { type: Type.STRING },
+                content: { type: Type.STRING },
+                headlineEn: { type: Type.STRING },
+                contentEn: { type: Type.STRING },
+                location: { type: Type.STRING },
+                storyFingerprint: { type: Type.STRING },
+                refinedCategory: { type: Type.STRING }
+            },
+            required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory"]
+        };
+
+        const response = await ai.models.generateContent({
+            model: PRO_MODEL, // Using High Quality model for Reporter submissions
+            contents: [{ role: "user", parts: [{ text: `Headline: ${headline}\nContent: ${content}` }] }],
+            config: {
+                systemInstruction: "You are a Senior Editor processing a reporter's news submission. Enhance and refine the 70-word Telugu article. Output JSON.",
+                temperature: 0.4,
+                responseMimeType: "application/json",
+                responseSchema: schema,
+            },
+        });
+
+        const aiRes = parseAIJson(response.text || "{}");
+        if (aiRes.content) {
+            let finalMediaUrl = actualPostData?.mediaUrl || "";
+            if (finalMediaUrl && !finalMediaUrl.includes('firebasestorage.googleapis.com')) {
+                const optimizedUrl = await saveImageLocally(finalMediaUrl, "POST");
+                if (optimizedUrl) finalMediaUrl = optimizedUrl;
+            }
+
+            const finalData = {
+                ...actualPostData,
+                headline: { telugu: aiRes.headline, english: aiRes.headlineEn },
+                content: { telugu: aiRes.content, english: aiRes.contentEn },
+                mediaUrl: finalMediaUrl,
+                location: aiRes.location,
+                category: aiRes.refinedCategory,
+                categories: Array.from(new Set([
+                    aiRes.refinedCategory,
+                    ...(actualPostData?.categories || []),
+                    ...(actualPostData?.district ? [actualPostData.district] : [])
+                ])).filter(c => !!c),
+                storyFingerprint: aiRes.storyFingerprint,
+                // Preserve the reporter information
+                reporter: actualPostData?.reporter,
+                isReporter: true,
+                isCitizen: false,
+                aiProcessed: true,
+                aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
+                processingType: "REPORTER_SUBMISSION",
                 timestamp: actualPostData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             };

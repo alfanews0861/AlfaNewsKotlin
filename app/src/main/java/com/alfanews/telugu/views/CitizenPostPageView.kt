@@ -217,6 +217,7 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
                     "verificationStatus" to "VERIFIED",
                     "verificationReason" to "పౌరుడి ద్వారా ధృవీకరించబడింది",
                     "isCitizen" to true,
+                    "isReporter" to false,
                     "userConfirmed" to true
                 )
 
