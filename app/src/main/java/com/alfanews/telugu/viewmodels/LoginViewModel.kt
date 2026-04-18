@@ -82,7 +82,7 @@ class LoginViewModel : ViewModel() {
                     if (!user.email.isNullOrEmpty()) {
                         updateData["email"] = user.email!!
                     }
-                    if (!user.photoUrl.isNullOrEmpty()) {
+                    if (user.photoUrl != null) {
                         updateData["photoUrl"] = user.photoUrl!!
                     }
                     if (!user.displayName.isNullOrEmpty()) {
