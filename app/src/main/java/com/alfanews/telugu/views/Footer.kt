@@ -16,6 +16,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import com.alfanews.telugu.R
 import com.alfanews.telugu.ui.theme.Mallanna
 
@@ -42,7 +44,7 @@ fun Footer(
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onSurface,
                 tonalElevation = 0.dp,
-                windowInsets = WindowInsets(0, 0, 0, 0)
+                windowInsets = WindowInsets.navigationBars
             ) {
                 FooterItem(
                     icon = Icons.Default.Home,

@@ -32,6 +32,7 @@ import com.alfanews.telugu.services.AdMobService
 import com.alfanews.telugu.utils.SafeImageLoader
 import com.alfanews.telugu.viewmodels.NewsFeedViewModel
 import com.google.android.gms.ads.nativead.NativeAd
+import kotlinx.coroutines.flow.snapshotFlow
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -111,7 +112,19 @@ fun NewsFeedView(
     }
     val pagerState = rememberPagerState(pageCount = { totalCount })
 
-    LaunchedEffect(pagerState, news.size) { 
+    // Scroll to shared/initial post when available
+    LaunchedEffect(sharedPostId, news.size) {
+        if (sharedPostId != null && news.isNotEmpty()) {
+            val postIndex = news.indexOfFirst { it.id == sharedPostId }
+            if (postIndex >= 0) {
+                // Calculate page index accounting for ad slots (1 ad per 6 items)
+                val pageIndex = postIndex + (postIndex / 5)
+                pagerState.animateScrollToPage(pageIndex)
+            }
+        }
+    }
+
+    LaunchedEffect(pagerState, news.size) {
         snapshotFlow { pagerState.currentPage }.collect { page ->
             val currentNewsIndex = page - (page / 6)
             if (currentNewsIndex >= news.size - 3 && hasMore && !loading) {

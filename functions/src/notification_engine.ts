@@ -135,7 +135,11 @@ export const sendPersonalizedNotification = onSchedule({
                                 actionUrl: `alfanews://news/${news.id}`,
                                 newsId: news.id,
                                 category: category,
-                                channelId: "personalized_news"
+                                channelId: "personalized_news",
+                                // ✅ NEW: Include image URL for rich notifications
+                                imageUrl: news.mediaUrl || "",
+                                // ✅ NEW: Include full headline for display
+                                fullHeadline: headline
                             }
                         });
                     });

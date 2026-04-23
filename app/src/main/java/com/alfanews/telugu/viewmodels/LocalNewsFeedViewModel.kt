@@ -224,7 +224,20 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         snapshot!!.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
                     }
                 } catch (e: Exception) {
-                    // Fallback to general news if index is missing or query fails
+                    // Index missing or query failed - try with just district field
+                    try {
+                         val fallbackQuery = newsRef
+                             .whereEqualTo("district", district)
+                             .orderBy("timestamp", Query.Direction.DESCENDING)
+                             .limit(pageSize.toLong())
+
+                         snapshot = fallbackQuery.get().await()
+                         posts = withContext(Dispatchers.Default) {
+                             snapshot!!.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                         }
+                     } catch (e2: Exception) {
+                         // Both failed, will use generic fallback below
+                     }
                 }
                 
                 // If local news is empty or query failed, fetch generic news so the user doesn't see a blank screen
@@ -253,60 +266,83 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
     
     fun loadMore(language: Language, currentUser: User?) {
-        val district = _activeDistrict.value ?: return
-        if (!_hasMore.value || _loading.value || lastDocument == null) return
-        
-        viewModelScope.launch {
-            _loading.value = true
-            
-            try {
-                val newsRef = FirebaseService.db.collection("news")
-                val query = newsRef
-                    .whereArrayContains("categories", district)
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .let { if (lastDocument != null) it.startAfter(lastDocument!!) else it }
-                    .limit(pageSize.toLong())
-                
-                val snapshot = query.get().await()
-                var newPosts = withContext(Dispatchers.Default) {
-                    snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
-                }
-                
-                // If local news fetch is empty on loadMore, try fetching fallback generic news 
-                if (newPosts.isEmpty() && _news.value.size < 50) {
-                     val fallbackQuery = FirebaseService.db.collection("news")
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .let { if (lastDocument != null) it.startAfter(lastDocument!!) else it }
-                        .limit(pageSize.toLong())
-                     val fallbackSnapshot = fallbackQuery.get().await()
+         val district = _activeDistrict.value ?: return
+         if (!_hasMore.value || _loading.value || lastDocument == null) return
+         
+         viewModelScope.launch {
+             _loading.value = true
+             
+             try {
+                 val newsRef = FirebaseService.db.collection("news")
+                 var newPosts: List<NewsPost> = emptyList()
+                 var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
+
+                 try {
+                     val query = newsRef
+                         .whereArrayContains("categories", district)
+                         .orderBy("timestamp", Query.Direction.DESCENDING)
+                         .let { if (lastDocument != null) it.startAfter(lastDocument!!) else it }
+                         .limit(pageSize.toLong())
+                     
+                     snapshot = query.get().await()
                      newPosts = withContext(Dispatchers.Default) {
-                         fallbackSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                         snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
                      }
-                     lastDocument = fallbackSnapshot.documents.lastOrNull()
-                     _hasMore.value = fallbackSnapshot.documents.size == pageSize
-                } else if (newPosts.isNotEmpty()) {
-                    lastDocument = snapshot.documents.lastOrNull()
-                    _hasMore.value = snapshot.documents.size == pageSize
-                } else {
-                    _hasMore.value = false
-                }
-                
-                _news.value = _news.value + newPosts
-            } catch (e: Exception) {
-                _hasMore.value = false
-            } finally {
-                _loading.value = false
-            }
-        }
-    }
+                 } catch (e: Exception) {
+                     // Index missing or query failed - try with just district field
+                     try {
+                         val fallbackQuery = newsRef
+                             .whereEqualTo("district", district)
+                             .orderBy("timestamp", Query.Direction.DESCENDING)
+                             .let { if (lastDocument != null) it.startAfter(lastDocument!!) else it }
+                             .limit(pageSize.toLong())
+                         
+                         snapshot = fallbackQuery.get().await()
+                         newPosts = withContext(Dispatchers.Default) {
+                             snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                         }
+                     } catch (e2: Exception) {
+                         // Both failed, will use generic fallback below
+                     }
+                 }
+                 
+                 // If local news fetch is empty on loadMore, try fetching fallback generic news 
+                 if (newPosts.isEmpty() && _news.value.size < 50) {
+                      val fallbackQuery = FirebaseService.db.collection("news")
+                         .orderBy("timestamp", Query.Direction.DESCENDING)
+                         .let { if (lastDocument != null) it.startAfter(lastDocument!!) else it }
+                         .limit(pageSize.toLong())
+                      val fallbackSnapshot = fallbackQuery.get().await()
+                      newPosts = withContext(Dispatchers.Default) {
+                          fallbackSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                      }
+                      lastDocument = fallbackSnapshot.documents.lastOrNull()
+                      _hasMore.value = fallbackSnapshot.documents.size == pageSize
+                 } else if (newPosts.isNotEmpty()) {
+                     lastDocument = snapshot?.documents?.lastOrNull()
+                     _hasMore.value = snapshot?.documents?.size == pageSize
+                 } else {
+                     _hasMore.value = false
+                 }
+                 
+                 _news.value = _news.value + newPosts
+             } catch (e: Exception) {
+                 _hasMore.value = false
+             } finally {
+                 _loading.value = false
+             }
+         }
+     }
     
-    @Suppress("UNCHECKED_CAST")
-    private fun convertToNewsPost(id: String, data: Map<String, Any?>): NewsPost? {
-        try {
-            val type = data["type"]?.toString() ?: "news"
-            if (type == "greeting" || type == "history") {
-                return null // Exclude greeting and history cards from the main news feed
-            }
+     @Suppress("UNCHECKED_CAST")
+     private fun convertToNewsPost(id: String, data: Map<String, Any?>): NewsPost? {
+         try {
+             val type = data["type"]?.toString() ?: "news"
+             // ✅ FIXED: Include greeting, history, and cartoon posts instead of filtering them out
+             // These special posts should appear in local feeds too, not just the home feed
+             // if (type == "greeting" || type == "history") {
+             //     return null // Exclude greeting and history cards from the main news feed
+             // }
 
             // Safe mapping for numbers
             val likesCount = (data["likes"] as? Number)?.toInt() ?: 0

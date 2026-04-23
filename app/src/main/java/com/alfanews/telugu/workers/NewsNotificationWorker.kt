@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.util.Log
@@ -20,6 +22,7 @@ import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.PreferenceManager
 
 import kotlinx.coroutines.tasks.await
+import java.net.URL
 
 /**
  * యూజర్ ఆసక్తి ఉన్న వార్తల కోసం నోటిఫికేషన్లను షెడ్యూల్ చేయడానికి ఉపయోగించే వర్కర్.
@@ -31,6 +34,12 @@ class NewsNotificationWorker(context: Context, params: WorkerParameters) : Corou
         val interests = preferenceManager.newsInterests
         
         Log.d("NewsNotificationWorker", "Running notification worker, interests: $interests")
+
+        // ✅ CRITICAL FIX: Respect user notification preference
+        if (!preferenceManager.isNotificationsEnabled) {
+            Log.w("NewsNotificationWorker", "Notifications disabled by user. Skipping.")
+            return Result.success()
+        }
 
         if (interests.isNullOrEmpty()) {
             return Result.success()
@@ -78,9 +87,19 @@ class NewsNotificationWorker(context: Context, params: WorkerParameters) : Corou
                         val headlineMap = latestDoc.get("headline") as? Map<*, *>
                         val teluguHeadline = headlineMap?.get("telugu")?.toString() ?: "మీకోసం తాజా వార్త"
                         
+                        // ✅ NEW: Extract image URL for rich notification
+                        val imageUrl = latestDoc.getString("mediaUrl") ?: ""
+
                         val actionUrl = "alfanews://news/$newsId"
-                        sendNotification(applicationContext, "మీకు నచ్చిన కేటగిరీలో అప్‌డేట్!", teluguHeadline, actionUrl)
-                        
+                        sendNotification(
+                            applicationContext,
+                            "మీకు నచ్చిన కేటగిరీలో అప్‌డేట్!",
+                            teluguHeadline,
+                            actionUrl,
+                            imageUrl,
+                            newsId
+                        )
+
                         prefs.edit().putString("last_notified_news_id", newsId).apply()
                     } else {
                         Log.d("NewsNotificationWorker", "Already notified for newsId: $newsId")
@@ -95,7 +114,14 @@ class NewsNotificationWorker(context: Context, params: WorkerParameters) : Corou
         return Result.success()
     }
 
-    private fun sendNotification(context: Context, title: String, messageBody: String, actionUrl: String) {
+    private fun sendNotification(
+        context: Context,
+        title: String,
+        messageBody: String,
+        actionUrl: String,
+        imageUrl: String = "",
+        newsId: String = ""
+    ) {
         val channelId = "personalized_news"
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -105,6 +131,8 @@ class NewsNotificationWorker(context: Context, params: WorkerParameters) : Corou
                 "Personalized News",
                 NotificationManager.IMPORTANCE_DEFAULT
             )
+            channel.description = "నిజ సమయ వార్త నోటిఫికేషన్లు"
+            channel.setShowBadge(true)
             notificationManager.createNotificationChannel(channel)
         }
 
@@ -114,9 +142,9 @@ class NewsNotificationWorker(context: Context, params: WorkerParameters) : Corou
 
         val pendingIntent = PendingIntent.getActivity(
             context,
-            0,
+            newsId.hashCode(),
             intent,
-            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val notificationBuilder = NotificationCompat.Builder(context, channelId)
@@ -125,7 +153,70 @@ class NewsNotificationWorker(context: Context, params: WorkerParameters) : Corou
             .setContentText(messageBody)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(messageBody))
 
-        notificationManager.notify(System.currentTimeMillis().toInt(), notificationBuilder.build())
+        // ✅ NEW: Add large icon/image for rich notification
+        if (imageUrl.isNotEmpty()) {
+            try {
+                val bitmap = downloadBitmap(imageUrl)
+                if (bitmap != null) {
+                    // Set large icon for banner notification (appears on the left)
+                    notificationBuilder.setLargeIcon(bitmap)
+                    
+                    // ✅ NEW: Use BigPictureStyle for rich image notification
+                    notificationBuilder.setStyle(
+                        NotificationCompat.BigPictureStyle()
+                            .bigPicture(bitmap)
+                            .setBigContentTitle(title)
+                            .setSummaryText(messageBody)
+                    )
+                    Log.d("NewsNotificationWorker", "Rich image notification created for $newsId")
+                }
+            } catch (e: Exception) {
+                Log.e("NewsNotificationWorker", "Failed to load notification image: ${e.message}")
+                // Fallback to text-only notification
+                notificationBuilder.setStyle(NotificationCompat.BigTextStyle().bigText(messageBody))
+            }
+        } else {
+            // No image - use big text style
+            notificationBuilder.setStyle(NotificationCompat.BigTextStyle().bigText(messageBody))
+        }
+
+        notificationManager.notify(newsId.hashCode(), notificationBuilder.build())
+    }
+
+    /**
+     * Download bitmap from URL with size optimization
+     */
+    private fun downloadBitmap(imageUrl: String): Bitmap? {
+        return try {
+            if (imageUrl.isEmpty()) {
+                return null
+            }
+            
+            val url = URL(imageUrl)
+            val connection = url.openConnection()
+            connection.doInput = true
+            connection.connect()
+            
+            val input = connection.getInputStream()
+            val bitmap = BitmapFactory.decodeStream(input)
+            input.close()
+            
+            // ✅ Optimize bitmap size for notification (max 256x256 or resize to prevent memory issues)
+            if (bitmap != null && (bitmap.width > 256 || bitmap.height > 256)) {
+                val scaledBitmap = Bitmap.createScaledBitmap(bitmap, 256, 256, true)
+                if (scaledBitmap != bitmap) {
+                    bitmap.recycle()
+                }
+                scaledBitmap
+            } else {
+                bitmap
+            }
+        } catch (e: Exception) {
+            Log.e("NewsNotificationWorker", "Error downloading image: ${e.message}")
+            null
+        }
     }
 }

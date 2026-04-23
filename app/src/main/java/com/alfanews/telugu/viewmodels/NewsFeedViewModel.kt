@@ -312,71 +312,119 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
           return Pair(filteredList, currentCursor)
       }
 
-    private suspend fun rankAndBlendPosts(pref: List<NewsPost>, main: List<NewsPost>, local: List<NewsPost>): List<NewsPost> = withContext(Dispatchers.Default) {
-         // రెండుసార్లు లెక్కకు రాకుండా distinctBy వాడండి
-         val allPosts = (pref + main + local).distinctBy { it.id }
-         if (allPosts.isEmpty()) return@withContext emptyList<NewsPost>()
+     private suspend fun rankAndBlendPosts(pref: List<NewsPost>, main: List<NewsPost>, local: List<NewsPost>): List<NewsPost> = withContext(Dispatchers.Default) {
+          // రెండుసార్లు లెక్కకు రాకుండా distinctBy వాడండి
+          val allPosts = (pref + main + local).distinctBy { it.id }
+          if (allPosts.isEmpty()) return@withContext emptyList<NewsPost>()
 
-         // గ్రీటింగ్‌లను విభజించండి
-         val festivalGreetings = allPosts.filter { it.type == "greeting" && it.likes == 0 }
-         val quoteGreetings = allPosts.filter { it.type == "greeting" && it.likes == 1 }
-         val normalNews = allPosts.filter { it.type != "greeting" }
+          // గ్రీటింగ్‌లను విభజించండి
+          val festivalGreetings = allPosts.filter { it.type == "greeting" && it.likes == 0 }
+          val quoteGreetings = allPosts.filter { it.type == "greeting" && it.likes == 1 }
+          
+          // చరిత్ర కార్డులను విభజించండి (History of the Day)
+          val historyPosts = allPosts.filter { it.type == "history" }
+          
+          // కార్టూన్ కార్డులను విభజించండి (12వ స్థానం)
+          val cartoonPosts = allPosts.filter { it.type == "cartoon" }
+          
+          val normalNews = allPosts.filter { it.type != "greeting" && it.type != "history" && it.type != "cartoon" }
 
-         if (normalNews.isEmpty()) {
-             return@withContext (festivalGreetings + quoteGreetings).distinctBy { it.id }
-         }
+          if (normalNews.isEmpty()) {
+              return@withContext (festivalGreetings + quoteGreetings + historyPosts + cartoonPosts).distinctBy { it.id }
+          }
 
-         // 40% వార్తలను "తాజాదనం" (Freshness) ఆధారంగా, 30% Discovery, 30% Personalized
-         val totalToRank = normalNews.size
+          // 40% వార్తలను "తాజాదనం" (Freshness) ఆధారంగా, 30% Personalized, 30% Discovery
+          val totalToRank = normalNews.size
 
-         // తక్కువ న్యూస్ ఉన్నప్పుడు కూడా సరిగా కాలిక్యులేట్ చేయండి
-         val discoveryCount = if (totalToRank > 10) (totalToRank * 0.3).toInt() else maxOf(1, totalToRank / 3)
-         val freshCount = if (totalToRank > 10) (totalToRank * 0.4).toInt() else maxOf(1, (totalToRank * 0.4).toInt())
+          // తక్కువ న్యూస్ ఉన్నప్పుడు కూడా సరిగా కాలిక్యులేట్ చేయండి
+          val freshCount = if (totalToRank > 10) (totalToRank * 0.4).toInt() else maxOf(1, (totalToRank * 0.4).toInt())
+          val personalizedCount = if (totalToRank > 10) (totalToRank * 0.3).toInt() else maxOf(1, totalToRank / 3)
+          val discoveryCount = if (totalToRank > 10) (totalToRank * 0.3).toInt() else maxOf(1, totalToRank / 3)
 
-         val preferredCategories = try { AnalyticsService.getUserPreferredCategories().toSet() } catch (e: Exception) { emptySet() }
+          val preferredCategories = try { AnalyticsService.getUserPreferredCategories().toSet() } catch (e: Exception) { emptySet() }
 
-         // ఎంపిక చేసిన కేటాగరీలలో లేని వార్తలను కనుగొనండి (Discovery)
-         val discoveryNews = normalNews.filter { post ->
-             post.categories.none { it in preferredCategories }
-         }.shuffled().take(discoveryCount)
+          // తాజా వార్తలను నిర్ణయించండి (Fresh - 40% by recency)
+          val freshNews = normalNews
+              .sortedByDescending { it.timestamp }
+              .take(freshCount)
 
-         val discoveryIds = discoveryNews.map { it.id }.toSet()
+          val freshIds = freshNews.map { it.id }.toSet()
 
-         // తాజా వార్తలను నిర్ణయించండి (Discovery లో లేనివిగా)
-         val freshNews = normalNews.filter { it.id !in discoveryIds }
-             .sortedByDescending { it.timestamp }
-             .take(freshCount)
+          // మిగిలిన వార్తలకు స్కోర్ ఇవ్వండి (Personalized - 30% user interests)
+          val remainingAfterFresh = normalNews.filter { it.id !in freshIds }
+          val scoredNews = remainingAfterFresh.map { post ->
+              post to (try { AnalyticsService.calculateRelevanceScore(post) } catch (e: Exception) { 0.0 })
+          }.sortedByDescending { it.second }.take(personalizedCount).map { it.first }
 
-         val freshIds = freshNews.map { it.id }.toSet()
+          val personalizedIds = scoredNews.map { it.id }.toSet()
 
-         // మిగిలిన వార్తలకు స్కోర్ ఇవ్వండి (Personalized - 30%)
-         val remainingNews = normalNews.filter { it.id !in discoveryIds && it.id !in freshIds }
-         val scoredNews = remainingNews.map { post ->
-             post to (try { AnalyticsService.calculateRelevanceScore(post) } catch (e: Exception) { 0.0 })
-         }.sortedByDescending { it.second }.map { it.first }
+          // ఎంపిక చేసిన కేటాగరీలలో లేని వార్తలను కనుగొనండి (Discovery - 30% new categories)
+          val discoveryNews = normalNews.filter { it.id !in freshIds && it.id !in personalizedIds }
+              .filter { post ->
+                  post.categories.none { it in preferredCategories }
+              }.shuffled().take(discoveryCount)
 
-         // రెండింటినీ కలపండి (FreshNews + Discovery + Personalized)
-         val blendedNews = (freshNews + discoveryNews + scoredNews).toMutableList()
+          // రెండింటినీ కలపండి (FreshNews + Personalized + Discovery)
+          val blendedNews = (freshNews + scoredNews + discoveryNews).toMutableList()
 
-         // కోట్ కార్డును 6-10 స్థానంలో ఖచ్చితమైన ఆర్డర్‌లో పెట్టండి
-         if (quoteGreetings.isNotEmpty()) {
-             val size = blendedNews.size
-             // కోట్‌కు సరిపర్యవేక్ష స్థానం (6-10 మధ్య)
-             val targetIdx = if (6 < size) 6 else if (size > 0) size - 1 else 0
-             if (targetIdx >= 0 && targetIdx <= blendedNews.size) {
-                 blendedNews.add(targetIdx, quoteGreetings.first())
-             } else {
-                 blendedNews.add(quoteGreetings.first())
-             }
-         }
+          // కోట్ కార్డును 6-10 స్థానంలో ఖచ్చితమైన ఆర్డర్‌లో పెట్టండి
+          if (quoteGreetings.isNotEmpty()) {
+              val size = blendedNews.size
+              // కోట్‌కు సరిపర్యవేక్ష స్థానం (6-10 మధ్య)
+              val targetIdx = if (6 < size) 6 else if (size > 0) size - 1 else 0
+              if (targetIdx >= 0 && targetIdx <= blendedNews.size) {
+                  blendedNews.add(targetIdx, quoteGreetings.first())
+              } else {
+                  blendedNews.add(quoteGreetings.first())
+              }
+          }
 
-         // పండుగ కార్డును ఎల్లప్పుడూ మొదట పెట్టండి
-         if (festivalGreetings.isNotEmpty()) {
-             blendedNews.add(0, festivalGreetings.first())
-         }
+          // చరిత్ర (History of the Day) కార్డును 9వ స్థానంలో పెట్టండి
+          if (historyPosts.isNotEmpty()) {
+              val size = blendedNews.size
+              // చరిత్ర కార్డుకు లక్ష్య స్థానం (9వ స్థానం = ఇండెక్స్ 8)
+              val targetIdx = if (9 <= size) 9 else if (size > 0) size - 1 else 0
+              if (targetIdx >= 0 && targetIdx <= blendedNews.size) {
+                  blendedNews.add(targetIdx, historyPosts.first())
+              } else {
+                  blendedNews.add(historyPosts.first())
+              }
+          }
 
-         blendedNews
-     }
+          // కార్టూన్ కార్డును 12వ స్థానంలో పెట్టండి (స్టేట్-నిర్దిష్టమైన)
+          if (cartoonPosts.isNotEmpty()) {
+              val userDistrict = _userDistrict.value
+              val userState = mapDistrictToState(userDistrict)
+              
+              // ఉపయోగకర్తకు సంబంధించిన కార్టూన్‌ను కనుగొనండి
+              val relevantCartoon = if (userState != null) {
+                  cartoonPosts.find { post ->
+                      post.district?.equals(userState, ignoreCase = true) == true
+                  }
+              } else null
+              
+              // ఫోల్‌బ్యాక్: సంబంధం లేని కార్టూన్ ఏదైనా లాగా ఉపయోగించండి
+              val cartoonToAdd = relevantCartoon ?: cartoonPosts.firstOrNull()
+              
+              if (cartoonToAdd != null) {
+                  val size = blendedNews.size
+                  // కార్టూన్‌కు లక్ష్య స్థానం (12వ స్థానం = ఇండెక్స్ 11)
+                  val targetIdx = if (12 <= size) 12 else if (size > 0) size - 1 else 0
+                  if (targetIdx >= 0 && targetIdx <= blendedNews.size) {
+                      blendedNews.add(targetIdx, cartoonToAdd)
+                  } else {
+                      blendedNews.add(cartoonToAdd)
+                  }
+              }
+          }
+
+          // పండుగ కార్డును ఎల్లప్పుడూ మొదట పెట్టండి
+          if (festivalGreetings.isNotEmpty()) {
+              blendedNews.add(0, festivalGreetings.first())
+          }
+
+          blendedNews
+      }
 
     private suspend fun fetchGreetingPost(): NewsPost? {
         return try {
@@ -514,9 +562,23 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         loadNews(Language.TELUGU, currentUser)
     }
 
-    fun refreshIfStale(language: Language, currentUser: User?) {
-        if (_news.value.isEmpty()) {
-            loadNews(language, currentUser)
-        }
-    }
+     fun refreshIfStale(language: Language, currentUser: User?) {
+         loadNews(language, currentUser)
+     }
+
+     private fun mapDistrictToState(district: String?): String? {
+         if (district == null) return null
+         
+         // తెలంగాణ జిల్లాలు
+         val telanganDistricts = Constants.TS_DISTRICTS
+         
+         // ఆంధ్రప్రదేశ్ జిల్లాలు
+         val apDistricts = Constants.AP_DISTRICTS
+         
+         return when {
+             telanganDistricts.contains(district) -> "Telangana"
+             apDistricts.contains(district) -> "Andhra Pradesh"
+             else -> null
+         }
+     }
 }
