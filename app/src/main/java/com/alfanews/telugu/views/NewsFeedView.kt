@@ -65,16 +65,31 @@ fun NewsFeedView(
     }
 
     LaunchedEffect(Unit) {
+        // 🚀 PRIORITY 1: Load news immediately for new users (don't wait for location)
         if (news.isEmpty()) {
             viewModel.loadNews(language, currentUser, initialPostId)
         }
         
+        // 🌍 PRIORITY 2: Detect location in background (non-blocking)
+        // If district is not set, try to detect it but DON'T block the news loading
+        // When district is detected, the view will refresh automatically through userDistrict flow
         if (userDistrict == null) {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                // Fire and forget - location detection happens in viewModel background
                 viewModel.detectLocation(context, currentUser, language)
             } else {
+                // Fire and forget - permission request happens in background
                 permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
             }
+        }
+    }
+
+    // 🔄 When district is detected/changed, refresh news with personalized content
+    // This ensures new users get district-specific + personalized news once location is determined
+    LaunchedEffect(userDistrict) {
+        if (userDistrict != null && news.isNotEmpty()) {
+            // District was just determined for a new user - refresh with personalized content
+            viewModel.loadNews(language, currentUser)
         }
     }
 

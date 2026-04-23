@@ -62,118 +62,127 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         loadNews(Language.TELUGU, null)
     }
 
-    fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null) {
-         if (isFetching && initialPostId == null) return
+     fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null) {
+          if (isFetching && initialPostId == null) return
 
-         viewModelScope.launch {
-             isFetching = true
-             _loading.value = true
+          viewModelScope.launch {
+              isFetching = true
+              _loading.value = true
 
-             if (initialPostId == null) {
-                 prefCursor = null
-                 mainCursor = null
-                 _hasMore.value = true
-             }
+              if (initialPostId == null) {
+                  prefCursor = null
+                  mainCursor = null
+                  _hasMore.value = true
+              }
 
-              try {
-                  val district = prefs.selectedDistrict ?: currentUser?.district ?: prefs.detectedDistrict
-                  _userDistrict.value = district
+               try {
+                   val district = prefs.selectedDistrict ?: currentUser?.district ?: prefs.detectedDistrict
+                   _userDistrict.value = district
 
-                  // ఉపయోగకర్త ఇష్ట కేటిగరీలను ఫెచ్ చేయండి
-                  val preferredCats = try { AnalyticsService.getUserPreferredCategories().take(10) } catch (e: Exception) { emptyList<String>() }
+                   // ═══════════════════════════════════════════════════════════════════
+                   // 🚀 NEW USER OPTIMIZATION: Skip preferences/district for first load
+                   // ═══════════════════════════════════════════════════════════════════
+                   // If this is the first time loading (news is empty) and user has NO district,
+                   // immediately load GENERAL NEWS without waiting for preferences/location detection
+                   val isFirstTimeLoad = _news.value.isEmpty()
+                   val isNewUser = district == null
 
-                  // సమాంతర ఫెచింగ్ - జనరల్, ఉపయోగకర్త ఇష్ట, జిల్లా వార్తలు
-                  val greetingBatchDeferred = async {
-                      if (initialPostId == null && _news.value.isEmpty()) {
-                          try { fetchGreetingPost() } catch (e: Exception) { null }
-                      } else null
-                  }
+                   // ఉపయోగకర్త ఇష్ట కేటిగరీలను ఫెచ్ చేయండి
+                   val preferredCats = try { AnalyticsService.getUserPreferredCategories().take(10) } catch (e: Exception) { emptyList<String>() }
 
-                  val prefBatchDeferred = async {
-                      if (preferredCats.isNotEmpty()) {
-                          try {
-                              fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), null, district, excludeDistricts = true)
-                          } catch (e: Exception) { Pair(emptyList<NewsPost>(), null) }
-                      } else Pair(emptyList<NewsPost>(), null)
-                  }
+                   // సమాంతర ఫెచింగ్ - జనరల్, ఉపయోగకర్త ఇష్ట, జిల్లా వార్తలు
+                   val greetingBatchDeferred = async {
+                       if (initialPostId == null && _news.value.isEmpty()) {
+                           try { fetchGreetingPost() } catch (e: Exception) { null }
+                       } else null
+                   }
 
-                  val mainBatchDeferred = async {
+                   // For new users, skip preference fetching on first load to show news immediately
+                   val prefBatchDeferred = async {
+                       if (preferredCats.isNotEmpty() && !isNewUser) {
+                           try {
+                               fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), null, district, excludeDistricts = true)
+                           } catch (e: Exception) { Pair(emptyList<NewsPost>(), null) }
+                       } else Pair(emptyList<NewsPost>(), null)
+                   }
+
+                   val mainBatchDeferred = async {
+                       try {
+                           fetchFilteredBatch(FirebaseService.db.collection("news"), null, district, excludeDistricts = true)
+                       } catch (e: Exception) { Pair(emptyList<NewsPost>(), null) }
+                   }
+
+                   // జిల్లా-స్పెసిఫిక్ వార్తలను కూడా ఫెచ్ చేయండి (but skip for new users on first load)
+                   val localBatchDeferred = async {
+                       if (district != null && !isNewUser) {
+                           try {
+                               val localQuery = FirebaseService.db.collection("news").whereArrayContains("categories", district)
+                               fetchFilteredBatch(localQuery, null, district, excludeDistricts = false)
+                           } catch (e: Exception) { Pair(emptyList<NewsPost>(), null) }
+                       } else Pair(emptyList<NewsPost>(), null)
+                   }
+
+                   val greetingPost = greetingBatchDeferred.await()
+                   val prefBatch = prefBatchDeferred.await()
+                   val mainBatch = mainBatchDeferred.await()
+                   val localBatch = localBatchDeferred.await()
+
+                   prefCursor = prefBatch.second
+                   mainCursor = mainBatch.second
+
+                   var finalPosts = withContext(Dispatchers.Default) {
+                       rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first)
+                   }
+
+                  // --- CRITICAL FALLBACK ---
+                  // If no news found after filtering, load ALL news (first time users don't have district set)
+                  if (finalPosts.isEmpty()) {
                       try {
-                          fetchFilteredBatch(FirebaseService.db.collection("news"), null, district, excludeDistricts = true)
-                      } catch (e: Exception) { Pair(emptyList<NewsPost>(), null) }
+                          val fallbackSnapshot = FirebaseService.db.collection("news")
+                              .orderBy("timestamp", Query.Direction.DESCENDING)
+                              .limit((FETCH_LIMIT * 2).toLong())
+                              .get()
+                              .await()
+
+                          val fallbackList = fallbackSnapshot.documents.mapNotNull { doc ->
+                              mapDocumentToNewsPost(doc)
+                          }.filter { post ->
+                              // Even in fallback, avoid pure district-only news
+                              val allCatsAreDistricts = post.categories.all { it in Constants.ALL_DISTRICTS }
+                              val hasCrimeCategory = post.categories.contains("క్రైమ్")
+                              !(allCatsAreDistricts && !hasCrimeCategory)
+                          }
+
+                          if (fallbackList.isNotEmpty()) {
+                              finalPosts = fallbackList.take(FETCH_LIMIT)
+                              mainCursor = fallbackSnapshot.documents.lastOrNull()
+                          }
+                      } catch (e: Exception) { }
                   }
 
-                  // జిల్లా-స్పెసిఫిక్ వార్తలను కూడా ఫెచ్ చేయండి
-                  val localBatchDeferred = async {
-                      if (district != null) {
-                          try {
-                              val localQuery = FirebaseService.db.collection("news").whereArrayContains("categories", district)
-                              fetchFilteredBatch(localQuery, null, district, excludeDistricts = false)
-                          } catch (e: Exception) { Pair(emptyList<NewsPost>(), null) }
-                      } else Pair(emptyList<NewsPost>(), null)
+                  // Inject greeting at the very top
+                  greetingPost?.let {
+                      finalPosts = (listOf(it) + finalPosts).distinctBy { it.id }
                   }
 
-                  val greetingPost = greetingBatchDeferred.await()
-                  val prefBatch = prefBatchDeferred.await()
-                  val mainBatch = mainBatchDeferred.await()
-                  val localBatch = localBatchDeferred.await()
-
-                  prefCursor = prefBatch.second
-                  mainCursor = mainBatch.second
-
-                  var finalPosts = withContext(Dispatchers.Default) {
-                      rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first)
+                  if (initialPostId != null) {
+                      val doc = FirebaseService.db.collection("news").document(initialPostId).get().await()
+                      mapDocumentToNewsPost(doc)?.let { post ->
+                          finalPosts = (listOf(post) + finalPosts).distinctBy { it.id }
+                      }
                   }
 
-                 // --- CRITICAL FALLBACK ---
-                 // If no news found after filtering, load ALL news (first time users don't have district set)
-                 if (finalPosts.isEmpty()) {
-                     try {
-                         val fallbackSnapshot = FirebaseService.db.collection("news")
-                             .orderBy("timestamp", Query.Direction.DESCENDING)
-                             .limit((FETCH_LIMIT * 2).toLong())
-                             .get()
-                             .await()
+                  _news.value = finalPosts.distinctBy { it.id }
+                  if (_news.value.isEmpty() && mainCursor == null) _hasMore.value = false
 
-                         val fallbackList = fallbackSnapshot.documents.mapNotNull { doc ->
-                             mapDocumentToNewsPost(doc)
-                         }.filter { post ->
-                             // Even in fallback, avoid pure district-only news
-                             val allCatsAreDistricts = post.categories.all { it in Constants.ALL_DISTRICTS }
-                             val hasCrimeCategory = post.categories.contains("క్రైమ్")
-                             !(allCatsAreDistricts && !hasCrimeCategory)
-                         }
-
-                         if (fallbackList.isNotEmpty()) {
-                             finalPosts = fallbackList.take(FETCH_LIMIT)
-                             mainCursor = fallbackSnapshot.documents.lastOrNull()
-                         }
-                     } catch (e: Exception) { }
-                 }
-
-                 // Inject greeting at the very top
-                 greetingPost?.let {
-                     finalPosts = (listOf(it) + finalPosts).distinctBy { it.id }
-                 }
-
-                 if (initialPostId != null) {
-                     val doc = FirebaseService.db.collection("news").document(initialPostId).get().await()
-                     mapDocumentToNewsPost(doc)?.let { post ->
-                         finalPosts = (listOf(post) + finalPosts).distinctBy { it.id }
-                     }
-                 }
-
-                 _news.value = finalPosts.distinctBy { it.id }
-                 if (_news.value.isEmpty() && mainCursor == null) _hasMore.value = false
-
-             } catch (e: Exception) {
-                 if (_news.value.isEmpty()) _hasMore.value = false
-             } finally {
-                 _loading.value = false
-                 isFetching = false
-             }
-         }
-     }
+              } catch (e: Exception) {
+                  if (_news.value.isEmpty()) _hasMore.value = false
+              } finally {
+                  _loading.value = false
+                  isFetching = false
+              }
+          }
+      }
 
     fun loadMore(language: Language, currentUser: User?) {
          if (isFetching || !_hasMore.value) return
@@ -312,116 +321,145 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
           return Pair(filteredList, currentCursor)
       }
 
-     private suspend fun rankAndBlendPosts(pref: List<NewsPost>, main: List<NewsPost>, local: List<NewsPost>): List<NewsPost> = withContext(Dispatchers.Default) {
-          // రెండుసార్లు లెక్కకు రాకుండా distinctBy వాడండి
-          val allPosts = (pref + main + local).distinctBy { it.id }
-          if (allPosts.isEmpty()) return@withContext emptyList<NewsPost>()
+      private suspend fun rankAndBlendPosts(pref: List<NewsPost>, main: List<NewsPost>, local: List<NewsPost>): List<NewsPost> = withContext(Dispatchers.Default) {
+           // ═══════════════════════════════════════════════════════════════════
+           // 📰 NEWS FEED MIXING: 40% FRESH → 30% PERSONALIZED → 30% DISCOVERY
+           // ═══════════════════════════════════════════════════════════════════
 
-          // గ్రీటింగ్‌లను విభజించండి
-          val festivalGreetings = allPosts.filter { it.type == "greeting" && it.likes == 0 }
-          val quoteGreetings = allPosts.filter { it.type == "greeting" && it.likes == 1 }
-          
-          // చరిత్ర కార్డులను విభజించండి (History of the Day)
-          val historyPosts = allPosts.filter { it.type == "history" }
-          
-          // కార్టూన్ కార్డులను విభజించండి (12వ స్థానం)
-          val cartoonPosts = allPosts.filter { it.type == "cartoon" }
-          
-          val normalNews = allPosts.filter { it.type != "greeting" && it.type != "history" && it.type != "cartoon" }
+           // STEP 1: COMBINE & DEDUPLICATE
+           // రెండుసార్లు లెక్కకు రాకుండా distinctBy వాడండి
+           val allPosts = (pref + main + local).distinctBy { it.id }
+           if (allPosts.isEmpty()) return@withContext emptyList<NewsPost>()
 
-          if (normalNews.isEmpty()) {
-              return@withContext (festivalGreetings + quoteGreetings + historyPosts + cartoonPosts).distinctBy { it.id }
-          }
+           // STEP 2: CATEGORIZE BY TYPE (Separate special posts)
+           // గ్రీటింగ్‌లను విభజించండి
+           val festivalGreetings = allPosts.filter { it.type == "greeting" && it.likes == 0 }
+           val quoteGreetings = allPosts.filter { it.type == "greeting" && it.likes == 1 }
 
-          // 40% వార్తలను "తాజాదనం" (Freshness) ఆధారంగా, 30% Personalized, 30% Discovery
-          val totalToRank = normalNews.size
+           // చరిత్ర కార్డులను విభజించండి (History of the Day)
+           val historyPosts = allPosts.filter { it.type == "history" }
 
-          // తక్కువ న్యూస్ ఉన్నప్పుడు కూడా సరిగా కాలిక్యులేట్ చేయండి
-          val freshCount = if (totalToRank > 10) (totalToRank * 0.4).toInt() else maxOf(1, (totalToRank * 0.4).toInt())
-          val personalizedCount = if (totalToRank > 10) (totalToRank * 0.3).toInt() else maxOf(1, totalToRank / 3)
-          val discoveryCount = if (totalToRank > 10) (totalToRank * 0.3).toInt() else maxOf(1, totalToRank / 3)
+           // కార్టూన్ కార్డులను విభజించండి (12వ స్థానం)
+           val cartoonPosts = allPosts.filter { it.type == "cartoon" }
 
-          val preferredCategories = try { AnalyticsService.getUserPreferredCategories().toSet() } catch (e: Exception) { emptySet() }
+           // Regular news (for 40/30/30 mix)
+           val normalNews = allPosts.filter { it.type != "greeting" && it.type != "history" && it.type != "cartoon" }
 
-          // తాజా వార్తలను నిర్ణయించండి (Fresh - 40% by recency)
-          val freshNews = normalNews
-              .sortedByDescending { it.timestamp }
-              .take(freshCount)
+           if (normalNews.isEmpty()) {
+               return@withContext (festivalGreetings + quoteGreetings + historyPosts + cartoonPosts).distinctBy { it.id }
+           }
 
-          val freshIds = freshNews.map { it.id }.toSet()
+           // STEP 3: CALCULATE MIXING PERCENTAGES (40/30/30)
+           // 40% వార్తలను "తాజాదనం" (Freshness) ఆధారంగా, 30% Personalized, 30% Discovery
+           val totalToRank = normalNews.size
 
-          // మిగిలిన వార్తలకు స్కోర్ ఇవ్వండి (Personalized - 30% user interests)
-          val remainingAfterFresh = normalNews.filter { it.id !in freshIds }
-          val scoredNews = remainingAfterFresh.map { post ->
-              post to (try { AnalyticsService.calculateRelevanceScore(post) } catch (e: Exception) { 0.0 })
-          }.sortedByDescending { it.second }.take(personalizedCount).map { it.first }
+           // తక్కువ న్యూస్ ఉన్నప్పుడు కూడా సరిగా కాలిక్యులేట్ చేయండి
+           val freshCount = if (totalToRank > 10) (totalToRank * 0.4).toInt() else maxOf(1, (totalToRank * 0.4).toInt())
+           val personalizedCount = if (totalToRank > 10) (totalToRank * 0.3).toInt() else maxOf(1, totalToRank / 3)
+           val discoveryCount = if (totalToRank > 10) (totalToRank * 0.3).toInt() else maxOf(1, totalToRank / 3)
 
-          val personalizedIds = scoredNews.map { it.id }.toSet()
+           val preferredCategories = try { AnalyticsService.getUserPreferredCategories().toSet() } catch (e: Exception) { emptySet() }
 
-          // ఎంపిక చేసిన కేటాగరీలలో లేని వార్తలను కనుగొనండి (Discovery - 30% new categories)
-          val discoveryNews = normalNews.filter { it.id !in freshIds && it.id !in personalizedIds }
-              .filter { post ->
-                  post.categories.none { it in preferredCategories }
-              }.shuffled().take(discoveryCount)
+           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           // STEP 4A: 40% FRESH (by Recency/Timestamp)
+           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           // తాజా వార్తలను నిర్ణయించండి (Fresh - 40% by recency)
+           val freshNews = normalNews
+               .sortedByDescending { it.timestamp }    // Most recent first
+               .take(freshCount)                       // Take 40% by count
 
-          // రెండింటినీ కలపండి (FreshNews + Personalized + Discovery)
-          val blendedNews = (freshNews + scoredNews + discoveryNews).toMutableList()
+           val freshIds = freshNews.map { it.id }.toSet()
 
-          // కోట్ కార్డును 6-10 స్థానంలో ఖచ్చితమైన ఆర్డర్‌లో పెట్టండి
-          if (quoteGreetings.isNotEmpty()) {
-              val size = blendedNews.size
-              // కోట్‌కు సరిపర్యవేక్ష స్థానం (6-10 మధ్య)
-              val targetIdx = if (6 < size) 6 else if (size > 0) size - 1 else 0
-              if (targetIdx >= 0 && targetIdx <= blendedNews.size) {
-                  blendedNews.add(targetIdx, quoteGreetings.first())
-              } else {
-                  blendedNews.add(quoteGreetings.first())
-              }
-          }
+           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           // STEP 4B: 30% PERSONALIZED (by User Interest + Relevance Score)
+           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           // మిగిలిన వార్తలకు స్కోర్ ఇవ్వండి (Personalized - 30% user interests)
+           val remainingAfterFresh = normalNews.filter { it.id !in freshIds }
+           val scoredNews = remainingAfterFresh.map { post ->
+               post to (try { AnalyticsService.calculateRelevanceScore(post) } catch (e: Exception) { 0.0 })
+           }.sortedByDescending { it.second }          // Highest relevance score first
+               .take(personalizedCount)                // Take 30% by count
+               .map { it.first }
 
-          // చరిత్ర (History of the Day) కార్డును 9వ స్థానంలో పెట్టండి
-          if (historyPosts.isNotEmpty()) {
-              val size = blendedNews.size
-              // చరిత్ర కార్డుకు లక్ష్య స్థానం (9వ స్థానం = ఇండెక్స్ 8)
-              val targetIdx = if (9 <= size) 9 else if (size > 0) size - 1 else 0
-              if (targetIdx >= 0 && targetIdx <= blendedNews.size) {
-                  blendedNews.add(targetIdx, historyPosts.first())
-              } else {
-                  blendedNews.add(historyPosts.first())
-              }
-          }
+           val personalizedIds = scoredNews.map { it.id }.toSet()
 
-          // కార్టూన్ కార్డును 12వ స్థానంలో పెట్టండి (స్టేట్-నిర్దిష్టమైన)
-          if (cartoonPosts.isNotEmpty()) {
-              val userDistrict = _userDistrict.value
-              val userState = mapDistrictToState(userDistrict)
-              
-              // ఉపయోగకర్తకు సంబంధించిన కార్టూన్‌ను కనుగొనండి
-              val relevantCartoon = if (userState != null) {
-                  cartoonPosts.find { post ->
-                      post.district?.equals(userState, ignoreCase = true) == true
-                  }
-              } else null
-              
-              // ఫోల్‌బ్యాక్: సంబంధం లేని కార్టూన్ ఏదైనా లాగా ఉపయోగించండి
-              val cartoonToAdd = relevantCartoon ?: cartoonPosts.firstOrNull()
-              
-              if (cartoonToAdd != null) {
-                  val size = blendedNews.size
-                  // కార్టూన్‌కు లక్ష్య స్థానం (12వ స్థానం = ఇండెక్స్ 11)
-                  val targetIdx = if (12 <= size) 12 else if (size > 0) size - 1 else 0
-                  if (targetIdx >= 0 && targetIdx <= blendedNews.size) {
-                      blendedNews.add(targetIdx, cartoonToAdd)
-                  } else {
-                      blendedNews.add(cartoonToAdd)
-                  }
-              }
-          }
+           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           // STEP 4C: 30% DISCOVERY (New Categories/Exploration)
+           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           // ఎంపిక చేసిన కేటాగరీలలో లేని వార్తలను కనుగొనండి (Discovery - 30% new categories)
+           val discoveryNews = normalNews.filter { it.id !in freshIds && it.id !in personalizedIds }
+               .filter { post ->
+                   post.categories.none { it in preferredCategories }  // Not in preferences
+               }.shuffled()                            // Random order for discovery
+               .take(discoveryCount)                   // Take 30% by count
 
-          // పండుగ కార్డును ఎల్లప్పుడూ మొదట పెట్టండి
-          if (festivalGreetings.isNotEmpty()) {
-              blendedNews.add(0, festivalGreetings.first())
-          }
+           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           // STEP 5: BLEND IN ORDER (Fresh → Personalized → Discovery)
+           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           // రెండింటినీ కలపండి (FreshNews + Personalized + Discovery)
+           val blendedNews = (freshNews + scoredNews + discoveryNews).toMutableList()
+
+           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           // STEP 6: INSERT SPECIAL POSTS AT EXACT POSITIONS
+           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+           // Position 6: QUOTE OF THE DAY
+           // కోట్ కార్డును 6వ స్థానంలో (Index 6) ఖచ్చితమైన ఆర్డర్‌లో పెట్టండి
+           if (quoteGreetings.isNotEmpty()) {
+               val size = blendedNews.size
+               val targetIdx = if (6 <= size) 6 else if (size > 0) size - 1 else 0
+               if (targetIdx >= 0 && targetIdx <= blendedNews.size) {
+                   blendedNews.add(targetIdx, quoteGreetings.first())
+               } else {
+                   blendedNews.add(quoteGreetings.first())
+               }
+           }
+
+           // Position 9: HISTORY OF THE DAY
+           // చరిత్ర (History of the Day) కార్డును 9వ స్థానంలో (Index 9) పెట్టండి
+           if (historyPosts.isNotEmpty()) {
+               val size = blendedNews.size
+               val targetIdx = if (9 <= size) 9 else if (size > 0) size - 1 else 0
+               if (targetIdx >= 0 && targetIdx <= blendedNews.size) {
+                   blendedNews.add(targetIdx, historyPosts.first())
+               } else {
+                   blendedNews.add(historyPosts.first())
+               }
+           }
+
+           // Position 12: CARTOON (State-Specific)
+           // కార్టూన్ కార్డును 12వ స్థానంలో (Index 12) పెట్టండి (స్టేట్-నిర్దిష్టమైన)
+           if (cartoonPosts.isNotEmpty()) {
+               val userDistrict = _userDistrict.value
+               val userState = mapDistrictToState(userDistrict)
+
+               // ఉపయోగకర్తకు సంబంధించిన కార్టూన్‌ను కనుగొనండి
+               // If user is from Telangana, show Telangana cartoon; if from AP, show AP cartoon
+               val relevantCartoon = if (userState != null) {
+                   cartoonPosts.find { post ->
+                       post.district?.equals(userState, ignoreCase = true) == true
+                   }
+               } else null
+
+               // ఫోల్‌బ్యాక్: సంబంధం లేని కార్టూన్ ఏదైనా లాగా ఉపయోగించండి
+               val cartoonToAdd = relevantCartoon ?: cartoonPosts.firstOrNull()
+
+               if (cartoonToAdd != null) {
+                   val size = blendedNews.size
+                   val targetIdx = if (12 <= size) 12 else if (size > 0) size - 1 else 0
+                   if (targetIdx >= 0 && targetIdx <= blendedNews.size) {
+                       blendedNews.add(targetIdx, cartoonToAdd)
+                   } else {
+                       blendedNews.add(cartoonToAdd)
+                   }
+               }
+           }
+
+           // Position 1: FESTIVAL GREETING (Always First)
+           // పండుగ కార్డును ఎల్లప్పుడూ మొదట (Index 0) పెట్టండి
+           // If today is a festival/holiday, this appears on top
+           if (festivalGreetings.isNotEmpty()) {
+               blendedNews.add(0, festivalGreetings.first())
+           }
 
           blendedNews
       }
