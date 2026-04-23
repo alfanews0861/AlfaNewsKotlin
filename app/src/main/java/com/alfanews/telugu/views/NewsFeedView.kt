@@ -33,6 +33,7 @@ import com.alfanews.telugu.utils.SafeImageLoader
 import com.alfanews.telugu.viewmodels.NewsFeedViewModel
 import com.google.android.gms.ads.nativead.NativeAd
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.collect
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
