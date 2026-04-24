@@ -57,8 +57,8 @@ fun UserProfilePageView(
     val scope = rememberCoroutineScope()
     var pushEnabled by remember { mutableStateOf(user.pushEnabled) }
 
-    val isGuest = user.role == UserRole.GUEST
-    val isStaff = listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN).contains(user.role)
+    val isGuest = user.id == "guest" || user.role == UserRole.GUEST
+    val isStaff = listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.REGIONAL_INCHARGE).contains(user.role)
 
     // ముఖ్యమైన లింక్‌లు
     val mainLinks = listOf(
@@ -176,7 +176,13 @@ fun UserProfilePageView(
                     shape = MaterialTheme.shapes.small
                 ) {
                     Text(
-                        text = if (isGuest) stringResource(R.string.guest) else user.role.name,
+                        text = when {
+                            isGuest -> stringResource(R.string.guest)
+                            user.role == UserRole.ADMIN -> stringResource(R.string.admin_panel)
+                            user.role == UserRole.EDITOR -> stringResource(R.string.manage_news)
+                            user.role == UserRole.REPORTER -> stringResource(R.string.post_news)
+                            else -> user.role.name
+                        },
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,

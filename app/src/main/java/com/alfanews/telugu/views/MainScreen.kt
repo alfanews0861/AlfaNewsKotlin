@@ -359,9 +359,11 @@ fun ProfileContainer(
     val themeMode by viewModel.themeMode.collectAsState()
     val user = currentUser
 
-    if (user != null && (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.REGIONAL_INCHARGE || user.role == UserRole.REPORTER)) {
+    val isStaff = user != null && (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.REGIONAL_INCHARGE || user.role == UserRole.REPORTER)
+    
+    if (isStaff) {
         AdminPanelView(
-            user = user,
+            user = user!!,
             onClose = { viewModel.setActiveTab("home") },
             language = language,
             setLanguage = { newLanguage -> viewModel.setLanguage(newLanguage) },

@@ -77,7 +77,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             val baseUser = snapshot.toObject(User::class.java)
                             baseUser?.copy(
                                 id = snapshot.id,
-                                role = parsedRole  // Use the explicitly parsed role
+                                role = if (parsedRole == UserRole.GUEST) UserRole.SUBSCRIBER else parsedRole
                             )
                         } catch (e: Exception) {
                             // Second attempt: Manual mapping if automatic fails (Resilience)
@@ -88,7 +88,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 email = snapshot.getString("email"),
                                 phone = snapshot.getString("phone"),
                                 photoUrl = snapshot.getString("photoUrl"),
-                                role = parsedRole,  // Use the explicitly parsed role
+                                role = if (parsedRole == UserRole.GUEST) UserRole.SUBSCRIBER else parsedRole,
                                 address = snapshot.getString("address"),
                                 district = snapshot.getString("district"),
                                 pushEnabled = snapshot.getBoolean("pushEnabled") ?: true,
