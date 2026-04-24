@@ -50,6 +50,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.core.content.FileProvider
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
@@ -57,6 +60,7 @@ import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
+import coil3.request.crossfade
 import androidx.compose.ui.res.stringResource
 import com.alfanews.telugu.R
 import com.alfanews.telugu.utils.SafeImageLoader
@@ -229,6 +233,8 @@ fun NewsCardView(
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
                                     .data(post.mediaUrl)
+                                    .crossfade(true)
+                                    .allowHardware(true)
                                     .build(),
                                 fallback = androidx.compose.ui.res.painterResource(id = R.drawable.fallback_news_image),
                                 error = androidx.compose.ui.res.painterResource(id = R.drawable.fallback_news_image),
@@ -408,6 +414,8 @@ fun NewsCardView(
                                     AsyncImage(
                                         model = ImageRequest.Builder(context)
                                             .data(post.mediaUrl)
+                                            .crossfade(true)
+                                            .allowHardware(true)
                                             .build(),
                                         fallback = androidx.compose.ui.res.painterResource(id = R.drawable.fallback_news_image),
                                         error = androidx.compose.ui.res.painterResource(id = R.drawable.fallback_news_image),
@@ -480,151 +488,157 @@ fun NewsCardView(
                 }
 
                 // CONTENT
-                Box(
+                androidx.compose.material3.Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(0.62f)
-                        .background(if (isSystemInDarkTheme()) Color.Black else Color.White)
-                        .padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 12.dp)
+                        .weight(0.62f),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize()
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 12.dp)
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .weight(0.91f)
-                                .fillMaxHeight()
+                        Row(
+                            modifier = Modifier.fillMaxSize()
                         ) {
-                            Text(
-                                text = headline,
-                                fontSize = headlineSize,
-                                fontFamily = headlineFontFamily,
-                                fontWeight = headlineFontWeight,
-                                color = if (isSystemInDarkTheme()) Color.White else Color.Black,
-                                lineHeight = headlineLineHeight,
+                            Column(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 2.dp)
-                            )
+                                    .weight(0.91f)
+                                    .fillMaxHeight()
+                            ) {
+                                Text(
+                                    text = headline,
+                                    fontSize = headlineSize,
+                                    fontFamily = headlineFontFamily,
+                                    fontWeight = headlineFontWeight,
+                                    color = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                                    lineHeight = headlineLineHeight,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 2.dp)
+                                )
+
+                                Column(
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    DottedDivider()
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = post.reporter.name,
+                                            fontSize = 12.sp,
+                                            fontFamily = headlineFontFamily,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color.Red.copy(alpha = 0.9f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = LocalIndication.current
+                                            ) { onReporterClick(post.reporter.id) }.weight(0.3f, fill = false)
+                                        )
+                                        Text("•", color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f), fontSize = 12.sp)
+                                        Text(
+                                            text = post.location,
+                                            color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f),
+                                            fontSize = 12.sp,
+                                            fontFamily = contentFontFamily,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                             modifier = Modifier.weight(0.3f, fill = false)
+                                        )
+                                        Text("•", color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f), fontSize = 12.sp)
+                                        Text(
+                                            text = formattedTimestamp,
+                                            color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f),
+                                            fontSize = 12.sp,
+                                            fontFamily = Poppins,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(0.4f, fill = false)
+                                        )
+                                    }
+                                    DottedDivider()
+                                }
+
+                                Spacer(modifier = Modifier.height(2.dp))
+
+                                Text(
+                                    text = content,
+                                    fontSize = contentSize,
+                                    fontFamily = contentFontFamily,
+                                    fontWeight = FontWeight.Normal,
+                                    color = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                                    lineHeight = contentLineHeight,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f)
+                                        .verticalScroll(scrollState)
+                                )
+                            }
 
                             Column(
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                DottedDivider()
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = post.reporter.name,
-                                        fontSize = 12.sp,
-                                        fontFamily = headlineFontFamily,
-                                        fontWeight = FontWeight.Medium,
-                                        color = Color.Red.copy(alpha = 0.9f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = LocalIndication.current
-                                        ) { onReporterClick(post.reporter.id) }.weight(0.3f, fill = false)
-                                    )
-                                    Text("•", color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f), fontSize = 12.sp)
-                                    Text(
-                                        text = post.location,
-                                        color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f),
-                                        fontSize = 12.sp,
-                                        fontFamily = contentFontFamily,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                         modifier = Modifier.weight(0.3f, fill = false)
-                                    )
-                                    Text("•", color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f), fontSize = 12.sp)
-                                    Text(
-                                        text = formattedTimestamp,
-                                        color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f),
-                                        fontSize = 12.sp,
-                                        fontFamily = Poppins,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(0.4f, fill = false)
-                                    )
-                                }
-                                DottedDivider()
-                            }
-
-                            Spacer(modifier = Modifier.height(2.dp))
-
-                            Text(
-                                text = content,
-                                fontSize = contentSize,
-                                fontFamily = contentFontFamily,
-                                fontWeight = FontWeight.Normal,
-                                color = if (isSystemInDarkTheme()) Color.White else Color.Black,
-                                lineHeight = contentLineHeight,
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f)
-                                    .verticalScroll(scrollState)
-                            )
-                        }
+                                    .weight(0.09f)
+                                    .fillMaxHeight(),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                if (currentUser != null && currentUser.id == post.reporter.id) {
+                                    ActionButton(
+                                        icon = Icons.Default.Edit,
+                                        tint = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                                        onClick = { onEditClick(post) }
+                                    )
+                                    Spacer(modifier = Modifier.height(24.dp))
+                                }
 
-                        Column(
-                            modifier = Modifier
-                                .weight(0.09f)
-                                .fillMaxHeight(),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            if (currentUser != null && currentUser.id == post.reporter.id) {
                                 ActionButton(
-                                    icon = Icons.Default.Edit,
+                                    icon = Icons.Default.Favorite,
+                                    count = likeCount.toString(),
+                                    isHighlighted = isLiked,
                                     tint = if (isSystemInDarkTheme()) Color.White else Color.Black,
-                                    onClick = { onEditClick(post) }
-                                )
-                                Spacer(modifier = Modifier.height(24.dp))
-                            }
-
-                            ActionButton(
-                                icon = Icons.Default.Favorite,
-                                count = likeCount.toString(),
-                                isHighlighted = isLiked,
-                                tint = if (isSystemInDarkTheme()) Color.White else Color.Black,
-                                onClick = {
-                                    if (currentUser == null) {
-                                        onProfileClick()
-                                    } else {
-                                        isLiked = !isLiked
-                                        likeCount = if (isLiked) likeCount + 1 else likeCount - 1
-                                        scope.launch {
-                                            FirebaseService.db.collection("news")
-                                                .document(post.id)
-                                                .update("likes", FieldValue.increment(if (isLiked) 1 else -1))
-                                            val params = Bundle().apply { putString("post_id", post.id) }
-                                            AnalyticsService.logAnalyticsEvent("like", params)
+                                    onClick = {
+                                        if (currentUser == null) {
+                                            onProfileClick()
+                                        } else {
+                                            isLiked = !isLiked
+                                            likeCount = if (isLiked) likeCount + 1 else likeCount - 1
+                                            scope.launch {
+                                                FirebaseService.db.collection("news")
+                                                    .document(post.id)
+                                                    .update("likes", FieldValue.increment(if (isLiked) 1 else -1))
+                                                val params = Bundle().apply { putString("post_id", post.id) }
+                                                AnalyticsService.logAnalyticsEvent("like", params)
+                                            }
                                         }
                                     }
-                                }
-                            )
+                                )
 
-                            Spacer(modifier = Modifier.height(24.dp))
+                                Spacer(modifier = Modifier.height(24.dp))
 
-                            ActionButton(
-                                icon = Icons.Default.Share,
-                                count = shareCount.toString(),
-                                isLoading = isSharing,
-                                tint = if (isSystemInDarkTheme()) Color.White else Color.Black,
-                                onClick = { if (!isSharing) { performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, uriHandler, cardBounds, view) } }
-                            )
+                                ActionButton(
+                                    icon = Icons.Default.Share,
+                                    count = shareCount.toString(),
+                                    isLoading = isSharing,
+                                    tint = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                                    onClick = { if (!isSharing) { performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, uriHandler, cardBounds, view) } }
+                                )
 
-                            Spacer(modifier = Modifier.height(24.dp))
+                                Spacer(modifier = Modifier.height(24.dp))
 
-                            ActionButton(
-                                icon = Icons.AutoMirrored.Filled.Comment,
-                                count = commentCount.toString(),
-                                tint = if (isSystemInDarkTheme()) Color.White else Color.Black,
-                                onClick = { showComments = true }
-                            )
+                                ActionButton(
+                                    icon = Icons.AutoMirrored.Filled.Comment,
+                                    count = commentCount.toString(),
+                                    tint = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                                    onClick = { showComments = true }
+                                )
+                            }
                         }
                     }
                 }
@@ -747,13 +761,27 @@ fun ActionButton(
     contentDescription: String? = null,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    
+    // 🎨 Bounce Effect: బటన్ నొక్కినప్పుడు కొంచెం లోపలికి వెళ్ళినట్లు అనిపిస్తుంది
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.88f else 1f,
+        label = "button_bounce"
+    )
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(
-            interactionSource = remember { MutableInteractionSource() },
-            indication = null,
-            onClick = onClick
-        )
+        modifier = Modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
     ) {
         Box(contentAlignment = Alignment.Center) {
             if (isLoading) {

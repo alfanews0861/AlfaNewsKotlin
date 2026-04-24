@@ -23,7 +23,11 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.request.ImageRequest
+import coil3.request.allowHardware
+import coil3.request.crossfade
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlin.math.absoluteValue
 import com.alfanews.telugu.R
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.User
@@ -112,6 +116,8 @@ fun NewsFeedView(
             if (post.mediaUrl.isNotEmpty()) {
                 val request = ImageRequest.Builder(context)
                     .data(post.mediaUrl)
+                    .crossfade(true)
+                    .allowHardware(true)
                     .build()
                 imageLoader.enqueue(request)
             }
@@ -155,6 +161,8 @@ fun NewsFeedView(
                     if (post.mediaUrl.isNotEmpty()) {
                         val request = ImageRequest.Builder(context)
                             .data(post.mediaUrl)
+                            .crossfade(true)
+                            .allowHardware(true)
                             .build()
                         imageLoader.enqueue(request)
                     }
@@ -223,49 +231,64 @@ fun NewsFeedView(
                     }
                 }
             ) { page ->
-                val isAdPage = (page + 1) % 6 == 0
-                if (isAdPage) {
-                    val nativeAd = preloadedAds[page]
-                    if (nativeAd != null) {
-                        AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentAlignment = Alignment.Center
-                        ) {
-                             if (preloadedAds.containsKey(page)) {
-                                Text(
-                                    text = stringResource(R.string.sponsored_content),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    fontSize = 12.sp
-                                )
-                            } else {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                                    strokeWidth = 2.dp
-                                )
+                // 🎞️ యానిమేషన్ లెక్కలు: స్క్రోల్ చేస్తున్నప్పుడు కార్డు సైజు మరియు ట్రాన్స్పరెన్సీ మారుతుంది
+                val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
+                val scale = 1f - (pageOffset * 0.12f).coerceIn(0f, 0.12f)
+                val alpha = 1f - (pageOffset * 0.4f).coerceIn(0f, 0.4f)
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                            this.alpha = alpha
+                        }
+                ) {
+                    val isAdPage = (page + 1) % 6 == 0
+                    if (isAdPage) {
+                        val nativeAd = preloadedAds[page]
+                        if (nativeAd != null) {
+                            AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (preloadedAds.containsKey(page)) {
+                                    Text(
+                                        text = stringResource(R.string.sponsored_content),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                        fontSize = 12.sp
+                                    )
+                                } else {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                        strokeWidth = 2.dp
+                                    )
+                                }
                             }
                         }
-                    }
-                } else {
-                    val newsIndex = page - (page / 6)
-                    if (newsIndex >= 0 && newsIndex < news.size) {
-                        val post = news[newsIndex]
-                        NewsCardView(
-                            post = post,
-                            language = language,
-                            currentUser = currentUser,
-                            onProfileClick = onProfileClick,
-                            onReporterClick = onReporterClick,
-                            onDistrictClick = onDistrictClick,
-                            autoShare = sharedPostId == post.id,
-                            onAutoShareDone = { viewModel.setSharedPostId(null) },
-                            onEditClick = onEditClick,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                    } else {
+                        val newsIndex = page - (page / 6)
+                        if (newsIndex >= 0 && newsIndex < news.size) {
+                            val post = news[newsIndex]
+                            NewsCardView(
+                                post = post,
+                                language = language,
+                                currentUser = currentUser,
+                                onProfileClick = onProfileClick,
+                                onReporterClick = onReporterClick,
+                                onDistrictClick = onDistrictClick,
+                                autoShare = sharedPostId == post.id,
+                                onAutoShareDone = { viewModel.setSharedPostId(null) },
+                                onEditClick = onEditClick,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
                 }
             }
