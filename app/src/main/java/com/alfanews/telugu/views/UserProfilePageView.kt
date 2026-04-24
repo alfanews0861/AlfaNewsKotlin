@@ -178,9 +178,10 @@ fun UserProfilePageView(
                     Text(
                         text = when {
                             isGuest -> stringResource(R.string.guest)
-                            user.role == UserRole.ADMIN -> stringResource(R.string.admin_panel)
-                            user.role == UserRole.EDITOR -> stringResource(R.string.manage_news)
-                            user.role == UserRole.REPORTER -> stringResource(R.string.post_news)
+                            user.role == UserRole.ADMIN -> stringResource(R.string.admin)
+                            user.role == UserRole.EDITOR -> stringResource(R.string.editor)
+                            user.role == UserRole.REPORTER -> stringResource(R.string.reporter)
+                            user.role == UserRole.SUBSCRIBER -> stringResource(R.string.subscriber)
                             else -> user.role.name
                         },
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),

@@ -25,7 +25,8 @@ import java.util.concurrent.TimeUnit
 data class LoginUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
-    val isLoginSuccessful: Boolean = false
+    val isLoginSuccessful: Boolean = false,
+    val isNewUser: Boolean = false
 )
 
 class LoginViewModel : ViewModel() {
@@ -37,7 +38,7 @@ class LoginViewModel : ViewModel() {
         _uiState.value = LoginUiState()
     }
 
-    private suspend fun createUserProfileInFirestore(
+    private suspend fun createNewUserProfile(
         user: FirebaseUser,
         name: String,
         context: Context
@@ -47,10 +48,10 @@ class LoginViewModel : ViewModel() {
             "name" to name.ifEmpty { context.getString(R.string.user_default_name) },
             "email" to user.email,
             "phone" to user.phoneNumber,
-            "role" to "SUBSCRIBER",
+            "role" to "SUBSCRIBER", // Only new users get this
             "createdAt" to Timestamp.now()
         )
-        userRef.set(userData, SetOptions.merge()).await()
+        userRef.set(userData).await()
     }
 
     fun signInWithCredential(credential: AuthCredential, context: Context) {
@@ -58,49 +59,34 @@ class LoginViewModel : ViewModel() {
             _uiState.value = LoginUiState(isLoading = true)
             try {
                 val authResult = FirebaseService.auth.signInWithCredential(credential).await()
-                val isNewUser = authResult.additionalUserInfo?.isNewUser ?: false
                 val user = authResult.user!!
 
-                // వర్తమాన వినియోగదారు డేటా తెలుసుకోవటానికి ప్రయత్నించండి
                 val userRef = FirebaseService.db.collection("users").document(user.uid)
                 val existingUserDoc = userRef.get().await()
 
-                if (isNewUser) {
-                    // కొత్త వినియోగదారు - కొత్త ప్రొఫైల్ సృష్టించండి
-                    createUserProfileInFirestore(
+                if (!existingUserDoc.exists()) {
+                    // NEW USER: Create profile with default role
+                    createNewUserProfile(
                         user = user,
                         name = user.displayName ?: "",
                         context = context
                     )
-                } else if (existingUserDoc.exists()) {
-                    // ఇప్పటికే ఉన్న వినియోగదారు - తమ రోల్ సంరక్షించండి
-                    // కేవలం ఆధారీకరణ సమాచారం నవీకరించండి (ఫోన్ / ఇమెయిల్ / ఫోటో)
-                    val updateData = mutableMapOf<String, Any>()
-                    if (!user.phoneNumber.isNullOrEmpty()) {
-                        updateData["phone"] = user.phoneNumber!!
-                    }
-                    if (!user.email.isNullOrEmpty()) {
-                        updateData["email"] = user.email!!
-                    }
-                    if (user.photoUrl != null) {
-                        updateData["photoUrl"] = user.photoUrl!!
-                    }
-                    if (!user.displayName.isNullOrEmpty()) {
-                        updateData["name"] = user.displayName!!
-                    }
-                    if (updateData.isNotEmpty()) {
-                        userRef.update(updateData).await()
-                    }
+                    _uiState.value = LoginUiState(isLoginSuccessful = true, isNewUser = true)
                 } else {
-                    // నిర్ధారణ లో సమస్య - ప్రొఫైల్ లేదు, కొత్త సృష్టించండి
-                    createUserProfileInFirestore(
-                        user = user,
-                        name = user.displayName ?: "",
-                        context = context
+                    // EXISTING USER: Only update metadata, NEVER touch the "role" field
+                    val updateData = mutableMapOf<String, Any>(
+                        "lastLogin" to Timestamp.now()
                     )
+                    
+                    // Update profile info only if it was provided by the auth provider
+                    if (!user.phoneNumber.isNullOrEmpty()) updateData["phone"] = user.phoneNumber!!
+                    if (!user.email.isNullOrEmpty()) updateData["email"] = user.email!!
+                    if (user.photoUrl != null) updateData["photoUrl"] = user.photoUrl!!.toString()
+                    if (!user.displayName.isNullOrEmpty()) updateData["name"] = user.displayName!!
+                    
+                    userRef.update(updateData).await()
+                    _uiState.value = LoginUiState(isLoginSuccessful = true, isNewUser = false)
                 }
-
-                _uiState.value = LoginUiState(isLoginSuccessful = true)
             } catch (e: Exception) {
                 _uiState.value = LoginUiState(errorMessage = e.localizedMessage)
             }

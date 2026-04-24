@@ -390,9 +390,11 @@ fun ProfileContainer(
 
     if (showLogin) {
         LoginScreenView(
-            onLoginSuccess = { 
+            onLoginSuccess = { isNewUser ->
                 showLogin = false 
-                onNavigate("edit-profile")
+                if (isNewUser) {
+                    onNavigate("edit-profile")
+                }
             },
             onClose = { showLogin = false }
         )

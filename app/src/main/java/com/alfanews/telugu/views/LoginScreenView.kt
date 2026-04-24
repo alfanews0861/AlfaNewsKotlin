@@ -44,7 +44,7 @@ import java.util.concurrent.TimeUnit
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreenView(
-    onLoginSuccess: () -> Unit,
+    onLoginSuccess: (isNewUser: Boolean) -> Unit,
     onClose: () -> Unit,
     loginViewModel: LoginViewModel = viewModel()
 ) {
@@ -53,7 +53,8 @@ fun LoginScreenView(
 
     LaunchedEffect(loginUiState.isLoginSuccessful) {
         if (loginUiState.isLoginSuccessful) {
-            onLoginSuccess()
+            onLoginSuccess(loginUiState.isNewUser)
+            loginViewModel.resetState()
         }
     }
 

@@ -28,6 +28,10 @@
     <string name="id_card">ID Card</string>
     <string name="login_signup">Login / Sign Up</string>
     <string name="guest">Guest</string>
+    <string name="subscriber">Subscriber</string>
+    <string name="reporter">Reporter</string>
+    <string name="editor">Editor</string>
+    <string name="admin">Administrator</string>
     <string name="delete_account">Delete Account</string>
     <string name="language_telugu">Telugu</string>
     <string name="language_english">English</string>

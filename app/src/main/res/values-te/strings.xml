@@ -28,6 +28,10 @@
     <string name="id_card">ID కార్డు</string>
     <string name="login_signup">లాగిన్ / సైన్ అప్</string>
     <string name="guest">అతిథి</string>
+    <string name="subscriber">వినియోగదారుడు</string>
+    <string name="reporter">రిపోర్టర్</string>
+    <string name="editor">ఎడిటర్</string>
+    <string name="admin">అడ్మినిస్ట్రేటర్</string>
     <string name="delete_account">ఖాతాను తొలగించండి</string>
     <string name="language_telugu">తెలుగు</string>
     <string name="language_english">English</string>
