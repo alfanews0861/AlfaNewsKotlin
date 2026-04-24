@@ -165,12 +165,21 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                       finalPosts = (listOf(it) + finalPosts).distinctBy { it.id }
                   }
 
-                  if (initialPostId != null) {
-                      val doc = FirebaseService.db.collection("news").document(initialPostId).get().await()
-                      mapDocumentToNewsPost(doc)?.let { post ->
-                          finalPosts = (listOf(post) + finalPosts).distinctBy { it.id }
-                      }
-                  }
+                   // 🔗 Deeplink: Fetch the specific post if initialPostId is provided
+                   if (initialPostId != null) {
+                       try {
+                           val doc = FirebaseService.db.collection("news").document(initialPostId).get().await()
+                           if (doc.exists()) {
+                               mapDocumentToNewsPost(doc)?.let { post ->
+                                   finalPosts = (listOf(post) + finalPosts).distinctBy { it.id }
+                               }
+                           }
+                           // If doc doesn't exist, it's silently skipped (user still sees other news)
+                       } catch (e: Exception) {
+                           // Log deeplink error for debugging, but don't crash
+                           // In production, consider reporting to analytics
+                       }
+                   }
 
                   _news.value = finalPosts.distinctBy { it.id }
                   if (_news.value.isEmpty() && mainCursor == null) _hasMore.value = false

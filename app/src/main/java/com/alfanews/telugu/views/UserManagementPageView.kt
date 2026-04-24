@@ -19,6 +19,7 @@ import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.ui.theme.AlfaNewsTheme
+import com.alfanews.telugu.utils.toUserObject
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -45,11 +46,11 @@ fun UserManagementPageView(currentUser: User) {
                     UserRole.EDITOR -> {
                         val subscribers = FirebaseService.db.collection("users")
                             .whereEqualTo("role", "SUBSCRIBER")
-                            .get().await().documents.mapNotNull { doc -> doc.toObject(User::class.java)?.copy(id = doc.id) }
+                            .get().await().documents.mapNotNull { doc -> doc.toUserObject() }
 
                         val reporters = FirebaseService.db.collection("users")
                             .whereEqualTo("role", "REPORTER")
-                            .get().await().documents.mapNotNull { doc -> doc.toObject(User::class.java)?.copy(id = doc.id) }
+                            .get().await().documents.mapNotNull { doc -> doc.toUserObject() }
 
                         subscribers + reporters.filter { it.promotedBy == currentUser.id || it.promotedBy.isNullOrBlank() || it.promotedBy == "ADMIN" }
                     }
@@ -59,7 +60,7 @@ fun UserManagementPageView(currentUser: User) {
                             FirebaseService.db.collection("users")
                                 .whereEqualTo("role", role)
                                 .get().await().documents.mapNotNull { doc ->
-                                    doc.toObject(User::class.java)?.copy(id = doc.id)
+                                    doc.toUserObject()
                                 }
                         }.filter { u -> u.district != null && currentUser.assignedDistricts.contains(u.district) }
                     }
@@ -68,7 +69,7 @@ fun UserManagementPageView(currentUser: User) {
                             .orderBy("name", Query.Direction.ASCENDING)
                             .get()
                             .await()
-                            .documents.mapNotNull { doc -> doc.toObject(User::class.java)?.copy(id = doc.id) }
+                            .documents.mapNotNull { doc -> doc.toUserObject() }
                     }
                 }
 

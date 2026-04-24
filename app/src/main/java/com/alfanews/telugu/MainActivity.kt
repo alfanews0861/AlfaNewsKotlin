@@ -163,32 +163,40 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleDeepLink(intent: Intent?) {
-        val fcmActionUrl = intent?.getStringExtra("actionUrl")
-        val intentData = intent?.data
-        
-        val uri = intentData ?: fcmActionUrl?.let { Uri.parse(it) }
+        try {
+            val fcmActionUrl = intent?.getStringExtra("actionUrl")
+            val intentData = intent?.data
 
-        uri?.let { u ->
-            val postId = when (u.scheme) {
-                "alfanews" -> {
-                    // alfanews://news/POST_ID
-                    if (u.host == "news") u.lastPathSegment else null
-                }
-                "http", "https" -> {
-                    // https://alfanews.app/news/POST_ID or https://www.alfanews.app/news/POST_ID
-                    val host = u.host
-                    if (host == "alfanews.app" || host == "www.alfanews.app") {
-                        val pathSegments = u.pathSegments
-                        if (pathSegments.size >= 2 && pathSegments[0] == "news") pathSegments[1] else null
-                    } else null
-                }
-                else -> null
-            }
+            val uri = intentData ?: fcmActionUrl?.let { Uri.parse(it) }
 
-            postId?.let { id ->
-                mainViewModel.setActiveTab("home")
-                newsFeedViewModel.loadNews(mainViewModel.language.value, mainViewModel.currentUser.value, initialPostId = id)
+            uri?.let { u ->
+                val postId = when (u.scheme) {
+                    "alfanews" -> {
+                        // alfanews://news/POST_ID
+                        if (u.host == "news") u.lastPathSegment else null
+                    }
+                    "http", "https" -> {
+                        // https://alfanews.app/news/POST_ID or https://www.alfanews.app/news/POST_ID
+                        val host = u.host
+                        if (host == "alfanews.app" || host == "www.alfanews.app") {
+                            val pathSegments = u.pathSegments
+                            if (pathSegments.size >= 2 && pathSegments[0] == "news") pathSegments[1] else null
+                        } else null
+                    }
+                    else -> null
+                }
+
+                postId?.let { id ->
+                    // 🔗 CRITICAL: Set sharedPostId so UI knows to scroll to this post
+                    // This must happen BEFORE or alongside loadNews
+                    newsFeedViewModel.setSharedPostId(id)
+                    mainViewModel.setActiveTab("home")
+                    newsFeedViewModel.loadNews(mainViewModel.language.value, mainViewModel.currentUser.value, initialPostId = id)
+                }
             }
+        } catch (e: Exception) {
+            // Silent error handling - deeplink processing should never crash the app
+            // In production, this could be logged to analytics
         }
     }
 }

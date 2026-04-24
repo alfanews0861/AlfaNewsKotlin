@@ -64,24 +64,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     if (snapshot != null && snapshot.exists()) {
+                        // Extract role explicitly as a string first to avoid deserialization issues
                         val roleStr = snapshot.getString("role") ?: "SUBSCRIBER"
+                        val parsedRole = try {
+                            UserRole.valueOf(roleStr.uppercase())
+                        } catch (e: Exception) {
+                            UserRole.SUBSCRIBER
+                        }
+
                         val userObj = try {
-                            // First attempt: Automatic mapping
-                            snapshot.toObject(User::class.java)?.copy(
+                            // First attempt: Automatic mapping with explicit role conversion
+                            val baseUser = snapshot.toObject(User::class.java)
+                            baseUser?.copy(
                                 id = snapshot.id,
-                                role = try { UserRole.valueOf(roleStr.uppercase()) } catch(e: Exception) { UserRole.SUBSCRIBER }
+                                role = parsedRole  // Use the explicitly parsed role
                             )
                         } catch (e: Exception) {
                             // Second attempt: Manual mapping if automatic fails (Resilience)
+                            // This ensures we always get the correct role from Firestore
                             User(
                                 id = snapshot.id,
                                 name = snapshot.getString("name") ?: "User",
                                 email = snapshot.getString("email"),
                                 phone = snapshot.getString("phone"),
                                 photoUrl = snapshot.getString("photoUrl"),
-                                role = try { UserRole.valueOf(roleStr.uppercase()) } catch(ev: Exception) { UserRole.SUBSCRIBER },
+                                role = parsedRole,  // Use the explicitly parsed role
+                                address = snapshot.getString("address"),
                                 district = snapshot.getString("district"),
-                                pushEnabled = snapshot.getBoolean("pushEnabled") ?: true
+                                pushEnabled = snapshot.getBoolean("pushEnabled") ?: true,
+                                constituency = snapshot.getString("constituency"),
+                                state = snapshot.getString("state"),
+                                promotedBy = snapshot.getString("promotedBy"),
+                                signatureUrl = snapshot.getString("signatureUrl"),
+                                idCardUrl = snapshot.getString("idCardUrl"),
+                                assignedMandal = snapshot.getString("assignedMandal"),
+                                assignedDistricts = (snapshot.get("assignedDistricts") as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
+                                fcmTokens = (snapshot.get("fcmTokens") as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
+                                lastTokenUpdate = snapshot.getLong("lastTokenUpdate"),
+                                categoryScores = (snapshot.get("categoryScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
+                                reporterScores = (snapshot.get("reporterScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
+                                tagScores = (snapshot.get("tagScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
+                                peopleScores = (snapshot.get("peopleScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
+                                organizationScores = (snapshot.get("organizationScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
+                                locationScores = (snapshot.get("locationScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap()
                             )
                         }
                         
