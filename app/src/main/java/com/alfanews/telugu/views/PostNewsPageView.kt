@@ -57,7 +57,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
-@Composable
 fun getVideoDuration(context: android.content.Context, uri: Uri): Long {
     return try {
         val retriever = MediaMetadataRetriever()
@@ -87,17 +86,30 @@ fun PostNewsPageView(
     var state by remember { mutableStateOf(postToEdit?.state ?: user.state ?: "TS") }
     var district by remember { mutableStateOf(postToEdit?.district ?: user.district ?: "") }
     var isSubmitting by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     
     val publishString = stringResource(R.string.publish_news)
     val updateString = stringResource(R.string.update_news)
+    val tsString = stringResource(R.string.telangana)
+    val apString = stringResource(R.string.andhra_pradesh)
+    val stateLabel = stringResource(R.string.state)
+    val districtLabel = stringResource(R.string.district)
+    val mandalLabel = stringResource(R.string.mandal)
+    val categoryLabel = stringResource(R.string.category)
+    val detailsLabel = stringResource(R.string.news_details)
+    val headlineLabel = stringResource(R.string.headline)
+    val contentLabel = stringResource(R.string.news_content)
+    val regionCategoryLabel = stringResource(R.string.region_category)
+    val mediaLabel = stringResource(R.string.news_media)
+    val youtubeLinkLabel = stringResource(R.string.youtube_link)
+    
     var statusMessage by remember { mutableStateOf("") }
     
     LaunchedEffect(postToEdit) {
         statusMessage = if (postToEdit != null) updateString else publishString
     }
-
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
     val imageLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
@@ -146,6 +158,10 @@ fun PostNewsPageView(
         Constants.CATEGORIES.map { cat -> 
             cat to context.getString(Constants.CATEGORY_RES_MAP[cat] ?: R.string.cat_others) 
         }
+    }
+
+    val stateOptions = remember(tsString, apString) {
+        listOf("TS" to tsString, "AP" to apString)
     }
 
     LaunchedEffect(districts) {
@@ -253,33 +269,33 @@ fun PostNewsPageView(
         ) {
             Box(modifier = Modifier.fillMaxWidth().glassmorphism(cornerRadius = 16.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(stringResource(R.string.news_details), style = MaterialTheme.typography.titleLarge)
-                    OutlinedTextField(value = headline, onValueChange = { headline = it }, label = { Text(stringResource(R.string.headline)) }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(value = content, onValueChange = { content = it }, label = { Text(stringResource(R.string.news_content)) }, modifier = Modifier.fillMaxWidth().height(200.dp))
+                    Text(detailsLabel, style = MaterialTheme.typography.titleLarge)
+                    OutlinedTextField(value = headline, onValueChange = { headline = it }, label = { Text(headlineLabel) }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = content, onValueChange = { content = it }, label = { Text(contentLabel) }, modifier = Modifier.fillMaxWidth().height(200.dp))
                 }
             }
 
             Box(modifier = Modifier.fillMaxWidth().glassmorphism(cornerRadius = 16.dp)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(stringResource(R.string.region_category), style = MaterialTheme.typography.titleLarge)
+                    Text(regionCategoryLabel, style = MaterialTheme.typography.titleLarge)
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Dropdown(label = stringResource(R.string.state), options = listOf("TS" to stringResource(R.string.telangana), "AP" to stringResource(R.string.andhra_pradesh)), selected = state, onSelected = { s -> state = s; district = "" }, modifier = Modifier.weight(1f))
-                        Dropdown(label = stringResource(R.string.district), options = districtOptions, selected = district, onSelected = { d -> district = d; location = "" }, modifier = Modifier.weight(1f))
+                        Dropdown(label = stateLabel, options = stateOptions, selected = state, onSelected = { s -> state = s; district = "" }, modifier = Modifier.weight(1f))
+                        Dropdown(label = districtLabel, options = districtOptions, selected = district, onSelected = { d -> district = d; location = "" }, modifier = Modifier.weight(1f))
                     }
                     
                     if (mandals.isNotEmpty()) {
-                        Dropdown(label = stringResource(R.string.mandal), options = mandalOptions, selected = location, onSelected = { l -> location = l }, modifier = Modifier.fillMaxWidth())
+                        Dropdown(label = mandalLabel, options = mandalOptions, selected = location, onSelected = { l -> location = l }, modifier = Modifier.fillMaxWidth())
                     } else {
                         OutlinedTextField(value = location, onValueChange = { location = it }, label = { Text(stringResource(R.string.location_placeholder)) }, modifier = Modifier.fillMaxWidth())
                     }
 
-                    Dropdown(label = stringResource(R.string.category), options = categoryOptions, selected = category, onSelected = { c -> category = c }, modifier = Modifier.fillMaxWidth())
+                    Dropdown(label = categoryLabel, options = categoryOptions, selected = category, onSelected = { c -> category = c }, modifier = Modifier.fillMaxWidth())
                 }
             }
 
             Box(modifier = Modifier.fillMaxWidth().glassmorphism(cornerRadius = 16.dp)) {
                 Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(stringResource(R.string.news_media), style = MaterialTheme.typography.titleLarge)
+                    Text(mediaLabel, style = MaterialTheme.typography.titleLarge)
                     
                     val combinedMediaUrls = remember(mediaUrl, mediaUris) {
                         val existing = if (mediaUrl.isNotEmpty()) listOf(mediaUrl) else emptyList()
@@ -370,7 +386,7 @@ fun PostNewsPageView(
                     OutlinedTextField(
                         value = youtubeUrl ?: "",
                         onValueChange = { youtubeUrl = it },
-                        label = { Text(stringResource(R.string.youtube_link)) },
+                        label = { Text(youtubeLinkLabel) },
                         placeholder = { Text("https://www.youtube.com/watch?v=...") },
                         modifier = Modifier.fillMaxWidth()
                     )
