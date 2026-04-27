@@ -121,7 +121,7 @@ dependencies {
     implementation("com.google.firebase:firebase-functions")
     implementation("com.google.firebase:firebase-messaging")
     implementation("com.google.firebase:firebase-appcheck-playintegrity")
-    implementation("com.google.firebase:firebase-dynamiclinks")
+    implementation("com.google.firebase:firebase-dynamiclinks:21.0.0")
     debugImplementation("com.google.firebase:firebase-appcheck-debug")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
