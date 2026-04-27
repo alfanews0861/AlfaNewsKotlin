@@ -99,6 +99,28 @@ fun PostNewsPageView(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    val imageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            mediaUris = (mediaUris + uris).take(3)
+        }
+    }
+
+    val videoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val duration = getVideoDuration(context, uri)
+            if (duration > 10 * 60 * 1000) {
+                Toast.makeText(context, "వీడియో నిడివి 10 నిమిషాల కంటే తక్కువ ఉండాలి", Toast.LENGTH_LONG).show()
+            } else {
+                val images = mediaUris.filter { context.contentResolver.getType(it)?.startsWith("image/") == true }
+                mediaUris = (listOf(uri) + images).take(3)
+            }
+        }
+    }
+
     val districts = remember(state, user) {
         val baseDistricts = if (state == "TS") Constants.TS_DISTRICTS else Constants.AP_DISTRICTS
         if (user.role == UserRole.REGIONAL_INCHARGE) {
@@ -121,7 +143,9 @@ fun PostNewsPageView(
     }
 
     val categoryOptions = remember {
-        Constants.CATEGORIES.map { cat -> cat to stringResource(Constants.CATEGORY_RES_MAP[cat] ?: R.string.cat_others) }
+        Constants.CATEGORIES.map { cat -> 
+            cat to context.getString(Constants.CATEGORY_RES_MAP[cat] ?: R.string.cat_others) 
+        }
     }
 
     LaunchedEffect(districts) {
@@ -312,28 +336,6 @@ fun PostNewsPageView(
                                 modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape)
                             ) {
                                 Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White)
-                            }
-                        }
-                    }
-
-                    val imageLauncher = rememberLauncherForActivityResult(
-                        contract = ActivityResultContracts.GetMultipleContents()
-                    ) { uris: List<Uri> ->
-                        if (uris.isNotEmpty()) {
-                            mediaUris = (mediaUris + uris).take(3)
-                        }
-                    }
-
-                    val videoLauncher = rememberLauncherForActivityResult(
-                        contract = ActivityResultContracts.GetContent()
-                    ) { uri: Uri? ->
-                        if (uri != null) {
-                            val duration = getVideoDuration(context, uri)
-                            if (duration > 10 * 60 * 1000) {
-                                Toast.makeText(context, "వీడియో నిడివి 10 నిమిషాల కంటే తక్కువ ఉండాలి", Toast.LENGTH_LONG).show()
-                            } else {
-                                val images = mediaUris.filter { context.contentResolver.getType(it)?.startsWith("image/") == true }
-                                mediaUris = (listOf(uri) + images).take(3)
                             }
                         }
                     }
