@@ -4,8 +4,10 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.widget.Toast
+import android.media.MediaMetadataRetriever
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,9 +20,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,6 +57,19 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
+@Composable
+fun getVideoDuration(context: android.content.Context, uri: Uri): Long {
+    return try {
+        val retriever = MediaMetadataRetriever()
+        retriever.setDataSource(context, uri)
+        val time = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+        retriever.release()
+        time?.toLong() ?: 0
+    } catch (e: Exception) {
+        0
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PostNewsPageView(
@@ -62,8 +81,7 @@ fun PostNewsPageView(
     var content by remember { mutableStateOf(postToEdit?.content?.telugu ?: "") }
     var mediaUrl by remember { mutableStateOf(postToEdit?.mediaUrl ?: "") }
     var youtubeUrl by remember { mutableStateOf(postToEdit?.youtubeUrl ?: "") }
-    var mediaUri by remember { mutableStateOf<Uri?>(null) }
-    var mediaType by remember { mutableStateOf(postToEdit?.mediaType?.name ?: "IMAGE") }
+    var mediaUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var location by remember { mutableStateOf(postToEdit?.location ?: user.assignedMandal ?: "") }
     var category by remember { mutableStateOf(postToEdit?.categories?.firstOrNull { !Constants.ALL_DISTRICTS.contains(it) } ?: "రాజకీయం") }
     var state by remember { mutableStateOf(postToEdit?.state ?: user.state ?: "TS") }
@@ -90,6 +108,22 @@ fun PostNewsPageView(
         }
     }
 
+    val districtOptions = remember(districts) {
+        districts.map { it to it }
+    }
+
+    val mandals = remember(district) {
+        Constants.MANDAL_DATA[district] ?: emptyList()
+    }
+
+    val mandalOptions = remember(mandals) {
+        mandals.map { it to it }
+    }
+
+    val categoryOptions = remember {
+        Constants.CATEGORIES.map { cat -> cat to stringResource(Constants.CATEGORY_RES_MAP[cat] ?: R.string.cat_others) }
+    }
+
     LaunchedEffect(districts) {
         if (district.isNotEmpty() && !districts.contains(district)) {
             district = ""
@@ -106,11 +140,32 @@ fun PostNewsPageView(
             isSubmitting = true
             try {
                 statusMessage = context.getString(R.string.uploading_media)
-                var finalMediaUrl = mediaUrl
-                if (mediaUri != null) {
-                    val isVideo = context.contentResolver.getType(mediaUri!!)?.startsWith("video/") == true
-                    finalMediaUrl = uploadMediaToStorage(context, mediaUri!!, "news-media", isVideo)
-                    mediaType = if (isVideo) "VIDEO" else "IMAGE"
+                
+                val finalMediaUrls = if (postToEdit != null) {
+                    (postToEdit.mediaUrls.ifEmpty { if (postToEdit.mediaUrl.isNotEmpty()) listOf(postToEdit.mediaUrl) else emptyList() }).toMutableList()
+                } else {
+                    mutableListOf<String>()
+                }
+                val finalMediaTypes = if (postToEdit != null) {
+                    (postToEdit.mediaTypes.map { it.name }.ifEmpty { listOf(postToEdit.mediaType.name) }).toMutableList()
+                } else {
+                    mutableListOf<String>()
+                }
+
+                if (mediaUris.isNotEmpty()) {
+                    val sortedUris = mediaUris.sortedByDescending { uri ->
+                        context.contentResolver.getType(uri)?.startsWith("video/") == true
+                    }
+
+                    for (uri in sortedUris) {
+                        val isVideo = context.contentResolver.getType(uri)?.startsWith("video/") == true
+                        if (isVideo) {
+                            statusMessage = "వీడియో ప్రాసెస్ అవుతోంది, దయచేసి వేచి ఉండండి..."
+                        }
+                        val url = uploadMediaToStorage(context, uri, "news-media", isVideo)
+                        finalMediaUrls.add(url)
+                        finalMediaTypes.add(if (isVideo) "VIDEO" else "IMAGE")
+                    }
                 }
 
                 statusMessage = context.getString(R.string.loading)
@@ -118,9 +173,11 @@ fun PostNewsPageView(
                 val finalCategories = listOf(category, district).filter { it.isNotBlank() }
 
                 val postData = hashMapOf(
-                    "mediaUrl" to finalMediaUrl,
+                    "mediaUrl" to (finalMediaUrls.firstOrNull() ?: ""),
+                    "mediaUrls" to finalMediaUrls,
+                    "mediaType" to (finalMediaTypes.firstOrNull() ?: "IMAGE"),
+                    "mediaTypes" to finalMediaTypes,
                     "youtubeUrl" to youtubeUrl,
-                    "mediaType" to mediaType,
                     "location" to location,
                     "categories" to finalCategories,
                     "reporter" to mapOf("id" to user.id, "name" to user.name),
@@ -183,77 +240,101 @@ fun PostNewsPageView(
                     Text(stringResource(R.string.region_category), style = MaterialTheme.typography.titleLarge)
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Dropdown(label = stringResource(R.string.state), options = listOf("TS" to stringResource(R.string.telangana), "AP" to stringResource(R.string.andhra_pradesh)), selected = state, onSelected = { s -> state = s; district = "" }, modifier = Modifier.weight(1f))
-                        Dropdown(label = stringResource(R.string.district), options = districts.map { it to it }, selected = district, onSelected = { d -> district = d; location = "" }, modifier = Modifier.weight(1f))
+                        Dropdown(label = stringResource(R.string.district), options = districtOptions, selected = district, onSelected = { d -> district = d; location = "" }, modifier = Modifier.weight(1f))
                     }
                     
-                    val mandals: List<String> = Constants.MANDAL_DATA[district] ?: emptyList()
                     if (mandals.isNotEmpty()) {
-                        Dropdown(label = stringResource(R.string.mandal), options = mandals.map { it to it }, selected = location, onSelected = { l -> location = l }, modifier = Modifier.fillMaxWidth())
+                        Dropdown(label = stringResource(R.string.mandal), options = mandalOptions, selected = location, onSelected = { l -> location = l }, modifier = Modifier.fillMaxWidth())
                     } else {
                         OutlinedTextField(value = location, onValueChange = { location = it }, label = { Text(stringResource(R.string.location_placeholder)) }, modifier = Modifier.fillMaxWidth())
                     }
 
-                    Dropdown(label = stringResource(R.string.category), options = Constants.CATEGORIES.map { cat -> cat to stringResource(Constants.CATEGORY_RES_MAP[cat] ?: R.string.cat_others) }, selected = category, onSelected = { c -> category = c }, modifier = Modifier.fillMaxWidth())
+                    Dropdown(label = stringResource(R.string.category), options = categoryOptions, selected = category, onSelected = { c -> category = c }, modifier = Modifier.fillMaxWidth())
                 }
             }
 
             Box(modifier = Modifier.fillMaxWidth().glassmorphism(cornerRadius = 16.dp)) {
                 Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(stringResource(R.string.news_media), style = MaterialTheme.typography.titleLarge)
-                    val displayMedia = mediaUri?.toString() ?: mediaUrl
-                    if (displayMedia.isNotEmpty()) {
-                        AsyncImage(
-                            model = displayMedia, 
-                            contentDescription = "Selected Media", 
-                            modifier = Modifier.fillMaxWidth().height(200.dp).clip(MaterialTheme.shapes.medium), 
-                            contentScale = ContentScale.Crop
-                        )
-                    }
-
-                    // --- Media Pickers ---
-                    var tempCameraUri by remember { mutableStateOf<Uri?>(null) }
                     
-                    val galleryLauncher = rememberLauncherForActivityResult(
+                    val combinedMediaUrls = remember(mediaUrl, mediaUris) {
+                        val existing = if (mediaUrl.isNotEmpty()) listOf(mediaUrl) else emptyList()
+                        existing + mediaUris.map { it.toString() }
+                    }
+
+                    if (combinedMediaUrls.isNotEmpty()) {
+                        val pagerState = rememberPagerState(pageCount = { combinedMediaUrls.size })
+                        Box(modifier = Modifier.fillMaxWidth().height(250.dp).clip(MaterialTheme.shapes.medium)) {
+                            HorizontalPager(
+                                state = pagerState,
+                                modifier = Modifier.fillMaxSize()
+                            ) { page ->
+                                val mediaItem = combinedMediaUrls[page]
+                                val isVideo = mediaItem.contains("video", ignoreCase = true) || 
+                                              context.contentResolver.getType(Uri.parse(mediaItem))?.startsWith("video/") == true
+                                
+                                if (isVideo) {
+                                    VideoPlayerView(videoUrl = mediaItem)
+                                } else {
+                                    AsyncImage(
+                                        model = mediaItem,
+                                        contentDescription = "Selected Media",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
+                            }
+                            
+                            if (combinedMediaUrls.size > 1) {
+                                Row(
+                                    Modifier.height(30.dp).fillMaxWidth().align(Alignment.BottomCenter).background(Color.Black.copy(alpha = 0.3f)),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    repeat(combinedMediaUrls.size) { iteration ->
+                                        val color = if (pagerState.currentPage == iteration) Color.White else Color.White.copy(alpha = 0.5f)
+                                        Box(
+                                            modifier = Modifier.padding(2.dp).clip(CircleShape).background(color).size(8.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    if (pagerState.currentPage < (if (mediaUrl.isNotEmpty()) 1 else 0)) {
+                                        mediaUrl = ""
+                                    } else {
+                                        val indexInUris = pagerState.currentPage - (if (mediaUrl.isNotEmpty()) 1 else 0)
+                                        mediaUris = mediaUris.filterIndexed { index, _ -> index != indexInUris }
+                                    }
+                                },
+                                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White)
+                            }
+                        }
+                    }
+
+                    val imageLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.GetMultipleContents()
+                    ) { uris: List<Uri> ->
+                        if (uris.isNotEmpty()) {
+                            mediaUris = (mediaUris + uris).take(3)
+                        }
+                    }
+
+                    val videoLauncher = rememberLauncherForActivityResult(
                         contract = ActivityResultContracts.GetContent()
-                    ) { uri: Uri? -> 
-                        if (uri != null) mediaUri = uri 
-                    }
-
-                    val cameraLauncher = rememberLauncherForActivityResult(
-                        contract = ActivityResultContracts.TakePicture()
-                    ) { success ->
-                        if (success && tempCameraUri != null) {
-                            mediaUri = tempCameraUri
-                        }
-                    }
-
-                    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-                        contract = ActivityResultContracts.RequestPermission()
-                    ) { isGranted ->
-                        if (isGranted) {
-                             val imagesDir = File(context.cacheDir, "images")
-                             imagesDir.mkdirs()
-                             val file = File(imagesDir, "camera_image_${System.currentTimeMillis()}.jpg")
-                             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                             tempCameraUri = uri
-                             cameraLauncher.launch(uri)
-                        } else {
-                            Toast.makeText(context, context.getString(R.string.camera_permission_required), Toast.LENGTH_SHORT).show()
-                        }
-                    }
-
-                    // Helper to create temp file for camera
-                    fun launchCameraWithPermission() {
-                        val permission = Manifest.permission.CAMERA
-                        if (ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED) {
-                            val imagesDir = File(context.cacheDir, "images")
-                            imagesDir.mkdirs()
-                            val file = File(imagesDir, "camera_image_${System.currentTimeMillis()}.jpg")
-                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                            tempCameraUri = uri
-                            cameraLauncher.launch(uri)
-                        } else {
-                            cameraPermissionLauncher.launch(permission)
+                    ) { uri: Uri? ->
+                        if (uri != null) {
+                            val duration = getVideoDuration(context, uri)
+                            if (duration > 10 * 60 * 1000) {
+                                Toast.makeText(context, "వీడియో నిడివి 10 నిమిషాల కంటే తక్కువ ఉండాలి", Toast.LENGTH_LONG).show()
+                            } else {
+                                val images = mediaUris.filter { context.contentResolver.getType(it)?.startsWith("image/") == true }
+                                mediaUris = (listOf(uri) + images).take(3)
+                            }
                         }
                     }
 
@@ -261,26 +342,26 @@ fun PostNewsPageView(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        // Upload Button (Red)
                         Button(
-                            onClick = { galleryLauncher.launch("image/*") },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error), // Red-ish
-                            modifier = Modifier.weight(1f)
+                            onClick = { imageLauncher.launch("image/*") },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                            modifier = Modifier.weight(1f),
+                            enabled = (mediaUris.size + (if(mediaUrl.isNotEmpty()) 1 else 0)) < 3
                         ) {
                             Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.size(8.dp))
-                            Text(stringResource(R.string.upload))
+                            Text("Image")
                         }
 
-                        // Camera Button (Blue)
                         Button(
-                            onClick = { launchCameraWithPermission() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4285F4)), // Google Blue
-                            modifier = Modifier.weight(1f)
+                            onClick = { videoLauncher.launch("video/*") },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4285F4)),
+                            modifier = Modifier.weight(1f),
+                            enabled = mediaUris.none { context.contentResolver.getType(it)?.startsWith("video/") == true } && (mediaUris.size + (if(mediaUrl.isNotEmpty()) 1 else 0)) < 3
                         ) {
-                            Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Default.VideoLibrary, contentDescription = null, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.size(8.dp))
-                            Text(stringResource(R.string.camera))
+                            Text("Video")
                         }
                     }
 
@@ -314,7 +395,7 @@ fun PostNewsPageView(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Dropdown(
+internal fun Dropdown(
     label: String,
     options: List<Pair<String, String>>,
     selected: String,
@@ -322,7 +403,15 @@ private fun Dropdown(
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedDisplay = options.find { it.first == selected }?.second ?: selected
+    val selectedDisplay = remember(options, selected) {
+        options.find { it.first == selected }?.second ?: selected
+    }
+
+    LaunchedEffect(selected) {
+        if (selected.isNotEmpty()) {
+            expanded = false
+        }
+    }
 
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }, modifier = modifier) {
         OutlinedTextField(

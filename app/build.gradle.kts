@@ -17,8 +17,8 @@ android {
         applicationId = "com.alfanews.telugu"
         minSdk = 24
         targetSdk = 35
-        versionCode = 573
-        versionName = "Sree_5.1.1"
+        versionCode = 574
+        versionName = "Sree_5.2.1"
         multiDexEnabled = true
 
         val properties = Properties()
@@ -121,6 +121,7 @@ dependencies {
     implementation("com.google.firebase:firebase-functions")
     implementation("com.google.firebase:firebase-messaging")
     implementation("com.google.firebase:firebase-appcheck-playintegrity")
+    implementation("com.google.firebase:firebase-dynamiclinks")
     debugImplementation("com.google.firebase:firebase-appcheck-debug")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")

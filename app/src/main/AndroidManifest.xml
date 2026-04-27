@@ -52,18 +52,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Deep Link: https://alfanews.app and https://www.alfanews.app -->
+            <!-- App Links: https://alfanews.app and https://www.alfanews.app (HTTPS only) -->
+            <!-- autoVerify="true" tells Android to verify this app is the handler via assetlinks.json -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="http" android:host="alfanews.app" android:pathPrefix="/news" />
                 <data android:scheme="https" android:host="alfanews.app" android:pathPrefix="/news" />
-                <data android:scheme="http" android:host="www.alfanews.app" android:pathPrefix="/news" />
                 <data android:scheme="https" android:host="www.alfanews.app" android:pathPrefix="/news" />
             </intent-filter>
 
             <!-- Custom Scheme Deep Link: alfanews://news/{postId} -->
+            <!-- This is a fallback for when App Links verification might fail -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -71,6 +71,12 @@
                 <data android:scheme="alfanews" android:host="news" />
             </intent-filter>
         </activity>
+
+        <!-- Firebase Dynamic Links Configuration -->
+        <!-- Enables automatic handling of Firebase Dynamic Links for app installation fallback -->
+        <meta-data
+            android:name="com.google.firebase.dynamiclinks.DEFAULT_URL"
+            android:value="https://alfanews.page.link" />
 
         <!-- AdMob App ID -->
         <meta-data

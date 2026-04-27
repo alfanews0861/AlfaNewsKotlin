@@ -36,6 +36,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -224,29 +228,55 @@ fun NewsCardView(
         if (isSpecialCard || isCartoonCard) {
             // --- SPECIAL CARD OR CARTOON: Full Screen Media, Overlay Buttons ---
             Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                val mediaList = remember(post) {
+                    if (post.mediaUrls.isNotEmpty()) post.mediaUrls else listOf(post.mediaUrl).filter { it.isNotEmpty() }
+                }
+                val mediaTypes = remember(post) {
+                    if (post.mediaTypes.isNotEmpty()) post.mediaTypes else listOf(post.mediaType)
+                }
+
                 if (!post.youtubeUrl.isNullOrBlank()) {
                     YouTubePlayerComponent(youtubeUrl = post.youtubeUrl)
-                } else {
-                    when (post.mediaType) {
-                        MediaType.IMAGE -> {
-                            val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(post.mediaUrl)
-                                    .crossfade(true)
-                                    .allowHardware(true)
-                                    .build(),
-                                fallback = androidx.compose.ui.res.painterResource(id = R.drawable.fallback_news_image),
-                                error = androidx.compose.ui.res.painterResource(id = R.drawable.fallback_news_image),
-                                imageLoader = imageLoader,
-                                contentDescription = headline,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop,
-                                alignment = Alignment.Center
-                            )
+                } else if (mediaList.isNotEmpty()) {
+                    val pagerState = rememberPagerState(pageCount = { mediaList.size })
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                            val url = mediaList[page]
+                            val type = mediaTypes.getOrNull(page) ?: MediaType.IMAGE
+                            if (type == MediaType.VIDEO) {
+                                VideoPlayerView(videoUrl = url)
+                            } else {
+                                val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(url)
+                                        .crossfade(true)
+                                        .allowHardware(true)
+                                        .build(),
+                                    fallback = androidx.compose.ui.res.painterResource(id = R.drawable.fallback_news_image),
+                                    error = androidx.compose.ui.res.painterResource(id = R.drawable.fallback_news_image),
+                                    imageLoader = imageLoader,
+                                    contentDescription = headline,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop,
+                                    alignment = Alignment.Center
+                                )
+                            }
                         }
-                        MediaType.VIDEO -> {
-                            VideoPlayerView(videoUrl = post.mediaUrl)
+                        
+                        if (mediaList.size > 1) {
+                            Row(
+                                Modifier.height(30.dp).fillMaxWidth().align(Alignment.BottomCenter).background(Color.Black.copy(alpha = 0.3f)),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                repeat(mediaList.size) { iteration ->
+                                    val color = if (pagerState.currentPage == iteration) Color.White else Color.White.copy(alpha = 0.5f)
+                                    Box(
+                                        modifier = Modifier.padding(2.dp).clip(CircleShape).background(color).size(8.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -405,29 +435,55 @@ fun NewsCardView(
                             .weight(1f)
                             .background(Color.Black)
                     ) {
+                        val mediaList = remember(post) {
+                            if (post.mediaUrls.isNotEmpty()) post.mediaUrls else listOf(post.mediaUrl).filter { it.isNotEmpty() }
+                        }
+                        val mediaTypes = remember(post) {
+                            if (post.mediaTypes.isNotEmpty()) post.mediaTypes else listOf(post.mediaType)
+                        }
+
                         if (!post.youtubeUrl.isNullOrBlank()) {
                             YouTubePlayerComponent(youtubeUrl = post.youtubeUrl)
-                        } else {
-                            when (post.mediaType) {
-                                MediaType.IMAGE -> {
-                                    val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(post.mediaUrl)
-                                            .crossfade(true)
-                                            .allowHardware(true)
-                                            .build(),
-                                        fallback = androidx.compose.ui.res.painterResource(id = R.drawable.fallback_news_image),
-                                        error = androidx.compose.ui.res.painterResource(id = R.drawable.fallback_news_image),
-                                        imageLoader = imageLoader,
-                                        contentDescription = headline,
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop,
-                                        alignment = Alignment.TopCenter
-                                    )
+                        } else if (mediaList.isNotEmpty()) {
+                            val pagerState = rememberPagerState(pageCount = { mediaList.size })
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                                    val url = mediaList[page]
+                                    val type = mediaTypes.getOrNull(page) ?: MediaType.IMAGE
+                                    if (type == MediaType.VIDEO) {
+                                        VideoPlayerView(videoUrl = url)
+                                    } else {
+                                        val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(context)
+                                                .data(url)
+                                                .crossfade(true)
+                                                .allowHardware(true)
+                                                .build(),
+                                            fallback = androidx.compose.ui.res.painterResource(id = R.drawable.fallback_news_image),
+                                            error = androidx.compose.ui.res.painterResource(id = R.drawable.fallback_news_image),
+                                            imageLoader = imageLoader,
+                                            contentDescription = headline,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop,
+                                            alignment = Alignment.TopCenter
+                                        )
+                                    }
                                 }
-                                MediaType.VIDEO -> {
-                                    VideoPlayerView(videoUrl = post.mediaUrl)
+                                
+                                if (mediaList.size > 1) {
+                                    Row(
+                                        Modifier.height(30.dp).fillMaxWidth().align(Alignment.BottomCenter).background(Color.Black.copy(alpha = 0.3f)),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        repeat(mediaList.size) { iteration ->
+                                            val color = if (pagerState.currentPage == iteration) Color.White else Color.White.copy(alpha = 0.5f)
+                                            Box(
+                                                modifier = Modifier.padding(2.dp).clip(CircleShape).background(color).size(6.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

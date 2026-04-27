@@ -39,6 +39,8 @@ export interface NewsPost {
   };
   mediaUrl: string;
   mediaType: 'image' | 'video';
+  mediaUrls?: string[];
+  mediaTypes?: ('image' | 'video')[];
   postFormat: PostFormat;
   reporter: {
     id: string;

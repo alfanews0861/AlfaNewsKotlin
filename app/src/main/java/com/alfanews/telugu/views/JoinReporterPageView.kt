@@ -52,6 +52,10 @@ fun JoinReporterPageView(
     var occupiedMandals by remember { mutableStateOf<Set<String>>(emptySet()) }
     var isLoadingOccupied by remember { mutableStateOf(true) }
     
+    // Dropdown expanded states - moved to top to prevent recreation
+    var districtExpanded by remember { mutableStateOf(false) }
+    var mandalExpanded by remember { mutableStateOf(false) }
+
     var isSubmitting by remember { mutableStateOf(false) }
     var showSuccessDialog by remember { mutableStateOf<String?>(null) }
     
@@ -63,6 +67,21 @@ fun JoinReporterPageView(
         stringResource(R.string.mandal_reporter)
     )
     
+    // Memoize district list based on selected state
+    val districtsList = remember(selectedState) {
+        if (selectedState == "TS") Constants.TS_DISTRICTS else Constants.AP_DISTRICTS
+    }
+
+    // Memoize mandal list based on selected district
+    val mandalsList = remember(selectedDistrict) {
+        Constants.MANDAL_DATA[selectedDistrict] ?: emptyList<String>()
+    }
+
+    // Memoize available mandals list based on occupied mandals
+    val availableMandalsList = remember(mandalsList, occupiedMandals) {
+        mandalsList.filter { !occupiedMandals.contains(it) }
+    }
+
     // Fetch occupied mandals from Firebase
     LaunchedEffect(Unit) {
         try {
@@ -78,6 +97,17 @@ fun JoinReporterPageView(
         } finally {
             isLoadingOccupied = false
         }
+    }
+
+    // Close dropdowns when state changes
+    LaunchedEffect(selectedState) {
+        districtExpanded = false
+        mandalExpanded = false
+    }
+
+    // Close mandal dropdown when district changes
+    LaunchedEffect(selectedDistrict) {
+        mandalExpanded = false
     }
 
     AlfaNewsTheme {
@@ -184,9 +214,6 @@ fun JoinReporterPageView(
                                 )
                             }
                             
-                            val districtsList = if (selectedState == "TS") Constants.TS_DISTRICTS else Constants.AP_DISTRICTS
-                            var districtExpanded by remember { mutableStateOf(false) }
-                            
                             ExposedDropdownMenuBox(
                                 expanded = districtExpanded,
                                 onExpandedChange = { districtExpanded = !districtExpanded }
@@ -218,11 +245,7 @@ fun JoinReporterPageView(
                             }
                             
                             if (selectedDistrict.isNotEmpty()) {
-                                val mandalsList = Constants.MANDAL_DATA[selectedDistrict] ?: emptyList<String>()
-                                val availableMandalsList = mandalsList.filter { !occupiedMandals.contains(it) }
-                                
-                                var mandalExpanded by remember { mutableStateOf(false) }
-                                
+
                                 ExposedDropdownMenuBox(
                                     expanded = mandalExpanded,
                                     onExpandedChange = { mandalExpanded = !mandalExpanded }

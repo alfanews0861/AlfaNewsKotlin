@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -34,6 +35,7 @@ import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.appupdate.AppUpdateOptions
 import com.google.android.play.core.install.model.AppUpdateType
 import com.google.android.play.core.install.model.UpdateAvailability
+import com.google.firebase.dynamiclinks.FirebaseDynamicLinks
 
 import android.content.Context
 import com.alfanews.telugu.utils.LocaleHelper
@@ -73,8 +75,44 @@ class MainActivity : ComponentActivity() {
         val currentUser = mainViewModel.currentUser.value
         newsFeedViewModel.loadNews(language, currentUser)
 
+        // Handle Firebase Dynamic Links (for deferred deep links when app wasn't installed)
+        // This must be done BEFORE handleDeepLink() to catch dynamic links properly
+        FirebaseDynamicLinks.getInstance()
+            .getDynamicLink(intent)
+            .addOnSuccessListener(this) { pendingDynamicLinkData ->
+                try {
+                    var deepLink: Uri? = null
+                    if (pendingDynamicLinkData != null) {
+                        deepLink = pendingDynamicLinkData.link
+
+                        // Log for analytics/debugging
+                        // This shows whether the link came from a share (deferred deep link)
+                        Log.d("DynamicLinks", "Dynamic link received: ${deepLink?.toString() ?: "null"}")
+                    }
+
+                    // Handle the deeplink using the same handler
+                    if (deepLink != null) {
+                        val dynamicIntent = Intent(Intent.ACTION_VIEW)
+                        dynamicIntent.data = deepLink
+                        handleDeepLink(dynamicIntent)
+                    } else {
+                        // No dynamic link or it's a regular deep link
+                        handleDeepLink(intent)
+                    }
+                } catch (e: Exception) {
+                    Log.w("DynamicLinks", "Error processing dynamic link", e)
+                    handleDeepLink(intent)
+                }
+            }
+            .addOnFailureListener(this) { e ->
+                Log.w("DynamicLinks", "getDynamicLink failed", e)
+                // Fallback to regular deep link handling
+                handleDeepLink(intent)
+            }
+
         // Intent డేటాను ఇక్కడే ప్రాసెస్ చేయడం
-        handleDeepLink(intent)
+        // This handles custom scheme deeplinks (alfanews://news/POST_ID)
+        // Regular HTTPS links will be handled above via FirebaseDynamicLinks
 
         setContent {
             val themeMode by mainViewModel.themeMode.collectAsState()
@@ -159,7 +197,34 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleDeepLink(intent)
+
+        // Handle Firebase Dynamic Links when app is already running (app resumed from background)
+        FirebaseDynamicLinks.getInstance()
+            .getDynamicLink(intent)
+            .addOnSuccessListener(this) { pendingDynamicLinkData ->
+                try {
+                    var deepLink: Uri? = null
+                    if (pendingDynamicLinkData != null) {
+                        deepLink = pendingDynamicLinkData.link
+                        Log.d("DynamicLinks", "Dynamic link received in foreground: ${deepLink?.toString() ?: "null"}")
+                    }
+
+                    if (deepLink != null) {
+                        val dynamicIntent = Intent(Intent.ACTION_VIEW)
+                        dynamicIntent.data = deepLink
+                        handleDeepLink(dynamicIntent)
+                    } else {
+                        handleDeepLink(intent)
+                    }
+                } catch (e: Exception) {
+                    Log.w("DynamicLinks", "Error processing dynamic link in onNewIntent", e)
+                    handleDeepLink(intent)
+                }
+            }
+            .addOnFailureListener(this) { e ->
+                Log.w("DynamicLinks", "getDynamicLink failed in onNewIntent", e)
+                handleDeepLink(intent)
+            }
     }
 
     private fun handleDeepLink(intent: Intent?) {

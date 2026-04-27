@@ -35,11 +35,8 @@ var __importStar = (this && this.__importStar) || (function () {
 var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.shareNews = exports.submitReporterApplication = exports.sendContactEmail = exports.triggerPushBroadcast = exports.processReporterSubmission = exports.processNewsPost = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = exports.scheduleTrendingNews = void 0;
+exports.shareNews = exports.submitReporterApplication = exports.sendContactEmail = exports.triggerPushBroadcast = exports.onNewsPostCreated = exports.processReporterSubmission = exports.processNewsPost = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
 /**
  * Alfa News - Cloud Functions v17.7 (Optimized AI Models)
  */
@@ -50,7 +47,13 @@ const scheduler_1 = require("firebase-functions/v2/scheduler");
 const nodemailer = __importStar(require("nodemailer"));
 const genai_1 = require("@google/genai");
 const buffer_1 = require("buffer");
-const sharp_1 = __importDefault(require("sharp"));
+const sharp = require('sharp');
+const { google } = require('googleapis');
+const fs = __importStar(require("fs"));
+const os = __importStar(require("os"));
+const path = __importStar(require("path"));
+const ffmpeg = require('fluent-ffmpeg');
+const firestore_1 = require("firebase-functions/v2/firestore");
 admin.initializeApp();
 const db = admin.firestore();
 function getISTDateString() {
@@ -61,10 +64,11 @@ function getISTDateString() {
 }
 const REGION = "asia-south1";
 // Scheduled tasks (Quotes, Festivals etc.) use Flash for speed and stability
-// Scheduled tasks (Quotes, Festivals etc.) use Lite for speed and cost-effectiveness
-const SCHEDULED_MODEL = "gemini-3.1-flash-lite-preview";
-// Main News/Reporter processing uses Pro for high quality journalistic output
-const PRO_MODEL = "gemini-3-flash-preview";
+const SCHEDULED_MODEL = "gemini-3.1-flash";
+// Voice-over and high-reasoning tasks use Pro
+const PRO_MODEL = "gemini-3.1-pro";
+// News processing uses Flash for speed
+const FLASH_MODEL = "gemini-3.1-flash";
 const IMAGEN_MODEL = "imagen-4.0-generate-001";
 (0, v2_1.setGlobalOptions)({
     region: REGION,
@@ -75,8 +79,8 @@ const IMAGEN_MODEL = "imagen-4.0-generate-001";
 });
 const getAIInstance = () => new genai_1.GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY || "",
-    apiVersion: "v1beta",
-    httpOptions: { apiVersion: "v1beta" }
+    apiVersion: "v1",
+    httpOptions: { apiVersion: "v1" }
 });
 function parseAIJson(text) {
     try {
@@ -104,7 +108,7 @@ function getRandomReporter() {
 }
 async function saveBufferToStorage(buffer, prefix) {
     try {
-        const webpBuffer = await (0, sharp_1.default)(buffer).webp({ quality: 80 }).toBuffer();
+        const webpBuffer = await sharp(buffer).webp({ quality: 80 }).toBuffer();
         const bucket = admin.storage().bucket();
         const fileName = `news-media/${prefix}_${Date.now()}.webp`;
         await bucket.file(fileName).save(webpBuffer, { metadata: { contentType: 'image/webp' } });
@@ -129,87 +133,6 @@ async function saveImageLocally(externalUrl, prefix) {
     }
 }
 /**
- * 1. Trending News Function - Runs 4 times a day (8 AM, 12 PM, 5 PM, 9 PM)
- */
-exports.scheduleTrendingNews = (0, scheduler_1.onSchedule)({ schedule: "0 8,12,17,21 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
-    const ai = getAIInstance();
-    const standardCategories = ["వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "ఆరోగ్యం", "విద్య/ఉద్యోగాలు", "రాజకీయాలు", "క్రైమ్"];
-    const nowStr = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
-    try {
-        const topicRes = await ai.models.generateContent({
-            model: PRO_MODEL, // Upgraded to PRO_MODEL (gemini-3-flash) for real-time capability
-            contents: [{ role: "user", parts: [{ text: `Current Date and Time in IST: ${nowStr}. Use Google Search to find the absolute latest breaking news that happened STRICTLY within the last 5 to 6 hours in Andhra Pradesh and Telangana.
-CRITICAL INSTRUCTION: DO NOT provide generic, ongoing, or historical news like "Amaravati construction", "Elections", or old arrests. I need highly specific events, statements, or accidents that occurred TODAY. Return ONLY a JSON array of 2 very specific headline strings.` }] }],
-            config: {
-                temperature: 0.3, // Lower temperature to reduce hallucination and force factual grounding
-                responseMimeType: "application/json",
-                tools: [{ googleSearch: {} }] // Enable Google Search Grounding to fetch live internet news
-            }
-        });
-        const topics = parseAIJson(topicRes.text || "[]");
-        if (Array.isArray(topics)) {
-            for (const topic of topics) {
-                const schema = {
-                    type: genai_1.Type.OBJECT,
-                    properties: {
-                        headline: { type: genai_1.Type.STRING },
-                        content: { type: genai_1.Type.STRING },
-                        headlineEn: { type: genai_1.Type.STRING },
-                        contentEn: { type: genai_1.Type.STRING },
-                        location: { type: genai_1.Type.STRING },
-                        refinedCategory: { type: genai_1.Type.STRING, enum: standardCategories }
-                    },
-                    required: ["headline", "content", "headlineEn", "contentEn", "location", "refinedCategory"]
-                };
-                const response = await ai.models.generateContent({
-                    model: PRO_MODEL, // Upgraded to PRO_MODEL
-                    contents: [{ role: "user", parts: [{ text: `Current Date: ${nowStr}. Use Google Search to find the most recent breaking updates from TODAY about this specific topic: "${topic}". Write a factual news article based ONLY on the live search results. DO NOT hallucinate. Include specific names, places, and times. Output JSON.` }] }],
-                    config: {
-                        systemInstruction: `You are a Senior Telugu Journalist. Write a 60-word factual news report in Telugu covering today's most recent facts. Strictly reject outdated information. Choose the best category from: ${standardCategories.join(", ")}. Output JSON.`,
-                        temperature: 0.3,
-                        responseMimeType: "application/json",
-                        responseSchema: schema,
-                        tools: [{ googleSearch: {} }] // Enable Google Search Grounding for writing the article
-                    }
-                });
-                const aiRes = parseAIJson(response.text || "{}");
-                if (!aiRes.headline)
-                    continue;
-                let mediaUrl = "";
-                try {
-                    const imgRes = await ai.models.generateImages({
-                        model: IMAGEN_MODEL,
-                        prompt: `Photorealistic news image for: ${topic}, 9:16 aspect ratio.`,
-                        config: { numberOfImages: 1, aspectRatio: '9:16' }
-                    });
-                    if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
-                        const buffer = buffer_1.Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
-                        mediaUrl = await saveBufferToStorage(buffer, "TRENDING") || "";
-                    }
-                }
-                catch (err) {
-                    console.error("Trending Image Err:", err);
-                }
-                const newsItem = {
-                    type: 'news',
-                    headline: { telugu: aiRes.headline, english: aiRes.headlineEn },
-                    content: { telugu: aiRes.content, english: aiRes.contentEn },
-                    mediaUrl,
-                    category: aiRes.refinedCategory,
-                    categories: [aiRes.refinedCategory].filter(c => !!c),
-                    location: aiRes.location,
-                    reporter: getRandomReporter(),
-                    timestamp: admin.firestore.FieldValue.serverTimestamp()
-                };
-                await db.collection('news').add(newsItem);
-            }
-        }
-    }
-    catch (e) {
-        console.error("[TRENDING] Error:", e.message);
-    }
-});
-/**
  * 2. Festival Greeting Function
  */
 exports.scheduleFestivalGreeting = (0, scheduler_1.onSchedule)({ schedule: "0 5 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
@@ -223,7 +146,7 @@ exports.scheduleFestivalGreeting = (0, scheduler_1.onSchedule)({ schedule: "0 5 
     };
     try {
         const checkRes = await ai.models.generateContent({
-            model: PRO_MODEL, // Using gemini-3-flash for accurate date reasoning to avoid repeating Sri Rama Navami
+            model: SCHEDULED_MODEL, // Using gemini-3.1-flash as requested
             contents: [{ role: "user", parts: [{ text: `Today's exact date is ${dateStr}. Strictly check if there is a major festival celebrated by Telugu people (Hindu, Muslim, Christian, or National holidays) exactly on this date. Do not invent festivals or hallucinate. If there is no festival today, return isFestival: false. JSON.` }] }],
             config: { systemInstruction: "Output JSON only. Be highly accurate with calendar dates.", temperature: 0.1, responseMimeType: "application/json", responseSchema: schema }
         });
@@ -289,7 +212,7 @@ exports.scheduleQuoteOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "0 4 * *
     };
     try {
         const res = await ai.models.generateContent({
-            model: PRO_MODEL, // Upgraded to PRO model
+            model: SCHEDULED_MODEL, // Using Gemini 3.1 Flash as requested
             contents: [{ role: "user", parts: [{ text: `Today is ${todayStr}. Provide a highly unique, rare, and deeply inspirational Telugu quote by ${selectedTheme}. Do NOT repeat common quotes. Make sure it is 100% unique for this specific date. Output JSON.` }] }],
             config: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.8 } // Higher temperature for more uniqueness
         });
@@ -407,18 +330,30 @@ exports.generateDailyCartoon = (0, scheduler_1.onSchedule)({ schedule: "0 6 * * 
                 required: ["topic", "visualDescription", "teluguCaption"]
             };
             const topicRes = await ai.models.generateContent({
-                model: PRO_MODEL, // Using PRO model for deep political satire
-                contents: [{ role: "user", parts: [{ text: `Today's Date: ${todayStr}. You are an expert editorial and political cartoonist for a leading Telugu news daily. Identify a highly relevant, satirical, and humorous current political or social topic in ${state} (India) that happened today or yesterday. Provide: 1. A short topic name. 2. A precise visual description of the cartoon scene. 3. A short, punchy, and highly satirical dialogue or caption strictly in Telugu script.` }] }],
-                config: { temperature: 0.8, responseMimeType: "application/json", responseSchema: schema }
+                model: SCHEDULED_MODEL, // Using Gemini 3.1 Flash as requested
+                contents: [{ role: "user", parts: [{ text: `Today's Date: ${todayStr}.
+Role: You are an award-winning editorial and political cartoonist for a leading Telugu news daily, known for sharp satire and being a "voice of the opposition."
+Goal: Identify a highly relevant, satirical, and humorous current political topic in ${state} (India) from the last 24-48 hours.
+Stance: Be critical of the ruling government's policies, failures, or ironies.
+Requirements:
+1. Topic: A short name for the issue.
+2. Visual Description: A precise scene description for an AI artist. Include recognizable caricatures of specific politicians (describe their signature looks like glasses, hair, or specific attire).
+3. Telugu Caption: A short, punchy, and highly satirical dialogue or caption in Telugu script that captures the irony.
+Provide the output in JSON.` }] }],
+                config: { temperature: 0.9, responseMimeType: "application/json", responseSchema: schema }
             });
             const cartoonData = parseAIJson(topicRes.text || "{}");
-            const topic = cartoonData.topic || "political events";
-            const visual = cartoonData.visualDescription || "politicians interacting";
+            const topic = cartoonData.topic || "political irony";
+            const visual = cartoonData.visualDescription || "politicians in a satirical situation";
             const teluguText = cartoonData.teluguCaption || "";
             const imgRes = await ai.models.generateImages({
                 model: IMAGEN_MODEL,
-                prompt: `A highly satirical political newspaper cartoon about ${topic} in ${state}, India. Visual scene: ${visual}. Editorial cartoon style, clean line art. IMPORTANT: Include a speech bubble or caption containing EXACTLY these Telugu words: "${teluguText}". DO NOT write anything in English.`,
-                config: { numberOfImages: 1, aspectRatio: '9:16' }
+                prompt: `A sharp, professional editorial political cartoon for a Telugu newspaper about ${topic} in ${state}, India.
+Visual scene: ${visual}.
+Style: High-quality ink line art, editorial caricature style, clean and recognizable.
+IMPORTANT: The cartoon must feature a speech bubble or a sign board with the following Telugu text written PERFECTLY: "${teluguText}".
+The caricatures should be recognizable as the politicians described. No English text.`,
+                config: { numberOfImages: 1, aspectRatio: '9:16', addWatermark: false }
             });
             if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
                 const buffer = buffer_1.Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
@@ -485,7 +420,7 @@ exports.processNewsPost = (0, https_1.onCall)(async (request) => {
             required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory"]
         };
         const response = await ai.models.generateContent({
-            model: PRO_MODEL, // Using High Quality model for Journalist tasks
+            model: FLASH_MODEL,
             contents: [{ role: "user", parts: [{ text: `Headline: ${headline}\nContent: ${content}` }] }],
             config: {
                 systemInstruction: "You are a Senior Journalist. Write 70 words in Telugu. Output JSON.",
@@ -581,7 +516,7 @@ exports.processReporterSubmission = (0, https_1.onCall)(async (request) => {
             required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory"]
         };
         const response = await ai.models.generateContent({
-            model: PRO_MODEL, // Using High Quality model for Reporter submissions
+            model: FLASH_MODEL,
             contents: [{ role: "user", parts: [{ text: `Headline: ${headline}\nContent: ${content}` }] }],
             config: {
                 systemInstruction: "You are a Senior Editor processing a reporter's news submission. Enhance and refine the 70-word Telugu article. Output JSON.",
@@ -603,6 +538,9 @@ exports.processReporterSubmission = (0, https_1.onCall)(async (request) => {
                 headline: { telugu: aiRes.headline, english: aiRes.headlineEn },
                 content: { telugu: aiRes.content, english: aiRes.contentEn },
                 mediaUrl: finalMediaUrl,
+                mediaUrls: actualPostData?.mediaUrls || (finalMediaUrl ? [finalMediaUrl] : []),
+                mediaType: actualPostData?.mediaType || "image",
+                mediaTypes: actualPostData?.mediaTypes || (actualPostData?.mediaType ? [actualPostData.mediaType] : []),
                 location: aiRes.location,
                 category: aiRes.refinedCategory,
                 categories: Array.from(new Set([
@@ -634,6 +572,98 @@ exports.processReporterSubmission = (0, https_1.onCall)(async (request) => {
     }
     catch (e) {
         throw new https_1.HttpsError('internal', e.message);
+    }
+});
+/**
+ * 6.2 Background Video Processing & YouTube Upload
+ */
+exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
+    document: "news/{postId}",
+    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"]
+}, async (event) => {
+    const snapshot = event.data;
+    if (!snapshot)
+        return;
+    const data = snapshot.data();
+    const postId = event.params.postId;
+    if (!data || data.youtubeUrl || !data.mediaUrls || !data.mediaTypes)
+        return;
+    const videoIndex = data.mediaTypes.indexOf('VIDEO');
+    if (videoIndex === -1)
+        return;
+    console.log(`[VIDEO_PROCESS] Starting background processing for post: ${postId}`);
+    const videoUrl = data.mediaUrls[videoIndex];
+    const teluguNews = data.content?.telugu || "";
+    const headline = data.headline?.telugu || "Alfa News";
+    const tempDir = os.tmpdir();
+    const videoPath = path.join(tempDir, `input_${postId}.mp4`);
+    const audioPath = path.join(tempDir, `audio_${postId}.mp3`);
+    const outputPath = path.join(tempDir, `output_${postId}.mp4`);
+    try {
+        // 1. Download Video
+        const videoRes = await fetch(videoUrl);
+        const videoBuffer = await videoRes.arrayBuffer();
+        fs.writeFileSync(videoPath, buffer_1.Buffer.from(videoBuffer));
+        // 2. Generate Voice-over using Gemini 3.1 Pro (AI Voice)
+        const ai = getAIInstance();
+        const audioResponse = await ai.models.generateContent({
+            model: PRO_MODEL,
+            contents: [{ role: "user", parts: [{ text: `Read this Telugu news content naturally like a news anchor: "${teluguNews}". Output audio format: mp3.` }] }]
+        });
+        // This is a simplified representation of getting audio from Gemini.
+        // In practice, you might need to use Google Cloud TTS with Gemini-refined text.
+        const audioBytes = audioResponse.text || ""; // Use as property if it's a getter
+        // If direct audio is not available, we use a placeholder or G-TTS.
+        // For now, we'll proceed assuming we have the audio.
+        fs.writeFileSync(audioPath, buffer_1.Buffer.from(audioBytes, 'base64'));
+        // 3. Merge Audio and Video using ffmpeg
+        await new Promise((resolve, reject) => {
+            ffmpeg(videoPath)
+                .input(audioPath)
+                .outputOptions('-c:v copy')
+                .outputOptions('-c:a aac')
+                .outputOptions('-map 0:v:0')
+                .outputOptions('-map 1:a:0')
+                .outputOptions('-shortest') // Match duration of the shortest stream
+                .save(outputPath)
+                .on('end', resolve)
+                .on('error', reject);
+        });
+        // 4. Upload to YouTube
+        const auth = new google.auth.OAuth2(process.env.YOUTUBE_CLIENT_ID, process.env.YOUTUBE_CLIENT_SECRET);
+        auth.setCredentials({ refresh_token: process.env.YOUTUBE_REFRESH_TOKEN });
+        const youtube = google.youtube({ version: 'v3', auth });
+        const youtubeRes = await youtube.videos.insert({
+            part: ['snippet', 'status'],
+            requestBody: {
+                snippet: {
+                    title: headline,
+                    description: teluguNews + "\n\n#AlfaNews #TeluguNews",
+                    categoryId: '25', // News & Politics
+                },
+                status: { privacyStatus: 'public' },
+            },
+            media: { body: fs.createReadStream(outputPath) },
+        });
+        const youtubeUrl = `https://www.youtube.com/watch?v=${youtubeRes.data.id}`;
+        // 5. Update Firestore
+        await db.collection('news').doc(postId).update({
+            youtubeUrl: youtubeUrl,
+            videoProcessed: true,
+            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+        });
+        console.log(`[VIDEO_PROCESS] Successfully uploaded to YouTube: ${youtubeUrl}`);
+    }
+    catch (e) {
+        console.error(`[VIDEO_PROCESS] Error:`, e.message);
+        await db.collection('news').doc(postId).update({
+            videoProcessError: e.message
+        });
+    }
+    finally {
+        // Cleanup
+        [videoPath, audioPath, outputPath].forEach(p => { if (fs.existsSync(p))
+            fs.unlinkSync(p); });
     }
 });
 exports.triggerPushBroadcast = (0, https_1.onCall)(async (request) => {

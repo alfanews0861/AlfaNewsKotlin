@@ -80,6 +80,8 @@ data class NewsPost(
     val content: Content = Content(),
     val mediaUrl: String = "",
     val mediaType: MediaType = MediaType.IMAGE,
+    val mediaUrls: List<String> = emptyList(),
+    val mediaTypes: List<MediaType> = emptyList(),
     val youtubeUrl: String? = null,
     val postFormat: PostFormat = PostFormat.VERTICAL,
     val reporter: Reporter = Reporter(),
