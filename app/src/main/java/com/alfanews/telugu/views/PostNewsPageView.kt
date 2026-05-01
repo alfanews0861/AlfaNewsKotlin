@@ -242,10 +242,11 @@ fun PostNewsPageView(
                         postData = postData
                     ).getOrThrow()
                     
+                    val serverMessage = result["message"] as? String
                     val newPostId = result["postId"] as? String
                     
-                    val successMessage = if (postToEdit != null) context.getString(R.string.news_updated_successfully) else context.getString(R.string.news_published_successfully)
-                    Toast.makeText(context, successMessage, Toast.LENGTH_SHORT).show()
+                    val successMessage = serverMessage ?: if (postToEdit != null) context.getString(R.string.news_updated_successfully) else context.getString(R.string.news_published_successfully)
+                    Toast.makeText(context, successMessage, Toast.LENGTH_LONG).show()
 
                     delay(1500)
                     onActionComplete(newPostId ?: postToEdit?.id ?: "")

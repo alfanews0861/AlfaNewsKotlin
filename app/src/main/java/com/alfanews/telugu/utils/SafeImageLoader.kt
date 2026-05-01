@@ -32,15 +32,11 @@ object SafeImageLoader {
                 .components {
                     add(OkHttpNetworkFetcherFactory(callFactory = { createSafeOkHttpClient() }))
                 }
+                // మెమరీ కాష్‌ను మాత్రమే వాడుతున్నాము, డిస్క్ లో ఇమేజెస్ సేవ్ చేయము.
+                // దీనివల్ల ఫోన్ స్టోరేజ్ నిండదు.
                 .memoryCache {
                     MemoryCache.Builder()
                         .maxSizePercent(context, 0.25)
-                        .build()
-                }
-                .diskCache {
-                    DiskCache.Builder()
-                        .directory(File(context.cacheDir, "image_cache").absolutePath.toPath())
-                        .maxSizeBytes(25 * 1024 * 1024) // 25 MB
                         .build()
                 }
                 .crossfade(true)

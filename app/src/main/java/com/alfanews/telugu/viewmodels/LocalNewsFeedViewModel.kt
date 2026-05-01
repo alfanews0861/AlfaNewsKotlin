@@ -37,6 +37,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
+
+    private val _isOnline = MutableStateFlow(true)
+    val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
     
     private val _generalNews = MutableStateFlow<List<NewsPost>>(emptyList())
     val generalNews: StateFlow<List<NewsPost>> = _generalNews.asStateFlow()
@@ -200,9 +203,17 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         loadLocalAds(district) // లోకల్ యాడ్స్ లోడ్ చేయండి
         
         loadJob?.cancel()
-        _loading.value = true
         
         loadJob = viewModelScope.launch {
+            // ఇంటర్నెట్ తనిఖీ
+            if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
+                _isOnline.value = false
+                _loading.value = false
+                return@launch
+            }
+            _isOnline.value = true
+
+            _loading.value = true
             _news.value = emptyList()
             lastDocument = null
             _hasMore.value = true

@@ -28,11 +28,11 @@ function getISTDateString() {
 
 const REGION = "asia-south1";
 // Scheduled tasks (Quotes, Festivals etc.) use Flash for speed and stability
-const SCHEDULED_MODEL = "gemini-3.1-flash";
+const SCHEDULED_MODEL = "gemini-3-flash-preview";
 // Voice-over and high-reasoning tasks use Pro
-const PRO_MODEL = "gemini-3.1-pro";
+const PRO_MODEL = "gemini-3.1-pro-preview";
 // News processing uses Flash for speed
-const FLASH_MODEL = "gemini-3.1-flash";
+const FLASH_MODEL = "gemini-3-flash-preview";
 const IMAGEN_MODEL = "imagen-4.0-generate-001";
 
 setGlobalOptions({
@@ -45,9 +45,133 @@ setGlobalOptions({
 
 const getAIInstance = () => new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY || "",
-    apiVersion: "v1",
-    httpOptions: { apiVersion: "v1" }
+    apiVersion: "v1beta"
 });
+
+/**
+ * Helper: Notify reporter with human-friendly messages (Hiding AI involvement)
+ */
+async function notifyReporter(reporterId: string, postId: string, headline: string, type: 'SUCCESS' | 'INTERNAL_ERROR' | 'POLICY_VIOLATION') {
+    try {
+        const userDoc = await db.collection('users').doc(reporterId).get();
+        if (!userDoc.exists) return;
+        const userData = userDoc.data();
+        if (userData && userData.notificationsEnabled === false) return;
+
+        const tokens: string[] = [];
+        if (userData?.fcmToken) tokens.push(userData.fcmToken);
+        if (Array.isArray(userData?.fcmTokens)) {
+            userData.fcmTokens.forEach((t: any) => {
+                if (t && typeof t === 'string' && !tokens.includes(t)) tokens.push(t);
+            });
+        }
+        if (tokens.length === 0) return;
+
+        let title = "";
+        let body = "";
+
+        if (type === 'SUCCESS') {
+            title = 'వార్త ప్రచురించబడింది! ✅';
+            body = `మీ వార్త: "${headline.substring(0, 50)}..." విజయవంతంగా ప్రచురించబడింది.`;
+        } else if (type === 'POLICY_VIOLATION') {
+            title = 'వార్త తిరస్కరించబడింది! ⚠️';
+            body = `మీ వార్తలోని అంశాలు మా నిబంధనలకు విరుద్ధంగా ఉన్నందున ప్రచురించబడలేదు.`;
+        } else {
+            title = 'వార్త ప్రచురణలో అంతరాయం! ❌';
+            body = `సాంకేతిక కారణాల వల్ల మీ వార్త ప్రచురించబడలేదు. దయచేసి మళ్ళీ ప్రయత్నించండి.`;
+        }
+
+        const message = {
+            notification: { title, body },
+            data: {
+                actionUrl: `alfanews://news/${postId}`,
+                newsId: postId,
+                type: `REPORTER_SUBMISSION_${type}`
+            }
+        };
+
+        const sendPromises = tokens.map(token =>
+            admin.messaging().send({ ...message, token }).catch(err => console.error(`Failed to send to token: ${token}`, err))
+        );
+        await Promise.all(sendPromises);
+    } catch (e: any) {
+        console.error(`[NOTIFY] Error:`, e.message);
+    }
+}
+
+/**
+ * Helper: Perform AI enhancement on news content
+ */
+async function performAIProcessing(headline: string, content: string, actualPostData: any): Promise<any> {
+    const ai = getAIInstance();
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            headline: { type: Type.STRING },
+            content: { type: Type.STRING },
+            headlineEn: { type: Type.STRING },
+            contentEn: { type: Type.STRING },
+            location: { type: Type.STRING },
+            storyFingerprint: { type: Type.STRING },
+            refinedCategory: { type: Type.STRING },
+            isSafeForYouTube: { type: Type.BOOLEAN },
+            rejectionReason: { type: Type.STRING },
+            tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+            entities: {
+                type: Type.OBJECT,
+                properties: {
+                    people: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    organizations: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    locations: { type: Type.ARRAY, items: { type: Type.STRING } }
+                }
+            }
+        },
+        required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory", "isSafeForYouTube", "rejectionReason", "tags", "entities"]
+    };
+
+    const response = await ai.models.generateContent({
+        model: FLASH_MODEL,
+        contents: [{ role: "user", parts: [{ text: `Headline: ${headline}\nContent: ${content}` }] }],
+        config: {
+            systemInstruction: "You are a Senior Editor processing a news submission. Enhance and refine the 70-word Telugu article. Extract tags and entities. CRITICAL: Evaluate if this content violates YouTube Community Guidelines (Violence, Hate Speech, Graphic Content, etc.). Set isSafeForYouTube to false if it does. Output JSON.",
+            temperature: 0.4,
+            responseMimeType: "application/json",
+            responseSchema: schema,
+        }
+    } as any);
+
+    const aiRes = parseAIJson(response.text || "{}");
+    const finalContent = aiRes.content || aiRes.contentTe || content;
+    const finalHeadline = aiRes.headline || aiRes.headlineTe || headline;
+    const finalHeadlineEn = aiRes.headlineEn || aiRes.headline_en || headline;
+    const finalContentEn = aiRes.contentEn || aiRes.content_en || content;
+
+    const normalizedEntities = {
+        people: Array.isArray(aiRes.entities?.people) ? aiRes.entities.people : [],
+        organizations: Array.isArray(aiRes.entities?.organizations) ? aiRes.entities.organizations : [],
+        locations: Array.isArray(aiRes.entities?.locations) ? aiRes.entities.locations : []
+    };
+
+    return {
+        headline: { telugu: finalHeadline, english: finalHeadlineEn },
+        content: { telugu: finalContent, english: finalContentEn },
+        location: aiRes.location || actualPostData?.location || "",
+        category: aiRes.refinedCategory || actualPostData?.category || "ఇతరాలు",
+        categories: Array.from(new Set([
+            aiRes.refinedCategory || actualPostData?.category,
+            ...(actualPostData?.categories || []),
+            ...(actualPostData?.district ? [actualPostData.district] : [])
+        ])).filter(c => !!c),
+        tags: aiRes.tags || [],
+        entities: normalizedEntities,
+        isSafeForYouTube: aiRes.isSafeForYouTube ?? true,
+        rejectionReason: aiRes.rejectionReason || "",
+        storyFingerprint: aiRes.storyFingerprint || `gen_${Date.now()}`,
+        aiProcessed: true,
+        aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+    };
+}
 
 function parseAIJson(text: string) {
     try {
@@ -348,427 +472,328 @@ The caricatures should be recognizable as the politicians described. No English 
 });
 
 /**
- * 6. Main News Processing (USING HIGH QUALITY PRO MODEL)
- * Processes both Citizen and Reporter submissions through AI enhancement
+ * 6. Main News Processing (Optimized: Background Processing)
+ * Processes both Citizen and Reporter submissions through AI enhancement.
+ * Returns immediately after saving raw data to Firestore.
  */
 export const processNewsPost = onCall(async (request) => {
     const { postId, headline: rawHeadline, content: rawContent, postData } = request.data;
-    const ai = getAIInstance();
     try {
+        console.log(`[NEWS_POST] Quick acceptance for post: ${postId || 'new'}`);
         let headline = rawHeadline || postData?.headline?.telugu || "";
         let content = rawContent || postData?.content?.telugu || "";
-        let postRef: admin.firestore.DocumentReference | null = null;
-        let actualPostData = postData || {};
 
-        if (postId) {
-            postRef = db.collection('news').doc(postId);
-            const postDoc = await postRef.get();
-            if (postDoc.exists) {
-                const data = postDoc.data();
-                if (data) {
-                    actualPostData = { ...data, ...actualPostData };
-                    headline = rawHeadline || data?.headline?.telugu || headline;
-                    content = rawContent || data?.content?.telugu || content;
-                }
-            }
+        if (!headline || !content) {
+            throw new HttpsError('invalid-argument', 'Headline and content are required');
         }
 
-        if (!headline || !content) throw new HttpsError('invalid-argument', 'Headline and content are required');
-
-        const schema = {
-            type: Type.OBJECT,
-            properties: {
-                headline: { type: Type.STRING },
-                content: { type: Type.STRING },
-                headlineEn: { type: Type.STRING },
-                contentEn: { type: Type.STRING },
-                location: { type: Type.STRING },
-                storyFingerprint: { type: Type.STRING },
-                refinedCategory: { type: Type.STRING },
-                isSafeForYouTube: { type: Type.BOOLEAN },
-                rejectionReason: { type: Type.STRING },
-                tags: { type: Type.ARRAY, items: { type: Type.STRING } },
-                entities: {
-                    type: Type.OBJECT,
-                    properties: {
-                        people: { type: Type.ARRAY, items: { type: Type.STRING } },
-                        organizations: { type: Type.ARRAY, items: { type: Type.STRING } },
-                        locations: { type: Type.ARRAY, items: { type: Type.STRING } }
-                    }
-                }
-            },
-            required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory", "isSafeForYouTube", "tags", "entities"]
+        const finalData = {
+            ...postData,
+            headline: { telugu: headline, english: postData?.headline?.english || "" },
+            content: { telugu: content, english: postData?.content?.english || "" },
+            isCitizen: postData?.isCitizen || true,
+            isReporter: postData?.isReporter || false,
+            aiProcessed: false, // Flag for background trigger to handle Gemini
+            timestamp: postData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
+            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         };
 
-        const response = await ai.models.generateContent({
-            model: FLASH_MODEL,
-            contents: [{ role: "user", parts: [{ text: `Headline: ${headline}\nContent: ${content}` }] }],
-            config: {
-                systemInstruction: "You are a Senior Journalist. Write 70 words in Telugu. Extract tags and entities. CRITICAL: Evaluate if this content violates YouTube Community Guidelines (Violence, Hate Speech, Graphic Content, etc.). Be EXTREMELY STRICT. If there is even 1% doubt, set isSafeForYouTube to false. Output JSON.",
-                temperature: 0.1, // Lower temperature for more consistent safety checks
-                responseMimeType: "application/json",
-                responseSchema: schema,
-            },
-        } as any);
-
-        const aiRes = parseAIJson(response.text || "{}");
-        if (aiRes.content) {
-            let finalMediaUrl = actualPostData?.mediaUrl || "";
-            if (finalMediaUrl && !finalMediaUrl.includes('firebasestorage.googleapis.com')) {
-                const optimizedUrl = await saveImageLocally(finalMediaUrl, "POST");
-                if (optimizedUrl) finalMediaUrl = optimizedUrl;
-            }
-
-            const finalData = {
-                ...actualPostData,
-                headline: { telugu: aiRes.headline, english: aiRes.headlineEn },
-                content: { telugu: aiRes.content, english: aiRes.contentEn },
-                mediaUrl: finalMediaUrl,
-                mediaUrls: actualPostData?.mediaUrls || (finalMediaUrl ? [finalMediaUrl] : []),
-                mediaType: actualPostData?.mediaType || "IMAGE",
-                mediaTypes: actualPostData?.mediaTypes || (actualPostData?.mediaType ? [actualPostData.mediaType] : []),
-                location: aiRes.location,
-                category: aiRes.refinedCategory,
-                categories: Array.from(new Set([
-                    aiRes.refinedCategory,
-                    ...(actualPostData?.categories || []),
-                    ...(actualPostData?.district ? [actualPostData.district] : [])
-                ])).filter(c => !!c),
-                tags: aiRes.tags || [],
-                entities: aiRes.entities || { people: [], organizations: [], locations: [] },
-                isSafeForYouTube: aiRes.isSafeForYouTube ?? true,
-                rejectionReason: aiRes.rejectionReason || "",
-                storyFingerprint: aiRes.storyFingerprint,
-                // Preserve reporter if available, otherwise keep the original reporter or assign random one
-                reporter: actualPostData?.reporter || (actualPostData?.isCitizen ? null : getRandomReporter()),
-                // Ensure both citizen and reporter submissions are properly flagged
-                isCitizen: actualPostData?.isCitizen || false,
-                isReporter: actualPostData?.isReporter || false,
-                aiProcessed: true,
-                aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
-                timestamp: actualPostData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
-                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-            };
-
-            if (postRef) {
-                await postRef.update(finalData);
-                return { success: true, postId: postRef.id };
-            } else {
-                const newDocRef = await db.collection('news').add(finalData);
-                return { success: true, postId: newDocRef.id };
-            }
+        if (postId) {
+            await db.collection('news').doc(postId).update(finalData);
+            return { success: true, postId: postId, message: "వార్త అప్‌డేట్ అవుతోంది..." };
+        } else {
+            const newDocRef = await db.collection('news').add(finalData);
+            return { success: true, postId: newDocRef.id, message: "వార్త పంపబడింది. త్వరలో ప్రచురించబడుతుంది." };
         }
-        return { success: false };
-    } catch (e: any) { throw new HttpsError('internal', e.message); }
+    } catch (e: any) {
+        console.error(`[NEWS_POST] Error:`, e.message);
+        throw new HttpsError('internal', e.message);
+    }
 });
 
 /**
- * 6.1 Process Reporter Submission
- * Dedicated function to ensure reporter news submissions are processed with AI enhancement
- * This function explicitly handles reporter submissions and flags them appropriately
+ * 6.1 Process Reporter Submission (Optimized: Background Processing)
+ * Dedicated function to ensure reporter news submissions are accepted quickly.
+ * Heavy AI and Video processing moved to background trigger.
  */
 export const processReporterSubmission = onCall(async (request) => {
     const { postId, headline: rawHeadline, content: rawContent, postData } = request.data;
-    const ai = getAIInstance();
     try {
+        console.log(`[REPORTER_SUBMISSION] Quick acceptance for post: ${postId || 'new'}`);
         let headline = rawHeadline || postData?.headline?.telugu || "";
         let content = rawContent || postData?.content?.telugu || "";
-        let postRef: admin.firestore.DocumentReference | null = null;
-        let actualPostData = postData || {};
 
-        if (postId) {
-            postRef = db.collection('news').doc(postId);
-            const postDoc = await postRef.get();
-            if (postDoc.exists) {
-                const data = postDoc.data();
-                if (data) {
-                    actualPostData = { ...data, ...actualPostData };
-                    headline = rawHeadline || data?.headline?.telugu || headline;
-                    content = rawContent || data?.content?.telugu || content;
-                }
-            }
+        if (!headline || !content) {
+            console.error(`[REPORTER_SUBMISSION] Missing headline or content`);
+            throw new HttpsError('invalid-argument', 'వార్త శీర్షిక మరియు వివరణ తప్పనిసరి.');
         }
 
-        if (!headline || !content) throw new HttpsError('invalid-argument', 'Headline and content are required');
+        const isVideo = postData?.mediaType === "VIDEO" || (postData?.mediaUrls && postData.mediaUrls.some((u: string) => u.toLowerCase().includes('.mp4')));
 
-        const schema = {
-            type: Type.OBJECT,
-            properties: {
-                headline: { type: Type.STRING },
-                content: { type: Type.STRING },
-                headlineEn: { type: Type.STRING },
-                contentEn: { type: Type.STRING },
-                location: { type: Type.STRING },
-                storyFingerprint: { type: Type.STRING },
-                refinedCategory: { type: Type.STRING },
-                isSafeForYouTube: { type: Type.BOOLEAN },
-                rejectionReason: { type: Type.STRING },
-                tags: { type: Type.ARRAY, items: { type: Type.STRING } },
-                entities: {
-                    type: Type.OBJECT,
-                    properties: {
-                        people: { type: Type.ARRAY, items: { type: Type.STRING } },
-                        organizations: { type: Type.ARRAY, items: { type: Type.STRING } },
-                        locations: { type: Type.ARRAY, items: { type: Type.STRING } }
-                    }
-                }
-            },
-            required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory", "isSafeForYouTube", "tags", "entities"]
+        const finalData = {
+            ...postData,
+            headline: { telugu: headline, english: postData?.headline?.english || "" },
+            content: { telugu: content, english: postData?.content?.english || "" },
+            isReporter: true,
+            isCitizen: false,
+            aiProcessed: false, // Flag for background trigger to handle Gemini
+            status: "PENDING", // Initial status for tracking
+            processingType: "REPORTER_SUBMISSION",
+            timestamp: postData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
+            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         };
 
-        const response = await ai.models.generateContent({
-            model: FLASH_MODEL,
-            contents: [{ role: "user", parts: [{ text: `Headline: ${headline}\nContent: ${content}` }] }],
-            config: {
-                systemInstruction: "You are a Senior Editor processing a reporter's news submission. Enhance and refine the 70-word Telugu article. Extract tags and entities. CRITICAL: Evaluate if this content violates YouTube Community Guidelines (Violence, Hate Speech, Graphic Content, etc.). Set isSafeForYouTube to false if it does. Output JSON.",
-                temperature: 0.4,
-                responseMimeType: "application/json",
-                responseSchema: schema,
-            },
-        } as any);
-
-        const aiRes = parseAIJson(response.text || "{}");
-        if (aiRes.content) {
-            let finalMediaUrl = actualPostData?.mediaUrl || "";
-            if (finalMediaUrl && !finalMediaUrl.includes('firebasestorage.googleapis.com')) {
-                const optimizedUrl = await saveImageLocally(finalMediaUrl, "POST");
-                if (optimizedUrl) finalMediaUrl = optimizedUrl;
-            }
-
-            const finalData = {
-                ...actualPostData,
-                headline: { telugu: aiRes.headline, english: aiRes.headlineEn },
-                content: { telugu: aiRes.content, english: aiRes.contentEn },
-                mediaUrl: finalMediaUrl,
-                mediaUrls: actualPostData?.mediaUrls || (finalMediaUrl ? [finalMediaUrl] : []),
-                mediaType: actualPostData?.mediaType || "image",
-                mediaTypes: actualPostData?.mediaTypes || (actualPostData?.mediaType ? [actualPostData.mediaType] : []),
-                location: aiRes.location,
-                category: aiRes.refinedCategory,
-                categories: Array.from(new Set([
-                    aiRes.refinedCategory,
-                    ...(actualPostData?.categories || []),
-                    ...(actualPostData?.district ? [actualPostData.district] : [])
-                ])).filter(c => !!c),
-                tags: aiRes.tags || [],
-                entities: aiRes.entities || { people: [], organizations: [], locations: [] },
-                isSafeForYouTube: aiRes.isSafeForYouTube ?? true,
-                rejectionReason: aiRes.rejectionReason || "",
-                storyFingerprint: aiRes.storyFingerprint,
-                // Preserve the reporter information
-                reporter: actualPostData?.reporter,
-                isReporter: true,
-                isCitizen: false,
-                aiProcessed: true,
-                aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
-                processingType: "REPORTER_SUBMISSION",
-                timestamp: actualPostData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
-                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-            };
-
-            if (postRef) {
-                await postRef.update(finalData);
-                return { success: true, postId: postRef.id };
-            } else {
-                const newDocRef = await db.collection('news').add(finalData);
-                return { success: true, postId: newDocRef.id };
-            }
+        if (postId) {
+            const postRef = db.collection('news').doc(postId);
+            await postRef.update(finalData);
+            console.log(`[REPORTER_SUBMISSION] Updated post (pending background AI): ${postId}`);
+            return { success: true, postId: postId, message: "వార్త అప్‌డేట్ అవుతోంది (నేపథ్యంలో)..." };
+        } else {
+            const newDocRef = await db.collection('news').add(finalData);
+            console.log(`[REPORTER_SUBMISSION] Created new post (pending background AI): ${newDocRef.id}`);
+            return { success: true, postId: newDocRef.id, message: "వార్త ప్రచురించబడుతోంది (నేపథ్యంలో)..." };
         }
-        return { success: false };
-    } catch (e: any) { throw new HttpsError('internal', e.message); }
+    } catch (e: any) {
+        console.error(`[REPORTER_SUBMISSION] Critical Error:`, e.message);
+        throw new HttpsError('internal', e.message);
+    }
 });
 
+
 /**
- * 6.2 Background Video Processing & YouTube Upload
+ * 6.2 Background News Processing (AI + Video + YouTube)
+ * Handles ALL background tasks after a news post is created.
  */
 export const onNewsPostCreated = onDocumentCreated({
     document: "news/{postId}",
-    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"]
+    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"],
+    memory: "4GiB",
+    timeoutSeconds: 540 // Increased to 9 minutes for long videos
 }, async (event) => {
     const snapshot = event.data;
     if (!snapshot) return;
-    const data = snapshot.data();
+    let data = snapshot.data();
     const postId = event.params.postId;
 
-    if (!data || data.youtubeUrl || !data.mediaUrls || !data.mediaTypes) return;
+    console.log(`[TRIGGER] Processing new post: ${postId}`);
 
-    const videoIndex = data.mediaTypes.indexOf('VIDEO');
-    if (videoIndex === -1) return;
-
-    // YouTube Safety Check
-    if (data.isSafeForYouTube === false) {
-        console.warn(`[VIDEO_PROCESS] Rejected for YouTube: Policy violation detected for post ${postId}`);
-        await db.collection('news').doc(postId).update({
-            videoProcessed: false,
-            videoProcessError: "Rejected by AI Safety Guard: YouTube Policy Violation suspected.",
-            isApproved: false
-        });
-        return;
-    }
-
-    console.log(`[VIDEO_PROCESS] Starting background processing for post: ${postId}`);
-
-    const videoUrl = data.mediaUrls[videoIndex];
-    const teluguNews = data.content?.telugu || "";
-    const headline = data.headline?.telugu || "Alfa News";
-    const reporterName = data.reporter?.name || "";
-    const tags = data.tags || [];
-    const people = data.entities?.people || [];
-    const locations = data.entities?.locations || [];
-
-    // Construct detailed description for YouTube
-    let description = "";
-    if (reporterName) description += `రిపోర్టర్: ${reporterName}\n\n`;
-    description += `${teluguNews}\n\n`;
-
-    if (tags && tags.length > 0) {
-        description += tags.map((t: string) => t.startsWith('#') ? t : `#${t.replace(/\s+/g, '')}`).join(' ') + "\n\n";
-    }
-
-    description += `#AlfaNews #TeluguNews #BreakingNews\n\n`;
-
-    if (people && people.length > 0) {
-        description += `వ్యక్తులు: ${people.join(', ')}\n`;
-    }
-    if (locations && locations.length > 0) {
-        description += `ప్రాంతాలు: ${locations.join(', ')}\n`;
-    }
-
-    const tempDir = os.tmpdir();
-    const videoPath = path.join(tempDir, `input_${postId}.mp4`);
-    const audioPath = path.join(tempDir, `audio_${postId}.mp3`);
-    const outputPath = path.join(tempDir, `output_${postId}.mp4`);
-
-    try {
-        // 1. Download Video
-        const videoRes = await fetch(videoUrl);
-        const videoBuffer = await videoRes.arrayBuffer();
-        fs.writeFileSync(videoPath, Buffer.from(videoBuffer));
-
-        // 1.1 Visual Safety Check (Extract frames every 30 seconds)
-        const ai = getAIInstance();
-        const metadata: any = await new Promise((resolve, reject) => {
-            ffmpeg.ffprobe(videoPath, (err: any, data: any) => { if (err) reject(err); else resolve(data); });
-        });
-        const duration = metadata.format.duration || 0;
-        const frameInterval = 30; // seconds
-        const frameCount = Math.max(3, Math.min(20, Math.floor(duration / frameInterval)));
-
-        await new Promise((resolve, reject) => {
-            ffmpeg(videoPath)
-                .screenshots({ count: frameCount, folder: tempDir, filename: `frame-${postId}-%i.jpg`, size: '320x?' })
-                .on('end', resolve)
-                .on('error', reject);
-        });
-
-        const frames = Array.from({ length: frameCount }, (_, i) => path.join(tempDir, `frame-${postId}-${i + 1}.jpg`)).filter(p => fs.existsSync(p));
-        let visualSafetyResult = { isSafe: true, reason: "" };
-
-        if (frames.length > 0) {
-            const frameParts = frames.map(p => ({ inlineData: { data: fs.readFileSync(p).toString('base64'), mimeType: 'image/jpeg' } }));
-            const safetyRes = await ai.models.generateContent({
-                model: FLASH_MODEL,
-                contents: [{ role: "user", parts: [...frameParts, { text: "Analyze these video frames for YouTube Policy violations (Violence, Blood, Suicide, etc.). Be EXTREMELY STRICT. Return JSON: {isSafe: boolean, reason: string, bestSafeFrameIndex: number}" }] }],
-                config: { responseMimeType: "application/json" }
-            });
-            visualSafetyResult = parseAIJson(safetyRes.text || "{}");
+    // 1. AI Processing (if not already done)
+    if (data && data.aiProcessed === false) {
+        console.log(`[TRIGGER] Running background AI processing for ${postId}`);
+        try {
+            await db.collection('news').doc(postId).update({ status: "PROCESSING_AI" });
+            const headline = data.headline?.telugu || "";
+            const content = data.content?.telugu || "";
+            if (headline && content) {
+                const aiProcessedData = await performAIProcessing(headline, content, data);
+                await db.collection('news').doc(postId).update({ ...aiProcessedData, status: "AI_PROCESSED" });
+                data = { ...data, ...aiProcessedData }; // Update local data for subsequent steps
+            }
+        } catch (aiErr: any) {
+            console.error(`[TRIGGER] AI Processing failed for ${postId}:`, aiErr.message);
+            await db.collection('news').doc(postId).update({ status: "FAILED", error: `AI: ${aiErr.message}` });
+            if (data.isReporter && data.reporter?.id) {
+                await notifyReporter(data.reporter.id, postId, data.headline?.telugu || "", 'INTERNAL_ERROR');
+            }
+            return; // Stop if AI enhancement fails
         }
+    }
 
-        let isSafe = visualSafetyResult.isSafe !== false;
-        const privacyStatus = isSafe ? 'public' : 'private';
+    // 2. Video Processing (if applicable)
+    const videoIndex = data.mediaTypes ? data.mediaTypes.indexOf('VIDEO') : (data.mediaType === 'VIDEO' ? 0 : -1);
 
-        if (!isSafe) {
-            console.warn(`[VIDEO_PROCESS] VISUAL SAFETY REJECTION for post ${postId}: ${visualSafetyResult.reason}`);
-            // Switch to Image mode for the app
-            const safeFrameIdx = (visualSafetyResult.bestSafeFrameIndex || 1) - 1;
-            const safeFramePath = frames[safeFrameIdx] || frames[0];
+    if (videoIndex !== -1 && !data.youtubeUrl && data.mediaUrls && data.mediaUrls[videoIndex]) {
+        // Check if YouTube secrets are available
+        if (!process.env.YOUTUBE_CLIENT_ID || !process.env.YOUTUBE_REFRESH_TOKEN) {
+            console.error(`[VIDEO_PROCESS] YouTube secrets missing. Skipping upload.`);
+        } else if (data.isSafeForYouTube === false) {
+            console.warn(`[VIDEO_PROCESS] Rejected for YouTube: Policy violation detected for post ${postId}`);
+            await db.collection('news').doc(postId).update({
+                videoProcessed: false,
+                videoProcessError: "Rejected by Policy Guard.",
+                status: "REJECTED"
+            });
+            if (data.isReporter && data.reporter?.id) {
+                await notifyReporter(data.reporter.id, postId, data.headline?.telugu || "", 'POLICY_VIOLATION');
+            }
+            return;
+        } else {
+            console.log(`[VIDEO_PROCESS] Starting background video processing for post: ${postId}`);
+            await db.collection('news').doc(postId).update({ status: "PROCESSING_VIDEO" });
 
-            if (fs.existsSync(safeFramePath)) {
-                const safeFrameBuffer = fs.readFileSync(safeFramePath);
-                const safeImageUrl = await saveBufferToStorage(safeFrameBuffer, "SAFE_FRAME");
-                if (safeImageUrl) {
-                    await db.collection('news').doc(postId).update({
-                        mediaUrl: safeImageUrl,
-                        mediaType: 'IMAGE',
-                        videoSafetyWarning: visualSafetyResult.reason,
-                        videoIsPrivate: true
+            const videoUrl = data.mediaUrls[videoIndex];
+            const teluguNews = data.content?.telugu || data.headline?.telugu || "";
+            const headline = data.headline?.telugu || "Alfa News";
+            const reporterName = data.reporter?.name || "";
+            const tags = data.tags || [];
+            const people = data.entities?.people || [];
+            const locations = data.entities?.locations || [];
+
+            // Construct detailed description for YouTube
+            let description = "";
+            if (reporterName) description += `రిపోర్టర్: ${reporterName}\n\n`;
+            description += `${teluguNews}\n\n`;
+
+            if (tags && tags.length > 0) {
+                description += tags.map((t: string) => t.startsWith('#') ? t : `#${t.replace(/\s+/g, '')}`).join(' ') + "\n\n";
+            }
+
+            description += `#AlfaNews #TeluguNews #BreakingNews\n\n`;
+
+            if (people && people.length > 0) {
+                description += `వ్యక్తులు: ${people.join(', ')}\n`;
+            }
+            if (locations && locations.length > 0) {
+                description += `ప్రాంతాలు: ${locations.join(', ')}\n`;
+            }
+
+            const tempDir = os.tmpdir();
+            const videoPath = path.join(tempDir, `input_${postId}.mp4`);
+            const audioPath = path.join(tempDir, `audio_${postId}.mp3`);
+            const outputPath = path.join(tempDir, `output_${postId}.mp4`);
+
+            try {
+                // 1. Download Video
+                console.log(`[VIDEO_PROCESS] Downloading video from: ${videoUrl}`);
+                const videoRes = await fetch(videoUrl);
+                if (!videoRes.ok) throw new Error(`Failed to download video: ${videoRes.statusText}`);
+                const videoBuffer = await videoRes.arrayBuffer();
+                fs.writeFileSync(videoPath, Buffer.from(videoBuffer));
+
+                // 1.1 Visual Safety Check (Extract frames)
+                const ai = getAIInstance();
+                let visualSafetyResult = { isSafe: true, reason: "" };
+
+                try {
+                    const metadata: any = await new Promise((resolve, reject) => {
+                        ffmpeg.ffprobe(videoPath, (err: any, data: any) => { if (err) reject(err); else resolve(data); });
                     });
+                    const duration = metadata.format.duration || 0;
+                    const frameCount = Math.max(3, Math.min(10, Math.floor(duration / 30)));
+
+                    await new Promise((resolve, reject) => {
+                        ffmpeg(videoPath)
+                            .screenshots({ count: frameCount, folder: tempDir, filename: `frame-${postId}-%i.jpg`, size: '320x?' })
+                            .on('end', resolve)
+                            .on('error', reject);
+                    });
+
+                    const frames = Array.from({ length: frameCount }, (_, i) => path.join(tempDir, `frame-${postId}-${i + 1}.jpg`)).filter(p => fs.existsSync(p));
+
+                    if (frames.length > 0) {
+                        const frameParts = frames.map(p => ({ inlineData: { data: fs.readFileSync(p).toString('base64'), mimeType: 'image/jpeg' } }));
+                        const safetyRes = await ai.models.generateContent({
+                            model: FLASH_MODEL,
+                            contents: [{ role: "user", parts: [...frameParts, { text: "Analyze these video frames for YouTube Policy violations (Violence, Blood, Suicide, etc.). Return JSON: {isSafe: boolean, reason: string, bestSafeFrameIndex: number}" }] }],
+                            config: { responseMimeType: "application/json" }
+                        } as any);
+                        const safetyText = safetyRes.text || "{}";
+                        visualSafetyResult = parseAIJson(safetyText);
+                    }
+                } catch (vErr: any) {
+                    console.warn(`[VIDEO_PROCESS] Visual safety check failed:`, vErr.message);
                 }
+
+                let isSafe = visualSafetyResult.isSafe !== false;
+                const privacyStatus = isSafe ? 'public' : 'private';
+
+                // 2. Generate Voice-over
+                console.log(`[VIDEO_PROCESS] Generating voice-over for ${teluguNews.length} characters...`);
+                await db.collection('news').doc(postId).update({ status: "PROCESSING_VOICE_OVER" });
+
+                const audioResponse = await ai.models.generateContent({
+                    model: PRO_MODEL,
+                    contents: [{ role: "user", parts: [{ text: teluguNews }] }],
+                    config: {
+                        systemInstruction: "Read this Telugu news content naturally like a news anchor. DO NOT add any comments. Just read the news."
+                    }
+                } as any);
+
+                const audioText = audioResponse.text || "";
+                console.log(`[VIDEO_PROCESS] Voice-over response received (length: ${audioText.length})`);
+
+                const isBase64 = /^[A-Za-z0-9+/=]+$/.test(audioText.trim().substring(0, 100));
+                if (!isBase64 || audioText.length < 1000) {
+                    console.error(`[VIDEO_PROCESS] Invalid audio response. Base64: ${isBase64}, Length: ${audioText.length}`);
+                    throw new Error("AI ద్వారా వాయిస్-ఓవర్ జనరేట్ కాలేదు. రెస్పాన్స్ సరిగ్గా లేదు.");
+                }
+
+                fs.writeFileSync(audioPath, Buffer.from(audioText, 'base64'));
+
+                // 3. Merge Audio and Video
+                console.log(`[VIDEO_PROCESS] Merging audio and video...`);
+                await db.collection('news').doc(postId).update({ status: "MERGING_MEDIA" });
+
+                await new Promise((resolve, reject) => {
+                    ffmpeg(videoPath)
+                        .input(audioPath)
+                        .outputOptions('-c:v copy', '-c:a aac', '-map 0:v:0', '-map 1:a:0', '-shortest')
+                        .save(outputPath)
+                        .on('end', resolve)
+                        .on('error', reject);
+                });
+
+                    // 4. Upload to YouTube
+                    console.log(`[VIDEO_PROCESS] Uploading to YouTube...`);
+                    const auth = new google.auth.OAuth2(process.env.YOUTUBE_CLIENT_ID, process.env.YOUTUBE_CLIENT_SECRET);
+                    auth.setCredentials({ refresh_token: process.env.YOUTUBE_REFRESH_TOKEN });
+
+                    const youtube = google.youtube({ version: 'v3', auth });
+                    const youtubeRes = await youtube.videos.insert({
+                        part: ['snippet', 'status'],
+                        requestBody: {
+                            snippet: { title: headline.substring(0, 100), description: description.substring(0, 5000), categoryId: '25' },
+                            status: { privacyStatus: privacyStatus },
+                        },
+                        media: { body: fs.createReadStream(outputPath) },
+                    });
+
+                    const youtubeUrl = `https://www.youtube.com/watch?v=${youtubeRes.data.id}`;
+                    console.log(`[VIDEO_PROCESS] Successfully uploaded to YouTube: ${youtubeUrl}`);
+
+                    await db.collection('news').doc(postId).update({
+                        youtubeUrl: youtubeUrl,
+                        videoProcessed: true,
+                        status: "PUBLISHED",
+                        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    // Success Notification
+                    if (data.isReporter && data.reporter?.id) {
+                        await notifyReporter(data.reporter.id, postId, data.headline?.telugu || headline, 'SUCCESS');
+                    }
+
+                    // Update local data for notification
+                    data.youtubeUrl = youtubeUrl;
+
+                    // Cleanup storage
+                    if (videoUrl.includes('firebasestorage.googleapis.com')) {
+                        try {
+                            const urlObj = new URL(videoUrl);
+                            const fullPath = decodeURIComponent(urlObj.pathname.split('/o/')[1].split('?')[0]);
+                            await admin.storage().bucket().file(fullPath).delete();
+                        } catch (delErr) {}
+                    }
+            } catch (e: any) {
+                console.error(`[VIDEO_PROCESS] Error:`, e.message);
+                await db.collection('news').doc(postId).update({
+                    videoProcessError: e.message,
+                    videoProcessed: false,
+                    status: "FAILED",
+                    error: `Technical: ${e.message}`
+                });
+                if (data.isReporter && data.reporter?.id) {
+                    await notifyReporter(data.reporter.id, postId, data.headline?.telugu || "", 'INTERNAL_ERROR');
+                }
+            } finally {
+                [videoPath, audioPath, outputPath].forEach(p => { if (fs.existsSync(p)) fs.unlinkSync(p); });
             }
         }
-
-        // 2. Generate Voice-over
-
-        const audioResponse = await ai.models.generateContent({
-            model: PRO_MODEL,
-            contents: [{ role: "user", parts: [{ text: `Read this Telugu news content naturally like a news anchor: "${teluguNews}". Output audio format: mp3.` }] }]
-        });
-
-        // This is a simplified representation of getting audio from Gemini.
-        // In practice, you might need to use Google Cloud TTS with Gemini-refined text.
-        const audioBytes = audioResponse.text || ""; // Use as property if it's a getter
-        // If direct audio is not available, we use a placeholder or G-TTS.
-        // For now, we'll proceed assuming we have the audio.
-        fs.writeFileSync(audioPath, Buffer.from(audioBytes, 'base64'));
-
-        // 3. Merge Audio and Video using ffmpeg
-        await new Promise((resolve, reject) => {
-            ffmpeg(videoPath)
-                .input(audioPath)
-                .outputOptions('-c:v copy')
-                .outputOptions('-c:a aac')
-                .outputOptions('-map 0:v:0')
-                .outputOptions('-map 1:a:0')
-                .outputOptions('-shortest') // Match duration of the shortest stream
-                .save(outputPath)
-                .on('end', resolve)
-                .on('error', reject);
-        });
-
-        // 4. Upload to YouTube
-        const auth = new google.auth.OAuth2(
-            process.env.YOUTUBE_CLIENT_ID,
-            process.env.YOUTUBE_CLIENT_SECRET
-        );
-        auth.setCredentials({ refresh_token: process.env.YOUTUBE_REFRESH_TOKEN });
-
-        const youtube = google.youtube({ version: 'v3', auth });
-        const youtubeRes = await youtube.videos.insert({
-            part: ['snippet', 'status'],
-            requestBody: {
-                snippet: {
-                    title: headline,
-                    description: description,
-                    categoryId: '25', // News & Politics
-                },
-                status: {
-                    privacyStatus: privacyStatus
-                },
-            },
-            media: { body: fs.createReadStream(outputPath) },
-        });
-
-        const youtubeUrl = `https://www.youtube.com/watch?v=${youtubeRes.data.id}`;
-
-        // 5. Update Firestore
-        await db.collection('news').doc(postId).update({
-            youtubeUrl: youtubeUrl,
-            videoProcessed: true,
-            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-        });
-
-        console.log(`[VIDEO_PROCESS] Successfully uploaded to YouTube: ${youtubeUrl}`);
-
-    } catch (e: any) {
-        console.error(`[VIDEO_PROCESS] Error:`, e.message);
-        await db.collection('news').doc(postId).update({
-            videoProcessError: e.message
-        });
-    } finally {
-        // Cleanup
-        [videoPath, audioPath, outputPath].forEach(p => { if (fs.existsSync(p)) fs.unlinkSync(p); });
     }
+
+    // 3. Notify Reporter (removed from end, handled in each step above)
 });
+
 
 export const triggerPushBroadcast = onCall(async (request) => {
     const { title, body, actionUrl, topic } = request.data;

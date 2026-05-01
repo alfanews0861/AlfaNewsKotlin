@@ -42,6 +42,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private val _userDistrict = MutableStateFlow<String?>(prefs.getEffectiveDistrict())
     val userDistrict: StateFlow<String?> = _userDistrict.asStateFlow()
 
+    private val _isOnline = MutableStateFlow(true)
+    val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
+
     private val _sharedPostId = MutableStateFlow<String?>(null)
     val sharedPostId: StateFlow<String?> = _sharedPostId.asStateFlow()
 
@@ -66,6 +69,14 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
           if (isFetching && initialPostId == null) return
 
           viewModelScope.launch {
+              // ఇంటర్నెట్ తనిఖీ
+              if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
+                  _isOnline.value = false
+                  _loading.value = false
+                  return@launch
+              }
+              _isOnline.value = true
+
               isFetching = true
               _loading.value = true
 
@@ -147,10 +158,26 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                           val fallbackList = fallbackSnapshot.documents.mapNotNull { doc ->
                               mapDocumentToNewsPost(doc)
                           }.filter { post ->
-                              // Even in fallback, avoid pure district-only news
-                              val allCatsAreDistricts = post.categories.all { it in Constants.ALL_DISTRICTS }
-                              val hasCrimeCategory = post.categories.contains("క్రైమ్")
-                              !(allCatsAreDistricts && !hasCrimeCategory)
+                              // 1. Identify General/State-wide interest (Robust check)
+                              val generalKeywords = listOf(
+                                  "రాజకీయం", "క్రైమ్", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "వ్యవసాయం", 
+                                  "విద్య", "ఉద్యోగాలు", "ఆరోగ్యం", "సినిమా", "స్పోర్ట్స్", "జాతీయం", "అంతర్జాతీయం",
+                                  "Politics", "Crime", "Entertainment", "Sports", "Business", "Technology", "Devotion", 
+                                  "Agriculture", "Education", "Jobs", "Health", "Movie", "National", "International", 
+                                  "General", "Tragedy", "Andhra Pradesh", "Telangana", "AP", "TS"
+                              )
+
+                              val isGeneral = post.categories.any { cat -> 
+                                  generalKeywords.any { kw -> cat.contains(kw, ignoreCase = true) }
+                              } || (post.district != null && generalKeywords.any { kw -> post.district.contains(kw, ignoreCase = true) })
+
+                              // 2. Identify if it's a District-specific post
+                              val isRealDistrict = post.district != null && Constants.ALL_DISTRICTS.contains(post.district)
+                              val hasDistrictCategory = post.categories.any { it in Constants.ALL_DISTRICTS }
+                              val isLocal = isRealDistrict || hasDistrictCategory
+
+                              // Keep if NOT purely local
+                              !(isLocal && !isGeneral)
                           }
 
                           if (fallbackList.isNotEmpty()) {
@@ -296,21 +323,28 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                        val postDist = post.district
                        val postCategories = post.categories
                        
-                       // సర్వ జిల్లా జనరల్ కేటగరీలను చేర్చండి (సినిమా, స్పోర్ట్స్, హెల్త్ మొదలైనవి)
-                       val isGeneralCategory = postCategories.any { cat ->
-                           cat in listOf("సినిమా", "స్పోర్ట్స్", "హెల్త్", "వనోదం", "టెక్నాలజీ", 
-                                        "భక్తి", "శిక్ష", "ఉద్యోగాలు", "వ్యాపారం", "క్రీడలు", "విద్య")
-                       }
-                       
-                       // కేవలం జిల్లా-నిర్దిష్ట న్యూస్ ఫిల్టర్ చేయండి (అన్ని కేటిగరీలు = జిల్లా పేర్లు)
-                       val allCatsAreDistricts = postCategories.all { it in Constants.ALL_DISTRICTS }
-                       val hasCrimeCategory = postCategories.contains("క్రైమ్")
+                       // 1. Identify General/State-wide interest (Robust check with English & Telugu keywords)
+                       val generalKeywords = listOf(
+                           "రాజకీయం", "క్రైమ్", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "వ్యవసాయం", 
+                           "విద్య", "ఉద్యోగాలు", "ఆరోగ్యం", "సినిమా", "స్పోర్ట్స్", "జాతీయం", "అంతర్జాతీయం",
+                           "Politics", "Crime", "Entertainment", "Sports", "Business", "Technology", "Devotion", 
+                           "Agriculture", "Education", "Jobs", "Health", "Movie", "National", "International", 
+                           "General", "Tragedy", "Andhra Pradesh", "Telangana", "AP", "TS"
+                       )
 
-                       // ఫిల్టర్ లాజిక్:
-                       // 1. జనరల్ కేటగరీ ఉంటే చేర్చండి (జిల్లా ఫీల్డ్ ఉన్నా కూడా)
-                       // 2. కేవలం జిల్లా న్యూస్ కాదు (అన్ని కేటిగరీలు = జిల్లా పేర్లు)
-                       // 3. క్రైమ్ చేర్చండి (ముఖ్యమైనది)
-                       if (!isGeneralCategory && !postDist.isNullOrBlank() && allCatsAreDistricts && !hasCrimeCategory) {
+                       val isGeneral = postCategories.any { cat -> 
+                           generalKeywords.any { kw -> cat.contains(kw, ignoreCase = true) }
+                       } || (postDist != null && generalKeywords.any { kw -> postDist.contains(kw, ignoreCase = true) })
+
+                       // 2. Identify if it's a District-specific post
+                       val isRealDistrict = postDist != null && Constants.ALL_DISTRICTS.contains(postDist)
+                       val hasDistrictCategory = postCategories.any { it in Constants.ALL_DISTRICTS }
+                       val isLocal = isRealDistrict || hasDistrictCategory
+
+                       // 3. ఫిల్టర్ లాజిక్:
+                       // ఒక వార్త జిల్లాకు సంబంధించినది అయ్యి, జనరల్ కేటగరీ కాకపోతే అది "Purely Local" (గ్రామ స్థాయి వార్త).
+                       // అటువంటి వార్తలను హోమ్ ఫీడ్ లో చూపించకూడదు.
+                       if (isLocal && !isGeneral) {
                            return@mapNotNull null
                        }
                    }

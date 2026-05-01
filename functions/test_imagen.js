@@ -7,7 +7,7 @@ const ai = new GoogleGenAI({
 async function run() {
   try {
     const response = await ai.models.generateImages({
-      model: 'imagen-3.0-generate-001',
+      model: 'imagen-4.0-generate-001',
       prompt: 'A cartoon about politics in Telugu states, line art, white background',
       config: {
         numberOfImages: 1,

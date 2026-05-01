@@ -74,6 +74,8 @@
     <!-- News Feed Strings -->
     <string name="news_preparing">News is being prepared...</string>
     <string name="no_news_available">No news available at the moment. Please try again later.</string>
+    <string name="no_internet">No Internet Connection</string>
+    <string name="check_internet">Please check your internet connection and try again.</string>
     <string name="news_source">Source : %1$s</string>
     <string name="share_news">Share News</string>
     <string name="share_failed">Sharing failed</string>
@@ -257,8 +259,8 @@
     <string name="publish_news">Publish News</string>
     <string name="update_news">Update News</string>
     <string name="uploading_media">Uploading media...</string>
-    <string name="news_published_successfully">News published successfully!</string>
-    <string name="news_updated_successfully">News updated successfully!</string>
+    <string name="news_published_successfully">News submitted! It is being processed in the background, you will receive a notification when finished.</string>
+    <string name="news_updated_successfully">News updated! Background processing started.</string>
     <string name="error_publishing_news">Error publishing news: %1$s</string>
     <string name="camera_permission_required">Camera permission required</string>
     <string name="telangana">Telangana</string>

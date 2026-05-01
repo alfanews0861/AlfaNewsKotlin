@@ -6,10 +6,12 @@ import com.google.firebase.analytics.FirebaseAnalytics
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.alfanews.telugu.services.AnalyticsService
+import com.alfanews.telugu.utils.PreferenceManager
 import com.google.firebase.messaging.FirebaseMessaging
 import androidx.work.*
 import com.alfanews.telugu.workers.NewsNotificationWorker
 import com.alfanews.telugu.workers.FestivalGreetingWorker
+import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.Calendar
 import kotlinx.coroutines.*
@@ -23,6 +25,9 @@ class AlfaNewsApplication : Application() {
         try {
             // ఫైర్‌బేస్‌ను ప్రారంభించడం
             FirebaseApp.initializeApp(this)
+
+            // 🛠️ కొత్త అప్‌డేట్ లో పాత డేటాను క్లియర్ చేయడం (GBs లో ఉన్న కాష్ ని తీసివేయడం)
+            clearLegacyAppCache()
 
             // ఫైర్‌బేస్ యాప్ చెక్ - దీన్ని మరింత సేఫ్ గా మార్చాను
             val firebaseAppCheck = FirebaseAppCheck.getInstance()
@@ -88,5 +93,58 @@ class AlfaNewsApplication : Application() {
         }
         
         return nextRun.timeInMillis - now.timeInMillis
+    }
+
+    /**
+     * 🧹 పాత వెర్షన్లలో సేవ్ అయిన భారీ కాష్ డేటా (GBs లో ఉన్నవి) క్లియర్ చేస్తుంది.
+     * ఇది అప్‌డేట్ తర్వాత ఒకే ఒకసారి జరుగుతుంది.
+     */
+    private fun clearLegacyAppCache() {
+        val prefs = PreferenceManager.getInstance(this)
+        if (!prefs.isLegacyCacheCleared) {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    // 1. ఇమేజ్ కాష్ ఫోల్డర్‌ను మరియు ఇతర కాష్ ఫైల్స్‌ను పూర్తిగా డిలీట్ చేయడం
+                    deleteDir(cacheDir)
+                    
+                    // 2. Firestore డేటాబేస్ ఫైల్స్ ఉన్న ఫోల్డర్‌ను కూడా టార్గెట్ చేయడం
+                    val databasesDir = File(applicationInfo.dataDir, "databases")
+                    if (databasesDir.exists()) {
+                        val files = databasesDir.listFiles()
+                        if (files != null) {
+                            for (file in files) {
+                                if (file.name.contains("firestore", ignoreCase = true)) {
+                                    deleteDir(file)
+                                }
+                            }
+                        }
+                    }
+
+                    // 3. క్లియర్ అయినట్లు ఫ్లాగ్ సెట్ చేయడం
+                    prefs.isLegacyCacheCleared = true
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
+    private fun deleteDir(dir: File?): Boolean {
+        if (dir != null && dir.isDirectory) {
+            val children = dir.list()
+            if (children != null) {
+                for (i in children.indices) {
+                    val success = deleteDir(File(dir, children[i]))
+                    if (!success) {
+                        return false
+                    }
+                }
+            }
+            return dir.delete()
+        } else if (dir != null && dir.isFile) {
+            return dir.delete()
+        } else {
+            return false
+        }
     }
 }

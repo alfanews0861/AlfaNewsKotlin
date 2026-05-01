@@ -15,18 +15,17 @@ object FirebaseService {
     /** ఫైర్‌బేస్ అథెంటికేషన్ (Authentication) ఇన్‌స్టన్స్. */
     val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
     
-    /** ఫైర్‌స్టోర్ (Firestore) డేటాబేస్ ఇన్‌స్టన్స్. కాష్ సైజ్ ని పరిమితం చేసాము. */
+    /** ఫైర్‌స్టోర్ (Firestore) డేటాబేస్ ఇన్‌స్టన్స్. ఆఫ్ లైన్ డేటా సేవ్ అవ్వకుండా నిలిపివేస్తున్నాము. */
     val db: FirebaseFirestore by lazy { 
         val instance = FirebaseFirestore.getInstance()
-        // పాత డేటాను ఫోన్లో ఉంచకుండా కాష్ పరిమాణాన్ని 10MB కి పరిమితం చేస్తున్నాము. 
-        // తద్వారా ఫోన్ స్టోరేజ్ నిండకుండా ఉంటుంది.
+        
+        // యూసర్ కోరిన విధంగా ఆఫ్ లైన్ లో డేటా సేవ్ చేయకుండా నిలిపివేస్తున్నాము.
+        // దీనివల్ల యాప్ సైజ్ పెరగదు (GBs లోకి వెళ్ళదు) మరియు చాలా వేగంగా ఉంటుంది.
+        @Suppress("DEPRECATION")
         val settings = com.google.firebase.firestore.FirebaseFirestoreSettings.Builder()
-            .setLocalCacheSettings(
-                com.google.firebase.firestore.PersistentCacheSettings.newBuilder()
-                    .setSizeBytes(10L * 1024L * 1024L) // 10 MB
-                    .build()
-            )
+            .setPersistenceEnabled(false)
             .build()
+
         try {
             instance.firestoreSettings = settings
         } catch (_: Exception) {

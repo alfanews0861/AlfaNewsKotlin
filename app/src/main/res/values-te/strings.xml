@@ -72,6 +72,8 @@
     <!-- News Feed Strings -->
     <string name="news_preparing">వార్తలు సిద్ధమవుతున్నాయి...</string>
     <string name="no_news_available">ప్రస్తుతానికి వార్తలు ఏమీ లేవు. కాసేపయ్యాక మళ్ళీ ప్రయత్నించండి.</string>
+    <string name="no_internet">ఇంటర్నెట్ లేదు</string>
+    <string name="check_internet">దయచేసి మీ ఇంటర్నెట్ కనెక్షన్‌ని తనిఖీ చేసి, మళ్ళీ ప్రయత్నించండి.</string>
     <string name="news_source">Source : %1$s</string>
     <string name="share_news">వార్తను షేర్ చేయండి</string>
     <string name="share_failed">షేర్ చేయడంలో విఫలమైంది</string>
@@ -255,8 +257,8 @@
     <string name="publish_news">వార్తను పబ్లిష్ చేయండి</string>
     <string name="update_news">వార్తను అప్‌డేట్ చేయండి</string>
     <string name="uploading_media">మీడియాను అప్‌లోడ్ చేస్తోంది...</string>
-    <string name="news_published_successfully">వార్త విజయవంతంగా పబ్లిష్ చేయబడింది!</string>
-    <string name="news_updated_successfully">వార్త విజయవంతంగా అప్‌డేట్ చేయబడింది!</string>
+    <string name="news_published_successfully">వార్త పంపబడింది! నేపథ్యంలో ప్రాసెస్ అవుతోంది, పూర్తయ్యాక మీకు నోటిఫికేషన్ వస్తుంది.</string>
+    <string name="news_updated_successfully">వార్త అప్‌డేట్ చేయబడింది! నేపథ్యంలో ప్రాసెస్ అవుతోంది.</string>
     <string name="error_publishing_news">వార్తను పబ్లిష్ చేయడంలో లోపం: %1$s</string>
     <string name="camera_permission_required">కెమెరా పర్మిషన్ అవసరం</string>
     <string name="telangana">తెలంగాణ</string>

@@ -23,6 +23,7 @@ class PreferenceManager(context: Context) {
         private const val KEY_RATING_DIALOG_SHOWN_COUNT = "key_rating_dialog_shown_count"
         private const val KEY_LAST_RATING_DIALOG_TIME = "key_last_rating_dialog_time"
         private const val KEY_NOTIFICATIONS_ENABLED = "key_notifications_enabled"
+        private const val KEY_IS_LEGACY_CACHE_CLEARED = "key_is_legacy_cache_cleared"
 
         @Volatile
         private var INSTANCE: PreferenceManager? = null
@@ -112,6 +113,13 @@ class PreferenceManager(context: Context) {
         get() = prefs.getBoolean(KEY_NOTIFICATIONS_ENABLED, true)
         set(value) {
             prefs.edit().putBoolean(KEY_NOTIFICATIONS_ENABLED, value).apply()
+        }
+
+    /** పాత (Legacy) కాష్ డేటా క్లియర్ అయిందో లేదో తనిఖీ చేస్తుంది. */
+    var isLegacyCacheCleared: Boolean
+        get() = prefs.getBoolean(KEY_IS_LEGACY_CACHE_CLEARED, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_IS_LEGACY_CACHE_CLEARED, value).apply()
         }
 
     /**

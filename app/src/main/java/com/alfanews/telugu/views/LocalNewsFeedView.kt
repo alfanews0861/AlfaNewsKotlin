@@ -13,6 +13,8 @@ import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.collect
@@ -52,6 +54,7 @@ fun LocalNewsFeedView(
     )
     val news by viewModel.news.collectAsStateWithLifecycle()
     val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val hasMore by viewModel.hasMore.collectAsStateWithLifecycle()
     val activeDistrict by viewModel.activeDistrict.collectAsStateWithLifecycle()
     val isDetecting by viewModel.isDetecting.collectAsStateWithLifecycle()
@@ -136,7 +139,43 @@ fun LocalNewsFeedView(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        if ((loading || isDetecting) && news.isEmpty()) {
+        if (!isOnline && news.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                    )
+                    Text(
+                        text = stringResource(R.string.no_internet),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontFamily = Ramabhadra
+                    )
+                    Text(
+                        text = stringResource(R.string.check_internet),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        fontFamily = Ramabhadra
+                    )
+                    Button(
+                        onClick = { viewModel.loadNews(language, currentUser) }
+                    ) {
+                        Text(text = stringResource(R.string.retry), fontFamily = Ramabhadra)
+                    }
+                }
+            }
+        } else if ((loading || isDetecting) && news.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
