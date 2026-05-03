@@ -12,11 +12,10 @@ export const sendPersonalizedNotification = onSchedule({
     const db = admin.firestore();
 
     // 1. గత 8 గంటల్లో పోస్ట్ చేసిన వార్తలను తెచ్చుకోవడం
-    const eightHoursAgo = Date.now() - (8 * 60 * 60 * 1000);
+    const eightHoursAgo = new Date(Date.now() - (8 * 60 * 60 * 1000));
     const newsSnapshot = await db.collection('news')
         .where('timestamp', '>', eightHoursAgo)
         .where('approved', '==', true) // ✅ Only approved news
-        .orderBy('approved', 'asc')
         .orderBy('timestamp', 'desc')
         .limit(100)
         .get();
@@ -71,8 +70,6 @@ export const sendPersonalizedNotification = onSchedule({
         while (hasMoreUsers && totalUsersProcessed < maxUsersPerCategory) {
             let query = db.collection('users')
                 .where(`categoryScores.${category}`, '>', 0)
-                .where('shadowMode', '!=', true)
-                .where('notificationsEnabled', '!=', false) // ✅ Respect user preference
                 .limit(500);  // Batch size
 
             if (startAfterDoc) {
@@ -88,11 +85,15 @@ export const sendPersonalizedNotification = onSchedule({
 
             usersSnapshot.docs.forEach(doc => {
                 const userId = doc.id;
+                const user = doc.data();
+
+                // ✅ FIX: Filter shadow mode and disabled notifications in code
+                // to avoid Firestore multiple inequality query limitations
+                if (user.shadowMode === true) return;
+                if (user.notificationsEnabled === false) return;
 
                 // ఈ సైకిల్ లో ఇప్పటికే ఆ యూజర్ కి నోటిఫికేషన్ సిద్ధం చేసి ఉంటే స్కిప్
                 if (notifiedUserIds.has(userId)) return;
-
-                const user = doc.data();
 
                 // ✅ FIX: Skip if user has disabled notifications recently
                 const lastNotificationTime = user.lastNotificationTime || 0;

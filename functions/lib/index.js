@@ -125,7 +125,16 @@ async function notifyReporter(reporterId, postId, headline, type) {
                 type: `REPORTER_SUBMISSION_${type}`
             }
         };
-        const sendPromises = tokens.map(token => admin.messaging().send({ ...message, token }).catch(err => console.error(`Failed to send to token: ${token}`, err)));
+        const sendPromises = tokens.map(token => admin.messaging().send({ ...message, token }).catch(async (err) => {
+            console.error(`Failed to send to token: ${token}`, err);
+            if (err.code === 'messaging/registration-token-not-registered' || err.code === 'messaging/invalid-registration-token') {
+                const updates = {};
+                if (userData?.fcmToken === token)
+                    updates.fcmToken = admin.firestore.FieldValue.delete();
+                updates.fcmTokens = admin.firestore.FieldValue.arrayRemove(token);
+                await db.collection('users').doc(reporterId).update(updates).catch(() => { });
+            }
+        }));
         await Promise.all(sendPromises);
     }
     catch (e) {
@@ -265,7 +274,7 @@ exports.scheduleFestivalGreeting = (0, scheduler_1.onSchedule)({ schedule: "0 5 
     };
     try {
         const checkRes = await ai.models.generateContent({
-            model: SCHEDULED_MODEL, // Using gemini-3.1-flash as requested
+            model: SCHEDULED_MODEL,
             contents: [{ role: "user", parts: [{ text: `Today's exact date is ${dateStr}. Strictly check if there is a major festival celebrated by Telugu people (Hindu, Muslim, Christian, or National holidays) exactly on this date. Do not invent festivals or hallucinate. If there is no festival today, return isFestival: false. JSON.` }] }],
             config: { systemInstruction: "Output JSON only. Be highly accurate with calendar dates.", temperature: 0.1, responseMimeType: "application/json", responseSchema: schema }
         });
@@ -331,7 +340,7 @@ exports.scheduleQuoteOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "0 4 * *
     };
     try {
         const res = await ai.models.generateContent({
-            model: SCHEDULED_MODEL, // Using Gemini 3.1 Flash as requested
+            model: SCHEDULED_MODEL,
             contents: [{ role: "user", parts: [{ text: `Today is ${todayStr}. Provide a highly unique, rare, and deeply inspirational Telugu quote by ${selectedTheme}. Do NOT repeat common quotes. Make sure it is 100% unique for this specific date. Output JSON.` }] }],
             config: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.8 } // Higher temperature for more uniqueness
         });
@@ -449,7 +458,7 @@ exports.generateDailyCartoon = (0, scheduler_1.onSchedule)({ schedule: "0 6 * * 
                 required: ["topic", "visualDescription", "teluguCaption"]
             };
             const topicRes = await ai.models.generateContent({
-                model: SCHEDULED_MODEL, // Using Gemini 3.1 Flash as requested
+                model: SCHEDULED_MODEL,
                 contents: [{ role: "user", parts: [{ text: `Today's Date: ${todayStr}.
 Role: You are an award-winning editorial and political cartoonist for a leading Telugu news daily, known for sharp satire and being a "voice of the opposition."
 Goal: Identify a highly relevant, satirical, and humorous current political topic in ${state} (India) from the last 24-48 hours.
@@ -472,7 +481,7 @@ Visual scene: ${visual}.
 Style: High-quality ink line art, editorial caricature style, clean and recognizable.
 IMPORTANT: The cartoon must feature a speech bubble or a sign board with the following Telugu text written PERFECTLY: "${teluguText}".
 The caricatures should be recognizable as the politicians described. No English text.`,
-                config: { numberOfImages: 1, aspectRatio: '9:16', addWatermark: false }
+                config: { numberOfImages: 1, aspectRatio: '9:16' }
             });
             if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
                 const buffer = buffer_1.Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
@@ -585,6 +594,7 @@ exports.processReporterSubmission = (0, https_1.onCall)(async (request) => {
 /**
  * 6.2 Background News Processing (AI + Video + YouTube)
  * Handles ALL background tasks after a news post is created.
+ * Note: Uses YouTube Secrets from Secret Manager.
  */
 exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
     document: "news/{postId}",
@@ -714,17 +724,36 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
                 // 2. Generate Voice-over
                 console.log(`[VIDEO_PROCESS] Generating voice-over for ${teluguNews.length} characters...`);
                 await db.collection('news').doc(postId).update({ status: "PROCESSING_VOICE_OVER" });
-                const audioResponse = await ai.models.generateContent({
-                    model: PRO_MODEL,
-                    contents: [{ role: "user", parts: [{ text: teluguNews }] }],
-                    config: {
-                        systemInstruction: "Read this Telugu news content naturally like a news anchor. DO NOT add any comments. Just read the news."
-                    }
+                // Use Service Account credentials instead of API Key to avoid "API_KEY_SERVICE_BLOCKED"
+                const ttsAuth = new google.auth.GoogleAuth({
+                    scopes: ['https://www.googleapis.com/auth/cloud-platform']
                 });
-                const audioText = audioResponse.text || "";
+                const ttsAuthClient = await ttsAuth.getClient();
+                const ttsTokenResponse = await ttsAuthClient.getAccessToken();
+                const accessToken = ttsTokenResponse.token;
+                const ttsUrl = `https://texttospeech.googleapis.com/v1/text:synthesize`;
+                const ttsResponse = await fetch(ttsUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${accessToken}`
+                    },
+                    body: JSON.stringify({
+                        input: { text: teluguNews },
+                        voice: { languageCode: 'te-IN', name: 'te-IN-Standard-A' },
+                        audioConfig: { audioEncoding: 'MP3' }
+                    })
+                });
+                if (!ttsResponse.ok) {
+                    const errorText = await ttsResponse.text();
+                    console.error(`[VIDEO_PROCESS] TTS API Error: ${ttsResponse.status} ${errorText}`);
+                    throw new Error(`TTS API failed: ${ttsResponse.status}`);
+                }
+                const ttsData = await ttsResponse.json();
+                const audioText = ttsData.audioContent || "";
                 console.log(`[VIDEO_PROCESS] Voice-over response received (length: ${audioText.length})`);
-                const isBase64 = /^[A-Za-z0-9+/=]+$/.test(audioText.trim().substring(0, 100));
-                if (!isBase64 || audioText.length < 1000) {
+                const isBase64 = /^[A-Za-z0-9+/=]+$/.test(audioText.trim().substring(0, 50));
+                if (!isBase64 || audioText.length < 500) {
                     console.error(`[VIDEO_PROCESS] Invalid audio response. Base64: ${isBase64}, Length: ${audioText.length}`);
                     throw new Error("AI ద్వారా వాయిస్-ఓవర్ జనరేట్ కాలేదు. రెస్పాన్స్ సరిగ్గా లేదు.");
                 }
@@ -735,16 +764,81 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
                 await new Promise((resolve, reject) => {
                     ffmpeg(videoPath)
                         .input(audioPath)
-                        .outputOptions('-c:v copy', '-c:a aac', '-map 0:v:0', '-map 1:a:0', '-shortest')
+                        .outputOptions([
+                        '-c:v', 'copy',
+                        '-c:a', 'aac',
+                        '-map', '0:v:0',
+                        '-map', '1:a:0',
+                        '-shortest'
+                    ])
                         .save(outputPath)
                         .on('end', resolve)
-                        .on('error', reject);
+                        .on('error', (err) => {
+                        console.error(`[VIDEO_PROCESS] FFmpeg Error: ${err.message}`);
+                        reject(err);
+                    });
                 });
                 // 4. Upload to YouTube
                 console.log(`[VIDEO_PROCESS] Uploading to YouTube...`);
-                const auth = new google.auth.OAuth2(process.env.YOUTUBE_CLIENT_ID, process.env.YOUTUBE_CLIENT_SECRET);
-                auth.setCredentials({ refresh_token: process.env.YOUTUBE_REFRESH_TOKEN });
-                const youtube = google.youtube({ version: 'v3', auth });
+                // Access secrets and clean them thoroughly (removing quotes and invisible characters)
+                const cleanSecret = (val) => {
+                    if (!val)
+                        return "";
+                    return val.trim().replace(/^["']|["']$/g, '').trim();
+                };
+                const clientID = cleanSecret(process.env.YOUTUBE_CLIENT_ID);
+                const clientSecret = cleanSecret(process.env.YOUTUBE_CLIENT_SECRET);
+                const refreshToken = cleanSecret(process.env.YOUTUBE_REFRESH_TOKEN);
+                if (!clientID || !clientSecret || !refreshToken) {
+                    console.error(`[VIDEO_PROCESS] Missing YouTube credentials. ID=${!!clientID}, Secret=${!!clientSecret}, Token=${!!refreshToken}`);
+                    throw new Error("YouTube credentials missing. Please set them using 'firebase functions:secrets:set'.");
+                }
+                console.log(`[VIDEO_PROCESS] Using credentials: ID_Len=${clientID.length}, Secret_Len=${clientSecret.length}, Token_Len=${refreshToken.length}`);
+                console.log(`[VIDEO_PROCESS] Token Check: Start=${refreshToken.substring(0, 10)}..., End=${refreshToken.substring(refreshToken.length - 5)}`);
+                // Step 4.1: Manual token refresh test to get the real error message from Google
+                try {
+                    const params = new URLSearchParams();
+                    params.append('client_id', clientID);
+                    params.append('client_secret', clientSecret);
+                    params.append('refresh_token', refreshToken);
+                    params.append('grant_type', 'refresh_token');
+                    const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: params.toString()
+                    });
+                    const refreshData = await refreshRes.json();
+                    if (!refreshRes.ok) {
+                        console.error(`[VIDEO_PROCESS] Google API Rejection:`, JSON.stringify(refreshData));
+                        // Special check for common mismatch issues
+                        if (refreshData.error === 'invalid_grant') {
+                            console.error(`[VIDEO_PROCESS] CRITICAL: Refresh Token is either expired, revoked, or doesn't match this Client ID/Secret.`);
+                        }
+                    }
+                    else {
+                        console.log(`[VIDEO_PROCESS] Google API accepted the token! Access Token generated.`);
+                    }
+                }
+                catch (fetchErr) {
+                    console.error(`[VIDEO_PROCESS] Manual Refresh Fetch Error:`, fetchErr.message);
+                }
+                const youtubeAuth = new google.auth.OAuth2(clientID, clientSecret);
+                youtubeAuth.setCredentials({ refresh_token: refreshToken });
+                // Ensure token is valid or refreshed
+                try {
+                    const tokenInfo = await youtubeAuth.getAccessToken();
+                    if (!tokenInfo || !tokenInfo.token)
+                        throw new Error("Could not retrieve access token.");
+                    console.log(`[VIDEO_PROCESS] Access token retrieved successfully.`);
+                }
+                catch (authErr) {
+                    console.error(`[VIDEO_PROCESS] YouTube Auth Error:`, authErr.message);
+                    if (authErr.response && authErr.response.data) {
+                        console.error(`[VIDEO_PROCESS] Auth Error Detail Data:`, JSON.stringify(authErr.response.data));
+                    }
+                    throw new Error(`YouTube ఆథెంటికేషన్ విఫలమైంది: ${authErr.message}`);
+                }
+                const youtube = google.youtube({ version: 'v3', auth: youtubeAuth });
                 const youtubeRes = await youtube.videos.insert({
                     part: ['snippet', 'status'],
                     requestBody: {

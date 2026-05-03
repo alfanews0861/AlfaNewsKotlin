@@ -158,26 +158,26 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                           val fallbackList = fallbackSnapshot.documents.mapNotNull { doc ->
                               mapDocumentToNewsPost(doc)
                           }.filter { post ->
-                              // 1. Identify General/State-wide interest (Robust check)
-                              val generalKeywords = listOf(
-                                  "రాజకీయం", "క్రైమ్", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "వ్యవసాయం", 
-                                  "విద్య", "ఉద్యోగాలు", "ఆరోగ్యం", "సినిమా", "స్పోర్ట్స్", "జాతీయం", "అంతర్జాతీయం",
-                                  "Politics", "Crime", "Entertainment", "Sports", "Business", "Technology", "Devotion", 
-                                  "Agriculture", "Education", "Jobs", "Health", "Movie", "National", "International", 
-                                  "General", "Tragedy", "Andhra Pradesh", "Telangana", "AP", "TS"
+                              // 1. Truly Global/State-wide categories (Show on Home even if local)
+                              val strictlyGlobalKeywords = listOf(
+                                  "సినిమా", "స్పోర్ట్స్", "జాతీయం", "అంతర్జాతీయం", "వినోదం",
+                                  "Movie", "Sports", "National", "International", "Entertainment",
+                                  "State", "Andhra Pradesh", "Telangana", "AP", "TS"
                               )
 
-                              val isGeneral = post.categories.any { cat -> 
-                                  generalKeywords.any { kw -> cat.contains(kw, ignoreCase = true) }
-                              } || (post.district != null && generalKeywords.any { kw -> post.district.contains(kw, ignoreCase = true) })
-
-                              // 2. Identify if it's a District-specific post
+                              // 2. Identify if it is Local (has a district name)
                               val isRealDistrict = post.district != null && Constants.ALL_DISTRICTS.contains(post.district)
                               val hasDistrictCategory = post.categories.any { it in Constants.ALL_DISTRICTS }
                               val isLocal = isRealDistrict || hasDistrictCategory
 
-                              // Keep if NOT purely local
-                              !(isLocal && !isGeneral)
+                              // 3. Identify if it has a Global interest category
+                              val hasGlobal = post.categories.any { cat -> 
+                                  strictlyGlobalKeywords.any { kw -> cat.contains(kw, ignoreCase = true) }
+                              } || (post.district != null && strictlyGlobalKeywords.any { kw -> post.district.contains(kw, ignoreCase = true) })
+
+                              // Filter Logic: If it is local news, it must have a Global category to show on Home.
+                              // This prevents local "Politics", "Development", "Governance" etc. from flooding home feed.
+                              !(isLocal && !hasGlobal)
                           }
 
                           if (fallbackList.isNotEmpty()) {
@@ -323,28 +323,28 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                        val postDist = post.district
                        val postCategories = post.categories
                        
-                       // 1. Identify General/State-wide interest (Robust check with English & Telugu keywords)
-                       val generalKeywords = listOf(
-                           "రాజకీయం", "క్రైమ్", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "వ్యవసాయం", 
-                           "విద్య", "ఉద్యోగాలు", "ఆరోగ్యం", "సినిమా", "స్పోర్ట్స్", "జాతీయం", "అంతర్జాతీయం",
-                           "Politics", "Crime", "Entertainment", "Sports", "Business", "Technology", "Devotion", 
-                           "Agriculture", "Education", "Jobs", "Health", "Movie", "National", "International", 
-                           "General", "Tragedy", "Andhra Pradesh", "Telangana", "AP", "TS"
+                       // 1. Truly Global/State-wide categories (Always show on Home Feed)
+                       val strictlyGlobalKeywords = listOf(
+                           "సినిమా", "స్పోర్ట్స్", "జాతీయం", "అంతర్జాతీయం", "వినోదం",
+                           "Movie", "Sports", "National", "International", "Entertainment",
+                           "State", "Andhra Pradesh", "Telangana", "AP", "TS"
                        )
-
-                       val isGeneral = postCategories.any { cat -> 
-                           generalKeywords.any { kw -> cat.contains(kw, ignoreCase = true) }
-                       } || (postDist != null && generalKeywords.any { kw -> postDist.contains(kw, ignoreCase = true) })
 
                        // 2. Identify if it's a District-specific post
                        val isRealDistrict = postDist != null && Constants.ALL_DISTRICTS.contains(postDist)
                        val hasDistrictCategory = postCategories.any { it in Constants.ALL_DISTRICTS }
                        val isLocal = isRealDistrict || hasDistrictCategory
 
-                       // 3. ఫిల్టర్ లాజిక్:
-                       // ఒక వార్త జిల్లాకు సంబంధించినది అయ్యి, జనరల్ కేటగరీ కాకపోతే అది "Purely Local" (గ్రామ స్థాయి వార్త).
+                       // 3. Identify if it has a Global category
+                       val hasGlobal = postCategories.any { cat -> 
+                           strictlyGlobalKeywords.any { kw -> cat.contains(kw, ignoreCase = true) }
+                       } || (postDist != null && strictlyGlobalKeywords.any { kw -> postDist.contains(kw, ignoreCase = true) })
+
+                       // 4. ఫిల్టర్ లాజిక్:
+                       // ఒక వార్త జిల్లాకు సంబంధించినది అయ్యి, గ్లోబల్ కేటగరీ లేకపోతే అది "Purely Local" (గ్రామ స్థాయి వార్త).
                        // అటువంటి వార్తలను హోమ్ ఫీడ్ లో చూపించకూడదు.
-                       if (isLocal && !isGeneral) {
+                       // ఉదాహరణకు: జిల్లా "Politics" లేదా "Development" వార్తలు హోమ్ ఫీడ్ లో రావు.
+                       if (isLocal && !hasGlobal) {
                            return@mapNotNull null
                        }
                    }

@@ -42,7 +42,7 @@ class FestivalGreetingWorker(context: Context, params: WorkerParameters) : Corou
                 val checkPrompt = "Today is $today in India. Is there any major Indian festival (Hindu, Muslim, Christian, Sikh, etc.) today? If yes, respond ONLY with the exact English name of the festival. If no, respond ONLY with 'NO'."
                 
                 val textModel = GenerativeModel(
-                    modelName = "gemini-3-flash",
+                    modelName = "gemini-3-flash-preview",
                     apiKey = apiKey
                 )
                 

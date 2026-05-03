@@ -29,7 +29,7 @@ aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
 #### B. New `processReporterSubmission` Function (Lines 508-604)
 - **Purpose**: Dedicated function explicitly for processing reporter news submissions
 - **Features**:
-  - Uses the same PRO_MODEL (gemini-3-flash) for high-quality output
+  - Uses the same PRO_MODEL (gemini-3-flash-preview) for high-quality output
   - Distinct system instruction optimized for editor workflow: "You are a Senior Editor processing a reporter's news submission. Enhance and refine the 70-word Telugu article."
   - Always sets `isReporter: true` and `isCitizen: false`
   - Preserves reporter information during processing
