@@ -33,7 +33,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private val _news = MutableStateFlow<List<NewsPost>>(emptyList())
     val news: StateFlow<List<NewsPost>> = _news.asStateFlow()
 
-    private val _loading = MutableStateFlow(false)
+    private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
     private val _hasMore = MutableStateFlow(true)
@@ -61,23 +61,26 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private val MIN_BATCH_SIZE = 20 // Target more items per fetch
 
     init {
-        // Start loading news as soon as ViewModel is initialized
-        loadNews(Language.TELUGU, null)
+        // loadNews will be called by View/Activity with proper parameters
     }
 
      fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null) {
           if (isFetching && initialPostId == null) return
+          isFetching = true
 
           viewModelScope.launch {
               // ఇంటర్నెట్ తనిఖీ
               if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
-                  _isOnline.value = false
-                  _loading.value = false
-                  return@launch
+                  // Even if offline, Firestore might have cached data due to persistence
+                  // So we only return if there's absolutely no news and no internet
+                  if (_news.value.isEmpty()) {
+                      _isOnline.value = false
+                      _loading.value = false
+                      isFetching = false
+                      return@launch
+                  }
               }
               _isOnline.value = true
-
-              isFetching = true
               _loading.value = true
 
               if (initialPostId == null) {
@@ -146,45 +149,36 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    }
 
                   // --- CRITICAL FALLBACK ---
-                  // If no news found after filtering, load ALL news (first time users don't have district set)
-                  if (finalPosts.isEmpty()) {
+                  // If no normal news found after filtering, load ALL latest news to ensure user sees content
+                  val normalNewsCount = finalPosts.count { it.type != "greeting" && it.type != "history" && it.type != "cartoon" }
+                  if (normalNewsCount < 5) {
                       try {
                           val fallbackSnapshot = FirebaseService.db.collection("news")
                               .orderBy("timestamp", Query.Direction.DESCENDING)
-                              .limit((FETCH_LIMIT * 2).toLong())
+                              .limit(FETCH_LIMIT.toLong())
                               .get()
                               .await()
 
                           val fallbackList = fallbackSnapshot.documents.mapNotNull { doc ->
                               mapDocumentToNewsPost(doc)
-                          }.filter { post ->
-                              // 1. Truly Global/State-wide categories (Show on Home even if local)
-                              val strictlyGlobalKeywords = listOf(
-                                  "సినిమా", "స్పోర్ట్స్", "జాతీయం", "అంతర్జాతీయం", "వినోదం",
-                                  "Movie", "Sports", "National", "International", "Entertainment",
-                                  "State", "Andhra Pradesh", "Telangana", "AP", "TS"
-                              )
-
-                              // 2. Identify if it is Local (has a district name)
-                              val isRealDistrict = post.district != null && Constants.ALL_DISTRICTS.contains(post.district)
-                              val hasDistrictCategory = post.categories.any { it in Constants.ALL_DISTRICTS }
-                              val isLocal = isRealDistrict || hasDistrictCategory
-
-                              // 3. Identify if it has a Global interest category
-                              val hasGlobal = post.categories.any { cat -> 
-                                  strictlyGlobalKeywords.any { kw -> cat.contains(kw, ignoreCase = true) }
-                              } || (post.district != null && strictlyGlobalKeywords.any { kw -> post.district.contains(kw, ignoreCase = true) })
-
-                              // Filter Logic: If it is local news, it must have a Global category to show on Home.
-                              // This prevents local "Politics", "Development", "Governance" etc. from flooding home feed.
-                              !(isLocal && !hasGlobal)
                           }
 
                           if (fallbackList.isNotEmpty()) {
-                              finalPosts = fallbackList.take(FETCH_LIMIT)
-                              mainCursor = fallbackSnapshot.documents.lastOrNull()
+                              // Append fallback news while avoiding duplicates
+                              finalPosts = (finalPosts + fallbackList).distinctBy { it.id }
+                              if (mainCursor == null) mainCursor = fallbackSnapshot.documents.lastOrNull()
                           }
-                      } catch (e: Exception) { }
+                      } catch (e: Exception) { 
+                          // If even fallback fails (e.g. index missing), try a super-simple query
+                          try {
+                              val simpleSnapshot = FirebaseService.db.collection("news")
+                                  .limit(20)
+                                  .get()
+                                  .await()
+                              val simpleList = simpleSnapshot.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                              finalPosts = (finalPosts + simpleList).distinctBy { it.id }
+                          } catch (e2: Exception) {}
+                      }
                   }
 
                   // Inject greeting at the very top
@@ -325,8 +319,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                        
                        // 1. Truly Global/State-wide categories (Always show on Home Feed)
                        val strictlyGlobalKeywords = listOf(
-                           "సినిమా", "స్పోర్ట్స్", "జాతీయం", "అంతర్జాతీయం", "వినోదం",
-                           "Movie", "Sports", "National", "International", "Entertainment",
+                           "సినిమా", "స్పోర్ట్స్", "జాతీయం", "అంతర్జాతీయం", "వినోదం", "రాజకీయం", "క్రైమ్",
+                           "Movie", "Sports", "National", "International", "Entertainment", "Politics", "Crime",
                            "State", "Andhra Pradesh", "Telangana", "AP", "TS"
                        )
 

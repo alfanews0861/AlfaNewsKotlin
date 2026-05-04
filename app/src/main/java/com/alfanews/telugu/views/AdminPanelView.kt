@@ -347,14 +347,14 @@ fun MenuItem(
     label: String,
     isSelected: Boolean,
     onClick: () -> Unit,
-    textColor: Color = Color(0xFFD1D5DB)
+    textColor: Color = MaterialTheme.colorScheme.onSurfaceVariant
 ) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .background(
-                if (isSelected) MaterialTheme.colorScheme.error else Color.Transparent
+                if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
             )
             .padding(20.dp)
     ) {
@@ -362,7 +362,7 @@ fun MenuItem(
             text = label,
             fontSize = 20.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-            color = if (isSelected) Color.White else textColor
+            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else textColor
         )
     }
 }

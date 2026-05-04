@@ -3,6 +3,9 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions/v2";
 
 // రోజుకు 4 సార్లు మాత్రమే రన్ అయ్యేలా షెడ్యూల్ చేయడం (ఉదయం 8, మధ్యాహ్నం 1, సాయంత్రం 6, రాత్రి 9)
+// Track sent notifications across runs (best effort via global variable)
+const notificationSent = new Map<string, number>();
+
 export const sendPersonalizedNotification = onSchedule({
     schedule: "0 8,13,18,21 * * *",
     timeZone: "Asia/Kolkata",
@@ -11,41 +14,65 @@ export const sendPersonalizedNotification = onSchedule({
 }, async (event) => {
     const db = admin.firestore();
 
-    // 1. గత 8 గంటల్లో పోస్ట్ చేసిన వార్తలను తెచ్చుకోవడం
-    const eightHoursAgo = new Date(Date.now() - (8 * 60 * 60 * 1000));
+    // 1. గత 12 గంటల్లో పోస్ట్ చేసిన వార్తలను తెచ్చుకోవడం
+    const windowMillis = 12 * 60 * 60 * 1000;
+    const sinceTime = new Date(Date.now() - windowMillis);
+
+    // NOTE: Querying without 'approved' filter temporarily to include news
+    // that were published but missed the 'approved' flag before the fix.
     const newsSnapshot = await db.collection('news')
-        .where('timestamp', '>', eightHoursAgo)
-        .where('approved', '==', true) // ✅ Only approved news
+        .where('timestamp', '>', sinceTime)
         .orderBy('timestamp', 'desc')
         .limit(100)
         .get();
 
     if (newsSnapshot.empty) {
-        logger.log("గత 8 గంటల్లో కొత్త వార్తలు లేవు.");
+        logger.log(`గత 12 గంటల్లో కొత్త వార్తలు లేవు. (Since: ${sinceTime.toISOString()})`);
         return;
     }
 
+    logger.log(`Found ${newsSnapshot.size} news docs in the last 12 hours.`);
+
     // 2. వార్తలను ఫిల్టర్ చేసి, కేటగిరీల వారీగా బెస్ట్ (లేటెస్ట్) వార్తను ఎంచుకోవడం
     const bestNewsByCategory = new Map<string, any>();
-    const notificationSent = new Map<string, number>(); // ✅ Track sent notifications
 
     newsSnapshot.docs.forEach(doc => {
         const news = doc.data();
         news.id = doc.id;
 
+        // ✅ FIX: Only process approved or published news
+        const isApproved = news.approved === true;
+        const isPublished = news.status === "PUBLISHED";
+        const isAiProcessed = news.status === "AI_PROCESSED";
+
+        if (!isApproved && !isPublished && !isAiProcessed) {
+            logger.log(`Skipping news ${news.id}: Not approved/published (Status: ${news.status}, Approved: ${news.approved})`);
+            return;
+        }
+
         // నెగటివ్ సిగ్నల్స్ ఎక్కువగా ఉంటే స్కిప్ (ఉదా: రిపోర్ట్స్ వస్తే)
-        if (news.negativeRatio && news.negativeRatio > 0.5) return;
+        if (news.negativeRatio && news.negativeRatio > 0.5) {
+            logger.log(`Skipping news ${news.id}: High negative ratio (${news.negativeRatio})`);
+            return;
+        }
 
         // ✅ Skip if notification already sent for this news in last 12 hours
         const lastSentTime = notificationSent.get(news.id) || 0;
-        if (Date.now() - lastSentTime < 12 * 60 * 60 * 1000) return;
+        if (Date.now() - lastSentTime < 12 * 60 * 60 * 1000) {
+            logger.log(`Skipping news ${news.id}: Already sent recently`);
+            return;
+        }
 
         const category = news.category || (news.categories && news.categories.length > 0 ? news.categories[0] : null);
-        if (!category) return;
+        if (!category) {
+            logger.log(`Skipping news ${news.id}: No category found`);
+            return;
+        }
 
         // కేటగిరీకి ఒక లేటెస్ట్ వార్తను మాత్రమే సేవ్ చేయడం
         if (!bestNewsByCategory.has(category)) {
             bestNewsByCategory.set(category, news);
+            logger.log(`Selected news ${news.id} for category ${category}`);
         }
     });
 
@@ -156,6 +183,9 @@ export const sendPersonalizedNotification = onSchedule({
                 startAfterDoc = usersSnapshot.docs[usersSnapshot.docs.length - 1];
             }
         }
+
+        // ఈ వార్తకు నోటిఫికేషన్లు పంపినట్లు గుర్తుంచుకోవడం (Duplicates నివారించడానికి)
+        notificationSent.set(news.id, Date.now());
     }
 
     // 4. బ్యాచ్ ల వారీగా నోటిఫికేషన్లను పంపడం (FCM limit is 500 messages per batch)

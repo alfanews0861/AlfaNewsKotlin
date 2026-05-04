@@ -15,15 +15,15 @@ object FirebaseService {
     /** ఫైర్‌బేస్ అథెంటికేషన్ (Authentication) ఇన్‌స్టన్స్. */
     val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
     
-    /** ఫైర్‌స్టోర్ (Firestore) డేటాబేస్ ఇన్‌స్టన్స్. ఆఫ్ లైన్ డేటా సేవ్ అవ్వకుండా నిలిపివేస్తున్నాము. */
+    /** ఫైర్‌స్టోర్ (Firestore) డేటాబేస్ ఇన్‌స్టన్స్. */
     val db: FirebaseFirestore by lazy { 
         val instance = FirebaseFirestore.getInstance()
         
-        // యూసర్ కోరిన విధంగా ఆఫ్ లైన్ లో డేటా సేవ్ చేయకుండా నిలిపివేస్తున్నాము.
-        // దీనివల్ల యాప్ సైజ్ పెరగదు (GBs లోకి వెళ్ళదు) మరియు చాలా వేగంగా ఉంటుంది.
-        @Suppress("DEPRECATION")
+        // పర్సిస్టెన్స్ పరిమితిని 100MB కి తగ్గిస్తున్నాము. 
+        // దీనివల్ల యాప్ వేగంగా ఉంటుంది మరియు ఫోన్ స్టోరేజ్ అనవసరంగా నిండదు.
         val settings = com.google.firebase.firestore.FirebaseFirestoreSettings.Builder()
-            .setPersistenceEnabled(false)
+            .setPersistenceEnabled(true)
+            .setCacheSizeBytes(104857600) // 100 MB limit
             .build()
 
         try {

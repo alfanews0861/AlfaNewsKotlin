@@ -53,9 +53,6 @@ fun MainScreen(
     val news by newsFeedViewModel.news.collectAsState()
     val isNewsLoading by newsFeedViewModel.loading.collectAsState()
     
-    // We want the splash screen to stay until news is ready
-    var showSplash by remember { mutableStateOf(true) }
-    
     var showPostNewsPage by remember { mutableStateOf(false) }
     var showJoinReporterPage by remember { mutableStateOf(false) }
     var showEditProfilePage by remember { mutableStateOf(false) }
@@ -103,19 +100,18 @@ fun MainScreen(
             .background(
                 Brush.verticalGradient(
                     colors = if (isDark) {
-                        listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364))
+                        listOf(Color(0xFF000000), Color(0xFF121212), Color(0xFF212121))
                     } else {
-                        listOf(Color(0xFFE0EAFC), Color(0xFFCFDEF3))
+                        listOf(Color(0xFFFFFFFF), Color(0xFFF5F5F5), Color(0xFFEEEEEE))
                     }
                 )
             )
-            .glassmorphism(cornerRadius = 0.dp, blurRadius = 20.dp, opacity = 0.05f) // Global screen border and glass effect
     ) {
         Scaffold(
             containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             bottomBar = {
-                if (!showSplash && !showPostNewsPage && !showJoinReporterPage && !showEditProfilePage && reporterIdToShow == null) {
+                if (!showPostNewsPage && !showJoinReporterPage && !showEditProfilePage && reporterIdToShow == null) {
                     Footer(
                         activeTab = activeTab,
                         onTabChange = { 
@@ -297,16 +293,8 @@ fun MainScreen(
             }
         }
 
-        // Show splash screen on top
-        if (showSplash) {
-            SplashScreenView(
-                isReady = (news.isNotEmpty() || !isNewsLoading),
-                onFinished = { showSplash = false }
-            )
-        }
-
         // Onboarding for new users
-        if (showOnboarding && !showSplash) {
+        if (showOnboarding) {
             OnboardingTooltip(
                 message = stringResource(R.string.settings_onboarding),
                 onDismiss = { mainViewModel.dismissOnboarding() }
@@ -314,7 +302,7 @@ fun MainScreen(
         }
 
         // Rating Dialog
-        if (showRatingDialog && !showSplash) {
+        if (showRatingDialog) {
             AlertDialog(
                 onDismissRequest = { mainViewModel.dismissRatingDialog() },
                 title = { Text(stringResource(R.string.rate_us_title)) },

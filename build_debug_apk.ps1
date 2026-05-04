@@ -7,9 +7,9 @@ $success = $false
 Get-Process java -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 
-# Set Java 17
-$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-17.0.16.8-hotspot"
-$env:GRADLE_OPTS = "-Xmx2048m -XX:MaxMetaspaceSize=256m -XX:+UseSerialGC"
+# Set Java path from Android Studio JBR
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+$env:GRADLE_OPTS = "-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:-TieredCompilation"
 
 # Delete old APK first to ensure fresh build
 Remove-Item "app\build\outputs\apk\debug\app-debug.apk" -ErrorAction SilentlyContinue
@@ -22,8 +22,8 @@ while ($retryCount -lt $maxRetries -and -not $success) {
     Get-Process java -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 1
     
-    # Run the clean build
-    $buildOutput = .\gradlew.bat clean assembleDebug --no-daemon --no-build-cache --stacktrace 2>&1
+    # Run the clean build with restricted workers and no daemon for maximum stability
+    $buildOutput = .\gradlew.bat clean assembleDebug --no-daemon --max-workers=1 --no-build-cache --stacktrace 2>&1
     
     # Check if APK was created
     $apkPath = "app\build\outputs\apk\debug\app-debug.apk"

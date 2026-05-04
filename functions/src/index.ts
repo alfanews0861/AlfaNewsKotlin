@@ -595,8 +595,12 @@ export const onNewsPostCreated = onDocumentCreated({
             const content = data.content?.telugu || "";
             if (headline && content) {
                 const aiProcessedData = await performAIProcessing(headline, content, data);
-                await db.collection('news').doc(postId).update({ ...aiProcessedData, status: "AI_PROCESSED" });
-                data = { ...data, ...aiProcessedData }; // Update local data for subsequent steps
+                await db.collection('news').doc(postId).update({
+                    ...aiProcessedData,
+                    status: "AI_PROCESSED",
+                    approved: true // ✅ Auto-approve after AI processing
+                });
+                data = { ...data, ...aiProcessedData, approved: true }; // Update local data for subsequent steps
             }
         } catch (aiErr: any) {
             console.error(`[TRIGGER] AI Processing failed for ${postId}:`, aiErr.message);
@@ -856,6 +860,7 @@ export const onNewsPostCreated = onDocumentCreated({
                         youtubeUrl: youtubeUrl,
                         videoProcessed: true,
                         status: "PUBLISHED",
+                        approved: true, // ✅ Ensure approved is true
                         lastUpdated: admin.firestore.FieldValue.serverTimestamp()
                     });
 

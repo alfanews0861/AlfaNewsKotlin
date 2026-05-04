@@ -9,7 +9,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -104,9 +103,7 @@ fun RowScope.FooterItem(
                         modifier = Modifier
                             .size(24.dp)
                             .background(
-                                Brush.linearGradient(
-                                    colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary)
-                                ),
+                                color = Color(0xFF4285F4), // Solid Google Blue
                                 shape = CircleShape
                             ),
                         contentAlignment = Alignment.Center

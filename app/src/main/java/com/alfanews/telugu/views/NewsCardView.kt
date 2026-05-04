@@ -120,11 +120,11 @@ fun NewsCardView(
     val uriHandler = LocalUriHandler.current
     val view = LocalView.current
 
-    var isLiked by remember { mutableStateOf(false) }
-    var showComments by remember { mutableStateOf(false) }
+    var isLiked by remember(post.id) { mutableStateOf(false) }
+    var showComments by remember(post.id) { mutableStateOf(false) }
     
     val scrollState = rememberScrollState()
-    var hasScrolledToBottom by remember { mutableStateOf(false) }
+    var hasScrolledToBottom by remember(post.id) { mutableStateOf(false) }
     var startTime by remember { mutableStateOf<Long?>(null) }
 
     var cardBounds by remember { mutableStateOf<Rect?>(null) }
@@ -174,12 +174,15 @@ fun NewsCardView(
         startTime = System.currentTimeMillis()
     }
 
-    // Scroll Depth ట్రాకింగ్
-    LaunchedEffect(scrollState.value) {
-        if (!hasScrolledToBottom && scrollState.maxValue > 0 && scrollState.value >= scrollState.maxValue - 50) {
-            hasScrolledToBottom = true
-            AnalyticsService.logFullRead(post)
-        }
+    // Scroll Depth ట్రాకింగ్ - పర్ఫార్మెన్స్ కోసం snapshotFlow వాడుతున్నాము
+    LaunchedEffect(scrollState) {
+        snapshotFlow { scrollState.value }
+            .collect { value ->
+                if (!hasScrolledToBottom && scrollState.maxValue > 0 && value >= scrollState.maxValue - 50) {
+                    hasScrolledToBottom = true
+                    AnalyticsService.logFullRead(post)
+                }
+            }
     }
 
     DisposableEffect(Unit) {
@@ -569,7 +572,7 @@ fun NewsCardView(
                                     fontSize = headlineSize,
                                     fontFamily = headlineFontFamily,
                                     fontWeight = headlineFontWeight,
-                                    color = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     lineHeight = headlineLineHeight,
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -598,20 +601,20 @@ fun NewsCardView(
                                                 indication = LocalIndication.current
                                             ) { onReporterClick(post.reporter.id) }.weight(0.3f, fill = false)
                                         )
-                                        Text("•", color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f), fontSize = 12.sp)
+                                        Text("•", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), fontSize = 12.sp)
                                         Text(
                                             text = post.location,
-                                            color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                                             fontSize = 12.sp,
                                             fontFamily = contentFontFamily,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                              modifier = Modifier.weight(0.3f, fill = false)
                                         )
-                                        Text("•", color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f), fontSize = 12.sp)
+                                        Text("•", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), fontSize = 12.sp)
                                         Text(
                                             text = formattedTimestamp,
-                                            color = if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                                             fontSize = 12.sp,
                                             fontFamily = Poppins,
                                             maxLines = 1,
@@ -629,7 +632,7 @@ fun NewsCardView(
                                     fontSize = contentSize,
                                     fontFamily = contentFontFamily,
                                     fontWeight = FontWeight.Normal,
-                                    color = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     lineHeight = contentLineHeight,
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -648,7 +651,7 @@ fun NewsCardView(
                                 if (currentUser != null && currentUser.id == post.reporter.id) {
                                     ActionButton(
                                         icon = Icons.Default.Edit,
-                                        tint = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                                        tint = MaterialTheme.colorScheme.onSurface,
                                         onClick = { onEditClick(post) }
                                     )
                                     Spacer(modifier = Modifier.height(24.dp))
@@ -658,7 +661,7 @@ fun NewsCardView(
                                     icon = Icons.Default.Favorite,
                                     count = likeCount.toString(),
                                     isHighlighted = isLiked,
-                                    tint = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                                    tint = MaterialTheme.colorScheme.onSurface,
                                     onClick = {
                                         if (currentUser == null) {
                                             onProfileClick()
@@ -682,7 +685,7 @@ fun NewsCardView(
                                     icon = Icons.Default.Share,
                                     count = shareCount.toString(),
                                     isLoading = isSharing,
-                                    tint = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                                    tint = MaterialTheme.colorScheme.onSurface,
                                     onClick = { if (!isSharing) { performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, uriHandler, cardBounds, view) } }
                                 )
 
@@ -691,7 +694,7 @@ fun NewsCardView(
                                 ActionButton(
                                     icon = Icons.AutoMirrored.Filled.Comment,
                                     count = commentCount.toString(),
-                                    tint = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                                    tint = MaterialTheme.colorScheme.onSurface,
                                     onClick = { showComments = true }
                                 )
                             }

@@ -1,6 +1,10 @@
 package com.alfanews.telugu
 
 import android.app.Application
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.os.Build
 import com.google.firebase.FirebaseApp
 import com.google.firebase.analytics.FirebaseAnalytics
 import com.google.firebase.appcheck.FirebaseAppCheck
@@ -46,12 +50,33 @@ class AlfaNewsApplication : Application() {
             // పుష్ నోటిఫికేషన్లు
             FirebaseMessaging.getInstance().subscribeToTopic("all_users")
             
+            // నోటిఫికేషన్ ఛానెల్‌లను సృష్టించడం (ముఖ్యంగా ఆండ్రాయిడ్ 13+ కోసం)
+            createNotificationChannels()
+
             scope.launch(Dispatchers.Default) {
                 scheduleNotificationWork()
             }
         } catch (e: Exception) {
             // ఏదైనా ఎర్రర్ వస్తే యాప్ క్రాష్ అవ్వకుండా ఉండటానికి
             e.printStackTrace()
+        }
+    }
+
+    /**
+     * ఆండ్రాయిడ్ 8.0+ కోసం నోటిఫికేషన్ ఛానెల్‌లను సృష్టిస్తుంది.
+     * దీనివల్ల యాప్ సెట్టింగ్స్‌లో నోటిఫికేషన్ లిస్ట్ కనిపిస్తుంది.
+     */
+    private fun createNotificationChannels() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            
+            val channels = listOf(
+                NotificationChannel("general_news", "General News", NotificationManager.IMPORTANCE_DEFAULT),
+                NotificationChannel("breaking_news", "Breaking News", NotificationManager.IMPORTANCE_HIGH),
+                NotificationChannel("local_news", "Local News", NotificationManager.IMPORTANCE_DEFAULT)
+            )
+            
+            notificationManager.createNotificationChannels(channels)
         }
     }
 

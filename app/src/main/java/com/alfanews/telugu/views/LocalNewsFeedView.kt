@@ -26,6 +26,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.request.ImageRequest
+import coil3.request.allowHardware
+import coil3.request.crossfade
 import com.alfanews.telugu.ViewModelFactory
 import androidx.compose.ui.res.stringResource
 import com.alfanews.telugu.R
@@ -111,14 +114,44 @@ fun LocalNewsFeedView(
         }
     }
 
-    val totalCount = if (news.isEmpty()) 0 else news.size + (news.size / 5)
+    // 🔄 పర్ఫార్మెన్స్ ఆప్టిమైజేషన్స్
+    val onReporterClickRemembered = remember(onReporterClick) { onReporterClick }
+    val onProfileClickRemembered = remember(onProfileClick) { onProfileClick }
+    val onEditClickRemembered = remember(onEditClick) { onEditClick }
+
+    val totalCount = remember(news.size) {
+        if (news.isEmpty()) 0 else {
+            val newsCount = news.size
+            val adSlots = (newsCount + 5) / 6
+            newsCount + adSlots
+        }
+    }
     val pagerState = rememberPagerState(pageCount = { totalCount })
 
+    val imageLoader = remember { com.alfanews.telugu.utils.SafeImageLoader.getImageLoader(context) }
+    
     LaunchedEffect(pagerState, news.size) { 
         snapshotFlow { pagerState.currentPage }.collect { page ->
             val newsIndex = page - (page / 6)
             if (newsIndex >= news.size - 3 && hasMore && !loading) {
                 viewModel.loadMore(language, currentUser)
+            }
+
+            // లోకల్ ఫీడ్ లో కూడా 10 ఇమేజెస్‌ను ప్రీలోడ్ చేస్తున్నాము (Fast Swiping కోసం)
+            (1..10).forEach { offset ->
+                val nextPageIndex = page + offset
+                val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
+                if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
+                    val post = news[nextNewsIndex]
+                    if (post.mediaUrl.isNotEmpty()) {
+                        val request = ImageRequest.Builder(context)
+                            .data(post.mediaUrl)
+                            .crossfade(true)
+                            .allowHardware(true)
+                            .build()
+                        imageLoader.enqueue(request)
+                    }
+                }
             }
 
             val currentAdSlot = page / 6
@@ -189,7 +222,7 @@ fun LocalNewsFeedView(
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = if (isDetecting) stringResource(R.string.detecting_location) else "ప్రాంతీయ వార్తలు సిద్ధమవుతున్నాయి...",
+                        text = if (isDetecting) stringResource(R.string.detecting_location) else stringResource(R.string.news_preparing),
                         color = MaterialTheme.colorScheme.onBackground,
                         style = MaterialTheme.typography.bodyLarge,
                         fontFamily = Ramabhadra
@@ -292,10 +325,10 @@ fun LocalNewsFeedView(
                             post = post,
                             language = language,
                             currentUser = currentUser,
-                            onProfileClick = onProfileClick,
-                            onReporterClick = onReporterClick,
+                            onProfileClick = onProfileClickRemembered,
+                            onReporterClick = onReporterClickRemembered,
                             onDistrictClick = { showDistrictPicker = true },
-                            onEditClick = onEditClick,
+                            onEditClick = onEditClickRemembered,
                             modifier = Modifier.fillMaxSize(),
                             district = if (isDetecting) "గుర్తిస్తున్నాము..." else activeDistrict,
                             showDistrictSelector = true

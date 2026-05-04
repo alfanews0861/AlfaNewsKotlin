@@ -149,6 +149,13 @@ fun NewsFeedView(
         }
     }
 
+    // 🔄 ల్యాంబ్డా ఫంక్షన్లను రిమెంబర్ చేయడం వల్ల రీ-కంపోజిషన్లు తగ్గుతాయి
+    val onReporterClickRemembered = remember(onReporterClick) { onReporterClick }
+    val onProfileClickRemembered = remember(onProfileClick) { onProfileClick }
+    val onDistrictClickRemembered = remember(onDistrictClick) { onDistrictClick }
+    val onEditClickRemembered = remember(onEditClick) { onEditClick }
+    val onAutoShareDoneRemembered = remember { { viewModel.setSharedPostId(null) } }
+
     LaunchedEffect(pagerState, news.size) {
         snapshotFlow { pagerState.currentPage }.collect { page ->
             val currentNewsIndex = page - (page / 6)
@@ -156,6 +163,7 @@ fun NewsFeedView(
                 viewModel.loadMore(language, currentUser)
             }
 
+            // యూజర్ వేగంగా స్వైప్ చేసినా ఇమేజెస్ సిద్ధంగా ఉండటానికి 10 ఇమేజెస్‌ను ప్రీలోడ్ చేస్తున్నాము
             (1..10).forEach { offset ->
                 val nextPageIndex = page + offset
                 val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
@@ -166,6 +174,8 @@ fun NewsFeedView(
                             .data(post.mediaUrl)
                             .crossfade(true)
                             .allowHardware(true)
+                            .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
+                            .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
                             .build()
                         imageLoader.enqueue(request)
                     }
@@ -317,12 +327,12 @@ fun NewsFeedView(
                                 post = post,
                                 language = language,
                                 currentUser = currentUser,
-                                onProfileClick = onProfileClick,
-                                onReporterClick = onReporterClick,
-                                onDistrictClick = onDistrictClick,
+                                onProfileClick = onProfileClickRemembered,
+                                onReporterClick = onReporterClickRemembered,
+                                onDistrictClick = onDistrictClickRemembered,
                                 autoShare = sharedPostId == post.id,
-                                onAutoShareDone = { viewModel.setSharedPostId(null) },
-                                onEditClick = onEditClick,
+                                onAutoShareDone = onAutoShareDoneRemembered,
+                                onEditClick = onEditClickRemembered,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }

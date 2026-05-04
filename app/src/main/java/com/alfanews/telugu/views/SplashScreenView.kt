@@ -47,23 +47,23 @@ fun SplashScreenView(
     val randomCaption = remember { captions.random() }
 
     LaunchedEffect(Unit) {
-        delay(200)
+        delay(100)
         step.value = 1 // Start logo animation
-        delay(800)
+        delay(400)
         step.value = 2 // Start tagline animation
-        delay(1200)
+        delay(600)
         
-        // Wait until data is ready or max 5 seconds total
+        // Wait until data is ready or max 2 seconds total
         var waitTime = 0
-        while (!isReady && waitTime < 3000) {
+        while (!isReady && waitTime < 2000) {
             delay(100)
             waitTime += 100
         }
         
         step.value = 3 // Hold
-        delay(500)
+        delay(300)
         step.value = 4 // Fade out
-        delay(400)
+        delay(300)
         animationFinished.value = true
     }
 

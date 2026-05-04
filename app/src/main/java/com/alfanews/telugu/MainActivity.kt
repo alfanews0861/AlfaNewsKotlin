@@ -22,6 +22,10 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import com.alfanews.telugu.services.AdMobService
 import com.alfanews.telugu.ui.theme.AlfaNewsTheme
 import com.alfanews.telugu.viewmodels.LocalNewsFeedViewModel
@@ -51,6 +55,17 @@ class MainActivity : ComponentActivity() {
     private val mainViewModel: MainViewModel by viewModels { ViewModelFactory(application) }
     private val newsFeedViewModel: NewsFeedViewModel by viewModels { ViewModelFactory(application) }
 
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            Log.d("MainActivity", "Notification permission granted")
+            // Permission granted, FCM token will be generated/refreshed automatically
+        } else {
+            Log.d("MainActivity", "Notification permission denied")
+        }
+    }
+
     override fun attachBaseContext(newBase: Context) {
         val prefs = PreferenceManager.getInstance(newBase)
         val languageCode = prefs.language.code
@@ -69,6 +84,9 @@ class MainActivity : ComponentActivity() {
 
         WindowCompat.setDecorFitsSystemWindows(window, true)
         AdMobService.initialize(this)
+
+        // ఆండ్రాయిడ్ 13+ కోసం నోటిఫికేషన్ పర్మిషన్ అడగడం
+        askNotificationPermission()
 
         // Preload news to avoid delay after splash screen
         val language = mainViewModel.language.value
@@ -116,6 +134,8 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val themeMode by mainViewModel.themeMode.collectAsState()
+            val news by newsFeedViewModel.news.collectAsState()
+            val isNewsLoading by newsFeedViewModel.loading.collectAsState()
 
             val isDarkTheme = when (themeMode) {
                 ThemeMode.LIGHT -> false
@@ -142,7 +162,10 @@ class MainActivity : ComponentActivity() {
                         color = Color.Transparent
                     ) {
                         if (showSplash) {
-                            SplashScreenView { showSplash = false }
+                            SplashScreenView(
+                                isReady = news.isNotEmpty() || !isNewsLoading,
+                                onFinished = { showSplash = false }
+                            )
                         } else {
                             MainScreen(
                                 mainViewModel = mainViewModel, 
@@ -174,6 +197,20 @@ class MainActivity : ComponentActivity() {
 
     private fun completeUpdate() {
         appUpdateManager.completeUpdate()
+    }
+
+    private fun askNotificationPermission() {
+        // This is only necessary for API level >= 33 (Android 13)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                // Permission is already granted
+            } else {
+                // Directly ask for the permission
+                requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
     }
 
     override fun onResume() {

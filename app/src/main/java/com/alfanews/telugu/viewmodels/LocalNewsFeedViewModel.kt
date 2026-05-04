@@ -35,7 +35,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     private val _news = MutableStateFlow<List<NewsPost>>(emptyList())
     val news: StateFlow<List<NewsPost>> = _news.asStateFlow()
     
-    private val _loading = MutableStateFlow(false)
+    private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
     private val _isOnline = MutableStateFlow(true)
