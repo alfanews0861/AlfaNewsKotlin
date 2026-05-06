@@ -65,7 +65,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private var prefCursor: DocumentSnapshot? = null
     private var mainCursor: DocumentSnapshot? = null
     private var isFetching = false
-    private var lastRefreshTime: Long = 0
+    private var lastRefreshTimeLong: Long = 0
     
     private val globalCategories = listOf("రాజకీయం", "క్రైమ్", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "ఆరోగ్యం", "విద్య/ఉద్యోగాలు", "వ్యవసాయం")
     private val FETCH_LIMIT = 50 // Increased for high volume (300+ daily news)
@@ -209,7 +209,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
                    _news.value = finalPosts.distinctBy { it.id }
                    val currentTime = System.currentTimeMillis()
-                   lastRefreshTime = currentTime
+                   lastRefreshTimeLong = currentTime
                    _lastRefreshTime.value = currentTime
                    if (_news.value.isEmpty() && mainCursor == null) _hasMore.value = false
                    
@@ -705,7 +705,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         val now = System.currentTimeMillis()
         // 10 నిమిషాల కంటే ఎక్కువ సమయం గడిస్తే రిఫ్రెష్ చేయండి (600,000 ms)
         // యూజర్ కోరిక మేరకు ఇది 'తాజా వార్తలు' ఎప్పుడూ ఉండేలా చేస్తుంది
-        if (now - lastRefreshTime > 600000 || _news.value.isEmpty()) {
+        if (now - lastRefreshTimeLong > 600000 || _news.value.isEmpty()) {
             loadNews(language, currentUser)
         }
     }
