@@ -377,6 +377,7 @@
     <string name="news">news</string>
     <string name="district_desc">జిల్లా (District)</string>
     <string name="sponsored_content">Sponsored Content</string>
+    <string name="weather_report_label">Weather Report</string>
     <string name="loading_dots">Loading...</string>
 
     <!-- Edit Profile -->

@@ -375,6 +375,7 @@
     <string name="news">వార్తలు</string>
     <string name="district_desc">జిల్లా</string>
     <string name="sponsored_content">ప్రకటన</string>
+    <string name="weather_report_label">వాతావరణ నివేదిక</string>
     <string name="loading_dots">లోడ్ అవుతోంది...</string>
 
     <!-- Edit Profile -->

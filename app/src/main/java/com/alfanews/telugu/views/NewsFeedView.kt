@@ -29,6 +29,9 @@ import coil3.request.allowHardware
 import coil3.request.crossfade
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import kotlin.math.absoluteValue
 import com.alfanews.telugu.R
 import com.alfanews.telugu.models.Language
@@ -58,10 +61,12 @@ fun NewsFeedView(
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val hasMore by viewModel.hasMore.collectAsStateWithLifecycle()
     val sharedPostId by viewModel.sharedPostId.collectAsStateWithLifecycle()
+    val shouldScrollToTop by viewModel.shouldScrollToTop.collectAsStateWithLifecycle()
     val userDistrict by viewModel.userDistrict.collectAsStateWithLifecycle()
     val preloadedAds = remember { mutableStateMapOf<Int, NativeAd?>() }
 
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -71,10 +76,25 @@ fun NewsFeedView(
         }
     }
 
+    // 🔄 App Resume అయినప్పుడు ఆటోమేటిక్‌గా టాప్‌కి వెళ్లి రిఫ్రెష్ చేస్తుంది
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.onAppResume(language, currentUser)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     LaunchedEffect(Unit) {
-        // 🚀 PRIORITY 1: Load news immediately for new users (don't wait for location)
+        // 🚀 PRIORITY 1: Load news immediately if empty or stale
         if (news.isEmpty()) {
             viewModel.loadNews(language, currentUser, initialPostId)
+        } else {
+            viewModel.refreshIfStale(language, currentUser)
         }
         
         // 🌍 PRIORITY 2: Detect location in background (non-blocking)
@@ -146,6 +166,14 @@ fun NewsFeedView(
                 val pageIndex = postIndex + (postIndex / 5)
                 pagerState.animateScrollToPage(pageIndex)
             }
+        }
+    }
+
+    // 🔄 Auto-scroll to top when fresh news is loaded after a long time
+    LaunchedEffect(shouldScrollToTop) {
+        if (shouldScrollToTop && news.isNotEmpty()) {
+            pagerState.animateScrollToPage(0)
+            viewModel.resetScrollSignal()
         }
     }
 
@@ -323,18 +351,26 @@ fun NewsFeedView(
                         val newsIndex = page - (page / 6)
                         if (newsIndex >= 0 && newsIndex < news.size) {
                             val post = news[newsIndex]
-                            NewsCardView(
-                                post = post,
-                                language = language,
-                                currentUser = currentUser,
-                                onProfileClick = onProfileClickRemembered,
-                                onReporterClick = onReporterClickRemembered,
-                                onDistrictClick = onDistrictClickRemembered,
-                                autoShare = sharedPostId == post.id,
-                                onAutoShareDone = onAutoShareDoneRemembered,
-                                onEditClick = onEditClickRemembered,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                            if (post.type == "weather") {
+                                WeatherCardView(
+                                    post = post,
+                                    language = language,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                NewsCardView(
+                                    post = post,
+                                    language = language,
+                                    currentUser = currentUser,
+                                    onProfileClick = onProfileClickRemembered,
+                                    onReporterClick = onReporterClickRemembered,
+                                    onDistrictClick = onDistrictClickRemembered,
+                                    autoShare = sharedPostId == post.id,
+                                    onAutoShareDone = onAutoShareDoneRemembered,
+                                    onEditClick = onEditClickRemembered,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                         }
                     }
                 }

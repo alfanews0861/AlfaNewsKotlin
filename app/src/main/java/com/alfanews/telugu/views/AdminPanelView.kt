@@ -142,8 +142,8 @@ fun AdminPanelView(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(
-                drawerContainerColor = MaterialTheme.colorScheme.surface,
-                drawerTonalElevation = 4.dp,
+                drawerContainerColor = MaterialTheme.colorScheme.background,
+                drawerTonalElevation = 8.dp,
                 modifier = Modifier.width(320.dp),
                 drawerShape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp)
             ) {
@@ -153,8 +153,8 @@ fun AdminPanelView(
                         .background(
                             brush = androidx.compose.ui.graphics.Brush.verticalGradient(
                                 colors = listOf(
-                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                                    MaterialTheme.colorScheme.surface
+                                    MaterialTheme.colorScheme.primaryContainer,
+                                    MaterialTheme.colorScheme.background
                                 )
                             )
                         )
@@ -211,11 +211,11 @@ fun AdminPanelView(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = NavigationDrawerItemDefaults.colors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = MaterialTheme.colorScheme.onPrimary,
+                            selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                         )
                     )
                 }
@@ -254,8 +254,9 @@ fun AdminPanelView(
                         )
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
                     ),
                     navigationIcon = {
                         if (accessiblePages.size > 1 && !listOf("edit-profile", "id-card").contains(activePage)) {

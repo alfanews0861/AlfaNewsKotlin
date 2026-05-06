@@ -123,11 +123,11 @@ fun UserProfilePageView(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // వినియోగదారు సమాచార కార్డ్
-        Surface(
+        ElevatedCard(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.background),
+            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -418,11 +418,11 @@ fun UserProfilePageView(
 /** సెట్టింగ్స్ సమూహాన్ని ప్రదర్శించే కాంపోజబుల్. */
 @Composable
 fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Surface(
+    ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.background),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Text(

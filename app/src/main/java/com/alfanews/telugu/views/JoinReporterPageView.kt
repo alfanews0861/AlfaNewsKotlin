@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
@@ -25,7 +26,6 @@ import com.alfanews.telugu.ui.theme.AlfaNewsTheme
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.utils.Constants
-import com.alfanews.telugu.utils.glassmorphism
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
@@ -112,7 +112,6 @@ fun JoinReporterPageView(
 
     AlfaNewsTheme {
         Scaffold(
-            containerColor = Color.Transparent,
             topBar = {
                 CenterAlignedTopAppBar(
                     title = { 
@@ -128,9 +127,9 @@ fun JoinReporterPageView(
                         } 
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                        titleContentColor = MaterialTheme.colorScheme.onSurface,
-                        navigationIconContentColor = MaterialTheme.colorScheme.onSurface
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
                     )
                 )
             },
@@ -143,13 +142,15 @@ fun JoinReporterPageView(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .glassmorphism(cornerRadius = 16.dp)
-                            .padding(16.dp)
+                    ElevatedCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
                             Text(
                                 text = stringResource(R.string.reporter_app_form),
                                 fontSize = 22.sp,
@@ -164,7 +165,11 @@ fun JoinReporterPageView(
                                 label = { Text(stringResource(R.string.full_name), fontFamily = Mallanna) },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
-                                shape = MaterialTheme.shapes.medium
+                                shape = MaterialTheme.shapes.medium,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                )
                             )
                             
                             OutlinedTextField(
@@ -173,7 +178,11 @@ fun JoinReporterPageView(
                                 label = { Text(stringResource(R.string.father_name), fontFamily = Mallanna) },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
-                                shape = MaterialTheme.shapes.medium
+                                shape = MaterialTheme.shapes.medium,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                )
                             )
                             
                             OutlinedTextField(
@@ -185,18 +194,24 @@ fun JoinReporterPageView(
                                 keyboardOptions = KeyboardOptions(
                                     keyboardType = KeyboardType.Phone
                                 ),
-                                shape = MaterialTheme.shapes.medium
+                                shape = MaterialTheme.shapes.medium,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                )
                             )
                         }
                     }
                     
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .glassmorphism(cornerRadius = 16.dp)
-                            .padding(16.dp)
+                    ElevatedCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
                             Text(stringResource(R.string.region_details), fontWeight = FontWeight.Bold, fontFamily = Ramabhadra)
                             
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -204,13 +219,21 @@ fun JoinReporterPageView(
                                     selected = selectedState == "TS",
                                     onClick = { selectedState = "TS"; selectedDistrict = ""; selectedMandal = "" },
                                     label = { Text(stringResource(R.string.telangana)) },
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                                    )
                                 )
                                 FilterChip(
                                     selected = selectedState == "AP",
                                     onClick = { selectedState = "AP"; selectedDistrict = ""; selectedMandal = "" },
                                     label = { Text(stringResource(R.string.andhra_pradesh)) },
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                                    )
                                 )
                             }
                             
@@ -225,7 +248,11 @@ fun JoinReporterPageView(
                                     label = { Text(stringResource(R.string.select_district)) },
                                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = districtExpanded) },
                                     modifier = Modifier.fillMaxWidth().menuAnchor(),
-                                    shape = MaterialTheme.shapes.medium
+                                    shape = MaterialTheme.shapes.medium,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                    )
                                 )
                                 ExposedDropdownMenu(
                                     expanded = districtExpanded,
@@ -257,7 +284,11 @@ fun JoinReporterPageView(
                                         label = { Text(stringResource(R.string.select_mandal)) },
                                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = mandalExpanded) },
                                         modifier = Modifier.fillMaxWidth().menuAnchor(),
-                                        shape = MaterialTheme.shapes.medium
+                                        shape = MaterialTheme.shapes.medium,
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                        )
                                     )
                                     ExposedDropdownMenu(
                                         expanded = mandalExpanded,
@@ -284,13 +315,15 @@ fun JoinReporterPageView(
                         }
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .glassmorphism(cornerRadius = 16.dp)
-                            .padding(16.dp)
+                    ElevatedCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
                             var posExpanded by remember { mutableStateOf(false) }
                             ExposedDropdownMenuBox(
                                 expanded = posExpanded,
@@ -303,7 +336,11 @@ fun JoinReporterPageView(
                                     label = { Text(stringResource(R.string.position), fontFamily = Mallanna) },
                                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = posExpanded) },
                                     modifier = Modifier.fillMaxWidth().menuAnchor(),
-                                    shape = MaterialTheme.shapes.medium
+                                    shape = MaterialTheme.shapes.medium,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                    )
                                 )
                                 ExposedDropdownMenu(
                                     expanded = posExpanded,
@@ -327,7 +364,11 @@ fun JoinReporterPageView(
                                 label = { Text(stringResource(R.string.interested_category), fontFamily = Mallanna) },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
-                                shape = MaterialTheme.shapes.medium
+                                shape = MaterialTheme.shapes.medium,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                )
                             )
                             
                             OutlinedTextField(
@@ -336,7 +377,11 @@ fun JoinReporterPageView(
                                 label = { Text(stringResource(R.string.education_qualification), fontFamily = Mallanna) },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
-                                shape = MaterialTheme.shapes.medium
+                                shape = MaterialTheme.shapes.medium,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                )
                             )
                             
                             OutlinedTextField(
@@ -345,7 +390,11 @@ fun JoinReporterPageView(
                                 label = { Text(stringResource(R.string.current_organization), fontFamily = Mallanna) },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
-                                shape = MaterialTheme.shapes.medium
+                                shape = MaterialTheme.shapes.medium,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                )
                             )
                             
                             OutlinedTextField(
@@ -355,7 +404,11 @@ fun JoinReporterPageView(
                                 modifier = Modifier.fillMaxWidth(),
                                 minLines = 3,
                                 placeholder = { Text(stringResource(R.string.message_placeholder)) },
-                                shape = MaterialTheme.shapes.medium
+                                shape = MaterialTheme.shapes.medium,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                )
                             )
                         }
                     }

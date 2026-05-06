@@ -934,3 +934,54 @@ export const shareNews = onRequest(async (req, res) => {
         res.status(200).send(`<html><head><title>${data?.headline?.telugu}</title><meta property="og:image" content="${data?.mediaUrl}"></head><body><script>window.location.href="${playUrl}";</script></body></html>`);
     } catch (e) { res.redirect(playUrl); }
 });
+
+/**
+ * 7. Manual YouTube Authentication Flow
+ */
+export const youtubeAuthStart = onRequest({
+    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"]
+}, (req, res) => {
+    const clientID = process.env.YOUTUBE_CLIENT_ID;
+    const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
+    if (!clientID || !clientSecret) {
+        res.status(500).send("YouTube Secrets (ID/Secret) missing in Secret Manager. Please set them first.");
+        return;
+    }
+    const youtubeAuth = new google.auth.OAuth2(clientID, clientSecret, `https://${REGION}-alfa-news-31bf7.cloudfunctions.net/youtubeAuthCallback`);
+    const authUrl = youtubeAuth.generateAuthUrl({
+        access_type: 'offline',
+        prompt: 'consent',
+        scope: ['https://www.googleapis.com/auth/youtube.upload']
+    });
+    res.redirect(authUrl);
+});
+
+/**
+ * 8. YouTube Auth Callback
+ */
+export const youtubeAuthCallback = onRequest({
+    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"]
+}, async (req, res) => {
+    const { code } = req.query;
+    if (!code) {
+        res.status(400).send("Authorization code missing.");
+        return;
+    }
+    const clientID = process.env.YOUTUBE_CLIENT_ID;
+    const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
+    const youtubeAuth = new google.auth.OAuth2(clientID, clientSecret, `https://${REGION}-alfa-news-31bf7.cloudfunctions.net/youtubeAuthCallback`);
+    try {
+        const { tokens } = await youtubeAuth.getToken(code as string);
+        if (tokens.refresh_token) {
+            await db.collection('settings').doc('youtube').set({
+                refreshToken: tokens.refresh_token,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            res.status(200).send("<h1>Success! ✅</h1><p>YouTube Refresh Token విజయవంతంగా Firestore లో సేవ్ చేయబడింది. మీరు ఇప్పుడు క్లోజ్ చేయవచ్చు.</p>");
+        } else {
+            res.status(400).send("Refresh token not received. Please try again or revoke access first.");
+        }
+    } catch (e: any) {
+        res.status(500).send(`Error: ${e.message}`);
+    }
+});

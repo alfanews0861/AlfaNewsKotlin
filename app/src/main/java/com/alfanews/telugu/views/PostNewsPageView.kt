@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -39,7 +40,6 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.io.File
 import androidx.compose.ui.unit.dp
-import com.alfanews.telugu.utils.glassmorphism
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import androidx.compose.ui.res.stringResource
@@ -268,17 +268,45 @@ fun PostNewsPageView(
             modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Box(modifier = Modifier.fillMaxWidth().glassmorphism(cornerRadius = 16.dp)) {
+            Spacer(modifier = Modifier.height(48.dp)) // Space for custom top bar
+
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+            ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(detailsLabel, style = MaterialTheme.typography.titleLarge)
-                    OutlinedTextField(value = headline, onValueChange = { headline = it }, label = { Text(headlineLabel) }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(value = content, onValueChange = { content = it }, label = { Text(contentLabel) }, modifier = Modifier.fillMaxWidth().height(200.dp))
+                    Text(detailsLabel, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                    OutlinedTextField(
+                        value = headline,
+                        onValueChange = { headline = it },
+                        label = { Text(headlineLabel) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                        )
+                    )
+                    OutlinedTextField(
+                        value = content,
+                        onValueChange = { content = it },
+                        label = { Text(contentLabel) },
+                        modifier = Modifier.fillMaxWidth().height(200.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                        )
+                    )
                 }
             }
 
-            Box(modifier = Modifier.fillMaxWidth().glassmorphism(cornerRadius = 16.dp)) {
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+            ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(regionCategoryLabel, style = MaterialTheme.typography.titleLarge)
+                    Text(regionCategoryLabel, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Dropdown(label = stateLabel, options = stateOptions, selected = state, onSelected = { s -> state = s; district = "" }, modifier = Modifier.weight(1f))
                         Dropdown(label = districtLabel, options = districtOptions, selected = district, onSelected = { d -> district = d; location = "" }, modifier = Modifier.weight(1f))
@@ -287,16 +315,29 @@ fun PostNewsPageView(
                     if (mandals.isNotEmpty()) {
                         Dropdown(label = mandalLabel, options = mandalOptions, selected = location, onSelected = { l -> location = l }, modifier = Modifier.fillMaxWidth())
                     } else {
-                        OutlinedTextField(value = location, onValueChange = { location = it }, label = { Text(stringResource(R.string.location_placeholder)) }, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(
+                            value = location,
+                            onValueChange = { location = it },
+                            label = { Text(stringResource(R.string.location_placeholder)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                            )
+                        )
                     }
 
                     Dropdown(label = categoryLabel, options = categoryOptions, selected = category, onSelected = { c -> category = c }, modifier = Modifier.fillMaxWidth())
                 }
             }
 
-            Box(modifier = Modifier.fillMaxWidth().glassmorphism(cornerRadius = 16.dp)) {
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+            ) {
                 Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(mediaLabel, style = MaterialTheme.typography.titleLarge)
+                    Text(mediaLabel, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                     
                     val combinedMediaUrls = remember(mediaUrl, mediaUris) {
                         val existing = if (mediaUrl.isNotEmpty()) listOf(mediaUrl) else emptyList()
@@ -389,7 +430,11 @@ fun PostNewsPageView(
                         onValueChange = { youtubeUrl = it },
                         label = { Text(youtubeLinkLabel) },
                         placeholder = { Text("https://www.youtube.com/watch?v=...") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                        )
                     )
                 }
             }
@@ -397,7 +442,9 @@ fun PostNewsPageView(
             Button(
                 onClick = { handleSubmit() },
                 enabled = !isSubmitting,
-                modifier = Modifier.fillMaxWidth().height(56.dp)
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
                 if (isSubmitting) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -439,7 +486,11 @@ internal fun Dropdown(
             readOnly = true,
             label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier.fillMaxWidth().menuAnchor()
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+            )
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { (key, value) ->

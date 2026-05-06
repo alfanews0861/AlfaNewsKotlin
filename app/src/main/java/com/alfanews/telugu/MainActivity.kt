@@ -224,10 +224,6 @@ class MainActivity : ComponentActivity() {
                     updateRequestCode)
             }
         }
-
-        val language = mainViewModel.language.value
-        val currentUser = mainViewModel.currentUser.value
-        newsFeedViewModel.refreshIfStale(language, currentUser)
     }
 
     // యాప్ రన్ అవుతున్నప్పుడు కొత్త ఇంటెంట్ వస్తే

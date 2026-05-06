@@ -35,7 +35,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     private val _news = MutableStateFlow<List<NewsPost>>(emptyList())
     val news: StateFlow<List<NewsPost>> = _news.asStateFlow()
     
-    private val _loading = MutableStateFlow(true)
+    private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
     private val _isOnline = MutableStateFlow(true)
@@ -55,8 +55,19 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
     private val _isDetecting = MutableStateFlow(false)
     val isDetecting: StateFlow<Boolean> = _isDetecting.asStateFlow()
-    
+
+    private val _lastRefreshTime = MutableStateFlow(0L)
+    val lastRefreshTime: StateFlow<Long> = _lastRefreshTime.asStateFlow()
+
+    private val _shouldScrollToTop = MutableStateFlow(false)
+    val shouldScrollToTop: StateFlow<Boolean> = _shouldScrollToTop.asStateFlow()
+
+    fun resetScrollSignal() {
+        _shouldScrollToTop.value = false
+    }
+
     private var lastDocument: DocumentSnapshot? = null
+    private var lastRefreshTimeLong: Long = 0
     private val pageSize = 20 // Increased from 10 to show more news
     private var loadJob: Job? = null
     
@@ -165,6 +176,57 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    /**
+     * ప్రస్తుత జిల్లా ఆధారంగా వాతావరణ వార్తను తయారు చేస్తుంది.
+     */
+    private fun generateWeatherPost(district: String?): NewsPost {
+        val location = district ?: "హైదరాబాద్"
+        
+        // సింపుల్ రాండమ్ వెదర్ డేటా (ప్రస్తుతానికి)
+        val weatherHeadlineTe: String
+        val weatherContentTe: String
+        val weatherHeadlineEn: String
+        
+        val randomIdx = (System.currentTimeMillis() % 4).toInt()
+        when (randomIdx) {
+            0 -> {
+                weatherHeadlineTe = "ఎండగా ఉంటుంది (Sunny)"
+                weatherContentTe = "నేడు వాతావరణం పొడిగా మరియు ఎండగా ఉంటుంది. ఉష్ణోగ్రతలు సాధారణం కంటే 2 డిగ్రీలు పెరిగే అవకాశం ఉంది."
+                weatherHeadlineEn = "Sunny & Hot"
+            }
+            1 -> {
+                weatherHeadlineTe = "వర్షం పడే అవకాశం (Rainy)"
+                weatherContentTe = "ఆకాశం మేఘావృతమై ఉంటుంది. సాయంత్రం వేళ తేలికపాటి నుండి మోస్తరు వర్షాలు కురిసే అవకాశం ఉంది."
+                weatherHeadlineEn = "Light Rains Expected"
+            }
+            2 -> {
+                weatherHeadlineTe = "మేఘావృతమై ఉంటుంది (Cloudy)"
+                weatherContentTe = "రోజంతా ఆకాశం మేఘావృతమై ఉంటుంది. చల్లటి గాలులు వీస్తాయి. ఉష్ణోగ్రతలు తగ్గుముఖం పట్టవచ్చు."
+                weatherHeadlineEn = "Cool & Cloudy"
+            }
+            else -> {
+                weatherHeadlineTe = "పాక్షికంగా మేఘావృతం (Partly Cloudy)"
+                weatherContentTe = "ఎండ మరియు మేఘాలు కలిసి ఉంటాయి. ఉమ్మడి వాతావరణం ఆహ్లాదకరంగా ఉంటుంది."
+                weatherHeadlineEn = "Pleasant Weather"
+            }
+        }
+
+        return NewsPost(
+            id = "weather_${System.currentTimeMillis() / (1000 * 60 * 60)}", // Hourly unique ID
+            headline = com.alfanews.telugu.models.Headline(
+                telugu = "$location వాతావరణం: $weatherHeadlineTe",
+                english = "$location Weather: $weatherHeadlineEn"
+            ),
+            content = com.alfanews.telugu.models.Content(
+                telugu = weatherContentTe,
+                english = "Current weather update for $location. Please stay tuned for more details."
+            ),
+            location = location,
+            type = "weather",
+            timestamp = System.currentTimeMillis()
+        )
+    }
+
     private fun loadLocalAds(district: String) {
         viewModelScope.launch {
             try {
@@ -198,7 +260,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun loadNews(language: Language, currentUser: User?) {
-        val district = _activeDistrict.value ?: return
+        val district = _activeDistrict.value
+        if (district == null) {
+            _loading.value = false
+            return
+        }
         
         loadLocalAds(district) // లోకల్ యాడ్స్ లోడ్ చేయండి
         
@@ -226,6 +292,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                 try {
                     val query = newsRef
+                        .whereEqualTo("approved", true)
                         .whereArrayContains("categories", district)
                         .orderBy("timestamp", Query.Direction.DESCENDING)
                         .limit(pageSize.toLong())
@@ -238,6 +305,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     // Index missing or query failed - try with just district field
                     try {
                          val fallbackQuery = newsRef
+                             .whereEqualTo("approved", true)
                              .whereEqualTo("district", district)
                              .orderBy("timestamp", Query.Direction.DESCENDING)
                              .limit(pageSize.toLong())
@@ -251,23 +319,33 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                      }
                 }
                 
-                // If local news is empty or query failed, fetch generic news so the user doesn't see a blank screen
-                if (posts.isEmpty()) {
-                    val fallbackQuery = FirebaseService.db.collection("news")
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(pageSize.toLong())
-                    val fallbackSnapshot = fallbackQuery.get().await()
-                    posts = withContext(Dispatchers.Default) {
-                        fallbackSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                // ✅ FIXED: No generic fallback! If district news not found, show empty state
+                // This ensures LocalNewsFeed stays pure to selected district
+                // User can manually select another district if no news available
+                lastDocument = snapshot?.documents?.lastOrNull()
+                _hasMore.value = snapshot?.documents?.size == pageSize
+
+                // ℹ️ Log engagement for user interest tracking even in local feed
+                if (posts.isNotEmpty()) {
+                    posts.forEach { post ->
+                        try {
+                            com.alfanews.telugu.services.AnalyticsService.logCategoryViews(post.categories, weight = 1)
+                        } catch (e: Exception) { }
                     }
-                    lastDocument = fallbackSnapshot.documents.lastOrNull()
-                    _hasMore.value = fallbackSnapshot.documents.size == pageSize
-                } else {
-                    lastDocument = snapshot?.documents?.lastOrNull()
-                    _hasMore.value = snapshot?.documents?.size == pageSize
                 }
                 
-                _news.value = posts
+                // వాతావరణ కార్డును 9వ స్థానంలో (Index 8) పెట్టండి
+                val finalPosts = posts.toMutableList()
+                if (finalPosts.size >= 8) {
+                    finalPosts.add(8, generateWeatherPost(district))
+                } else if (finalPosts.isNotEmpty()) {
+                    finalPosts.add(generateWeatherPost(district))
+                }
+
+                _news.value = finalPosts
+                val currentTime = System.currentTimeMillis()
+                lastRefreshTimeLong = currentTime
+                _lastRefreshTime.value = currentTime
             } catch (e: Exception) {
                  _hasMore.value = false
             } finally {
@@ -290,6 +368,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                  try {
                      val query = newsRef
+                         .whereEqualTo("approved", true)
                          .whereArrayContains("categories", district)
                          .orderBy("timestamp", Query.Direction.DESCENDING)
                          .let { if (lastDocument != null) it.startAfter(lastDocument!!) else it }
@@ -303,6 +382,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                      // Index missing or query failed - try with just district field
                      try {
                          val fallbackQuery = newsRef
+                             .whereEqualTo("approved", true)
                              .whereEqualTo("district", district)
                              .orderBy("timestamp", Query.Direction.DESCENDING)
                              .let { if (lastDocument != null) it.startAfter(lastDocument!!) else it }
@@ -316,27 +396,24 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                          // Both failed, will use generic fallback below
                      }
                  }
-                 
-                 // If local news fetch is empty on loadMore, try fetching fallback generic news 
-                 if (newPosts.isEmpty() && _news.value.size < 50) {
-                      val fallbackQuery = FirebaseService.db.collection("news")
-                         .orderBy("timestamp", Query.Direction.DESCENDING)
-                         .let { if (lastDocument != null) it.startAfter(lastDocument!!) else it }
-                         .limit(pageSize.toLong())
-                      val fallbackSnapshot = fallbackQuery.get().await()
-                      newPosts = withContext(Dispatchers.Default) {
-                          fallbackSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+
+                  // ✅ FIXED: No generic fallback on loadMore either
+                  // If no new district posts, just stop pagination
+                  if (newPosts.isNotEmpty()) {
+                      lastDocument = snapshot?.documents?.lastOrNull()
+                      _hasMore.value = snapshot?.documents?.size == pageSize
+
+                      // Track engagement for interest tracking
+                      newPosts.forEach { post ->
+                          try {
+                              com.alfanews.telugu.services.AnalyticsService.logCategoryViews(post.categories, weight = 1)
+                          } catch (e: Exception) { }
                       }
-                      lastDocument = fallbackSnapshot.documents.lastOrNull()
-                      _hasMore.value = fallbackSnapshot.documents.size == pageSize
-                 } else if (newPosts.isNotEmpty()) {
-                     lastDocument = snapshot?.documents?.lastOrNull()
-                     _hasMore.value = snapshot?.documents?.size == pageSize
-                 } else {
-                     _hasMore.value = false
-                 }
-                 
-                 _news.value = _news.value + newPosts
+                  } else {
+                      _hasMore.value = false
+                  }
+
+                  _news.value = _news.value + newPosts
              } catch (e: Exception) {
                  _hasMore.value = false
              } finally {
@@ -346,7 +423,23 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
      }
     
      @Suppress("UNCHECKED_CAST")
-     private fun convertToNewsPost(id: String, data: Map<String, Any?>): NewsPost? {
+    fun onAppResume(language: Language, currentUser: User?) {
+        // ప్రతిసారి యాప్‌లోకి తిరిగి వచ్చినప్పుడు టాప్‌కి వెళ్లాలి
+        if (_news.value.isNotEmpty()) {
+            _shouldScrollToTop.value = true
+        }
+        refreshIfStale(language, currentUser)
+    }
+
+    fun refreshIfStale(language: Language, currentUser: User?) {
+        val now = System.currentTimeMillis()
+        // 10 నిమిషాల కంటే ఎక్కువ సమయం గడిస్తే రిఫ్రెష్ చేయండి (600,000 ms)
+        if (now - lastRefreshTimeLong > 600000 || _news.value.isEmpty()) {
+            loadNews(language, currentUser)
+        }
+    }
+
+    private fun convertToNewsPost(id: String, data: Map<String, Any?>): NewsPost? {
          try {
              val type = data["type"]?.toString() ?: "news"
              // ✅ FIXED: Include greeting, history, and cartoon posts instead of filtering them out

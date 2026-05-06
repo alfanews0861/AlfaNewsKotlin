@@ -41,6 +41,9 @@ import com.alfanews.telugu.utils.Constants
 import com.alfanews.telugu.viewmodels.LocalNewsFeedViewModel
 import com.google.android.gms.ads.nativead.NativeAd
 import com.alfanews.telugu.views.LocalAdCardView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -52,15 +55,31 @@ fun LocalNewsFeedView(
     onEditClick: (NewsPost) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val viewModel: LocalNewsFeedViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
         factory = ViewModelFactory(context.applicationContext as Application)
     )
     val news by viewModel.news.collectAsStateWithLifecycle()
+    // ... (rest of the code)
+
+    // 🔄 App Resume అయినప్పుడు ఆటోమేటిక్‌గా టాప్‌కి వెళ్లి రిఫ్రెష్ చేస్తుంది
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.onAppResume(language, currentUser)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
     val loading by viewModel.loading.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val hasMore by viewModel.hasMore.collectAsStateWithLifecycle()
     val activeDistrict by viewModel.activeDistrict.collectAsStateWithLifecycle()
     val isDetecting by viewModel.isDetecting.collectAsStateWithLifecycle()
+    val shouldScrollToTop by viewModel.shouldScrollToTop.collectAsStateWithLifecycle()
     val localAds by viewModel.localAds.collectAsStateWithLifecycle()
     val preloadedAds = remember { mutableStateMapOf<Int, NativeAd?>() }
 
@@ -109,8 +128,12 @@ fun LocalNewsFeedView(
     }
 
     LaunchedEffect(activeDistrict) {
-        if (activeDistrict != null && news.isEmpty() && !loading) {
-            viewModel.loadNews(language, currentUser)
+        if (activeDistrict != null) {
+            if (news.isEmpty() && !loading) {
+                viewModel.loadNews(language, currentUser)
+            } else {
+                viewModel.refreshIfStale(language, currentUser)
+            }
         }
     }
 
@@ -127,6 +150,14 @@ fun LocalNewsFeedView(
         }
     }
     val pagerState = rememberPagerState(pageCount = { totalCount })
+
+    // 🔄 Auto-scroll to top when fresh news is loaded after a long time
+    LaunchedEffect(shouldScrollToTop) {
+        if (shouldScrollToTop && news.isNotEmpty()) {
+            pagerState.animateScrollToPage(0)
+            viewModel.resetScrollSignal()
+        }
+    }
 
     val imageLoader = remember { com.alfanews.telugu.utils.SafeImageLoader.getImageLoader(context) }
     
@@ -321,18 +352,26 @@ fun LocalNewsFeedView(
                     if (newsIndex < news.size) {
                         val post = news[newsIndex]
 
-                        NewsCardView(
-                            post = post,
-                            language = language,
-                            currentUser = currentUser,
-                            onProfileClick = onProfileClickRemembered,
-                            onReporterClick = onReporterClickRemembered,
-                            onDistrictClick = { showDistrictPicker = true },
-                            onEditClick = onEditClickRemembered,
-                            modifier = Modifier.fillMaxSize(),
-                            district = if (isDetecting) "గుర్తిస్తున్నాము..." else activeDistrict,
-                            showDistrictSelector = true
-                        )
+                        if (post.type == "weather") {
+                            WeatherCardView(
+                                post = post,
+                                language = language,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            NewsCardView(
+                                post = post,
+                                language = language,
+                                currentUser = currentUser,
+                                onProfileClick = onProfileClickRemembered,
+                                onReporterClick = onReporterClickRemembered,
+                                onDistrictClick = { showDistrictPicker = true },
+                                onEditClick = onEditClickRemembered,
+                                modifier = Modifier.fillMaxSize(),
+                                district = if (isDetecting) "గుర్తిస్తున్నాము..." else activeDistrict,
+                                showDistrictSelector = true
+                            )
+                        }
                     }
                 }
             }

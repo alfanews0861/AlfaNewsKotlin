@@ -155,7 +155,7 @@ fun MainScreen(
                         // Custom Top Bar since we are already inside a Scaffold content
                         Surface(
                             modifier = Modifier.fillMaxWidth().height(56.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                            color = MaterialTheme.colorScheme.primary,
                             tonalElevation = 4.dp
                         ) {
                             Row(
@@ -166,12 +166,13 @@ fun MainScreen(
                                     showPostNewsPage = false
                                     editingNewsPost = null
                                 }) {
-                                    Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back))
+                                    Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back), tint = MaterialTheme.colorScheme.onPrimary)
                                 }
                                 Text(
                                     text = stringResource(R.string.post_news),
                                     style = MaterialTheme.typography.titleLarge,
-                                    modifier = Modifier.padding(start = 8.dp)
+                                    modifier = Modifier.padding(start = 8.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary
                                 )
                             }
                         }
