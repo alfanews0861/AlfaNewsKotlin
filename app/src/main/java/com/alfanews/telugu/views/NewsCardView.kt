@@ -284,8 +284,8 @@ fun NewsCardView(
                     }
                 }
 
-                // Overlay text for Quote or Greeting
-                if (isSpecialCard) {
+                // Overlay text for Quote, Greeting or Cartoon
+                if (isSpecialCard || isCartoonCard) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -300,9 +300,10 @@ fun NewsCardView(
                     Text(
                         text = content,
                         color = Color.White,
-                        fontSize = 23.sp,
+                        fontSize = if (isCartoonCard) 26.sp else 23.sp,
                         fontFamily = Ramabhadra,
-                        lineHeight = 33.sp,
+                        lineHeight = if (isCartoonCard) 36.sp else 33.sp,
+                        fontWeight = if (isCartoonCard) FontWeight.Bold else FontWeight.Normal,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -897,7 +898,7 @@ fun VideoPlayerView(videoUrl: String) {
             val mediaItem = MediaItem.fromUri(videoUrl)
             setMediaItem(mediaItem)
             prepare()
-            playWhenReady = true
+            playWhenReady = false
             repeatMode = ExoPlayer.REPEAT_MODE_ONE
         }
     }
@@ -928,7 +929,8 @@ fun YouTubePlayerComponent(youtubeUrl: String) {
             ytpv.enableAutomaticInitialization = false
             ytpv.initialize(object : AbstractYouTubePlayerListener() {
                 override fun onReady(youTubePlayer: YouTubePlayer) {
-                    videoId?.let { youTubePlayer.loadVideo(it, 0f) }
+                    // Changed loadVideo to cueVideo to disable auto-play
+                    videoId?.let { youTubePlayer.cueVideo(it, 0f) }
                 }
             })
             ytpv

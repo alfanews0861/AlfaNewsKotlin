@@ -39,7 +39,6 @@ object SafeImageLoader {
                         .build()
                 }
                 // డిస్క్ కాష్‌ను 50MB కి పరిమితం చేస్తున్నాము. 
-                // దీనివల్ల ఫోన్ స్టోరేజ్ 10GB వరకు వెళ్ళే అవకాశం ఉండదు.
                 .diskCache {
                     DiskCache.Builder()
                         .directory(context.cacheDir.resolve("image_cache").absolutePath.toPath())

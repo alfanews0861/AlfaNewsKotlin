@@ -33,7 +33,6 @@ import com.alfanews.telugu.models.ThemeMode
 import com.alfanews.telugu.viewmodels.MainViewModel
 import com.alfanews.telugu.viewmodels.NewsFeedViewModel
 import com.alfanews.telugu.views.MainScreen
-import com.alfanews.telugu.views.SplashScreenView
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.appupdate.AppUpdateOptions
@@ -74,13 +73,16 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
-
-        var showSplash by mutableStateOf(true)
 
         appUpdateManager = AppUpdateManagerFactory.create(this)
         checkAppUpdate()
+
+        // Keep the splash screen on screen until news is loaded
+        splashScreen.setKeepOnScreenCondition {
+            newsFeedViewModel.news.value.isEmpty() && newsFeedViewModel.loading.value
+        }
 
         WindowCompat.setDecorFitsSystemWindows(window, true)
         AdMobService.initialize(this)
@@ -134,8 +136,6 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val themeMode by mainViewModel.themeMode.collectAsState()
-            val news by newsFeedViewModel.news.collectAsState()
-            val isNewsLoading by newsFeedViewModel.loading.collectAsState()
 
             val isDarkTheme = when (themeMode) {
                 ThemeMode.LIGHT -> false
@@ -161,19 +161,12 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         color = Color.Transparent
                     ) {
-                        if (showSplash) {
-                            SplashScreenView(
-                                isReady = news.isNotEmpty() || !isNewsLoading,
-                                onFinished = { showSplash = false }
-                            )
-                        } else {
-                            MainScreen(
-                                mainViewModel = mainViewModel, 
-                                newsFeedViewModel = newsFeedViewModel,
-                                checkForUpdate = this@MainActivity::checkAppUpdate,
-                                completeUpdate = this@MainActivity::completeUpdate
-                            )
-                        }
+                        MainScreen(
+                            mainViewModel = mainViewModel, 
+                            newsFeedViewModel = newsFeedViewModel,
+                            checkForUpdate = this@MainActivity::checkAppUpdate,
+                            completeUpdate = this@MainActivity::completeUpdate
+                        )
                     }
                 }
             }

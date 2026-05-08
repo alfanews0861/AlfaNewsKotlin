@@ -12,6 +12,7 @@ import com.alfanews.telugu.models.User
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.PreferenceManager
 import com.alfanews.telugu.utils.Constants
+import com.alfanews.telugu.utils.NewsCacheManager
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.firestore.DocumentSnapshot
@@ -91,6 +92,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         if (savedDistrict != null) {
             _activeDistrict.value = savedDistrict
             _isDetecting.value = false
+            
             if (_news.value.isEmpty()) loadNews(Language.TELUGU, currentUser)
             return
         }
@@ -135,10 +137,18 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 @Suppress("DEPRECATION")
                 val addresses = geocoder.getFromLocation(lat, lon, 1)
                 if (!addresses.isNullOrEmpty()) {
-                    val adminArea = addresses[0].adminArea ?: ""
+                    val address = addresses[0]
+                    
+                    // మండలం లేదా ఊరు పేరును గుర్తించండి
+                    val localityPlace = address.locality ?: address.subLocality ?: address.subAdminArea
+                    if (localityPlace != null) {
+                        prefs.localPlace = localityPlace
+                    }
+
+                    val adminArea = address.adminArea ?: ""
                     if (adminArea.contains("Andhra", ignoreCase = true) || adminArea.contains("Telangana", ignoreCase = true)) {
-                        val subAdmin = addresses[0].subAdminArea
-                        val locality = addresses[0].locality
+                        val subAdmin = address.subAdminArea
+                        val locality = address.locality
                         
                         val detectedName = subAdmin ?: locality ?: adminArea
                         val district = findMatchingDistrict(detectedName)
@@ -279,8 +289,28 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             }
             _isOnline.value = true
 
-            _loading.value = true
-            _news.value = emptyList()
+            // 🚀 RAPID LOAD: Fetch top 2 fresh posts for district immediately
+            try {
+                val rapidQuery = FirebaseService.db.collection("news")
+                    .whereEqualTo("approved", true)
+                    .whereArrayContains("categories", district)
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                    .limit(2)
+                
+                val rapidSnapshot = rapidQuery.get().await()
+                val rapidPosts = rapidSnapshot.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
+                
+                if (rapidPosts.isNotEmpty() && _news.value.isEmpty()) {
+                    _news.value = rapidPosts
+                    _loading.value = false // Hide spinner!
+                } else if (_news.value.isEmpty()) {
+                    _loading.value = true
+                }
+            } catch (e: Exception) {
+                if (_news.value.isEmpty()) _loading.value = true
+            }
+            
+            // _news.value = emptyList() // Optimization: Don't clear news immediately to avoid flickering spinner on refresh
             lastDocument = null
             _hasMore.value = true
             
@@ -327,22 +357,21 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                 // ℹ️ Log engagement for user interest tracking even in local feed
                 if (posts.isNotEmpty()) {
-                    posts.forEach { post ->
-                        try {
-                            com.alfanews.telugu.services.AnalyticsService.logCategoryViews(post.categories, weight = 1)
-                        } catch (e: Exception) { }
-                    }
+                    try {
+                        com.alfanews.telugu.services.AnalyticsService.logBulkCategoryViews(posts.map { it.categories }, weight = 1)
+                    } catch (e: Exception) { }
                 }
                 
                 // వాతావరణ కార్డును 9వ స్థానంలో (Index 8) పెట్టండి
                 val finalPosts = posts.toMutableList()
                 if (finalPosts.size >= 8) {
-                    finalPosts.add(8, generateWeatherPost(district))
+                    finalPosts.add(8, generateWeatherPost(prefs.localPlace ?: district))
                 } else if (finalPosts.isNotEmpty()) {
-                    finalPosts.add(generateWeatherPost(district))
+                    finalPosts.add(generateWeatherPost(prefs.localPlace ?: district))
                 }
 
                 _news.value = finalPosts
+                
                 val currentTime = System.currentTimeMillis()
                 lastRefreshTimeLong = currentTime
                 _lastRefreshTime.value = currentTime
@@ -404,11 +433,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                       _hasMore.value = snapshot?.documents?.size == pageSize
 
                       // Track engagement for interest tracking
-                      newPosts.forEach { post ->
-                          try {
-                              com.alfanews.telugu.services.AnalyticsService.logCategoryViews(post.categories, weight = 1)
-                          } catch (e: Exception) { }
-                      }
+                      try {
+                          com.alfanews.telugu.services.AnalyticsService.logBulkCategoryViews(newPosts.map { it.categories }, weight = 1)
+                      } catch (e: Exception) { }
                   } else {
                       _hasMore.value = false
                   }

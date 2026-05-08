@@ -41,12 +41,14 @@ export const sendPersonalizedNotification = onSchedule({
         news.id = doc.id;
 
         // ✅ FIX: Only process approved or published news
+        const status = (news.status || "").toUpperCase();
         const isApproved = news.approved === true;
-        const isPublished = news.status === "PUBLISHED";
-        const isAiProcessed = news.status === "AI_PROCESSED";
+        const isPublished = status === "PUBLISHED";
+        const isAiProcessed = status === "AI_PROCESSED";
+        const isSystemType = ["greeting", "history", "cartoon"].includes(news.type);
 
-        if (!isApproved && !isPublished && !isAiProcessed) {
-            logger.log(`Skipping news ${news.id}: Not approved/published (Status: ${news.status}, Approved: ${news.approved})`);
+        if (!isApproved && !isPublished && !isAiProcessed && !isSystemType) {
+            logger.log(`Skipping news ${news.id}: Not approved/published (Status: ${news.status}, Approved: ${news.approved}, Type: ${news.type})`);
             return;
         }
 

@@ -143,11 +143,9 @@ fun LocalNewsFeedView(
     val onEditClickRemembered = remember(onEditClick) { onEditClick }
 
     val totalCount = remember(news.size) {
-        if (news.isEmpty()) 0 else {
-            val newsCount = news.size
-            val adSlots = (newsCount + 5) / 6
-            newsCount + adSlots
-        }
+        val newsCount = news.size
+        if (newsCount == 0) 0 
+        else newsCount + (newsCount - 1) / 5
     }
     val pagerState = rememberPagerState(pageCount = { totalCount })
 

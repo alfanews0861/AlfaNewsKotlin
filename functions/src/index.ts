@@ -285,7 +285,10 @@ export const scheduleFestivalGreeting = onSchedule({ schedule: "0 5 * * *", time
             mediaUrl,
             category: 'పండుగలు',
             reporter: { id: 'system', name: 'AlfaNews Team' },
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            status: "PUBLISHED",
+            approved: true,
+            aiProcessed: true
         });
         console.log(`[FESTIVAL] Successfully created greeting post for ${data.festivalTe}.`);
     } catch (e: any) { console.error("[FESTIVAL] Error:", e.message); }
@@ -346,7 +349,10 @@ export const scheduleQuoteOfTheDay = onSchedule({ schedule: "0 4 * * *", timeZon
             mediaUrl,
             category: 'ప్రేరణ',
             reporter: { id: 'system', name: 'AlfaNews Team' },
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            status: "PUBLISHED",
+            approved: true,
+            aiProcessed: true
         });
     } catch (e: any) { console.error("[QUOTE] Error:", e.message); }
 });
@@ -403,7 +409,10 @@ export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", time
             mediaUrl,
             category: 'చరిత్ర',
             reporter: { id: 'system', name: 'AlfaNews Team' },
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            status: "PUBLISHED",
+            approved: true,
+            aiProcessed: true
         });
     } catch (e: any) { console.error("[HISTORY] Error:", e.message); }
 });
@@ -430,14 +439,17 @@ export const generateDailyCartoon = onSchedule({ schedule: "0 6 * * *", timeZone
             const topicRes = await ai.models.generateContent({
                 model: SCHEDULED_MODEL,
                 contents: [{ role: "user", parts: [{ text: `Today's Date: ${todayStr}.
-Role: You are an award-winning editorial and political cartoonist for a leading Telugu news daily, known for sharp satire and being a "voice of the opposition."
+Role: You are an award-winning editorial and political cartoonist for a leading Telugu news daily.
 Goal: Identify a highly relevant, satirical, and humorous current political topic in ${state} (India) from the last 24-48 hours.
 Stance: Be critical of the ruling government's policies, failures, or ironies.
-Requirements:
-1. Topic: A short name for the issue.
-2. Visual Description: A precise scene description for an AI artist. Include recognizable caricatures of specific politicians (describe their signature looks like glasses, hair, or specific attire).
-3. Telugu Caption: A short, punchy, and highly satirical dialogue or caption in Telugu script that captures the irony.
-Provide the output in JSON.` }] }],
+
+Task:
+1. Choose a trending issue.
+2. Design a visual scene.
+3. IMPORTANT: For the politicians involved, provide a VERY DETAILED description of their physical features to ensure high likeness in AI generation. Describe their face shape, hair style, glasses, facial hair, and common clothing (e.g., specific colored scarf or shirt).
+4. Create a punchy, funny Telugu caption.
+
+Provide the output in JSON with fields: topic, visualDescription, teluguCaption.` }] }],
                 config: { temperature: 0.9, responseMimeType: "application/json", responseSchema: schema }
             });
 
@@ -448,11 +460,13 @@ Provide the output in JSON.` }] }],
 
             const imgRes = await ai.models.generateImages({
                 model: IMAGEN_MODEL,
-                prompt: `A sharp, professional editorial political cartoon for a Telugu newspaper about ${topic} in ${state}, India.
-Visual scene: ${visual}.
-Style: High-quality ink line art, editorial caricature style, clean and recognizable.
-IMPORTANT: The cartoon must feature a speech bubble or a sign board with the following Telugu text written PERFECTLY: "${teluguText}".
-The caricatures should be recognizable as the politicians described. No English text.`,
+                prompt: `A high-detail, professional editorial political caricature for a premium Telugu newspaper.
+Topic: ${topic} in ${state}, India.
+Visual: ${visual}.
+Style: Clean ink line art with professional digital coloring, high-quality caricature style.
+Likeness: The caricatures MUST have a strong likeness to the real-world politicians described. Focus on recognizable facial features.
+Composition: Clean, NO TEXT, no speech bubbles, no gibberish letters. The image should be purely visual.
+Quality: 4k, artistic, award-winning editorial style.`,
                 config: { numberOfImages: 1, aspectRatio: '9:16' }
             });
 
@@ -466,13 +480,16 @@ The caricatures should be recognizable as the politicians described. No English 
                     comments: 0,
                     shares: 0,
                     headline: { telugu: `${state === 'Andhra Pradesh' ? 'ఆంధ్రప్రదేశ్' : 'తెలంగాణ'} కార్టూన్`, english: `${state} Cartoon` },
-                    content: { telugu: `నేటి రాజకీయ వ్యంగ్య చిత్రం: ${topic}`, english: 'Daily Political Satire Cartoon' },
+                    content: { telugu: teluguText, english: 'Daily Political Satire Cartoon' },
                     mediaUrl,
                     category: 'కార్టూన్',
                     location: state,
                     district: state,
                     reporter: { id: 'BOT_Cartoonist', name: 'Alfa Cartoonist' },
-                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    status: "PUBLISHED",
+                    approved: true,
+                    aiProcessed: true
                 });
             }
         } catch (e: any) { console.error(`[CARTOON] Error for ${state}:`, e.message); }
@@ -502,6 +519,7 @@ export const processNewsPost = onCall(async (request) => {
             isCitizen: postData?.isCitizen || true,
             isReporter: postData?.isReporter || false,
             aiProcessed: false, // Flag for background trigger to handle Gemini
+            status: "PENDING",
             timestamp: postData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         };
@@ -635,7 +653,7 @@ export const onNewsPostCreated = onDocumentCreated({
             await db.collection('news').doc(postId).update({ status: "PROCESSING_VIDEO" });
 
             const videoUrl = data.mediaUrls[videoIndex];
-            const teluguNews = data.content?.telugu || data.headline?.telugu || "";
+            let teluguNews = data.content?.telugu || data.headline?.telugu || "";
             const headline = data.headline?.telugu || "Alfa News";
             const reporterName = data.reporter?.name || "";
             const tags = data.tags || [];
@@ -673,20 +691,23 @@ export const onNewsPostCreated = onDocumentCreated({
                 const videoBuffer = await videoRes.arrayBuffer();
                 fs.writeFileSync(videoPath, Buffer.from(videoBuffer));
 
-                // 1.1 Visual Safety Check (Extract frames)
+                // 1.1 Visual & Contextual Analysis (Understand Video Content)
                 const ai = getAIInstance();
-                let visualSafetyResult = { isSafe: true, reason: "" };
+                let videoAnalysis = { isSafe: true, reason: "", summary: "", extractedText: "" };
 
                 try {
                     const metadata: any = await new Promise((resolve, reject) => {
-                        ffmpeg.ffprobe(videoPath, (err: any, data: any) => { if (err) reject(err); else resolve(data); });
+                        ffmpeg.ffprobe(videoPath)
+                            .on('error', reject)
+                            .on('end', resolve)
+                            .ffprobe((err: any, data: any) => { if (err) reject(err); else resolve(data); });
                     });
                     const duration = metadata.format.duration || 0;
-                    const frameCount = Math.max(3, Math.min(10, Math.floor(duration / 30)));
+                    const frameCount = 5; // Extract 5 key frames to understand the scene
 
                     await new Promise((resolve, reject) => {
                         ffmpeg(videoPath)
-                            .screenshots({ count: frameCount, folder: tempDir, filename: `frame-${postId}-%i.jpg`, size: '320x?' })
+                            .screenshots({ count: frameCount, folder: tempDir, filename: `frame-${postId}-%i.jpg`, size: '640x?' })
                             .on('end', resolve)
                             .on('error', reject);
                     });
@@ -695,47 +716,84 @@ export const onNewsPostCreated = onDocumentCreated({
 
                     if (frames.length > 0) {
                         const frameParts = frames.map(p => ({ inlineData: { data: fs.readFileSync(p).toString('base64'), mimeType: 'image/jpeg' } }));
-                        const safetyRes = await ai.models.generateContent({
+
+                        // Ask AI to analyze video content + reporter notes
+                        const analysisRes = await ai.models.generateContent({
                             model: FLASH_MODEL,
-                            contents: [{ role: "user", parts: [...frameParts, { text: "Analyze these video frames for YouTube Policy violations (Violence, Blood, Suicide, etc.). Return JSON: {isSafe: boolean, reason: string, bestSafeFrameIndex: number}" }] }],
+                            contents: [{
+                                role: "user",
+                                parts: [
+                                    ...frameParts,
+                                    { text: `Analyze these video frames and the reporter notes below.
+                                    Reporter Notes: ${teluguNews}
+
+                                    Tasks:
+                                    1. Safety: Check for YouTube Policy violations (Blood, Violence).
+                                    2. Summary: If reporter notes are missing or short, write a detailed 70-word Telugu news report based on what's happening in the video.
+                                    3. Context: Identify any people, objects, or locations visible.
+
+                                    Return JSON: {isSafe: boolean, reason: string, summary: string, locations: string[], people: string[]}` }
+                                ]
+                            }],
                             config: { responseMimeType: "application/json" }
                         } as any);
-                        const safetyText = safetyRes.text || "{}";
-                        visualSafetyResult = parseAIJson(safetyText);
+
+                        const analysisData = parseAIJson(analysisRes.text || "{}");
+                        if (analysisData.summary) {
+                            console.log(`[VIDEO_PROCESS] AI generated/refined summary from video analysis.`);
+                            teluguNews = analysisData.summary; // Use AI-refined news
+                        }
+                        videoAnalysis = analysisData;
                     }
                 } catch (vErr: any) {
-                    console.warn(`[VIDEO_PROCESS] Visual safety check failed:`, vErr.message);
+                    console.warn(`[VIDEO_PROCESS] Video analysis failed, using reporter text:`, vErr.message);
                 }
 
-                let isSafe = visualSafetyResult.isSafe !== false;
+                const isSafe = videoAnalysis.isSafe !== false;
                 const privacyStatus = isSafe ? 'public' : 'private';
 
-                // 2. Generate Voice-over
-                console.log(`[VIDEO_PROCESS] Generating voice-over for ${teluguNews.length} characters...`);
+                if (isSafe === false) {
+                    console.warn(`[VIDEO_PROCESS] Safety check failed for ${postId}`);
+                    // ... existing rejection logic ...
+                }
+
+                // 2. Generate Voice-over (Try High Quality Chirp HD first, fallback to Standard)
+                console.log(`[VIDEO_PROCESS] Generating high-quality voice-over for ${teluguNews.length} characters...`);
                 await db.collection('news').doc(postId).update({ status: "PROCESSING_VOICE_OVER" });
 
-                // Use Service Account credentials instead of API Key to avoid "API_KEY_SERVICE_BLOCKED"
                 const ttsAuth = new google.auth.GoogleAuth({
                     scopes: ['https://www.googleapis.com/auth/cloud-platform']
                 });
                 const ttsAuthClient = await ttsAuth.getClient();
                 const ttsTokenResponse = await ttsAuthClient.getAccessToken();
                 const accessToken = ttsTokenResponse.token;
-
                 const ttsUrl = `https://texttospeech.googleapis.com/v1/text:synthesize`;
 
-                const ttsResponse = await fetch(ttsUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${accessToken}`
-                    },
-                    body: JSON.stringify({
-                        input: { text: teluguNews },
-                        voice: { languageCode: 'te-IN', name: 'te-IN-Standard-A' },
-                        audioConfig: { audioEncoding: 'MP3' }
-                    })
-                });
+                const generateTTS = async (voiceName: string) => {
+                    return fetch(ttsUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${accessToken}`
+                        },
+                        body: JSON.stringify({
+                            input: { text: teluguNews },
+                            voice: { languageCode: 'te-IN', name: voiceName },
+                            audioConfig: {
+                                audioEncoding: 'MP3',
+                                speakingRate: 1.15, // Faster news anchor style
+                                effectsProfileId: ['telephony-class-application']
+                            }
+                        })
+                    });
+                };
+
+                let ttsResponse = await generateTTS('te-IN-Chirp3-HD-Achernar'); // Premium HD Voice
+
+                if (!ttsResponse.ok) {
+                    console.warn(`[VIDEO_PROCESS] Premium voice failed, falling back to Standard-A...`);
+                    ttsResponse = await generateTTS('te-IN-Standard-A');
+                }
 
                 if (!ttsResponse.ok) {
                     const errorText = await ttsResponse.text();
@@ -756,19 +814,25 @@ export const onNewsPostCreated = onDocumentCreated({
 
                 fs.writeFileSync(audioPath, Buffer.from(audioText, 'base64'));
 
-                // 3. Merge Audio and Video
-                console.log(`[VIDEO_PROCESS] Merging audio and video...`);
+                // 3. Merge Audio and Video (Mixed with Background Ducking)
+                console.log(`[VIDEO_PROCESS] Merging audio and video with background ducking...`);
                 await db.collection('news').doc(postId).update({ status: "MERGING_MEDIA" });
 
                 await new Promise((resolve, reject) => {
                     ffmpeg(videoPath)
                         .input(audioPath)
+                        .complexFilter([
+                            // Reduce original video volume to 10% (ducking) and boost AI voice to 150%
+                            '[0:a]volume=0.1[bg]',
+                            '[1:a]volume=1.5[voice]',
+                            '[bg][voice]amix=inputs=2:duration=longest:dropout_transition=2[outa]'
+                        ])
                         .outputOptions([
-                            '-c:v', 'copy',
-                            '-c:a', 'aac',
-                            '-map', '0:v:0',
-                            '-map', '1:a:0',
-                            '-shortest'
+                            '-c:v', 'copy',     // Copy original video without re-encoding
+                            '-c:a', 'aac',      // Encode output audio as AAC
+                            '-b:a', '192k',     // High quality audio
+                            '-map', '0:v:0',    // Map original video
+                            '-map', '[outa]'    // Map the mixed audio
                         ])
                         .save(outputPath)
                         .on('end', resolve)
@@ -789,11 +853,21 @@ export const onNewsPostCreated = onDocumentCreated({
 
                     const clientID = cleanSecret(process.env.YOUTUBE_CLIENT_ID);
                     const clientSecret = cleanSecret(process.env.YOUTUBE_CLIENT_SECRET);
-                    const refreshToken = cleanSecret(process.env.YOUTUBE_REFRESH_TOKEN);
+
+                    // 🚀 PRIORITIZE Firestore Token (to avoid stale secrets issue)
+                    const youtubeSettings = await db.collection('settings').doc('youtube').get();
+                    let refreshToken = youtubeSettings.exists ? youtubeSettings.data()?.refreshToken : null;
+
+                    if (!refreshToken) {
+                        refreshToken = cleanSecret(process.env.YOUTUBE_REFRESH_TOKEN);
+                        console.log(`[VIDEO_PROCESS] Using Refresh Token from Secret Manager.`);
+                    } else {
+                        console.log(`[VIDEO_PROCESS] Using Refresh Token from Firestore.`);
+                    }
 
                     if (!clientID || !clientSecret || !refreshToken) {
                         console.error(`[VIDEO_PROCESS] Missing YouTube credentials. ID=${!!clientID}, Secret=${!!clientSecret}, Token=${!!refreshToken}`);
-                        throw new Error("YouTube credentials missing. Please set them using 'firebase functions:secrets:set'.");
+                        throw new Error("YouTube credentials missing. Please set them using 'firebase functions:secrets:set' or use the Auth Flow.");
                     }
 
                     console.log(`[VIDEO_PROCESS] Using credentials: ID_Len=${clientID.length}, Secret_Len=${clientSecret.length}, Token_Len=${refreshToken.length}`);

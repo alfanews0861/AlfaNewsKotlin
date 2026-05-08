@@ -24,6 +24,7 @@ class PreferenceManager(context: Context) {
         private const val KEY_LAST_RATING_DIALOG_TIME = "key_last_rating_dialog_time"
         private const val KEY_NOTIFICATIONS_ENABLED = "key_notifications_enabled"
         private const val KEY_IS_LEGACY_CACHE_CLEARED = "key_is_legacy_cache_cleared"
+        private const val KEY_LOCAL_PLACE = "key_local_place"
 
         @Volatile
         private var INSTANCE: PreferenceManager? = null
@@ -120,6 +121,13 @@ class PreferenceManager(context: Context) {
         get() = prefs.getBoolean(KEY_IS_LEGACY_CACHE_CLEARED, false)
         set(value) {
             prefs.edit().putBoolean(KEY_IS_LEGACY_CACHE_CLEARED, value).apply()
+        }
+
+    /** యూజర్ ప్రస్తుత స్థానం (మండలం/ఊరు) - వాతావరణం కోసం. */
+    var localPlace: String?
+        get() = prefs.getString(KEY_LOCAL_PLACE, null)
+        set(value) {
+            prefs.edit().putString(KEY_LOCAL_PLACE, value).apply()
         }
 
     /**

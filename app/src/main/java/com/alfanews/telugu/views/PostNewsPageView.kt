@@ -245,11 +245,18 @@ fun PostNewsPageView(
                     val serverMessage = result["message"] as? String
                     val newPostId = result["postId"] as? String
                     
-                    val successMessage = serverMessage ?: if (postToEdit != null) context.getString(R.string.news_updated_successfully) else context.getString(R.string.news_published_successfully)
-                    Toast.makeText(context, successMessage, Toast.LENGTH_LONG).show()
-
-                    delay(1500)
-                    onActionComplete(newPostId ?: postToEdit?.id ?: "")
+                    // Redirection Logic: Video vs Image
+                    val isVideoPost = finalMediaTypes.contains("VIDEO")
+                    if (isVideoPost) {
+                        Toast.makeText(context, "వీడియో ప్రాసెస్ చేయడానికి కనీసం 10 నిమిషాలు పడుతుంది, కావున 10 నిమిషాల తర్వాత చెక్ చేయండి", Toast.LENGTH_LONG).show()
+                        delay(2500)
+                        onActionComplete("HOME_ONLY") // Custom marker for MainScreen
+                    } else {
+                        val successMessage = serverMessage ?: if (postToEdit != null) context.getString(R.string.news_updated_successfully) else context.getString(R.string.news_published_successfully)
+                        Toast.makeText(context, successMessage, Toast.LENGTH_LONG).show()
+                        delay(1500)
+                        onActionComplete(newPostId ?: postToEdit?.id ?: "")
+                    }
                 } catch (e: Exception) {
                     statusMessage = context.getString(R.string.error)
                     Toast.makeText(context, context.getString(R.string.error_publishing_news, e.message ?: ""), Toast.LENGTH_LONG).show()

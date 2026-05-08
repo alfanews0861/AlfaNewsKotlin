@@ -68,11 +68,13 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
         const news = doc.data();
         news.id = doc.id;
         // ✅ FIX: Only process approved or published news
+        const status = (news.status || "").toUpperCase();
         const isApproved = news.approved === true;
-        const isPublished = news.status === "PUBLISHED";
-        const isAiProcessed = news.status === "AI_PROCESSED";
-        if (!isApproved && !isPublished && !isAiProcessed) {
-            v2_1.logger.log(`Skipping news ${news.id}: Not approved/published (Status: ${news.status}, Approved: ${news.approved})`);
+        const isPublished = status === "PUBLISHED";
+        const isAiProcessed = status === "AI_PROCESSED";
+        const isSystemType = ["greeting", "history", "cartoon"].includes(news.type);
+        if (!isApproved && !isPublished && !isAiProcessed && !isSystemType) {
+            v2_1.logger.log(`Skipping news ${news.id}: Not approved/published (Status: ${news.status}, Approved: ${news.approved}, Type: ${news.type})`);
             return;
         }
         // నెగటివ్ సిగ్నల్స్ ఎక్కువగా ఉంటే స్కిప్ (ఉదా: రిపోర్ట్స్ వస్తే)

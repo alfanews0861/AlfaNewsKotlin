@@ -11,6 +11,7 @@ import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseService
+import com.alfanews.telugu.utils.NewsCacheManager
 import com.alfanews.telugu.utils.PreferenceManager
 import com.alfanews.telugu.utils.Constants
 import com.google.android.gms.location.LocationServices
@@ -68,8 +69,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private var lastRefreshTimeLong: Long = 0
     
     private val globalCategories = listOf("రాజకీయం", "క్రైమ్", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "ఆరోగ్యం", "విద్య/ఉద్యోగాలు", "వ్యవసాయం")
-    private val FETCH_LIMIT = 50 // Increased for high volume (300+ daily news)
-    private val MIN_BATCH_SIZE = 20 // Target more items per fetch
+    private val FETCH_LIMIT = 100 // Increased for high volume
+    private val MIN_BATCH_SIZE = 20
 
     init {
         // loadNews will be called by View/Activity with proper parameters
@@ -92,7 +93,26 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                   }
               }
               _isOnline.value = true
-              _loading.value = true
+              
+              // 🚀 RAPID LOAD: Fetch top 3 fresh posts immediately to hide spinner
+              try {
+                  val rapidQuery = FirebaseService.db.collection("news")
+                      .whereEqualTo("approved", true)
+                      .orderBy("timestamp", Query.Direction.DESCENDING)
+                      .limit(3)
+                  
+                  val rapidSnapshot = rapidQuery.get().await()
+                  val rapidPosts = rapidSnapshot.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                  
+                  if (rapidPosts.isNotEmpty() && _news.value.isEmpty()) {
+                      _news.value = rapidPosts
+                      _loading.value = false // Hide spinner immediately!
+                  } else if (_news.value.isEmpty()) {
+                      _loading.value = true
+                  }
+              } catch (e: Exception) {
+                  if (_news.value.isEmpty()) _loading.value = true
+              }
 
               if (initialPostId == null) {
                   prefCursor = null
@@ -208,6 +228,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    }
 
                    _news.value = finalPosts.distinctBy { it.id }
+                   
                    val currentTime = System.currentTimeMillis()
                    lastRefreshTimeLong = currentTime
                    _lastRefreshTime.value = currentTime
@@ -215,9 +236,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    
                    // ✅ NEW: Track user interests immediately (even for new users)
                    // Build preference profiles from first load onwards
-                   finalPosts.filter { it.type == "news" }.take(20).forEach { post ->
+                   val postsToLog = finalPosts.filter { it.type == "news" }.take(20)
+                   if (postsToLog.isNotEmpty()) {
                        try {
-                           com.alfanews.telugu.services.AnalyticsService.logCategoryViews(post.categories, weight = 1)
+                           com.alfanews.telugu.services.AnalyticsService.logBulkCategoryViews(postsToLog.map { it.categories }, weight = 1)
                        } catch (e: Exception) { }
                    }
 
@@ -291,10 +313,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                       val currentIds = _news.value.map { it.id }.toSet()
                       _news.value = _news.value + newPosts.filter { !currentIds.contains(it.id) }
 
-                      // ✅ Track interests continuously
-                      newPosts.filter { it.type == "news" }.forEach { post ->
+                      // ✅ Track interests continuously - Batch log for efficiency
+                      val newsToLog = newPosts.filter { it.type == "news" }
+                      if (newsToLog.isNotEmpty()) {
                           try {
-                              com.alfanews.telugu.services.AnalyticsService.logCategoryViews(post.categories, weight = 1)
+                              com.alfanews.telugu.services.AnalyticsService.logBulkCategoryViews(newsToLog.map { it.categories }, weight = 1)
                           } catch (e: Exception) { }
                       }
                   }
@@ -318,7 +341,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
           var lastSnapshot: com.google.firebase.firestore.QuerySnapshot? = null
 
           // లక్ష్య సంఖ్యకు చేరుకునే వరకు లూప్ కొనసాగండి
-          while (filteredList.size < MIN_BATCH_SIZE && attempts < 4) {
+          while (filteredList.size < MIN_BATCH_SIZE && attempts < 4) { // Reduced attempts from 8 to 4 for speed
               attempts++
               var query = baseQuery.whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(FETCH_LIMIT.toLong())
               if (currentCursor != null) query = query.startAfter(currentCursor)
@@ -343,30 +366,19 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         // 1. Truly Global/State-wide categories (Always show on Home Feed)
                         // వీటిలో ఏదైనా ఉంటే, ఆ వార్త హోమ్ ఫీడ్‌లో చూపించాలి
                         val strictlyGlobalKeywords = listOf(
-                            // సిनेమా & వినోదం
-                            "సcinema", "సिनिमా", "cinema", "movie", "films", "tv", "వినోదం", "entertainment",
-                            // క్రీడలు
-                            "స్పోర్ట్స్", "sports", "cricket", "football", "tennis", "బ్యాడ్‌మింటన్",
-                            // పరిపంచ
-                            "జాతీయం", "national", "అంతర్జాతీయం", "international", "world",
-                            // రాజకీయం
-                            "రాజకీయం", "politics", "elections", "government", "నిర్వాహకత్వం",
-                            // చట్టం & క్రైమ్
-                            "క్రైమ్", "crime", "crime", "court", "న్యాయ", "చట్టం",
-                            // వ్యాపారం & సంపద
-                            "వ్యాపారం", "business", "economy", "వ్యాపారిక", "commodity", "stock",
-                            // టెక్నాలజీ
-                            "టెక్నాలజీ", "technology", "tech", "మొబైల్", "కంప్యూటర్",
-                            // ఆరోగ్యం
-                            "ఆరోగ్యం", "health", "medical", "hospital", "చికిత్స",
-                            // విద్య & ఉద్యోగాలు
-                            "విద్య", "education", "school", "college", "ఉద్యోగాలు", "jobs",
-                            // భక్తి
-                            "భక్తి", "spiritual", "religion", "temple", "religion",
-                            // వ్యవసాయం
-                            "వ్యవసాయం", "agriculture", "farm", "కుటీర",
-                            // స్థితి స్తరాలు (State & National)
-                            "State", "Andhra Pradesh", "Telangana", "AP", "TS", "భారతదేశ", "india"
+                            "సినిమా", "cinema", "movie", "films", "tv", "వినోదం", "entertainment", "OTT", "ఓటిటి",
+                            "స్పోర్ట్స్", "sports", "cricket", "football", "tennis", "క్రీడలు",
+                            "జాతీయం", "national", "అంతర్జాతీయం", "international", "world", "ప్రపంచం", "ఢిల్లీ", "delhi",
+                            "రాజకీయం", "politics", "elections", "government", "ప్రభుత్వం", "అసెంబ్లీ", "పార్లమెంట్",
+                            "క్రైమ్", "crime", "court", "కోర్టు", "న్యాయ", "చట్టం", "పోలీస్", "police",
+                            "వ్యాపారం", "business", "economy", "gold", "బంగారం", "ధరలు",
+                            "టెక్నాలజీ", "technology", "tech", "AI", "గ్యాడ్జెట్స్",
+                            "ఆరోగ్యం", "health", "medical", "hospital", "చికిత్స", "డాక్టర్",
+                            "విద్య", "education", "school", "college", "ఉద్యోగాలు", "jobs", "నోటిఫికేషన్",
+                            "భక్తి", "spiritual", "religion", "temple", "దేవాలయం", "రాశి ఫలాలు",
+                            "వ్యవసాయం", "agriculture", "రైతు", "farm",
+                            "State", "Andhra Pradesh", "Telangana", "AP", "TS", "ఆంధ్రప్రదేశ్", "తెలంగాణ", "india",
+                            "ముఖ్యాంశాలు", "బ్రేకింగ్", "Breaking", "వైరల్", "Viral", "తాజా వార్తలు"
                         )
 
                        // 2. Identify if it's a District-specific post
@@ -512,7 +524,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            // వాతావరణ కార్డును 9వ వార్తగా (Index 8) పెట్టండి
            // Only add on the first load (when cursors are null) to avoid duplicates in pagination
            if (mainCursor == null && prefCursor == null) {
-               val weatherPost = generateWeatherPost(_userDistrict.value)
+               val weatherPost = generateWeatherPost(prefs.localPlace ?: _userDistrict.value)
                val sizeAfterHistory = blendedNews.size
                val weatherIdx = if (8 <= sizeAfterHistory) 8 else if (sizeAfterHistory > 0) sizeAfterHistory - 1 else 0
                blendedNews.add(weatherIdx, weatherPost)
@@ -669,7 +681,15 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 @Suppress("DEPRECATION")
                 val addresses = geocoder.getFromLocation(lat, lon, 1)
                 if (!addresses.isNullOrEmpty()) {
-                    val detectedName = addresses[0].subAdminArea ?: addresses[0].locality ?: addresses[0].adminArea
+                    val address = addresses[0]
+                    
+                    // మండలం లేదా ఊరు పేరును గుర్తించండి
+                    val locality = address.locality ?: address.subLocality ?: address.subAdminArea
+                    if (locality != null) {
+                        prefs.localPlace = locality
+                    }
+
+                    val detectedName = address.subAdminArea ?: address.locality ?: address.adminArea
                     val mappedDistrict = Constants.ALL_DISTRICTS.find { 
                         it.contains(detectedName ?: "", ignoreCase = true) || (detectedName ?: "").contains(it, ignoreCase = true) 
                     }

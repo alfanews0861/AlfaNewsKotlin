@@ -227,7 +227,7 @@ fun UserProfilePageView(
                         }
                     }
                     
-                    if (isStaff) {
+                    /* if (isStaff) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
                             onClick = { onNavigate("whatsappAutomation") },
@@ -239,7 +239,7 @@ fun UserProfilePageView(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("వాట్సాప్ ఆటోమేషన్", fontWeight = FontWeight.Bold, color = Color.White)
                         }
-                    }
+                    } */
                 }
             }
         }

@@ -144,7 +144,11 @@ fun MainScreen(
                             onActionComplete = { postId -> 
                                 showPostNewsPage = false
                                 editingNewsPost = null
-                                if (postId.isNotBlank()) {
+                                if (postId == "HOME_ONLY") {
+                                    // Go to Home but don't filter for a specific post (Video flow)
+                                    mainViewModel.setActiveTab("home")
+                                } else if (postId.isNotBlank()) {
+                                    // Go to specific post (Image flow)
                                     mainViewModel.setActiveTab("home")
                                     newsFeedViewModel.setSharedPostId(postId)
                                     newsFeedViewModel.loadNews(language, user, initialPostId = postId)

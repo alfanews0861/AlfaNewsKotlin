@@ -20,7 +20,7 @@ fun VideoPlayerView(
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(videoUrl))
             prepare()
-            playWhenReady = true
+            playWhenReady = false
         }
     }
 
@@ -34,6 +34,7 @@ fun VideoPlayerView(
         factory = { ctx ->
             PlayerView(ctx).apply {
                 player = exoPlayer
+                useController = true
             }
         },
         modifier = modifier

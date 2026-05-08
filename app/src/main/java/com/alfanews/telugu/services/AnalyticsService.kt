@@ -119,6 +119,26 @@ object AnalyticsService {
         syncToFirestore()
     }
 
+    /**
+     * ✅ NEW: Optimized version to log multiple posts' categories at once
+     * Reduces disk writes and Firestore sync overhead
+     */
+    fun logBulkCategoryViews(allCategories: List<List<String>>, weight: Int = 1) {
+        if (allCategories.isEmpty()) return
+        cachedPreferredCategories = null
+        
+        allCategories.forEach { categories ->
+            categories.forEach { category ->
+                if (category.isNotBlank()) {
+                    categoryScores[category] = (categoryScores[category] ?: 0) + weight
+                }
+            }
+        }
+
+        saveToPrefs()
+        syncToFirestore()
+    }
+
     fun logReporterView(reporterId: String, weight: Int = 1) {
         if (reporterId.isBlank()) return
         reporterScores[reporterId] = (reporterScores[reporterId] ?: 0) + weight

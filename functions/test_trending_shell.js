@@ -10,6 +10,8 @@ async function run() {
      for (let d of data) {
          d.timestamp = admin.firestore.FieldValue.serverTimestamp();
          d.lastUpdated = admin.firestore.FieldValue.serverTimestamp();
+         d.status = d.status || "PUBLISHED";
+         d.approved = d.approved !== undefined ? d.approved : true;
          const res = await db.collection('news').add(d);
          console.log('Added:', res.id);
      }

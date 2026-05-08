@@ -378,6 +378,13 @@
     <string name="district_desc">జిల్లా (District)</string>
     <string name="sponsored_content">Sponsored Content</string>
     <string name="weather_report_label">Weather Report</string>
+    <string name="weather_temperature">Temperature</string>
+    <string name="weather_feels_like">Feels like</string>
+    <string name="weather_humidity">Humidity</string>
+    <string name="weather_wind">Wind</string>
+    <string name="weather_upcoming">Next 3 Days</string>
+    <string name="weather_today">Today</string>
+    <string name="weather_tomorrow">Tomorrow</string>
     <string name="loading_dots">Loading...</string>
 
     <!-- Edit Profile -->

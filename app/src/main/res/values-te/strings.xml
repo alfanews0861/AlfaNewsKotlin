@@ -376,6 +376,13 @@
     <string name="district_desc">జిల్లా</string>
     <string name="sponsored_content">ప్రకటన</string>
     <string name="weather_report_label">వాతావరణ నివేదిక</string>
+    <string name="weather_temperature">ఉష్ణోగ్రత</string>
+    <string name="weather_feels_like">అనిపిస్తోంది</string>
+    <string name="weather_humidity">తేమ</string>
+    <string name="weather_wind">గాలి వేగం</string>
+    <string name="weather_upcoming">రానున్న 3 రోజులు</string>
+    <string name="weather_today">ఈ రోజు</string>
+    <string name="weather_tomorrow">రేపు</string>
     <string name="loading_dots">లోడ్ అవుతోంది...</string>
 
     <!-- Edit Profile -->

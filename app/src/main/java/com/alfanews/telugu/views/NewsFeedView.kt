@@ -147,13 +147,11 @@ fun NewsFeedView(
         }
     }
 
-    // యాడ్ స్లాట్‌ల కారణంగా టోటల్ పేజీ కౌంట్ కాలిక్యులేట్ చేయండి (6 పేజీలకు 1 యాడ్)
+    // యాడ్ స్లాట్ల కారణంగా టోటల్ పేజీ కౌంట్ కాలిక్యులేట్ చేయండి (5 వార్తల తర్వాత 1 యాడ్)
     val totalCount = remember(news.size) {
-        if (news.isEmpty()) 0 else {
-            val newsCount = news.size
-            val adSlots = (newsCount + 5) / 6 // పూర్తిగా చేయండి
-            newsCount + adSlots
-        }
+        val newsCount = news.size
+        if (newsCount == 0) 0 
+        else newsCount + (newsCount - 1) / 5
     }
     val pagerState = rememberPagerState(pageCount = { totalCount })
 

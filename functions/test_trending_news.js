@@ -98,6 +98,8 @@ async function run() {
                 storyFingerprint: aiRes.storyFingerprint,
                 reporter: reporter,
                 aiProcessed: true,
+                status: "PUBLISHED",
+                approved: true,
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         };

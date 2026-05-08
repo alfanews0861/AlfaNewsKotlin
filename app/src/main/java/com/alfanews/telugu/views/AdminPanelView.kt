@@ -66,7 +66,7 @@ fun AdminPanelView(
         PageConfig("edit-profile", stringResource(R.string.edit_profile), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         PageConfig("id-card", stringResource(R.string.id_card), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         PageConfig("post", stringResource(R.string.post_news), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        PageConfig("whatsappAutomation", "వాట్సాప్ ఆటోమేషన్", listOf(UserRole.REPORTER, UserRole.ADMIN)),
+        // PageConfig("whatsappAutomation", "వాట్సాప్ ఆటోమేషన్", listOf(UserRole.REPORTER, UserRole.ADMIN)),
         PageConfig("ads", stringResource(R.string.ads_manager), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         PageConfig("manage", stringResource(R.string.manage_news), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
         PageConfig("manageReporters", stringResource(R.string.manage_reporters), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
@@ -78,9 +78,9 @@ fun AdminPanelView(
 
     val accessiblePages = when (user.role) {
         UserRole.GUEST, UserRole.SUBSCRIBER -> allPages.filter { it.id == "profile" }
-        UserRole.REPORTER -> allPages.filter { listOf("profile", "post", "whatsappAutomation", "ads", "edit-profile", "id-card").contains(it.id) }
-        UserRole.REGIONAL_INCHARGE -> allPages.filter { listOf("profile", "post", "whatsappAutomation", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card").contains(it.id) }
-        UserRole.EDITOR -> allPages.filter { listOf("profile", "post", "whatsappAutomation", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card").contains(it.id) }
+        UserRole.REPORTER -> allPages.filter { listOf("profile", "post", "ads", "edit-profile", "id-card").contains(it.id) }
+        UserRole.REGIONAL_INCHARGE -> allPages.filter { listOf("profile", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card").contains(it.id) }
+        UserRole.EDITOR -> allPages.filter { listOf("profile", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card").contains(it.id) }
         UserRole.ADMIN -> allPages
         else -> allPages.filter { it.id == "profile" }
     }
@@ -288,7 +288,7 @@ fun AdminPanelView(
                         themeMode = themeMode,
                         onThemeModeChange = onThemeModeChange,
                         onNavigate = { page ->
-                            if(listOf("edit-profile", "id-card", "whatsappAutomation").contains(page)) activePage = page
+                            if(listOf("edit-profile", "id-card").contains(page)) activePage = page
                             else onNavigate(page)
                          },
                         onLoginRequest = onLoginRequest
@@ -303,10 +303,10 @@ fun AdminPanelView(
                         user = user,
                         onBack = { activePage = "profile" }
                     )
-                    "whatsappAutomation" -> WhatsAppAutomationView(
+                    /* "whatsappAutomation" -> WhatsAppAutomationView(
                         userId = user.id,
                         onBack = { activePage = "profile" }
-                    )
+                    ) */
                     "post" -> PostNewsPageView(
                         user = user,
                         postToEdit = editingPost,
