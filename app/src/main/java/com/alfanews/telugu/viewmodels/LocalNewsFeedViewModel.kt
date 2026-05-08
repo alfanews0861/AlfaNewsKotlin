@@ -12,7 +12,6 @@ import com.alfanews.telugu.models.User
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.PreferenceManager
 import com.alfanews.telugu.utils.Constants
-import com.alfanews.telugu.utils.NewsCacheManager
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.firestore.DocumentSnapshot
