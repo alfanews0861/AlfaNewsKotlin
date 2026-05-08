@@ -24,6 +24,7 @@ class PreferenceManager(context: Context) {
         private const val KEY_LAST_RATING_DIALOG_TIME = "key_last_rating_dialog_time"
         private const val KEY_NOTIFICATIONS_ENABLED = "key_notifications_enabled"
         private const val KEY_IS_LEGACY_CACHE_CLEARED = "key_is_legacy_cache_cleared"
+        private const val KEY_CACHE_VERSION = "key_cache_version"
         private const val KEY_LOCAL_PLACE = "key_local_place"
 
         @Volatile
@@ -121,6 +122,13 @@ class PreferenceManager(context: Context) {
         get() = prefs.getBoolean(KEY_IS_LEGACY_CACHE_CLEARED, false)
         set(value) {
             prefs.edit().putBoolean(KEY_IS_LEGACY_CACHE_CLEARED, value).apply()
+        }
+
+    /** కాష్ వెర్షన్ - దీన్ని పెంచడం ద్వారా అందరికీ కాష్ క్లియర్ చేయవచ్చు. */
+    var cacheVersion: Int
+        get() = prefs.getInt(KEY_CACHE_VERSION, 0)
+        set(value) {
+            prefs.edit().putInt(KEY_CACHE_VERSION, value).apply()
         }
 
     /** యూజర్ ప్రస్తుత స్థానం (మండలం/ఊరు) - వాతావరణం కోసం. */

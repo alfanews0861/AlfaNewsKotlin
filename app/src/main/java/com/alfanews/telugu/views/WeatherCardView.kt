@@ -40,9 +40,9 @@ fun WeatherCardView(
     val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
     val content = if (language == Language.TELUGU) post.content.telugu else post.content.english
     
-    // ఉష్ణోగ్రతను గుర్తించడం (Regex ద్వారా)
+    // ఉష్ణోగ్రతను గుర్తించడం (Regex ద్వారా - తాజా ఉష్ణోగ్రత కోసం)
     val temperature = remember(headline, content) {
-        val pattern = Pattern.compile("(\\d+)\\s*(°C|డిగ్రీలు|degrees)", Pattern.CASE_INSENSITIVE)
+        val pattern = Pattern.compile("(\\d+)(°C|డిగ్రీలు|degrees)", Pattern.CASE_INSENSITIVE)
         val hMatcher = pattern.matcher(headline)
         val cMatcher = pattern.matcher(content)
         when {
@@ -72,8 +72,8 @@ fun WeatherCardView(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
-                .padding(horizontal = 16.dp),
+                .height(60.dp) // Slightly taller
+                .padding(horizontal = 20.dp), // Consistent padding
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -211,75 +211,72 @@ fun WeatherCardView(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(0.58f),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 1.dp
+            color = MaterialTheme.colorScheme.surface
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp)
+                    .padding(20.dp) // Improved padding
             ) {
                 Text(
                     text = headline,
-                    fontSize = 20.sp,
+                    fontSize = 22.sp,
                     fontFamily = Ramabhadra,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface,
-                    lineHeight = 28.sp,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    lineHeight = 30.sp,
+                    modifier = Modifier.padding(bottom = 12.dp)
                 )
 
                 Text(
                     text = content,
-                    fontSize = 17.sp,
+                    fontSize = 18.sp,
                     fontFamily = Mallanna,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                    lineHeight = 24.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                    lineHeight = 26.sp,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
                         .verticalScroll(rememberScrollState())
                 )
                 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(16.dp))
                 
                 // UPCOMING FORECAST SECTION
-                Text(
-                    text = stringResource(R.string.weather_upcoming),
-                    fontSize = 14.sp,
-                    fontFamily = Ramabhadra,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.weather_upcoming),
+                        fontSize = 14.sp,
+                        fontFamily = Ramabhadra,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    
+                    Text(
+                        text = "Alfa Weather",
+                        fontSize = 10.sp,
+                        fontFamily = Ramabhadra,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    )
+                }
                 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     val tempInt = temperature.toIntOrNull() ?: 32
-                    ForecastItem(stringResource(R.string.weather_today), weatherType.icon, "$tempInt°", "${tempInt - 5}°")
-                    ForecastItem(stringResource(R.string.weather_tomorrow), Icons.Default.WbCloudy, "${tempInt + 1}°", "${tempInt - 4}°")
+                    ForecastItem(stringResource(R.string.weather_today), weatherType.icon, "$tempInt°", "${tempInt - 5}°", Modifier.weight(1f))
+                    ForecastItem(stringResource(R.string.weather_tomorrow), Icons.Default.WbCloudy, "${tempInt + 1}°", "${tempInt - 4}°", Modifier.weight(1f))
                     ForecastItem(
                         if (language == Language.TELUGU) "ఎల్లుండి" else "Day After", 
                         Icons.Default.CloudQueue, 
                         "${tempInt - 1}°", 
-                        "${tempInt - 6}°"
-                    )
-                }
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                // Footer
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Alfa Weather Service",
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        "${tempInt - 6}°",
+                        Modifier.weight(1f)
                     )
                 }
             }
@@ -297,13 +294,12 @@ fun WeatherDetailItem(icon: ImageVector, label: String, value: String) {
 }
 
 @Composable
-fun ForecastItem(day: String, icon: ImageVector, max: String, min: String) {
+fun ForecastItem(day: String, icon: ImageVector, max: String, min: String, modifier: Modifier = Modifier) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
+        modifier = modifier
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
             .padding(8.dp)
-            .width(90.dp)
     ) {
         Text(text = day, fontSize = 11.sp, fontFamily = Ramabhadra, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Icon(imageVector = icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp).padding(vertical = 4.dp))

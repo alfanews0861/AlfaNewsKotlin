@@ -19,8 +19,16 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.Calendar
 import kotlinx.coroutines.*
+import coil3.ImageLoader
+import coil3.PlatformContext
+import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.disk.directory
+import coil3.memory.MemoryCache
+import coil3.request.crossfade
+import coil3.util.DebugLogger
 
-class AlfaNewsApplication : Application() {
+class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onCreate() {
@@ -121,31 +129,68 @@ class AlfaNewsApplication : Application() {
     }
 
     /**
+     * 🖼️ Coil ఇమేజ్ లోడర్ కాన్ఫిగరేషన్ (Coil 3).
+     * ఇమేజ్ కాష్ పరిమితిని 50MB కి తగ్గిస్తున్నాము, తద్వారా ఫోన్ స్టోరేజ్ నిండదు.
+     */
+    override fun newImageLoader(context: PlatformContext): ImageLoader {
+        return ImageLoader.Builder(context)
+            .memoryCache {
+                MemoryCache.Builder()
+                    .maxSizePercent(context, 0.15) // మెమరీలో 15% మాత్రమే
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(context.cacheDir.resolve("image_cache"))
+                    .maxSizeBytes(50 * 1024 * 1024) // గరిష్టంగా 50MB మాత్రమే
+                    .build()
+            }
+            .crossfade(true)
+            .build()
+    }
+
+    /**
      * 🧹 పాత వెర్షన్లలో సేవ్ అయిన భారీ కాష్ డేటా (GBs లో ఉన్నవి) క్లియర్ చేస్తుంది.
      * ఇది అప్‌డేట్ తర్వాత ఒకే ఒకసారి జరుగుతుంది.
      */
     private fun clearLegacyAppCache() {
         val prefs = PreferenceManager.getInstance(this)
-        if (!prefs.isLegacyCacheCleared) {
+        val currentCacheVersion = 3 // లూప్ సమస్య ఫిక్స్ తర్వాత క్లీన్ అప్ కోసం 3 కి పెంచాము
+        
+        if (prefs.cacheVersion < currentCacheVersion) {
             scope.launch(Dispatchers.IO) {
                 try {
-                    // 1. ఇమేజ్ కాష్ ఫోల్డర్‌ను మరియు ఇతర కాష్ ఫైల్స్‌ను పూర్తిగా డిలీట్ చేయడం
+                    // 1. కాష్ ఫోల్డర్‌ను పూర్తిగా డిలీట్ చేయడం
                     deleteDir(cacheDir)
                     
-                    // 2. Firestore డేటాబేస్ ఫైల్స్ ఉన్న ఫోల్డర్‌ను కూడా టార్గెట్ చేయడం
+                    // 2. డేటాబేస్ ఫోల్డర్‌ను క్లియర్ చేయడం (Firestore ఇక్కడే GBs డేటాను స్టోర్ చేస్తుంది)
                     val databasesDir = File(applicationInfo.dataDir, "databases")
                     if (databasesDir.exists()) {
-                        val files = databasesDir.listFiles()
-                        if (files != null) {
-                            for (file in files) {
-                                if (file.name.contains("firestore", ignoreCase = true)) {
-                                    deleteDir(file)
+                        deleteDir(databasesDir)
+                    }
+                    
+                    // 3. WebView డేటా ఫోల్డర్
+                    val webViewDir = File(applicationInfo.dataDir, "app_webview")
+                    if (webViewDir.exists()) {
+                        deleteDir(webViewDir)
+                    }
+                    
+                    // 4. 'files' ఫోల్డర్‌లో ఉండే అనవసర ఫైల్స్
+                    val filesDir = filesDir
+                    if (filesDir.exists()) {
+                        val children = filesDir.list()
+                        if (children != null) {
+                            for (child in children) {
+                                if (child.contains("cache", ignoreCase = true) || 
+                                    child.contains("coil", ignoreCase = true)) {
+                                    deleteDir(File(filesDir, child))
                                 }
                             }
                         }
                     }
 
-                    // 3. క్లియర్ అయినట్లు ఫ్లాగ్ సెట్ చేయడం
+                    // 5. వెర్షన్ అప్‌డేట్ చేయడం
+                    prefs.cacheVersion = currentCacheVersion
                     prefs.isLegacyCacheCleared = true
                 } catch (e: Exception) {
                     e.printStackTrace()

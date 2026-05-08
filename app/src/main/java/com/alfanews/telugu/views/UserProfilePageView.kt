@@ -120,14 +120,14 @@ fun UserProfilePageView(
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // వినియోగదారు సమాచార కార్డ్
-        ElevatedCard(
+        Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.medium,
-            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.background),
-            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.05f))
         ) {
             Column(
                 modifier = Modifier
@@ -142,19 +142,19 @@ fun UserProfilePageView(
                         modifier = Modifier
                             .size(110.dp)
                             .clip(CircleShape)
-                            .border(3.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                            .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape)
                     )
                     if (!isGuest) {
                         Surface(
                             modifier = Modifier.size(32.dp).clickable { onNavigate("edit-profile") },
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.primary,
-                            border = BorderStroke(2.dp, MaterialTheme.colorScheme.surface)
+                            shadowElevation = 2.dp
                         ) {
                             Icon(
                                 Icons.Default.Edit,
                                 contentDescription = stringResource(R.string.edit_profile),
-                                modifier = Modifier.padding(6.dp),
+                                modifier = Modifier.padding(8.dp),
                                 tint = MaterialTheme.colorScheme.onPrimary
                             )
                         }
@@ -167,13 +167,14 @@ fun UserProfilePageView(
                     user.name,
                     fontSize = 28.sp,
                     fontFamily = Ramabhadra,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center
                 )
                 
                 Surface(
                     modifier = Modifier.padding(top = 4.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                    shape = MaterialTheme.shapes.small
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                    shape = RoundedCornerShape(4.dp)
                 ) {
                     Text(
                         text = when {
@@ -184,10 +185,10 @@ fun UserProfilePageView(
                             user.role == UserRole.SUBSCRIBER -> stringResource(R.string.subscriber)
                             else -> user.role.name
                         },
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
 
@@ -200,7 +201,7 @@ fun UserProfilePageView(
                         shape = MaterialTheme.shapes.medium,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
-                        Text(stringResource(R.string.login_signup), fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.login_signup), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                     }
                 } else {
                     Row(
@@ -220,26 +221,12 @@ fun UserProfilePageView(
                                 onClick = { onNavigate("id-card") },
                                 modifier = Modifier.weight(1f).height(48.dp),
                                 shape = MaterialTheme.shapes.medium,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
                             ) {
                                 Text(stringResource(R.string.id_card), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
-                    
-                    /* if (isStaff) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = { onNavigate("whatsappAutomation") },
-                            modifier = Modifier.fillMaxWidth().height(48.dp),
-                            shape = MaterialTheme.shapes.medium,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)) // WhatsApp Green
-                        ) {
-                            Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("వాట్సాప్ ఆటోమేషన్", fontWeight = FontWeight.Bold, color = Color.White)
-                        }
-                    } */
                 }
             }
         }
@@ -345,8 +332,8 @@ fun UserProfilePageView(
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.05f))
         ) {
             Column {
                 mainLinks.forEachIndexed { index, (id, label) ->
@@ -354,15 +341,24 @@ fun UserProfilePageView(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onNavigate(id) }
-                            .padding(20.dp),
+                            .padding(16.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(label, fontFamily = Ramabhadra, fontSize = 18.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (id == "about") Icons.Default.Info else Icons.Default.Email,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(label, fontFamily = Ramabhadra, fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
                     }
                     if (index < mainLinks.size - 1) {
-                        Divider(modifier = Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                        Divider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
                     }
                 }
             }
@@ -418,19 +414,19 @@ fun UserProfilePageView(
 /** సెట్టింగ్స్ సమూహాన్ని ప్రదర్శించే కాంపోజబుల్. */
 @Composable
 fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
-    ElevatedCard(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.background),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.05f))
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Text(
                 text = title,
                 fontSize = 18.sp,
                 fontFamily = Ramabhadra,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(bottom = 16.dp)
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                modifier = Modifier.padding(bottom = 12.dp)
             )
             content()
         }

@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.models.User
+import com.alfanews.telugu.services.WeatherService
 import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.PreferenceManager
@@ -77,51 +78,54 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
      fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null) {
           if (isFetching && initialPostId == null) return
+          
+          _loading.value = true 
           isFetching = true
 
           viewModelScope.launch {
-              // ఇంటర్నెట్ తనిఖీ
-              if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
-                  // Even if offline, Firestore might have cached data due to persistence
-                  // So we only return if there's absolutely no news and no internet
-                  if (_news.value.isEmpty()) {
-                      _isOnline.value = false
-                      _loading.value = false
-                      isFetching = false
-                      return@launch
-                  }
-              }
-              _isOnline.value = true
-              
-              // 🚀 RAPID LOAD: Fetch top 3 fresh posts immediately to hide spinner
               try {
-                  val rapidQuery = FirebaseService.db.collection("news")
-                      .whereEqualTo("approved", true)
-                      .orderBy("timestamp", Query.Direction.DESCENDING)
-                      .limit(3)
-                  
-                  val rapidSnapshot = rapidQuery.get().await()
-                  val rapidPosts = rapidSnapshot.documents.mapNotNull { mapDocumentToNewsPost(it) }
-                  
-                  if (rapidPosts.isNotEmpty() && _news.value.isEmpty()) {
-                      _news.value = rapidPosts
-                      _loading.value = false // Hide spinner immediately!
-                  } else if (_news.value.isEmpty()) {
-                      _loading.value = true
+                  // ఇంటర్నెట్ తనిఖీ
+                  if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
+                      if (_news.value.isEmpty()) {
+                          _isOnline.value = false
+                          _loading.value = false
+                          isFetching = false
+                          return@launch
+                      }
                   }
-              } catch (e: Exception) {
-                  if (_news.value.isEmpty()) _loading.value = true
-              }
+                  _isOnline.value = true
 
-              if (initialPostId == null) {
-                  prefCursor = null
-                  mainCursor = null
-                  _hasMore.value = true
-              }
+                  // 🚀 FAST PASS: Get top 3 news immediately to stop spinner
+                  try {
+                      val fastQuery = FirebaseService.db.collection("news")
+                          .whereEqualTo("approved", true)
+                          .orderBy("timestamp", Query.Direction.DESCENDING)
+                          .limit(3)
+                      val fastSnapshot = fastQuery.get().await()
+                      val fastPosts = fastSnapshot.documents.mapNotNull { doc ->
+                          val post = mapDocumentToNewsPost(doc) ?: return@mapNotNull null
+                          
+                          // హోమ్ ఫీడ్ ఫిల్టరింగ్ (జిల్లా వార్తలను నివారించండి)
+                          val isLocal = (post.district != null && Constants.ALL_DISTRICTS.contains(post.district)) || 
+                                        post.categories.any { it in Constants.ALL_DISTRICTS }
+                          
+                          if (isLocal) return@mapNotNull null
+                          post
+                      }
+                      if (fastPosts.isNotEmpty() && _news.value.isEmpty()) {
+                          _news.value = fastPosts
+                          _loading.value = false // Hide spinner so user sees news!
+                      }
+                  } catch (e: Exception) { }
 
-               try {
-                   val district = prefs.selectedDistrict ?: currentUser?.district ?: prefs.detectedDistrict
-                   _userDistrict.value = district
+                  if (initialPostId == null) {
+                      prefCursor = null
+                      mainCursor = null
+                      _hasMore.value = true
+                  }
+
+                  val district = prefs.selectedDistrict ?: currentUser?.district ?: prefs.detectedDistrict
+                  _userDistrict.value = district
 
                    // ═══════════════════════════════════════════════════════════════════
                    // 🚀 NEW USER OPTIMIZATION: Skip preferences/district for first load
@@ -152,19 +156,14 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
                    val mainBatchDeferred = async {
                        try {
-                           // If district is null (new user), we DON'T exclude districts - show everything
-                           fetchFilteredBatch(FirebaseService.db.collection("news"), null, district, excludeDistricts = district != null)
+                           // ✅ ALWAYS EXCLUDE DISTRICTS FOR HOME FEED (As per user request)
+                           fetchFilteredBatch(FirebaseService.db.collection("news"), null, district, excludeDistricts = true)
                        } catch (e: Exception) { Pair(emptyList<NewsPost>(), null) }
                    }
 
-                   // జిల్లా-స్పెసిఫిక్ వార్తలను కూడా ఫెచ్ చేయండి (but skip for new users on first load)
+                   // ✅ HOME FEED EXCLUSION: We don't fetch local district news for the home page
                    val localBatchDeferred = async {
-                       if (district != null && !isNewUser) {
-                           try {
-                               val localQuery = FirebaseService.db.collection("news").whereArrayContains("categories", district)
-                               fetchFilteredBatch(localQuery, null, district, excludeDistricts = false)
-                           } catch (e: Exception) { Pair(emptyList<NewsPost>(), null) }
-                       } else Pair(emptyList<NewsPost>(), null)
+                       Pair(emptyList<NewsPost>(), null)
                    }
 
                    val greetingPost = greetingBatchDeferred.await()
@@ -177,6 +176,12 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
                    var finalPosts = withContext(Dispatchers.Default) {
                        rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first)
+                   }
+
+                   // 🚀 CRITICAL: If after filtering we have no news, don't let it loop
+                   if (finalPosts.isEmpty() && (mainCursor != null || prefCursor != null)) {
+                       // We scanned but found nothing global. Stop here to save bill/data.
+                       _hasMore.value = false
                    }
 
                    // --- IMPROVED FALLBACK (with filtering maintained) ---
@@ -228,6 +233,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
                    _news.value = finalPosts.distinctBy { it.id }
                    
+                   // ✅ UI RAPID REFRESH: If we only had a few posts, show the first 5 immediately
+                   // even before full processing finishes if possible
+                   if (_news.value.isEmpty() && finalPosts.isNotEmpty()) {
+                        _news.value = finalPosts.take(5)
+                        _loading.value = false
+                   }
+
                    val currentTime = System.currentTimeMillis()
                    lastRefreshTimeLong = currentTime
                    _lastRefreshTime.value = currentTime
@@ -261,8 +273,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                  val preferredCats = AnalyticsService.getUserPreferredCategories().take(10)
 
                  // కర్సర్ స్టేట్‌ను వెరిఫై చేయండి
-                 val shouldFetchPref = preferredCats.isNotEmpty() && (prefCursor != null || _news.value.size < 100)
-                 val shouldFetchMain = mainCursor != null || _news.value.size < 100
+                 val shouldFetchPref = preferredCats.isNotEmpty() && (prefCursor != null)
+                 val shouldFetchMain = mainCursor != null
                  
                  val prefBatchDeferred = async {
                      if (shouldFetchPref) {
@@ -286,14 +298,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                      } else Pair(emptyList<NewsPost>(), null)
                  }
 
-                 // జిల్లా వార్తలను కూడా లోడ్ చేయండి
+                 // ✅ HOME FEED EXCLUSION: We don't fetch local district news for the home page
                  val localBatchDeferred = async {
-                     if (district != null && _news.value.size < 150) {
-                         try {
-                             val localQuery = FirebaseService.db.collection("news").whereArrayContains("categories", district)
-                             fetchFilteredBatch(localQuery, null, district, excludeDistricts = false)
-                         } catch (e: Exception) { Pair(emptyList<NewsPost>(), null) }
-                     } else Pair(emptyList<NewsPost>(), null)
+                     Pair(emptyList<NewsPost>(), null)
                  }
 
                  val prefBatch = prefBatchDeferred.await()
@@ -310,21 +317,29 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
                   if (newPosts.isNotEmpty()) {
                       val currentIds = _news.value.map { it.id }.toSet()
-                      _news.value = _news.value + newPosts.filter { !currentIds.contains(it.id) }
+                      val uniqueNewPosts = newPosts.filter { !currentIds.contains(it.id) }
+                      
+                      if (uniqueNewPosts.isNotEmpty()) {
+                          _news.value = _news.value + uniqueNewPosts
 
-                      // ✅ Track interests continuously - Batch log for efficiency
-                      val newsToLog = newPosts.filter { it.type == "news" }
-                      if (newsToLog.isNotEmpty()) {
-                          try {
-                              com.alfanews.telugu.services.AnalyticsService.logBulkCategoryViews(newsToLog.map { it.categories }, weight = 1)
-                          } catch (e: Exception) { }
+                          // ✅ Track interests continuously - Batch log for efficiency
+                          val newsToLog = uniqueNewPosts.filter { it.type == "news" }
+                          if (newsToLog.isNotEmpty()) {
+                              try {
+                                  com.alfanews.telugu.services.AnalyticsService.logBulkCategoryViews(newsToLog.map { it.categories }, weight = 1)
+                              } catch (e: Exception) { }
+                          }
+                      } else {
+                          // If no unique posts were found, we should stop trying for this session 
+                          // to prevent infinite loops if the query keeps returning same items
+                          if (mainCursor == null && prefCursor == null) {
+                              _hasMore.value = false
+                          }
                       }
+                  } else {
+                      // No posts returned from fetch at all
+                      _hasMore.value = false
                   }
-
-                 // రెండు కర్సర్‌లు null కావడం అంటే ఇక డేటా లేదు
-                 if (mainCursor == null && prefCursor == null) {
-                     _hasMore.value = false
-                 }
 
              } catch (e: Exception) {
              } finally {
@@ -377,7 +392,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                             "భక్తి", "spiritual", "religion", "temple", "దేవాలయం", "రాశి ఫలాలు",
                             "వ్యవసాయం", "agriculture", "రైతు", "farm",
                             "State", "Andhra Pradesh", "Telangana", "AP", "TS", "ఆంధ్రప్రదేశ్", "తెలంగాణ", "india",
-                            "ముఖ్యాంశాలు", "బ్రేకింగ్", "Breaking", "వైరల్", "Viral", "తాజా వార్తలు"
+                            "రాష్ట్ర", "రాష్ట్ర వార్తలు", "ముఖ్యాంశాలు", "బ్రేకింగ్", "Breaking", "వైరల్", "Viral", "తాజా వార్తలు"
                         )
 
                        // 2. Identify if it's a District-specific post
@@ -391,10 +406,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                        } || (postDist != null && strictlyGlobalKeywords.any { kw -> postDist.contains(kw, ignoreCase = true) })
 
                        // 4. ఫిల్టర్ లాజిక్:
-                       // ఒక వార్త జిల్లాకు సంబంధించినది అయ్యి, గ్లోబల్ కేటగరీ లేకపోతే అది "Purely Local" (గ్రామ స్థాయి వార్త).
-                       // అటువంటి వార్తలను హోమ్ ఫీడ్ లో చూపించకూడదు.
-                       // ఉదాహరణకు: జిల్లా "Politics" లేదా "Development" వార్తలు హోమ్ ఫీడ్ లో రావు.
-                       if (isLocal && !hasGlobal) {
+                       // హోమ్ ఫీడ్ లో కేవలం జనరల్ న్యూస్ మాత్రమే ఉండాలి.
+                       // ఒక వార్తకు జిల్లా ట్యాగ్ ఉన్నా లేదా అది గ్లోబల్ కేటగిరీ కాకపోయినా హోమ్ ఫీడ్ లో చూపించకూడదు.
+                       if (isLocal || !hasGlobal) {
                            return@mapNotNull null
                        }
                    }
@@ -523,7 +537,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            // వాతావరణ కార్డును 9వ వార్తగా (Index 8) పెట్టండి
            // Only add on the first load (when cursors are null) to avoid duplicates in pagination
            if (mainCursor == null && prefCursor == null) {
-               val weatherPost = generateWeatherPost(prefs.localPlace ?: _userDistrict.value)
+               val weatherPost = generateWeatherPost(prefs.localPlace, _userDistrict.value)
                val sizeAfterHistory = blendedNews.size
                val weatherIdx = if (8 <= sizeAfterHistory) 8 else if (sizeAfterHistory > 0) sizeAfterHistory - 1 else 0
                blendedNews.add(weatherIdx, weatherPost)
@@ -746,51 +760,46 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
      }
 
      /**
-      * ప్రస్తుత జిల్లా ఆధారంగా వాతావరణ వార్తను తయారు చేస్తుంది.
+      * యూజర్ ఉన్న ఖచ్చితమైన ప్రాంతం లేదా జిల్లా ఆధారంగా వాతావరణ సమాచారాన్ని తెస్తుంది.
       */
-     private fun generateWeatherPost(district: String?): NewsPost {
-         val location = district ?: "హైదరాబాద్"
+     private suspend fun generateWeatherPost(place: String?, district: String?): NewsPost {
+         // ప్రాధాన్యత: 1. ఖచ్చితమైన ప్రాంతం (Place), 2. జిల్లా (District), 3. హైదరాబాద్ (Fallback)
+         val location = place ?: district ?: "హైదరాబాద్"
+         val displayLocation = if (place != null && district != null && place != district) "$place ($district)" else location
          
-         // సింపుల్ రాండమ్ వెదర్ డేటా (ప్రస్తుతానికి)
+         // 🌍 నిజమైన వాతావరణ డేటా కోసం API కాల్
+         val realWeatherData = WeatherService.fetchWeather(location)
+         
+         val temperatureStr: String
          val weatherHeadlineTe: String
          val weatherContentTe: String
          val weatherHeadlineEn: String
          
-         val randomIdx = (System.currentTimeMillis() % 4).toInt()
-         when (randomIdx) {
-             0 -> {
-                 weatherHeadlineTe = "ఎండగా ఉంటుంది (Sunny)"
-                 weatherContentTe = "నేడు వాతావరణం పొడిగా మరియు ఎండగా ఉంటుంది. ఉష్ణోగ్రతలు సాధారణం కంటే 2 డిగ్రీలు పెరిగే అవకాశం ఉంది."
-                 weatherHeadlineEn = "Sunny & Hot"
-             }
-             1 -> {
-                 weatherHeadlineTe = "వర్షం పడే అవకాశం (Rainy)"
-                 weatherContentTe = "ఆకాశం మేఘావృతమై ఉంటుంది. సాయంత్రం వేళ తేలికపాటి నుండి మోస్తరు వర్షాలు కురిసే అవకాశం ఉంది."
-                 weatherHeadlineEn = "Light Rains Expected"
-             }
-             2 -> {
-                 weatherHeadlineTe = "మేఘావృతమై ఉంటుంది (Cloudy)"
-                 weatherContentTe = "రోజంతా ఆకాశం మేఘావృతమై ఉంటుంది. చల్లటి గాలులు వీస్తాయి. ఉష్ణోగ్రతలు తగ్గుముఖం పట్టవచ్చు."
-                 weatherHeadlineEn = "Cool & Cloudy"
-             }
-             else -> {
-                 weatherHeadlineTe = "పాక్షికంగా మేఘావృతం (Partly Cloudy)"
-                 weatherContentTe = "ఎండ మరియు మేఘాలు కలిసి ఉంటాయి. ఉమ్మడి వాతావరణం ఆహ్లాదకరంగా ఉంటుంది."
-                 weatherHeadlineEn = "Pleasant Weather"
-             }
+         if (realWeatherData != null) {
+             val (temp, code) = realWeatherData
+             temperatureStr = "${temp.toInt()}°C"
+             weatherHeadlineTe = WeatherService.getWeatherDescription(code)
+             weatherContentTe = "నేడు $location లో వాతావరణం ${WeatherService.getWeatherDescription(code).lowercase()}. గరిష్ట ఉష్ణోగ్రత $temperatureStr గా నమోదైంది."
+             weatherHeadlineEn = "${WeatherService.getWeatherTypeLabel(code)} ($temperatureStr)"
+         } else {
+             // ఫాల్‌బ్యాక్ (డేటా రాకపోతే)
+             temperatureStr = "32°C"
+             weatherHeadlineTe = "పాక్షికంగా మేఘావృతం (30°C)"
+             weatherContentTe = "ఎండ మరియు మేఘాలు కలిసి ఉంటాయి. ఉమ్మడి వాతావరణం 30°C తో ఆహ్లాదకరంగా ఉంటుంది."
+             weatherHeadlineEn = "Pleasant Weather (30°C)"
          }
 
          return NewsPost(
              id = "weather_${System.currentTimeMillis() / (1000 * 60 * 60)}", // Hourly unique ID
              headline = com.alfanews.telugu.models.Headline(
-                 telugu = "$location వాతావరణం: $weatherHeadlineTe",
-                 english = "$location Weather: $weatherHeadlineEn"
+                 telugu = "$displayLocation వాతావరణం: $weatherHeadlineTe",
+                 english = "$displayLocation Weather: $weatherHeadlineEn"
              ),
              content = com.alfanews.telugu.models.Content(
                  telugu = weatherContentTe,
-                 english = "Current weather update for $location. Please stay tuned for more details."
+                 english = "Current weather update for $displayLocation. Please stay tuned for more details."
              ),
-             location = location,
+             location = displayLocation,
              type = "weather",
              timestamp = System.currentTimeMillis()
          )

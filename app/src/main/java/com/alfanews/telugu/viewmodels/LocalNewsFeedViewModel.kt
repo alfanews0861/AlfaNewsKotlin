@@ -10,6 +10,7 @@ import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.services.FirebaseService
+import com.alfanews.telugu.services.WeatherService
 import com.alfanews.telugu.utils.PreferenceManager
 import com.alfanews.telugu.utils.Constants
 import com.google.android.gms.location.LocationServices
@@ -92,7 +93,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             _activeDistrict.value = savedDistrict
             _isDetecting.value = false
             
-            if (_news.value.isEmpty()) loadNews(Language.TELUGU, currentUser)
+            if (_news.value.isEmpty()) {
+                loadNews(Language.TELUGU, currentUser)
+            }
             return
         }
 
@@ -186,51 +189,46 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
 
     /**
-     * ప్రస్తుత జిల్లా ఆధారంగా వాతావరణ వార్తను తయారు చేస్తుంది.
+     * యూజర్ ఉన్న ఖచ్చితమైన ప్రాంతం లేదా జిల్లా ఆధారంగా వాతావరణ సమాచారాన్ని తెస్తుంది.
      */
-    private fun generateWeatherPost(district: String?): NewsPost {
-        val location = district ?: "హైదరాబాద్"
+    private suspend fun generateWeatherPost(place: String?, district: String?): NewsPost {
+        // ప్రాధాన్యత: 1. ఖచ్చితమైన ప్రాంతం (Place), 2. జిల్లా (District)
+        val location = place ?: district ?: "హైదరాబాద్"
+        val displayLocation = if (place != null && district != null && place != district) "$place ($district)" else location
         
-        // సింపుల్ రాండమ్ వెదర్ డేటా (ప్రస్తుతానికి)
+        // 🌍 నిజమైన వాతావరణ డేటా కోసం API కాల్
+        val realWeatherData = WeatherService.fetchWeather(location)
+        
+        val temperatureStr: String
         val weatherHeadlineTe: String
         val weatherContentTe: String
         val weatherHeadlineEn: String
         
-        val randomIdx = (System.currentTimeMillis() % 4).toInt()
-        when (randomIdx) {
-            0 -> {
-                weatherHeadlineTe = "ఎండగా ఉంటుంది (Sunny)"
-                weatherContentTe = "నేడు వాతావరణం పొడిగా మరియు ఎండగా ఉంటుంది. ఉష్ణోగ్రతలు సాధారణం కంటే 2 డిగ్రీలు పెరిగే అవకాశం ఉంది."
-                weatherHeadlineEn = "Sunny & Hot"
-            }
-            1 -> {
-                weatherHeadlineTe = "వర్షం పడే అవకాశం (Rainy)"
-                weatherContentTe = "ఆకాశం మేఘావృతమై ఉంటుంది. సాయంత్రం వేళ తేలికపాటి నుండి మోస్తరు వర్షాలు కురిసే అవకాశం ఉంది."
-                weatherHeadlineEn = "Light Rains Expected"
-            }
-            2 -> {
-                weatherHeadlineTe = "మేఘావృతమై ఉంటుంది (Cloudy)"
-                weatherContentTe = "రోజంతా ఆకాశం మేఘావృతమై ఉంటుంది. చల్లటి గాలులు వీస్తాయి. ఉష్ణోగ్రతలు తగ్గుముఖం పట్టవచ్చు."
-                weatherHeadlineEn = "Cool & Cloudy"
-            }
-            else -> {
-                weatherHeadlineTe = "పాక్షికంగా మేఘావృతం (Partly Cloudy)"
-                weatherContentTe = "ఎండ మరియు మేఘాలు కలిసి ఉంటాయి. ఉమ్మడి వాతావరణం ఆహ్లాదకరంగా ఉంటుంది."
-                weatherHeadlineEn = "Pleasant Weather"
-            }
+        if (realWeatherData != null) {
+            val (temp, code) = realWeatherData
+            temperatureStr = "${temp.toInt()}°C"
+            weatherHeadlineTe = WeatherService.getWeatherDescription(code)
+            weatherContentTe = "నేడు $location లో వాతావరణం ${WeatherService.getWeatherDescription(code).lowercase()}. గరిష్ట ఉష్ణోగ్రత $temperatureStr గా నమోదైంది."
+            weatherHeadlineEn = "${WeatherService.getWeatherTypeLabel(code)} ($temperatureStr)"
+        } else {
+            // ఫాల్‌బ్యాక్ (డేటా రాకపోతే)
+            temperatureStr = "32°C"
+            weatherHeadlineTe = "పాక్షికంగా మేఘావృతం (30°C)"
+            weatherContentTe = "ఎండ మరియు మేఘాలు కలిసి ఉంటాయి. ఉమ్మడి వాతావరణం 30°C తో ఆహ్లాదకరంగా ఉంటుంది."
+            weatherHeadlineEn = "Pleasant Weather (30°C)"
         }
 
         return NewsPost(
             id = "weather_${System.currentTimeMillis() / (1000 * 60 * 60)}", // Hourly unique ID
             headline = com.alfanews.telugu.models.Headline(
-                telugu = "$location వాతావరణం: $weatherHeadlineTe",
-                english = "$location Weather: $weatherHeadlineEn"
+                telugu = "$displayLocation వాతావరణం: $weatherHeadlineTe",
+                english = "$displayLocation Weather: $weatherHeadlineEn"
             ),
             content = com.alfanews.telugu.models.Content(
                 telugu = weatherContentTe,
-                english = "Current weather update for $location. Please stay tuned for more details."
+                english = "Current weather update for $displayLocation. Please stay tuned for more details."
             ),
-            location = location,
+            location = displayLocation,
             type = "weather",
             timestamp = System.currentTimeMillis()
         )
@@ -275,6 +273,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             return
         }
         
+        _loading.value = true // Set loading here before launch
         loadLocalAds(district) // లోకల్ యాడ్స్ లోడ్ చేయండి
         
         loadJob?.cancel()
@@ -288,27 +287,21 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             }
             _isOnline.value = true
 
-            // 🚀 RAPID LOAD: Fetch top 2 fresh posts for district immediately
+            // 🚀 FAST PASS: Get top 2 news for district immediately
             try {
-                val rapidQuery = FirebaseService.db.collection("news")
+                val fastQuery = FirebaseService.db.collection("news")
                     .whereEqualTo("approved", true)
                     .whereArrayContains("categories", district)
                     .orderBy("timestamp", Query.Direction.DESCENDING)
                     .limit(2)
-                
-                val rapidSnapshot = rapidQuery.get().await()
-                val rapidPosts = rapidSnapshot.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
-                
-                if (rapidPosts.isNotEmpty() && _news.value.isEmpty()) {
-                    _news.value = rapidPosts
+                val fastSnapshot = fastQuery.get().await()
+                val fastPosts = fastSnapshot.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
+                if (fastPosts.isNotEmpty() && _news.value.isEmpty()) {
+                    _news.value = fastPosts
                     _loading.value = false // Hide spinner!
-                } else if (_news.value.isEmpty()) {
-                    _loading.value = true
                 }
-            } catch (e: Exception) {
-                if (_news.value.isEmpty()) _loading.value = true
-            }
-            
+            } catch (e: Exception) { }
+
             // _news.value = emptyList() // Optimization: Don't clear news immediately to avoid flickering spinner on refresh
             lastDocument = null
             _hasMore.value = true
@@ -364,13 +357,19 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 // వాతావరణ కార్డును 9వ స్థానంలో (Index 8) పెట్టండి
                 val finalPosts = posts.toMutableList()
                 if (finalPosts.size >= 8) {
-                    finalPosts.add(8, generateWeatherPost(prefs.localPlace ?: district))
+                    finalPosts.add(8, generateWeatherPost(prefs.localPlace, district))
                 } else if (finalPosts.isNotEmpty()) {
-                    finalPosts.add(generateWeatherPost(prefs.localPlace ?: district))
+                    finalPosts.add(generateWeatherPost(prefs.localPlace, district))
                 }
 
                 _news.value = finalPosts
                 
+                // ✅ UI RAPID REFRESH
+                if (_news.value.isEmpty() && finalPosts.isNotEmpty()) {
+                    _news.value = finalPosts.take(5)
+                    _loading.value = false
+                }
+
                 val currentTime = System.currentTimeMillis()
                 lastRefreshTimeLong = currentTime
                 _lastRefreshTime.value = currentTime
@@ -435,11 +434,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                       try {
                           com.alfanews.telugu.services.AnalyticsService.logBulkCategoryViews(newPosts.map { it.categories }, weight = 1)
                       } catch (e: Exception) { }
+                      
+                      _news.value = _news.value + newPosts
                   } else {
                       _hasMore.value = false
                   }
-
-                  _news.value = _news.value + newPosts
              } catch (e: Exception) {
                  _hasMore.value = false
              } finally {

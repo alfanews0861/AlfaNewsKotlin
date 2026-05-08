@@ -19,11 +19,11 @@ object FirebaseService {
     val db: FirebaseFirestore by lazy { 
         val instance = FirebaseFirestore.getInstance()
         
-        // పర్సిస్టెన్స్ పరిమితిని 100MB కి తగ్గిస్తున్నాము. 
-        // దీనివల్ల యాప్ వేగంగా ఉంటుంది మరియు ఫోన్ స్టోరేజ్ అనవసరంగా నిండదు.
+        // యూజర్ కోరిక మేరకు ఆఫ్‌లైన్ పర్సిస్టెన్స్‌ను నిలిపివేస్తున్నాము.
+        // దీనివల్ల వార్తల డేటా ఫోన్ మెమరీని GBలలో ఆక్రమించదు.
+        // కేవలం అవసరమైనప్పుడు మాత్రమే క్లౌడ్ నుండి డేటా వస్తుంది.
         val settings = com.google.firebase.firestore.FirebaseFirestoreSettings.Builder()
-            .setPersistenceEnabled(true)
-            .setCacheSizeBytes(104857600) // 100 MB limit
+            .setPersistenceEnabled(false) // పర్సిస్టెన్స్ నిలిపివేయబడింది
             .build()
 
         try {
