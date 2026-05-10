@@ -89,8 +89,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         "ప్రపంచం" to listOf("international", "world", "global")
     )
     
-    private val FETCH_LIMIT = 150 // Increased for high volume and fewer attempts
-    private val MIN_BATCH_SIZE = 10 // Lowered to prevent long loading loops
+    private val FETCH_LIMIT = 15 // Reduced for faster loads
+    private val MIN_BATCH_SIZE = 5
     
     /**
      * ✅ NEW: Normalize category to canonical form
@@ -151,13 +151,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
           isFetching = true
 
            viewModelScope.launch {
-               // ⏳ 500ms తర్వాత లోడింగ్ స్పిన్నర్‌ను ఆపివేయండి (వేగవంతమైన UX కోసం)
-               launch {
-                   kotlinx.coroutines.delay(500)
-                   if (_news.value.isEmpty()) {
-                       _loading.value = false // Hide spinner even if no news yet
-                   }
-               }
               try {
                   // ఇంటర్నెట్ తనిఖీ
                   if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
@@ -169,28 +162,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                       }
                   }
                   _isOnline.value = true
-
-                  // 🚀 FAST PASS: Get top 20 news immediately to stop spinner
-                  try {
-                      val fastQuery = FirebaseService.db.collection("news")
-                          .whereEqualTo("approved", true)
-                          .orderBy("timestamp", Query.Direction.DESCENDING)
-                          .limit(30)
-                      val fastSnapshot = fastQuery.get().await()
-                       val fastPosts = fastSnapshot.documents.mapNotNull { doc ->
-                           val post = mapDocumentToNewsPost(doc) ?: return@mapNotNull null
-
-                           // హోమ్ ఫీడ్ ఫిల్టరింగ్: కేవలం స్పష్టంగా గుర్తించిన జిల్లా న్యూస్‌ను మాత్రమే ఫిల్టర్ చేయండి
-                           val isExplicitlyLocal = post.district != null && Constants.ALL_DISTRICTS.contains(post.district)
-
-                           if (isExplicitlyLocal) return@mapNotNull null
-                           post
-                       }
-                      if (fastPosts.isNotEmpty() && _news.value.isEmpty()) {
-                          _news.value = fastPosts.take(5)
-                          _loading.value = false // Hide spinner so user sees news immediately!
-                      }
-                  } catch (e: Exception) { }
 
                    if (initialPostId == null) {
                        prefCursor = null
@@ -405,57 +376,26 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
      private suspend fun fetchFilteredBatch(baseQuery: Query, cursor: DocumentSnapshot?, district: String?, excludeDistricts: Boolean): Pair<List<NewsPost>, DocumentSnapshot?> {
            var currentCursor = cursor
-           val filteredList = mutableListOf<NewsPost>()
-           var attempts = 0
-           var lastSnapshot: com.google.firebase.firestore.QuerySnapshot? = null
+           var query = baseQuery.whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(FETCH_LIMIT.toLong())
+           if (currentCursor != null) query = query.startAfter(currentCursor)
 
-           // లక్ష్య సంఖ్యకు చేరుకునే వరకు లూప్ కొనసాగండి
-           while (filteredList.size < MIN_BATCH_SIZE && attempts < 3) { // Reduced attempts to prevent 10-15s delay
-               attempts++
-               var query = baseQuery.whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(FETCH_LIMIT.toLong())
-               if (currentCursor != null) query = query.startAfter(currentCursor)
+           val snapshot = query.get().await()
 
-               val snapshot = query.get().await()
-               lastSnapshot = snapshot
-
-               if (snapshot.isEmpty) {
-                   currentCursor = null
-                   break
-               }
-
-                  val batch = snapshot.documents.mapNotNull { doc ->
-                      val post = mapDocumentToNewsPost(doc) ?: return@mapNotNull null
-
-                      // హోమ్ ఫీడ్ (excludeDistricts = true) లో జనరల్ న్యూస్‌ను చేర్చండి
-                      // ⚠️ CRITICAL FIX: Only filter by explicit district field, NOT categories
-                       if (excludeDistricts) {
-                           val postDist = post.district
-
-                           // STRICT CHECK: Only filter out if EXPLICITLY marked as district-specific
-                           // Never filter by categories - categories are for content classification, not locality
-                           val isExplicitlyLocal = postDist != null && Constants.ALL_DISTRICTS.contains(postDist)
-
-                           // If explicitly marked as local district post, skip it for home feed
-                           if (isExplicitlyLocal) {
-                              return@mapNotNull null  // Skip explicitly district-specific news
-                           }
-
-                           // Include all other posts (global categories + uncategorized posts)
-                       }
-
-                      post
-                  }
-
-               filteredList.addAll(batch)
-               currentCursor = snapshot.documents.lastOrNull()
-
-               // Firestore పంపిన సంఖ్య అరికట్టుకంటే, అక్కడ ఎక్కువ డేటా లేదు
-               if (snapshot.size() < FETCH_LIMIT) {
-                   currentCursor = null
-                   break
-               }
+           if (snapshot.isEmpty) {
+               return Pair(emptyList(), null)
            }
-           return Pair(filteredList, currentCursor)
+
+           val batch = snapshot.documents.mapNotNull { doc ->
+               mapDocumentToNewsPost(doc)
+           }
+
+           currentCursor = snapshot.documents.lastOrNull()
+           
+           if (snapshot.size() < FETCH_LIMIT) {
+               currentCursor = null
+           }
+           
+           return Pair(batch, currentCursor)
        }
 
       private suspend fun rankAndBlendPosts(pref: List<NewsPost>, main: List<NewsPost>, local: List<NewsPost>): List<NewsPost> = withContext(Dispatchers.Default) {

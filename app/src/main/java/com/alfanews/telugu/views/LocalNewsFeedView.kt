@@ -162,7 +162,7 @@ fun LocalNewsFeedView(
     LaunchedEffect(pagerState, news.size) { 
         snapshotFlow { pagerState.currentPage }.collect { page ->
             val newsIndex = page - (page / 6)
-            if (newsIndex >= news.size - 3 && hasMore && !loading) {
+            if (newsIndex >= news.size - 10 && hasMore && !loading) {
                 viewModel.loadMore(language, currentUser)
             }
 
@@ -183,15 +183,13 @@ fun LocalNewsFeedView(
                 }
             }
 
-            val currentAdSlot = page / 6
-            val nextAdPage = (currentAdSlot * 6) + 5
-            if (nextAdPage < totalCount) {
-                loadAdForPage(nextAdPage)
-            }
-
-            val afterNextAdPage = ((currentAdSlot + 1) * 6) + 5
-            if (afterNextAdPage < totalCount) {
-                loadAdForPage(afterNextAdPage)
+            // Preload AdMob ads up to 10 pages ahead
+            (1..10).forEach { offset ->
+                val futurePage = page + offset
+                val isAdSlot = (futurePage + 1) % 6 == 0
+                if (isAdSlot && futurePage < totalCount) {
+                    loadAdForPage(futurePage)
+                }
             }
         }
     }
@@ -289,10 +287,6 @@ fun LocalNewsFeedView(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
                 userScrollEnabled = true,
-                flingBehavior = PagerDefaults.flingBehavior(
-                    state = pagerState,
-                    snapPositionalThreshold = 0.1f
-                ),
                 key = { page ->
                     val isAd = (page + 1) % 6 == 0
                     if (isAd) {

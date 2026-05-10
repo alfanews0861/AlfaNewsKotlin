@@ -34,7 +34,7 @@ import com.alfanews.telugu.utils.Constants
 fun RssFeedsPageView() {
     var feeds by remember { mutableStateOf<List<RssFeed>>(emptyList()) }
     var rssUrl by remember { mutableStateOf("") }
-    var rssCategory by remember { mutableStateOf("స్థానిక") }
+    var rssCategory by remember { mutableStateOf("జిల్లా వార్త") }
     var selectedState by remember { mutableStateOf("TS") }
     var selectedDistrict by remember { mutableStateOf<String?>(null) }
     var editingRssId by remember { mutableStateOf<String?>(null) }
@@ -47,7 +47,7 @@ fun RssFeedsPageView() {
     val scope = rememberCoroutineScope()
 
     val categories = listOf(
-        "స్థానిక", "రాజకీయం", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ",
+        "జిల్లా వార్త", "రాజకీయం", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ",
         "క్రైమ్", "భక్తి", "జాతీయం", "అంతర్జాతీయం", "వ్యవసాయం", "విద్య/ఉద్యోగాలు"
     )
 
@@ -81,7 +81,7 @@ fun RssFeedsPageView() {
     }
 
     fun handleRssSubmit() {
-        if (rssUrl.isEmpty() || (rssCategory == "స్థానిక" && selectedDistrict == null)) {
+        if (rssUrl.isEmpty() || (rssCategory == "జిల్లా వార్త" && selectedDistrict == null)) {
             Toast.makeText(context, "URL మరియు జిల్లాను నమోదు చేయండి.", Toast.LENGTH_SHORT).show()
             return
         }
@@ -94,7 +94,7 @@ fun RssFeedsPageView() {
                     "category" to rssCategory
                 )
 
-                if (rssCategory == "స్థానిక") {
+                if (rssCategory == "జిల్లా వార్త") {
                     feedData["state"] = selectedState
                     feedData["district"] = selectedDistrict
                 } else {
@@ -111,7 +111,7 @@ fun RssFeedsPageView() {
                 }
 
                 rssUrl = ""
-                rssCategory = "స్థానిక"
+                rssCategory = "జిల్లా వార్త"
                 selectedState = "TS"
                 selectedDistrict = null
                 editingRssId = null
@@ -198,7 +198,7 @@ fun RssFeedsPageView() {
                     }
                 }
 
-                if (rssCategory == "స్థానిక") {
+                if (rssCategory == "జిల్లా వార్త") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         var stateExpanded by remember { mutableStateOf(false) }
                         ExposedDropdownMenuBox(expanded = stateExpanded, onExpandedChange = { stateExpanded = !stateExpanded }, modifier = Modifier.weight(1f)) {
@@ -229,7 +229,7 @@ fun RssFeedsPageView() {
                     }
                     if (editingRssId != null) {
                         Button(onClick = {
-                            editingRssId = null; rssUrl = ""; rssCategory = "స్థానిక"; selectedState = "TS"; selectedDistrict = null
+                            editingRssId = null; rssUrl = ""; rssCategory = "జిల్లా వార్త"; selectedState = "TS"; selectedDistrict = null
                         }) {
                             Text("రద్దు")
                         }
@@ -247,7 +247,7 @@ fun RssFeedsPageView() {
                             Text(feed.url, fontWeight = FontWeight.Bold)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)){
                                 Text("Category: ${feed.category}", style = MaterialTheme.typography.bodySmall)
-                                if (feed.category == "స్థానిక") {
+                                if (feed.category == "జిల్లా వార్త") {
                                     Text("Location: ${feed.district ?: ""}, ${feed.state ?: ""}", style = MaterialTheme.typography.bodySmall)
                                 }
                             }
@@ -259,7 +259,7 @@ fun RssFeedsPageView() {
                         }
                         IconButton(onClick = {
                              editingRssId = feed.id; rssUrl = feed.url; rssCategory = feed.category
-                             if(feed.category == "స్థానిక") { selectedState = feed.state ?: "TS"; selectedDistrict = feed.district }
+                             if(feed.category == "జిల్లా వార్త") { selectedState = feed.state ?: "TS"; selectedDistrict = feed.district }
                         }) {
                             Icon(Icons.Default.Edit, "Edit")
                         }

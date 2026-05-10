@@ -36,7 +36,7 @@ fun WebScrapingPageView() {
     var sources by remember { mutableStateOf<List<ScrapingSource>>(emptyList()) }
     var siteUrl by remember { mutableStateOf("") }
     var siteName by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf("స్థానిక") }
+    var category by remember { mutableStateOf("జిల్లా వార్త") }
     var selectedState by remember { mutableStateOf("TS") }
     var selectedDistrict by remember { mutableStateOf<String?>(null) }
     var editingId by remember { mutableStateOf<String?>(null) }
@@ -50,7 +50,7 @@ fun WebScrapingPageView() {
     val scope = rememberCoroutineScope()
 
     val categories = listOf(
-        "స్థానిక", "రాజకీయం", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ",
+        "జిల్లా వార్త", "రాజకీయం", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ",
         "క్రైమ్", "భక్తి", "జాతీయం", "అంతర్జాతీయం", "వ్యవసాయం", "విద్య/ఉద్యోగాలు"
     )
 
@@ -116,7 +116,7 @@ fun WebScrapingPageView() {
                     "group" to (scrapeGroup.toIntOrNull() ?: 1)
                 )
 
-                if (category == "స్థానిక") {
+                if (category == "జిల్లా వార్త") {
                     payload["state"] = selectedState
                     payload["district"] = selectedDistrict ?: ""
                     payload["meta"] = mapOf("location" to (selectedDistrict ?: selectedState))
@@ -141,7 +141,7 @@ fun WebScrapingPageView() {
 
                 siteUrl = ""
                 siteName = ""
-                category = "స్థానిక"
+                category = "జిల్లా వార్త"
                 selectedState = "TS"
                 selectedDistrict = null
                 scrapeGroup = "1"
@@ -354,7 +354,7 @@ fun WebScrapingPageView() {
                 }
 
                 // Conditional Region Details
-                if (category == "స్థానిక") {
+                if (category == "జిల్లా వార్త") {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
@@ -443,7 +443,7 @@ fun WebScrapingPageView() {
                             onClick = {
                                 siteUrl = ""
                                 siteName = ""
-                                category = "స్థానిక"
+                                category = "జిల్లా వార్త"
                                 selectedState = "TS"
                                 selectedDistrict = null
                                 scrapeGroup = "1"
@@ -521,7 +521,7 @@ fun WebScrapingPageView() {
                                         ) {
                                             Text(src.category, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
                                         }
-                                        if (src.category == "స్థానిక" && src.district != null) {
+                                        if (src.category == "జిల్లా వార్త" && src.district != null) {
                                             Surface(
                                                 color = MaterialTheme.colorScheme.tertiaryContainer,
                                                 shape = RoundedCornerShape(4.dp)

@@ -35,7 +35,7 @@ fun SocialMediaFeedsPageView() {
     var url by remember { mutableStateOf("") }
     var sourceName by remember { mutableStateOf("") }
     var platform by remember { mutableStateOf(SocialPlatform.Twitter) }
-    var category by remember { mutableStateOf("రాజకీయం") }
+    var category by remember { mutableStateOf("జిల్లా వార్త") }
     var editingId by remember { mutableStateOf<String?>(null) }
     var isFetching by remember { mutableStateOf(false) }
     var isSubmitting by remember { mutableStateOf(false) }
@@ -46,7 +46,7 @@ fun SocialMediaFeedsPageView() {
     val scope = rememberCoroutineScope()
 
     val categories = listOf(
-        "స్థానిక", "రాజకీయం", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ",
+        "జిల్లా వార్త", "రాజకీయం", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ",
         "క్రైమ్", "భక్తి", "జాతీయం", "అంతర్జాతీయం", "వ్యవసాయం", "విద్య/ఉద్యోగాలు"
     )
 
@@ -115,7 +115,7 @@ fun SocialMediaFeedsPageView() {
                 url = ""
                 sourceName = ""
                 platform = SocialPlatform.Twitter
-                category = "రాజకీయం"
+                category = "జిల్లా వార్త"
                 editingId = null
                 fetchFeeds()
             } catch (e: Exception) {
@@ -348,7 +348,7 @@ fun SocialMediaFeedsPageView() {
                                 url = ""
                                 sourceName = ""
                                 platform = SocialPlatform.Twitter
-                                category = "రాజకీయం"
+                                category = "జిల్లా వార్త"
                                 editingId = null
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.outline)

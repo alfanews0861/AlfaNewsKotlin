@@ -21,12 +21,12 @@ object Constants {
     val ALL_DISTRICTS = TS_DISTRICTS + AP_DISTRICTS
     
     val CATEGORIES = listOf(
-        "స్థానిక", "రాజకీయం", "క్రైమ్", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "వ్యవసాయం",
+        "జిల్లా వార్త", "రాజకీయం", "క్రైమ్", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "వ్యవసాయం",
         "విద్య/ఉద్యోగాలు", "ఆరోగ్యం", "ఇతరాలు"
     )
 
     val CATEGORY_RES_MAP = mapOf(
-        "స్థానిక" to R.string.cat_local,
+        "జిల్లా వార్త" to R.string.cat_local,
         "రాజకీయం" to R.string.cat_politics,
         "క్రైమ్" to R.string.cat_crime,
         "వినోదం" to R.string.cat_entertainment,

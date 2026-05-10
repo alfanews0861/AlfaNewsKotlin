@@ -301,11 +301,6 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         loadJob?.cancel()
         
         loadJob = viewModelScope.launch {
-            // ⏳ 2 సెకన్ల తర్వాత ఆటోమేటిక్‌గా లోడింగ్ స్పిన్నర్‌ను ఆపివేయండి
-            launch {
-                kotlinx.coroutines.delay(2000)
-                _loading.value = false
-            }
             // ఇంటర్నెట్ తనిఖీ
             if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
                 _isOnline.value = false
@@ -313,21 +308,6 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 return@launch
             }
             _isOnline.value = true
-
-            // 🚀 FAST PASS: Get top 2 news for district immediately
-            try {
-                val fastQuery = FirebaseService.db.collection("news")
-                    .whereEqualTo("approved", true)
-                    .whereArrayContains("categories", district)
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(2)
-                val fastSnapshot = fastQuery.get().await()
-                val fastPosts = fastSnapshot.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
-                if (fastPosts.isNotEmpty() && _news.value.isEmpty()) {
-                    _news.value = fastPosts
-                    _loading.value = false // Hide spinner!
-                }
-            } catch (e: Exception) { }
 
             // _news.value = emptyList() // Optimization: Don't clear news immediately to avoid flickering spinner on refresh
             lastDocument = null

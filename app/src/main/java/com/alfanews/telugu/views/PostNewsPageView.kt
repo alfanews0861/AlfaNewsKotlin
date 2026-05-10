@@ -82,7 +82,7 @@ fun PostNewsPageView(
     var youtubeUrl by remember { mutableStateOf(postToEdit?.youtubeUrl ?: "") }
     var mediaUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var location by remember { mutableStateOf(postToEdit?.location ?: user.assignedMandal ?: "") }
-    var category by remember { mutableStateOf(postToEdit?.categories?.firstOrNull { !Constants.ALL_DISTRICTS.contains(it) } ?: "రాజకీయం") }
+    var category by remember { mutableStateOf(postToEdit?.categories?.firstOrNull { !Constants.ALL_DISTRICTS.contains(it) } ?: "జిల్లా వార్త") }
     var state by remember { mutableStateOf(postToEdit?.state ?: user.state ?: "TS") }
     var district by remember { mutableStateOf(postToEdit?.district ?: user.district ?: "") }
     var isSubmitting by remember { mutableStateOf(false) }
@@ -170,7 +170,7 @@ fun PostNewsPageView(
     }
 
     fun handleSubmit() {
-        if (headline.isBlank() || content.isBlank() || (category == "స్థానిక" && district.isBlank())) {
+        if (headline.isBlank() || content.isBlank() || (category == "జిల్లా వార్త" && district.isBlank())) {
             Toast.makeText(context, context.getString(R.string.fill_details_error), Toast.LENGTH_SHORT).show()
             return
         }

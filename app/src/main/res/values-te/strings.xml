@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">ఆల్ఫా న్యూస్</string>
     <string name="home">హోమ్</string>
-    <string name="local_news">స్థానిక వార్తలు</string>
+    <string name="local_news">జిల్లా వార్తలు</string>
     <string name="create">సృష్టించండి</string>
     <string name="classifieds">ప్రకటనలు</string>
     <string name="profile">ప్రొఫైల్</string>
@@ -98,7 +98,7 @@
     <string name="thank_you">మా ప్రయాణంలో మాతో చేరినందుకు ధన్యవాదాలు. మీ సూచనలు మరియు అభిప్రాయాలు మాకు ఎంతో విలువైనవి.</string>
 
     <!-- Categories -->
-    <string name="cat_local">స్థానిక</string>
+    <string name="cat_local">జిల్లా వార్త</string>
     <string name="cat_politics">రాజకీయం</string>
     <string name="cat_crime">క్రైమ్</string>
     <string name="cat_entertainment">వినోదం</string>
@@ -283,7 +283,7 @@
 
     <!-- Join Reporter -->
     <string name="reporter_benefits_title">రిపోర్టర్‌గా ఎందుకు చేరాలి?</string>
-    <string name="reporter_benefit_1">• స్థానిక వార్తలను తక్షణమే పంచుకోండి</string>
+    <string name="reporter_benefit_1">• జిల్లా వార్తలను తక్షణమే పంచుకోండి</string>
     <string name="reporter_benefit_2">• మీ స్వంత ప్రేక్షకులను పెంచుకోండి</string>
     <string name="reporter_benefit_3">• ప్రొఫెషనల్ ID కార్డ్ పొందండి</string>
     <string name="reporter_benefit_4">• ప్రకటనల ద్వారా ఆదాయం</string>
