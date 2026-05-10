@@ -15,6 +15,7 @@ import * as os from 'os';
 import * as path from 'path';
 const ffmpeg = require('fluent-ffmpeg');
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import { normalizeCategory, normalizeCategories, getCategorySystemInstruction } from './categories';
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -141,7 +142,7 @@ async function performAIProcessing(headline: string, content: string, actualPost
         model: FLASH_MODEL,
         contents: [{ role: "user", parts: [{ text: `Headline: ${headline}\nContent: ${content}` }] }],
         config: {
-            systemInstruction: "You are a Senior Editor processing a news submission. Enhance and refine the 70-word Telugu article. Extract tags and entities. CRITICAL: Evaluate if this content violates YouTube Community Guidelines (Violence, Hate Speech, Graphic Content, etc.). Set isSafeForYouTube to false if it does. Output JSON.",
+            systemInstruction: getCategorySystemInstruction(),
             temperature: 0.4,
             responseMimeType: "application/json",
             responseSchema: schema,
@@ -160,16 +161,26 @@ async function performAIProcessing(headline: string, content: string, actualPost
         locations: Array.isArray(aiRes.entities?.locations) ? aiRes.entities.locations : []
     };
 
+    // ✅ NORMALIZE the AI-returned category to canonical form
+    const aiCategory = aiRes.refinedCategory || actualPostData?.category || "OTHER";
+    const normalizedCategory = normalizeCategory(aiCategory);
+
+    // ✅ Build canonical categories array
+    const canonicalCategories = Array.from(new Set([
+        normalizedCategory,
+        ...normalizeCategories(actualPostData?.categories || []),
+        ...(actualPostData?.district ? [actualPostData.district] : [])
+    ])).filter(c => !!c && c !== "OTHER");
+
+    console.log(`[AI_PROCESSING] Original category: "${aiCategory}" → Normalized: "${normalizedCategory}"`);
+    console.log(`[AI_PROCESSING] Final categories: ${JSON.stringify(canonicalCategories)}`);
+
     return {
         headline: { telugu: finalHeadline, english: finalHeadlineEn },
         content: { telugu: finalContent, english: finalContentEn },
         location: aiRes.location || actualPostData?.location || "",
-        category: aiRes.refinedCategory || actualPostData?.category || "ఇతరాలు",
-        categories: Array.from(new Set([
-            aiRes.refinedCategory || actualPostData?.category,
-            ...(actualPostData?.categories || []),
-            ...(actualPostData?.district ? [actualPostData.district] : [])
-        ])).filter(c => !!c),
+        category: normalizedCategory,
+        categories: canonicalCategories,
         tags: aiRes.tags || [],
         entities: normalizedEntities,
         isSafeForYouTube: aiRes.isSafeForYouTube ?? true,

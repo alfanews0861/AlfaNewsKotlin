@@ -68,9 +68,75 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private var isFetching = false
     private var lastRefreshTimeLong: Long = 0
     
+    // ✅ CANONICAL CATEGORIES (Matches backend in functions/src/categories.ts)
     private val globalCategories = listOf("రాజకీయం", "క్రైమ్", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "ఆరోగ్యం", "విద్య/ఉద్యోగాలు", "వ్యవసాయం")
+    
+    // ✅ CATEGORY ALIASES for flexible matching (handles typos and variations)
+    private val categoryAliases = mapOf(
+        "రాజకీయం" to listOf("పలిటిక్‌", "రాజకీయ సమాచారం", "politics", "elections", "ఎన్నికలు"),
+        "క్రైమ్" to listOf("అపరాధం", "crime", "న్యాయ సమాచారం", "court"),
+        "వినోదం" to listOf("సినిమా", "movie", "entertainment", "OTT"),
+        "క్రీడలు" to listOf("sports", "cricket", "cricket news"),
+        "వ్యాపారం" to listOf("business", "economy", "trade"),
+        "టెక్నాలజీ" to listOf("technology", "tech", "AI"),
+        "భక్తి" to listOf("spiritual", "religion", "temple"),
+        "ఆరోగ్యం" to listOf("health", "medical", "medical news"),
+        "విద్య/ఉద్యోగాలు" to listOf("education", "jobs", "school"),
+        "వ్యవసాయం" to listOf("agriculture", "farm", "farmer"),
+        "జాతీయం" to listOf("national", "india", "domestic"),
+        "ప్రపంచం" to listOf("international", "world", "global")
+    )
+    
     private val FETCH_LIMIT = 100 // Increased for high volume
     private val MIN_BATCH_SIZE = 20
+    
+    /**
+     * ✅ NEW: Normalize category to canonical form
+     * Handles typos, aliases, and English/Telugu variations
+     */
+    private fun normalizeCategory(input: String): String {
+        val cleaned = input.trim().lowercase()
+        
+        // Direct match first
+        for ((canonical, aliases) in categoryAliases) {
+            if (cleaned == canonical.lowercase()) return canonical
+            if (aliases.any { cleaned == it.lowercase() }) return canonical
+            // Partial match for longer strings
+            if (aliases.any { cleaned.contains(it.lowercase()) || it.lowercase().contains(cleaned) }) return canonical
+        }
+        
+        return input // Return original if no match found
+    }
+    
+    /**
+     * ✅ NEW: Check if a category is global (not district-specific)
+     */
+    private fun isGlobalCategory(category: String): Boolean {
+        val normalized = normalizeCategory(category)
+        
+        // Check if it's in the canonical global categories
+        if (globalCategories.contains(normalized)) return true
+        
+        // Check if any alias matches a global keyword
+        val globalKeywords = listOf(
+            "సినిమా", "cinema", "movie", "films", "వినోదం", "entertainment",
+            "స్పోర్ట్స్", "sports", "cricket", "క్రీడలు",
+            "రాజకీయం", "politics", "elections",
+            "క్రైమ్", "crime", "court",
+            "వ్యాపారం", "business", "economy",
+            "టెక్నాలజీ", "technology", "tech", "AI",
+            "ఆరోగ్యం", "health", "medical",
+            "విద్య", "education", "school", "ఉద్యోగాలు", "jobs",
+            "భక్తి", "spiritual", "religion",
+            "వ్యవసాయం", "agriculture", "farm",
+            "జాతీయం", "national", "india",
+            "ప్రపంచం", "international", "world"
+        )
+        
+        return globalKeywords.any { keyword -> 
+            normalized.contains(keyword, ignoreCase = true) || keyword.contains(normalized, ignoreCase = true)
+        }
+    }
 
     init {
         // loadNews will be called by View/Activity with proper parameters
@@ -347,53 +413,39 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                   break
               }
 
-               val batch = snapshot.documents.mapNotNull { doc ->
-                   val post = mapDocumentToNewsPost(doc) ?: return@mapNotNull null
+                val batch = snapshot.documents.mapNotNull { doc ->
+                    val post = mapDocumentToNewsPost(doc) ?: return@mapNotNull null
 
-                   // హోమ్ ఫీడ్ (excludeDistricts = true) లో జనరల్ న్యూస్‌ను చేర్చండి
-                   // కానీ కేవలం జిల్లా-నిర్దిష్ట న్యూస్‌ను కొంచెం ఫిల్టర్ చేయండి
-                    if (excludeDistricts) {
-                        val postDist = post.district
-                        val postCategories = post.categories
+                    // హోమ్ ఫీడ్ (excludeDistricts = true) లో జనరల్ న్యూస్‌ను చేర్చండి
+                    // కానీ కేవలం జిల్లా-నిర్దిష్ట న్యూస్‌ను కొంచెం ఫిల్టర్ చేయండి
+                     if (excludeDistricts) {
+                         val postDist = post.district
+                         val postCategories = post.categories
 
-                        // 1. Truly Global/State-wide categories (Always show on Home Feed)
-                        // వీటిలో ఏదైనా ఉంటే, ఆ వార్త హోమ్ ఫీడ్‌లో చూపించాలి
-                        val strictlyGlobalKeywords = listOf(
-                            "సినిమా", "cinema", "movie", "films", "tv", "వినోదం", "entertainment", "OTT", "ఓటిటి",
-                            "స్పోర్ట్స్", "sports", "cricket", "football", "tennis", "క్రీడలు",
-                            "జాతీయం", "national", "అంతర్జాతీయం", "international", "world", "ప్రపంచం", "ఢిల్లీ", "delhi",
-                            "రాజకీయం", "politics", "elections", "government", "ప్రభుత్వం", "అసెంబ్లీ", "పార్లమెంట్",
-                            "క్రైమ్", "crime", "court", "కోర్టు", "న్యాయ", "చట్టం", "పోలీస్", "police",
-                            "వ్యాపారం", "business", "economy", "gold", "బంగారం", "ధరలు",
-                            "టెక్నాలజీ", "technology", "tech", "AI", "గ్యాడ్జెట్స్",
-                            "ఆరోగ్యం", "health", "medical", "hospital", "చికిత్స", "డాక్టర్",
-                            "విద్య", "education", "school", "college", "ఉద్యోగాలు", "jobs", "నోటిఫికేషన్",
-                            "భక్తి", "spiritual", "religion", "temple", "దేవాలయం", "రాశి ఫలాలు",
-                            "వ్యవసాయం", "agriculture", "రైతు", "farm",
-                            "State", "Andhra Pradesh", "Telangana", "AP", "TS", "ఆంధ్రప్రదేశ్", "తెలంగాణ", "india",
-                            "రాష్ట్ర", "రాష్ట్ర వార్తలు", "ముఖ్యాంశాలు", "బ్రేకింగ్", "Breaking", "వైరల్", "Viral", "తాజా వార్తలు"
-                        )
+                         // 1. Identify if it's a District-specific post
+                         val isRealDistrict = postDist != null && Constants.ALL_DISTRICTS.contains(postDist)
+                         val hasDistrictCategory = postCategories.any { it in Constants.ALL_DISTRICTS }
+                         val isLocal = isRealDistrict || hasDistrictCategory
 
-                       // 2. Identify if it's a District-specific post
-                       val isRealDistrict = postDist != null && Constants.ALL_DISTRICTS.contains(postDist)
-                       val hasDistrictCategory = postCategories.any { it in Constants.ALL_DISTRICTS }
-                       val isLocal = isRealDistrict || hasDistrictCategory
+                         // 2. ✅ Use new isGlobalCategory function for flexible matching
+                         val hasGlobal = postCategories.any { cat -> isGlobalCategory(cat) }
 
-                       // 3. Identify if it has a Global category
-                       val hasGlobal = postCategories.any { cat -> 
-                           strictlyGlobalKeywords.any { kw -> cat.contains(kw, ignoreCase = true) }
-                       } || (postDist != null && strictlyGlobalKeywords.any { kw -> postDist.contains(kw, ignoreCase = true) })
+                         // 3. ఫిల్టర్ లాజిక్:
+                         // హోమ్ ఫీడ్ లో కేవలం జనరల్/గ్లోబల్ న్యూస్ మాత్రమే ఉండాలి
+                         // జిల్లా ట్యాగ్ ఉన్న వార్త తప్పనిసరి అంటరాదు
+                         if (isLocal) {
+                            return@mapNotNull null  // Skip district-specific news
+                         }
 
-                       // 4. ఫిల్టర్ లాజిక్:
-                       // హోమ్ ఫీడ్ లో కేవలం జనరల్ న్యూస్ మాత్రమే ఉండాలి.
-                       // ఒక వార్తకు జిల్లా ట్యాగ్ ఉన్నా లేదా అది గ్లోబల్ కేటగిరీ కాకపోయినా హోమ్ ఫీడ్ లో చూపించకూడదు.
-                       if (isLocal || !hasGlobal) {
-                           return@mapNotNull null
-                       }
-                   }
+                         // If no global category found, might be a new/unknown category
+                         // Log it for debugging
+                         if (!hasGlobal && postCategories.isNotEmpty()) {
+                            android.util.Log.d("NewsFeedFilter", "Filtered post: Categories=${postCategories.joinToString(",")}, hasGlobal=$hasGlobal")
+                         }
+                     }
 
-                   post
-               }
+                    post
+                }
 
               filteredList.addAll(batch)
               currentCursor = snapshot.documents.lastOrNull()

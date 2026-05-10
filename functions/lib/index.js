@@ -36,7 +36,7 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.submitReporterApplication = exports.sendContactEmail = exports.triggerPushBroadcast = exports.onNewsPostCreated = exports.processReporterSubmission = exports.processNewsPost = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
+exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.submitReporterApplication = exports.sendContactEmail = exports.triggerPushBroadcast = exports.onNewsPostCreated = exports.processReporterSubmission = exports.processNewsPost = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
 /**
  * Alfa News - Cloud Functions v17.7 (Optimized AI Models)
  */
@@ -54,6 +54,7 @@ const os = __importStar(require("os"));
 const path = __importStar(require("path"));
 const ffmpeg = require('fluent-ffmpeg');
 const firestore_1 = require("firebase-functions/v2/firestore");
+const categories_1 = require("./categories");
 admin.initializeApp();
 const db = admin.firestore();
 function getISTDateString() {
@@ -174,7 +175,7 @@ async function performAIProcessing(headline, content, actualPostData) {
         model: FLASH_MODEL,
         contents: [{ role: "user", parts: [{ text: `Headline: ${headline}\nContent: ${content}` }] }],
         config: {
-            systemInstruction: "You are a Senior Editor processing a news submission. Enhance and refine the 70-word Telugu article. Extract tags and entities. CRITICAL: Evaluate if this content violates YouTube Community Guidelines (Violence, Hate Speech, Graphic Content, etc.). Set isSafeForYouTube to false if it does. Output JSON.",
+            systemInstruction: (0, categories_1.getCategorySystemInstruction)(),
             temperature: 0.4,
             responseMimeType: "application/json",
             responseSchema: schema,
@@ -190,16 +191,23 @@ async function performAIProcessing(headline, content, actualPostData) {
         organizations: Array.isArray(aiRes.entities?.organizations) ? aiRes.entities.organizations : [],
         locations: Array.isArray(aiRes.entities?.locations) ? aiRes.entities.locations : []
     };
+    // ✅ NORMALIZE the AI-returned category to canonical form
+    const aiCategory = aiRes.refinedCategory || actualPostData?.category || "OTHER";
+    const normalizedCategory = (0, categories_1.normalizeCategory)(aiCategory);
+    // ✅ Build canonical categories array
+    const canonicalCategories = Array.from(new Set([
+        normalizedCategory,
+        ...(0, categories_1.normalizeCategories)(actualPostData?.categories || []),
+        ...(actualPostData?.district ? [actualPostData.district] : [])
+    ])).filter(c => !!c && c !== "OTHER");
+    console.log(`[AI_PROCESSING] Original category: "${aiCategory}" → Normalized: "${normalizedCategory}"`);
+    console.log(`[AI_PROCESSING] Final categories: ${JSON.stringify(canonicalCategories)}`);
     return {
         headline: { telugu: finalHeadline, english: finalHeadlineEn },
         content: { telugu: finalContent, english: finalContentEn },
         location: aiRes.location || actualPostData?.location || "",
-        category: aiRes.refinedCategory || actualPostData?.category || "ఇతరాలు",
-        categories: Array.from(new Set([
-            aiRes.refinedCategory || actualPostData?.category,
-            ...(actualPostData?.categories || []),
-            ...(actualPostData?.district ? [actualPostData.district] : [])
-        ])).filter(c => !!c),
+        category: normalizedCategory,
+        categories: canonicalCategories,
         tags: aiRes.tags || [],
         entities: normalizedEntities,
         isSafeForYouTube: aiRes.isSafeForYouTube ?? true,
@@ -522,6 +530,102 @@ Quality: 4k, artistic, award-winning editorial style.`,
         }
         catch (e) {
             console.error(`[CARTOON] Error for ${state}:`, e.message);
+        }
+    }
+});
+/**
+ * 5.1 Severe Weather Alerts Function
+ * ఈ ఫంక్షన్ ప్రతి 30 నిమిషాలకు వాతావరణాన్ని తనిఖీ చేసి, ప్రమాదకర పరిస్థితులు ఉంటే యూజర్లకు నోటిఫికేషన్ పంపుతుంది.
+ */
+const DISTRICT_COORDS = {
+    "హైదరాబాద్": { lat: 17.3850, lon: 78.4867 },
+    "విశాఖపట్నం": { lat: 17.6868, lon: 83.2185 },
+    "విజయవాడ": { lat: 16.5062, lon: 80.6480 },
+    "గుంటూరు": { lat: 16.3067, lon: 80.4365 },
+    "నెల్లూరు": { lat: 14.4426, lon: 79.9865 },
+    "కర్నూలు": { lat: 15.8284, lon: 78.0331 },
+    "వరంగల్": { lat: 17.9689, lon: 79.5941 },
+    "ఖమ్మం": { lat: 17.2473, lon: 80.1514 },
+    "కరీంనగర్": { lat: 18.4386, lon: 79.1288 },
+    "నిజామాబాద్": { lat: 18.6725, lon: 78.0941 },
+    "తిరుపతి": { lat: 13.6288, lon: 79.4192 },
+    "అనంతపురం": { lat: 14.6819, lon: 77.6006 },
+    "కడప": { lat: 14.4673, lon: 78.8242 },
+    "కాకినాడ": { lat: 16.9891, lon: 82.2475 },
+    "రాజమహేంద్రవరం": { lat: 17.0005, lon: 81.7774 }
+};
+exports.checkSevereWeatherAlerts = (0, scheduler_1.onSchedule)({
+    schedule: "*/30 * * * *",
+    timeZone: "Asia/Kolkata",
+    memory: "512MiB"
+}, async (event) => {
+    console.log("[WEATHER_ALERT] Checking for severe weather conditions...");
+    for (const [district, coords] of Object.entries(DISTRICT_COORDS)) {
+        try {
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current_weather=true`;
+            const response = await fetch(url);
+            if (!response.ok)
+                continue;
+            const data = await response.json();
+            const weatherCode = data.current_weather.weathercode;
+            const temp = data.current_weather.temperature;
+            let alertTitle = "";
+            let alertBody = "";
+            let isSevere = false;
+            // 1. పిడుగుల హెచ్చరిక (Thunderstorm)
+            if (weatherCode === 95 || weatherCode === 96 || weatherCode === 99) {
+                alertTitle = `⚠️ పిడుగుల హెచ్చరిక - ${district}`;
+                alertBody = `ప్రస్తుతం ${district} ప్రాంతంలో పిడుగులతో కూడిన భారీ వర్షం పడే అవకాశం ఉంది. సురక్షితంగా ఉండండి.`;
+                isSevere = true;
+            }
+            // 2. ఎండ తీవ్రత / వడగాల్పులు (Heatwave - >42°C)
+            else if (temp >= 42) {
+                alertTitle = `🔥 ఎండ తీవ్రత హెచ్చరిక - ${district}`;
+                alertBody = `జాగ్రత్త! ${district} లో ఉష్ణోగ్రత ${temp}°C కి చేరింది. వడగాల్పులు వీచే అవకాశం ఉంది, దయచేసి నీడన ఉండండి.`;
+                isSevere = true;
+            }
+            // 3. వర్ష సూచన (Rain Expected - For Farmers)
+            else if (weatherCode >= 51 && weatherCode <= 82) {
+                alertTitle = `🌧️ వర్ష సూచన - ${district}`;
+                alertBody = `రైతు సోదరులకు గమనిక: ${district} లో వర్షం/చినుకులు పడే అవకాశం ఉంది. మందులు కొట్టే వారు తగిన జాగ్రత్తలు తీసుకోండి.`;
+                isSevere = true;
+            }
+            // 4. దట్టమైన మంచు (Dense Fog)
+            else if (weatherCode === 45 || weatherCode === 48) {
+                alertTitle = `🌫️ దట్టమైన మంచు హెచ్చరిక - ${district}`;
+                alertBody = `${district} లో దట్టమైన మంచు కురుస్తోంది. వాహనదారులు లైట్లు వేసుకుని జాగ్రత్తగా ప్రయాణించండి.`;
+                isSevere = true;
+            }
+            if (isSevere) {
+                console.log(`[WEATHER_ALERT] Severe weather detected in ${district}. Sending notifications...`);
+                // సదరు జిల్లాలోని యూజర్లను కనుగొనడం
+                const usersSnapshot = await db.collection('users')
+                    .where('district', '==', district)
+                    .where('notificationsEnabled', '!=', false)
+                    .limit(500) // బాచ్ ప్రాసెసింగ్
+                    .get();
+                if (usersSnapshot.empty)
+                    continue;
+                const messages = [];
+                usersSnapshot.docs.forEach(doc => {
+                    const userData = doc.data();
+                    const token = userData.fcmToken;
+                    if (token) {
+                        messages.push({
+                            notification: { title: alertTitle, body: alertBody },
+                            data: { type: "WEATHER_ALERT", district: district },
+                            token: token
+                        });
+                    }
+                });
+                if (messages.length > 0) {
+                    await admin.messaging().sendEach(messages);
+                    console.log(`[WEATHER_ALERT] Sent ${messages.length} alerts to ${district}.`);
+                }
+            }
+        }
+        catch (err) {
+            console.error(`[WEATHER_ALERT] Error checking weather for ${district}:`, err.message);
         }
     }
 });
@@ -966,10 +1070,38 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
     // 3. Notify Reporter (removed from end, handled in each step above)
 });
 exports.triggerPushBroadcast = (0, https_1.onCall)(async (request) => {
-    const { title, body, actionUrl, topic } = request.data;
-    const message = { notification: { title, body }, data: { actionUrl: actionUrl || "" }, topic: topic || 'all_users' };
-    await admin.messaging().send(message);
-    return { success: true };
+    const { title, body, actionUrl, topic, imageUrl, newsId, channelId, silent } = request.data;
+    // Validate required fields
+    if (!title || !body) {
+        throw new https_1.HttpsError('invalid-argument', 'Title and Body are required for manual notification.');
+    }
+    const message = {
+        notification: { title, body },
+        data: {
+            actionUrl: actionUrl || "",
+            newsId: newsId || "",
+            channelId: channelId || "general_news",
+            imageUrl: imageUrl || ""
+        },
+        topic: topic || 'all_users'
+    };
+    // Add Android specific configuration if needed
+    message.android = {
+        notification: {
+            channelId: channelId || "general_news",
+            priority: silent ? "low" : "high",
+            defaultSound: !silent
+        }
+    };
+    try {
+        const response = await admin.messaging().send(message);
+        console.log(`[MANUAL_PUSH] Successfully sent message to topic ${topic || 'all_users'}:`, response);
+        return { success: true, messageId: response };
+    }
+    catch (error) {
+        console.error(`[MANUAL_PUSH] Error sending message:`, error);
+        throw new https_1.HttpsError('internal', error.message || 'Failed to send notification');
+    }
 });
 exports.sendContactEmail = (0, https_1.onCall)({ secrets: ["EMAIL_USER", "EMAIL_PASS"] }, async (request) => {
     const { name, phone, message } = request.data;
