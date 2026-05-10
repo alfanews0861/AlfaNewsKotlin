@@ -1080,10 +1080,41 @@ export const onNewsPostCreated = onDocumentCreated({
 
 
 export const triggerPushBroadcast = onCall(async (request) => {
-    const { title, body, actionUrl, topic } = request.data;
-    const message = { notification: { title, body }, data: { actionUrl: actionUrl || "" }, topic: topic || 'all_users' };
-    await admin.messaging().send(message);
-    return { success: true };
+    const { title, body, actionUrl, topic, imageUrl, newsId, channelId, silent } = request.data;
+
+    // Validate required fields
+    if (!title || !body) {
+        throw new HttpsError('invalid-argument', 'Title and Body are required for manual notification.');
+    }
+
+    const message: any = {
+        notification: { title, body },
+        data: {
+            actionUrl: actionUrl || "",
+            newsId: newsId || "",
+            channelId: channelId || "general_news",
+            imageUrl: imageUrl || ""
+        },
+        topic: topic || 'all_users'
+    };
+
+    // Add Android specific configuration if needed
+    message.android = {
+        notification: {
+            channelId: channelId || "general_news",
+            priority: silent ? "low" : "high" as any,
+            defaultSound: !silent
+        }
+    };
+
+    try {
+        const response = await admin.messaging().send(message);
+        console.log(`[MANUAL_PUSH] Successfully sent message to topic ${topic || 'all_users'}:`, response);
+        return { success: true, messageId: response };
+    } catch (error: any) {
+        console.error(`[MANUAL_PUSH] Error sending message:`, error);
+        throw new HttpsError('internal', error.message || 'Failed to send notification');
+    }
 });
 
 export const sendContactEmail = onCall({ secrets: ["EMAIL_USER", "EMAIL_PASS"] }, async (request) => {

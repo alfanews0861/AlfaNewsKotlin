@@ -24,7 +24,9 @@ data class WeatherResponse(
 
 data class CurrentWeather(
     @SerializedName("temperature") val temperature: Double,
-    @SerializedName("weathercode") val weatherCode: Int
+    @SerializedName("weathercode") val weatherCode: Int,
+    @SerializedName("windspeed") val windSpeed: Double,
+    @SerializedName("is_day") val isDay: Int
 )
 
 interface WeatherApiService {
@@ -54,8 +56,9 @@ object WeatherService {
 
     /**
      * జిల్లా పేరు ఆధారంగా నిజమైన వాతావరణ సమాచారాన్ని తెస్తుంది.
+     * రిటర్న్: Pair(Temperature, WeatherCode) -> ఇప్పుడు Triple(Temperature, WeatherCode, WindSpeed)
      */
-    suspend fun fetchWeather(district: String): Pair<Double, Int>? {
+    suspend fun fetchWeather(district: String): Triple<Double, Int, Double>? {
         return try {
             // 1. Get coordinates
             val geoResponse = api.getCoordinates(district)
@@ -63,7 +66,11 @@ object WeatherService {
             
             // 2. Get weather for those coordinates
             val weatherResponse = api.getWeather(location.latitude, location.longitude)
-            Pair(weatherResponse.currentWeather.temperature, weatherResponse.currentWeather.weatherCode)
+            Triple(
+                weatherResponse.currentWeather.temperature, 
+                weatherResponse.currentWeather.weatherCode,
+                weatherResponse.currentWeather.windSpeed
+            )
         } catch (e: Exception) {
             e.printStackTrace()
             null

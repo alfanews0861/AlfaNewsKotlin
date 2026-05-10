@@ -258,11 +258,9 @@ fun LocalNewsFeedView(
                     )
                 }
             }
-        } else if (news.isEmpty()) {
-            LaunchedEffect(activeDistrict) {
-                if (activeDistrict == null) {
-                    showDistrictPicker = true
-                }
+        } else if (news.isEmpty() && activeDistrict == null) {
+            LaunchedEffect(Unit) {
+                showDistrictPicker = true
             }
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -273,7 +271,7 @@ fun LocalNewsFeedView(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
-                        text = if (activeDistrict == null) stringResource(R.string.select_district_prompt) else stringResource(R.string.no_news_in_district),
+                        text = stringResource(R.string.select_district_prompt),
                         color = MaterialTheme.colorScheme.onBackground,
                         style = MaterialTheme.typography.bodyLarge,
                         fontFamily = Ramabhadra
@@ -282,7 +280,7 @@ fun LocalNewsFeedView(
                         onClick = { showDistrictPicker = true },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
-                        Text(if (activeDistrict == null) stringResource(R.string.select_district) else "Change District", fontFamily = Ramabhadra)
+                        Text(stringResource(R.string.select_district), fontFamily = Ramabhadra)
                     }
                 }
             }

@@ -52,6 +52,13 @@ fun WeatherCardView(
         }
     }
 
+    // గాలి వేగాన్ని గుర్తించడం (Regex ద్వారా)
+    val windSpeed = remember(content) {
+        val pattern = Pattern.compile("గాలి వేగం గంటకు (\\d+)", Pattern.CASE_INSENSITIVE)
+        val matcher = pattern.matcher(content)
+        if (matcher.find()) matcher.group(1) ?: "12" else "12"
+    }
+
     // వాతావరణ రకాన్ని గుర్తించడం
     val weatherType = remember(headline, content) {
         when {
@@ -190,8 +197,13 @@ fun WeatherCardView(
                         .padding(12.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    WeatherDetailItem(Icons.Default.WaterDrop, stringResource(R.string.weather_humidity), "65%")
-                    WeatherDetailItem(Icons.Default.Air, stringResource(R.string.weather_wind), "12 km/h")
+                    val humidity = when(weatherType) {
+                        WeatherType.SUNNY -> "35%"
+                        WeatherType.RAINY, WeatherType.THUNDERSTORM -> "85%"
+                        else -> "60%"
+                    }
+                    WeatherDetailItem(Icons.Default.WaterDrop, stringResource(R.string.weather_humidity), humidity)
+                    WeatherDetailItem(Icons.Default.Air, stringResource(R.string.weather_wind), "$windSpeed km/h")
                     WeatherDetailItem(Icons.Default.Thermostat, stringResource(R.string.weather_feels_like), "${temperature.toIntOrNull()?.plus(2) ?: 34}°")
                 }
             }

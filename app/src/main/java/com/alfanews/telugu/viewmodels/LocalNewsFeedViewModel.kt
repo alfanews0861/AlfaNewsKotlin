@@ -36,7 +36,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     private val _news = MutableStateFlow<List<NewsPost>>(emptyList())
     val news: StateFlow<List<NewsPost>> = _news.asStateFlow()
     
-    private val _loading = MutableStateFlow(false)
+    private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
     private val _isOnline = MutableStateFlow(true)
@@ -69,7 +69,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
     private var lastDocument: DocumentSnapshot? = null
     private var lastRefreshTimeLong: Long = 0
-    private val pageSize = 20 // Increased from 10 to show more news
+    private val pageSize = 20
     private var loadJob: Job? = null
     
     fun setDistrict(district: String) {
@@ -192,9 +192,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
      * యూజర్ ఉన్న ఖచ్చితమైన ప్రాంతం లేదా జిల్లా ఆధారంగా వాతావరణ సమాచారాన్ని తెస్తుంది.
      */
     private suspend fun generateWeatherPost(place: String?, district: String?): NewsPost {
-        // ప్రాధాన్యత: 1. ఖచ్చితమైన ప్రాంతం (Place), 2. జిల్లా (District)
-        val location = place ?: district ?: "హైదరాబాద్"
-        val displayLocation = if (place != null && district != null && place != district) "$place ($district)" else location
+        // ప్రాధాన్యత: ఒకవేళ యూజర్ ఎంచుకున్న జిల్లా, తను ఉన్న జిల్లా ఒకటే అయితే 'Place' (మండలం/ఊరు) వాడండి.
+        // లేకపోతే కేవలం ఎంచుకున్న జిల్లా (District) వాతావరణం మాత్రమే చూపించండి.
+        val isViewingDetectedDistrict = district == prefs.detectedDistrict
+        val location = if (isViewingDetectedDistrict) (place ?: district ?: "హైదరాబాద్") else (district ?: "హైదరాబాద్")
+        val displayLocation = location
         
         // 🌍 నిజమైన వాతావరణ డేటా కోసం API కాల్
         val realWeatherData = WeatherService.fetchWeather(location)
@@ -205,16 +207,34 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         val weatherHeadlineEn: String
         
         if (realWeatherData != null) {
-            val (temp, code) = realWeatherData
+            val (temp, code, wind) = realWeatherData
+            val weatherDesc = WeatherService.getWeatherDescription(code)
+            
             temperatureStr = "${temp.toInt()}°C"
-            weatherHeadlineTe = WeatherService.getWeatherDescription(code)
-            weatherContentTe = "నేడు $location లో వాతావరణం ${WeatherService.getWeatherDescription(code).lowercase()}. గరిష్ట ఉష్ణోగ్రత $temperatureStr గా నమోదైంది."
+            weatherHeadlineTe = weatherDesc
+            
+            // వివరణాత్మక కంటెంట్ (Descriptive Content)
+            weatherContentTe = buildString {
+                append("నేడు $location లో వాతావరణం $weatherDesc. ")
+                append("ప్రస్తుత ఉష్ణోగ్రత ${temp.toInt()}°C గా ఉంది. ")
+                append("గాలి వేగం గంటకు ${wind.toInt()} కిలోమీటర్లు. ")
+                
+                // వాతావరణం ఆధారంగా సూచనలు
+                when (code) {
+                    0 -> append("ఆకాశం నిర్మలంగా ఉంది, ప్రయాణాలకు మరియు బయటి పనులకు ఇది అనుకూల సమయం.")
+                    1, 2, 3 -> append("ఆకాశం పాక్షికంగా మేఘావృతమై ఉంటుంది, ఎండ తీవ్రత తక్కువగా ఉండి వాతావరణం ఆహ్లాదకరంగా ఉంటుంది.")
+                    45, 48 -> append("పొగమంచు కురిసే అవకాశం ఉంది, వాహనదారులు జాగ్రత్తగా ఉండాలి.")
+                    51, 53, 55, 61, 63, 65, 80, 81, 82 -> append("తేలికపాటి నుండి మోస్తరు వర్షం పడే అవకాశం ఉంది, బయటకు వెళ్లేటప్పుడు గొడుగు లేదా రెయిన్ కోట్ వెంట ఉంచుకోవడం మంచిది.")
+                    95, 96, 99 -> append("పిడుగులతో కూడిన భారీ వర్షం పడే సూచనలు ఉన్నాయి, ఉరుముల సమయంలో చెట్ల కింద లేదా బహిరంగ ప్రదేశాల్లో ఉండకండి.")
+                    else -> append("వాతావరణం సాధారణంగా ఉంటుంది, మీ పనులను ప్లాన్ చేసుకోవచ్చు.")
+                }
+            }
             weatherHeadlineEn = "${WeatherService.getWeatherTypeLabel(code)} ($temperatureStr)"
         } else {
             // ఫాల్‌బ్యాక్ (డేటా రాకపోతే)
             temperatureStr = "32°C"
             weatherHeadlineTe = "పాక్షికంగా మేఘావృతం (30°C)"
-            weatherContentTe = "ఎండ మరియు మేఘాలు కలిసి ఉంటాయి. ఉమ్మడి వాతావరణం 30°C తో ఆహ్లాదకరంగా ఉంటుంది."
+            weatherContentTe = "ప్రస్తుతం $location లో ఎండ మరియు మేఘాలు కలిసి ఉంటాయి. ఉమ్మడి వాతావరణం 30°C తో ఆహ్లాదకరంగా ఉంటుంది. మీ రోజువారీ పనులకు ఇది అనుకూలమైన సమయం."
             weatherHeadlineEn = "Pleasant Weather (30°C)"
         }
 
@@ -226,7 +246,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             ),
             content = com.alfanews.telugu.models.Content(
                 telugu = weatherContentTe,
-                english = "Current weather update for $displayLocation. Please stay tuned for more details."
+                english = "Current weather update for $displayLocation. Temperature is around $temperatureStr. Please stay tuned for more details."
             ),
             location = displayLocation,
             type = "weather",
@@ -279,6 +299,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         loadJob?.cancel()
         
         loadJob = viewModelScope.launch {
+            // ⏳ 2 సెకన్ల తర్వాత ఆటోమేటిక్‌గా లోడింగ్ స్పిన్నర్‌ను ఆపివేయండి
+            launch {
+                kotlinx.coroutines.delay(2000)
+                _loading.value = false
+            }
             // ఇంటర్నెట్ తనిఖీ
             if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
                 _isOnline.value = false

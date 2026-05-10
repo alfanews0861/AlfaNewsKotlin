@@ -34,7 +34,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private val _news = MutableStateFlow<List<NewsPost>>(emptyList())
     val news: StateFlow<List<NewsPost>> = _news.asStateFlow()
 
-    private val _loading = MutableStateFlow(false)
+    private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
     private val _hasMore = MutableStateFlow(true)
@@ -83,6 +83,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
           isFetching = true
 
           viewModelScope.launch {
+              // ⏳ 2 సెకన్ల తర్వాత ఆటోమేటిక్‌గా లోడింగ్ స్పిన్నర్‌ను ఆపివేయండి
+              launch {
+                  kotlinx.coroutines.delay(2000)
+                  _loading.value = false
+              }
               try {
                   // ఇంటర్నెట్ తనిఖీ
                   if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
@@ -182,32 +187,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    if (finalPosts.isEmpty() && (mainCursor != null || prefCursor != null)) {
                        // We scanned but found nothing global. Stop here to save bill/data.
                        _hasMore.value = false
-                   }
-
-                   // --- IMPROVED FALLBACK (with filtering maintained) ---
-                   // If we have < 5 normal posts:
-                   // 1. Don't load unfiltered news that bypasses district filtering
-                   // 2. Instead, try fetching more posts WITH filtering applied
-                   // 3. This ensures home feed never shows district-specific news
-                   val normalNewsCount = finalPosts.count { it.type != "greeting" && it.type != "history" && it.type != "cartoon" }
-                   if (normalNewsCount < 5) {
-                       try {
-                           // Try fetching more posts through filtered batch instead of raw query
-                           val extraBatch = fetchFilteredBatch(
-                               FirebaseService.db.collection("news"),
-                               mainCursor,
-                               district,
-                               excludeDistricts = true  // ✅ Keep filtering enabled!
-                           )
-                           val extraList = extraBatch.first
-                           if (extraList.isNotEmpty()) {
-                               finalPosts = (finalPosts + extraList).distinctBy { it.id }
-                               if (mainCursor == null) mainCursor = extraBatch.second
-                           }
-                       } catch (e: Exception) {
-                           // If filtering batch fails, just accept what we have
-                           // Better to show limited content than spam all news
-                       }
                    }
 
                   // Inject greeting at the very top
@@ -355,7 +334,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
           var lastSnapshot: com.google.firebase.firestore.QuerySnapshot? = null
 
           // లక్ష్య సంఖ్యకు చేరుకునే వరకు లూప్ కొనసాగండి
-          while (filteredList.size < MIN_BATCH_SIZE && attempts < 4) { // Reduced attempts from 8 to 4 for speed
+          while (filteredList.size < MIN_BATCH_SIZE && attempts < 10) { // Increased attempts for home feed filtering
               attempts++
               var query = baseQuery.whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(FETCH_LIMIT.toLong())
               if (currentCursor != null) query = query.startAfter(currentCursor)
@@ -763,9 +742,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
       * యూజర్ ఉన్న ఖచ్చితమైన ప్రాంతం లేదా జిల్లా ఆధారంగా వాతావరణ సమాచారాన్ని తెస్తుంది.
       */
      private suspend fun generateWeatherPost(place: String?, district: String?): NewsPost {
-         // ప్రాధాన్యత: 1. ఖచ్చితమైన ప్రాంతం (Place), 2. జిల్లా (District), 3. హైదరాబాద్ (Fallback)
-         val location = place ?: district ?: "హైదరాబాద్"
-         val displayLocation = if (place != null && district != null && place != district) "$place ($district)" else location
+         // ప్రాధాన్యత: ఒకవేళ యూజర్ ఎంచుకున్న జిల్లా, తను ఉన్న జిల్లా ఒకటే అయితే 'Place' (మండలం/ఊరు) వాడండి.
+         // లేకపోతే కేవలం ఎంచుకున్న జిల్లా (District) వాతావరణం మాత్రమే చూపించండి.
+         val isViewingDetectedDistrict = district == prefs.detectedDistrict
+         val location = if (isViewingDetectedDistrict) (place ?: district ?: "హైదరాబాద్") else (district ?: "హైదరాబాద్")
+         val displayLocation = location
          
          // 🌍 నిజమైన వాతావరణ డేటా కోసం API కాల్
          val realWeatherData = WeatherService.fetchWeather(location)
@@ -776,16 +757,34 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
          val weatherHeadlineEn: String
          
          if (realWeatherData != null) {
-             val (temp, code) = realWeatherData
+             val (temp, code, wind) = realWeatherData
+             val weatherDesc = WeatherService.getWeatherDescription(code)
+             
              temperatureStr = "${temp.toInt()}°C"
-             weatherHeadlineTe = WeatherService.getWeatherDescription(code)
-             weatherContentTe = "నేడు $location లో వాతావరణం ${WeatherService.getWeatherDescription(code).lowercase()}. గరిష్ట ఉష్ణోగ్రత $temperatureStr గా నమోదైంది."
+             weatherHeadlineTe = weatherDesc
+             
+             // వివరణాత్మక కంటెంట్ (Descriptive Content)
+             weatherContentTe = buildString {
+                 append("నేడు $location లో వాతావరణం $weatherDesc. ")
+                 append("ప్రస్తుత ఉష్ణోగ్రత ${temp.toInt()}°C గా ఉంది. ")
+                 append("గాలి వేగం గంటకు ${wind.toInt()} కిలోమీటర్లు. ")
+                 
+                 // వాతావరణం ఆధారంగా సూచనలు
+                 when (code) {
+                     0 -> append("ఆకాశం నిర్మలంగా ఉంది, ప్రయాణాలకు మరియు బయటి పనులకు ఇది అనుకూల సమయం.")
+                     1, 2, 3 -> append("ఆకాశం పాక్షికంగా మేఘావృతమై ఉంటుంది, ఎండ తీవ్రత తక్కువగా ఉండి వాతావరణం ఆహ్లాదకరంగా ఉంటుంది.")
+                     45, 48 -> append("పొగమంచు కురిసే అవకాశం ఉంది, వాహనదారులు జాగ్రత్తగా ఉండాలి.")
+                     51, 53, 55, 61, 63, 65, 80, 81, 82 -> append("తేలికపాటి నుండి మోస్తరు వర్షం పడే అవకాశం ఉంది, బయటకు వెళ్లేటప్పుడు గొడుగు లేదా రెయిన్ కోట్ వెంట ఉంచుకోవడం మంచిది.")
+                     95, 96, 99 -> append("పిడుగులతో కూడిన భారీ వర్షం పడే సూచనలు ఉన్నాయి, ఉరుముల సమయంలో చెట్ల కింద లేదా బహిరంగ ప్రదేశాల్లో ఉండకండి.")
+                     else -> append("వాతావరణం సాధారణంగా ఉంటుంది, మీ పనులను ప్లాన్ చేసుకోవచ్చు.")
+                 }
+             }
              weatherHeadlineEn = "${WeatherService.getWeatherTypeLabel(code)} ($temperatureStr)"
          } else {
              // ఫాల్‌బ్యాక్ (డేటా రాకపోతే)
              temperatureStr = "32°C"
              weatherHeadlineTe = "పాక్షికంగా మేఘావృతం (30°C)"
-             weatherContentTe = "ఎండ మరియు మేఘాలు కలిసి ఉంటాయి. ఉమ్మడి వాతావరణం 30°C తో ఆహ్లాదకరంగా ఉంటుంది."
+             weatherContentTe = "ప్రస్తుతం $location లో ఎండ మరియు మేఘాలు కలిసి ఉంటాయి. ఉమ్మడి వాతావరణం 30°C తో ఆహ్లాదకరంగా ఉంటుంది. మీ రోజువారీ పనులకు ఇది అనుకూలమైన సమయం."
              weatherHeadlineEn = "Pleasant Weather (30°C)"
          }
 
@@ -797,7 +796,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
              ),
              content = com.alfanews.telugu.models.Content(
                  telugu = weatherContentTe,
-                 english = "Current weather update for $displayLocation. Please stay tuned for more details."
+                 english = "Current weather update for $displayLocation. Temperature is around $temperatureStr. Please stay tuned for more details."
              ),
              location = displayLocation,
              type = "weather",

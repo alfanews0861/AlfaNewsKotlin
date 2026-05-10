@@ -274,19 +274,6 @@ fun NewsFeedView(
                     )
                 }
             }
-        } else if (!loading && news.isEmpty()) {
-             Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = stringResource(R.string.no_news_available),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(32.dp),
-                    textAlign = TextAlign.Center
-                )
-            }
         } else {
             VerticalPager(
                 state = pagerState,

@@ -101,29 +101,39 @@ fun AdminNotificationsPageView() {
         }
     }
 
+    var customTitle by remember { mutableStateOf("") }
+    var customBody by remember { mutableStateOf("") }
+    var useCustomMessage by remember { mutableStateOf(false) }
+
     fun handleSend() {
-        if (selectedPostId.isEmpty()) {
-            Toast.makeText(context, "దయచేసి ఒక వార్తను ఎంచుకోండి.", Toast.LENGTH_SHORT).show()
+        if (!useCustomMessage && selectedPostId.isEmpty()) {
+            Toast.makeText(context, "దయచేసి ఒక వార్తను ఎంచుకోండి లేదా కస్టమ్ మెసేజ్ టైప్ చేయండి.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (useCustomMessage && (customTitle.isEmpty() || customBody.isEmpty())) {
+            Toast.makeText(context, "శీర్షిక మరియు వివరణ తప్పనిసరి.", Toast.LENGTH_SHORT).show()
             return
         }
 
-        val selectedPost = latestPosts.find { it.id == selectedPostId } ?: return
+        val selectedPost = latestPosts.find { it.id == selectedPostId }
 
         scope.launch {
             isSending = true
             try {
                 // Determine title and silent status from channel
                 val isSilent = selectedChannelId != "breaking_news"
-                val title = if (selectedChannelId == "breaking_news") {
-                    "🔴 బ్రేకింగ్ న్యూస్"
-                } else {
-                    selectedPost.headline.telugu
+                
+                val finalTitle = if (useCustomMessage) customTitle else {
+                    if (selectedChannelId == "breaking_news") "🔴 బ్రేకింగ్ న్యూస్" else selectedPost?.headline?.telugu ?: ""
                 }
+                
+                val finalBody = if (useCustomMessage) customBody else selectedPost?.headline?.telugu ?: ""
+                val actionUrl = if (useCustomMessage) "" else "#/s/${selectedPost?.id}"
 
                 val result = FirebaseFunctionsService.triggerPushBroadcast(
-                    title = title,
-                    body = selectedPost.headline.telugu,
-                    actionUrl = "#/s/${selectedPost.id}",
+                    title = finalTitle,
+                    body = finalBody,
+                    actionUrl = actionUrl,
                     topic = "all_users",
                     silent = isSilent,
                     channelId = selectedChannelId
@@ -131,7 +141,10 @@ fun AdminNotificationsPageView() {
 
                 if (result.isSuccess) {
                     Toast.makeText(context, "నోటిఫికేషన్ విజయవంతంగా పంపబడింది!", Toast.LENGTH_SHORT).show()
-                    selectedPostId = ""
+                    if (!useCustomMessage) selectedPostId = "" else {
+                        customTitle = ""
+                        customBody = ""
+                    }
                 } else {
                     Toast.makeText(
                         context,
@@ -224,45 +237,76 @@ fun AdminNotificationsPageView() {
                 }
             }
 
-            Text(
-                text = "వార్తను ఎంచుకోండి (Select News)",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-
-            if (loadingPosts) {
-                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            } else {
-                var postExpanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(
-                    expanded = postExpanded,
-                    onExpandedChange = { postExpanded = !postExpanded },
+            // Toggle between Custom and Post-based
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (useCustomMessage) "✍️ కస్టమ్ మెసేజ్ పంపు" else "📰 వార్తను ఎంచుకో",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Button(
+                    onClick = { useCustomMessage = !useCustomMessage },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
                 ) {
-                    OutlinedTextField(
-                        value = latestPosts.find { it.id == selectedPostId }?.headline?.telugu ?: "-- వార్తను ఎంచుకోండి --",
-                        onValueChange = { },
-                        readOnly = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .menuAnchor(),
-                        label = { Text("వార్త") },
-                        shape = RoundedCornerShape(8.dp),
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = postExpanded) }
-                    )
-                    ExposedDropdownMenu(
+                    Text(if (useCustomMessage) "వార్తకు మారు" else "కస్టమ్ కి మారు")
+                }
+            }
+
+            if (useCustomMessage) {
+                OutlinedTextField(
+                    value = customTitle,
+                    onValueChange = { customTitle = it },
+                    label = { Text("నోటిఫికేషన్ శీర్షిక (Title)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                OutlinedTextField(
+                    value = customBody,
+                    onValueChange = { customBody = it },
+                    label = { Text("నోటిఫికేషన్ వివరణ (Body)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    minLines = 3
+                )
+            } else {
+                if (loadingPosts) {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    var postExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
                         expanded = postExpanded,
-                        onDismissRequest = { postExpanded = false }
+                        onExpandedChange = { postExpanded = !postExpanded },
                     ) {
-                        latestPosts.forEach { post ->
-                            DropdownMenuItem(
-                                text = { Text(post.headline.telugu, maxLines = 2) },
-                                onClick = {
-                                    selectedPostId = post.id
-                                    postExpanded = false
-                                }
-                            )
+                        OutlinedTextField(
+                            value = latestPosts.find { it.id == selectedPostId }?.headline?.telugu ?: "-- వార్తను ఎంచుకోండి --",
+                            onValueChange = { },
+                            readOnly = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(),
+                            label = { Text("వార్త") },
+                            shape = RoundedCornerShape(8.dp),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = postExpanded) }
+                        )
+                        ExposedDropdownMenu(
+                            expanded = postExpanded,
+                            onDismissRequest = { postExpanded = false }
+                        ) {
+                            latestPosts.forEach { post ->
+                                DropdownMenuItem(
+                                    text = { Text(post.headline.telugu, maxLines = 2) },
+                                    onClick = {
+                                        selectedPostId = post.id
+                                        postExpanded = false
+                                    }
+                                )
+                            }
                         }
                     }
                 }

@@ -103,7 +103,6 @@ fun PostNewsPageView(
     val contentLabel = stringResource(R.string.news_content)
     val regionCategoryLabel = stringResource(R.string.region_category)
     val mediaLabel = stringResource(R.string.news_media)
-    val youtubeLinkLabel = stringResource(R.string.youtube_link)
     
     var statusMessage by remember { mutableStateOf("") }
     
@@ -179,7 +178,7 @@ fun PostNewsPageView(
         scope.launch {
             isSubmitting = true
             try {
-                statusMessage = context.getString(R.string.uploading_media)
+                statusMessage = "Sub ఎడిటర్ లు ఎడిట్ చేస్తున్నారు"
                 
                 val finalMediaUrls = if (postToEdit != null) {
                     (postToEdit.mediaUrls.ifEmpty { if (postToEdit.mediaUrl.isNotEmpty()) listOf(postToEdit.mediaUrl) else emptyList() }).toMutableList()
@@ -200,7 +199,7 @@ fun PostNewsPageView(
                     for (uri in sortedUris) {
                         val isVideo = context.contentResolver.getType(uri)?.startsWith("video/") == true
                         if (isVideo) {
-                            statusMessage = "వీడియో ప్రాసెస్ అవుతోంది, దయచేసి వేచి ఉండండి..."
+                            statusMessage = "Sub ఎడిటర్ లు ఎడిట్ చేస్తున్నారు"
                         }
                         val url = uploadMediaToStorage(context, uri, "news-media", isVideo)
                         finalMediaUrls.add(url)
@@ -208,7 +207,7 @@ fun PostNewsPageView(
                     }
                 }
 
-                statusMessage = context.getString(R.string.loading)
+                statusMessage = "Sub ఎడిటర్ లు ఎడిట్ చేస్తున్నారు"
                 
                 val finalCategories = listOf(category, district).filter { it.isNotBlank() }
 
@@ -248,11 +247,11 @@ fun PostNewsPageView(
                     // Redirection Logic: Video vs Image
                     val isVideoPost = finalMediaTypes.contains("VIDEO")
                     if (isVideoPost) {
-                        Toast.makeText(context, "వీడియో ప్రాసెస్ చేయడానికి కనీసం 10 నిమిషాలు పడుతుంది, కావున 10 నిమిషాల తర్వాత చెక్ చేయండి", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "వార్త విజయవంతంగా పబ్లిష్ అయ్యింది", Toast.LENGTH_LONG).show()
                         delay(2500)
                         onActionComplete("HOME_ONLY") // Custom marker for MainScreen
                     } else {
-                        val successMessage = serverMessage ?: if (postToEdit != null) context.getString(R.string.news_updated_successfully) else context.getString(R.string.news_published_successfully)
+                        val successMessage = "వార్త విజయవంతంగా పబ్లిష్ అయ్యింది"
                         Toast.makeText(context, successMessage, Toast.LENGTH_LONG).show()
                         delay(1500)
                         onActionComplete(newPostId ?: postToEdit?.id ?: "")
@@ -432,17 +431,6 @@ fun PostNewsPageView(
                         }
                     }
 
-                    OutlinedTextField(
-                        value = youtubeUrl ?: "",
-                        onValueChange = { youtubeUrl = it },
-                        label = { Text(youtubeLinkLabel) },
-                        placeholder = { Text("https://www.youtube.com/watch?v=...") },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                        )
-                    )
                 }
             }
 
