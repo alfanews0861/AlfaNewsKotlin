@@ -89,7 +89,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         "ప్రపంచం" to listOf("international", "world", "global")
     )
     
-    private val FETCH_LIMIT = 15 // Reduced for faster loads
+    private val FETCH_LIMIT = 20 // Increased for more content per batch
     private val MIN_BATCH_SIZE = 5
     
     /**
@@ -352,13 +352,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                            // Reset consecutive empty load counter since we added new items
                            consecutiveEmptyLoads = 0
                       } else {
-                          // If no unique posts were found, we should stop trying for this session 
-                          // to prevent infinite loops if the query keeps returning same items
+                          // No unique posts after dedup - only stop if BOTH cursors exhausted
+                          // or after 4 consecutive empty loads to handle 40/30/30 filtering
                            consecutiveEmptyLoads += 1
                            if (mainCursor == null && prefCursor == null) {
                                _hasMore.value = false
-                           } else if (consecutiveEmptyLoads >= 2) {
-                               // After 2 consecutive empty loadMore results, stop further loading
+                           } else if (consecutiveEmptyLoads >= 4) {
+                               // After 4 consecutive empty loadMore results, stop further loading
                                _hasMore.value = false
                            }
                       }

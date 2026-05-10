@@ -26,7 +26,11 @@ object AnalyticsService {
     private val organizationScores = mutableMapOf<String, Int>()
     private val locationScores = mutableMapOf<String, Int>()
 
-    private var cachedPreferredCategories: List<String>? = null
+    // ✅ Throttle: disk write max once per 30s, Firestore sync max once per 60s
+    private var lastSaveToPrefsTime = 0L
+    private var lastFirestoreSyncTime = 0L
+    private const val PREFS_THROTTLE_MS = 30_000L
+    private const val FIRESTORE_THROTTLE_MS = 60_000L
 
     private const val PREFS_NAME = "analytics_prefs_v2"
     private const val KEY_CATEGORY_SCORES = "category_scores"
@@ -37,6 +41,7 @@ object AnalyticsService {
     private const val KEY_LOCATION_SCORES = "location_scores"
 
     private var currentUserId: String? = null
+    private var cachedPreferredCategories: List<String>? = null
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -87,6 +92,9 @@ object AnalyticsService {
 
     private fun syncToFirestore() {
         val uid = currentUserId ?: return
+        val now = System.currentTimeMillis()
+        if (now - lastFirestoreSyncTime < FIRESTORE_THROTTLE_MS) return // throttled
+        lastFirestoreSyncTime = now
         scope.launch {
             try {
                 FirebaseService.db.collection("users").document(uid).update(
@@ -279,6 +287,9 @@ object AnalyticsService {
     }
 
     private fun saveToPrefs() {
+        val now = System.currentTimeMillis()
+        if (now - lastSaveToPrefsTime < PREFS_THROTTLE_MS) return // throttled
+        lastSaveToPrefsTime = now
         val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().apply {
             putString(KEY_CATEGORY_SCORES, Gson().toJson(categoryScores))

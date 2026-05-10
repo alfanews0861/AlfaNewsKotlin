@@ -162,12 +162,12 @@ fun LocalNewsFeedView(
     LaunchedEffect(pagerState, news.size) { 
         snapshotFlow { pagerState.currentPage }.collect { page ->
             val newsIndex = page - (page / 6)
-            if (newsIndex >= news.size - 10 && hasMore && !loading) {
+            if (newsIndex >= news.size - 7 && hasMore && !loading) {
                 viewModel.loadMore(language, currentUser)
             }
 
-            // లోకల్ ఫీడ్ లో కూడా 10 ఇమేజెస్‌ను ప్రీలోడ్ చేస్తున్నాము (Fast Swiping కోసం)
-            (1..10).forEach { offset ->
+            // ✅ OPTIMIZED: Preload only 2 images ahead (not 10) to reduce scroll stuttering
+            (1..2).forEach { offset ->
                 val nextPageIndex = page + offset
                 val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
                 if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
@@ -175,16 +175,18 @@ fun LocalNewsFeedView(
                     if (post.mediaUrl.isNotEmpty()) {
                         val request = ImageRequest.Builder(context)
                             .data(post.mediaUrl)
-                            .crossfade(true)
-                            .allowHardware(true)
+                            .crossfade(false)
+                            .allowHardware(false)
+                            .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
+                            .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
                             .build()
                         imageLoader.enqueue(request)
                     }
                 }
             }
 
-            // Preload AdMob ads up to 10 pages ahead
-            (1..10).forEach { offset ->
+            // Preload AdMob ads only 3 pages ahead (not 10) to reduce background work
+            (1..3).forEach { offset ->
                 val futurePage = page + offset
                 val isAdSlot = (futurePage + 1) % 6 == 0
                 if (isAdSlot && futurePage < totalCount) {

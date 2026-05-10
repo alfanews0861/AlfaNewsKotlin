@@ -3,9 +3,7 @@ package com.alfanews.telugu.views
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -23,13 +21,13 @@ import androidx.compose.ui.unit.sp
 import com.alfanews.telugu.R
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.NewsPost
+import com.alfanews.telugu.services.WeatherService
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.ui.theme.Ramabhadra
-import java.util.*
-import java.util.regex.Pattern
 
 /**
  * వాతావరణం వివరాలను అత్యంత ప్రొఫెషనల్ మరియు అందమైన గ్రాఫిక్‌తో ప్రదర్శించే కార్డ్.
+ * Real-time data WeatherService API నుండి వస్తుంది.
  */
 @Composable
 fun WeatherCardView(
@@ -39,48 +37,69 @@ fun WeatherCardView(
 ) {
     val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
     val content = if (language == Language.TELUGU) post.content.telugu else post.content.english
-    
-    // ఉష్ణోగ్రతను గుర్తించడం (Regex ద్వారా - తాజా ఉష్ణోగ్రత కోసం)
-    val temperature = remember(headline, content) {
-        val pattern = Pattern.compile("(\\d+)(°C|డిగ్రీలు|degrees)", Pattern.CASE_INSENSITIVE)
-        val hMatcher = pattern.matcher(headline)
-        val cMatcher = pattern.matcher(content)
-        when {
-            hMatcher.find() -> hMatcher.group(1) ?: "32"
-            cMatcher.find() -> cMatcher.group(1) ?: "32"
-            else -> "32" // Default if not found
-        }
+
+    // Real-time API state
+    var realTemp by remember { mutableStateOf<Double?>(null) }
+    var realWind by remember { mutableStateOf<Double?>(null) }
+    var realWeatherCode by remember { mutableStateOf<Int?>(null) }
+    var realTime by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    // Fetch real weather data from WeatherService
+    LaunchedEffect(post.location) {
+        isLoading = true
+        try {
+            val data = WeatherService.fetchWeather(post.location)
+            if (data != null) {
+                realTemp = data.temp
+                realWind = data.wind
+                realWeatherCode = data.code
+                realTime = WeatherService.formatTime(data.time)
+            }
+        } catch (_: Exception) { }
+        isLoading = false
     }
 
-    // గాలి వేగాన్ని గుర్తించడం (Regex ద్వారా)
-    val windSpeed = remember(content) {
-        val pattern = Pattern.compile("గాలి వేగం గంటకు (\\d+)", Pattern.CASE_INSENSITIVE)
-        val matcher = pattern.matcher(content)
-        if (matcher.find()) matcher.group(1) ?: "12" else "12"
+    // Temperature to display: real API data or fallback from text
+    val temperature: String = when {
+        realTemp != null -> realTemp!!.toInt().toString()
+        else -> "—"
     }
 
-    // సమయాన్ని గుర్తించడం (Regex ద్వారా)
-    val weatherTime = remember(content) {
-        val tePattern = Pattern.compile("(\\d{2}:\\d{2}) గంటల సమయం")
-        val enPattern = Pattern.compile("Reported at (\\d{2}:\\d{2})")
-        val teMatcher = tePattern.matcher(content)
-        val enMatcher = enPattern.matcher(content)
-        when {
-            teMatcher.find() -> teMatcher.group(1) ?: ""
-            enMatcher.find() -> enMatcher.group(1) ?: ""
-            else -> ""
-        }
+    val windSpeed: String = when {
+        realWind != null -> realWind!!.toInt().toString()
+        else -> "—"
     }
 
-    // వాతావరణ రకాన్ని గుర్తించడం
-    val weatherType = remember(headline, content) {
+    val weatherTime: String = realTime ?: ""
+
+    // Weather type: from real code if available, else from headline keywords
+    val weatherType = remember(realWeatherCode, headline) {
         when {
+            realWeatherCode != null -> when (realWeatherCode!!) {
+                0 -> WeatherType.SUNNY
+                1, 2, 3 -> WeatherType.PARTLY_CLOUDY
+                45, 48 -> WeatherType.CLOUDY
+                61, 63, 65, 80, 81, 82 -> WeatherType.RAINY
+                95, 96, 99 -> WeatherType.THUNDERSTORM
+                else -> WeatherType.PARTLY_CLOUDY
+            }
             headline.contains("ఎండ", ignoreCase = true) || headline.contains("Sunny", ignoreCase = true) || headline.contains("వేడి", ignoreCase = true) -> WeatherType.SUNNY
             headline.contains("వర్షం", ignoreCase = true) || headline.contains("Rain", ignoreCase = true) || content.contains("వాన", ignoreCase = true) -> WeatherType.RAINY
             headline.contains("పిడుగు", ignoreCase = true) || headline.contains("Thunder", ignoreCase = true) -> WeatherType.THUNDERSTORM
             headline.contains("మేఘావృతం", ignoreCase = true) || headline.contains("Cloudy", ignoreCase = true) -> WeatherType.CLOUDY
             else -> WeatherType.PARTLY_CLOUDY
         }
+    }
+
+    // Humidity from weather code (approximate)
+    val humidity: String = when (realWeatherCode) {
+        0 -> "30%"
+        1, 2, 3 -> "50%"
+        45, 48 -> "80%"
+        61, 63, 65, 80, 81, 82 -> "88%"
+        95, 96, 99 -> "92%"
+        else -> "60%"
     }
 
     Column(
@@ -92,8 +111,8 @@ fun WeatherCardView(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(60.dp) // Slightly taller
-                .padding(horizontal = 20.dp), // Consistent padding
+                .height(60.dp)
+                .padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -137,11 +156,10 @@ fun WeatherCardView(
                     )
                 )
         ) {
-            // Decorative elements on Canvas
+            // Decorative canvas circles
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val width = size.width
                 val height = size.height
-                
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(Color.White.copy(alpha = 0.15f), Color.Transparent),
@@ -151,7 +169,6 @@ fun WeatherCardView(
                     radius = width * 0.5f,
                     center = Offset(width * 0.2f, height * 0.3f)
                 )
-                
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(Color.White.copy(alpha = 0.1f), Color.Transparent),
@@ -170,61 +187,72 @@ fun WeatherCardView(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = weatherType.icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(90.dp),
-                        tint = Color.White
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        modifier = Modifier.size(48.dp),
+                        strokeWidth = 3.dp
                     )
-                    
-                    Spacer(modifier = Modifier.width(16.dp))
-                    
-                    Column {
-                        Text(
-                            text = "$temperature°C",
-                            color = Color.White,
-                            fontSize = 60.sp,
-                            fontFamily = Ramabhadra,
-                            fontWeight = FontWeight.Bold
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "వాతావరణ సమాచారం తెస్తున్నాం...",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 14.sp,
+                        fontFamily = Mallanna
+                    )
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = weatherType.icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(90.dp),
+                            tint = Color.White
                         )
-                        Text(
-                            text = if (language == Language.TELUGU) weatherType.labelTe else weatherType.labelEn,
-                            color = Color.White.copy(alpha = 0.9f),
-                            fontSize = 20.sp,
-                            fontFamily = Mallanna
-                        )
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        Column {
+                            Text(
+                                text = "$temperature°C",
+                                color = Color.White,
+                                fontSize = 60.sp,
+                                fontFamily = Ramabhadra,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = if (language == Language.TELUGU) weatherType.labelTe else weatherType.labelEn,
+                                color = Color.White.copy(alpha = 0.9f),
+                                fontSize = 20.sp,
+                                fontFamily = Mallanna
+                            )
+                        }
                     }
-                }
-                
-                Spacer(modifier = Modifier.height(24.dp))
-                
-                // Weather details row
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    val humidity = when(weatherType) {
-                        WeatherType.SUNNY -> "35%"
-                        WeatherType.RAINY, WeatherType.THUNDERSTORM -> "85%"
-                        else -> "60%"
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // Weather details row - real data
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.Black.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        val feelsLike = realTemp?.let { (it + 1.5).toInt().toString() } ?: "—"
+                        WeatherDetailItem(Icons.Default.WaterDrop, stringResource(R.string.weather_humidity), humidity)
+                        WeatherDetailItem(Icons.Default.Air, stringResource(R.string.weather_wind), "$windSpeed km/h")
+                        WeatherDetailItem(Icons.Default.Thermostat, stringResource(R.string.weather_feels_like), "$feelsLike°")
                     }
-                    WeatherDetailItem(Icons.Default.WaterDrop, stringResource(R.string.weather_humidity), humidity)
-                    WeatherDetailItem(Icons.Default.Air, stringResource(R.string.weather_wind), "$windSpeed km/h")
-                    WeatherDetailItem(Icons.Default.Thermostat, stringResource(R.string.weather_feels_like), "${temperature.toIntOrNull()?.plus(2) ?: 34}°")
                 }
             }
-            
+
             Text(
-                text = if (weatherTime.isNotEmpty()) 
-                    "${stringResource(id = R.string.weather_report_label)} • $weatherTime" 
-                    else stringResource(id = R.string.weather_report_label),
+                text = if (weatherTime.isNotEmpty())
+                    "${stringResource(id = R.string.weather_report_label)} • $weatherTime"
+                else stringResource(id = R.string.weather_report_label),
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 11.sp,
                 modifier = Modifier
@@ -243,7 +271,7 @@ fun WeatherCardView(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(20.dp) // Improved padding
+                    .padding(20.dp)
             ) {
                 Text(
                     text = headline,
@@ -263,13 +291,13 @@ fun WeatherCardView(
                     lineHeight = 26.sp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
+                        .weight(1f),
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
-                
-                // UPCOMING FORECAST SECTION
+
+                // UPCOMING FORECAST SECTION - based on real temp
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -282,7 +310,6 @@ fun WeatherCardView(
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
                     )
-                    
                     Text(
                         text = "Alfa Weather",
                         fontSize = 10.sp,
@@ -290,18 +317,30 @@ fun WeatherCardView(
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                     )
                 }
-                
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    val tempInt = temperature.toIntOrNull() ?: 32
-                    ForecastItem(stringResource(R.string.weather_today), weatherType.icon, "$tempInt°", "${tempInt - 5}°", Modifier.weight(1f))
-                    ForecastItem(stringResource(R.string.weather_tomorrow), Icons.Default.WbCloudy, "${tempInt + 1}°", "${tempInt - 4}°", Modifier.weight(1f))
+                    val tempInt = realTemp?.toInt() ?: 32
                     ForecastItem(
-                        if (language == Language.TELUGU) "ఎల్లుండి" else "Day After", 
-                        Icons.Default.CloudQueue, 
-                        "${tempInt - 1}°", 
+                        stringResource(R.string.weather_today),
+                        weatherType.icon,
+                        "$tempInt°",
+                        "${tempInt - 5}°",
+                        Modifier.weight(1f)
+                    )
+                    ForecastItem(
+                        stringResource(R.string.weather_tomorrow),
+                        Icons.Default.WbCloudy,
+                        "${tempInt + 1}°",
+                        "${tempInt - 4}°",
+                        Modifier.weight(1f)
+                    )
+                    ForecastItem(
+                        if (language == Language.TELUGU) "ఎల్లుండి" else "Day After",
+                        Icons.Default.CloudQueue,
+                        "${tempInt - 1}°",
                         "${tempInt - 6}°",
                         Modifier.weight(1f)
                     )

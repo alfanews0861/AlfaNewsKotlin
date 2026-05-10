@@ -111,13 +111,15 @@ fun NewsFeedView(
         }
     }
 
-    // 🔄 When district is detected/changed, refresh news with personalized content
-    // This ensures new users get district-specific + personalized news once location is determined
+    // 🔄 When district is detected for the FIRST TIME (new user), refresh news with personalized content
+    // Only triggers if news is already loaded (not empty) AND district just changed from null → value
+    var previousDistrict by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(userDistrict) {
-        if (userDistrict != null && news.isNotEmpty()) {
-            // District was just determined for a new user - refresh with personalized content
+        if (userDistrict != null && previousDistrict == null && news.isNotEmpty()) {
+            // District was just determined for a NEW user — refresh with personalized content
             viewModel.loadNews(language, currentUser)
         }
+        previousDistrict = userDistrict
     }
 
     fun loadAdForPage(page: Int) {
@@ -188,7 +190,7 @@ fun NewsFeedView(
       LaunchedEffect(pagerState, news.size) {
           snapshotFlow { pagerState.currentPage }.collect { page ->
               val currentNewsIndex = page - (page / 6)
-              if (currentNewsIndex >= news.size - 10 && hasMore && !loading) {
+              if (currentNewsIndex >= news.size - 7 && hasMore && !loading) {
                   viewModel.loadMore(language, currentUser)
               }
 

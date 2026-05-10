@@ -56,6 +56,11 @@ object WeatherService {
 
     private val api = retrofit.create(WeatherApiService::class.java)
 
+    // ✅ In-memory cache: 1 hour TTL per location to avoid repeated API calls
+    private data class CachedWeather(val data: WeatherData, val fetchedAt: Long)
+    private val weatherCache = mutableMapOf<String, CachedWeather>()
+    private const val CACHE_TTL_MS = 60 * 60 * 1000L // 1 hour
+
     // తెలుగు పేర్లను ఇంగ్లీష్ లోకి మార్చే మ్యాపింగ్ - Open-Meteo API కోసం
     private val locationMapping = mapOf(
         "ఆదిలాబాద్" to "Adilabad",
@@ -131,6 +136,11 @@ object WeatherService {
     )
 
     suspend fun fetchWeather(locationName: String): WeatherData? {
+        // ✅ Check cache first (1-hour TTL)
+        val cached = weatherCache[locationName]
+        if (cached != null && System.currentTimeMillis() - cached.fetchedAt < CACHE_TTL_MS) {
+            return cached.data
+        }
         return try {
             // 1. Convert Telugu name to English if possible
             var searchName = locationMapping[locationName]
@@ -150,25 +160,41 @@ object WeatherService {
             
             // 3. Get weather for those coordinates
             val weatherResponse = api.getWeather(location.latitude, location.longitude)
-            WeatherData(
+            val result = WeatherData(
                 weatherResponse.currentWeather.temperature, 
                 weatherResponse.currentWeather.weatherCode,
                 weatherResponse.currentWeather.windSpeed,
                 weatherResponse.currentWeather.time
             )
+            weatherCache[locationName] = CachedWeather(result, System.currentTimeMillis())
+            result
         } catch (e: Exception) {
-            e.printStackTrace()
             null
         }
     }
 
     /**
-     * ISO టైమ్ (2024-05-20T14:00) ని Readable టైమ్ (14:00) గా మారుస్తుంది.
+     * ISO టైమ్ (2024-05-20T14:00) ని చక్కటి తెలుగు టైమ్ గా మారుస్తుంది.
+     * Example: "2024-05-20T06:30" → "తెల్లవారుజామున 6:30"
+     *          "2024-05-20T14:00" → "మధ్యాహ్నం 2:00"
      */
     fun formatTime(isoTime: String): String {
         return try {
-            val parts = isoTime.split("T")
-            if (parts.size == 2) parts[1] else isoTime
+            val timePart = isoTime.split("T").getOrNull(1) ?: return isoTime
+            val colonIdx = timePart.indexOf(':')
+            if (colonIdx < 0) return timePart
+            val hour = timePart.substring(0, colonIdx).toInt()
+            val minute = timePart.substring(colonIdx + 1, minOf(colonIdx + 3, timePart.length))
+            val displayHour = if (hour % 12 == 0) 12 else hour % 12
+            val period = when (hour) {
+                in 0..4   -> "రాత్రి"
+                in 5..11  -> "ఉదయం"
+                12        -> "మధ్యాహ్నం"
+                in 13..16 -> "మధ్యాహ్నం"
+                in 17..19 -> "సాయంత్రం"
+                else      -> "రాత్రి"
+            }
+            "$period $displayHour:$minute"
         } catch (e: Exception) {
             isoTime
         }

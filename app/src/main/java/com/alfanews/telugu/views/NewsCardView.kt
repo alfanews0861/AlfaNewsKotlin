@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -132,6 +133,9 @@ fun NewsCardView(
     val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
     val content = if (language == Language.TELUGU) post.content.telugu else post.content.english
 
+    // ✅ Single imageLoader for the entire card - reused across all AsyncImage calls
+    val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
+
     val isEnglish = language == Language.ENGLISH
     val headlineSize = if (isEnglish) 19.sp else 22.sp
     val headlineLineHeight = if (isEnglish) 27.sp else 30.sp
@@ -218,14 +222,18 @@ fun NewsCardView(
         modifier = modifier
             .fillMaxSize()
             .onGloballyPositioned { coordinates ->
+                // ✅ Only update when size actually changes to prevent recomposition loops
                 val position = coordinates.positionInWindow()
                 val size = coordinates.size
-                cardBounds = Rect(
+                val newBounds = Rect(
                     position.x.toInt(),
                     position.y.toInt(),
                     (position.x + size.width).toInt(),
                     (position.y + size.height).toInt()
                 )
+                if (cardBounds == null || cardBounds!!.width() != newBounds.width() || cardBounds!!.height() != newBounds.height()) {
+                    cardBounds = newBounds
+                }
             }
     ) {
         if (isSpecialCard || isCartoonCard) {
@@ -249,7 +257,6 @@ fun NewsCardView(
                             if (type == MediaType.VIDEO) {
                                 VideoPlayerView(videoUrl = url)
                             } else {
-                                val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
                                 AsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(url)
@@ -457,7 +464,6 @@ fun NewsCardView(
                                     if (type == MediaType.VIDEO) {
                                         VideoPlayerView(videoUrl = url)
                                     } else {
-                                        val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
                                         AsyncImage(
                                             model = ImageRequest.Builder(context)
                                                 .data(url)
@@ -637,8 +643,8 @@ fun NewsCardView(
                                     lineHeight = contentLineHeight,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .weight(1f)
-                                        .verticalScroll(scrollState)
+                                        .weight(1f),
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
 
@@ -922,27 +928,78 @@ fun VideoPlayerView(videoUrl: String) {
 
 @Composable
 fun YouTubePlayerComponent(youtubeUrl: String) {
-    val videoId = extractYoutubeVideoId(youtubeUrl)
-    AndroidView(
-        factory = { context: Context ->
-            val ytpv = YouTubePlayerView(context)
-            ytpv.enableAutomaticInitialization = false
-            ytpv.initialize(object : AbstractYouTubePlayerListener() {
-                override fun onReady(youTubePlayer: YouTubePlayer) {
-                    // Changed loadVideo to cueVideo to disable auto-play
-                    videoId?.let { youTubePlayer.cueVideo(it, 0f) }
-                }
-            })
-            ytpv
-        },
-        modifier = Modifier.fillMaxSize()
+    val context = LocalContext.current
+    val videoId = remember(youtubeUrl) { extractYoutubeVideoId(youtubeUrl) }
+    var isPlaying by remember { mutableStateOf(false) }
+
+    if (!isPlaying && videoId != null) {
+        val thumbnailUrl = "https://img.youtube.com/vi/$videoId/hqdefault.jpg"
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable { isPlaying = true }
+                .background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+        val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
+        AsyncImage(
+            model = ImageRequest.Builder(context)
+                .data(thumbnailUrl)
+                .crossfade(true)
+                .allowHardware(true)
+                .build(),
+            imageLoader = imageLoader,
+                contentDescription = "Video Thumbnail",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+            // A simple play button
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Filled.PlayArrow,
+                    contentDescription = "Play",
+                    tint = Color.White,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+        }
+    } else {
+        AndroidView(
+            factory = { ctx: Context ->
+                val ytpv = YouTubePlayerView(ctx)
+                ytpv.enableAutomaticInitialization = false
+                
+                val options = IFramePlayerOptions.Builder(ctx)
+                    .controls(0)
+                    .rel(0)
+                    .build()
+                    
+                ytpv.initialize(object : AbstractYouTubePlayerListener() {
+                    override fun onReady(youTubePlayer: YouTubePlayer) {
+                        videoId?.let { youTubePlayer.loadVideo(it, 0f) }
+                    }
+                }, options)
+                ytpv
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+}
+
+// ✅ Compiled once at file level — not per card per call
+private val YOUTUBE_ID_PATTERN: java.util.regex.Pattern by lazy {
+    java.util.regex.Pattern.compile(
+        "(?<=watch\\?v=|/videos/|embed/|youtu.be/|/v/|/e/|watch\\?v%3D|watch\\?feature=player_embedded&v=|%2Fvideos%2F|embed%\u200C\u200B2f|youtu.be%\u200C\u200B2f|%2Fv%2F)[^#&?\\n]*"
     )
 }
 
 private fun extractYoutubeVideoId(youtubeUrl: String?): String? {
     if (youtubeUrl.isNullOrBlank()) return null
-    val pattern = "(?<=watch\\?v=|/videos/|embed/|youtu.be/|/v/|/e/|watch\\?v%3D|watch\\?feature=player_embedded&v=|%2Fvideos%2F|embed%\u200C\u200B2f|youtu.be%\u200C\u200B2f|%2Fv%2F)[^#&?\\n]*"
-    val compiledPattern = java.util.regex.Pattern.compile(pattern)
-    val matcher = compiledPattern.matcher(youtubeUrl)
+    val matcher = YOUTUBE_ID_PATTERN.matcher(youtubeUrl)
     return if (matcher.find()) matcher.group() else null
 }

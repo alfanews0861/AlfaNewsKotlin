@@ -29,6 +29,7 @@ import com.alfanews.telugu.views.policy.DisclaimerPageView
 import com.alfanews.telugu.views.policy.PrivacyPolicyPageView
 import com.alfanews.telugu.views.policy.TermsOfServicePageView
 import kotlinx.coroutines.launch
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -43,15 +44,15 @@ fun MainScreen(
     checkForUpdate: () -> Unit,
     completeUpdate: () -> Unit
 ) {
-    val currentUser by mainViewModel.currentUser.collectAsState()
-    val language by mainViewModel.language.collectAsState()
-    val activeTab by mainViewModel.activeTab.collectAsState()
-    val themeMode by mainViewModel.themeMode.collectAsState()
-    val showOnboarding by mainViewModel.showOnboarding.collectAsState()
-    val showRatingDialog by mainViewModel.showRatingDialog.collectAsState()
+    val currentUser by mainViewModel.currentUser.collectAsStateWithLifecycle()
+    val language by mainViewModel.language.collectAsStateWithLifecycle()
+    val activeTab by mainViewModel.activeTab.collectAsStateWithLifecycle()
+    val themeMode by mainViewModel.themeMode.collectAsStateWithLifecycle()
+    val showOnboarding by mainViewModel.showOnboarding.collectAsStateWithLifecycle()
+    val showRatingDialog by mainViewModel.showRatingDialog.collectAsStateWithLifecycle()
 
-    val news by newsFeedViewModel.news.collectAsState()
-    val isNewsLoading by newsFeedViewModel.loading.collectAsState()
+    val news by newsFeedViewModel.news.collectAsStateWithLifecycle()
+    val isNewsLoading by newsFeedViewModel.loading.collectAsStateWithLifecycle()
     
     var showPostNewsPage by remember { mutableStateOf(false) }
     var showJoinReporterPage by remember { mutableStateOf(false) }
