@@ -89,8 +89,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         "ప్రపంచం" to listOf("international", "world", "global")
     )
     
-    private val FETCH_LIMIT = 100 // Increased for high volume
-    private val MIN_BATCH_SIZE = 20
+    private val FETCH_LIMIT = 150 // Increased for high volume and fewer attempts
+    private val MIN_BATCH_SIZE = 10 // Lowered to prevent long loading loops
     
     /**
      * ✅ NEW: Normalize category to canonical form
@@ -170,26 +170,25 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                   }
                   _isOnline.value = true
 
-                  // 🚀 FAST PASS: Get top 3 news immediately to stop spinner
+                  // 🚀 FAST PASS: Get top 20 news immediately to stop spinner
                   try {
                       val fastQuery = FirebaseService.db.collection("news")
                           .whereEqualTo("approved", true)
                           .orderBy("timestamp", Query.Direction.DESCENDING)
-                          .limit(3)
+                          .limit(30)
                       val fastSnapshot = fastQuery.get().await()
                        val fastPosts = fastSnapshot.documents.mapNotNull { doc ->
                            val post = mapDocumentToNewsPost(doc) ?: return@mapNotNull null
 
                            // హోమ్ ఫీడ్ ఫిల్టరింగ్: కేవలం స్పష్టంగా గుర్తించిన జిల్లా న్యూస్‌ను మాత్రమే ఫిల్టర్ చేయండి
-                           // ⚠️ CRITICAL FIX: Don't filter by categories - only check explicit district field
                            val isExplicitlyLocal = post.district != null && Constants.ALL_DISTRICTS.contains(post.district)
 
                            if (isExplicitlyLocal) return@mapNotNull null
                            post
                        }
                       if (fastPosts.isNotEmpty() && _news.value.isEmpty()) {
-                          _news.value = fastPosts
-                          _loading.value = false // Hide spinner so user sees news!
+                          _news.value = fastPosts.take(5)
+                          _loading.value = false // Hide spinner so user sees news immediately!
                       }
                   } catch (e: Exception) { }
 
@@ -411,7 +410,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            var lastSnapshot: com.google.firebase.firestore.QuerySnapshot? = null
 
            // లక్ష్య సంఖ్యకు చేరుకునే వరకు లూప్ కొనసాగండి
-           while (filteredList.size < MIN_BATCH_SIZE && attempts < 10) { // Increased attempts for home feed filtering
+           while (filteredList.size < MIN_BATCH_SIZE && attempts < 3) { // Reduced attempts to prevent 10-15s delay
                attempts++
                var query = baseQuery.whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(FETCH_LIMIT.toLong())
                if (currentCursor != null) query = query.startAfter(currentCursor)
