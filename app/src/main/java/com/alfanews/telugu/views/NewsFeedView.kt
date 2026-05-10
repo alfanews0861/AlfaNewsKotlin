@@ -132,20 +132,23 @@ fun NewsFeedView(
         }
     }
 
-    val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
-    LaunchedEffect(news) {
-        val postsToPreload = news.take(10)
-        postsToPreload.forEach { post: com.alfanews.telugu.models.NewsPost ->
-            if (post.mediaUrl.isNotEmpty()) {
-                val request = ImageRequest.Builder(context)
-                    .data(post.mediaUrl)
-                    .crossfade(true)
-                    .allowHardware(true)
-                    .build()
-                imageLoader.enqueue(request)
-            }
-        }
-    }
+     val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
+     LaunchedEffect(news) {
+         // ✅ Only preload first 5 images to reduce memory pressure
+         val postsToPreload = news.take(5)
+         postsToPreload.forEach { post: com.alfanews.telugu.models.NewsPost ->
+             if (post.mediaUrl.isNotEmpty()) {
+                 val request = ImageRequest.Builder(context)
+                     .data(post.mediaUrl)
+                     .crossfade(false)  // Disable crossfade for preload
+                     .allowHardware(false) // Disable hardware for background preload
+                     .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
+                     .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
+                     .build()
+                 imageLoader.enqueue(request)
+             }
+         }
+     }
 
     // యాడ్ స్లాట్ల కారణంగా టోటల్ పేజీ కౌంట్ కాలిక్యులేట్ చేయండి (5 వార్తల తర్వాత 1 యాడ్)
     val totalCount = remember(news.size) {
@@ -182,39 +185,41 @@ fun NewsFeedView(
     val onEditClickRemembered = remember(onEditClick) { onEditClick }
     val onAutoShareDoneRemembered = remember { { viewModel.setSharedPostId(null) } }
 
-    LaunchedEffect(pagerState, news.size) {
-        snapshotFlow { pagerState.currentPage }.collect { page ->
-            val currentNewsIndex = page - (page / 6)
-            if (currentNewsIndex >= news.size - 3 && hasMore && !loading) {
-                viewModel.loadMore(language, currentUser)
-            }
+      LaunchedEffect(pagerState, news.size) {
+          snapshotFlow { pagerState.currentPage }.collect { page ->
+              val currentNewsIndex = page - (page / 6)
+              if (currentNewsIndex >= news.size - 3 && hasMore && !loading) {
+                  viewModel.loadMore(language, currentUser)
+              }
 
-            // యూజర్ వేగంగా స్వైప్ చేసినా ఇమేజెస్ సిద్ధంగా ఉండటానికి 10 ఇమేజెస్‌ను ప్రీలోడ్ చేస్తున్నాము
-            (1..10).forEach { offset ->
-                val nextPageIndex = page + offset
-                val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
-                if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
-                    val post = news[nextNewsIndex]
-                    if (post.mediaUrl.isNotEmpty()) {
-                        val request = ImageRequest.Builder(context)
-                            .data(post.mediaUrl)
-                            .crossfade(true)
-                            .allowHardware(true)
-                            .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
-                            .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
-                            .build()
-                        imageLoader.enqueue(request)
-                    }
-                }
-            }
+              // ✅ OPTIMIZED: Preload only 2-3 images ahead instead of 5 to reduce scroll stuttering
+              // Only preload forward, not backward
+              (1..2).forEach { offset ->
+                  val nextPageIndex = page + offset
+                  val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
+                  if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
+                      val post = news[nextNewsIndex]
+                      if (post.mediaUrl.isNotEmpty()) {
+                          val request = ImageRequest.Builder(context)
+                              .data(post.mediaUrl)
+                              .crossfade(false)  // Disable crossfade for preload
+                              .allowHardware(false) // Disable hardware for background preload
+                              .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
+                              .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
+                              .build()
+                          imageLoader.enqueue(request)
+                      }
+                  }
+              }
 
-            val currentAdSlot = page / 6
-            val nextAdPage = (currentAdSlot * 6) + 5
-            if (nextAdPage < totalCount) {
-                loadAdForPage(nextAdPage)
-            }
-        }
-    }
+              // Load ads with better throttling
+              val currentAdSlot = page / 6
+              val nextAdPage = (currentAdSlot * 6) + 5
+              if (nextAdPage < totalCount && nextAdPage % 12 == 5) {  // Load ads at regular intervals
+                  loadAdForPage(nextAdPage)
+              }
+          }
+      }
 
     Box(
         modifier = Modifier
@@ -275,36 +280,51 @@ fun NewsFeedView(
                 }
             }
         } else {
-            VerticalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize(),
-                userScrollEnabled = true,
-                flingBehavior = PagerDefaults.flingBehavior(
-                    state = pagerState,
-                    snapPositionalThreshold = 0.1f
-                ),
-                key = { page ->
+             VerticalPager(
+                 state = pagerState,
+                 modifier = Modifier.fillMaxSize(),
+                 userScrollEnabled = true,
+                 flingBehavior = PagerDefaults.flingBehavior(
+                     state = pagerState,
+                     snapPositionalThreshold = 0.25f  // ✅ Increased threshold for smoother fling
+                 ),
+                 key = { page ->
                     val isAd = (page + 1) % 6 == 0
                     if (isAd) "ad_$page" else {
                         val idx = page - (page / 6)
                         if (idx < news.size) news[idx].id else "empty_$page"
                     }
                 }
-            ) { page ->
-                // 🎞️ యానిమేషన్ లెక్కలు: స్క్రోల్ చేస్తున్నప్పుడు కార్డు సైజు మరియు ట్రాన్స్పరెన్సీ మారుతుంది
-                val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
-                val scale = 1f - (pageOffset * 0.12f).coerceIn(0f, 0.12f)
-                val alpha = 1f - (pageOffset * 0.4f).coerceIn(0f, 0.4f)
+             ) { page ->
+                  // 🎞️ యానిమేషన్ లెక్కలు: స్క్రోల్ చేస్తున్నప్పుడు కార్డు సైజు మరియు ట్రాన్స్పరెన్సీ మారుతుంది
+                  // ✅ OPTIMIZED: Use derived state to prevent excessive recalculations during scroll
+                  val pageOffset = remember(page) {
+                      derivedStateOf {
+                          ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
+                      }
+                  }
+                  val scale = remember(page) {
+                      derivedStateOf {
+                          val offset = pageOffset.value
+                          (1f - (offset * 0.08f).coerceIn(0f, 0.08f)).coerceIn(0.92f, 1f)
+                      }
+                  }
+                  val alpha = remember(page) {
+                      derivedStateOf {
+                          val offset = pageOffset.value
+                          (1f - (offset * 0.2f).coerceIn(0f, 0.2f)).coerceIn(0.8f, 1f)
+                      }
+                  }
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                            this.alpha = alpha
-                        }
-                ) {
+                  Box(
+                      modifier = Modifier
+                          .fillMaxSize()
+                          .graphicsLayer(
+                              scaleX = scale.value,
+                              scaleY = scale.value,
+                              alpha = alpha.value
+                          )
+                  ) {
                     val isAdPage = (page + 1) % 6 == 0
                     if (isAdPage) {
                         val nativeAd = preloadedAds[page]

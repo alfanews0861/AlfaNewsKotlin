@@ -207,8 +207,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         val weatherHeadlineEn: String
         
         if (realWeatherData != null) {
-            val (temp, code, wind) = realWeatherData
+            val (temp, code, wind, time) = realWeatherData
             val weatherDesc = WeatherService.getWeatherDescription(code)
+            val formattedTime = WeatherService.formatTime(time)
             
             temperatureStr = "${temp.toInt()}°C"
             weatherHeadlineTe = weatherDesc
@@ -218,6 +219,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 append("నేడు $location లో వాతావరణం $weatherDesc. ")
                 append("ప్రస్తుత ఉష్ణోగ్రత ${temp.toInt()}°C గా ఉంది. ")
                 append("గాలి వేగం గంటకు ${wind.toInt()} కిలోమీటర్లు. ")
+                append("ఇది $formattedTime గంటల సమయం నాటి సమాచారం. ")
                 
                 // వాతావరణం ఆధారంగా సూచనలు
                 when (code) {
@@ -231,11 +233,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             }
             weatherHeadlineEn = "${WeatherService.getWeatherTypeLabel(code)} ($temperatureStr)"
         } else {
-            // ఫాల్‌బ్యాక్ (డేటా రాకపోతే)
-            temperatureStr = "32°C"
-            weatherHeadlineTe = "పాక్షికంగా మేఘావృతం (30°C)"
-            weatherContentTe = "ప్రస్తుతం $location లో ఎండ మరియు మేఘాలు కలిసి ఉంటాయి. ఉమ్మడి వాతావరణం 30°C తో ఆహ్లాదకరంగా ఉంటుంది. మీ రోజువారీ పనులకు ఇది అనుకూలమైన సమయం."
-            weatherHeadlineEn = "Pleasant Weather (30°C)"
+            // ఫాల్‌బ్యాక్ (డేటా రాకపోతే - వాతావరణం సాధారణంగా ఉంటుందని చూపించండి)
+            temperatureStr = "31°C"
+            weatherHeadlineTe = "సాధారణ వాతావరణం"
+            weatherContentTe = "ప్రస్తుతం $location లో వాతావరణం సాధారణంగా ఉంది. ఉష్ణోగ్రత సుమారు $temperatureStr గా నమోదయ్యే అవకాశం ఉంది. మీ రోజువారీ పనులకు ఇది అనుకూలమైన సమయం."
+            weatherHeadlineEn = "Normal Weather ($temperatureStr)"
         }
 
         return NewsPost(
@@ -246,7 +248,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             ),
             content = com.alfanews.telugu.models.Content(
                 telugu = weatherContentTe,
-                english = "Current weather update for $displayLocation. Temperature is around $temperatureStr. Please stay tuned for more details."
+                english = "Current weather update for $displayLocation. Temperature is around $temperatureStr. Reported at ${if (realWeatherData != null) WeatherService.formatTime(realWeatherData.time) else "now"}. Please stay tuned for more details."
             ),
             location = displayLocation,
             type = "weather",

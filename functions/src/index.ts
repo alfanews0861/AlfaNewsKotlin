@@ -244,6 +244,33 @@ async function saveImageLocally(externalUrl: string, prefix: string): Promise<st
 }
 
 /**
+ * Helper: Generate image with retry logic
+ */
+async function generateImageWithRetry(ai: any, prompt: string, aspectRatio: '1:1' | '9:16' | '16:9' | '3:4' | '4:3' = '9:16', retries = 3): Promise<Buffer | null> {
+    for (let i = 0; i < retries; i++) {
+        try {
+            console.log(`[AI_IMAGE] Attempt ${i + 1} for prompt: ${prompt.substring(0, 50)}...`);
+            const imgRes = await ai.models.generateImages({
+                model: IMAGEN_MODEL,
+                prompt: prompt,
+                config: { numberOfImages: 1, aspectRatio: aspectRatio }
+            });
+            if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
+                return Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
+            }
+            console.warn(`[AI_IMAGE] Attempt ${i + 1} returned no images.`);
+        } catch (err: any) {
+            console.error(`[AI_IMAGE] Attempt ${i + 1} failed:`, err.message);
+            if (i === retries - 1) return null;
+            // Exponential backoff
+            const delay = Math.pow(2, i) * 5000;
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+    return null;
+}
+
+/**
  * 2. Festival Greeting Function
  */
 export const scheduleFestivalGreeting = onSchedule({ schedule: "0 5 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
@@ -273,17 +300,10 @@ export const scheduleFestivalGreeting = onSchedule({ schedule: "0 5 * * *", time
         console.log(`[FESTIVAL] Found festival: ${data.festivalTe}. Generating greeting...`);
 
         let mediaUrl = "";
-        try {
-            const imgRes = await ai.models.generateImages({
-                model: IMAGEN_MODEL,
-                prompt: `Beautiful high quality aesthetic background for ${data.imagePrompt || data.festivalTe} festival greeting in India, warm atmosphere, space for text, no text.`,
-                config: { numberOfImages: 1, aspectRatio: '9:16' }
-            });
-            if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
-                const buffer = Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
-                mediaUrl = await saveBufferToStorage(buffer, "GREETING") || "";
-            }
-        } catch (err) { console.error("Greeting Image Err:", err); }
+        const buffer = await generateImageWithRetry(ai, `Beautiful high quality aesthetic background for ${data.imagePrompt || data.festivalTe} festival greeting in India, warm atmosphere, space for text, no text.`, '9:16');
+        if (buffer) {
+            mediaUrl = await saveBufferToStorage(buffer, "GREETING") || "";
+        }
 
         await db.collection('news').add({
             type: 'greeting',
@@ -337,17 +357,10 @@ export const scheduleQuoteOfTheDay = onSchedule({ schedule: "0 4 * * *", timeZon
         if (!data.quoteTe) return;
 
         let mediaUrl = "";
-        try {
-            const imgRes = await ai.models.generateImages({
-                model: IMAGEN_MODEL,
-                prompt: `Photorealistic aesthetic portrait or background of ${data.imagePrompt}, warm lighting, very beautiful, absolutely no text, no words.`,
-                config: { numberOfImages: 1, aspectRatio: '9:16' }
-            });
-            if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
-                const buffer = Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
-                mediaUrl = await saveBufferToStorage(buffer, "QUOTE") || "";
-            }
-        } catch (err) { console.error("Quote Image Err:", err); }
+        const buffer = await generateImageWithRetry(ai, `Photorealistic aesthetic portrait or background of ${data.imagePrompt}, warm lighting, very beautiful, absolutely no text, no words.`, '9:16');
+        if (buffer) {
+            mediaUrl = await saveBufferToStorage(buffer, "QUOTE") || "";
+        }
 
         await db.collection('news').add({
             type: 'greeting', // Changed from 'quote' to 'greeting' so the app treats it as a special full screen card
@@ -390,7 +403,7 @@ export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", time
     try {
         const res = await ai.models.generateContent({
             model: SCHEDULED_MODEL,
-            contents: [{ role: "user", parts: [{ text: `Out of all historical events that happened on ${dateStr}, pick the single most important event. Write a 60 words detailed news about it and provide a generic historical image prompt. Output JSON.` }] }],
+            contents: [{ role: "user", parts: [{ text: `Out of all historical events that happened on ${dateStr}, pick the single most important event. Write a 60 words detailed news about it and provide a generic historical image prompt. Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be sharp and punchy. Output JSON.` }] }],
             config: {
                 responseMimeType: "application/json",
                 responseSchema: schema,
@@ -401,17 +414,10 @@ export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", time
         if (!data.headlineTe) return;
 
         let mediaUrl = "";
-        try {
-            const imgRes = await ai.models.generateImages({
-                model: IMAGEN_MODEL,
-                prompt: `Historical photorealistic image: ${data.imagePrompt}, dramatic lighting, no text.`,
-                config: { numberOfImages: 1, aspectRatio: '16:9' } // Changed to 16:9
-            });
-            if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
-                const buffer = Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
-                mediaUrl = await saveBufferToStorage(buffer, "HISTORY") || "";
-            }
-        } catch (err) { console.error("History Image Err:", err); }
+        const buffer = await generateImageWithRetry(ai, `Historical photorealistic image: ${data.imagePrompt}, dramatic lighting, no text.`, '16:9');
+        if (buffer) {
+            mediaUrl = await saveBufferToStorage(buffer, "HISTORY") || "";
+        }
 
         await db.collection('news').add({
             type: 'history',
@@ -469,20 +475,15 @@ Provide the output in JSON with fields: topic, visualDescription, teluguCaption.
             const visual = cartoonData.visualDescription || "politicians in a satirical situation";
             const teluguText = cartoonData.teluguCaption || "";
 
-            const imgRes = await ai.models.generateImages({
-                model: IMAGEN_MODEL,
-                prompt: `A high-detail, professional editorial political caricature for a premium Telugu newspaper.
+            const buffer = await generateImageWithRetry(ai, `A high-detail, professional editorial political caricature for a premium Telugu newspaper.
 Topic: ${topic} in ${state}, India.
 Visual: ${visual}.
 Style: Clean ink line art with professional digital coloring, high-quality caricature style.
 Likeness: The caricatures MUST have a strong likeness to the real-world politicians described. Focus on recognizable facial features.
 Composition: Clean, NO TEXT, no speech bubbles, no gibberish letters. The image should be purely visual.
-Quality: 4k, artistic, award-winning editorial style.`,
-                config: { numberOfImages: 1, aspectRatio: '9:16' }
-            });
+Quality: 4k, artistic, award-winning editorial style.`, '9:16');
 
-            if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
-                const buffer = Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
+            if (buffer) {
                 const mediaUrl = await saveBufferToStorage(buffer, `CARTOON_${state.replace(" ", "")}`) || "";
                 await db.collection('news').add({
                     type: 'cartoon',

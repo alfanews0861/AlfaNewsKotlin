@@ -1,5 +1,6 @@
 package com.alfanews.telugu.services
 
+import com.alfanews.telugu.utils.Constants
 import com.google.gson.annotations.SerializedName
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -26,7 +27,8 @@ data class CurrentWeather(
     @SerializedName("temperature") val temperature: Double,
     @SerializedName("weathercode") val weatherCode: Int,
     @SerializedName("windspeed") val windSpeed: Double,
-    @SerializedName("is_day") val isDay: Int
+    @SerializedName("is_day") val isDay: Int,
+    @SerializedName("time") val time: String
 )
 
 interface WeatherApiService {
@@ -54,26 +56,121 @@ object WeatherService {
 
     private val api = retrofit.create(WeatherApiService::class.java)
 
+    // తెలుగు పేర్లను ఇంగ్లీష్ లోకి మార్చే మ్యాపింగ్ - Open-Meteo API కోసం
+    private val locationMapping = mapOf(
+        "ఆదిలాబాద్" to "Adilabad",
+        "భద్రాద్రి కొత్తగూడెం" to "Kothagudem",
+        "హన్మకొండ" to "Hanamkonda",
+        "హైదరాబాద్" to "Hyderabad",
+        "జగిత్యాల" to "Jagtial",
+        "జనగాం" to "Jangaon",
+        "జయశంకర్ భూపాలపల్లి" to "Bhupalpally",
+        "జోగులాంబ గద్వాల" to "Gadwal",
+        "కామారెడ్డి" to "Kamareddy",
+        "కరీంనగర్" to "Karimnagar",
+        "ఖమ్మం" to "Khammam",
+        "కుమ్రం భీమ్ ఆసిఫాబాద్" to "Asifabad",
+        "మహబూబాబాద్" to "Mahabubabad",
+        "మహబూబ్ నగర్" to "Mahabubnagar",
+        "మంచిర్యాల" to "Mancherial",
+        "మెదక్" to "Medak",
+        "మేడ్చల్ మల్కాజిగిరి" to "Malkajgiri",
+        "ములుగు" to "Mulugu",
+        "నాగర్ కర్నూల్" to "Nagarkurnool",
+        "నల్గొండ" to "Nalgonda",
+        "నారాయణపేట" to "Narayanpet",
+        "నిర్మల్" to "Nirmal",
+        "నిజామాబాద్" to "Nizamabad",
+        "పెద్దపల్లి" to "Peddapalli",
+        "రాజన్న సిరిసిల్ల" to "Sircilla",
+        "రంగారెడ్డి" to "Rangareddy",
+        "సంగారెడ్డి" to "Sangareddy",
+        "సిద్దిపేట" to "Siddipet",
+        "సూర్యాపేట" to "Suryapet",
+        "వికారాబాద్" to "Vikarabad",
+        "వనపర్తి" to "Wanaparthy",
+        "వరంగల్" to "Warangal",
+        "యాదాద్రి భువనగిరి" to "Bhuvanagiri",
+        "అల్లూరి సీతారామరాజు" to "Paderu",
+        "అనకాపల్లి" to "Anakapalli",
+        "అనంతపురం" to "Anantapur",
+        "అన్నమయ్య" to "Rayachoti",
+        "బాపట్ల" to "Bapatla",
+        "చిత్తూరు" to "Chittoor",
+        "కోనసీమ" to "Amalapuram",
+        "తూర్పు గోదావరి" to "Rajahmundry",
+        "ఏలూరు" to "Eluru",
+        "గుంటూరు" to "Guntur",
+        "కాకినాడ" to "Kakinada",
+        "కృష్ణా" to "Machilipatnam",
+        "కర్నూలు" to "Kurnool",
+        "నంద్యాల" to "Nandyal",
+        "ఎన్టీఆర్" to "Vijayawada",
+        "పల్నాడు" to "Narasaraopeta",
+        "పార్వతీపురం మన్యం" to "Parvathipuram",
+        "ప్రకాశం" to "Ongole",
+        "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" to "Nellore",
+        "శ్రీ సత్యసాయి" to "Puttaparthi",
+        "శ్రీకాకుళం" to "Srikakulam",
+        "తిరుపతి" to "Tirupati",
+        "విశాఖపట్నం" to "Visakhapatnam",
+        "విజయనగరం" to "Vizianagaram",
+        "పశ్చిమ గోదావరి" to "Bhimavaram",
+        "వైఎస్ఆర్ కడప" to "Kadapa"
+    )
+
     /**
      * జిల్లా పేరు ఆధారంగా నిజమైన వాతావరణ సమాచారాన్ని తెస్తుంది.
-     * రిటర్న్: Pair(Temperature, WeatherCode) -> ఇప్పుడు Triple(Temperature, WeatherCode, WindSpeed)
+     * రిటర్న్: ResultData(Temperature, WeatherCode, WindSpeed, Time)
      */
-    suspend fun fetchWeather(district: String): Triple<Double, Int, Double>? {
+    data class WeatherData(
+        val temp: Double,
+        val code: Int,
+        val wind: Double,
+        val time: String
+    )
+
+    suspend fun fetchWeather(locationName: String): WeatherData? {
         return try {
-            // 1. Get coordinates
-            val geoResponse = api.getCoordinates(district)
+            // 1. Convert Telugu name to English if possible
+            var searchName = locationMapping[locationName]
+            
+            // If not a district, check if it's a mandal and find its district
+            if (searchName == null) {
+                val parentDistrict = Constants.MANDAL_DATA.entries.find { it.value.contains(locationName) }?.key
+                searchName = locationMapping[parentDistrict]
+            }
+            
+            // Final fallback: Use the original name but suffix "India" to help the geocoder
+            val finalSearchName = if (searchName != null) "$searchName, India" else "$locationName, India"
+            
+            // 2. Get coordinates
+            val geoResponse = api.getCoordinates(finalSearchName)
             val location = geoResponse.results?.firstOrNull() ?: return null
             
-            // 2. Get weather for those coordinates
+            // 3. Get weather for those coordinates
             val weatherResponse = api.getWeather(location.latitude, location.longitude)
-            Triple(
+            WeatherData(
                 weatherResponse.currentWeather.temperature, 
                 weatherResponse.currentWeather.weatherCode,
-                weatherResponse.currentWeather.windSpeed
+                weatherResponse.currentWeather.windSpeed,
+                weatherResponse.currentWeather.time
             )
         } catch (e: Exception) {
             e.printStackTrace()
             null
+        }
+    }
+
+    /**
+     * ISO టైమ్ (2024-05-20T14:00) ని Readable టైమ్ (14:00) గా మారుస్తుంది.
+     */
+    fun formatTime(isoTime: String): String {
+        return try {
+            val parts = isoTime.split("T")
+            if (parts.size == 2) parts[1] else isoTime
+        } catch (e: Exception) {
+            isoTime
         }
     }
 

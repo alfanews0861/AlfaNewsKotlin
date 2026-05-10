@@ -59,6 +59,19 @@ fun WeatherCardView(
         if (matcher.find()) matcher.group(1) ?: "12" else "12"
     }
 
+    // సమయాన్ని గుర్తించడం (Regex ద్వారా)
+    val weatherTime = remember(content) {
+        val tePattern = Pattern.compile("(\\d{2}:\\d{2}) గంటల సమయం")
+        val enPattern = Pattern.compile("Reported at (\\d{2}:\\d{2})")
+        val teMatcher = tePattern.matcher(content)
+        val enMatcher = enPattern.matcher(content)
+        when {
+            teMatcher.find() -> teMatcher.group(1) ?: ""
+            enMatcher.find() -> enMatcher.group(1) ?: ""
+            else -> ""
+        }
+    }
+
     // వాతావరణ రకాన్ని గుర్తించడం
     val weatherType = remember(headline, content) {
         when {
@@ -105,7 +118,7 @@ fun WeatherCardView(
                 tint = MaterialTheme.colorScheme.primary
             )
             Text(
-                text = post.location,
+                text = if (weatherTime.isNotEmpty()) "${post.location} ($weatherTime)" else post.location,
                 fontSize = 14.sp,
                 fontFamily = Ramabhadra,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -209,7 +222,9 @@ fun WeatherCardView(
             }
             
             Text(
-                text = stringResource(id = R.string.weather_report_label),
+                text = if (weatherTime.isNotEmpty()) 
+                    "${stringResource(id = R.string.weather_report_label)} • $weatherTime" 
+                    else stringResource(id = R.string.weather_report_label),
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 11.sp,
                 modifier = Modifier

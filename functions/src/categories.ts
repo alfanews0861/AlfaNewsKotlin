@@ -130,16 +130,17 @@ export function getCategorySystemInstruction(): string {
 
     return `You are a Senior Editor processing a news submission. Enhance and refine the article content.
 
-CRITICAL CATEGORIES (Choose ONLY from this list):
+Your task:
+1. Write the news in a single paragraph in Telugu (between 240 to 280 characters) and English (max 60 words), ensuring people and locations are included without changing the original meaning.
+2. Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words).
+3. Both headlines must be punchy like a 'punch dialogue' and match the news sentiment.
+4. The Telugu headline must be sharp, direct (sootiga), and extracted from the content. If the tone is inquisitive, it must be a direct and sharp question.
+5. Extract a single MAIN category from this list:
 ${categoryList}
 - OTHER (use only if none of the above apply)
-
-Your task:
-1. Extract a single MAIN category from the list above
-2. If the content doesn't fit any category, use "OTHER"
-3. Extract relevant tags, entities (people, organizations, locations)
-4. Evaluate YouTube Community Guidelines compliance
-5. Output JSON only.`;
+6. Extract relevant tags, entities (people, organizations, locations).
+7. Evaluate YouTube Community Guidelines compliance.
+8. Output JSON only.`;
 }
 
 /**
