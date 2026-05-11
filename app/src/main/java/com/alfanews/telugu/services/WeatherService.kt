@@ -135,38 +135,61 @@ object WeatherService {
         val time: String
     )
 
-    suspend fun fetchWeather(locationName: String): WeatherData? {
+    suspend fun fetchWeather(locationName: String, lat: Double? = null, lon: Double? = null): WeatherData? {
         // ✅ Check cache first (1-hour TTL)
-        val cached = weatherCache[locationName]
+        val cacheKey = if (lat != null && lon != null) "coords_${lat}_${lon}" else locationName
+        val cached = weatherCache[cacheKey]
         if (cached != null && System.currentTimeMillis() - cached.fetchedAt < CACHE_TTL_MS) {
             return cached.data
         }
         return try {
-            // 1. Convert Telugu name to English if possible
-            var searchName = locationMapping[locationName]
-            
-            // If not a district, check if it's a mandal and find its district
-            if (searchName == null) {
-                val parentDistrict = Constants.MANDAL_DATA.entries.find { it.value.contains(locationName) }?.key
-                searchName = locationMapping[parentDistrict]
+            val latitude: Double
+            val longitude: Double
+
+            if (lat != null && lon != null) {
+                // If coordinates are provided, use them directly for 100% accuracy
+                latitude = lat
+                longitude = lon
+            } else {
+                // 1. Try to use the location name directly (Mandal/Town) with "India" suffix
+                val searchName = locationMapping[locationName] ?: locationName
+                val finalSearchName = "$searchName, India"
+                
+                // 2. Get coordinates via Geocoding
+                val geoResponse = api.getCoordinates(finalSearchName)
+                val location = geoResponse.results?.firstOrNull() 
+                
+                if (location == null) {
+                    // Fallback: If mandal name is not found, try searching with district context
+                    // This is more likely to find the specific area than just "District, India"
+                    val parentDistrict = Constants.MANDAL_DATA.entries.find { it.value.contains(locationName) }?.key
+                    val contextualSearch = if (parentDistrict != null) "$locationName, $parentDistrict, India" else null
+                    
+                    val fallbackGeoResponse = contextualSearch?.let { api.getCoordinates(it) }
+                    val fallbackLocation = fallbackGeoResponse?.results?.firstOrNull()
+                    
+                    if (fallbackLocation != null) {
+                        latitude = fallbackLocation.latitude
+                        longitude = fallbackLocation.longitude
+                    } else {
+                        // If all fails, return null - don't show wrong district center data
+                        return null
+                    }
+                } else {
+                    latitude = location.latitude
+                    longitude = location.longitude
+                }
             }
             
-            // Final fallback: Use the original name but suffix "India" to help the geocoder
-            val finalSearchName = if (searchName != null) "$searchName, India" else "$locationName, India"
-            
-            // 2. Get coordinates
-            val geoResponse = api.getCoordinates(finalSearchName)
-            val location = geoResponse.results?.firstOrNull() ?: return null
-            
-            // 3. Get weather for those coordinates
-            val weatherResponse = api.getWeather(location.latitude, location.longitude)
+            // 3. Get weather for these specific coordinates
+            val weatherResponse = api.getWeather(latitude, longitude)
             val result = WeatherData(
                 weatherResponse.currentWeather.temperature, 
                 weatherResponse.currentWeather.weatherCode,
                 weatherResponse.currentWeather.windSpeed,
                 weatherResponse.currentWeather.time
             )
-            weatherCache[locationName] = CachedWeather(result, System.currentTimeMillis())
+            weatherCache[cacheKey] = CachedWeather(result, System.currentTimeMillis())
             result
         } catch (e: Exception) {
             null

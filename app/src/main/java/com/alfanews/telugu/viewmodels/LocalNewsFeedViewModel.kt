@@ -145,6 +145,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     val localityPlace = address.locality ?: address.subLocality ?: address.subAdminArea
                     if (localityPlace != null) {
                         prefs.localPlace = localityPlace
+                        prefs.lastLat = lat
+                        prefs.lastLon = lon
                     }
 
                     val adminArea = address.adminArea ?: ""
@@ -191,7 +193,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     /**
      * యూజర్ ఉన్న ఖచ్చితమైన ప్రాంతం లేదా జిల్లా ఆధారంగా వాతావరణ సమాచారాన్ని తెస్తుంది.
      */
-    private suspend fun generateWeatherPost(place: String?, district: String?): NewsPost {
+    private suspend fun generateWeatherPost(place: String?, district: String?, lat: Double? = null, lon: Double? = null): NewsPost {
         // ప్రాధాన్యత: ఒకవేళ యూజర్ ఎంచుకున్న జిల్లా, తను ఉన్న జిల్లా ఒకటే అయితే 'Place' (మండలం/ఊరు) వాడండి.
         // లేకపోతే కేవలం ఎంచుకున్న జిల్లా (District) వాతావరణం మాత్రమే చూపించండి.
         val isViewingDetectedDistrict = district == prefs.detectedDistrict
@@ -199,7 +201,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         val displayLocation = location
         
         // 🌍 నిజమైన వాతావరణ డేటా కోసం API కాల్
-        val realWeatherData = WeatherService.fetchWeather(location)
+        val realWeatherData = WeatherService.fetchWeather(location, lat, lon)
         
         val temperatureStr: String
         val weatherHeadlineTe: String
@@ -252,7 +254,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             ),
             location = displayLocation,
             type = "weather",
-            timestamp = System.currentTimeMillis()
+            timestamp = System.currentTimeMillis(),
+            latitude = lat,
+            longitude = lon
         )
     }
 
@@ -364,9 +368,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 // వాతావరణ కార్డును 9వ స్థానంలో (Index 8) పెట్టండి
                 val finalPosts = posts.toMutableList()
                 if (finalPosts.size >= 8) {
-                    finalPosts.add(8, generateWeatherPost(prefs.localPlace, district))
-                } else if (finalPosts.isNotEmpty()) {
-                    finalPosts.add(generateWeatherPost(prefs.localPlace, district))
+                    finalPosts.add(8, generateWeatherPost(prefs.localPlace, district, prefs.lastLat, prefs.lastLon))
+                } else {
+                    // నియోజకవర్గం/జిల్లాలో వార్తలు లేకపోయినా వాతావరణ కార్డ్ చూపించాలి
+                    finalPosts.add(generateWeatherPost(prefs.localPlace, district, prefs.lastLat, prefs.lastLon))
                 }
 
                 _news.value = finalPosts

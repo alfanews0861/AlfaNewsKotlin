@@ -643,6 +643,7 @@ exports.processNewsPost = (0, https_1.onCall)(async (request) => {
             isCitizen: postData?.isCitizen || true,
             isReporter: postData?.isReporter || false,
             aiProcessed: false, // Flag for background trigger to handle Gemini
+            approved: false, // Ensure not visible until AI processes it
             status: "PENDING",
             timestamp: postData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
@@ -684,6 +685,7 @@ exports.processReporterSubmission = (0, https_1.onCall)(async (request) => {
             isReporter: true,
             isCitizen: false,
             aiProcessed: false, // Flag for background trigger to handle Gemini
+            approved: false, // Ensure not visible until AI processes it
             status: "PENDING", // Initial status for tracking
             processingType: "REPORTER_SUBMISSION",
             timestamp: postData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
@@ -841,7 +843,7 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
 
                                     Tasks:
                                     1. Safety: Check for YouTube Policy violations (Blood, Violence).
-                                    2. Summary: If reporter notes are missing or short, write a detailed 70-word Telugu news report based on what's happening in the video.
+                                    2. Summary: If reporter notes are missing or short, write a detailed Telugu news report (between 300 to 330 characters) based on what's happening in the video.
                                     3. Context: Identify any people, objects, or locations visible.
 
                                     Return JSON: {isSafe: boolean, reason: string, summary: string, locations: string[], people: string[]}` }

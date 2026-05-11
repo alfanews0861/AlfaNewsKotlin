@@ -46,7 +46,7 @@ export const processSocialPostWithAI = async (
             model: PRIMARY_MODEL,
             contents: [{ role: "user", parts: [{ text: `Platform: ${platform}\nCategory: ${category}\nInput Text:\n${socialText}` }] }],
             config: {
-                systemInstruction: `You are a Senior News Editor. Extract news and write in a single paragraph in Telugu (between 240 to 280 characters) and a single paragraph in English (maximum 60 words), ensuring people and locations are included without changing the original meaning. Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be punchy like a 'punch dialogue', direct (sootiga), and extracted from the content. Match the news tone: if inquisitive, the headline should be a sharp and direct question. If no news found, set isNewsFound: false. Output JSON.`,
+                systemInstruction: `You are a Senior News Editor. Extract news and write in a single paragraph in Telugu (between 300 to 330 characters) and a single paragraph in English (maximum 60 words), ensuring people and locations are included without changing the original meaning. Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be punchy like a 'punch dialogue', direct (sootiga), and extracted from the content. Match the news tone: if inquisitive, the headline should be a sharp and direct question. If no news found, set isNewsFound: false. Output JSON.`,
                 temperature: 0.4,
                 responseMimeType: "application/json",
                 responseSchema: schema,
@@ -100,7 +100,7 @@ export const processCitizenContentWithAI = async (
             model: PRIMARY_MODEL,
             contents: [{ role: "user", parts: [{ text: `Citizen Submission:\n${rawContent}` }] }],
             config: {
-                systemInstruction: `You are a Senior News Editor. Analyze news for public interest. If accepted, write in a single paragraph in Telugu (between 240 to 280 characters) and a single paragraph in English (maximum 60 words), ensuring people and locations are included without changing the original meaning. Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be punchy like a 'punch dialogue', direct (sootiga), and extracted from the content. Match the news tone: if inquisitive, the headline should be a sharp and direct question. Output JSON only.`,
+                systemInstruction: `You are a Senior News Editor. Analyze news for public interest. If accepted, write in a single paragraph in Telugu (between 300 to 330 characters) and a single paragraph in English (maximum 60 words), ensuring people and locations are included without changing the original meaning. Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be punchy like a 'punch dialogue', direct (sootiga), and extracted from the content. Match the news tone: if inquisitive, the headline should be a sharp and direct question. Output JSON only.`,
                 temperature: 0.4,
                 responseMimeType: "application/json",
                 responseSchema: schema,
@@ -141,7 +141,7 @@ export const processContentWithAI = async (
             model: PRIMARY_MODEL,
             contents: [{ role: "user", parts: [{ text: `Headline: ${rawHeadline || 'N/A'}\nContent: ${rawContent}` }] }],
             config: {
-                systemInstruction: `You are a Senior News Editor. Write the news in a single paragraph in Telugu (between 240 to 280 characters) and a single paragraph in English (maximum 60 words), ensuring people and locations are included without changing the original meaning. Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be punchy like a 'punch dialogue', direct (sootiga), and extracted from the content. Match the news tone: if inquisitive, the headline should be a sharp and direct question. Output JSON.`,
+                systemInstruction: `You are a Senior News Editor. Write the news in a single paragraph in Telugu (between 300 to 330 characters) and a single paragraph in English (maximum 60 words), ensuring people and locations are included without changing the original meaning. Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be punchy like a 'punch dialogue', direct (sootiga), and extracted from the content. Match the news tone: if inquisitive, the headline should be a sharp and direct question. Output JSON.`,
                 temperature: 0.4,
                 responseMimeType: "application/json",
                 responseSchema: schema,

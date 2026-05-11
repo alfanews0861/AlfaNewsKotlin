@@ -26,6 +26,8 @@ class PreferenceManager(context: Context) {
         private const val KEY_IS_LEGACY_CACHE_CLEARED = "key_is_legacy_cache_cleared"
         private const val KEY_CACHE_VERSION = "key_cache_version"
         private const val KEY_LOCAL_PLACE = "key_local_place"
+        private const val KEY_LAST_LAT = "key_last_lat"
+        private const val KEY_LAST_LON = "key_last_lon"
 
         @Volatile
         private var INSTANCE: PreferenceManager? = null
@@ -136,6 +138,18 @@ class PreferenceManager(context: Context) {
         get() = prefs.getString(KEY_LOCAL_PLACE, null)
         set(value) {
             prefs.edit().putString(KEY_LOCAL_PLACE, value).apply()
+        }
+
+    var lastLat: Double
+        get() = prefs.getFloat(KEY_LAST_LAT, 0f).toDouble()
+        set(value) {
+            prefs.edit().putFloat(KEY_LAST_LAT, value.toFloat()).apply()
+        }
+
+    var lastLon: Double
+        get() = prefs.getFloat(KEY_LAST_LON, 0f).toDouble()
+        set(value) {
+            prefs.edit().putFloat(KEY_LAST_LON, value.toFloat()).apply()
         }
 
     /**

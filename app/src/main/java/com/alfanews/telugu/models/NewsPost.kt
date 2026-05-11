@@ -99,6 +99,8 @@ data class NewsPost(
     val verificationStatus: String = "UNVERIFIED",
     val verificationReason: String? = null,
     val type: String? = null, // ADDED: To store 'news', 'greeting', 'history', 'cartoon'
+    val latitude: Double? = null,
+    val longitude: Double? = null,
 
     // పాత వెర్షన్ల కోసం కేటాయించబడిన ఫీల్డ్స్ (Deprecated)
     val category: String? = null,

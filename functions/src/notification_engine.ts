@@ -26,18 +26,20 @@ export const sendPersonalizedNotification = onSchedule({
     const windowMillis = 12 * 60 * 60 * 1000;
     const sinceTime = new Date(Date.now() - windowMillis);
 
+    // ✅ FIXED: Filter by approved: true in the query itself to avoid unapproved news crowding out top 100
     const newsSnapshot = await db.collection('news')
+        .where('approved', '==', true)
         .where('timestamp', '>', sinceTime)
         .orderBy('timestamp', 'desc')
         .limit(100)
         .get();
 
     if (newsSnapshot.empty) {
-        logger.log(`గత 12 గంటల్లో కొత్త వార్తలు లేవు. (Since: ${sinceTime.toISOString()})`);
+        logger.log(`[NOTIF] గత 12 గంటల్లో కొత్త ఆమోదించబడిన వార్తలు లేవు. (Since: ${sinceTime.toISOString()})`);
         return;
     }
 
-    logger.log(`Found ${newsSnapshot.size} news docs in the last 12 hours.`);
+    logger.log(`[NOTIF] Found ${newsSnapshot.size} approved news docs in the last 12 hours.`);
 
     // 2. వార్తలను ఫిల్టర్ చేసి, కేటగిరీల వారీగా బెస్ట్ (లేటెస్ట్) వార్తను ఎంచుకోవడం
     const bestNewsByCategory = new Map<string, any>();
@@ -48,12 +50,12 @@ export const sendPersonalizedNotification = onSchedule({
         news.id = doc.id;
 
         const status = (news.status || "").toUpperCase();
-        const isApproved = news.approved === true;
+        // Since we filtered by approved:true in query, we check status/type for extra safety
         const isPublished = status === "PUBLISHED";
         const isAiProcessed = status === "AI_PROCESSED";
         const isSystemType = ["greeting", "history", "cartoon"].includes(news.type);
 
-        if (!isApproved && !isPublished && !isAiProcessed && !isSystemType) return;
+        if (news.approved !== true && !isPublished && !isAiProcessed && !isSystemType) return;
 
         // Skip duplicates in a single run based on our local map
         const lastSentTime = notificationSent.get(news.id) || 0;
@@ -83,26 +85,26 @@ export const sendPersonalizedNotification = onSchedule({
                 .slice(0, 5);
 
             for (const n of top5) {
-                const headline = n.headline?.telugu || n.headline || "నేటి ముఖ్య వార్త";
+                const headline = n.headline?.telugu || n.headline?.english || n.headline || "నేటి ముఖ్య వార్త";
                 await admin.messaging().send({
-                    notification: { title: '🌟 నేటి టాప్ 5 వార్తలు', body: headline.substring(0, 150) },
+                    notification: { title: '🌟 నేటి టాప్ 5 వార్తలు', body: (headline + "").substring(0, 150) },
                     data: { actionUrl: `alfanews://news/${n.id}`, newsId: n.id, channelId: "top_news", imageUrl: n.mediaUrl || "" },
                     topic: 'all_users'
                 });
             }
-        } catch (e) { logger.error("9 PM Broadcast Error", e); }
+        } catch (e) { logger.error("[NOTIF] 9 PM Broadcast Error", e); }
     } else if (overallBestNews) {
         // --- REGULAR SLOT BROADCAST (Top 1 news to everyone) ---
         // Ensuring everyone gets at least the top news even if no personalized interest
         try {
-            const headline = overallBestNews.headline?.telugu || overallBestNews.headline || "తాజా వార్తలు";
+            const headline = overallBestNews.headline?.telugu || overallBestNews.headline?.english || overallBestNews.headline || "తాజా వార్తలు";
             await admin.messaging().send({
-                notification: { title: '🔔 తాజా వార్తలు (AlfaNews)', body: headline.substring(0, 150) },
+                notification: { title: '🔔 తాజా వార్తలు (AlfaNews)', body: (headline + "").substring(0, 150) },
                 data: { actionUrl: `alfanews://news/${overallBestNews.id}`, newsId: overallBestNews.id, channelId: "general_news", imageUrl: overallBestNews.mediaUrl || "" },
                 topic: 'all_users'
             });
-            logger.log("Broadcasted top news to all_users topic.");
-        } catch (e) { logger.error("General Broadcast Error", e); }
+            logger.log(`[NOTIF] Broadcasted top news (${overallBestNews.id}) to all_users topic.`);
+        } catch (e) { logger.error("[NOTIF] General Broadcast Error", e); }
     }
 
     // 3. Personalized Notifications based on categoryScores
@@ -135,8 +137,11 @@ export const sendPersonalizedNotification = onSchedule({
                 if (user.shadowMode === true || user.notificationsEnabled === false) return;
                 if (notifiedUserIds.has(userId)) return;
 
-                const lastNotificationTime = user.lastNotificationTime || 0;
-                if (Date.now() - lastNotificationTime < 3600000) return; // 1 hour throttle
+                // Safe timestamp handling for throttle
+                const lastNotif = user.lastNotificationTime;
+                const lastTime = lastNotif ? (typeof lastNotif === 'number' ? lastNotif : (lastNotif.toMillis ? lastNotif.toMillis() : 0)) : 0;
+
+                if (Date.now() - lastTime < 3600000) return; // 1 hour throttle
 
                 const tokens: string[] = [];
                 if (user.fcmToken) tokens.push(user.fcmToken);
@@ -151,7 +156,7 @@ export const sendPersonalizedNotification = onSchedule({
                     tokens.forEach(token => {
                         messages.push({
                             token: token,
-                            notification: { title: 'మీ కోసం ప్రత్యేక వార్త!', body: headline.substring(0, 150) },
+                            notification: { title: 'మీ కోసం ప్రత్యేక వార్త!', body: (headline + "").substring(0, 150) },
                             data: { actionUrl: `alfanews://news/${news.id}`, newsId: news.id, category: category, channelId: "personalized_news", imageUrl: news.mediaUrl || "" }
                         });
                     });
@@ -172,8 +177,19 @@ export const sendPersonalizedNotification = onSchedule({
             const batch = messages.slice(i, i + batchSize);
             try {
                 await admin.messaging().sendEach(batch);
-            } catch (error) { logger.error(`Batch notification error: ${error}`); }
+            } catch (error) { logger.error(`[NOTIF] Batch notification error: ${error}`); }
         }
-        logger.log(`Personalized notifications sent to ${notifiedUserIds.size} users.`);
+        logger.log(`[NOTIF] Personalized notifications sent to ${notifiedUserIds.size} users.`);
+
+        // ✅ Update lastNotificationTime for notified users
+        const updateBatchSize = 500;
+        const uids = Array.from(notifiedUserIds);
+        for (let i = 0; i < uids.length; i += updateBatchSize) {
+            const batch = db.batch();
+            uids.slice(i, i + updateBatchSize).forEach(uid => {
+                batch.update(db.collection('users').doc(uid), { lastNotificationTime: Date.now() });
+            });
+            await batch.commit().catch(e => logger.error("[NOTIF] User timestamp update failed", e));
+        }
     }
 });

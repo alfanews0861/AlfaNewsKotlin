@@ -46,10 +46,10 @@ fun WeatherCardView(
     var isLoading by remember { mutableStateOf(true) }
 
     // Fetch real weather data from WeatherService
-    LaunchedEffect(post.location) {
+    LaunchedEffect(post.location, post.latitude, post.longitude) {
         isLoading = true
         try {
-            val data = WeatherService.fetchWeather(post.location)
+            val data = WeatherService.fetchWeather(post.location, post.latitude, post.longitude)
             if (data != null) {
                 realTemp = data.temp
                 realWind = data.wind

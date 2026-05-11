@@ -128,7 +128,7 @@ fun NewsCardView(
     var hasScrolledToBottom by remember(post.id) { mutableStateOf(false) }
     var startTime by remember { mutableStateOf<Long?>(null) }
 
-    var cardBounds by remember { mutableStateOf<Rect?>(null) }
+    var cardBounds by remember(post.id) { mutableStateOf<Rect?>(null) }
 
     val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
     val content = if (language == Language.TELUGU) post.content.telugu else post.content.english
@@ -231,7 +231,7 @@ fun NewsCardView(
                     (position.x + size.width).toInt(),
                     (position.y + size.height).toInt()
                 )
-                if (cardBounds == null || cardBounds!!.width() != newBounds.width() || cardBounds!!.height() != newBounds.height()) {
+                if (cardBounds != newBounds) {
                     cardBounds = newBounds
                 }
             }
@@ -731,41 +731,27 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
         val deepLink = "https://alfanews.app/news/${post.id}"
         val shareText = "$headline\n$deepLink"
 
-        if (post.mediaType == MediaType.VIDEO || !post.youtubeUrl.isNullOrBlank()) {
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, shareText)
-            }
-            context.startActivity(Intent.createChooser(intent, context.getString(R.string.share_news)))
-            FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener {
-                setShareCount(1)
-            }
-            
-            setSharing(false)
-        } else {
-            val bitmap = takeScreenshot(view, cardBounds)
-            if (bitmap != null) {
-                val uri = saveImageToCache(context, bitmap)
-                if (uri != null) {
-                    val intent = Intent(Intent.ACTION_SEND).apply {
-                        type = "image/*"
-                        putExtra(Intent.EXTRA_STREAM, uri)
-                        putExtra(Intent.EXTRA_TEXT, shareText)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    context.startActivity(Intent.createChooser(intent, context.getString(R.string.share_news)))
-                    FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener {
-                        setShareCount(1)
-                    }
-
-                } else {
-                    Toast.makeText(context, context.getString(R.string.share_failed), Toast.LENGTH_SHORT).show()
+        val bitmap = takeScreenshot(view, cardBounds)
+        if (bitmap != null) {
+            val uri = saveImageToCache(context, bitmap)
+            if (uri != null) {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "image/*"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_TEXT, shareText)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(intent, context.getString(R.string.share_news)))
+                FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener {
+                    setShareCount(1)
                 }
             } else {
-                Toast.makeText(context, context.getString(R.string.screenshot_failed), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.share_failed), Toast.LENGTH_SHORT).show()
             }
-            setSharing(false)
+        } else {
+            Toast.makeText(context, context.getString(R.string.screenshot_failed), Toast.LENGTH_SHORT).show()
         }
+        setSharing(false)
     }
 }
 
@@ -774,15 +760,21 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
  * వ్యూ యొక్క స్క్రీన్ షాట్ తీస్తుంది.
  */
 private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspendCoroutine { continuation ->
-    if (bounds == null) {
+    if (bounds == null || bounds.isEmpty) {
         continuation.resume(null)
         return@suspendCoroutine
     }
 
     try {
+        val window = (view.context as? Activity)?.window
+        if (window == null) {
+            continuation.resume(null)
+            return@suspendCoroutine
+        }
+
         val bitmap = Bitmap.createBitmap(bounds.width(), bounds.height(), Bitmap.Config.ARGB_8888)
         PixelCopy.request(
-            (view.context as Activity).window,
+            window,
             bounds,
             bitmap,
             { copyResult ->

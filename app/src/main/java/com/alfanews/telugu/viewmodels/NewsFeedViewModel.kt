@@ -217,12 +217,12 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    val mainBatch = mainBatchDeferred.await()
                    val localBatch = localBatchDeferred.await()
 
-                   prefCursor = prefBatch.second
-                   mainCursor = mainBatch.second
-
                    var finalPosts = withContext(Dispatchers.Default) {
                        rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first)
                    }
+
+                   prefCursor = prefBatch.second
+                   mainCursor = mainBatch.second
 
                    // 🚀 CRITICAL: If after filtering we have no news, don't let it loop
                    if (finalPosts.isEmpty() && (mainCursor != null || prefCursor != null)) {
@@ -327,13 +327,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                  val mainBatch = mainBatchDeferred.await()
                  val localBatch = localBatchDeferred.await()
 
-                 // కర్సర్‌లను సరిగా అప్‌డేట్ చేయండి
-                 prefCursor = prefBatch.second
-                 mainCursor = mainBatch.second
-
                  val newPosts = withContext(Dispatchers.Default) {
                      rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first)
                  }
+
+                 // కర్సర్‌లను సరిగా అప్‌డేట్ చేయండి
+                 prefCursor = prefBatch.second
+                 mainCursor = mainBatch.second
 
                    if (newPosts.isNotEmpty()) {
                       val currentIds = _news.value.map { it.id }.toSet()
@@ -507,7 +507,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            // వాతావరణ కార్డును 9వ వార్తగా (Index 8) పెట్టండి
            // Only add on the first load (when cursors are null) to avoid duplicates in pagination
            if (mainCursor == null && prefCursor == null) {
-               val weatherPost = generateWeatherPost(prefs.localPlace, _userDistrict.value)
+               val weatherPost = generateWeatherPost(prefs.localPlace, _userDistrict.value, prefs.lastLat, prefs.lastLon)
                val sizeAfterHistory = blendedNews.size
                val weatherIdx = if (8 <= sizeAfterHistory) 8 else if (sizeAfterHistory > 0) sizeAfterHistory - 1 else 0
                blendedNews.add(weatherIdx, weatherPost)
@@ -670,6 +670,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     val locality = address.locality ?: address.subLocality ?: address.subAdminArea
                     if (locality != null) {
                         prefs.localPlace = locality
+                        prefs.lastLat = lat
+                        prefs.lastLon = lon
                     }
 
                     val detectedName = address.subAdminArea ?: address.locality ?: address.adminArea
@@ -732,7 +734,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
      /**
       * యూజర్ ఉన్న ఖచ్చితమైన ప్రాంతం లేదా జిల్లా ఆధారంగా వాతావరణ సమాచారాన్ని తెస్తుంది.
       */
-     private suspend fun generateWeatherPost(place: String?, district: String?): NewsPost {
+     private suspend fun generateWeatherPost(place: String?, district: String?, lat: Double? = null, lon: Double? = null): NewsPost {
          // ప్రాధాన్యత: ఒకవేళ యూజర్ ఎంచుకున్న జిల్లా, తను ఉన్న జిల్లా ఒకటే అయితే 'Place' (మండలం/ఊరు) వాడండి.
          // లేకపోతే కేవలం ఎంచుకున్న జిల్లా (District) వాతావరణం మాత్రమే చూపించండి.
          val isViewingDetectedDistrict = district == prefs.detectedDistrict
@@ -740,7 +742,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
          val displayLocation = location
          
          // 🌍 నిజమైన వాతావరణ డేటా కోసం API కాల్
-         val realWeatherData = WeatherService.fetchWeather(location)
+         val realWeatherData = WeatherService.fetchWeather(location, lat, lon)
          
          val temperatureStr: String
          val weatherHeadlineTe: String
@@ -793,7 +795,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
              ),
              location = displayLocation,
              type = "weather",
-             timestamp = System.currentTimeMillis()
+             timestamp = System.currentTimeMillis(),
+             latitude = lat,
+             longitude = lon
          )
      }
 }
