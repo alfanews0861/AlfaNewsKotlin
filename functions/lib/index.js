@@ -843,7 +843,7 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
 
                                     Tasks:
                                     1. Safety: Check for YouTube Policy violations (Blood, Violence).
-                                    2. Summary: If reporter notes are missing or short, write a detailed Telugu news report (between 300 to 330 characters) based on what's happening in the video.
+                                    2. Summary: Write a detailed Telugu news report based on the video and reporter notes. STICK TO LENGTH: The summary MUST be between 300 and 330 characters long. Do not exceed 330 or go below 300.
                                     3. Context: Identify any people, objects, or locations visible.
 
                                     Return JSON: {isSafe: boolean, reason: string, summary: string, locations: string[], people: string[]}` }
@@ -915,15 +915,29 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
                     throw new Error("AI ద్వారా వాయిస్-ఓవర్ జనరేట్ కాలేదు. రెస్పాన్స్ సరిగ్గా లేదు.");
                 }
                 fs.writeFileSync(audioPath, buffer_1.Buffer.from(audioText, 'base64'));
+                // 2.1 Get Voice-over Duration (needed for dynamic ducking)
+                const voiceOverDuration = await new Promise((resolve) => {
+                    ffmpeg.ffprobe(audioPath, (err, metadata) => {
+                        if (err) {
+                            console.warn(`[VIDEO_PROCESS] Failed to probe audio duration: ${err.message}`);
+                            resolve(15); // Fallback to 15s if probe fails
+                        }
+                        else {
+                            resolve(metadata.format.duration || 15);
+                        }
+                    });
+                });
+                console.log(`[VIDEO_PROCESS] Voice-over duration: ${voiceOverDuration}s`);
                 // 3. Merge Audio and Video (Mixed with Background Ducking)
-                console.log(`[VIDEO_PROCESS] Merging audio and video with background ducking...`);
+                console.log(`[VIDEO_PROCESS] Merging audio and video with dynamic background ducking...`);
                 await db.collection('news').doc(postId).update({ status: "MERGING_MEDIA" });
                 await new Promise((resolve, reject) => {
                     ffmpeg(videoPath)
                         .input(audioPath)
                         .complexFilter([
-                        // Reduce original video volume to 10% (ducking) and boost AI voice to 150%
-                        '[0:a]volume=0.1[bg]',
+                        // Dynamic Ducking: 10% volume during voice-over, 250% volume after voice-over
+                        // We use the calculated duration to transition volume
+                        `[0:a]volume='if(lt(t,${voiceOverDuration}),0.1,2.5)':eval=frame[bg]`,
                         '[1:a]volume=1.5[voice]',
                         '[bg][voice]amix=inputs=2:duration=longest:dropout_transition=2[outa]'
                     ])

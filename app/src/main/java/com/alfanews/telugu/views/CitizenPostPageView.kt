@@ -223,8 +223,8 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
 
                 val docRef = FirebaseService.db.collection("news").add(newsData).await()
                 
-                // Background Processing (Sub-editor)
-                statusMessage = "సబ్ ఎడిటర్ లు ఎడిటింగ్ చేస్తున్నారు..."
+                // Background Processing
+                statusMessage = "వార్తను పంపిస్తున్నాము..."
                 try {
                     FirebaseFunctionsService.processNewsPost(docRef.id)
                 } catch (e: Exception) {

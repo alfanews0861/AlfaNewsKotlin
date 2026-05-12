@@ -178,7 +178,7 @@ fun PostNewsPageView(
         scope.launch {
             isSubmitting = true
             try {
-                statusMessage = "Sub ఎడిటర్ లు ఎడిట్ చేస్తున్నారు"
+                statusMessage = context.getString(R.string.uploading_media)
                 
                 val finalMediaUrls = if (postToEdit != null) {
                     (postToEdit.mediaUrls.ifEmpty { if (postToEdit.mediaUrl.isNotEmpty()) listOf(postToEdit.mediaUrl) else emptyList() }).toMutableList()
@@ -199,7 +199,9 @@ fun PostNewsPageView(
                     for (uri in sortedUris) {
                         val isVideo = context.contentResolver.getType(uri)?.startsWith("video/") == true
                         if (isVideo) {
-                            statusMessage = "Sub ఎడిటర్ లు ఎడిట్ చేస్తున్నారు"
+                            statusMessage = "వీడియో అప్‌లోడ్ అవుతోంది..."
+                        } else {
+                            statusMessage = "ఫోటో అప్‌లోడ్ అవుతోంది..."
                         }
                         val url = uploadMediaToStorage(context, uri, "news-media", isVideo)
                         finalMediaUrls.add(url)
@@ -207,7 +209,7 @@ fun PostNewsPageView(
                     }
                 }
 
-                statusMessage = "Sub ఎడిటర్ లు ఎడిట్ చేస్తున్నారు"
+                statusMessage = "వార్తను పంపిస్తున్నాము..."
                 
                 val finalCategories = listOf(category, district).filter { it.isNotBlank() }
 
@@ -247,11 +249,11 @@ fun PostNewsPageView(
                     // Redirection Logic: Video vs Image
                     val isVideoPost = finalMediaTypes.contains("VIDEO")
                     if (isVideoPost) {
-                        Toast.makeText(context, "వార్త విజయవంతంగా పబ్లిష్ అయ్యింది", Toast.LENGTH_LONG).show()
-                        delay(2500)
+                        Toast.makeText(context, "మీ వార్త ప్రాసెస్ అవుతోంది, దయచేసి 10 నిమిషాల తర్వాత చూడండి.", Toast.LENGTH_LONG).show()
+                        delay(1200)
                         onActionComplete("HOME_ONLY") // Custom marker for MainScreen
                     } else {
-                        val successMessage = "వార్త విజయవంతంగా పబ్లిష్ అయ్యింది"
+                        val successMessage = context.getString(R.string.news_published_successfully)
                         Toast.makeText(context, successMessage, Toast.LENGTH_LONG).show()
                         delay(1500)
                         onActionComplete(newPostId ?: postToEdit?.id ?: "")

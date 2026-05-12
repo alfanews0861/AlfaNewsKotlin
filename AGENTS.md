@@ -240,7 +240,7 @@ firebase appdistribution:distribute app/build/outputs/apk/release/app-release.ap
 
 ---
 
-**Last Updated**: April 27, 2026  
+**Last Updated**: May 11, 2026
 **Language**: Kotlin (Android) + TypeScript (Backend)  
 **Region**: Asia-South1 (New Delhi)  
 **Key Contact**: Refer to project leads
