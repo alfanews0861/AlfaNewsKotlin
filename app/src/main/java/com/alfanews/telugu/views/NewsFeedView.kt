@@ -334,6 +334,9 @@ fun NewsFeedView(
                                 WeatherCardView(
                                     post = post,
                                     language = language,
+                                    onLocationRequest = {
+                                        viewModel.detectLocation(context, currentUser, language)
+                                    },
                                     modifier = Modifier.fillMaxSize()
                                 )
                             } else {

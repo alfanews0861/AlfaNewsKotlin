@@ -46,6 +46,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _showRatingDialog = MutableStateFlow(false)
     val showRatingDialog: StateFlow<Boolean> = _showRatingDialog.asStateFlow()
 
+    private val _isUpdateDownloaded = MutableStateFlow(false)
+    val isUpdateDownloaded: StateFlow<Boolean> = _isUpdateDownloaded.asStateFlow()
+
     init {
         FirebaseService.auth.addAuthStateListener { auth ->
             userListener?.remove() 
@@ -199,6 +202,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _showRatingDialog.value = false
         prefs.appOpenCount = 0
         AnalyticsService.logAnalyticsEvent("rating_dialog_dismissed")
+    }
+
+    fun setUpdateDownloaded(downloaded: Boolean) {
+        _isUpdateDownloaded.value = downloaded
     }
 
     fun signOut() {

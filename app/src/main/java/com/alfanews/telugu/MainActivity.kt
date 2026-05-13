@@ -36,7 +36,9 @@ import com.alfanews.telugu.views.MainScreen
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.appupdate.AppUpdateOptions
+import com.google.android.play.core.install.InstallStateUpdatedListener
 import com.google.android.play.core.install.model.AppUpdateType
+import com.google.android.play.core.install.model.InstallStatus
 import com.google.android.play.core.install.model.UpdateAvailability
 import com.google.firebase.dynamiclinks.FirebaseDynamicLinks
 
@@ -51,6 +53,13 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var appUpdateManager: AppUpdateManager
     private val updateRequestCode = 123
+    
+    private val installStateUpdatedListener = InstallStateUpdatedListener { state ->
+        if (state.installStatus() == InstallStatus.DOWNLOADED) {
+            mainViewModel.setUpdateDownloaded(true)
+        }
+    }
+
     private val mainViewModel: MainViewModel by viewModels { ViewModelFactory(application) }
     private val newsFeedViewModel: NewsFeedViewModel by viewModels { ViewModelFactory(application) }
 
@@ -77,6 +86,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         appUpdateManager = AppUpdateManagerFactory.create(this)
+        appUpdateManager.registerListener(installStateUpdatedListener)
         checkAppUpdate()
 
         // Keep the splash screen on screen until news is loaded
@@ -177,12 +187,12 @@ class MainActivity : ComponentActivity() {
         val appUpdateInfoTask = appUpdateManager.appUpdateInfo
         appUpdateInfoTask.addOnSuccessListener { appUpdateInfo ->
             if (appUpdateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
-                appUpdateInfo.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)) {
+                appUpdateInfo.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE)) {
                 
                 appUpdateManager.startUpdateFlowForResult(
                     appUpdateInfo,
                     this,
-                    AppUpdateOptions.newBuilder(AppUpdateType.IMMEDIATE).build(),
+                    AppUpdateOptions.newBuilder(AppUpdateType.FLEXIBLE).build(),
                     updateRequestCode)
             }
         }
@@ -209,14 +219,16 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         appUpdateManager.appUpdateInfo.addOnSuccessListener { appUpdateInfo ->
-            if (appUpdateInfo.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS) {
-                appUpdateManager.startUpdateFlowForResult(
-                    appUpdateInfo,
-                    this,
-                    AppUpdateOptions.newBuilder(AppUpdateType.IMMEDIATE).build(),
-                    updateRequestCode)
+            // అప్‌డేట్ ఇప్పటికే డౌన్‌లోడ్ అయి ఉంటే, ఆటోమేటిక్‌గా ఇన్‌స్టాల్ చేయి
+            if (appUpdateInfo.installStatus() == InstallStatus.DOWNLOADED) {
+                appUpdateManager.completeUpdate()
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        appUpdateManager.unregisterListener(installStateUpdatedListener)
     }
 
     // యాప్ రన్ అవుతున్నప్పుడు కొత్త ఇంటెంట్ వస్తే

@@ -70,20 +70,18 @@ fun MainScreen(
     }
 
     val context = LocalContext.current
-    val appUpdateManager = remember { com.google.android.play.core.appupdate.AppUpdateManagerFactory.create(context) }
+    val isUpdateDownloaded by mainViewModel.isUpdateDownloaded.collectAsStateWithLifecycle()
 
-    LaunchedEffect(appUpdateManager) {
-        appUpdateManager.appUpdateInfo.addOnSuccessListener { appUpdateInfo ->
-            if (appUpdateInfo.installStatus() == com.google.android.play.core.install.model.InstallStatus.DOWNLOADED) {
-                scope.launch {
-                    val result = snackbarHostState.showSnackbar(
-                        message = context.getString(R.string.update_required),
-                        actionLabel = context.getString(R.string.update_now),
-                        duration = SnackbarDuration.Indefinite
-                    )
-                    if (result == SnackbarResult.ActionPerformed) {
-                        completeUpdate()
-                    }
+    LaunchedEffect(isUpdateDownloaded) {
+        if (isUpdateDownloaded) {
+            scope.launch {
+                val result = snackbarHostState.showSnackbar(
+                    message = context.getString(R.string.update_downloaded),
+                    actionLabel = context.getString(R.string.update_now),
+                    duration = SnackbarDuration.Indefinite
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    completeUpdate()
                 }
             }
         }

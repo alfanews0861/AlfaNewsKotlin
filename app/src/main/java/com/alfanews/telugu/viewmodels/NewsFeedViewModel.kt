@@ -507,7 +507,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            // వాతావరణ కార్డును 9వ వార్తగా (Index 8) పెట్టండి
            // Only add on the first load (when cursors are null) to avoid duplicates in pagination
            if (mainCursor == null && prefCursor == null) {
-               val weatherPost = generateWeatherPost(prefs.localPlace, _userDistrict.value, prefs.lastLat, prefs.lastLon)
+               val lat = prefs.lastLat.takeIf { it != 0.0 }
+               val lon = prefs.lastLon.takeIf { it != 0.0 }
+               val weatherPost = generateWeatherPost(prefs.localPlace, _userDistrict.value, lat, lon)
                val sizeAfterHistory = blendedNews.size
                val weatherIdx = if (8 <= sizeAfterHistory) 8 else if (sizeAfterHistory > 0) sizeAfterHistory - 1 else 0
                blendedNews.add(weatherIdx, weatherPost)

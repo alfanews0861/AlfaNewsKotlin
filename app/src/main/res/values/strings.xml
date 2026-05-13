@@ -44,6 +44,7 @@
 
     <!-- Main Screen Strings -->
     <string name="update_required">Everyone should update to this new version</string>
+    <string name="update_downloaded">New update downloaded. Install now?</string>
     <string name="update_now">Update Now</string>
     <string name="post_news">Post News</string>
     <string name="settings_onboarding">Here you can change your settings as you wish</string>

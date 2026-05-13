@@ -43,6 +43,7 @@
     <string name="account_delete_error">ఖాతా తొలగించడంలో సమస్య: %1$s</string>
 
     <string name="update_required">అందరూ ఈ కొత్త వెర్షన్ కి అప్‌డేట్ అవ్వాలి</string>
+    <string name="update_downloaded">కొత్త వెర్షన్ డౌన్‌లోడ్ చేయబడింది. ఇప్పుడే ఇన్‌స్టాల్ చేస్తారా?</string>
     <string name="update_now">ఇప్పుడే అప్‌డేట్ చేయండి</string>
     <string name="post_news">వార్తను పోస్ట్ చేయండి</string>
     <string name="settings_onboarding">ఇక్కడ మీరు మీకు కావలసిన విధంగా సెట్టింగ్స్ మార్చుకోవచ్చు</string>

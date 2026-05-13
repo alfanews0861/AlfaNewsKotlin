@@ -1,7 +1,9 @@
 package com.alfanews.telugu.views
 
 import android.app.Activity
+import android.content.ClipData
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Rect
@@ -92,7 +94,9 @@ import java.util.Locale
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
 /**
@@ -367,7 +371,7 @@ fun NewsCardView(
                         count = shareCount.toString(),
                         isLoading = isSharing,
                         tint = Color.White,
-                        onClick = { if (!isSharing) { performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, uriHandler, cardBounds, view) } }
+                        onClick = { if (!isSharing) { performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, language, cardBounds, view) } }
                     )
 
                     Spacer(modifier = Modifier.height(24.dp))
@@ -693,7 +697,7 @@ fun NewsCardView(
                                     count = shareCount.toString(),
                                     isLoading = isSharing,
                                     tint = MaterialTheme.colorScheme.onSurface,
-                                    onClick = { if (!isSharing) { performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, uriHandler, cardBounds, view) } }
+                                    onClick = { if (!isSharing) { performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, language, cardBounds, view) } }
                                 )
 
                                 Spacer(modifier = Modifier.height(24.dp))
@@ -724,63 +728,99 @@ fun NewsCardView(
     }
 }
 
-private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: (Boolean) -> Unit, setShareCount: (Int) -> Unit, post: NewsPost, context: Context, uriHandler: UriHandler, cardBounds: Rect?, view: View) {
+private fun performShare(
+    scope: CoroutineScope,
+    isSharing: Boolean,
+    setSharing: (Boolean) -> Unit,
+    setShareCount: (Int) -> Unit,
+    post: NewsPost,
+    context: Context,
+    language: Language,
+    cardBounds: Rect?,
+    view: View
+) {
+    if (isSharing) return
     scope.launch {
         setSharing(true)
-        val headline = if (context.resources.configuration.locales[0].language == "te") post.headline.telugu else post.headline.english
-        val deepLink = "https://alfanews.app/news/${post.id}"
-        val shareText = "$headline\n$deepLink"
+        try {
+            // UI అప్‌డేట్స్ సెటిల్ కావడానికి చిన్న డిలే
+            delay(100)
+            
+            val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
+            val deepLink = "https://alfanews.app/news/${post.id}"
+            val shareText = "$headline\n$deepLink"
 
-        val bitmap = takeScreenshot(view, cardBounds)
-        if (bitmap != null) {
-            val uri = saveImageToCache(context, bitmap)
-            if (uri != null) {
-                val intent = Intent(Intent.ACTION_SEND).apply {
-                    type = "image/*"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    putExtra(Intent.EXTRA_TEXT, shareText)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                context.startActivity(Intent.createChooser(intent, context.getString(R.string.share_news)))
-                FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener {
-                    setShareCount(1)
+            val bitmap = takeScreenshot(view, cardBounds)
+            if (bitmap != null) {
+                val uri = saveImageToCache(context, bitmap)
+                if (uri != null) {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "image/png"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        putExtra(Intent.EXTRA_TEXT, shareText)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    
+                    // ✅ ClipData సెట్ చేయడం వల్ల వాట్సాప్ వంటి యాప్‌లలో ఇమేజ్ ఖచ్చితంగా కనిపిస్తుంది
+                    intent.setClipData(android.content.ClipData.newRawUri(null, uri))
+                    
+                    val chooser = Intent.createChooser(intent, context.getString(R.string.share_news))
+                    chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    context.startActivity(chooser)
+                    
+                    FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener {
+                        setShareCount(1)
+                    }
+                } else {
+                    Toast.makeText(context, context.getString(R.string.share_failed), Toast.LENGTH_SHORT).show()
                 }
             } else {
-                Toast.makeText(context, context.getString(R.string.share_failed), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.screenshot_failed), Toast.LENGTH_SHORT).show()
             }
-        } else {
-            Toast.makeText(context, context.getString(R.string.screenshot_failed), Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+             Toast.makeText(context, "Share error", Toast.LENGTH_SHORT).show()
+        } finally {
+            setSharing(false)
         }
-        setSharing(false)
     }
 }
 
-
-/**
- * వ్యూ యొక్క స్క్రీన్ షాట్ తీస్తుంది.
- */
 private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspendCoroutine { continuation ->
-    if (bounds == null || bounds.isEmpty) {
+    val activity = findActivity(view.context)
+    val window = activity?.window
+    
+    if (window == null || bounds == null || bounds.isEmpty || bounds.width() <= 0 || bounds.height() <= 0) {
         continuation.resume(null)
         return@suspendCoroutine
     }
 
     try {
-        val window = (view.context as? Activity)?.window
-        if (window == null) {
+        val decorView = window.decorView
+        val windowWidth = decorView.width
+        val windowHeight = decorView.height
+        
+        val safeBounds = Rect(
+            bounds.left.coerceIn(0, windowWidth),
+            bounds.top.coerceIn(0, windowHeight),
+            bounds.right.coerceIn(0, windowWidth),
+            bounds.bottom.coerceIn(0, windowHeight)
+        )
+        
+        if (safeBounds.width() <= 0 || safeBounds.height() <= 0) {
             continuation.resume(null)
             return@suspendCoroutine
         }
 
-        val bitmap = Bitmap.createBitmap(bounds.width(), bounds.height(), Bitmap.Config.ARGB_8888)
+        val bitmap = Bitmap.createBitmap(safeBounds.width(), safeBounds.height(), Bitmap.Config.ARGB_8888)
         PixelCopy.request(
             window,
-            bounds,
+            safeBounds,
             bitmap,
             { copyResult ->
                 if (copyResult == PixelCopy.SUCCESS) {
                     continuation.resume(bitmap)
                 } else {
+                    bitmap.recycle()
                     continuation.resume(null)
                 }
             },
@@ -791,22 +831,30 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
     }
 }
 
-/**
- * ఇమేజ్‌ను సేవ్ చేస్తుంది.
- */
-private fun saveImageToCache(context: Context, bitmap: Bitmap): Uri? {
-    val imagesFolder = File(context.cacheDir, "images")
-    imagesFolder.mkdirs()
-    
-    // పాత షేర్ ఇమేజ్‌లను డిలీట్ చేయండి (స్టోరేజ్ ఫ్రీ చేయడానికి)
-    imagesFolder.listFiles()?.forEach { if (it.name.startsWith("shared_image_")) it.delete() }
+private fun findActivity(context: Context): Activity? {
+    var ctx = context
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
 
-    val file = File(imagesFolder, "shared_image_${System.currentTimeMillis()}.png")
-    val stream = FileOutputStream(file)
-    bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-    stream.flush()
-    stream.close()
-    return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+private suspend fun saveImageToCache(context: Context, bitmap: Bitmap): Uri? = withContext(Dispatchers.IO) {
+    try {
+        val imagesFolder = File(context.cacheDir, "images")
+        if (!imagesFolder.exists()) imagesFolder.mkdirs()
+        
+        imagesFolder.listFiles()?.forEach { if (it.name.startsWith("shared_image_")) it.delete() }
+
+        val file = File(imagesFolder, "shared_image_${System.currentTimeMillis()}.png")
+        FileOutputStream(file).use { stream ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+        }
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    } catch (e: Exception) {
+        null
+    }
 }
 
 @Composable
@@ -991,7 +1039,7 @@ private val YOUTUBE_ID_PATTERN: java.util.regex.Pattern by lazy {
 }
 
 private fun extractYoutubeVideoId(youtubeUrl: String?): String? {
-    if (youtubeUrl.isNullOrBlank()) return null
+    if (youtubeUrl == null || youtubeUrl.length < 5) return null
     val matcher = YOUTUBE_ID_PATTERN.matcher(youtubeUrl)
     return if (matcher.find()) matcher.group() else null
 }

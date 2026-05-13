@@ -20,7 +20,9 @@ data class GeocodingResult(
 
 // --- Weather Models ---
 data class WeatherResponse(
-    @SerializedName("current_weather") val currentWeather: CurrentWeather
+    @SerializedName("current_weather") val currentWeather: CurrentWeather,
+    @SerializedName("hourly") val hourly: HourlyData?,
+    @SerializedName("daily") val daily: DailyData?
 )
 
 data class CurrentWeather(
@@ -29,6 +31,19 @@ data class CurrentWeather(
     @SerializedName("windspeed") val windSpeed: Double,
     @SerializedName("is_day") val isDay: Int,
     @SerializedName("time") val time: String
+)
+
+data class HourlyData(
+    @SerializedName("time") val time: List<String>,
+    @SerializedName("relative_humidity_2m") val humidity: List<Int>?
+)
+
+data class DailyData(
+    @SerializedName("time") val time: List<String>,
+    @SerializedName("weathercode") val weatherCode: List<Int>?,
+    @SerializedName("temperature_2m_max") val tempMax: List<Double>?,
+    @SerializedName("temperature_2m_min") val tempMin: List<Double>?,
+    @SerializedName("uv_index_max") val uvIndex: List<Double>?
 )
 
 interface WeatherApiService {
@@ -44,7 +59,10 @@ interface WeatherApiService {
     suspend fun getWeather(
         @Query("latitude") lat: Double,
         @Query("longitude") lon: Double,
-        @Query("current_weather") currentWeather: Boolean = true
+        @Query("current_weather") currentWeather: Boolean = true,
+        @Query("hourly") hourly: String = "relative_humidity_2m",
+        @Query("daily") daily: String = "weathercode,temperature_2m_max,temperature_2m_min,uv_index_max",
+        @Query("timezone") timezone: String = "auto"
     ): WeatherResponse
 }
 
@@ -56,10 +74,9 @@ object WeatherService {
 
     private val api = retrofit.create(WeatherApiService::class.java)
 
-    // ✅ In-memory cache: 1 hour TTL per location to avoid repeated API calls
+    // ✅ In-memory cache: 30-min TTL per location to avoid repeated API calls
     private data class CachedWeather(val data: WeatherData, val fetchedAt: Long)
     private val weatherCache = mutableMapOf<String, CachedWeather>()
-    private const val CACHE_TTL_MS = 60 * 60 * 1000L // 1 hour
 
     // తెలుగు పేర్లను ఇంగ్లీష్ లోకి మార్చే మ్యాపింగ్ - Open-Meteo API కోసం
     private val locationMapping = mapOf(
@@ -126,44 +143,61 @@ object WeatherService {
 
     /**
      * జిల్లా పేరు ఆధారంగా నిజమైన వాతావరణ సమాచారాన్ని తెస్తుంది.
-     * రిటర్న్: ResultData(Temperature, WeatherCode, WindSpeed, Time)
+     * రిటర్న్: ResultData(Temperature, WeatherCode, WindSpeed, Time, Humidity, Forecast)
      */
     data class WeatherData(
         val temp: Double,
         val code: Int,
         val wind: Double,
-        val time: String
+        val time: String,
+        val humidity: Int? = null,
+        val isDay: Boolean = true,
+        val uvIndex: Double? = null,
+        val isPrecise: Boolean = true,
+        val dailyForecast: List<DayForecast> = emptyList()
+    )
+
+    data class DayForecast(
+        val date: String,
+        val code: Int,
+        val maxTemp: Double,
+        val minTemp: Double
     )
 
     suspend fun fetchWeather(locationName: String, lat: Double? = null, lon: Double? = null): WeatherData? {
-        // ✅ Check cache first (1-hour TTL)
-        val cacheKey = if (lat != null && lon != null) "coords_${lat}_${lon}" else locationName
+        // ✅ Treat 0.0, 0.0 as null (likely unitialized prefs)
+        val validLat = if (lat != null && lat != 0.0) lat else null
+        val validLon = if (lon != null && lon != 0.0) lon else null
+
+        // ✅ Check cache first (30-min TTL for robustness)
+        val cacheKey = if (validLat != null && validLon != null) "coords_${validLat}_${validLon}" else locationName
         val cached = weatherCache[cacheKey]
-        if (cached != null && System.currentTimeMillis() - cached.fetchedAt < CACHE_TTL_MS) {
+        if (cached != null && System.currentTimeMillis() - cached.fetchedAt < 30 * 60 * 1000L) {
             return cached.data
         }
         return try {
             val latitude: Double
             val longitude: Double
 
-            if (lat != null && lon != null) {
-                // If coordinates are provided, use them directly for 100% accuracy
-                latitude = lat
-                longitude = lon
+            if (validLat != null && validLon != null) {
+                latitude = validLat
+                longitude = validLon
             } else {
-                // 1. Try to use the location name directly (Mandal/Town) with "India" suffix
                 val searchName = locationMapping[locationName] ?: locationName
                 val finalSearchName = "$searchName, India"
-                
-                // 2. Get coordinates via Geocoding
                 val geoResponse = api.getCoordinates(finalSearchName)
                 val location = geoResponse.results?.firstOrNull() 
                 
                 if (location == null) {
-                    // Fallback: If mandal name is not found, try searching with district context
-                    // This is more likely to find the specific area than just "District, India"
-                    val parentDistrict = Constants.MANDAL_DATA.entries.find { it.value.contains(locationName) }?.key
-                    val contextualSearch = if (parentDistrict != null) "$locationName, $parentDistrict, India" else null
+                    // Fallback: If mandal name is not found, try searching with district context in English
+                    val parentDistrictTe = Constants.MANDAL_DATA.entries.find { it.value.contains(locationName) }?.key
+                    val parentDistrictEn = locationMapping[parentDistrictTe]
+                    
+                    val contextualSearch = if (parentDistrictEn != null) {
+                        "$locationName, $parentDistrictEn, India"
+                    } else if (parentDistrictTe != null) {
+                        "$locationName, $parentDistrictTe, India"
+                    } else null
                     
                     val fallbackGeoResponse = contextualSearch?.let { api.getCoordinates(it) }
                     val fallbackLocation = fallbackGeoResponse?.results?.firstOrNull()
@@ -172,8 +206,15 @@ object WeatherService {
                         latitude = fallbackLocation.latitude
                         longitude = fallbackLocation.longitude
                     } else {
-                        // If all fails, return null - don't show wrong district center data
-                        return null
+                        // Final fallback: Use the district center if mandal is still not found
+                        val districtEn = locationMapping[parentDistrictTe] ?: locationMapping[locationName]
+                        if (districtEn != null) {
+                            val districtGeo = api.getCoordinates("$districtEn, India").results?.firstOrNull()
+                            if (districtGeo != null) {
+                                latitude = districtGeo.latitude
+                                longitude = districtGeo.longitude
+                            } else return null
+                        } else return null
                     }
                 } else {
                     latitude = location.latitude
@@ -181,13 +222,36 @@ object WeatherService {
                 }
             }
             
-            // 3. Get weather for these specific coordinates
             val weatherResponse = api.getWeather(latitude, longitude)
+            
+            // Get current humidity (first hourly value)
+            val currentHumidity = weatherResponse.hourly?.humidity?.firstOrNull()
+            
+            // Build daily forecast
+            val daily = weatherResponse.daily
+            val forecastList = mutableListOf<DayForecast>()
+            if (daily?.time != null && daily.weatherCode != null) {
+                for (i in 0 until minOf(daily.time.size, 7)) {
+                    forecastList.add(DayForecast(
+                        daily.time[i],
+                        daily.weatherCode[i],
+                        daily.tempMax?.getOrNull(i) ?: 0.0,
+                        daily.tempMin?.getOrNull(i) ?: 0.0
+                    ))
+                }
+            }
+
+            val isPrecise = validLat != null && validLon != null
             val result = WeatherData(
-                weatherResponse.currentWeather.temperature, 
-                weatherResponse.currentWeather.weatherCode,
-                weatherResponse.currentWeather.windSpeed,
-                weatherResponse.currentWeather.time
+                temp = weatherResponse.currentWeather.temperature, 
+                code = weatherResponse.currentWeather.weatherCode,
+                wind = weatherResponse.currentWeather.windSpeed,
+                time = weatherResponse.currentWeather.time,
+                humidity = currentHumidity,
+                isDay = weatherResponse.currentWeather.isDay == 1,
+                uvIndex = weatherResponse.daily?.uvIndex?.firstOrNull(),
+                isPrecise = isPrecise,
+                dailyForecast = forecastList
             )
             weatherCache[cacheKey] = CachedWeather(result, System.currentTimeMillis())
             result
