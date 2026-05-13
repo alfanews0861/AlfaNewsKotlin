@@ -75,9 +75,12 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     fun setDistrict(district: String) {
         if (prefs.selectedDistrict == district && _activeDistrict.value == district) return
         
-        // UI వెంటనే లోడింగ్ స్టేట్ లోకి వెళ్ళడానికి
-        _loading.value = true
-        _news.value = emptyList()
+        // Optimization: Don't clear news immediately to show previous district's news 
+        // until new ones are ready, or just avoid the spinner.
+        if (_news.value.isEmpty()) {
+            _loading.value = true
+        }
+        
         _hasMore.value = true
         
         prefs.selectedDistrict = district
@@ -299,8 +302,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             return
         }
         
-        _loading.value = true // Set loading here before launch
-        loadLocalAds(district) // లోకల్ యాడ్స్ లోడ్ చేయండి
+        // ✅ SMART LOADING: Only show spinner if list is empty
+        if (_news.value.isEmpty()) {
+            _loading.value = true 
+        }
+        loadLocalAds(district) 
         
         loadJob?.cancel()
         
@@ -378,12 +384,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 }
 
                 _news.value = finalPosts
-                
-                // ✅ UI RAPID REFRESH
-                if (_news.value.isEmpty() && finalPosts.isNotEmpty()) {
-                    _news.value = finalPosts.take(5)
-                    _loading.value = false
-                }
+                _loading.value = false // ✅ Hide spinner immediately when news arrives
 
                 val currentTime = System.currentTimeMillis()
                 lastRefreshTimeLong = currentTime

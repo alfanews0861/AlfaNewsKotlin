@@ -132,7 +132,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             "భక్తి", "spiritual", "religion",
             "వ్యవసాయం", "agriculture", "farm",
             "జాతీయం", "national", "india",
-            "ప్రపంచం", "international", "world"
+            "ప్రపంచం", "international", "world",
+            "రాష్ట్ర", "రాష్ట్ర వార్తలు", "state", "ap", "ts", "andhra", "telangana", "ఆంధ్రప్రదేశ్", "తెలంగాణ"
         )
         
         return globalKeywords.any { keyword -> 
@@ -147,7 +148,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
      fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null) {
           if (isFetching && initialPostId == null) return
           
-          _loading.value = true 
+          // ✅ SMART LOADING: Only show spinner if we have NO news at all.
+          // If we already have news, do a silent refresh in background.
+          if (_news.value.isEmpty()) {
+              _loading.value = true 
+          }
           isFetching = true
 
            viewModelScope.launch {
@@ -224,9 +229,34 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    prefCursor = prefBatch.second
                    mainCursor = mainBatch.second
 
-                   // 🚀 CRITICAL: If after filtering we have no news, don't let it loop
+                   // 🚀 ROBUST AUTO-SCAN: If home feed is empty but Firestore has more news,
+                   // fetch one more batch immediately to avoid showing "No News" or infinite spinner.
                    if (finalPosts.isEmpty() && (mainCursor != null || prefCursor != null)) {
-                       // We scanned but found nothing global. Stop here to save bill/data.
+                       val extraPrefDeferred = async {
+                           if (prefCursor != null && preferredCats.isNotEmpty()) {
+                               fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), prefCursor, district, excludeDistricts = true)
+                           } else Pair(emptyList<NewsPost>(), null)
+                       }
+                       val extraMainDeferred = async {
+                           if (mainCursor != null) {
+                               fetchFilteredBatch(FirebaseService.db.collection("news"), mainCursor, district, excludeDistricts = true)
+                           } else Pair(emptyList<NewsPost>(), null)
+                       }
+                       
+                       val extraPref = extraPrefDeferred.await()
+                       val extraMain = extraMainDeferred.await()
+                       
+                       prefCursor = extraPref.second
+                       mainCursor = extraMain.second
+                       
+                       val extraPosts = withContext(Dispatchers.Default) {
+                           rankAndBlendPosts(extraPref.first, extraMain.first, emptyList())
+                       }
+                       finalPosts = (finalPosts + extraPosts).distinctBy { it.id }
+                   }
+
+                   // 🚀 Corrected: Only stop if we truly have no more news in Firestore
+                   if (finalPosts.isEmpty() && mainCursor == null && prefCursor == null) {
                        _hasMore.value = false
                    }
 
@@ -252,14 +282,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    }
 
                    _news.value = finalPosts.distinctBy { it.id }
+                   _loading.value = false // ✅ Hide spinner as soon as we have data
                    
-                   // ✅ UI RAPID REFRESH: If we only had a few posts, show the first 5 immediately
-                   // even before full processing finishes if possible
-                   if (_news.value.isEmpty() && finalPosts.isNotEmpty()) {
-                        _news.value = finalPosts.take(5)
-                        _loading.value = false
-                   }
-
                    val currentTime = System.currentTimeMillis()
                    lastRefreshTimeLong = currentTime
                    _lastRefreshTime.value = currentTime
@@ -386,7 +410,22 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            }
 
            val batch = snapshot.documents.mapNotNull { doc ->
-               mapDocumentToNewsPost(doc)
+               val post = mapDocumentToNewsPost(doc) ?: return@mapNotNull null
+               
+               if (excludeDistricts) {
+                   // ✅ NEW: Use isGlobalCategory to allow important news even if it has a district
+                   // This ensures Scraper news (State, Politics, etc.) show in Home Feed
+                   val hasGlobal = post.categories.any { cat: String -> this@NewsFeedViewModel.isGlobalCategory(cat) }
+                   
+                   // Check if it's a purely local post (has a district and no global category)
+                   val isLocal = post.district != null && Constants.ALL_DISTRICTS.contains(post.district)
+                   
+                   if (isLocal && !hasGlobal) {
+                       return@mapNotNull null // Filter out purely local news from Home Feed
+                   }
+               }
+               
+               post
            }
 
            currentCursor = snapshot.documents.lastOrNull()
