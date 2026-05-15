@@ -65,12 +65,38 @@ class LoginViewModel : ViewModel() {
                 val existingUserDoc = userRef.get().await()
 
                 if (!existingUserDoc.exists()) {
-                    // NEW USER: Create profile with default role
-                    createNewUserProfile(
-                        user = user,
-                        name = user.displayName ?: "",
-                        context = context
-                    )
+                    // 🔍 RESILIENCE Check: Look for user by phone before creating new one
+                    // This prevents resetting roles for reporters who might have documents with different UIDs.
+                    val phone = user.phoneNumber
+                    var foundLegacyUser = false
+                    if (!phone.isNullOrEmpty()) {
+                        val legacyDocs = FirebaseService.db.collection("users")
+                            .whereEqualTo("phone", phone)
+                            .get().await()
+                        
+                        if (!legacyDocs.isEmpty) {
+                            // Found an existing user document with this phone number
+                            val legacyDoc = legacyDocs.documents.first()
+                            val legacyData = legacyDoc.data?.toMutableMap() ?: mutableMapOf()
+                            
+                            // Preserve existing role, default to SUBSCRIBER only if role is missing
+                            if (legacyData["role"] == null) legacyData["role"] = "SUBSCRIBER"
+                            
+                            // Update this data with current auth info and save to the new UID document
+                            legacyData["lastLogin"] = Timestamp.now()
+                            userRef.set(legacyData, SetOptions.merge()).await()
+                            foundLegacyUser = true
+                        }
+                    }
+
+                    if (!foundLegacyUser) {
+                        // NEW USER: Create profile with default role
+                        createNewUserProfile(
+                            user = user,
+                            name = user.displayName ?: "",
+                            context = context
+                        )
+                    }
                     _uiState.value = LoginUiState(isLoginSuccessful = true, isNewUser = true)
                 } else {
                     // EXISTING USER: Only update metadata, NEVER touch the "role" field

@@ -69,10 +69,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (snapshot != null && snapshot.exists()) {
                         // Extract role explicitly as a string first to avoid deserialization issues
                         val roleStr = snapshot.getString("role") ?: "SUBSCRIBER"
-                        val parsedRole = try {
-                            UserRole.valueOf(roleStr.uppercase())
-                        } catch (e: Exception) {
-                            UserRole.SUBSCRIBER
+                        val parsedRole = when(roleStr) {
+                            "ADMIN", "admin", "Admin" -> UserRole.ADMIN
+                            "REPORTER", "reporter", "Reporter" -> UserRole.REPORTER
+                            "EDITOR", "editor", "Editor" -> UserRole.EDITOR
+                            "REGIONAL_INCHARGE", "regional_incharge", "REGIONAL INCHARGE" -> UserRole.REGIONAL_INCHARGE
+                            else -> UserRole.SUBSCRIBER
                         }
 
                         val userObj = try {
@@ -132,22 +134,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         }
                     } else {
-                        viewModelScope.launch {
-                            try {
-                                val newUser = User(
-                                    id = firebaseUser.uid,
-                                    name = firebaseUser.displayName ?: "User",
-                                    email = firebaseUser.email,
-                                    photoUrl = firebaseUser.photoUrl?.toString(),
-                                    role = UserRole.SUBSCRIBER
-                                )
-                                // Use merge to avoid overwriting if the document was just created by another process
-                                FirebaseService.db.collection("users").document(firebaseUser.uid)
-                                    .set(newUser, SetOptions.merge()).await()
-                            } catch (creationError: Exception) {
-                                _currentUser.value = null
-                            }
-                        }
+                        // 🔍 SAFETY: Avoid auto-creating users here to prevent race conditions 
+                        // and accidental role resets during initial auth state changes.
+                        // User creation is primarily handled by LoginViewModel during sign-in.
+                        _currentUser.value = null
                     }
                 }
         }
