@@ -28,6 +28,10 @@ class PreferenceManager(context: Context) {
         private const val KEY_LOCAL_PLACE = "key_local_place"
         private const val KEY_LAST_LAT = "key_last_lat"
         private const val KEY_LAST_LON = "key_last_lon"
+        private const val KEY_USER_ID = "key_user_id"
+        private const val KEY_USER_NAME = "key_user_name"
+        private const val KEY_USER_ROLE = "key_user_role"
+        private const val KEY_USER_DISTRICT = "key_user_district"
 
         @Volatile
         private var INSTANCE: PreferenceManager? = null
@@ -164,4 +168,25 @@ class PreferenceManager(context: Context) {
         set(value) {
             prefs.edit().putStringSet(KEY_NEWS_INTERESTS, value).apply()
         }
+
+    /** యూజర్ ప్రొఫైల్ వివరాలను లోకల్‌గా సేవ్ చేయడం (Offline Persistence కోసం) */
+    var userId: String?
+        get() = prefs.getString(KEY_USER_ID, null)
+        set(value) = prefs.edit().putString(KEY_USER_ID, value).apply()
+
+    var userName: String?
+        get() = prefs.getString(KEY_USER_NAME, null)
+        set(value) = prefs.edit().putString(KEY_USER_NAME, value).apply()
+
+    var userRole: String?
+        get() = prefs.getString(KEY_USER_ROLE, "SUBSCRIBER")
+        set(value) = prefs.edit().putString(KEY_USER_ROLE, value).apply()
+
+    var userDistrict: String?
+        get() = prefs.getString(KEY_USER_DISTRICT, null)
+        set(value) = prefs.edit().putString(KEY_USER_DISTRICT, value).apply()
+
+    fun clearUserData() {
+        prefs.edit().remove(KEY_USER_ID).remove(KEY_USER_NAME).remove(KEY_USER_ROLE).remove(KEY_USER_DISTRICT).apply()
+    }
 }

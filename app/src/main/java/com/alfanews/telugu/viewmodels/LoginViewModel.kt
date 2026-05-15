@@ -55,6 +55,7 @@ class LoginViewModel : ViewModel() {
     }
 
     fun signInWithCredential(credential: AuthCredential, context: Context) {
+        val prefs = com.alfanews.telugu.utils.PreferenceManager.getInstance(context)
         viewModelScope.launch {
             _uiState.value = LoginUiState(isLoading = true)
             try {
@@ -66,40 +67,47 @@ class LoginViewModel : ViewModel() {
 
                 if (!existingUserDoc.exists()) {
                     // 🔍 RESILIENCE Check: Look for user by phone before creating new one
-                    // This prevents resetting roles for reporters who might have documents with different UIDs.
                     val phone = user.phoneNumber
                     var foundLegacyUser = false
+                    var legacyRole = "SUBSCRIBER"
+                    
                     if (!phone.isNullOrEmpty()) {
                         val legacyDocs = FirebaseService.db.collection("users")
                             .whereEqualTo("phone", phone)
                             .get().await()
                         
                         if (!legacyDocs.isEmpty) {
-                            // Found an existing user document with this phone number
-                            val legacyDoc = legacyDocs.documents.first()
-                            val legacyData = legacyDoc.data?.toMutableMap() ?: mutableMapOf()
-                            
-                            // Preserve existing role, default to SUBSCRIBER only if role is missing
-                            if (legacyData["role"] == null) legacyData["role"] = "SUBSCRIBER"
-                            
-                            // Update this data with current auth info and save to the new UID document
-                            legacyData["lastLogin"] = Timestamp.now()
-                            userRef.set(legacyData, SetOptions.merge()).await()
-                            foundLegacyUser = true
+                        val legacyDoc = legacyDocs.documents.first()
+                        val legacyData = legacyDoc.data
+                        legacyRole = legacyData?.get("role")?.toString() ?: "SUBSCRIBER"
+                        
+                        val updatedLegacyData = legacyData?.toMutableMap() ?: mutableMapOf()
+                        updatedLegacyData["lastLogin"] = Timestamp.now()
+                        userRef.set(updatedLegacyData, com.google.firebase.firestore.SetOptions.merge()).await()
+                        foundLegacyUser = true
                         }
                     }
 
                     if (!foundLegacyUser) {
-                        // NEW USER: Create profile with default role
-                        createNewUserProfile(
-                            user = user,
-                            name = user.displayName ?: "",
-                            context = context
-                        )
+                        createNewUserProfile(user = user, name = user.displayName ?: "", context = context)
                     }
+                    
+                    // 🚀 CACHE for offline persistence
+                    prefs.userId = user.uid
+                    prefs.userName = user.displayName ?: "User"
+                    prefs.userRole = legacyRole
+
                     _uiState.value = LoginUiState(isLoginSuccessful = true, isNewUser = true)
                 } else {
                     // EXISTING USER: Only update metadata, NEVER touch the "role" field
+                    val roleFromDb = existingUserDoc.getString("role") ?: "SUBSCRIBER"
+                    
+                    // 🚀 CACHE immediately for offline persistence
+                    prefs.userId = user.uid
+                    prefs.userName = existingUserDoc.getString("name") ?: user.displayName ?: "User"
+                    prefs.userRole = roleFromDb
+                    prefs.userDistrict = existingUserDoc.getString("district")
+
                     val updateData = mutableMapOf<String, Any>(
                         "lastLogin" to Timestamp.now()
                     )

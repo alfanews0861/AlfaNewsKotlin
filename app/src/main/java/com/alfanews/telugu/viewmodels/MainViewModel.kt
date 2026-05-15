@@ -50,6 +50,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isUpdateDownloaded: StateFlow<Boolean> = _isUpdateDownloaded.asStateFlow()
 
     init {
+        // 🚀 QUICK CACHE LOAD: Immediately load basic user info from preferences
+        // to prevent role reset (Guest/Subscriber) while waiting for Firebase.
+        val cachedId = prefs.userId
+        val cachedRole = prefs.userRole ?: "SUBSCRIBER"
+        if (cachedId != null) {
+            _currentUser.value = User(
+                id = cachedId,
+                name = prefs.userName ?: "User",
+                role = try { UserRole.valueOf(cachedRole) } catch(e: Exception) { UserRole.SUBSCRIBER },
+                district = prefs.userDistrict
+            )
+        }
+
         FirebaseService.auth.addAuthStateListener { auth ->
             userListener?.remove() 
             val firebaseUser = auth.currentUser
@@ -119,6 +132,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _currentUser.value = userObj
                         
                         if (userObj != null) {
+                            // 🚀 SYNC CACHE: Save fresh data to local preferences for offline use
+                            prefs.userId = userObj.id
+                            prefs.userName = snapshot.getString("name") ?: userObj.name
+                            prefs.userRole = snapshot.getString("role") ?: userObj.role.name
+                            prefs.userDistrict = snapshot.getString("district") ?: userObj.district
+
                             AnalyticsService.onUserLogin(userObj)
                             
                             // ఒకవేళ యూజర్ ఆసక్తులు లేదా జిల్లా మారితే, నోటిఫికేషన్ సబ్‌స్క్రిప్షన్లను అప్‌డేట్ చేయడం
@@ -201,6 +220,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun signOut() {
         viewModelScope.launch {
             FirebaseService.auth.signOut()
+            prefs.clearUserData() // 🚀 CLEAR CACHE on logout
             _currentUser.value = null
             userListener?.remove()
             AnalyticsService.onUserLogout()
