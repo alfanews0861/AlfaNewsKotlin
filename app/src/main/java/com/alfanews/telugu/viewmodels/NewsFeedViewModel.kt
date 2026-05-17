@@ -427,9 +427,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            // ✅ IMPLEMENTED: General News (Scraped news) using whereIn district
            // Only apply whereIn if baseQuery is a CollectionReference to avoid conflicts with whereArrayContainsAny
            if (excludeDistricts) {
-               if (baseQuery is CollectionReference) {
-                   query = query.whereIn("district", globalDistricts)
-               }
+               query = FirebaseService.db.collection("news")
+                   .whereEqualTo("approved", true)
+                   .whereIn("district", globalDistricts)
            } else if (district != null) {
                // Local News filter
                query = query.whereEqualTo("district", district)
