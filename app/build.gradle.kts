@@ -17,8 +17,8 @@ android {
         applicationId = "com.alfanews.telugu"
         minSdk = 24
         targetSdk = 35
-        versionCode = 578
-        versionName = "Sree_5.2.5"
+        versionCode = 579
+        versionName = "Sree_5.2.6"
         multiDexEnabled = true
 
         val properties = Properties()
@@ -47,17 +47,24 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = System.getenv("RELEASE_STORE_FILE")?.let { file(it) }
-            storePassword = System.getenv("RELEASE_STORE_PASSWORD")
-            keyAlias = System.getenv("RELEASE_KEY_ALIAS")
-            keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            val properties = Properties()
+            val localPropertiesFile = project.rootProject.file("local.properties")
+            if (localPropertiesFile.exists()) {
+                properties.load(FileInputStream(localPropertiesFile))
+            }
+
+            val storeFilePath = properties.getProperty("ALFANEWS_KEYSTORE_FILE") ?: System.getenv("RELEASE_STORE_FILE")
+            storeFile = storeFilePath?.let { file(it) }
+            storePassword = properties.getProperty("ALFANEWS_KEYSTORE_PASSWORD") ?: System.getenv("RELEASE_STORE_PASSWORD")
+            keyAlias = properties.getProperty("ALFANEWS_KEY_ALIAS") ?: System.getenv("RELEASE_KEY_ALIAS")
+            keyPassword = properties.getProperty("ALFANEWS_KEY_PASSWORD") ?: System.getenv("RELEASE_KEY_PASSWORD")
         }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
+            isShrinkResources = false
             signingConfig = signingConfigs.getByName("release")
             
             proguardFiles(

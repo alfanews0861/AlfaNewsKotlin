@@ -539,7 +539,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 originalUrl = data["originalUrl"]?.toString(),
                 district = data["district"]?.toString(),
                 verificationStatus = data["verificationStatus"]?.toString() ?: "UNVERIFIED",
-                type = type
+                type = type,
+                approved = data["approved"] as? Boolean ?: false,
+                aiProcessed = data["aiProcessed"] as? Boolean ?: false
             )
         } catch(e: Exception) {
             return null

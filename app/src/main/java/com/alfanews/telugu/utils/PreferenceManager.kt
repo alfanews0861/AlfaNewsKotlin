@@ -179,7 +179,7 @@ class PreferenceManager(context: Context) {
         set(value) = prefs.edit().putString(KEY_USER_NAME, value).apply()
 
     var userRole: String?
-        get() = prefs.getString(KEY_USER_ROLE, "SUBSCRIBER")
+        get() = prefs.getString(KEY_USER_ROLE, null)
         set(value) = prefs.edit().putString(KEY_USER_ROLE, value).apply()
 
     var userDistrict: String?

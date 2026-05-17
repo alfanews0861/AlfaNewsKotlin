@@ -413,6 +413,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                val post = mapDocumentToNewsPost(doc) ?: return@mapNotNull null
                
                if (excludeDistricts) {
+                   // ✅ USER REQUEST: Exclude "local" and "jilla vaartha" (District News) from Home Feed
+                   // These are typically reporter-submitted local news that should stay in the Local tab.
+                   val hasLocalOrDistrictCategory = post.categories.any { cat: String ->
+                       cat.contains("జిల్లా వార్త") || cat.contains("లోకల్") || cat.contains("local", ignoreCase = true)
+                   }
+                   
+                   if (hasLocalOrDistrictCategory) {
+                       return@mapNotNull null
+                   }
+
                    // ✅ NEW: Use isGlobalCategory to allow important news even if it has a district
                    // This ensures Scraper news (State, Politics, etc.) show in Home Feed
                    val hasGlobal = post.categories.any { cat: String -> this@NewsFeedViewModel.isGlobalCategory(cat) }
@@ -671,7 +681,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         locations = (entitiesMap["locations"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
                     )
                 } ?: com.alfanews.telugu.models.Entities(),
-                type = data["type"]?.toString() ?: "news"
+                type = data["type"]?.toString() ?: "news",
+                approved = data["approved"] as? Boolean ?: false,
+                aiProcessed = data["aiProcessed"] as? Boolean ?: false
             )
         } catch (e: Exception) { 
             null 

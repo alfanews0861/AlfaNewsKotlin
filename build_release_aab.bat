@@ -2,7 +2,7 @@
 setlocal
 
 REM Use native JBR JVM from Android Studio as requested
-set "JBR_PATH=C:\Program Files\Android\Android Studio\jbr"
+set "JBR_PATH=C:\Program Files\Android\Android Studio1\jbr"
 if exist "%JBR_PATH%\bin\java.exe" (
     set "JAVA_HOME=%JBR_PATH%"
     echo Using JBR from: %JBR_PATH%

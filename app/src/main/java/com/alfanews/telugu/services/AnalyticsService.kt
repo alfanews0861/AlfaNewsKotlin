@@ -10,6 +10,8 @@ import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
+import java.util.HashMap
 
 /**
  * అప్లికేషన్ యొక్క అనలిటిక్స్ మరియు వినియోగదారు ఆసక్తులను (Interests) ట్రాక్ చేసే సర్వీస్.
@@ -19,12 +21,12 @@ object AnalyticsService {
     private lateinit var appContext: Context
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    private val categoryScores = mutableMapOf<String, Int>()
-    private val reporterScores = mutableMapOf<String, Int>()
-    private val tagScores = mutableMapOf<String, Int>()
-    private val peopleScores = mutableMapOf<String, Int>()
-    private val organizationScores = mutableMapOf<String, Int>()
-    private val locationScores = mutableMapOf<String, Int>()
+    private val categoryScores = ConcurrentHashMap<String, Int>()
+    private val reporterScores = ConcurrentHashMap<String, Int>()
+    private val tagScores = ConcurrentHashMap<String, Int>()
+    private val peopleScores = ConcurrentHashMap<String, Int>()
+    private val organizationScores = ConcurrentHashMap<String, Int>()
+    private val locationScores = ConcurrentHashMap<String, Int>()
 
     // ✅ Throttle: disk write max once per 30s, Firestore sync max once per 60s
     private var lastSaveToPrefsTime = 0L
@@ -234,12 +236,14 @@ object AnalyticsService {
     }
 
     fun getUserPreferredCategories(): List<String> {
-        return cachedPreferredCategories ?: synchronized(this) {
-            cachedPreferredCategories ?: if (categoryScores.isEmpty()) emptyList<String>() else categoryScores.entries
-                .sortedByDescending { it.value }
-                .take(15)
-                .map { it.key }
-                .also { cachedPreferredCategories = it }
+        return cachedPreferredCategories ?: synchronized(categoryScores) {
+            cachedPreferredCategories ?: if (categoryScores.isEmpty()) emptyList<String>() else {
+                categoryScores.entries
+                    .sortedByDescending { it.value }
+                    .take(15)
+                    .map { it.key }
+                    .also { cachedPreferredCategories = it }
+            }
         }
     }
 
@@ -291,22 +295,31 @@ object AnalyticsService {
         if (now - lastSaveToPrefsTime < PREFS_THROTTLE_MS) return // throttled
         lastSaveToPrefsTime = now
         val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().apply {
-            putString(KEY_CATEGORY_SCORES, Gson().toJson(categoryScores))
-            putString(KEY_REPORTER_SCORES, Gson().toJson(reporterScores))
-            putString(KEY_TAG_SCORES, Gson().toJson(tagScores))
-            putString(KEY_PEOPLE_SCORES, Gson().toJson(peopleScores))
-            putString(KEY_ORGANIZATION_SCORES, Gson().toJson(organizationScores))
-            putString(KEY_LOCATION_SCORES, Gson().toJson(locationScores))
-            apply()
-        }
+        
+        // Use local copies for JSON serialization to prevent ConcurrentModificationException 
+        // if the maps are updated while Gson is iterating over them.
+        val categoryCopy = HashMap(categoryScores)
+        val reporterCopy = HashMap(reporterScores)
+        val tagCopy = HashMap(tagScores)
+        val peopleCopy = HashMap(peopleScores)
+        val organizationCopy = HashMap(organizationScores)
+        val locationCopy = HashMap(locationScores)
+
+        val editor = prefs.edit()
+        editor.putString(KEY_CATEGORY_SCORES, Gson().toJson(categoryCopy))
+        editor.putString(KEY_REPORTER_SCORES, Gson().toJson(reporterCopy))
+        editor.putString(KEY_TAG_SCORES, Gson().toJson(tagCopy))
+        editor.putString(KEY_PEOPLE_SCORES, Gson().toJson(peopleCopy))
+        editor.putString(KEY_ORGANIZATION_SCORES, Gson().toJson(organizationCopy))
+        editor.putString(KEY_LOCATION_SCORES, Gson().toJson(locationCopy))
+        editor.apply()
     }
 
     private fun loadFromPrefs() {
         val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val gson = Gson()
         
-        fun loadMap(key: String, targetMap: MutableMap<String, Int>) {
+        fun loadMap(key: String, targetMap: ConcurrentHashMap<String, Int>) {
             try {
                 val json = prefs.getString(key, null)
                 if (json != null) {

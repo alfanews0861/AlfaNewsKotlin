@@ -11,6 +11,7 @@ import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.PreferenceManager
 import com.alfanews.telugu.models.ThemeMode
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
@@ -58,7 +59,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _currentUser.value = User(
                 id = cachedId,
                 name = prefs.userName ?: "User",
-                role = try { UserRole.valueOf(cachedRole) } catch(e: Exception) { UserRole.SUBSCRIBER },
+                role = UserRole.fromString(cachedRole),
                 district = prefs.userDistrict
             )
         }
@@ -75,20 +76,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             userListener = FirebaseService.db.collection("users").document(firebaseUser.uid)
                 .addSnapshotListener { snapshot, e ->
                     if (e != null) {
-                        _currentUser.value = null
+                        // 🔍 RESILIENCE: Network error వస్తే పాత డేటాను అలాగే ఉంచుతాము.
                         return@addSnapshotListener
                     }
 
                     if (snapshot != null && snapshot.exists()) {
-                        // Extract role explicitly as a string first to avoid deserialization issues
-                        val roleStr = snapshot.getString("role") ?: "SUBSCRIBER"
-                        val parsedRole = when(roleStr) {
-                            "ADMIN", "admin", "Admin" -> UserRole.ADMIN
-                            "REPORTER", "reporter", "Reporter" -> UserRole.REPORTER
-                            "EDITOR", "editor", "Editor" -> UserRole.EDITOR
-                            "REGIONAL_INCHARGE", "regional_incharge", "REGIONAL INCHARGE" -> UserRole.REGIONAL_INCHARGE
-                            else -> UserRole.SUBSCRIBER
-                        }
+                        // Extract role explicitly to avoid deserialization issues
+                        val rawRole = snapshot.get("role")
+                        val parsedRole = UserRole.fromStringSafe(rawRole) ?: _currentUser.value?.role ?: UserRole.SUBSCRIBER
 
                         val userObj = try {
                             // First attempt: Automatic mapping with explicit role conversion
@@ -135,7 +130,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             // 🚀 SYNC CACHE: Save fresh data to local preferences for offline use
                             prefs.userId = userObj.id
                             prefs.userName = snapshot.getString("name") ?: userObj.name
-                            prefs.userRole = snapshot.getString("role") ?: userObj.role.name
+                            prefs.userRole = userObj.role.name // Always store role name as String
                             prefs.userDistrict = snapshot.getString("district") ?: userObj.district
 
                             AnalyticsService.onUserLogin(userObj)

@@ -101,6 +101,8 @@ data class NewsPost(
     val type: String? = null, // ADDED: To store 'news', 'greeting', 'history', 'cartoon'
     val latitude: Double? = null,
     val longitude: Double? = null,
+    val approved: Boolean = false,
+    val aiProcessed: Boolean = false,
 
     // పాత వెర్షన్ల కోసం కేటాయించబడిన ఫీల్డ్స్ (Deprecated)
     val category: String? = null,

@@ -14,13 +14,9 @@ import com.google.firebase.firestore.DocumentSnapshot
  */
 fun DocumentSnapshot.toUserObject(): User? {
     return try {
-        // Extract role explicitly as a string first to avoid enum deserialization issues
-        val roleStr = this.getString("role") ?: "SUBSCRIBER"
-        val parsedRole = try {
-            UserRole.valueOf(roleStr.uppercase())
-        } catch (e: Exception) {
-            UserRole.SUBSCRIBER
-        }
+        // Extract role explicitly to avoid enum deserialization issues
+        val rawRole = this.get("role")
+        val parsedRole = UserRole.fromString(rawRole)
 
         // Attempt automatic deserialization first
         val baseUser = this.toObject(User::class.java)
@@ -31,12 +27,8 @@ fun DocumentSnapshot.toUserObject(): User? {
     } catch (e: Exception) {
         // Fallback to manual mapping if automatic deserialization fails
         try {
-            val roleStr = this.getString("role") ?: "SUBSCRIBER"
-            val parsedRole = try {
-                UserRole.valueOf(roleStr.uppercase())
-            } catch (ex: Exception) {
-                UserRole.SUBSCRIBER
-            }
+            val rawRole = this.get("role")
+            val parsedRole = UserRole.fromString(rawRole)
 
             User(
                 id = this.id,

@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import com.google.firebase.FirebaseApp
 import com.google.firebase.analytics.FirebaseAnalytics
 import com.google.firebase.appcheck.FirebaseAppCheck
@@ -155,34 +156,24 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
      */
     private fun clearLegacyAppCache() {
         val prefs = PreferenceManager.getInstance(this)
-        val currentCacheVersion = 3 // లూప్ సమస్య ఫిక్స్ తర్వాత క్లీన్ అప్ కోసం 3 కి పెంచాము
+        val currentCacheVersion = 4 // Increased version and removed dangerous DB deletion
         
         if (prefs.cacheVersion < currentCacheVersion) {
             scope.launch(Dispatchers.IO) {
                 try {
-                    // 1. కాష్ ఫోల్డర్‌ను పూర్తిగా డిలీట్ చేయడం
+                    // 1. కాష్ ఫోల్డర్‌ను పూర్తిగా డిలీట్ చేయడం (Safe for non-essential data)
                     deleteDir(cacheDir)
                     
-                    // 2. డేటాబేస్ ఫోల్డర్‌ను క్లియర్ చేయడం (Firestore ఇక్కడే GBs డేటాను స్టోర్ చేస్తుంది)
-                    val databasesDir = File(applicationInfo.dataDir, "databases")
-                    if (databasesDir.exists()) {
-                        deleteDir(databasesDir)
-                    }
-                    
-                    // 3. WebView డేటా ఫోల్డర్
-                    val webViewDir = File(applicationInfo.dataDir, "app_webview")
-                    if (webViewDir.exists()) {
-                        deleteDir(webViewDir)
-                    }
-                    
-                    // 4. 'files' ఫోల్డర్‌లో ఉండే అనవసర ఫైల్స్
+                    // 2. 'files' ఫోల్డర్‌లో ఉండే అనవసర కాష్ ఫైల్స్
                     val filesDir = filesDir
                     if (filesDir.exists()) {
                         val children = filesDir.list()
                         if (children != null) {
                             for (child in children) {
+                                // Only delete non-essential files to avoid breaking active services
                                 if (child.contains("cache", ignoreCase = true) || 
-                                    child.contains("coil", ignoreCase = true)) {
+                                    child.contains("coil", ignoreCase = true) ||
+                                    child.contains("image", ignoreCase = true)) {
                                     deleteDir(File(filesDir, child))
                                 }
                             }
@@ -192,6 +183,7 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
                     // 5. వెర్షన్ అప్‌డేట్ చేయడం
                     prefs.cacheVersion = currentCacheVersion
                     prefs.isLegacyCacheCleared = true
+                    Log.d("AlfaNewsApp", "Legacy cache cleared successfully (safe mode)")
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }

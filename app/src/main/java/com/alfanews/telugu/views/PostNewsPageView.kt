@@ -246,17 +246,17 @@ fun PostNewsPageView(
                     val serverMessage = result["message"] as? String
                     val newPostId = result["postId"] as? String
                     
-                    // Redirection Logic: Video vs Image
+                    // Redirection Logic: AI Processing is always background now
                     val isVideoPost = finalMediaTypes.contains("VIDEO")
                     if (isVideoPost) {
                         Toast.makeText(context, "మీ వార్త ప్రాసెస్ అవుతోంది, దయచేసి 10 నిమిషాల తర్వాత చూడండి.", Toast.LENGTH_LONG).show()
                         delay(1200)
                         onActionComplete("HOME_ONLY") // Custom marker for MainScreen
                     } else {
-                        val successMessage = context.getString(R.string.news_published_successfully)
-                        Toast.makeText(context, successMessage, Toast.LENGTH_LONG).show()
+                        // Even for images, we wait for AI processing to complete (Background)
+                        Toast.makeText(context, "మీ వార్త విశ్లేషించబడుతోంది, కొద్దిసేపటి తర్వాత హోమ్ ఫీడ్ లో చూడవచ్చు.", Toast.LENGTH_LONG).show()
                         delay(1500)
-                        onActionComplete(newPostId ?: postToEdit?.id ?: "")
+                        onActionComplete("HOME_ONLY") // Go back to Home, don't show raw post
                     }
                 } catch (e: Exception) {
                     statusMessage = context.getString(R.string.error)

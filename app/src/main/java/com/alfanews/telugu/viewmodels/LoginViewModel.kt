@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import com.alfanews.telugu.models.UserRole
 import com.google.firebase.Timestamp
 import java.util.concurrent.TimeUnit
 
@@ -79,7 +80,9 @@ class LoginViewModel : ViewModel() {
                         if (!legacyDocs.isEmpty) {
                         val legacyDoc = legacyDocs.documents.first()
                         val legacyData = legacyDoc.data
-                        legacyRole = legacyData?.get("role")?.toString() ?: "SUBSCRIBER"
+                        val rawLegacyRole = legacyData?.get("role")
+                        val parsedLegacyRole = UserRole.fromStringSafe(rawLegacyRole) ?: UserRole.SUBSCRIBER
+                        legacyRole = parsedLegacyRole.name
                         
                         val updatedLegacyData = legacyData?.toMutableMap() ?: mutableMapOf()
                         updatedLegacyData["lastLogin"] = Timestamp.now()
@@ -100,7 +103,8 @@ class LoginViewModel : ViewModel() {
                     _uiState.value = LoginUiState(isLoginSuccessful = true, isNewUser = true)
                 } else {
                     // EXISTING USER: Only update metadata, NEVER touch the "role" field
-                    val roleFromDb = existingUserDoc.getString("role") ?: "SUBSCRIBER"
+                    val rawRole = existingUserDoc.get("role")
+                    val roleFromDb = (UserRole.fromStringSafe(rawRole) ?: UserRole.SUBSCRIBER).name
                     
                     // 🚀 CACHE immediately for offline persistence
                     prefs.userId = user.uid

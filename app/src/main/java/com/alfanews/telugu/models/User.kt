@@ -4,7 +4,63 @@ package com.alfanews.telugu.models
  * అప్లికేషన్‌లోని వినియోగదారుల రకాలను (Roles) నిర్వచిస్తుంది.
  */
 enum class UserRole {
-    GUEST, SUBSCRIBER, REPORTER, REGIONAL_INCHARGE, EDITOR, ADMIN
+    GUEST, SUBSCRIBER, REPORTER, REGIONAL_INCHARGE, EDITOR, ADMIN;
+
+    companion object {
+        /**
+         * ఏదైనా వాల్యూ నుండి UserRole ను సురక్షితంగా మారుస్తుంది.
+         * ఇది String, Number మరియు Null వాల్యూలను హ్యాండిల్ చేస్తుంది.
+         */
+        fun fromString(value: Any?): UserRole {
+            return fromStringSafe(value) ?: SUBSCRIBER
+        }
+
+        /**
+         * ఏదైనా వాల్యూ నుండి UserRole ను సురక్షితంగా మారుస్తుంది.
+         * వాల్యూ తెలియకపోతే null ఇస్తుంది, తద్వారా పాత డేటాను ఓవర్‌రైట్ చేయకుండా ఉండవచ్చు.
+         */
+        fun fromStringSafe(value: Any?): UserRole? {
+            if (value == null) return null
+            
+            // 1. నంబర్ అయితే ఇండెక్స్ ప్రకారం చూస్తాం
+            if (value is Number) {
+                val index = value.toInt()
+                val allRoles = values()
+                return if (index >= 0 && index < allRoles.size) allRoles[index] else null
+            }
+
+            val rawValue = value.toString().trim()
+            if (rawValue.isEmpty()) return null
+            
+            // 2. స్ట్రింగ్‌లో ఉన్న నంబర్ అయితే (ఉదా: "2.0")
+            try {
+                // నంబర్‌తో మొదలైతేనే కన్వర్ట్ చేస్తాం
+                if (rawValue.isNotEmpty() && (Character.isDigit(rawValue[0]) || rawValue.startsWith("-"))) {
+                    val index = rawValue.toDouble().toInt()
+                    val allRoles = values()
+                    if (index >= 0 && index < allRoles.size) return allRoles[index]
+                }
+            } catch (e: Exception) { }
+            
+            // 3. స్ట్రింగ్ కంపారిజన్ (Common keys)
+            val cleanValue = rawValue.uppercase()
+            when (cleanValue) {
+                "ADMIN" -> return ADMIN
+                "REPORTER" -> return REPORTER
+                "EDITOR" -> return EDITOR
+                "REGIONAL_INCHARGE", "REGIONAL INCHARGE", "REGIONAL_IN_CHARGE" -> return REGIONAL_INCHARGE
+                "GUEST" -> return GUEST
+                "SUBSCRIBER" -> return SUBSCRIBER
+            }
+            
+            // 4. Fallback: Enum పేర్లతో డైరెక్ట్ చెక్ చేస్తాం
+            for (role in values()) {
+                if (role.name == cleanValue) return role
+            }
+            
+            return null
+        }
+    }
 }
 
 /**

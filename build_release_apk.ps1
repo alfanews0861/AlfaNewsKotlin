@@ -8,7 +8,7 @@ Get-Process java -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorActio
 Start-Sleep -Seconds 2
 
 # Set Java 21 (from Android Studio JBR)
-$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio1\jbr"
 $env:GRADLE_OPTS = "-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC"
 
 while ($retryCount -lt $maxRetries -and -not $success) {

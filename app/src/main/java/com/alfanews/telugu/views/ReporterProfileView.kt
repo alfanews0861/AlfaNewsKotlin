@@ -143,6 +143,7 @@ fun ReporterProfileView(
             // Fetch posts by this reporter
             val newsRef = FirebaseService.db.collection("news")
             val query = newsRef.whereEqualTo("reporter.id", reporterId)
+                .whereEqualTo("approved", true)
             val querySnapshot = query.get().await()
             
             val fetchedPosts = querySnapshot.documents.mapNotNull { doc ->
