@@ -456,33 +456,21 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            return Pair(batch, currentCursor)
        }
 
-      private suspend fun rankAndBlendPosts(pref: List<NewsPost>, main: List<NewsPost>, local: List<NewsPost>): List<NewsPost> = withContext(Dispatchers.Default) {
-           // ═══════════════════════════════════════════════════════════════════
-           // 📰 NEWS FEED MIXING: 40% FRESH → 30% PERSONALIZED → 30% DISCOVERY
-           // ═══════════════════════════════════════════════════════════════════
+       private suspend fun rankAndBlendPosts(pref: List<NewsPost>, main: List<NewsPost>, local: List<NewsPost>): List<NewsPost> = withContext(Dispatchers.Default) {
+            // ═══════════════════════════════════════════════════════════════════
+            // 📰 NEWS FEED MIXING: 40% FRESH → 30% PERSONALIZED → 30% DISCOVERY
+            // ═══════════════════════════════════════════════════════════════════
 
-           // ✅ SIMPLIFIED DISTRICT FILTERING (User request)
-           val currentDistrict = _userDistrict.value
-           val allSpecificDistricts = Constants.ALL_DISTRICTS
-           
-           val allPosts = (pref + main + local).distinctBy { it.id }.filter { post ->
-               // Always allow special types like greetings, history, weather
-               if (post.type != "news") return@filter true
-               
-               val postDist = post.district?.trim()
+            // ✅ SIMPLIFIED DISTRICT FILTERING FOR HOME FEED
+            // Home feed shows ALL news - no district exclusion needed
+            val allPosts = (pref + main + local).distinctBy { it.id }.filter { post ->
+                // Always allow special types like greetings, history, weather
+                if (post.type != "news") return@filter true
 
-               // 1. If no district specified, it's global news - ALLOW
-               if (postDist == null || postDist.isEmpty()) return@filter true
-
-               // 2. If it matches user's district - ALLOW
-               if (currentDistrict != null && postDist.equals(currentDistrict, ignoreCase = true)) return@filter true
-               
-               // 3. If it matches ANY other specific district from TS or AP - EXCLUDE
-               if (allSpecificDistricts.any { it.equals(postDist, ignoreCase = true) }) return@filter false
-               
-               // 4. Otherwise (General, National, World, etc.) - ALLOW
-               return@filter true
-           }
+                // For home feed, allow ALL news regardless of district
+                // (Local news filtering happens only in LocalNewsFeedViewModel)
+                return@filter true
+            }
 
            if (allPosts.isEmpty()) return@withContext emptyList<NewsPost>()
 
@@ -665,9 +653,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 else -> System.currentTimeMillis()
             }
 
-            // Categories list fallback
-            val categoriesList = (data["categories"] as? List<*>)?.mapNotNull { it?.toString() }
-                ?: listOfNotNull(data["category"]?.toString(), data["district"]?.toString())
+            // ✅ SINGLE SOURCE RULE: Use only "category" field as requested
+            val categoryValue = data["category"]?.toString() ?: ""
+            val categoriesList = listOf(categoryValue)
 
             NewsPost(
                 id = doc.id,
@@ -700,7 +688,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 comments = commentsCount,
                 shares = sharesCount,
                 originalUrl = data["originalUrl"]?.toString(),
-                district = data["district"]?.toString(),
+                district = categoryValue, // ✅ District is now same as category for logic
                 verificationStatus = data["verificationStatus"]?.toString() ?: "UNVERIFIED",
                 tags = (data["tags"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
                 entities = (data["entities"] as? Map<*, *>)?.let { entitiesMap ->
