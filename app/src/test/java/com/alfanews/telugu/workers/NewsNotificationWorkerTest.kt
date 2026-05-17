@@ -12,6 +12,7 @@ import io.mockk.unmockkAll
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -141,7 +142,7 @@ class NewsNotificationWorkerTest {
             // The actual image handling is tested through integration tests
             assert(true)
         } catch (e: Exception) {
-            assert(false, "Rich notification handling failed: ${e.message}")
+            fail("Rich notification handling failed: ${e.message}")
         }
     }
 
@@ -155,7 +156,7 @@ class NewsNotificationWorkerTest {
             // Text-only notifications should work fine
             assert(true)
         } catch (e: Exception) {
-            assert(false, "Text-only notification failed: ${e.message}")
+            fail("Text-only notification failed: ${e.message}")
         }
     }
 }

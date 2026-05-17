@@ -410,32 +410,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            }
 
            val batch = snapshot.documents.mapNotNull { doc ->
-               val post = mapDocumentToNewsPost(doc) ?: return@mapNotNull null
-               
-               if (excludeDistricts) {
-                   // ✅ USER REQUEST: Exclude "local" and "jilla vaartha" (District News) from Home Feed
-                   // These are typically reporter-submitted local news that should stay in the Local tab.
-                   val hasLocalOrDistrictCategory = post.categories.any { cat: String ->
-                       cat.contains("జిల్లా వార్త") || cat.contains("లోకల్") || cat.contains("local", ignoreCase = true)
-                   }
-                   
-                   if (hasLocalOrDistrictCategory) {
-                       return@mapNotNull null
-                   }
-
-                   // ✅ NEW: Use isGlobalCategory to allow important news even if it has a district
-                   // This ensures Scraper news (State, Politics, etc.) show in Home Feed
-                   val hasGlobal = post.categories.any { cat: String -> this@NewsFeedViewModel.isGlobalCategory(cat) }
-                   
-                   // Check if it's a purely local post (has a district and no global category)
-                   val isLocal = post.district != null && Constants.ALL_DISTRICTS.contains(post.district)
-                   
-                   if (isLocal && !hasGlobal) {
-                       return@mapNotNull null // Filter out purely local news from Home Feed
-                   }
-               }
-               
-               post
+               mapDocumentToNewsPost(doc)
            }
 
            currentCursor = snapshot.documents.lastOrNull()
