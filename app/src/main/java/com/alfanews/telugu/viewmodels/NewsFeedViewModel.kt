@@ -424,17 +424,19 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            // Start with approved filter
            var query = baseQuery.whereEqualTo("approved", true)
 
-           // Local News filter (General news filtering moved to memory for better reliability)
-           if (!excludeDistricts && district != null) {
-               query = query.whereEqualTo("district", district)
+           // ✅ SINGLE SOURCE QUERY: Always use "category" field as the primary filter
+           if (excludeDistricts) {
+               // Fetch General News categories (Limit 30 for whereIn)
+               val generalCats = (globalCategories + globalDistricts).distinct().take(30)
+               if (baseQuery is CollectionReference) {
+                   query = query.whereIn("category", generalCats)
+               }
+           } else if (district != null) {
+               // Local News filter using category field
+               query = query.whereEqualTo("category", district)
            }
 
-           query = query.orderBy("timestamp", Query.Direction.DESCENDING)
-           
-           // Fetch more for main feed to ensure we get general news after memory filtering
-           val limit = if (excludeDistricts) 50L else FETCH_LIMIT.toLong()
-           query = query.limit(limit)
-
+           query = query.orderBy("timestamp", Query.Direction.DESCENDING).limit(FETCH_LIMIT.toLong())
            if (currentCursor != null) query = query.startAfter(currentCursor)
 
            val snapshot = query.get().await()
