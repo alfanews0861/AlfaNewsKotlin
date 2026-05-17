@@ -424,12 +424,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            // Start with approved filter
            var query = baseQuery.whereEqualTo("approved", true)
 
-           // ✅ IMPLEMENTED: General News (Scraped news) using whereIn district
-           // Only apply whereIn if baseQuery is a CollectionReference to avoid conflicts with whereArrayContainsAny
+           // ✅ IMPROVED: Filter by district efficiently where possible
            if (excludeDistricts) {
-               query = FirebaseService.db.collection("news")
-                   .whereEqualTo("approved", true)
-                   .whereIn("district", globalDistricts)
+               // Only use whereIn if it's a direct collection query (to avoid conflict with whereArrayContainsAny)
+               if (baseQuery is CollectionReference) {
+                   query = query.whereIn("district", globalDistricts)
+               }
+               // If it's a category query, we'll filter by globalDistricts in memory during rankAndBlend
            } else if (district != null) {
                // Local News filter
                query = query.whereEqualTo("district", district)
@@ -462,9 +463,20 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            // 📰 NEWS FEED MIXING: 40% FRESH → 30% PERSONALIZED → 30% DISCOVERY
            // ═══════════════════════════════════════════════════════════════════
 
-           // STEP 1: COMBINE & DEDUPLICATE
-           // రెండుసార్లు లెక్కకు రాకుండా distinctBy వాడండి
-           val allPosts = (pref + main + local).distinctBy { it.id }
+           // ✅ STRICT DISTRICT FILTERING: Ensure only user district or global news appear
+           val currentDistrict = _userDistrict.value
+           val allowedDistricts = globalDistricts + (currentDistrict ?: "")
+           
+           val allPosts = (pref + main + local).distinctBy { it.id }.filter { post ->
+               // Always allow special types like greetings, history, weather
+               if (post.type != "news") return@filter true
+               
+               // For news, strictly allow only the user's district or global categories
+               val postDist = post.district
+               postDist == null || postDist.isEmpty() || 
+               allowedDistricts.any { it.equals(postDist, ignoreCase = true) }
+           }
+
            if (allPosts.isEmpty()) return@withContext emptyList<NewsPost>()
 
            // STEP 2: CATEGORIZE BY TYPE (Separate special posts)
