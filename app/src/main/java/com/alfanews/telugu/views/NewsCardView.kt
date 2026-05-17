@@ -313,8 +313,8 @@ fun NewsCardView(
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
-                // 1. Header (48dp)
-                Row(modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                // 1. Header (reduced height)
+                Row(modifier = Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(text = "alfa", fontSize = 28.sp, fontFamily = Ramabhadra, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                         Text(text = "news", fontSize = 28.sp, fontFamily = Ramabhadra, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
@@ -363,26 +363,23 @@ fun NewsCardView(
                             
                             // Source Overlay on Image
                             if (post.reporter.name.isNotEmpty()) {
-                                Surface(
-                                    modifier = Modifier.align(Alignment.BottomStart).padding(10.dp),
-                                    color = Color.Black.copy(alpha = 0.6f),
-                                    shape = RoundedCornerShape(4.dp)
-                                ) {
-                                    val sourceText = if (language == Language.TELUGU) "మూలం: " else "Source: "
-                                    Text(
-                                        text = "$sourceText${post.reporter.name}",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontFamily = Mallanna,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp).clickable {
+                                val sourceText = if (language == Language.TELUGU) "మూలం: " else "Source: "
+                                Text(
+                                    text = "$sourceText${post.reporter.name}",
+                                    color = Color.White.copy(alpha = 0.9f),
+                                    fontSize = 11.sp,
+                                    fontFamily = Mallanna,
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .padding(10.dp)
+                                        .clickable {
                                             if (!post.originalUrl.isNullOrEmpty()) {
                                                 uriHandler.openUri(post.originalUrl!!)
                                             } else {
                                                 onReporterClick(post.reporter.id)
                                             }
                                         }
-                                    )
-                                }
+                                )
                             }
                             
                             if (mediaList.size > 1) {
@@ -397,31 +394,32 @@ fun NewsCardView(
                     }
                 }
                 
-                // 3. Content Section (0.62f)
-                Column(modifier = Modifier.fillMaxWidth().weight(0.62f).padding(horizontal = 16.dp, vertical = 12.dp).verticalScroll(scrollState)) {
-                    // Headline
-                    Text(
-                        text = headlineText, 
-                        style = MaterialTheme.typography.headlineSmall.copy(
-                            fontSize = headlineSize, 
-                            lineHeight = headlineLineHeight, 
-                            fontWeight = headlineFontWeight, 
-                            fontFamily = headlineFontFamily
-                        ), 
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    
-                    Spacer(modifier = Modifier.height(10.dp))
-                    
-                    // Meta Section with Dotted Lines
-                    DottedLine()
-                    
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                // 3. Content + Icons Row (0.62f)
+                Row(modifier = Modifier.fillMaxWidth().weight(0.62f)) {
+                    // Content Column
+                    Column(modifier = Modifier.weight(1f).padding(start = 16.dp, end = 0.dp, top = 8.dp, bottom = 12.dp).verticalScroll(scrollState)) {
+                        // Headline
+                        Text(
+                            text = headlineText, 
+                            style = MaterialTheme.typography.headlineSmall.copy(
+                                fontSize = headlineSize, 
+                                lineHeight = headlineLineHeight, 
+                                fontWeight = headlineFontWeight, 
+                                fontFamily = headlineFontFamily
+                            ), 
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        // Meta Section with Dotted Lines
+                        DottedLine()
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Start
+                        ) {
                             if (post.reporter.name.isNotEmpty()) {
                                 Text(
                                     text = post.reporter.name,
@@ -445,77 +443,84 @@ fun NewsCardView(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            
+                            Spacer(Modifier.width(12.dp))
+                            
+                            Text(
+                                text = formattedTimestamp,
+                                fontSize = 11.sp,
+                                fontFamily = Mallanna,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                            )
                         }
+                        
+                        DottedLine()
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        // Content Text
                         Text(
-                            text = formattedTimestamp,
-                            fontSize = 11.sp,
-                            fontFamily = Mallanna,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                            text = contentText, 
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                fontSize = contentSize, 
+                                lineHeight = contentLineHeight, 
+                                fontFamily = contentFontFamily
+                            ), 
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
                         )
+                        
+                        Spacer(modifier = Modifier.height(100.dp))
                     }
-                    
-                    DottedLine()
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // Content Text
-                    Text(
-                        text = contentText, 
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            fontSize = contentSize, 
-                            lineHeight = contentLineHeight, 
-                            fontFamily = contentFontFamily
-                        ), 
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
-                    )
-                    
-                    Spacer(modifier = Modifier.height(100.dp))
-                }
-            }
 
-            // 4. Floating Action Buttons
-            Column(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                ActionButton(
-                    icon = Icons.Default.Favorite,
-                    count = likeCount.toString(),
-                    isHighlighted = isLiked,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    onClick = {
-                        if (currentUser == null) {
-                            onProfileClick()
-                        } else {
-                            isLiked = !isLiked
-                            likeCount = if (isLiked) likeCount + 1 else likeCount - 1
-                            scope.launch {
-                                FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(if (isLiked) 1 else -1))
-                                AnalyticsService.logAnalyticsEvent("like", Bundle().apply { putString("post_id", post.id) })
+                    // 4. Icons Column (Vertically Centered in Content Area)
+                    Column(
+                        modifier = Modifier.width(64.dp).fillMaxHeight().padding(bottom = 40.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        ActionButton(
+                            icon = Icons.Default.Favorite,
+                            count = likeCount.toString(),
+                            isHighlighted = isLiked,
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            onClick = {
+                                if (currentUser == null) {
+                                    onProfileClick()
+                                } else {
+                                    isLiked = !isLiked
+                                    likeCount = if (isLiked) likeCount + 1 else likeCount - 1
+                                    scope.launch {
+                                        FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(if (isLiked) 1 else -1))
+                                        AnalyticsService.logAnalyticsEvent("like", Bundle().apply { putString("post_id", post.id) })
+                                    }
+                                }
                             }
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        ActionButton(
+                            icon = Icons.Default.Share,
+                            count = shareCount.toString(),
+                            isLoading = isSharing,
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            onClick = { if (!isSharing) performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, language, cardBounds, view) }
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        ActionButton(
+                            icon = Icons.AutoMirrored.Filled.Comment, 
+                            count = commentCount.toString(), 
+                            tint = MaterialTheme.colorScheme.onSurface, 
+                            onClick = { showComments = true }
+                        )
+                        
+                        if (currentUser != null && (currentUser.role == UserRole.ADMIN || currentUser.role == UserRole.EDITOR || (currentUser.role == UserRole.REPORTER && post.reporter.id == currentUser.id))) {
+                            Spacer(modifier = Modifier.height(24.dp))
+                            ActionButton(
+                                icon = Icons.Default.Edit,
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                onClick = { onEditClick(post) }
+                            )
                         }
                     }
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-                ActionButton(
-                    icon = Icons.Default.Share,
-                    count = shareCount.toString(),
-                    isLoading = isSharing,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    onClick = { if (!isSharing) performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, language, cardBounds, view) }
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-                ActionButton(
-                    icon = Icons.AutoMirrored.Filled.Comment, 
-                    count = commentCount.toString(), 
-                    tint = MaterialTheme.colorScheme.onSurface, 
-                    onClick = { showComments = true }
-                )
-                
-                if (currentUser != null && (currentUser.role == UserRole.ADMIN || currentUser.role == UserRole.EDITOR || (currentUser.role == UserRole.REPORTER && post.reporter.id == currentUser.id))) {
-                    Spacer(modifier = Modifier.height(24.dp))
-                    ActionButton(
-                        icon = Icons.Default.Edit,
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        onClick = { onEditClick(post) }
-                    )
                 }
             }
         }
@@ -524,7 +529,7 @@ fun NewsCardView(
 
 @Composable
 fun DottedLine() {
-    val color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+    val color = Color.Gray.copy(alpha = 0.4f)
     Canvas(
         modifier = Modifier.fillMaxWidth().height(1.dp)
     ) {
@@ -532,8 +537,8 @@ fun DottedLine() {
             color = color,
             start = Offset(0f, 0f),
             end = Offset(this.size.width, 0f),
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f),
-            strokeWidth = 1.dp.toPx()
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 3f), 0f),
+            strokeWidth = 0.8.dp.toPx()
         )
     }
 }

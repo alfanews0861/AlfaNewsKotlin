@@ -18,6 +18,7 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.CollectionReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,6 +66,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     private var prefCursor: DocumentSnapshot? = null
     private var mainCursor: DocumentSnapshot? = null
+    private var localCursor: DocumentSnapshot? = null
     private var isFetching = false
     private var lastRefreshTimeLong: Long = 0
     // Tracks consecutive loadMore calls that returned no unique posts to avoid infinite/continuous fetching
@@ -73,6 +75,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     // ✅ CANONICAL CATEGORIES (Matches backend in functions/src/categories.ts)
     private val globalCategories = listOf("రాజకీయం", "క్రైమ్", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "ఆరోగ్యం", "విద్య/ఉద్యోగాలు", "వ్యవసాయం")
     
+    // ✅ GLOBAL DISTRICTS (Matches web app logic for general news)
+    private val globalDistricts = listOf("General", "State", "Sports", "Health", "Technology", "Business", "Entertainment", "National", "International")
+
     // ✅ CATEGORY ALIASES for flexible matching (handles typos and variations)
     private val categoryAliases = mapOf(
         "రాజకీయం" to listOf("పలిటిక్‌", "రాజకీయ సమాచారం", "politics", "elections", "ఎన్నికలు"),
@@ -171,6 +176,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    if (initialPostId == null) {
                        prefCursor = null
                        mainCursor = null
+                       localCursor = null
                        _hasMore.value = true
                        consecutiveEmptyLoads = 0
                    }
@@ -212,9 +218,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                        } catch (e: Exception) { Pair(emptyList<NewsPost>(), null) }
                    }
 
-                   // ✅ HOME FEED EXCLUSION: We don't fetch local district news for the home page
+                   // ✅ HOME FEED ENHANCEMENT: Fetch local district news as well (40/30/30 mixing)
                    val localBatchDeferred = async {
-                       Pair(emptyList<NewsPost>(), null)
+                       if (district != null) {
+                           try {
+                               fetchFilteredBatch(FirebaseService.db.collection("news"), null, district, excludeDistricts = false)
+                           } catch (e: Exception) { Pair(emptyList<NewsPost>(), null) }
+                       } else Pair(emptyList<NewsPost>(), null)
                    }
 
                    val greetingPost = greetingBatchDeferred.await()
@@ -228,6 +238,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
                    prefCursor = prefBatch.second
                    mainCursor = mainBatch.second
+                   localCursor = localBatch.second
 
                    // 🚀 ROBUST AUTO-SCAN: If home feed is empty but Firestore has more news,
                    // fetch one more batch immediately to avoid showing "No News" or infinite spinner.
@@ -248,6 +259,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                        
                        prefCursor = extraPref.second
                        mainCursor = extraMain.second
+                       localCursor = null // Local batch not used in extra scan for now
                        
                        val extraPosts = withContext(Dispatchers.Default) {
                            rankAndBlendPosts(extraPref.first, extraMain.first, emptyList())
@@ -319,6 +331,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                  // కర్సర్ స్టేట్‌ను వెరిఫై చేయండి
                  val shouldFetchPref = preferredCats.isNotEmpty() && (prefCursor != null)
                  val shouldFetchMain = mainCursor != null
+                 val shouldFetchLocal = district != null && localCursor != null
                  
                  val prefBatchDeferred = async {
                      if (shouldFetchPref) {
@@ -342,9 +355,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                      } else Pair(emptyList<NewsPost>(), null)
                  }
 
-                 // ✅ HOME FEED EXCLUSION: We don't fetch local district news for the home page
+                 // ✅ HOME FEED ENHANCEMENT: Fetch local district news as well (40/30/30 mixing)
                  val localBatchDeferred = async {
-                     Pair(emptyList<NewsPost>(), null)
+                     if (shouldFetchLocal) {
+                         fetchFilteredBatch(
+                             FirebaseService.db.collection("news"), 
+                             localCursor, 
+                             district as? String,
+                             excludeDistricts = false
+                         )
+                     } else Pair(emptyList<NewsPost>(), null)
                  }
 
                  val prefBatch = prefBatchDeferred.await()
@@ -358,6 +378,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                  // కర్సర్‌లను సరిగా అప్‌డేట్ చేయండి
                  prefCursor = prefBatch.second
                  mainCursor = mainBatch.second
+                 localCursor = localBatch.second
 
                    if (newPosts.isNotEmpty()) {
                       val currentIds = _news.value.map { it.id }.toSet()
@@ -376,10 +397,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                            // Reset consecutive empty load counter since we added new items
                            consecutiveEmptyLoads = 0
                       } else {
-                          // No unique posts after dedup - only stop if BOTH cursors exhausted
+                          // No unique posts after dedup - only stop if ALL cursors exhausted
                           // or after 4 consecutive empty loads to handle 40/30/30 filtering
                            consecutiveEmptyLoads += 1
-                           if (mainCursor == null && prefCursor == null) {
+                           if (mainCursor == null && prefCursor == null && localCursor == null) {
                                _hasMore.value = false
                            } else if (consecutiveEmptyLoads >= 4) {
                                // After 4 consecutive empty loadMore results, stop further loading
@@ -400,7 +421,21 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
      private suspend fun fetchFilteredBatch(baseQuery: Query, cursor: DocumentSnapshot?, district: String?, excludeDistricts: Boolean): Pair<List<NewsPost>, DocumentSnapshot?> {
            var currentCursor = cursor
-           var query = baseQuery.whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(FETCH_LIMIT.toLong())
+           // Start with approved filter
+           var query = baseQuery.whereEqualTo("approved", true)
+
+           // ✅ IMPLEMENTED: General News (Scraped news) using whereIn district
+           // Only apply whereIn if baseQuery is a CollectionReference to avoid conflicts with whereArrayContainsAny
+           if (excludeDistricts) {
+               if (baseQuery is CollectionReference) {
+                   query = query.whereIn("district", globalDistricts)
+               }
+           } else if (district != null) {
+               // Local News filter
+               query = query.whereEqualTo("district", district)
+           }
+
+           query = query.orderBy("timestamp", Query.Direction.DESCENDING).limit(FETCH_LIMIT.toLong())
            if (currentCursor != null) query = query.startAfter(currentCursor)
 
            val snapshot = query.get().await()
