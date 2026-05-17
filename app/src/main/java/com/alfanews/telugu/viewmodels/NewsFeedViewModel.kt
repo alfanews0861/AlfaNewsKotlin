@@ -463,16 +463,25 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
            // ✅ STRICT DISTRICT FILTERING: Ensure only user district or global news appear
            val currentDistrict = _userDistrict.value
-           val allowedDistricts = globalDistricts + (currentDistrict ?: "")
+           val tsDistricts = Constants.TS_DISTRICTS
+           val apDistricts = Constants.AP_DISTRICTS
+           val allSpecificDistricts = tsDistricts + apDistricts
            
            val allPosts = (pref + main + local).distinctBy { it.id }.filter { post ->
                // Always allow special types like greetings, history, weather
                if (post.type != "news") return@filter true
                
-               // For news, strictly allow only the user's district or global categories
-               val postDist = post.district
-               postDist == null || postDist.isEmpty() || 
-               allowedDistricts.any { it.equals(postDist, ignoreCase = true) }
+               // For news, strictly allow only the user's district or general news
+               val postDist = post.district?.trim()
+
+               // 1. Allow if it matches user's district
+               if (postDist != null && currentDistrict != null && postDist.equals(currentDistrict, ignoreCase = true)) return@filter true
+               
+               // 2. EXCLUDE if it belongs to any OTHER specific district in TS or AP
+               if (postDist != null && allSpecificDistricts.any { it.equals(postDist, ignoreCase = true) }) return@filter false
+               
+               // 3. Otherwise (General, National, International, null), allow it
+               return@filter true
            }
 
            if (allPosts.isEmpty()) return@withContext emptyList<NewsPost>()
