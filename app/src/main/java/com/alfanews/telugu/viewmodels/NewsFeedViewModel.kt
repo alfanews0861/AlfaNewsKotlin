@@ -461,26 +461,26 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            // 📰 NEWS FEED MIXING: 40% FRESH → 30% PERSONALIZED → 30% DISCOVERY
            // ═══════════════════════════════════════════════════════════════════
 
-           // ✅ STRICT DISTRICT FILTERING: Ensure only user district or global news appear
+           // ✅ SIMPLIFIED DISTRICT FILTERING (User request)
            val currentDistrict = _userDistrict.value
-           val tsDistricts = Constants.TS_DISTRICTS
-           val apDistricts = Constants.AP_DISTRICTS
-           val allSpecificDistricts = tsDistricts + apDistricts
+           val allSpecificDistricts = Constants.ALL_DISTRICTS
            
            val allPosts = (pref + main + local).distinctBy { it.id }.filter { post ->
                // Always allow special types like greetings, history, weather
                if (post.type != "news") return@filter true
                
-               // For news, strictly allow only the user's district or general news
                val postDist = post.district?.trim()
 
-               // 1. Allow if it matches user's district
-               if (postDist != null && currentDistrict != null && postDist.equals(currentDistrict, ignoreCase = true)) return@filter true
+               // 1. If no district specified, it's global news - ALLOW
+               if (postDist == null || postDist.isEmpty()) return@filter true
+
+               // 2. If it matches user's district - ALLOW
+               if (currentDistrict != null && postDist.equals(currentDistrict, ignoreCase = true)) return@filter true
                
-               // 2. EXCLUDE if it belongs to any OTHER specific district in TS or AP
-               if (postDist != null && allSpecificDistricts.any { it.equals(postDist, ignoreCase = true) }) return@filter false
+               // 3. If it matches ANY other specific district from TS or AP - EXCLUDE
+               if (allSpecificDistricts.any { it.equals(postDist, ignoreCase = true) }) return@filter false
                
-               // 3. Otherwise (General, National, International, null), allow it
+               // 4. Otherwise (General, National, World, etc.) - ALLOW
                return@filter true
            }
 
