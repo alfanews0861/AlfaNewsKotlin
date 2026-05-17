@@ -19,6 +19,7 @@ release/
 # Gradle files
 .gradle/
 build/
+app/build_output_prod/
 
 # Local configuration file (sdk path, etc)
 local.properties
