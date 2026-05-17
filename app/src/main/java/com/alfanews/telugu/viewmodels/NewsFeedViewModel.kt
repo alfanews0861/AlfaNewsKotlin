@@ -76,7 +76,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private val globalCategories = listOf("రాజకీయం", "క్రైమ్", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "ఆరోగ్యం", "విద్య/ఉద్యోగాలు", "వ్యవసాయం")
     
     // ✅ GLOBAL DISTRICTS (Matches web app logic for general news)
-    private val globalDistricts = listOf("General", "State", "Sports", "Health", "Technology", "Business", "Entertainment", "National", "International")
+    private val globalDistricts = listOf("General", "State", "Sports", "Health", "Technology", "Business", "Entertainment", "National", "International", "Telangana", "Andhra Pradesh", "General News", "World")
 
     // ✅ CATEGORY ALIASES for flexible matching (handles typos and variations)
     private val categoryAliases = mapOf(
@@ -424,19 +424,17 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            // Start with approved filter
            var query = baseQuery.whereEqualTo("approved", true)
 
-           // ✅ IMPROVED: Filter by district efficiently where possible
-           if (excludeDistricts) {
-               // Only use whereIn if it's a direct collection query (to avoid conflict with whereArrayContainsAny)
-               if (baseQuery is CollectionReference) {
-                   query = query.whereIn("district", globalDistricts)
-               }
-               // If it's a category query, we'll filter by globalDistricts in memory during rankAndBlend
-           } else if (district != null) {
-               // Local News filter
+           // Local News filter (General news filtering moved to memory for better reliability)
+           if (!excludeDistricts && district != null) {
                query = query.whereEqualTo("district", district)
            }
 
-           query = query.orderBy("timestamp", Query.Direction.DESCENDING).limit(FETCH_LIMIT.toLong())
+           query = query.orderBy("timestamp", Query.Direction.DESCENDING)
+           
+           // Fetch more for main feed to ensure we get general news after memory filtering
+           val limit = if (excludeDistricts) 50L else FETCH_LIMIT.toLong()
+           query = query.limit(limit)
+
            if (currentCursor != null) query = query.startAfter(currentCursor)
 
            val snapshot = query.get().await()
@@ -859,7 +857,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
          }
 
          return NewsPost(
-             id = "weather_${System.currentTimeMillis() / (1000 * 60 * 60)}", // Hourly unique ID
+             id = "weather_${System.currentTimeMillis() / (1000 * 60 * 10)}", // 10-minute unique ID (Real-time accuracy)
              headline = com.alfanews.telugu.models.Headline(
                  telugu = "$displayLocation వాతావరణం: $weatherHeadlineTe",
                  english = "$displayLocation Weather: $weatherHeadlineEn"
