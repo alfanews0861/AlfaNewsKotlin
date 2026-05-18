@@ -165,6 +165,10 @@ async function performAIProcessing(headline: string, content: string, actualPost
     const aiCategory = aiRes.refinedCategory || actualPostData?.category || "OTHER";
     const normalizedCategory = normalizeCategory(aiCategory);
 
+    // ✅ REPORTERS FIX: Primary category is ALWAYS "జిల్లా వార్తలు" for reporter submissions
+    const isReporter = actualPostData?.isReporter === true || actualPostData?.processingType === "REPORTER_SUBMISSION";
+    const primaryCategory = isReporter ? "జిల్లా వార్తలు" : normalizedCategory;
+
     // ✅ Build canonical categories array
     const canonicalCategories = Array.from(new Set([
         normalizedCategory,
@@ -172,14 +176,15 @@ async function performAIProcessing(headline: string, content: string, actualPost
         ...(actualPostData?.district ? [actualPostData.district] : [])
     ])).filter(c => !!c && c !== "OTHER");
 
-    console.log(`[AI_PROCESSING] Original category: "${aiCategory}" → Normalized: "${normalizedCategory}"`);
+    console.log(`[AI_PROCESSING] Original category: "${aiCategory}" → Normalized: "${normalizedCategory}" (IsReporter: ${isReporter})`);
+    console.log(`[AI_PROCESSING] Final primary category: "${primaryCategory}"`);
     console.log(`[AI_PROCESSING] Final categories: ${JSON.stringify(canonicalCategories)}`);
 
     return {
         headline: { telugu: finalHeadline, english: finalHeadlineEn },
         content: { telugu: finalContent, english: finalContentEn },
         location: aiRes.location || actualPostData?.location || "",
-        category: normalizedCategory,
+        category: primaryCategory,
         categories: canonicalCategories,
         tags: aiRes.tags || [],
         entities: normalizedEntities,
@@ -721,6 +726,19 @@ export const onNewsPostCreated = onDocumentCreated({
     const postId = event.params.postId;
 
     console.log(`[TRIGGER] Processing new post: ${postId}`);
+
+    // 0. Ensure basic fields exist for Scraper/External news
+    if (data && (!data.category || !data.categories || !data.district)) {
+        console.log(`[TRIGGER] Fixing missing fields for ${postId}`);
+        const updates: any = {};
+        if (!data.category) updates.category = "General News";
+        if (!data.district) updates.district = "State";
+        if (!data.categories || data.categories.length === 0) {
+            updates.categories = [updates.category || data.category, updates.district || data.district].filter(Boolean);
+        }
+        await db.collection('news').doc(postId).update(updates);
+        data = { ...data, ...updates }; // Update local data object
+    }
 
     // 1. AI Processing (if not already done)
     if (data && data.aiProcessed === false) {

@@ -74,7 +74,7 @@ object WeatherService {
 
     private val api = retrofit.create(WeatherApiService::class.java)
 
-    // ✅ In-memory cache: 30-min TTL per location to avoid repeated API calls
+    // ✅ In-memory cache: 10-min TTL per location to avoid repeated API calls (Reduced from 30m for real-time accuracy)
     private data class CachedWeather(val data: WeatherData, val fetchedAt: Long)
     private val weatherCache = mutableMapOf<String, CachedWeather>()
 
@@ -169,10 +169,10 @@ object WeatherService {
         val validLat = if (lat != null && lat != 0.0) lat else null
         val validLon = if (lon != null && lon != 0.0) lon else null
 
-        // ✅ Check cache first (30-min TTL for robustness)
+        // ✅ Check cache first (10-min TTL for robustness)
         val cacheKey = if (validLat != null && validLon != null) "coords_${validLat}_${validLon}" else locationName
         val cached = weatherCache[cacheKey]
-        if (cached != null && System.currentTimeMillis() - cached.fetchedAt < 30 * 60 * 1000L) {
+        if (cached != null && System.currentTimeMillis() - cached.fetchedAt < 10 * 60 * 1000L) {
             return cached.data
         }
         return try {

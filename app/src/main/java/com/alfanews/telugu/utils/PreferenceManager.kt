@@ -189,4 +189,28 @@ class PreferenceManager(context: Context) {
     fun clearUserData() {
         prefs.edit().remove(KEY_USER_ID).remove(KEY_USER_NAME).remove(KEY_USER_ROLE).remove(KEY_USER_DISTRICT).apply()
     }
+
+    /** 
+     * వార్త లేదా గ్రీటింగ్ ఎన్నిసార్లు కనిపించిందో ట్రాక్ చేస్తుంది.
+     * ఒక వార్త 2 సార్ల కంటే ఎక్కువ కనిపించకుండా చేయడానికి ఇది ఉపయోగపడుతుంది.
+     */
+    fun incrementPostViewCount(postId: String) {
+        val currentCount = prefs.getInt("vc_$postId", 0)
+        // గరిష్టంగా 10 వరకు మాత్రమే స్టోర్ చేస్తాము (మెమరీ ఆదా కోసం)
+        if (currentCount < 10) {
+            prefs.edit().putInt("vc_$postId", currentCount + 1).apply()
+        }
+    }
+
+    fun getPostViewCount(postId: String): Int {
+        return prefs.getInt("vc_$postId", 0)
+    }
+
+    /** 
+     * పాత వ్యూ కౌంట్లను క్లియర్ చేయడానికి (ఐచ్ఛికం - మెమరీ మేనేజ్మెంట్ కోసం వాడవచ్చు)
+     */
+    fun clearOldViewCounts() {
+        // ఇక్కడ పాత కీలను తొలగించే లాజిక్ రాయవచ్చు, కానీ ప్రస్తుతానికి 
+        // తక్కువ సైజులో ఉండేలా కీ పేరు 'vc_' అని చిన్నగా పెట్టాను.
+    }
 }

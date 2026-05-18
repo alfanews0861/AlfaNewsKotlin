@@ -18,7 +18,6 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
-import com.google.firebase.firestore.CollectionReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -197,8 +196,12 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
                    // సమాంతర ఫెచింగ్ - జనరల్, ఉపయోగకర్త ఇష్ట, జిల్లా వార్తలు
                    val greetingBatchDeferred = async {
-                       if (initialPostId == null && _news.value.isEmpty()) {
-                           try { fetchGreetingPost() } catch (e: Exception) { null }
+                       if (initialPostId == null) {
+                           try { 
+                               val post = fetchGreetingPost()
+                               // ✅ ఒక గ్రీటింగ్ పోస్ట్ 2 సార్ల కంటే ఎక్కువ కనిపించకూడదు
+                               if (post != null && prefs.getPostViewCount(post.id) < 2) post else null
+                           } catch (e: Exception) { null }
                        } else null
                    }
 
@@ -294,6 +297,19 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    }
 
                    _news.value = finalPosts.distinctBy { it.id }
+                   
+                   // ✅ UI సిగ్నల్: డేటా అప్‌డేట్ అయిన తర్వాత టాప్‌కి వెళ్లాలి
+                   if (initialPostId == null) {
+                       _shouldScrollToTop.value = true
+                   }
+
+                   // ✅ వ్యూ కౌంట్ పెంచడం (ఒక వార్త 2 సార్ల కంటే ఎక్కువ కనిపించకుండా)
+                   finalPosts.forEach { post ->
+                       if (post.type == "news" || post.type == "greeting") {
+                           prefs.incrementPostViewCount(post.id)
+                       }
+                   }
+                   
                    _loading.value = false // ✅ Hide spinner as soon as we have data
                    
                    val currentTime = System.currentTimeMillis()
@@ -375,6 +391,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                      rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first)
                  }
 
+                 // ✅ వ్యూ కౌంట్ పెంచడం (ఒక వార్త 2 సార్ల కంటే ఎక్కువ కనిపించకుండా)
+                 newPosts.forEach { post ->
+                     if (post.type == "news" || post.type == "greeting") {
+                         prefs.incrementPostViewCount(post.id)
+                     }
+                 }
+
                  // కర్సర్‌లను సరిగా అప్‌డేట్ చేయండి
                  prefCursor = prefBatch.second
                  mainCursor = mainBatch.second
@@ -428,12 +451,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            if (excludeDistricts) {
                // Fetch General News categories (Limit 30 for whereIn)
                val generalCats = (globalCategories + globalDistricts).distinct().take(30)
-               if (baseQuery is CollectionReference) {
-                   query = query.whereIn("category", generalCats)
-               }
+               
+               // ✅ REPORTERS FIX: Explicitly exclude "జిల్లా వార్తలు" from home feed
+               query = query.whereIn("category", generalCats)
            } else if (district != null) {
-               // Local News filter using category field
-               query = query.whereEqualTo("category", district)
+               // ✅ FIX: Use whereArrayContains to support "జిల్లా వార్తలు" category mapping
+               // This ensures reporter news (categorized as "జిల్లా వార్తలు") still shows in local feeds
+               query = query.whereArrayContains("categories", district)
            }
 
            query = query.orderBy("timestamp", Query.Direction.DESCENDING).limit(FETCH_LIMIT.toLong())
@@ -463,14 +487,21 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             // 📰 NEWS FEED MIXING: 40% FRESH → 30% PERSONALIZED → 30% DISCOVERY
             // ═══════════════════════════════════════════════════════════════════
 
+            // 🚀 ఒక వార్త యూజర్‌కి 2 సార్ల కంటే ఎక్కువ కనపడకుండా ఫిల్టర్ చేయడం
+            val filteredPref = pref.filter { prefs.getPostViewCount(it.id) < 2 }
+            val filteredMain = main.filter { prefs.getPostViewCount(it.id) < 2 }
+            val filteredLocal = local.filter { prefs.getPostViewCount(it.id) < 2 }
+
             // ✅ SIMPLIFIED DISTRICT FILTERING FOR HOME FEED
-            // Home feed shows ALL news - no district exclusion needed
-            val allPosts = (pref + main + local).distinctBy { it.id }.filter { post ->
+            // Home feed shows ALL news - but EXCLUDES reporter posts (జిల్లా వార్తలు)
+            val allPosts = (filteredPref + filteredMain + filteredLocal).distinctBy { it.id }.filter { post ->
                 // Always allow special types like greetings, history, weather
                 if (post.type != "news") return@filter true
 
-                // For home feed, allow ALL news regardless of district
-                // (Local news filtering happens only in LocalNewsFeedViewModel)
+                // ✅ REPORTERS FIX: Strictly exclude district-only reporter news from Home Feed
+                // These posts will have category = "జిల్లా వార్తలు"
+                if (post.category == "జిల్లా వార్తలు") return@filter false
+
                 return@filter true
             }
 
@@ -655,9 +686,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 else -> System.currentTimeMillis()
             }
 
-            // ✅ SINGLE SOURCE RULE: Use only "category" field as requested
-            val categoryValue = data["category"]?.toString() ?: ""
-            val categoriesList = listOf(categoryValue)
+            // ✅ UPDATED: Read categories array and district field correctly
+            // Scraper fix: Default to "General News" and "State" if fields are missing
+            val categoryValue = data["category"]?.toString() ?: "General News"
+            val categoriesList = (data["categories"] as? List<*>)?.mapNotNull { it?.toString() }
+                ?: listOf(categoryValue)
 
             NewsPost(
                 id = doc.id,
@@ -690,8 +723,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 comments = commentsCount,
                 shares = sharesCount,
                 originalUrl = data["originalUrl"]?.toString(),
-                district = categoryValue, // ✅ District is now same as category for logic
+                district = data["district"]?.toString() ?: "State",
                 verificationStatus = data["verificationStatus"]?.toString() ?: "UNVERIFIED",
+                category = categoryValue,
                 tags = (data["tags"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
                 entities = (data["entities"] as? Map<*, *>)?.let { entitiesMap ->
                     com.alfanews.telugu.models.Entities(
@@ -771,18 +805,23 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun onAppResume(language: Language, currentUser: User?) {
-        // ప్రతిసారి యాప్‌లోకి తిరిగి వచ్చినప్పుడు టాప్‌కి వెళ్లాలి
-        if (_news.value.isNotEmpty()) {
+        val now = System.currentTimeMillis()
+        val isStale = now - lastRefreshTimeLong > 300000 || _news.value.isEmpty()
+        
+        if (isStale) {
+            // పాత వార్తలు అయితే రిఫ్రెష్ చేయండి (రిఫ్రెష్ తర్వాత ఆటోమేటిక్ గా టాప్ కి వెళ్తుంది)
+            loadNews(language, currentUser)
+        } else if (_news.value.isNotEmpty()) {
+            // వార్తలు తాజాగా ఉంటే కేవలం పైకి స్క్రోల్ చేయండి
             _shouldScrollToTop.value = true
         }
-        refreshIfStale(language, currentUser)
     }
 
     fun refreshIfStale(language: Language, currentUser: User?) {
         val now = System.currentTimeMillis()
-        // 10 నిమిషాల కంటే ఎక్కువ సమయం గడిస్తే రిఫ్రెష్ చేయండి (600,000 ms)
+        // 5 నిమిషాల కంటే ఎక్కువ సమయం గడిస్తే రిఫ్రెష్ చేయండి (300,000 ms)
         // యూజర్ కోరిక మేరకు ఇది 'తాజా వార్తలు' ఎప్పుడూ ఉండేలా చేస్తుంది
-        if (now - lastRefreshTimeLong > 600000 || _news.value.isEmpty()) {
+        if (now - lastRefreshTimeLong > 300000 || _news.value.isEmpty()) {
             loadNews(language, currentUser)
         }
     }
