@@ -727,21 +727,6 @@ export const onNewsPostCreated = onDocumentCreated({
 
     console.log(`[TRIGGER] Processing new post: ${postId}`);
 
-    // 0. Ensure basic fields exist for Scraper/External news
-    if (data && (!data.category || !data.categories || !data.district || data.approved === undefined)) {
-        console.log(`[TRIGGER] Fixing missing fields for ${postId}`);
-        const updates: any = {};
-        if (!data.category) updates.category = "General News";
-        if (!data.district) updates.district = "State";
-        if (data.approved === undefined) updates.approved = true; // ✅ Ensure scraper news is approved
-        if (data.status === undefined) updates.status = "published"; // ✅ Default status
-        if (!data.categories || data.categories.length === 0) {
-            updates.categories = [updates.category || data.category, updates.district || data.district].filter(Boolean);
-        }
-        await db.collection('news').doc(postId).update(updates);
-        data = { ...data, ...updates }; // Update local data object
-    }
-
     // 1. AI Processing (if not already done)
     if (data && data.aiProcessed === false) {
         console.log(`[TRIGGER] Running background AI processing for ${postId}`);
