@@ -308,29 +308,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                        _shouldScrollToTop.value = true
                    }
 
-                   // ✅ వ్యూ కౌంట్ పెంచడం (ఒక వార్త 2 సార్ల కంటే ఎక్కువ కనిపించకుండా)
-                   finalPosts.forEach { post ->
-                       if (post.type == "news" || post.type == "greeting") {
-                           prefs.incrementPostViewCount(post.id)
-                       }
-                   }
-                   
-                   _loading.value = false // ✅ Hide spinner as soon as we have data
-                   
-                   val currentTime = System.currentTimeMillis()
-                   lastRefreshTimeLong = currentTime
-                   _lastRefreshTime.value = currentTime
-                   if (_news.value.isEmpty() && mainCursor == null) _hasMore.value = false
-                   
-                   // ✅ NEW: Track user interests immediately (even for new users)
-                   // Build preference profiles from first load onwards
-                   val postsToLog = finalPosts.filter { it.type == "news" }.take(20)
-                   if (postsToLog.isNotEmpty()) {
-                       try {
-                           com.alfanews.telugu.services.AnalyticsService.logBulkCategoryViews(postsToLog.map { it.categories }, weight = 1)
-                       } catch (e: Exception) { }
-                   }
-
               } catch (e: Exception) {
                   if (_news.value.isEmpty()) _hasMore.value = false
               } finally {
@@ -414,14 +391,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                       
                       if (uniqueNewPosts.isNotEmpty()) {
                           _news.value = _news.value + uniqueNewPosts
-
-                          // ✅ Track interests continuously - Batch log for efficiency
-                          val newsToLog = uniqueNewPosts.filter { it.type == "news" }
-                          if (newsToLog.isNotEmpty()) {
-                              try {
-                                  com.alfanews.telugu.services.AnalyticsService.logBulkCategoryViews(newsToLog.map { it.categories }, weight = 1)
-                              } catch (e: Exception) { }
-                          }
                            // Reset consecutive empty load counter since we added new items
                            consecutiveEmptyLoads = 0
                       } else {
@@ -449,8 +418,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
      private suspend fun fetchFilteredBatch(baseQuery: Query, cursor: DocumentSnapshot?, district: String?, excludeDistricts: Boolean): Pair<List<NewsPost>, DocumentSnapshot?> {
            var currentCursor = cursor
-           // ✅ SCRAPER FIX: Filter by status == "published" as requested
-           var query = baseQuery.whereEqualTo("status", "published")
+           // ✅ RESTORED: Use 'approved' flag for better reliability as before
+           var query = baseQuery.whereEqualTo("approved", true)
 
            // ✅ SINGLE SOURCE QUERY: Filter Home Feed using Global IDs in 'district' field
            if (excludeDistricts) {
@@ -480,10 +449,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
            currentCursor = snapshot.documents.lastOrNull()
            
-           if (snapshot.size() < FETCH_LIMIT) {
-               currentCursor = null
-           }
-           
            return Pair(batch, currentCursor)
        }
 
@@ -497,15 +462,17 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             val filteredMain = main.filter { prefs.getPostViewCount(it.id) < 2 }
             val filteredLocal = local.filter { prefs.getPostViewCount(it.id) < 2 }
 
-            // ✅ SIMPLIFIED DISTRICT FILTERING FOR HOME FEED
+            // ✅ RESTORED DISTRICT FILTERING FOR HOME FEED
             // Home feed shows ALL news - but EXCLUDES reporter posts (జిల్లా వార్తలు)
+            // Filtering is now more robust to ensure scrolling doesn't hang
             val allPosts = (filteredPref + filteredMain + filteredLocal).distinctBy { it.id }.filter { post ->
                 // Always allow special types like greetings, history, weather
                 if (post.type != "news") return@filter true
 
                 // ✅ REPORTERS FIX: Strictly exclude district-only reporter news from Home Feed
                 // These posts will have category = "జిల్లా వార్తలు"
-                if (post.category == "జిల్లా వార్తలు") return@filter false
+                val categoryVal = post.category ?: ""
+                if (categoryVal == "జిల్లా వార్తలు") return@filter false
 
                 return@filter true
             }
