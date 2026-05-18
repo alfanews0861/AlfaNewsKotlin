@@ -331,7 +331,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                 try {
                     val query = newsRef
-                        .whereEqualTo("approved", true)
+                        .whereEqualTo("status", "published")
                         .whereArrayContains("categories", district)
                         .orderBy("timestamp", Query.Direction.DESCENDING)
                         .limit(pageSize.toLong())
@@ -344,7 +344,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     // Index missing or query failed - try with just district field
                     try {
                          val fallbackQuery = newsRef
-                             .whereEqualTo("approved", true)
+                             .whereEqualTo("status", "published")
                              .whereEqualTo("district", district)
                              .orderBy("timestamp", Query.Direction.DESCENDING)
                              .limit(pageSize.toLong())
@@ -411,7 +411,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                  try {
                      val query = newsRef
-                         .whereEqualTo("approved", true)
+                         .whereEqualTo("status", "published")
                          .whereArrayContains("categories", district)
                          .orderBy("timestamp", Query.Direction.DESCENDING)
                          .let { if (lastDocument != null) it.startAfter(lastDocument!!) else it }
@@ -425,7 +425,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                      // Index missing or query failed - try with just district field
                      try {
                          val fallbackQuery = newsRef
-                             .whereEqualTo("approved", true)
+                             .whereEqualTo("status", "published")
                              .whereEqualTo("district", district)
                              .orderBy("timestamp", Query.Direction.DESCENDING)
                              .let { if (lastDocument != null) it.startAfter(lastDocument!!) else it }

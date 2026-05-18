@@ -751,7 +751,7 @@ export const onNewsPostCreated = onDocumentCreated({
                 const aiProcessedData = await performAIProcessing(headline, content, data);
                 await db.collection('news').doc(postId).update({
                     ...aiProcessedData,
-                    status: "AI_PROCESSED",
+                    status: "published", // ✅ Changed from AI_PROCESSED to match scraper
                     approved: true // ✅ Auto-approve after AI processing
                 });
                 data = { ...data, ...aiProcessedData, approved: true }; // Update local data for subsequent steps

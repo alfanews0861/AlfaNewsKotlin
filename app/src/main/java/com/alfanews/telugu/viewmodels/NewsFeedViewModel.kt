@@ -74,8 +74,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     // ✅ CANONICAL CATEGORIES (Matches backend in functions/src/categories.ts)
     private val globalCategories = listOf("రాజకీయం", "క్రైమ్", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "ఆరోగ్యం", "విద్య/ఉద్యోగాలు", "వ్యవసాయం")
     
-    // ✅ GLOBAL DISTRICTS (Matches web app logic for general news)
-    private val globalDistricts = listOf("General", "State", "Sports", "Health", "Technology", "Business", "Entertainment", "National", "International", "Telangana", "Andhra Pradesh", "General News", "World")
+    // ✅ GLOBAL DISTRICTS (Matches scraper IDs and web app logic)
+    private val globalDistricts = listOf(
+        "Politics", "Sports", "Cinema", "National", "International", 
+        "Business", "Crime", "Health", "Education", "Technology", 
+        "Agriculture", "General", "State", "Entertainment", "World",
+        "Devotional", "Lifestyle", "AndhraPradesh", "Telangana"
+    )
 
     // ✅ CATEGORY ALIASES for flexible matching (handles typos and variations)
     private val categoryAliases = mapOf(
@@ -444,16 +449,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
      private suspend fun fetchFilteredBatch(baseQuery: Query, cursor: DocumentSnapshot?, district: String?, excludeDistricts: Boolean): Pair<List<NewsPost>, DocumentSnapshot?> {
            var currentCursor = cursor
-           // Start with approved filter
-           var query = baseQuery.whereEqualTo("approved", true)
+           // ✅ SCRAPER FIX: Filter by status == "published" as requested
+           var query = baseQuery.whereEqualTo("status", "published")
 
-           // ✅ SINGLE SOURCE QUERY: Always use "category" field as the primary filter
+           // ✅ SINGLE SOURCE QUERY: Filter Home Feed using Global IDs in 'district' field
            if (excludeDistricts) {
-               // Fetch General News categories (Limit 30 for whereIn)
-               val generalCats = (globalCategories + globalDistricts).distinct().take(30)
+               // Scraper puts global category IDs (Politics, Sports, etc.) in 'district' field
+               val generalCats = globalDistricts.distinct().take(30)
                
-               // ✅ REPORTERS FIX: Explicitly exclude "జిల్లా వార్తలు" from home feed
-               query = query.whereIn("category", generalCats)
+               // This query fetches global news and naturally excludes reporter "జిల్లా వార్తలు"
+               query = query.whereIn("district", generalCats)
            } else if (district != null) {
                // ✅ FIX: Use whereArrayContains to support "జిల్లా వార్తలు" category mapping
                // This ensures reporter news (categorized as "జిల్లా వార్తలు") still shows in local feeds
