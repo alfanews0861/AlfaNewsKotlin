@@ -35,7 +35,10 @@ import com.alfanews.telugu.models.ThemeMode
 import com.alfanews.telugu.ui.theme.Poppins
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.ui.theme.Mallanna
+import com.alfanews.telugu.utils.PreferenceManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.tasks.await
 import java.net.URLEncoder
 
@@ -55,26 +58,34 @@ fun UserProfilePageView(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var pushEnabled by remember { mutableStateOf(user.pushEnabled) }
+    val prefs = remember { PreferenceManager.getInstance(context) }
 
     val isGuest = user.id == "guest" || user.role == UserRole.GUEST
     val isStaff = listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.REGIONAL_INCHARGE).contains(user.role)
 
-    // ముఖ్యమైన లింక్‌లు
-    val mainLinks = listOf(
-        "about" to stringResource(R.string.about_us),
-        "contact" to stringResource(R.string.contact_us)
-    )
+    var pushEnabled by remember { mutableStateOf(user.pushEnabled) }
+    var storageLimit by remember { mutableIntStateOf(prefs.storageLimitMB) }
 
-    // పాలసీ లింక్‌లు
-    val policyLinks = listOf(
-        "privacy-policy" to stringResource(R.string.privacy_policy),
-        "terms" to stringResource(R.string.terms_of_service),
-        "content-policy" to stringResource(R.string.content_policy),
-        "disclaimer" to stringResource(R.string.disclaimer),
-        "ad-policy" to stringResource(R.string.ad_policy),
-        "data-collection" to stringResource(R.string.data_policy)
-    )
+    /** ప్రస్తుత కాష్ పరిమాణాన్ని లెక్కిస్తుంది. */
+    fun getCacheSize(): String {
+        var totalSize: Long = 0
+        try {
+            context.cacheDir.walkTopDown().forEach { if (it.isFile) totalSize += it.length() }
+            context.filesDir.walkTopDown().forEach { 
+                if (it.isFile && (it.name.contains("cache", true) || it.name.contains("coil", true) || it.name.contains("image", true))) {
+                    totalSize += it.length() 
+                }
+            }
+        } catch (e: Exception) { }
+        
+        return if (totalSize < 1024 * 1024) {
+            "${totalSize / 1024} KB"
+        } else {
+            "${totalSize / (1024 * 1024)} MB"
+        }
+    }
+
+    var currentCacheSize by remember { mutableStateOf(getCacheSize()) }
 
     /** నోటిఫికేషన్లను ఆన్/ఆఫ్ చేస్తుంది. */
     fun toggleNotifications() {
@@ -113,6 +124,42 @@ fun UserProfilePageView(
             }
         }
     }
+
+    /** కాష్ ని క్లియర్ చేస్తుంది. */
+    fun clearCache() {
+        scope.launch(Dispatchers.IO) {
+            try {
+                context.cacheDir.deleteRecursively()
+                context.filesDir.listFiles()?.forEach { file ->
+                    if (file.name.contains("cache", true) || file.name.contains("coil", true) || file.name.contains("image", true)) {
+                        file.deleteRecursively()
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    currentCacheSize = "0 MB"
+                    Toast.makeText(context, context.getString(R.string.cache_cleared_success), Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    // ముఖ్యమైన లింక్‌లు
+    val mainLinks = listOf(
+        "about" to stringResource(R.string.about_us),
+        "contact" to stringResource(R.string.contact_us)
+    )
+
+    // పాలసీ లింక్‌లు
+    val policyLinks = listOf(
+        "privacy-policy" to stringResource(R.string.privacy_policy),
+        "terms" to stringResource(R.string.terms_of_service),
+        "content-policy" to stringResource(R.string.content_policy),
+        "disclaimer" to stringResource(R.string.disclaimer),
+        "ad-policy" to stringResource(R.string.ad_policy),
+        "data-collection" to stringResource(R.string.data_policy)
+    )
 
     Column(
         modifier = Modifier
@@ -325,6 +372,66 @@ fun UserProfilePageView(
                         checkedTrackColor = MaterialTheme.colorScheme.primary
                     )
                 )
+            }
+        }
+
+        // స్టోరేజ్ మేనేజ్‌మెంట్ (Storage Management)
+        SettingsGroup(stringResource(R.string.storage_management)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(R.string.current_cache_usage, currentCacheSize),
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                
+                Button(
+                    onClick = { clearCache() },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)),
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Text(stringResource(R.string.clear_cache_now), color = MaterialTheme.colorScheme.secondary)
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Text(
+                    text = stringResource(R.string.cache_size_limit),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                
+                val limits = listOf(100, 200, 500, 0) // 0 for unlimited
+                limits.forEach { limit ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { 
+                                storageLimit = limit
+                                prefs.storageLimitMB = limit
+                            }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = storageLimit == limit,
+                            onClick = { 
+                                storageLimit = limit
+                                prefs.storageLimitMB = limit
+                            }
+                        )
+                        Text(
+                            text = when(limit) {
+                                100 -> stringResource(R.string.cache_size_100mb)
+                                200 -> stringResource(R.string.cache_size_200mb)
+                                500 -> stringResource(R.string.cache_size_500mb)
+                                else -> stringResource(R.string.cache_size_unlimited)
+                            },
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                }
             }
         }
 

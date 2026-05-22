@@ -625,12 +625,29 @@ export const checkSevereWeatherAlerts = onSchedule({
 export const processNewsPost = onCall(async (request) => {
     const { postId, headline: rawHeadline, content: rawContent, postData } = request.data;
     try {
-        console.log(`[NEWS_POST] Quick acceptance for post: ${postId || 'new'}`);
+        console.log(`[NEWS_POST] Entry for post: ${postId || 'new'}`);
         let headline = rawHeadline || postData?.headline?.telugu || "";
         let content = rawContent || postData?.content?.telugu || "";
 
-        if (!headline || !content) {
-            throw new HttpsError('invalid-argument', 'Headline and content are required');
+        // ✅ IMPORTANT: If only postId is provided, recover data from Firestore
+        if (postId && (!headline || !content)) {
+            const doc = await db.collection('news').doc(postId).get();
+            if (doc.exists) {
+                const d = doc.data();
+                headline = headline || d?.headline?.telugu || "";
+                content = content || d?.content?.telugu || "";
+            }
+        }
+
+        // ✅ ONLY CONTENT IS REQUIRED for Citizens. Headline will be refined by AI.
+        if (!content) {
+            throw new HttpsError('invalid-argument', 'వార్త వివరణ (Content) తప్పనిసరి.');
+        }
+
+        // If headline is missing, create a temporary one from content
+        if (!headline) {
+            headline = content.substring(0, 60).split('\n')[0] + "...";
+            console.log(`[NEWS_POST] Generated placeholder headline for ${postId || 'new'}`);
         }
 
         const finalData = {
@@ -736,12 +753,24 @@ export const onNewsPostCreated = onDocumentCreated({
             const content = data.content?.telugu || "";
             if (headline && content) {
                 const aiProcessedData = await performAIProcessing(headline, content, data);
+                // ✅ NEWS VALIDATION: Check if AI rejected the post for being personal or violating policies
+                const isRejected = aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
+
                 await db.collection('news').doc(postId).update({
                     ...aiProcessedData,
-                    status: "published", // ✅ Changed from AI_PROCESSED to match scraper
-                    approved: true // ✅ Auto-approve after AI processing
+                    status: isRejected ? "REJECTED" : "published",
+                    approved: !isRejected // ✅ Only approve if NOT rejected
                 });
-                data = { ...data, ...aiProcessedData, approved: true }; // Update local data for subsequent steps
+
+                if (isRejected) {
+                    console.warn(`[TRIGGER] Post ${postId} REJECTED: ${aiProcessedData.rejectionReason}`);
+                    if (data.reporter?.id) {
+                        await notifyReporter(data.reporter.id, postId, headline, 'POLICY_VIOLATION');
+                    }
+                    return; // Stop processing further (no video/YouTube)
+                }
+
+                data = { ...data, ...aiProcessedData, approved: true };
             }
         } catch (aiErr: any) {
             console.error(`[TRIGGER] AI Processing failed for ${postId}:`, aiErr.message);

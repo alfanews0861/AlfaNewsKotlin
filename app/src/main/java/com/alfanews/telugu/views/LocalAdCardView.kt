@@ -36,11 +36,14 @@ fun LocalAdCardView(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val isPreview = ad.id.isEmpty() || ad.id.startsWith("preview_")
 
-    // వ్యూ కౌంట్ పెంచడం
+    // వ్యూ కౌంట్ పెంచడం (Preview లో కాకుండా)
     LaunchedEffect(ad.id) {
-        FirebaseService.db.collection("local_ads").document(ad.id)
-            .update("viewsCurrent", FieldValue.increment(1))
+        if (!isPreview) {
+            FirebaseService.db.collection("local_ads").document(ad.id)
+                .update("viewsCurrent", FieldValue.increment(1))
+        }
     }
 
     fun handleAdClick() {

@@ -28,6 +28,11 @@ object SafeImageLoader {
      */
     fun getImageLoader(context: Context): ImageLoader {
         if (imageLoader == null) {
+            val prefs = PreferenceManager.getInstance(context)
+            val limitMB = prefs.storageLimitMB
+            // ఒకవేళ అపరిమితం (0) అయితే 500MB, లేదంటే సగం
+            val diskLimitBytes = if (limitMB <= 0) 500 * 1024 * 1024L else (limitMB / 2).toLong() * 1024 * 1024L
+
             imageLoader = ImageLoader.Builder(context)
                 .components {
                     add(OkHttpNetworkFetcherFactory(callFactory = { createSafeOkHttpClient() }))
@@ -38,11 +43,11 @@ object SafeImageLoader {
                         .maxSizePercent(context, 0.20)
                         .build()
                 }
-                // డిస్క్ కాష్‌ను 50MB కి పరిమితం చేస్తున్నాము. 
+                // డిస్క్ కాష్‌ను యూజర్ ఎంచుకున్న లిమిట్ కి పరిమితం చేస్తున్నాము. 
                 .diskCache {
                     DiskCache.Builder()
                         .directory(context.cacheDir.resolve("image_cache").absolutePath.toPath())
-                        .maxSizeBytes(50 * 1024 * 1024) // 50MB Limit
+                        .maxSizeBytes(diskLimitBytes)
                         .build()
                 }
                 .crossfade(true)

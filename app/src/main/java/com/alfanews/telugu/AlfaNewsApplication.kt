@@ -42,6 +42,9 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
             // 🛠️ కొత్త అప్‌డేట్ లో పాత డేటాను క్లియర్ చేయడం (GBs లో ఉన్న కాష్ ని తీసివేయడం)
             clearLegacyAppCache()
 
+            // 🛡️ స్టోరేజ్ గార్డ్ - పరిమితి మించకుండా చూస్తుంది
+            runStorageGuard()
+
             // ఫైర్‌బేస్ యాప్ చెక్ - దీన్ని మరింత సేఫ్ గా మార్చాను
             val firebaseAppCheck = FirebaseAppCheck.getInstance()
             
@@ -131,9 +134,14 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
 
     /**
      * 🖼️ Coil ఇమేజ్ లోడర్ కాన్ఫిగరేషన్ (Coil 3).
-     * ఇమేజ్ కాష్ పరిమితిని 50MB కి తగ్గిస్తున్నాము, తద్వారా ఫోన్ స్టోరేజ్ నిండదు.
+     * యూజర్ ఎంచుకున్న స్టోరేజ్ లిమిట్ లో 50% ఇమేజెస్ కి కేటాయిస్తున్నాము.
      */
     override fun newImageLoader(context: PlatformContext): ImageLoader {
+        val prefs = PreferenceManager.getInstance(context)
+        val limitMB = prefs.storageLimitMB
+        // ఒకవేళ అపరిమితం (0) అయితే 500MB, లేదంటే సగం
+        val diskLimitBytes = if (limitMB <= 0) 500 * 1024 * 1024L else (limitMB / 2).toLong() * 1024 * 1024L
+
         return ImageLoader.Builder(context)
             .memoryCache {
                 MemoryCache.Builder()
@@ -143,7 +151,7 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
             .diskCache {
                 DiskCache.Builder()
                     .directory(context.cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(50 * 1024 * 1024) // గరిష్టంగా 50MB మాత్రమే
+                    .maxSizeBytes(diskLimitBytes)
                     .build()
             }
             .crossfade(true)
@@ -156,7 +164,7 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
      */
     private fun clearLegacyAppCache() {
         val prefs = PreferenceManager.getInstance(this)
-        val currentCacheVersion = 4 // Increased version and removed dangerous DB deletion
+        val currentCacheVersion = 5 // Increased version
         
         if (prefs.cacheVersion < currentCacheVersion) {
             scope.launch(Dispatchers.IO) {
@@ -180,6 +188,13 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
                         }
                     }
 
+                    // 3. Firestore Cache ని క్లియర్ చేయడం (GBs లో ఉంటే తీసివేయడానికి)
+                    val firestoreDir = File(filesDir, "app_firestore")
+                    if (firestoreDir.exists()) {
+                        deleteDir(firestoreDir)
+                        Log.d("AlfaNewsApp", "Firestore cache folder deleted")
+                    }
+
                     // 5. వెర్షన్ అప్‌డేట్ చేయడం
                     prefs.cacheVersion = currentCacheVersion
                     prefs.isLegacyCacheCleared = true
@@ -189,6 +204,48 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
                 }
             }
         }
+    }
+
+    /**
+     * 🛡️ స్టోరేజ్ గార్డ్: యూజర్ ఎంచుకున్న పరిమితిని మించకుండా చూస్తుంది.
+     */
+    private fun runStorageGuard() {
+        val prefs = PreferenceManager.getInstance(this)
+        val limitMB = prefs.storageLimitMB
+        if (limitMB <= 0) return // అపరిమితం (Unlimited)
+
+        scope.launch(Dispatchers.IO) {
+            try {
+                val limitBytes = limitMB * 1024 * 1024L
+                val currentBytes = getDirectorySize(cacheDir) + getDirectorySize(filesDir)
+
+                if (currentBytes > limitBytes) {
+                    Log.d("StorageGuard", "Limit exceeded: ${currentBytes / 1024 / 1024}MB > $limitMB MB. Cleaning up...")
+                    
+                    // 1. Image Cache ని క్లియర్ చేయడం
+                    val imageCache = cacheDir.resolve("image_cache")
+                    if (imageCache.exists()) deleteDir(imageCache)
+                    
+                    // 2. Coil Cache ని క్లియర్ చేయడం
+                    filesDir.listFiles()?.forEach { 
+                        if (it.name.contains("coil", true) || it.name.contains("cache", true)) {
+                            deleteDir(it)
+                        }
+                    }
+                    
+                    // 3. మిగిలిన కాష్ ని క్లియర్ చేయడం
+                    deleteDir(cacheDir)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun getDirectorySize(dir: File): Long {
+        var size: Long = 0
+        dir.walkTopDown().forEach { if (it.isFile) size += it.length() }
+        return size
     }
 
     private fun deleteDir(dir: File?): Boolean {

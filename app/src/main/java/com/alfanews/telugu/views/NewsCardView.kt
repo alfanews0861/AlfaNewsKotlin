@@ -147,7 +147,7 @@ fun NewsCardView(
 
     var isSharing by remember { mutableStateOf(false) }
 
-    val dateFormat = remember { SimpleDateFormat("dd-MMM-yy | hh:mm a", Locale.forLanguageTag("en-IN")) }
+    val dateFormat = remember { SimpleDateFormat("dd-MM-yy, hh:mm a", Locale.forLanguageTag("en-IN")) }
     val formattedTimestamp = remember(post.timestamp) { dateFormat.format(Date(post.timestamp)) }
 
     val initialLikeCount = remember(post.id) {
@@ -423,34 +423,37 @@ fun NewsCardView(
                             if (post.reporter.name.isNotEmpty()) {
                                 Text(
                                     text = post.reporter.name,
-                                    fontSize = 13.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = Mallanna,
                                     color = MaterialTheme.colorScheme.primary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.clickable { onReporterClick(post.reporter.id) }
+                                    modifier = Modifier.weight(1f, fill = false).clickable { onReporterClick(post.reporter.id) }
                                 )
-                                Text(text = "  |  ", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
+                                Text(text = " | ", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
                             }
-                            Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(4.dp))
+                            Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(2.dp))
                             Text(
                                 text = post.location,
-                                fontSize = 13.sp,
+                                fontSize = 12.sp,
                                 fontFamily = Ramabhadra,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
                             
-                            Spacer(Modifier.width(12.dp))
+                            Spacer(Modifier.width(8.dp))
                             
                             Text(
                                 text = formattedTimestamp,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                                 fontFamily = Mallanna,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                         

@@ -9,6 +9,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,6 +27,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DateRangePicker
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberDateRangePickerState
 import com.alfanews.telugu.models.AdMediaType
 import com.alfanews.telugu.models.AdStatus
 import com.alfanews.telugu.models.AdType
@@ -31,8 +41,8 @@ import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.ui.theme.AlfaNewsTheme
 import com.alfanews.telugu.utils.Constants
-import com.alfanews.telugu.utils.rememberImagePicker
-import com.alfanews.telugu.utils.uploadImageToStorage
+import com.alfanews.telugu.utils.rememberMediaPicker
+import com.alfanews.telugu.utils.uploadMediaToStorage
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -102,6 +112,7 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
     var viewsOrdered by remember { mutableStateOf(10000) }
     var durationDays by remember { mutableStateOf(1) }
     var startDate by remember { mutableStateOf(System.currentTimeMillis()) }
+    var endDate by remember { mutableStateOf(System.currentTimeMillis() + (24 * 60 * 60 * 1000L)) }
 
     var phoneNumber by remember { mutableStateOf("") }
     var actionUrl by remember { mutableStateOf("") }
@@ -110,17 +121,26 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
 
     var isSubmitting by remember { mutableStateOf(false) }
     var showPreview by remember { mutableStateOf(false) }
+    var showDateRangePicker by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     val COST_PER_VIEW = 0.20
     val COST_PER_DAY = 500.0
-    
+
+    // Calculate duration based on dates if in TIME_BASED mode
+    val effectiveDuration = if (adType == AdType.TIME_BASED_FIXED) {
+        val diff = endDate - startDate
+        max(1L, diff / (24 * 60 * 60 * 1000L))
+    } else {
+        1L
+    }
+
     val totalAmount = if (adType == AdType.VIEWS_BASED) {
         max(2000.0, viewsOrdered * COST_PER_VIEW)
     } else {
-        durationDays * COST_PER_DAY
+        effectiveDuration * COST_PER_DAY
     }
 
     fun handleCreateAd() {
@@ -133,8 +153,10 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
             isSubmitting = true
             try {
                 val bannerUrl = if (adMediaType != AdMediaType.HTML) {
-                    uploadImageToStorage(context, adImageUri!!, "ad-banners")
+                    uploadMediaToStorage(context, adImageUri!!, "local-ads", isVideo = adMediaType == AdMediaType.VIDEO)
                 } else ""
+
+                val initialStatus = if (currentUser.role == UserRole.ADMIN) AdStatus.ACTIVE else AdStatus.PENDING_PAYMENT
 
                 val newAd = hashMapOf(
                     "userId" to currentUser.id,
@@ -153,10 +175,11 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
                     "clicksCurrent" to 0,
                     "costPerView" to COST_PER_VIEW,
                     "startDate" to startDate,
-                    "endDate" to (startDate + (durationDays * 24 * 60 * 60 * 1000L)),
+                    "endDate" to endDate,
                     "totalAmount" to totalAmount,
-                    "status" to AdStatus.PENDING_PAYMENT.name,
-                    "createdAt" to System.currentTimeMillis()
+                    "status" to initialStatus.name,
+                    "createdAt" to System.currentTimeMillis(),
+                    "approvedAt" to (if (currentUser.role == UserRole.ADMIN) System.currentTimeMillis() else null)
                 )
 
                 FirebaseService.db.collection("local_ads").add(newAd).await()
@@ -170,13 +193,40 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
         }
     }
 
+    if (showDateRangePicker) {
+        val dateRangePickerState = rememberDateRangePickerState(
+            initialSelectedStartDateMillis = startDate,
+            initialSelectedEndDateMillis = endDate
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDateRangePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    dateRangePickerState.selectedStartDateMillis?.let { startDate = it }
+                    dateRangePickerState.selectedEndDateMillis?.let { endDate = it }
+                    showDateRangePicker = false
+                }) { Text("ఓకే") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDateRangePicker = false }) { Text("రద్దు") }
+            }
+        ) {
+            DateRangePicker(
+                state = dateRangePickerState,
+                title = { Text("ప్రకటన కాలపరిమితి ఎంచుకోండి", modifier = Modifier.padding(16.dp)) },
+                modifier = Modifier.height(500.dp)
+            )
+        }
+    }
+
     if (showPreview) {
         AlertDialog(
             onDismissRequest = { showPreview = false },
             properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
             text = {
-                Box(Modifier.fillMaxWidth().height(400.dp)) {
+                Box(Modifier.fillMaxWidth().aspectRatio(9f/16f).clip(RoundedCornerShape(12.dp))) {
                     LocalAdCardView(ad = LocalAd(
+                        id = "preview_${System.currentTimeMillis()}",
                         bannerUrl = adImageUri?.toString() ?: "",
                         adMediaType = adMediaType,
                         actionText = actionText,
@@ -221,13 +271,23 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
         if (adMediaType == AdMediaType.HTML) {
             OutlinedTextField(value = htmlContent, onValueChange = { htmlContent = it }, label = { Text("HTML Code") }, modifier = Modifier.fillMaxWidth().height(150.dp))
         } else {
-            val pickImage = rememberImagePicker { adImageUri = it }
+            val pickMedia = rememberMediaPicker { adImageUri = it }
             Card(elevation = CardDefaults.cardElevation(2.dp)) {
                 Column(Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (adImageUri != null) {
-                        AsyncImage(model = adImageUri, contentDescription = "Preview", modifier = Modifier.fillMaxWidth().height(150.dp).clip(MaterialTheme.shapes.medium), contentScale = ContentScale.Crop)
+                        Box(modifier = Modifier.fillMaxWidth().height(200.dp).clip(MaterialTheme.shapes.medium)) {
+                            if (adMediaType == AdMediaType.VIDEO) {
+                                VideoPlayerView(videoUrl = adImageUri.toString(), modifier = Modifier.fillMaxSize())
+                            } else {
+                                AsyncImage(model = adImageUri, contentDescription = "Preview", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                            }
+                        }
                     }
-                    Button(onClick = { pickImage() }) { Text(if (adImageUri != null) "Change Media" else "Select Image/Video") }
+                    Button(onClick = { pickMedia() }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.UploadFile, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (adImageUri != null) "మీడియా మార్చండి" else "ఫోటో/వీడియో ఎంచుకోండి")
+                    }
                 }
             }
         }
@@ -262,16 +322,17 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
              Card(elevation = CardDefaults.cardElevation(2.dp)) {
                 Column(Modifier.padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("సమయం మరియు తేదీలు", style = MaterialTheme.typography.titleLarge)
-                    OutlinedTextField(
-                        value = durationDays.toString(), 
-                        onValueChange = { durationDays = it.filter { c -> c.isDigit() }.toIntOrNull() ?: 1 }, 
-                        label = { Text("ఎన్ని రోజులు కనిపించాలి?") }, 
-                        modifier = Modifier.fillMaxWidth(),
-                        suffix = { Text("రోజులు") }
-                    )
-                    val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
-                    Text("ప్రారంభ తేదీ: ${sdf.format(Date(startDate))}", style = MaterialTheme.typography.bodyMedium)
-                    Text("ముగింపు తేదీ: ${sdf.format(Date(startDate + (durationDays * 24 * 60 * 60 * 1000L)))}", style = MaterialTheme.typography.bodyMedium)
+                    
+                    OutlinedButton(onClick = { showDateRangePicker = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.DateRange, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                        Text("${sdf.format(Date(startDate))} - ${sdf.format(Date(endDate))}")
+                    }
+
+                    if (adType == AdType.TIME_BASED_FIXED) {
+                        Text("మొత్తం రోజులు: $effectiveDuration", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
+                    }
                 }
             }
         }
@@ -286,7 +347,11 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
         }
 
         Button(onClick = { handleCreateAd() }, modifier = Modifier.fillMaxWidth().height(56.dp), enabled = !isSubmitting) {
-            if (isSubmitting) CircularProgressIndicator(color = Color.White) else Text("Submit Ad Request")
+            if (isSubmitting) {
+                CircularProgressIndicator(color = Color.White)
+            } else {
+                Text(if (currentUser.role == UserRole.ADMIN) "ప్రకటనను ప్రచురించు (Publish)" else "యాడ్ రిక్వెస్ట్ పంపండి")
+            }
         }
     }
 }
@@ -355,39 +420,65 @@ fun AdminAdsView() {
 @Composable
 fun AdminAdListItem(ad: LocalAd, onUpdate: () -> Unit) {
     val scope = rememberCoroutineScope()
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                AsyncImage(model = ad.bannerUrl, contentDescription = "Ad", modifier = Modifier.size(100.dp, 60.dp).clip(MaterialTheme.shapes.small))
-                Column {
-                    Text("User: ${ad.userName}", style = MaterialTheme.typography.titleSmall)
-                    Text(ad.getTargetAudience(), style = MaterialTheme.typography.bodySmall)
+    var showDetails by remember { mutableStateOf(false) }
+
+    if (showDetails) {
+        AlertDialog(
+            onDismissRequest = { showDetails = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+            text = {
+                Box(Modifier.fillMaxWidth().aspectRatio(9f/16f).clip(RoundedCornerShape(12.dp))) {
+                    LocalAdCardView(ad = ad)
+                }
+            },
+            confirmButton = { Button(onClick = { showDetails = false }) { Text("Close") } }
+        )
+    }
+
+    Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(2.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(100.dp, 60.dp).clip(MaterialTheme.shapes.small).background(Color.LightGray)) {
+                    if (ad.adMediaType == AdMediaType.IMAGE) {
+                        AsyncImage(model = ad.bannerUrl, contentDescription = "Ad", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    } else {
+                        Icon(if(ad.adMediaType == AdMediaType.VIDEO) Icons.Default.PlayCircle else Icons.Default.Html, contentDescription = null, modifier = Modifier.align(Alignment.Center), tint = Color.Gray)
+                    }
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("User: ${ad.userName}", style = MaterialTheme.typography.titleMedium)
+                    Text("Target: ${ad.getTargetAudience()}", style = MaterialTheme.typography.bodySmall)
+                    Text("Amount: ₹${NumberFormat.getNumberInstance(Locale.US).format(ad.totalAmount)}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    // Admin can see the tracking stats
+                    Text("Views: ${ad.viewsCurrent} | Clicks: ${ad.clicksCurrent}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                }
+                Surface(color = ad.status.toColor(), shape = MaterialTheme.shapes.small) {
+                    Text(ad.status.name, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = Color.White)
                 }
             }
             
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (ad.status == AdStatus.PENDING_PAYMENT || ad.status == AdStatus.REJECTED) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { showDetails = true }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
+                    Text("Preview")
+                }
+
+                if (ad.status != AdStatus.ACTIVE && ad.status != AdStatus.COMPLETED) {
                     Button(onClick = { 
                         scope.launch {
-                            FirebaseService.db.collection("local_ads").document(ad.id).update("status", AdStatus.ACTIVE.name).await()
+                            FirebaseService.db.collection("local_ads").document(ad.id).update("status", AdStatus.ACTIVE.name, "approvedAt", System.currentTimeMillis()).await()
                             onUpdate()
                         }
-                    }) { Text("అప్రూవ్ & యాక్టివేట్") }
+                    }, modifier = Modifier.weight(1f)) { Text("Approve") }
                 }
-                if (ad.status == AdStatus.ACTIVE) {
-                     Button(onClick = { 
+
+                if (ad.status != AdStatus.REJECTED && ad.status != AdStatus.COMPLETED) {
+                    Button(onClick = { 
                         scope.launch {
-                            FirebaseService.db.collection("local_ads").document(ad.id).update("status", AdStatus.COMPLETED.name).await()
+                            FirebaseService.db.collection("local_ads").document(ad.id).update("status", AdStatus.REJECTED.name).await()
                             onUpdate()
                         }
-                    }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) { Text("కంప్లీట్") }
+                    }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Reject") }
                 }
-                Button(onClick = { 
-                    scope.launch {
-                        FirebaseService.db.collection("local_ads").document(ad.id).update("status", AdStatus.REJECTED.name).await()
-                        onUpdate()
-                    }
-                }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("రిజెక్ట్") }
             }
         }
     }
@@ -414,19 +505,19 @@ private fun AdListItem(ad: LocalAd) {
                     Text(if (ad.adType == AdType.VIEWS_BASED) "వ్యూస్ మోడ్" else "రోజుల మోడ్", style = MaterialTheme.typography.labelSmall)
                 }
                 
-                if (ad.adType == AdType.VIEWS_BASED) {
-                    LinearProgressIndicator(progress = ad.progress, modifier = Modifier.fillMaxWidth())
-                    Text("${NumberFormat.getNumberInstance(Locale.US).format(ad.viewsCurrent)} / ${NumberFormat.getNumberInstance(Locale.US).format(ad.viewsOrdered)} వ్యూస్", style = MaterialTheme.typography.labelSmall)
-                } else {
+                if (ad.adType != AdType.VIEWS_BASED) {
                     val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
                     Text("వ్యవధి: ${sdf.format(Date(ad.startDate ?: 0))} - ${sdf.format(Date(ad.endDate ?: 0))}", style = MaterialTheme.typography.labelSmall)
                 }
                 
+                // Tracking stats hidden from user in initial stage
+                /*
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("క్లిక్స్: ${ad.clicksCurrent}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                     val ctr = if (ad.viewsCurrent > 0) (ad.clicksCurrent.toDouble() / ad.viewsCurrent.toDouble()) * 100 else 0.0
                     Text("CTR: ${String.format("%.2f", ctr)}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
                 }
+                */
             }
         }
     }

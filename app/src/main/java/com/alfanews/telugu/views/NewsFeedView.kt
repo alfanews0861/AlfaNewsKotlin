@@ -63,6 +63,7 @@ fun NewsFeedView(
     val sharedPostId by viewModel.sharedPostId.collectAsStateWithLifecycle()
     val shouldScrollToTop by viewModel.shouldScrollToTop.collectAsStateWithLifecycle()
     val userDistrict by viewModel.userDistrict.collectAsStateWithLifecycle()
+    val localAds by viewModel.localAds.collectAsStateWithLifecycle()
     val preloadedAds = remember { mutableStateMapOf<Int, NativeAd?>() }
 
     val context = LocalContext.current
@@ -136,8 +137,8 @@ fun NewsFeedView(
 
      val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
      LaunchedEffect(news) {
-         // ✅ Only preload first 5 images to reduce memory pressure
-         val postsToPreload = news.take(5)
+         // ✅ Aggressive Preloading: Load first 15 images to ensure smooth scroll for fast users
+         val postsToPreload = news.take(15)
          postsToPreload.forEach { post: com.alfanews.telugu.models.NewsPost ->
              if (post.mediaUrl.isNotEmpty()) {
                  val request = ImageRequest.Builder(context)
@@ -194,9 +195,9 @@ fun NewsFeedView(
                   viewModel.loadMore(language, currentUser)
               }
 
-              // ✅ OPTIMIZED: Preload only 2-3 images ahead instead of 5 to reduce scroll stuttering
+              // ✅ Aggressive Preloading: Preload 15 images ahead for ultra-fast scrolling
               // Only preload forward, not backward
-              (1..2).forEach { offset ->
+              (1..15).forEach { offset ->
                   val nextPageIndex = page + offset
                   val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
                   if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
@@ -214,8 +215,8 @@ fun NewsFeedView(
                   }
               }
 
-              // Preload AdMob ads up to 10 pages ahead
-              (1..10).forEach { offset ->
+              // Preload AdMob ads up to 24 pages ahead (Ensures at least 4 ads are always ready)
+              (1..24).forEach { offset ->
                   val futurePage = page + offset
                   val isAdSlot = (futurePage + 1) % 6 == 0
                   if (isAdSlot && futurePage < totalCount) {
@@ -290,7 +291,15 @@ fun NewsFeedView(
                  userScrollEnabled = true,
                  key = { page ->
                     val isAd = (page + 1) % 6 == 0
-                    if (isAd) "ad_$page" else {
+                    if (isAd) {
+                        val adIndex = page / 6
+                        if (localAds.isNotEmpty()) {
+                            val localAd = localAds[adIndex % localAds.size]
+                            "home_local_ad_${localAd.id}_$page"
+                        } else {
+                            "home_ad_fallback_$page"
+                        }
+                    } else {
                         val idx = page - (page / 6)
                         if (idx < news.size) news[idx].id else "empty_$page"
                     }
@@ -301,28 +310,43 @@ fun NewsFeedView(
                   ) {
                     val isAdPage = (page + 1) % 6 == 0
                     if (isAdPage) {
-                        val nativeAd = preloadedAds[page]
-                        if (nativeAd != null) {
-                            AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)
+                        val adIndex = page / 6
+                        
+                        // 🔄 Smart Ad Rotation: If local ads are few (<= 5), mix with AdMob to avoid repetition
+                        val totalLocalCount = localAds.size
+                        val totalSlots = if (totalLocalCount in 1..5) totalLocalCount + 1 else totalLocalCount
+                        
+                        val localAd = if (totalLocalCount > 0) {
+                            val slotIndex = adIndex % totalSlots
+                            if (slotIndex < totalLocalCount) localAds[slotIndex] else null
+                        } else null
+
+                        if (localAd != null) {
+                            LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize())
                         } else {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (preloadedAds.containsKey(page)) {
-                                    Text(
-                                        text = stringResource(R.string.sponsored_content),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                        fontSize = 12.sp
-                                    )
-                                } else {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                                        strokeWidth = 2.dp
-                                    )
+                            val nativeAd = preloadedAds[page]
+                            if (nativeAd != null) {
+                                AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (preloadedAds.containsKey(page)) {
+                                        Text(
+                                            text = stringResource(R.string.sponsored_content),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                            fontSize = 12.sp
+                                        )
+                                    } else {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                            strokeWidth = 2.dp
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -159,6 +159,23 @@ fun LocalNewsFeedView(
 
     val imageLoader = remember { com.alfanews.telugu.utils.SafeImageLoader.getImageLoader(context) }
     
+    LaunchedEffect(news) {
+        // ✅ Aggressive Preloading: Load first 15 images to ensure smooth scroll for fast users
+        val postsToPreload = news.take(15)
+        postsToPreload.forEach { post: NewsPost ->
+            if (post.mediaUrl.isNotEmpty()) {
+                val request = ImageRequest.Builder(context)
+                    .data(post.mediaUrl)
+                    .crossfade(false)
+                    .allowHardware(false)
+                    .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
+                    .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
+                    .build()
+                imageLoader.enqueue(request)
+            }
+        }
+    }
+    
     LaunchedEffect(pagerState, news.size) { 
         snapshotFlow { pagerState.currentPage }.collect { page ->
             val newsIndex = page - (page / 6)
@@ -166,8 +183,8 @@ fun LocalNewsFeedView(
                 viewModel.loadMore(language, currentUser)
             }
 
-            // ✅ OPTIMIZED: Preload only 2 images ahead (not 10) to reduce scroll stuttering
-            (1..2).forEach { offset ->
+            // ✅ Aggressive Preloading: Preload 15 images ahead for ultra-fast scrolling
+            (1..15).forEach { offset ->
                 val nextPageIndex = page + offset
                 val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
                 if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
@@ -185,8 +202,8 @@ fun LocalNewsFeedView(
                 }
             }
 
-            // Preload AdMob ads only 3 pages ahead (not 10) to reduce background work
-            (1..3).forEach { offset ->
+            // Preload AdMob ads up to 24 pages ahead (Ensures at least 4 ads are always ready)
+            (1..24).forEach { offset ->
                 val futurePage = page + offset
                 val isAdSlot = (futurePage + 1) % 6 == 0
                 if (isAdSlot && futurePage < totalCount) {
@@ -308,7 +325,15 @@ fun LocalNewsFeedView(
                 val isAdPagePager = (page + 1) % 6 == 0
                 if (isAdPagePager) {
                     val adIndex = page / 6
-                    val localAd = if (localAds.isNotEmpty()) localAds[adIndex % localAds.size] else null
+                    
+                    // 🔄 Smart Ad Rotation: If local ads are few (<= 5), mix with AdMob to avoid repetition
+                    val totalLocalCount = localAds.size
+                    val totalSlots = if (totalLocalCount in 1..5) totalLocalCount + 1 else totalLocalCount
+                    
+                    val localAd = if (totalLocalCount > 0) {
+                        val slotIndex = adIndex % totalSlots
+                        if (slotIndex < totalLocalCount) localAds[slotIndex] else null
+                    } else null
                     
                     if (localAd != null) {
                         LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize())

@@ -221,18 +221,17 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
                     "userConfirmed" to true
                 )
 
-                val docRef = FirebaseService.db.collection("news").add(newsData).await()
-                
-                // Background Processing
+                // Background Processing & Submission
                 statusMessage = "వార్తను పంపిస్తున్నాము..."
                 try {
-                    FirebaseFunctionsService.processNewsPost(docRef.id)
+                    // Send to Cloud Function for unified processing
+                    val result = FirebaseFunctionsService.processNewsPost(postData = newsData).getOrThrow()
+                    
+                    Toast.makeText(context, "ధన్యవాదాలు! మీ ప్రజా సమస్య విజయవంతంగా పంపబడింది. AI విశ్లేషణ తర్వాత ప్రచురించబడుతుంది.", Toast.LENGTH_LONG).show()
+                    onClose()
                 } catch (e: Exception) {
-                    println("Background Processing failed: ${e.message}")
+                    Toast.makeText(context, "లోపం: ${e.message}", Toast.LENGTH_LONG).show()
                 }
-
-                Toast.makeText(context, "ధన్యవాదాలు! మీ ప్రజా సమస్య విజయవంతంగా పబ్లిష్ చేయబడింది.", Toast.LENGTH_LONG).show()
-                onClose()
             } catch (e: Exception) {
                 Toast.makeText(context, "లోపం: ${e.message}", Toast.LENGTH_LONG).show()
             } finally {

@@ -39,6 +39,15 @@
     <string name="theme_dark">డార్క్ (Dark)</string>
     <string name="theme_system">సిస్టమ్ (System)</string>
     <string name="policies_info">పాలసీలు మరియు సమాచారం</string>
+    <string name="storage_management">స్టోరేజ్ మేనేజ్‌మెంట్</string>
+    <string name="cache_size_limit">యాప్ కాష్ పరిమితి</string>
+    <string name="cache_size_100mb">100 MB (సిఫార్సు చేయబడింది)</string>
+    <string name="cache_size_200mb">200 MB</string>
+    <string name="cache_size_500mb">500 MB</string>
+    <string name="cache_size_unlimited">అపరిమిత (సిఫార్సు చేయబడదు)</string>
+    <string name="current_cache_usage">ప్రస్తుత స్టోరేజ్ వినియోగం: %1$s</string>
+    <string name="clear_cache_now">కాష్ ని ఇప్పుడే క్లియర్ చేయండి</string>
+    <string name="cache_cleared_success">కాష్ విజయవంతంగా క్లియర్ చేయబడింది!</string>
     <string name="notification_setting_error">నోటిఫికేషన్ సెట్టింగ్స్ అప్‌డేట్ చేయడంలో విఫలం</string>
     <string name="account_delete_error">ఖాతా తొలగించడంలో సమస్య: %1$s</string>
 

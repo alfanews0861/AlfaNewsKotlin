@@ -23,6 +23,7 @@ class PreferenceManager(context: Context) {
         private const val KEY_RATING_DIALOG_SHOWN_COUNT = "key_rating_dialog_shown_count"
         private const val KEY_LAST_RATING_DIALOG_TIME = "key_last_rating_dialog_time"
         private const val KEY_NOTIFICATIONS_ENABLED = "key_notifications_enabled"
+        private const val KEY_STORAGE_LIMIT_MB = "key_storage_limit_mb"
         private const val KEY_IS_LEGACY_CACHE_CLEARED = "key_is_legacy_cache_cleared"
         private const val KEY_CACHE_VERSION = "key_cache_version"
         private const val KEY_LOCAL_PLACE = "key_local_place"
@@ -121,6 +122,15 @@ class PreferenceManager(context: Context) {
         get() = prefs.getBoolean(KEY_NOTIFICATIONS_ENABLED, true)
         set(value) {
             prefs.edit().putBoolean(KEY_NOTIFICATIONS_ENABLED, value).apply()
+        }
+
+    /** 
+     * యూజర్ ఎంచుకున్న స్టోరేజ్ లిమిట్ (MB లలో). డిఫాల్ట్ గా 100 MB.
+     */
+    var storageLimitMB: Int
+        get() = prefs.getInt(KEY_STORAGE_LIMIT_MB, 100)
+        set(value) {
+            prefs.edit().putInt(KEY_STORAGE_LIMIT_MB, value).apply()
         }
 
     /** పాత (Legacy) కాష్ డేటా క్లియర్ అయిందో లేదో తనిఖీ చేస్తుంది. */

@@ -121,7 +121,10 @@ function getCategorySystemInstruction() {
     const categoryList = exports.CATEGORY_LIST
         .map(c => `- ${c.telugu} (${c.english})`)
         .join('\n');
-    return `You are a Senior Editor processing a news submission. Enhance and refine the article content.
+    return `You are a Senior Editor processing a news submission.
+CRITICAL TASK: First, determine if the content is actual news or just personal information/greetings.
+- If the content is about personal birthdays, marriages, personal praises, or lacks any public interest/news value, set 'rejectionReason' with a clear explanation in Telugu and do NOT process it as news.
+- Only process if it's a public issue, crime, politics, sports, education, etc.
 
 Your task:
 1. Write the news in a single paragraph in Telugu (between 300 to 330 characters) and English (max 60 words), ensuring people and locations are included without changing the original meaning.

@@ -194,19 +194,23 @@ async function performAIProcessing(headline, content, actualPostData) {
     // ✅ NORMALIZE the AI-returned category to canonical form
     const aiCategory = aiRes.refinedCategory || actualPostData?.category || "OTHER";
     const normalizedCategory = (0, categories_1.normalizeCategory)(aiCategory);
+    // ✅ REPORTERS FIX: Primary category is ALWAYS "జిల్లా వార్తలు" for reporter submissions
+    const isReporter = actualPostData?.isReporter === true || actualPostData?.processingType === "REPORTER_SUBMISSION";
+    const primaryCategory = isReporter ? "జిల్లా వార్తలు" : normalizedCategory;
     // ✅ Build canonical categories array
     const canonicalCategories = Array.from(new Set([
         normalizedCategory,
         ...(0, categories_1.normalizeCategories)(actualPostData?.categories || []),
         ...(actualPostData?.district ? [actualPostData.district] : [])
     ])).filter(c => !!c && c !== "OTHER");
-    console.log(`[AI_PROCESSING] Original category: "${aiCategory}" → Normalized: "${normalizedCategory}"`);
+    console.log(`[AI_PROCESSING] Original category: "${aiCategory}" → Normalized: "${normalizedCategory}" (IsReporter: ${isReporter})`);
+    console.log(`[AI_PROCESSING] Final primary category: "${primaryCategory}"`);
     console.log(`[AI_PROCESSING] Final categories: ${JSON.stringify(canonicalCategories)}`);
     return {
         headline: { telugu: finalHeadline, english: finalHeadlineEn },
         content: { telugu: finalContent, english: finalContentEn },
         location: aiRes.location || actualPostData?.location || "",
-        category: normalizedCategory,
+        category: primaryCategory,
         categories: canonicalCategories,
         tags: aiRes.tags || [],
         entities: normalizedEntities,
@@ -630,11 +634,26 @@ exports.checkSevereWeatherAlerts = (0, scheduler_1.onSchedule)({
 exports.processNewsPost = (0, https_1.onCall)(async (request) => {
     const { postId, headline: rawHeadline, content: rawContent, postData } = request.data;
     try {
-        console.log(`[NEWS_POST] Quick acceptance for post: ${postId || 'new'}`);
+        console.log(`[NEWS_POST] Entry for post: ${postId || 'new'}`);
         let headline = rawHeadline || postData?.headline?.telugu || "";
         let content = rawContent || postData?.content?.telugu || "";
-        if (!headline || !content) {
-            throw new https_1.HttpsError('invalid-argument', 'Headline and content are required');
+        // ✅ IMPORTANT: If only postId is provided, recover data from Firestore
+        if (postId && (!headline || !content)) {
+            const doc = await db.collection('news').doc(postId).get();
+            if (doc.exists) {
+                const d = doc.data();
+                headline = headline || d?.headline?.telugu || "";
+                content = content || d?.content?.telugu || "";
+            }
+        }
+        // ✅ ONLY CONTENT IS REQUIRED for Citizens. Headline will be refined by AI.
+        if (!content) {
+            throw new https_1.HttpsError('invalid-argument', 'వార్త వివరణ (Content) తప్పనిసరి.');
+        }
+        // If headline is missing, create a temporary one from content
+        if (!headline) {
+            headline = content.substring(0, 60).split('\n')[0] + "...";
+            console.log(`[NEWS_POST] Generated placeholder headline for ${postId || 'new'}`);
         }
         const finalData = {
             ...postData,
@@ -734,12 +753,21 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
             const content = data.content?.telugu || "";
             if (headline && content) {
                 const aiProcessedData = await performAIProcessing(headline, content, data);
+                // ✅ NEWS VALIDATION: Check if AI rejected the post for being personal or violating policies
+                const isRejected = aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
                 await db.collection('news').doc(postId).update({
                     ...aiProcessedData,
-                    status: "AI_PROCESSED",
-                    approved: true // ✅ Auto-approve after AI processing
+                    status: isRejected ? "REJECTED" : "published",
+                    approved: !isRejected // ✅ Only approve if NOT rejected
                 });
-                data = { ...data, ...aiProcessedData, approved: true }; // Update local data for subsequent steps
+                if (isRejected) {
+                    console.warn(`[TRIGGER] Post ${postId} REJECTED: ${aiProcessedData.rejectionReason}`);
+                    if (data.reporter?.id) {
+                        await notifyReporter(data.reporter.id, postId, headline, 'POLICY_VIOLATION');
+                    }
+                    return; // Stop processing further (no video/YouTube)
+                }
+                data = { ...data, ...aiProcessedData, approved: true };
             }
         }
         catch (aiErr) {
