@@ -131,7 +131,25 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     val COST_PER_VIEW = 0.20
-    val COST_PER_DAY = 500.0
+    
+    // Custom Ad Pricing Logic
+    fun getRatePerDay(state: String, district: String): Double {
+        if (state == "ALL") return 75000.0
+        if (district == "ALL") return 50000.0
+        
+        // Large Cities/Districts (6000/day)
+        val largeCities = listOf("విశాఖపట్నం", "హైదరాబాద్", "విజయవాడ", "ఎన్టీఆర్")
+        if (largeCities.contains(district)) return 6000.0
+        
+        // Medium Cities/Districts (3000/day)
+        val mediumDistricts = listOf("వరంగల్", "కరీంనగర్", "గుంటూరు", "నెల్లూరు")
+        if (mediumDistricts.contains(district) || district.contains("నెల్లూరు")) return 3000.0
+        
+        // Small Districts (2000/day)
+        return 2000.0
+    }
+
+    val costPerDay = getRatePerDay(targetState, targetDistrict)
 
     // Calculate duration based on dates if in TIME_BASED mode
     val effectiveDuration = if (adType == AdType.TIME_BASED_FIXED) {
@@ -144,7 +162,7 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
     val totalAmount = if (adType == AdType.VIEWS_BASED) {
         max(2000.0, viewsOrdered * COST_PER_VIEW)
     } else {
-        effectiveDuration * COST_PER_DAY
+        effectiveDuration * costPerDay
     }
 
     fun handleCreateAd() {
@@ -252,7 +270,8 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("నిబంధనలు & ధరలు:", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
                 Text("• వ్యూస్ ఆధారంగా: ₹${String.format("%.2f", COST_PER_VIEW)} ప్రతి వ్యూ కి (కనీసం ₹2,000).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                Text("• సమయం ఆధారంగా: ₹${COST_PER_DAY.toInt()} ప్రతి రోజుకు (అన్‌లిమిటెడ్ వ్యూస్).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                Text("• సమయం ఆధారంగా (ఈ ప్రాంతానికి): ₹${costPerDay.toInt()} ప్రతి రోజుకు (అన్‌లిమిటెడ్ వ్యూస్).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                Text("  (చిన్న జిల్లా: ₹2000, మీడియం: ₹3000, పెద్ద నగరం: ₹6000, స్టేట్: ₹50,000)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f))
             }
         }
 

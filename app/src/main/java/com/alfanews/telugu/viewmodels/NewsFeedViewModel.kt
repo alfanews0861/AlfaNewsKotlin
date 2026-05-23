@@ -95,6 +95,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     private var prefCursor: DocumentSnapshot? = null
     private var mainCursor: DocumentSnapshot? = null
+    private var localCursor: DocumentSnapshot? = null
     private var isFetching = false
     private var lastRefreshTimeLong: Long = 0
     private var consecutiveEmptyLoads = 0
@@ -130,6 +131,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    if (initialPostId == null) {
                        prefCursor = null
                        mainCursor = null
+                       localCursor = null
                        _hasMore.value = true
                        consecutiveEmptyLoads = 0
                    }
@@ -185,6 +187,14 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                        } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
                    }
 
+                   val localBatchDeferred = async {
+                       if (district != null) {
+                           try {
+                               fetchFilteredBatch(FirebaseService.db.collection("news"), null, district, excludeDistricts = false)
+                           } catch (e: Exception) { Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null) }
+                       } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
+                   }
+
                    val mainBatchDeferred = async {
                        try {
                            fetchFilteredBatch(FirebaseService.db.collection("news"), null, district, excludeDistricts = true)
@@ -192,19 +202,26 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    }
 
                    val prefBatch = prefBatchDeferred.await()
+                   val localBatch = localBatchDeferred.await()
                    val mainBatch = mainBatchDeferred.await()
 
                    var finalPosts = withContext(Dispatchers.Default) {
-                       rankAndBlendPosts(prefBatch.first, mainBatch.first, emptyList<NewsPost>(), isFirstPage = true)
+                       rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first, isFirstPage = true)
                    }
 
                    prefCursor = prefBatch.second
                    mainCursor = mainBatch.second
+                   localCursor = localBatch.second
 
-                   if (finalPosts.isEmpty() && (mainCursor != null || prefCursor != null)) {
+                   if (finalPosts.isEmpty() && (mainCursor != null || prefCursor != null || localCursor != null)) {
                        val extraPrefDeferred = async {
                            if (prefCursor != null && preferredCats.isNotEmpty()) {
-                               fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), prefCursor, district, excludeDistricts = true)
+                               fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), prefCursor, district, excludeDistricts = false)
+                           } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
+                       }
+                       val extraLocalDeferred = async {
+                           if (localCursor != null && district != null) {
+                               fetchFilteredBatch(FirebaseService.db.collection("news"), localCursor, district, excludeDistricts = false)
                            } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
                        }
                        val extraMainDeferred = async {
@@ -213,16 +230,20 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                            } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
                        }
                        val extraPref = extraPrefDeferred.await()
+                       val extraLocal = extraLocalDeferred.await()
                        val extraMain = extraMainDeferred.await()
+                       
                        prefCursor = extraPref.second
+                       localCursor = extraLocal.second
                        mainCursor = extraMain.second
+                       
                        val extraPosts = withContext(Dispatchers.Default) {
-                           rankAndBlendPosts(extraPref.first, extraMain.first, emptyList<NewsPost>(), isFirstPage = false)
+                           rankAndBlendPosts(extraPref.first, extraMain.first, extraLocal.first, isFirstPage = false)
                        }
                        finalPosts = (finalPosts + extraPosts).distinctBy { it.id }
                    }
 
-                   if (finalPosts.isEmpty() && mainCursor == null && prefCursor == null) {
+                   if (finalPosts.isEmpty() && mainCursor == null && prefCursor == null && localCursor == null) {
                        _hasMore.value = false
                    }
 
@@ -265,11 +286,17 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                  val district = _userDistrict.value
                  val preferredCats = AnalyticsService.getUserPreferredCategories().take(10)
                  val shouldFetchPref = preferredCats.isNotEmpty() && (prefCursor != null)
+                 val shouldFetchLocal = localCursor != null && district != null
                  val shouldFetchMain = mainCursor != null
                  
                  val prefBatchDeferred = async {
                      if (shouldFetchPref) {
                          fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), prefCursor, district, excludeDistricts = false)
+                     } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
+                 }
+                 val localBatchDeferred = async {
+                     if (shouldFetchLocal) {
+                         fetchFilteredBatch(FirebaseService.db.collection("news"), localCursor, district, excludeDistricts = false)
                      } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
                  }
                  val mainBatchDeferred = async {
@@ -279,10 +306,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                  }
 
                  val prefBatch = prefBatchDeferred.await()
+                 val localBatch = localBatchDeferred.await()
                  val mainBatch = mainBatchDeferred.await()
 
                  val newPosts = withContext(Dispatchers.Default) {
-                     rankAndBlendPosts(prefBatch.first, mainBatch.first, emptyList<NewsPost>(), isFirstPage = false)
+                     rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first, isFirstPage = false)
                  }
 
                  newPosts.forEach { post ->
@@ -292,6 +320,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                  }
 
                  prefCursor = prefBatch.second
+                 localCursor = localBatch.second
                  mainCursor = mainBatch.second
 
                    if (newPosts.isNotEmpty()) {
@@ -302,14 +331,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                            consecutiveEmptyLoads = 0
                       } else {
                            consecutiveEmptyLoads += 1
-                           if (mainCursor == null && prefCursor == null) {
+                           if (mainCursor == null && prefCursor == null && localCursor == null) {
                                _hasMore.value = false
                            } else if (consecutiveEmptyLoads >= 4) {
                                _hasMore.value = false
                            }
                       }
                   } else {
-                      _hasMore.value = false
+                      if (mainCursor == null && prefCursor == null && localCursor == null) {
+                          _hasMore.value = false
+                      }
                   }
              } catch (e: Exception) {
              } finally {
@@ -347,17 +378,19 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
             val allPosts = (filteredPref + filteredMain + filteredLocal).distinctBy { it.id }.filter { post ->
                 if (post.type != "news") return@filter true
-                val categoryVal = post.category ?: ""
-                val isDistrictNews = categoryVal == "జిల్లా వార్తలు" || post.categories.contains("జిల్లా వార్తలు")
-                if (isDistrictNews) return@filter false
-                val isGlobal = globalDistricts.contains(post.district)
-                if (!isGlobal && post.district != "State" && post.district != null) {
-                    return@filter false
-                }
-                return@filter true
+                
+                val currentDist = _userDistrict.value
+                val isGlobal = globalDistricts.contains(post.district) || post.district == "State" || post.district == null
+                val matchesDistrict = currentDist != null && (post.district == currentDist || post.categories.contains(currentDist))
+                
+                // Allow if it's Global/State/Null OR if it matches our selected district
+                if (isGlobal || matchesDistrict) return@filter true
+                
+                // Otherwise, it's a post from another district, so filter it out
+                false
             }
 
-           if (allPosts.isEmpty()) return@withContext emptyList<NewsPost>()
+           if (allPosts.isEmpty() && !isFirstPage) return@withContext emptyList<NewsPost>()
 
            val festivalGreetings = allPosts.filter { it.type == "greeting" && it.likes == 0 }
            val quoteGreetings = allPosts.filter { it.type == "greeting" && it.likes == 1 }
@@ -376,16 +409,37 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
            val preferredCategories = try { AnalyticsService.getUserPreferredCategories().toSet() } catch (e: Exception) { emptySet() }
 
-           val freshNews = normalNews.sortedByDescending { it.timestamp }.take(freshCount)
-           val freshIds = freshNews.map { it.id }.toSet()
-           val scoredNews = normalNews.filter { it.id !in freshIds }.map { post ->
+           // 🚀 1. Separate State and Local news
+           val stateNews = normalNews.filter { post ->
+               globalDistricts.contains(post.district) || post.district == "State" || post.district == null
+           }
+           
+           // 🚀 2. Slots 2-6 (Index 1-5): Top 5 State Fresh News (Preferred categories prioritized)
+           // KHACHITAMGA JILLA VAARTHALU UNDAVU
+           val preferredState = stateNews.filter { post -> post.categories.any { it in preferredCategories } }
+               .sortedByDescending { it.timestamp }
+           val otherState = stateNews.filter { it !in preferredState }
+               .sortedByDescending { it.timestamp }
+           
+           val top5State = (preferredState + otherState).take(5)
+           val top5Ids = top5State.map { it.id }.toSet()
+
+           // 🚀 3. Process remaining news for the rest of the feed (Includes Local news)
+           val remainingNormal = normalNews.filter { it.id !in top5Ids }
+           val freshCountAdjusted = if (freshCount > 5) freshCount - 5 else 0
+           
+           val freshNewsRemaining = remainingNormal.sortedByDescending { it.timestamp }.take(freshCountAdjusted)
+           val freshIdsTotal = (top5Ids + freshNewsRemaining.map { it.id }).toSet()
+
+           val scoredNews = remainingNormal.filter { it.id !in freshIdsTotal }.map { post ->
                post to (try { AnalyticsService.calculateRelevanceScore(post) } catch (e: Exception) { 0.0 })
            }.sortedByDescending { it.second }.take(personalizedCount).map { it.first }
            val personalizedIds = scoredNews.map { it.id }.toSet()
-           val discoveryNews = normalNews.filter { it.id !in freshIds && it.id !in personalizedIds }
+
+           val discoveryNews = remainingNormal.filter { it.id !in freshIdsTotal && it.id !in personalizedIds }
                .filter { post -> post.categories.none { it in preferredCategories } }.shuffled().take(discoveryCount)
 
-           val blendedNews = (freshNews + scoredNews + discoveryNews).toMutableList()
+           val blendedNews = (top5State + freshNewsRemaining + scoredNews + discoveryNews).toMutableList()
 
            if (isFirstPage) {
                fun insertSafely(list: MutableList<NewsPost>, post: NewsPost, targetIdx: Int) {
@@ -534,7 +588,14 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
      private suspend fun generateWeatherPost(place: String?, district: String?, lat: Double? = null, lon: Double? = null): NewsPost {
          val location = if (district == prefs.detectedDistrict) (place ?: district ?: "హైదరాబాద్") else (district ?: "హైదరాబాద్")
-         val weatherData = WeatherService.fetchWeather(location, lat, lon)
+         
+         // 🚀 ZERO WAITING: Timeout for weather fetch to prevent blocking the feed
+         val weatherData = try {
+             kotlinx.coroutines.withTimeout(800L) {
+                 WeatherService.fetchWeather(location, lat, lon)
+             }
+         } catch (e: Exception) { null }
+
          var temperatureStr = "31°C"; var weatherHeadlineTe = "సాధారణ వాతావరణం"; var weatherContentTe = "ప్రస్తుతం $location లో వాతావరణం సాధారణంగా ఉంది."
          if (weatherData != null) {
              temperatureStr = "${weatherData.temp.toInt()}°C"; weatherHeadlineTe = WeatherService.getWeatherDescription(weatherData.code)

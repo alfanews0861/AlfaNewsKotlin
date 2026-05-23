@@ -232,24 +232,34 @@ fun LocalAdCardView(
             )
         }
 
-        // Call to Action Button (కింద భాగంలో)
+        // Call to Action Button (కింద భాగంలో - Google Style prominent button)
         if (ad.phoneNumber.isNotEmpty() || ad.actionUrl.isNotEmpty()) {
-            Button(
+            ElevatedButton(
                 onClick = { handleAdClick() },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 32.dp)
-                    .height(56.dp)
-                    .fillMaxWidth(0.8f),
-                shape = RoundedCornerShape(28.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    .height(54.dp)
+                    .fillMaxWidth(0.85f),
+                shape = RoundedCornerShape(12.dp), // Google style slightly rounded corners
+                elevation = ButtonDefaults.elevatedButtonElevation(defaultElevation = 6.dp),
+                colors = ButtonDefaults.elevatedButtonColors(
+                    containerColor = Color(0xFF1A73E8), // Google Blue
+                    contentColor = Color.White
+                )
             ) {
                 Icon(
                     imageVector = if (ad.phoneNumber.isNotEmpty()) Icons.Default.Call else Icons.Default.Launch,
-                    contentDescription = null
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
                 )
-                Spacer(Modifier.width(8.dp))
-                Text(ad.actionText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = ad.actionText, 
+                    fontSize = 18.sp, 
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = Ramabhadra
+                )
             }
         }
     }

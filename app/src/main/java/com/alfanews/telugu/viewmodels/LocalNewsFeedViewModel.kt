@@ -272,8 +272,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
 
                 try {
+                    // 🚀 USE 'approved' instead of 'status' to include both old and new news
                     val query = newsRef
-                        .whereEqualTo("status", "published")
+                        .whereEqualTo("approved", true)
                         .whereArrayContains("categories", district)
                         .orderBy("timestamp", Query.Direction.DESCENDING)
                         .limit(pageSize.toLong())
@@ -285,7 +286,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 } catch (e: Exception) {
                     try {
                          val fallbackQuery = newsRef
-                             .whereEqualTo("status", "published")
+                             .whereEqualTo("approved", true)
                              .whereEqualTo("district", district)
                              .orderBy("timestamp", Query.Direction.DESCENDING)
                              .limit(pageSize.toLong())
@@ -345,7 +346,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                  var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
                  try {
                      val query = newsRef
-                         .whereEqualTo("status", "published")
+                         .whereEqualTo("approved", true)
                          .whereArrayContains("categories", district)
                          .orderBy("timestamp", Query.Direction.DESCENDING)
                          .startAfter(currentLastDoc)
@@ -357,7 +358,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                  } catch (e: Exception) {
                      try {
                          val fallbackQuery = newsRef
-                             .whereEqualTo("status", "published")
+                             .whereEqualTo("approved", true)
                              .whereEqualTo("district", district)
                              .orderBy("timestamp", Query.Direction.DESCENDING)
                              .startAfter(currentLastDoc)

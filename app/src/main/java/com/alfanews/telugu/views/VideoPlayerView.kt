@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 
@@ -20,7 +21,9 @@ fun VideoPlayerView(
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(videoUrl))
             prepare()
-            playWhenReady = false
+            playWhenReady = true
+            repeatMode = ExoPlayer.REPEAT_MODE_ALL
+            volume = 0f // Mute by default for ads auto-play
         }
     }
 
@@ -34,7 +37,7 @@ fun VideoPlayerView(
         factory = { ctx ->
             PlayerView(ctx).apply {
                 player = exoPlayer
-                useController = true
+                useController = false
             }
         },
         modifier = modifier
