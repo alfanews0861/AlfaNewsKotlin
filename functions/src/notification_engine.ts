@@ -51,7 +51,7 @@ export const sendPersonalizedNotification = onSchedule({
 
         const status = (news.status || "").toUpperCase();
         // Since we filtered by approved:true in query, we check status/type for extra safety
-        const isPublished = status === "PUBLISHED";
+        const isPublished = status === "published";
         const isAiProcessed = status === "AI_PROCESSED";
         const isSystemType = ["greeting", "history", "cartoon"].includes(news.type);
 

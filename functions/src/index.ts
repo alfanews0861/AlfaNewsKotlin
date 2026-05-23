@@ -322,7 +322,7 @@ export const scheduleFestivalGreeting = onSchedule({ schedule: "0 5 * * *", time
             category: 'పండుగలు',
             reporter: { id: 'system', name: 'AlfaNews Team' },
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            status: "PUBLISHED",
+            status: "published",
             approved: true,
             aiProcessed: true
         });
@@ -379,7 +379,7 @@ export const scheduleQuoteOfTheDay = onSchedule({ schedule: "0 4 * * *", timeZon
             category: 'ప్రేరణ',
             reporter: { id: 'system', name: 'AlfaNews Team' },
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            status: "PUBLISHED",
+            status: "published",
             approved: true,
             aiProcessed: true
         });
@@ -432,7 +432,7 @@ export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", time
             category: 'చరిత్ర',
             reporter: { id: 'system', name: 'AlfaNews Team' },
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            status: "PUBLISHED",
+            status: "published",
             approved: true,
             aiProcessed: true
         });
@@ -504,7 +504,7 @@ Quality: 4k, artistic, award-winning editorial style.`, '9:16');
                     district: state,
                     reporter: { id: 'BOT_Cartoonist', name: 'Alfa Cartoonist' },
                     timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                    status: "PUBLISHED",
+                    status: "published",
                     approved: true,
                     aiProcessed: true
                 });
@@ -1112,7 +1112,7 @@ export const onNewsPostCreated = onDocumentCreated({
                     await db.collection('news').doc(postId).update({
                         youtubeUrl: youtubeUrl,
                         videoProcessed: true,
-                        status: "PUBLISHED",
+                        status: "published",
                         approved: true, // ✅ Ensure approved is true
                         lastUpdated: admin.firestore.FieldValue.serverTimestamp()
                     });

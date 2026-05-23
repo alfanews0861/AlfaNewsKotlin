@@ -76,7 +76,7 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
         news.id = doc.id;
         const status = (news.status || "").toUpperCase();
         // Since we filtered by approved:true in query, we check status/type for extra safety
-        const isPublished = status === "PUBLISHED";
+        const isPublished = status === "published";
         const isAiProcessed = status === "AI_PROCESSED";
         const isSystemType = ["greeting", "history", "cartoon"].includes(news.type);
         if (news.approved !== true && !isPublished && !isAiProcessed && !isSystemType)
@@ -137,6 +137,7 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
     // 3. Personalized Notifications based on categoryScores
     const notifiedUserIds = new Set();
     const messages = [];
+    // --- A. REGISTERED USERS ---
     for (const [category, news] of bestNewsByCategory.entries()) {
         let startAfterDoc = null;
         let hasMoreUsers = true;
@@ -191,6 +192,31 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
                 startAfterDoc = usersSnapshot.docs[usersSnapshot.docs.length - 1];
         }
         notificationSent.set(news.id, Date.now());
+    }
+    // --- B. GUEST USERS (NEW) ---
+    // ఆ 3100 మంది రిజిస్టర్ అవ్వని గెస్ట్ యూజర్లకు టాప్ వార్తలను పంపడం
+    try {
+        const guestsSnapshot = await db.collection('anonymous_devices')
+            .where('notificationsEnabled', '!=', false)
+            .limit(1000) // గరిష్టంగా 1000 మంది గెస్ట్ లని ఒక రన్ లో ప్రాసెస్ చేస్తాం
+            .get();
+        if (!guestsSnapshot.empty && overallBestNews) {
+            const headline = overallBestNews.headline?.telugu || "తాజా వార్తలు";
+            guestsSnapshot.docs.forEach(doc => {
+                const guest = doc.data();
+                if (guest.fcmToken) {
+                    messages.push({
+                        token: guest.fcmToken,
+                        notification: { title: 'AlfaNews తాజా వార్త', body: (headline + "").substring(0, 150) },
+                        data: { actionUrl: `alfanews://news/${overallBestNews.id}`, newsId: overallBestNews.id }
+                    });
+                }
+            });
+            v2_1.logger.log(`[NOTIF] Added ${guestsSnapshot.size} guest devices to delivery queue.`);
+        }
+    }
+    catch (e) {
+        v2_1.logger.error("[NOTIF] Guest delivery error", e);
     }
     // 4. Send Batch Notifications
     if (messages.length > 0) {

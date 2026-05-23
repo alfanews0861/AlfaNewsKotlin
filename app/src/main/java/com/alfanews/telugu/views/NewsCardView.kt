@@ -397,8 +397,8 @@ fun NewsCardView(
                 // 3. Content + Icons Row (0.62f)
                 Row(modifier = Modifier.fillMaxWidth().weight(0.62f)) {
                     // Content Column
-                    Column(modifier = Modifier.weight(1f).padding(start = 16.dp, end = 0.dp, top = 8.dp, bottom = 12.dp).verticalScroll(scrollState)) {
-                        // Headline
+                    Column(modifier = Modifier.weight(1f).padding(start = 16.dp, end = 0.dp, top = 8.dp, bottom = 12.dp)) {
+                        // Headline (Fixed)
                         Text(
                             text = headlineText, 
                             style = MaterialTheme.typography.headlineSmall.copy(
@@ -412,7 +412,7 @@ fun NewsCardView(
                         
                         Spacer(modifier = Modifier.height(8.dp))
                         
-                        // Meta Section with Dotted Lines
+                        // Meta Section with Dotted Lines (Fixed)
                         DottedLine()
                         
                         Row(
@@ -461,18 +461,20 @@ fun NewsCardView(
                         
                         Spacer(modifier = Modifier.height(8.dp))
                         
-                        // Content Text
-                        Text(
-                            text = contentText, 
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                fontSize = contentSize, 
-                                lineHeight = contentLineHeight, 
-                                fontFamily = contentFontFamily
-                            ), 
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
-                        )
-                        
-                        Spacer(modifier = Modifier.height(100.dp))
+                        // Scrollable Content Area (Only text scrolls if it exceeds available space)
+                        Column(modifier = Modifier.weight(1f).verticalScroll(scrollState)) {
+                            Text(
+                                text = contentText, 
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    fontSize = contentSize, 
+                                    lineHeight = contentLineHeight, 
+                                    fontFamily = contentFontFamily
+                                ), 
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
+                            )
+                            
+                            Spacer(modifier = Modifier.height(40.dp))
+                        }
                     }
 
                     // 4. Icons Column (Vertically Centered in Content Area)

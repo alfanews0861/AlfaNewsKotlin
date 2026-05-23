@@ -43,6 +43,9 @@ data class LocalAd(
     val endDate: Long? = null,
     val totalAmount: Double = 0.0,
     val status: AdStatus = AdStatus.PENDING_PAYMENT,
+    val likes: Int = 0,
+    val comments: Int = 0,
+    val shares: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
     val approvedAt: Long? = null
 ) {
@@ -82,6 +85,9 @@ data class LocalAd(
                 } catch (e: Exception) {
                     AdStatus.PENDING_PAYMENT
                 },
+                likes = (data["likes"] as? Number)?.toInt() ?: 0,
+                comments = (data["comments"] as? Number)?.toInt() ?: 0,
+                shares = (data["shares"] as? Number)?.toInt() ?: 0,
                 createdAt = (data["createdAt"] as? Number)?.toLong() ?: System.currentTimeMillis(),
                 approvedAt = (data["approvedAt"] as? Number)?.toLong()
             )

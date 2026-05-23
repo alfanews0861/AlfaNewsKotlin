@@ -341,7 +341,7 @@ exports.scheduleFestivalGreeting = (0, scheduler_1.onSchedule)({ schedule: "0 5 
             category: 'పండుగలు',
             reporter: { id: 'system', name: 'AlfaNews Team' },
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            status: "PUBLISHED",
+            status: "published",
             approved: true,
             aiProcessed: true
         });
@@ -397,7 +397,7 @@ exports.scheduleQuoteOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "0 4 * *
             category: 'ప్రేరణ',
             reporter: { id: 'system', name: 'AlfaNews Team' },
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            status: "PUBLISHED",
+            status: "published",
             approved: true,
             aiProcessed: true
         });
@@ -449,7 +449,7 @@ exports.scheduleHistoryOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "30 4 
             category: 'చరిత్ర',
             reporter: { id: 'system', name: 'AlfaNews Team' },
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            status: "PUBLISHED",
+            status: "published",
             approved: true,
             aiProcessed: true
         });
@@ -519,7 +519,7 @@ Quality: 4k, artistic, award-winning editorial style.`, '9:16');
                     district: state,
                     reporter: { id: 'BOT_Cartoonist', name: 'Alfa Cartoonist' },
                     timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                    status: "PUBLISHED",
+                    status: "published",
                     approved: true,
                     aiProcessed: true
                 });
@@ -595,29 +595,41 @@ exports.checkSevereWeatherAlerts = (0, scheduler_1.onSchedule)({
             }
             if (isSevere) {
                 console.log(`[WEATHER_ALERT] Severe weather detected in ${district}. Sending notifications...`);
-                // సదరు జిల్లాలోని యూజర్లను కనుగొనడం
-                const usersSnapshot = await db.collection('users')
+                // 1. రిజిస్టర్డ్ యూజర్లను కనుగొనడం
+                const registeredUsers = await db.collection('users')
                     .where('district', '==', district)
                     .where('notificationsEnabled', '!=', false)
-                    .limit(500) // బాచ్ ప్రాసెసింగ్
+                    .limit(500)
                     .get();
-                if (usersSnapshot.empty)
-                    continue;
+                // 2. గెస్ట్ యూజర్లను కనుగొనడం (NEW: 3500 మందికి రీచ్ పెంచడానికి)
+                const guestUsers = await db.collection('anonymous_devices')
+                    .where('notificationsEnabled', '!=', false)
+                    .limit(500)
+                    .get();
                 const messages = [];
-                usersSnapshot.docs.forEach(doc => {
-                    const userData = doc.data();
-                    const token = userData.fcmToken;
-                    if (token) {
+                // రిజిస్టర్డ్ యూజర్ల టోకెన్లు
+                registeredUsers.docs.forEach(doc => {
+                    const token = doc.data().fcmToken;
+                    if (token)
                         messages.push({
                             notification: { title: alertTitle, body: alertBody },
                             data: { type: "WEATHER_ALERT", district: district },
                             token: token
                         });
-                    }
+                });
+                // గెస్ట్ యూజర్ల టోకెన్లు (జిల్లాల వారిగా ఫిల్టర్ లేకపోయినా అందరికీ పంపుతాం - Safe Side)
+                guestUsers.docs.forEach(doc => {
+                    const token = doc.data().fcmToken;
+                    if (token)
+                        messages.push({
+                            notification: { title: alertTitle, body: alertBody },
+                            data: { type: "WEATHER_ALERT", district: district },
+                            token: token
+                        });
                 });
                 if (messages.length > 0) {
                     await admin.messaging().sendEach(messages);
-                    console.log(`[WEATHER_ALERT] Sent ${messages.length} alerts to ${district}.`);
+                    console.log(`[WEATHER_ALERT] Sent ${messages.length} alerts (Registered + Guests).`);
                 }
             }
         }
@@ -1066,7 +1078,7 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
                 await db.collection('news').doc(postId).update({
                     youtubeUrl: youtubeUrl,
                     videoProcessed: true,
-                    status: "PUBLISHED",
+                    status: "published",
                     approved: true, // ✅ Ensure approved is true
                     lastUpdated: admin.firestore.FieldValue.serverTimestamp()
                 });

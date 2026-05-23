@@ -163,6 +163,12 @@ fun NewsFeedView(
     }
     val pagerState = rememberPagerState(pageCount = { totalCount })
 
+    // 🚀 సెన్సిటివిటీని పెంచడానికి ఫ్లింగ్ బిహేవియర్ (ఇమేజ్ మరియు కంటెంట్ ఏరియాలో ఒకేలా ఉంటుంది)
+    val flingBehavior = PagerDefaults.flingBehavior(
+        state = pagerState,
+        snapPositionalThreshold = 0.15f // 15% దూరం జరిపితే చాలు పేజీ మారిపోతుంది (చాలా స్మూత్ గా ఉంటుంది)
+    )
+
     // Scroll to shared/initial post when available
     LaunchedEffect(sharedPostId, news.size) {
         if (sharedPostId != null && news.isNotEmpty()) {
@@ -307,6 +313,7 @@ fun NewsFeedView(
                  state = pagerState,
                  modifier = Modifier.fillMaxSize(),
                  userScrollEnabled = true,
+                 flingBehavior = flingBehavior,
                  key = { page ->
                     val isAd = (page + 1) % 6 == 0
                     if (isAd) {
