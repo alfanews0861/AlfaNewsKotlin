@@ -192,7 +192,8 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
                 val localMediaUri = mediaUri
                 if (localMediaUri != null) {
                     statusMessage = "మీడియా అప్‌లోడ్ చేయబడుతోంది..."
-                    val isVideo = context.contentResolver.getType(localMediaUri)?.startsWith("video/") == true
+                    val mimeType = try { context.contentResolver.getType(localMediaUri) } catch (e: Exception) { null }
+                    val isVideo = mimeType?.startsWith("video/") == true
                     mediaUrl = uploadMediaToStorage(context, localMediaUri, "citizen-media", isVideo)
                 }
 
@@ -203,7 +204,7 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
                     "headline" to mapOf("telugu" to (if (content.length > 50) content.take(50) + "..." else content), "english" to ""),
                     "content" to mapOf("telugu" to content, "english" to ""),
                     "mediaUrl" to mediaUrl,
-                    "mediaType" to if (mediaUrl.contains("video")) "VIDEO" else "IMAGE",
+                    "mediaType" to if (mediaUrl.contains(".mp4") || mediaUrl.contains("video")) "VIDEO" else "IMAGE",
                     "location" to selectedMandal,
                     "categories" to finalCategories,
                     "reporter" to mapOf("id" to user.id, "name" to if (isAnonymous) "అజ్ఞాత పౌరుడు" else user.name),

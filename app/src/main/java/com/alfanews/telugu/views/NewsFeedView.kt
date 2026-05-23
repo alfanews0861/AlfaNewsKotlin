@@ -139,8 +139,8 @@ fun NewsFeedView(
 
      val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
      LaunchedEffect(news) {
-         // ✅ Aggressive Preloading: Load first 15 images to ensure smooth scroll for fast users
-         val postsToPreload = news.take(15)
+         // 🖼️ Memory Optimization: 15 నుండి 5 కి తగ్గించాం
+         val postsToPreload = news.take(5)
          postsToPreload.forEach { post: com.alfanews.telugu.models.NewsPost ->
              if (post.mediaUrl.isNotEmpty()) {
                  val request = ImageRequest.Builder(context)
@@ -213,9 +213,9 @@ fun NewsFeedView(
                   viewModel.loadMore(language, currentUser)
               }
 
-              // ✅ Aggressive Preloading: Preload 15 images ahead for ultra-fast scrolling
+              // 🖼️ Memory Optimization: Preload only 3 images ahead instead of 15
               // Only preload forward, not backward
-              (1..15).forEach { offset ->
+              (1..3).forEach { offset ->
                   val nextPageIndex = page + offset
                   val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
                   if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {

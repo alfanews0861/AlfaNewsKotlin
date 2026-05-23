@@ -190,11 +190,16 @@ class MainActivity : ComponentActivity() {
             if (appUpdateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
                 appUpdateInfo.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE)) {
                 
-                appUpdateManager.startUpdateFlowForResult(
-                    appUpdateInfo,
-                    this,
-                    AppUpdateOptions.newBuilder(AppUpdateType.FLEXIBLE).build(),
-                    updateRequestCode)
+                try {
+                    appUpdateManager.startUpdateFlowForResult(
+                        appUpdateInfo,
+                        this,
+                        AppUpdateOptions.newBuilder(AppUpdateType.FLEXIBLE).build(),
+                        updateRequestCode
+                    )
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "Failed to start update flow", e)
+                }
             }
         }
     }
