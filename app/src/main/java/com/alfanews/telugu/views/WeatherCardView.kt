@@ -22,6 +22,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -46,7 +48,8 @@ fun WeatherCardView(
     post: NewsPost,
     language: Language,
     modifier: Modifier = Modifier,
-    onLocationRequest: () -> Unit = {}
+    onLocationRequest: () -> Unit = {},
+    showTopHeader: Boolean = true // ✅ New parameter
 ) {
     val context = LocalContext.current
     val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
@@ -159,7 +162,7 @@ fun WeatherCardView(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
+            .background(MaterialTheme.colorScheme.background)
     ) {
         // GPS WARNING BANNER
         if (!isUsingGPS) {
@@ -208,42 +211,44 @@ fun WeatherCardView(
             }
         }
 
-        // HEADER - App Name
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(60.dp)
-                .padding(horizontal = 20.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "alfa",
-                fontSize = 28.sp,
-                fontFamily = Ramabhadra,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = "news",
-                fontSize = 28.sp,
-                fontFamily = Ramabhadra,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            Icon(
-                imageVector = Icons.Default.LocationOn,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Text(
-                text = if (weatherTime.isNotEmpty()) "${post.location} ($weatherTime)" else post.location,
-                fontSize = 14.sp,
-                fontFamily = Ramabhadra,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(start = 4.dp)
-            )
+        // HEADER - App Name - ✅ Only show if requested
+        if (showTopHeader) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(60.dp)
+                    .padding(horizontal = 20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "alfa",
+                    fontSize = 28.sp,
+                    fontFamily = Ramabhadra,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "news",
+                    fontSize = 28.sp,
+                    fontFamily = Ramabhadra,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Icon(
+                    imageVector = Icons.Default.LocationOn,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = if (weatherTime.isNotEmpty()) "${post.location} ($weatherTime)" else post.location,
+                    fontSize = 14.sp,
+                    fontFamily = Ramabhadra,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            }
         }
 
         // WEATHER GRAPHIC AREA
@@ -384,7 +389,7 @@ fun WeatherCardView(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(0.58f),
-            color = MaterialTheme.colorScheme.surface
+            color = MaterialTheme.colorScheme.background
         ) {
             Column(
                 modifier = Modifier
@@ -405,7 +410,8 @@ fun WeatherCardView(
                     text = content,
                     fontSize = 18.sp,
                     fontFamily = Mallanna,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                    style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+                    color = MaterialTheme.colorScheme.onSurface,
                     lineHeight = 26.sp,
                     modifier = Modifier
                         .fillMaxWidth()

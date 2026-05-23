@@ -67,12 +67,12 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     private var lastRefreshTimeLong: Long = 0
     private val pageSize = 20
     private var loadJob: Job? = null
+    private var isFetching = false
     
     fun setDistrict(district: String) {
         if (prefs.selectedDistrict == district && _activeDistrict.value == district) return
-        if (_news.value.isEmpty()) {
-            _loading.value = true
-        }
+        _news.value = emptyList() // 🔄 Clear old news to avoid confusion when switching districts
+        _loading.value = true     // 🔄 Show preparation screen
         _hasMore.value = true
         prefs.selectedDistrict = district
         _activeDistrict.value = district
@@ -244,6 +244,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             return
         }
         
+        // 🔄 BACKGROUND LOAD: Only show full-screen loading if we have no news to show.
         if (_news.value.isEmpty()) {
             _loading.value = true 
         }
@@ -251,9 +252,13 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         loadJob?.cancel()
         
         loadJob = viewModelScope.launch {
+            if (isFetching) return@launch
+            isFetching = true
+            
             if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
                 _isOnline.value = false
                 _loading.value = false
+                isFetching = false
                 return@launch
             }
             _isOnline.value = true
@@ -306,8 +311,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 
                 if (finalPosts.size >= 8) {
                     finalPosts.add(8, generateWeatherPost(prefs.localPlace, district, lat, lon))
-                } else if (finalPosts.isNotEmpty()) {
-                    finalPosts.add(generateWeatherPost(prefs.localPlace, district, lat, lon))
+                } else {
+                    // ✅ ALWAYS add weather post, even if there's no other news
+                    finalPosts.add(0, generateWeatherPost(prefs.localPlace, district, lat, lon))
                 }
 
                 _news.value = finalPosts
@@ -321,16 +327,18 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                  _hasMore.value = false
             } finally {
                 _loading.value = false
+                isFetching = false
             }
         }
     }
     
     fun loadMore(language: Language, currentUser: User?) {
          val district = _activeDistrict.value ?: return
-         if (!_hasMore.value || _loading.value || lastDocument == null) return
+         val currentLastDoc = lastDocument
+         if (!_hasMore.value || isFetching || currentLastDoc == null) return
          
          viewModelScope.launch {
-             _loading.value = true
+             isFetching = true
              try {
                  val newsRef = FirebaseService.db.collection("news")
                  var newPosts: List<NewsPost> = emptyList()
@@ -340,7 +348,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                          .whereEqualTo("status", "published")
                          .whereArrayContains("categories", district)
                          .orderBy("timestamp", Query.Direction.DESCENDING)
-                         .let { if (lastDocument != null) it.startAfter(lastDocument!!) else it }
+                         .startAfter(currentLastDoc)
                          .limit(pageSize.toLong())
                      snapshot = query.get().await()
                      newPosts = withContext(Dispatchers.Default) {
@@ -352,7 +360,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                              .whereEqualTo("status", "published")
                              .whereEqualTo("district", district)
                              .orderBy("timestamp", Query.Direction.DESCENDING)
-                             .let { if (lastDocument != null) it.startAfter(lastDocument!!) else it }
+                             .startAfter(currentLastDoc)
                              .limit(pageSize.toLong())
                          snapshot = fallbackQuery.get().await()
                          newPosts = withContext(Dispatchers.Default) {
@@ -373,7 +381,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
              } catch (e: Exception) {
                  _hasMore.value = false
              } finally {
-                 _loading.value = false
+                 isFetching = false
              }
          }
      }

@@ -47,6 +47,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
@@ -101,6 +103,7 @@ fun NewsCardView(
     onDistrictClick: () -> Unit = {},
     district: String? = null,
     showDistrictSelector: Boolean = false,
+    showTopHeader: Boolean = true, // ✅ New parameter to toggle header
     autoShare: Boolean = false,
     onAutoShareDone: () -> Unit = {},
     onEditClick: (NewsPost) -> Unit = {}
@@ -313,17 +316,49 @@ fun NewsCardView(
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
-                // 1. Header (reduced height)
-                Row(modifier = Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(text = "alfa", fontSize = 28.sp, fontFamily = Ramabhadra, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                        Text(text = "news", fontSize = 28.sp, fontFamily = Ramabhadra, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    }
-                    if (showDistrictSelector) {
-                        TextButton(onClick = onDistrictClick, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
-                            Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(4.dp))
-                            Text(text = district ?: "Select District", fontSize = 14.sp, fontFamily = Ramabhadra, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                // 1. Header (reduced height) - ✅ Only show if requested
+                if (showTopHeader) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "alfa",
+                                fontSize = 28.sp,
+                                fontFamily = Ramabhadra,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "news",
+                                fontSize = 28.sp,
+                                fontFamily = Ramabhadra,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        if (showDistrictSelector) {
+                            TextButton(
+                                onClick = onDistrictClick,
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.LocationOn,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = district ?: "Select District",
+                                    fontSize = 14.sp,
+                                    fontFamily = Ramabhadra,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
                         }
                     }
                 }
@@ -366,7 +401,7 @@ fun NewsCardView(
                                 val sourceText = if (language == Language.TELUGU) "మూలం: " else "Source: "
                                 Text(
                                     text = "$sourceText${post.reporter.name}",
-                                    color = Color.White.copy(alpha = 0.9f),
+                                    color = Color.White,
                                     fontSize = 11.sp,
                                     fontFamily = Mallanna,
                                     modifier = Modifier
@@ -401,11 +436,12 @@ fun NewsCardView(
                         // Headline (Fixed)
                         Text(
                             text = headlineText, 
-                            style = MaterialTheme.typography.headlineSmall.copy(
+                            style = TextStyle(
                                 fontSize = headlineSize, 
                                 lineHeight = headlineLineHeight, 
                                 fontWeight = headlineFontWeight, 
-                                fontFamily = headlineFontFamily
+                                fontFamily = headlineFontFamily,
+                                platformStyle = PlatformTextStyle(includeFontPadding = false)
                             ), 
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -439,7 +475,7 @@ fun NewsCardView(
                                 text = post.location,
                                 fontSize = 12.sp,
                                 fontFamily = Ramabhadra,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false)
@@ -451,7 +487,7 @@ fun NewsCardView(
                                 text = formattedTimestamp,
                                 fontSize = 10.sp,
                                 fontFamily = Mallanna,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -465,12 +501,13 @@ fun NewsCardView(
                         Column(modifier = Modifier.weight(1f).verticalScroll(scrollState)) {
                             Text(
                                 text = contentText, 
-                                style = MaterialTheme.typography.bodyLarge.copy(
+                                style = TextStyle(
                                     fontSize = contentSize, 
                                     lineHeight = contentLineHeight, 
-                                    fontFamily = contentFontFamily
+                                    fontFamily = contentFontFamily,
+                                    platformStyle = PlatformTextStyle(includeFontPadding = false)
                                 ), 
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             
                             Spacer(modifier = Modifier.height(40.dp))

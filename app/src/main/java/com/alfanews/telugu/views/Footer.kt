@@ -31,17 +31,16 @@ fun Footer(
     activeTab: String,
     onTabChange: (String) -> Unit
 ) {
-    val bgColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.98f)) // Slightly grey background
     ) {
         Column {
             NavigationBar(
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 containerColor = Color.Transparent,
-                contentColor = MaterialTheme.colorScheme.onSurface,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 tonalElevation = 0.dp,
                 windowInsets = WindowInsets.navigationBars
             ) {
@@ -90,7 +89,7 @@ fun RowScope.FooterItem(
     onClick: () -> Unit
 ) {
     val selectedColor = MaterialTheme.colorScheme.primary
-    val unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    val unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
     
     NavigationBarItem(
         icon = {

@@ -110,7 +110,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
      fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null) {
           if (isFetching && initialPostId == null) return
-          _loading.value = true 
+          if (_news.value.isEmpty()) {
+              _loading.value = true 
+          }
           isFetching = true
 
            viewModelScope.launch {
@@ -162,8 +164,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                        val initialList = mutableListOf<NewsPost>()
                        initialGreeting?.let { initialList.add(it) }
                        initialList.addAll(fastBatch.first)
-                       _news.value = initialList.distinctBy { it.id }
-                       _loading.value = false 
+                       
+                       // 🔄 BACKGROUND REFRESH: Only apply fast batch if the list is currently empty.
+                       // This prevents the "blank screen" or "jump" issue when news is refreshed in the background.
+                       if (_news.value.isEmpty()) {
+                           _news.value = initialList.distinctBy { it.id }
+                           _loading.value = false 
+                       }
                    }
 
                    // 🧠 BACKGROUND PROCESSING: Heavy 40/30/30 Mixing

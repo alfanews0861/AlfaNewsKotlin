@@ -254,161 +254,152 @@ fun NewsFeedView(
         modifier = Modifier
             .fillMaxSize()
     ) {
-        if (!isOnline && news.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.padding(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                    )
-                    Text(
-                        text = stringResource(R.string.no_internet),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Text(
-                        text = stringResource(R.string.check_internet),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
-                    Button(
-                        onClick = { viewModel.loadNews(language, currentUser, initialPostId) }
-                    ) {
-                        Text(text = stringResource(R.string.retry))
-                    }
-                }
-            }
-        } else if (loading && news.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(40.dp),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = stringResource(R.string.news_preparing),
-                        color = MaterialTheme.colorScheme.onBackground,
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
-            }
-        } else {
-             VerticalPager(
-                 state = pagerState,
-                 modifier = Modifier.fillMaxSize(),
-                 userScrollEnabled = true,
-                 flingBehavior = flingBehavior,
-                 key = { page ->
-                    val isAd = (page + 1) % 6 == 0
-                    if (isAd) {
-                        val adIndex = page / 6
-                        val totalLocalCount = localAds.size
-                        val totalSlots = if (totalLocalCount in 1..5) totalLocalCount + 1 else totalLocalCount
-                        
-                        if (totalLocalCount > 0) {
-                            val slotIndex = adIndex % totalSlots
-                            if (slotIndex < totalLocalCount) {
-                                val localAd = localAds[slotIndex]
-                                "home_local_ad_${localAd.id}_$page"
-                            } else {
-                                "home_ad_fallback_mix_$page"
-                            }
-                        } else {
-                            "home_ad_fallback_$page"
-                        }
-                    } else {
-                        val idx = page - (page / 6)
-                        if (idx < news.size) news[idx].id else "empty_$page"
-                    }
-                }
-             ) { page ->
-                  Box(
-                      modifier = Modifier.fillMaxSize()
-                  ) {
-                    val isAdPage = (page + 1) % 6 == 0
-                    if (isAdPage) {
-                        val adIndex = page / 6
-                        
-                        // 🔄 Smart Ad Rotation: If local ads are few (<= 5), mix with AdMob to avoid repetition
-                        val totalLocalCount = localAds.size
-                        val totalSlots = if (totalLocalCount in 1..5) totalLocalCount + 1 else totalLocalCount
-                        
-                        val localAd = if (totalLocalCount > 0) {
-                            val slotIndex = adIndex % totalSlots
-                            if (slotIndex < totalLocalCount) localAds[slotIndex] else null
-                        } else null
+        Column(modifier = Modifier.fillMaxSize()) {
+            // ✅ FIXED HEADER: Always visible even if news is empty or loading
+            LogoHeader(
+                district = userDistrict,
+                showDistrictSelector = true,
+                onDistrictClick = onDistrictClickRemembered
+            )
 
-                        if (localAd != null) {
-                            LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize())
-                        } else {
-                            val nativeAd = preloadedAds[page]
-                            if (nativeAd != null) {
-                                AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)
+            Box(modifier = Modifier.weight(1f)) {
+                if (!isOnline && news.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.padding(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                modifier = Modifier.size(64.dp),
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                            )
+                            Text(
+                                text = stringResource(R.string.no_internet),
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                text = stringResource(R.string.check_internet),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                            Button(
+                                onClick = { viewModel.loadNews(language, currentUser, initialPostId) }
+                            ) {
+                                Text(text = stringResource(R.string.retry))
+                            }
+                        }
+                    }
+                } else if (loading && news.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(40.dp),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = stringResource(R.string.news_preparing),
+                                color = MaterialTheme.colorScheme.onBackground,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    }
+                } else {
+                    VerticalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize(),
+                        userScrollEnabled = true,
+                        flingBehavior = flingBehavior,
+                        key = { page ->
+                            val isAd = (page + 1) % 6 == 0
+                            if (isAd) {
+                                "home_ad_slot_$page"
                             } else {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (preloadedAds.containsKey(page)) {
-                                        Text(
-                                            text = stringResource(R.string.sponsored_content),
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                            fontSize = 12.sp
+                                val idx = page - (page / 6)
+                                if (idx < news.size) news[idx].id else "empty_$page"
+                            }
+                        }
+                    ) { page ->
+                        Box(
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            val isAdPage = (page + 1) % 6 == 0
+                            if (isAdPage) {
+                                val adIndex = page / 6
+                                val nativeAd = preloadedAds[page]
+                                val totalLocalCount = localAds.size
+
+                                // 🔄 Smart Rotation & Priority Logic:
+                                // 1. AdMob and Local Ads rotate 1:1 to ensure variety.
+                                // 2. We respect the user's "Priority to AdMob" by making AdMob the default fallback.
+                                // 3. Local ads are rotated using (adIndex % totalLocalCount).
+                                val preferAdMob = adIndex % 2 == 0
+
+                                if (preferAdMob) {
+                                    // 🚀 AdMob Slot (Priority)
+                                    if (nativeAd != null) {
+                                        AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)
+                                    } else if (totalLocalCount > 0) {
+                                        // Fallback to Local Ad if AdMob is still loading or failed
+                                        val localAd = localAds[adIndex % totalLocalCount]
+                                        LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize())
+                                    } else {
+                                        AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = null)
+                                    }
+                                } else {
+                                    // 🏠 Local Ad Slot (Priority)
+                                    if (totalLocalCount > 0) {
+                                        val localAd = localAds[adIndex % totalLocalCount]
+                                        LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize())
+                                    } else if (nativeAd != null) {
+                                        // Fallback to AdMob if no local ads are available
+                                        AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)
+                                    } else {
+                                        AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = null)
+                                    }
+                                }
+                            } else {
+                                val newsIndex = page - (page / 6)
+                                if (newsIndex >= 0 && newsIndex < news.size) {
+                                    val post = news[newsIndex]
+                                    if (post.type == "weather") {
+                                        WeatherCardView(
+                                            post = post,
+                                            language = language,
+                                            onLocationRequest = {
+                                                viewModel.detectLocation(context, currentUser, language)
+                                            },
+                                            modifier = Modifier.fillMaxSize()
                                         )
                                     } else {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(24.dp),
-                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                                            strokeWidth = 2.dp
+                                        NewsCardView(
+                                            post = post,
+                                            language = language,
+                                            currentUser = currentUser,
+                                            onProfileClick = onProfileClickRemembered,
+                                            onReporterClick = onReporterClickRemembered,
+                                            onDistrictClick = onDistrictClickRemembered,
+                                            autoShare = sharedPostId == post.id,
+                                            onAutoShareDone = onAutoShareDoneRemembered,
+                                            onEditClick = onEditClickRemembered,
+                                            modifier = Modifier.fillMaxSize(),
+                                            showTopHeader = false // ✅ Header is already shown at top level
                                         )
                                     }
                                 }
-                            }
-                        }
-                    } else {
-                        val newsIndex = page - (page / 6)
-                        if (newsIndex >= 0 && newsIndex < news.size) {
-                            val post = news[newsIndex]
-                            if (post.type == "weather") {
-                                WeatherCardView(
-                                    post = post,
-                                    language = language,
-                                    onLocationRequest = {
-                                        viewModel.detectLocation(context, currentUser, language)
-                                    },
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                NewsCardView(
-                                    post = post,
-                                    language = language,
-                                    currentUser = currentUser,
-                                    onProfileClick = onProfileClickRemembered,
-                                    onReporterClick = onReporterClickRemembered,
-                                    onDistrictClick = onDistrictClickRemembered,
-                                    autoShare = sharedPostId == post.id,
-                                    onAutoShareDone = onAutoShareDoneRemembered,
-                                    onEditClick = onEditClickRemembered,
-                                    modifier = Modifier.fillMaxSize()
-                                )
                             }
                         }
                     }
