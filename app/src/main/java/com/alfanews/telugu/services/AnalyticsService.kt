@@ -235,6 +235,34 @@ object AnalyticsService {
         logAnalyticsEvent("full_read_bonus")
     }
 
+    /**
+     * యూజర్ వార్తను 4 సెకన్ల కంటే ఎక్కువ సేపు చదివితే దీన్ని పిలుస్తాం.
+     * ఇది నిజమైన యూజర్ ఇంట్రెస్ట్ ని తెలుపుతుంది.
+     */
+    fun logLongView(postId: String) {
+        scope.launch {
+            try {
+                FirebaseService.db.collection("news").document(postId)
+                    .update("longViews", com.google.firebase.firestore.FieldValue.increment(1))
+            } catch (e: Exception) {
+                // ఒకవేళ ఫీల్డ్ లేకపోతే క్రియేట్ చేయడానికి
+                FirebaseService.db.collection("news").document(postId)
+                    .set(mapOf("longViews" to 1), com.google.firebase.firestore.SetOptions.merge())
+            }
+        }
+    }
+
+    /**
+     * నోటిఫికేషన్ పర్మిషన్ స్టేటస్ ని లాగ్ చేస్తుంది.
+     * దీనివల్ల ఎంతమంది వద్దన్నారో మనం రిపోర్ట్ చూడవచ్చు.
+     */
+    fun logNotificationPermissionStatus(granted: Boolean) {
+        val bundle = android.os.Bundle().apply {
+            putString("status", if (granted) "granted" else "denied")
+        }
+        logAnalyticsEvent("notif_perm_status", bundle)
+    }
+
     fun getUserPreferredCategories(): List<String> {
         return cachedPreferredCategories ?: synchronized(categoryScores) {
             cachedPreferredCategories ?: if (categoryScores.isEmpty()) emptyList<String>() else {

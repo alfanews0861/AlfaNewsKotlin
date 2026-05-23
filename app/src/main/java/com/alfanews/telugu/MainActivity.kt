@@ -41,7 +41,8 @@ import com.google.android.play.core.install.model.AppUpdateType
 import com.google.android.play.core.install.model.InstallStatus
 import com.google.android.play.core.install.model.UpdateAvailability
 import com.google.firebase.dynamiclinks.FirebaseDynamicLinks
-
+import android.provider.Settings
+import androidx.core.app.NotificationManagerCompat
 import android.content.Context
 import com.alfanews.telugu.utils.LocaleHelper
 import com.alfanews.telugu.utils.PreferenceManager
@@ -216,8 +217,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    fun openNotificationSettings() {
+        val intent = Intent().apply {
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> {
+                    action = Settings.ACTION_APP_NOTIFICATION_SETTINGS
+                    putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                }
+                else -> {
+                    action = "android.settings.APP_NOTIFICATION_SETTINGS"
+                    putExtra("app_package", packageName)
+                    putExtra("app_uid", applicationInfo.uid)
+                }
+            }
+        }
+        startActivity(intent)
+    }
+
     override fun onResume() {
         super.onResume()
+        
+        // నోటిఫికేషన్ పర్మిషన్ స్టేటస్ ని చెక్ చేయడం
+        val isEnabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
+        mainViewModel.setNotificationsGranted(isEnabled)
+        com.alfanews.telugu.services.AnalyticsService.logNotificationPermissionStatus(isEnabled)
+
         appUpdateManager.appUpdateInfo.addOnSuccessListener { appUpdateInfo ->
             // అప్‌డేట్ ఇప్పటికే డౌన్‌లోడ్ అయి ఉంటే, ఆటోమేటిక్‌గా ఇన్‌స్టాల్ చేయి
             if (appUpdateInfo.installStatus() == InstallStatus.DOWNLOADED) {

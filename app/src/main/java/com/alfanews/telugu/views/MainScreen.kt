@@ -34,6 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.alfanews.telugu.R
+import com.alfanews.telugu.MainActivity
 import com.alfanews.telugu.utils.glassmorphism
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,6 +72,9 @@ fun MainScreen(
 
     val context = LocalContext.current
     val isUpdateDownloaded by mainViewModel.isUpdateDownloaded.collectAsStateWithLifecycle()
+    
+    val notificationsGranted by mainViewModel.notificationsGranted.collectAsStateWithLifecycle()
+    var showNotifBannerSession by remember { mutableStateOf(true) }
 
     LaunchedEffect(isUpdateDownloaded) {
         if (isUpdateDownloaded) {
@@ -126,6 +130,69 @@ fun MainScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
+                // 🔔 నోటిఫికేషన్ బ్యానర్ - పర్మిషన్ లేకపోతే చూపిస్తాం
+                if (!notificationsGranted && showNotifBannerSession && activeTab == "home" && reporterIdToShow == null && !showPostNewsPage) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isDark) Color(0xFF310000) else Color(0xFFFFEBEE)
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .padding(12.dp)
+                                .fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.NotificationsOff,
+                                contentDescription = null,
+                                tint = if (isDark) Color(0xFFFF8A80) else Color(0xFFD32F2F),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (language == Language.TELUGU) "నోటిఫికేషన్లు ఆఫ్ చేయబడ్డాయి" else "Notifications are Off",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = if (isDark) Color.White else Color.Black
+                                )
+                                Text(
+                                    text = if (language == Language.TELUGU) "వాతావరణ హెచ్చరికలు మరియు బ్రేకింగ్ న్యూస్ మిస్ కాకుండా ఉండటానికి ఆన్ చేయండి." else "Enable to receive weather alerts and breaking news.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isDark) Color.LightGray else Color.DarkGray
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                TextButton(
+                                    onClick = { (context as? MainActivity)?.openNotificationSettings() },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                ) {
+                                    Text(
+                                        text = if (language == Language.TELUGU) "సెట్టింగ్స్" else "Settings",
+                                        color = if (isDark) Color(0xFFFF8A80) else Color(0xFFD32F2F),
+                                        style = MaterialTheme.typography.labelLarge
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { showNotifBannerSession = false },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Dismiss",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = if (isDark) Color.Gray else Color.LightGray
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 val user = currentUser
 
                 if (reporterIdToShow != null) {

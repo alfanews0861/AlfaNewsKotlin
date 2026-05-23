@@ -5,6 +5,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.util.Log
@@ -19,6 +21,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * ఫైర్‌బేస్ క్లౌడ్ మెసేజింగ్ (FCM) ద్వారా నోటిఫికేషన్లను స్వీకరించడానికి మరియు 
@@ -50,10 +54,11 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         val title = remoteMessage.data["title"] ?: remoteMessage.notification?.title
         val body = remoteMessage.data["body"] ?: remoteMessage.notification?.body
         val actionUrl = remoteMessage.data["actionUrl"]
+        val imageUrl = remoteMessage.data["imageUrl"] ?: remoteMessage.notification?.imageUrl?.toString()
         val channelId = remoteMessage.data["channelId"] ?: AppNotificationChannel.GENERAL.id
 
         if (title != null && body != null) {
-            sendNotification(title, body, channelId, actionUrl)
+            sendNotification(title, body, channelId, actionUrl, imageUrl)
         }
     }
 
@@ -68,31 +73,46 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
     /**
      * FCM టోకెన్‌ను ఫైర్‌స్టోర్ (Firestore) డేటాబేస్‌లో సేవ్ చేస్తుంది.
+     * రిజిస్టర్డ్ మరియు గెస్ట్ యూజర్లు ఇద్దరికీ ఇది పనిచేస్తుంది.
      */
     private fun saveTokenToFirestore(token: String) {
-        val uid = FirebaseService.auth.currentUser?.uid ?: return
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                // Cloud Function expects 'fcmToken' as a string field
-                // And we also update the 'fcmTokens' list for future proofing
-                FirebaseService.db.collection("users").document(uid)
-                    .update(
-                        "fcmToken", token,
-                        "fcmTokens", com.google.firebase.firestore.FieldValue.arrayUnion(token)
-                    ).await()
-                Log.d("MyFirebaseMsgService", "Token updated in Firestore")
-            } catch (e: Exception) {
-                // If the document doesn't exist, use set with merge
+        val uid = FirebaseService.auth.currentUser?.uid
+        val db = FirebaseService.db
+        
+        if (uid != null) {
+            // రిజిస్టర్డ్ యూజర్ కోసం
+            CoroutineScope(Dispatchers.IO).launch {
                 try {
+                    db.collection("users").document(uid)
+                        .update(
+                            "fcmToken", token,
+                            "fcmTokens", com.google.firebase.firestore.FieldValue.arrayUnion(token),
+                            "lastActive", com.google.firebase.firestore.FieldValue.serverTimestamp()
+                        ).await()
+                } catch (e: Exception) {
                     val data = mapOf(
                         "fcmToken" to token,
-                        "fcmTokens" to listOf(token)
+                        "fcmTokens" to listOf(token),
+                        "notificationsEnabled" to true,
+                        "lastActive" to com.google.firebase.firestore.FieldValue.serverTimestamp()
                     )
-                    FirebaseService.db.collection("users").document(uid)
-                        .set(data, com.google.firebase.firestore.SetOptions.merge()).await()
-                    Log.d("MyFirebaseMsgService", "Token set in Firestore")
-                } catch (innerE: Exception) {
-                    Log.e("MyFirebaseMsgService", "Failed to update token", innerE)
+                    db.collection("users").document(uid).set(data, com.google.firebase.firestore.SetOptions.merge()).await()
+                }
+            }
+        } else {
+            // గెస్ట్ యూజర్ (Anonymous) కోసం - 'anonymous_devices' లో సేవ్ చేస్తాం
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val guestData = mapOf(
+                        "fcmToken" to token,
+                        "isAnonymous" to true,
+                        "notificationsEnabled" to true,
+                        "lastActive" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                    )
+                    val tokenId = token.take(30).replace("/", "_") 
+                    db.collection("anonymous_devices").document(tokenId).set(guestData, com.google.firebase.firestore.SetOptions.merge()).await()
+                } catch (e: Exception) {
+                    Log.e("MyFirebaseMsgService", "Failed to save guest token", e)
                 }
             }
         }
@@ -140,8 +160,9 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
      * @param messageBody నోటిఫికేషన్ సందేశం.
      * @param channelId ఛానెల్ ID.
      * @param actionUrl నోటిఫికేషన్ క్లిక్ చేసినప్పుడు తెరవవలసిన URL (ఉంటే).
+     * @param imageUrl నోటిఫికేషన్‌లో చూపించాల్సిన చిత్రం URL.
      */
-    private fun sendNotification(title: String, messageBody: String, channelId: String, actionUrl: String?) {
+    private fun sendNotification(title: String, messageBody: String, channelId: String, actionUrl: String?, imageUrl: String?) {
         val intent = if (actionUrl != null && actionUrl.isNotEmpty()) {
             Intent(Intent.ACTION_VIEW, Uri.parse(actionUrl))
         } else {
@@ -163,6 +184,26 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             .setContentText(messageBody)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+
+        // 🖼️ Rich Notification: ఫోటో ఉంటే దాన్ని డౌన్‌లోడ్ చేసి చూపిస్తాం
+        if (!imageUrl.isNullOrBlank()) {
+            try {
+                val url = URL(imageUrl)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.doInput = true
+                connection.connect()
+                val input = connection.inputStream
+                val bitmap = BitmapFactory.decodeStream(input)
+                if (bitmap != null) {
+                    notificationBuilder.setLargeIcon(bitmap)
+                    notificationBuilder.setStyle(NotificationCompat.BigPictureStyle()
+                        .bigPicture(bitmap)
+                        .bigLargeIcon(null as Bitmap?))
+                }
+            } catch (e: Exception) {
+                Log.e("MyFirebaseMsgService", "Error loading notification image", e)
+            }
+        }
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 

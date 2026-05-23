@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
@@ -68,6 +69,7 @@ fun NewsFeedView(
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -190,6 +192,22 @@ fun NewsFeedView(
 
       LaunchedEffect(pagerState, news.size) {
           snapshotFlow { pagerState.currentPage }.collect { page ->
+              // ⏱️ Long View Tracking: ఒక వార్తను 4 సెకన్ల కంటే ఎక్కువ చూస్తే రికార్డ్ చేస్తాం
+              val isAdSlot = (page + 1) % 6 == 0
+              if (!isAdSlot) {
+                  val newsIndex = page - (page / 6)
+                  if (newsIndex >= 0 && newsIndex < news.size) {
+                      val currentPost = news[newsIndex]
+                      scope.launch {
+                          kotlinx.coroutines.delay(4000) // 4 సెకన్లు వేచి చూడాలి
+                          // యూజర్ ఇంకా అదే పేజీలో ఉన్నారో లేదో చెక్ చేయాలి
+                          if (pagerState.currentPage == page) {
+                              com.alfanews.telugu.services.AnalyticsService.logLongView(currentPost.id)
+                          }
+                      }
+                  }
+              }
+
               val currentNewsIndex = page - (page / 6)
               if (currentNewsIndex >= news.size - 7 && hasMore && !loading) {
                   viewModel.loadMore(language, currentUser)

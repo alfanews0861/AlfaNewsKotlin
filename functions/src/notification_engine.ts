@@ -111,6 +111,7 @@ export const sendPersonalizedNotification = onSchedule({
     const notifiedUserIds = new Set<string>();
     const messages: admin.messaging.Message[] = [];
 
+    // --- A. REGISTERED USERS ---
     for (const [category, news] of bestNewsByCategory.entries()) {
         let startAfterDoc: any = null;
         let hasMoreUsers = true;
@@ -169,6 +170,30 @@ export const sendPersonalizedNotification = onSchedule({
         }
         notificationSent.set(news.id, Date.now());
     }
+
+    // --- B. GUEST USERS (NEW) ---
+    // ఆ 3100 మంది రిజిస్టర్ అవ్వని గెస్ట్ యూజర్లకు టాప్ వార్తలను పంపడం
+    try {
+        const guestsSnapshot = await db.collection('anonymous_devices')
+            .where('notificationsEnabled', '!=', false)
+            .limit(1000) // గరిష్టంగా 1000 మంది గెస్ట్ లని ఒక రన్ లో ప్రాసెస్ చేస్తాం
+            .get();
+
+        if (!guestsSnapshot.empty && overallBestNews) {
+            const headline = overallBestNews.headline?.telugu || "తాజా వార్తలు";
+            guestsSnapshot.docs.forEach(doc => {
+                const guest = doc.data();
+                if (guest.fcmToken) {
+                    messages.push({
+                        token: guest.fcmToken,
+                        notification: { title: 'AlfaNews తాజా వార్త', body: (headline + "").substring(0, 150) },
+                        data: { actionUrl: `alfanews://news/${overallBestNews.id}`, newsId: overallBestNews.id }
+                    });
+                }
+            });
+            logger.log(`[NOTIF] Added ${guestsSnapshot.size} guest devices to delivery queue.`);
+        }
+    } catch (e) { logger.error("[NOTIF] Guest delivery error", e); }
 
     // 4. Send Batch Notifications
     if (messages.length > 0) {

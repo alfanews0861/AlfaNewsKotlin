@@ -584,31 +584,44 @@ export const checkSevereWeatherAlerts = onSchedule({
             if (isSevere) {
                 console.log(`[WEATHER_ALERT] Severe weather detected in ${district}. Sending notifications...`);
 
-                // సదరు జిల్లాలోని యూజర్లను కనుగొనడం
-                const usersSnapshot = await db.collection('users')
+                // 1. రిజిస్టర్డ్ యూజర్లను కనుగొనడం
+                const registeredUsers = await db.collection('users')
                     .where('district', '==', district)
                     .where('notificationsEnabled', '!=', false)
-                    .limit(500) // బాచ్ ప్రాసెసింగ్
+                    .limit(500)
                     .get();
 
-                if (usersSnapshot.empty) continue;
+                // 2. గెస్ట్ యూజర్లను కనుగొనడం (NEW: 3500 మందికి రీచ్ పెంచడానికి)
+                const guestUsers = await db.collection('anonymous_devices')
+                    .where('notificationsEnabled', '!=', false)
+                    .limit(500)
+                    .get();
 
                 const messages: admin.messaging.Message[] = [];
-                usersSnapshot.docs.forEach(doc => {
-                    const userData = doc.data();
-                    const token = userData.fcmToken;
-                    if (token) {
-                        messages.push({
-                            notification: { title: alertTitle, body: alertBody },
-                            data: { type: "WEATHER_ALERT", district: district },
-                            token: token
-                        });
-                    }
+
+                // రిజిస్టర్డ్ యూజర్ల టోకెన్లు
+                registeredUsers.docs.forEach(doc => {
+                    const token = doc.data().fcmToken;
+                    if (token) messages.push({
+                        notification: { title: alertTitle, body: alertBody },
+                        data: { type: "WEATHER_ALERT", district: district },
+                        token: token
+                    });
+                });
+
+                // గెస్ట్ యూజర్ల టోకెన్లు (జిల్లాల వారిగా ఫిల్టర్ లేకపోయినా అందరికీ పంపుతాం - Safe Side)
+                guestUsers.docs.forEach(doc => {
+                    const token = doc.data().fcmToken;
+                    if (token) messages.push({
+                        notification: { title: alertTitle, body: alertBody },
+                        data: { type: "WEATHER_ALERT", district: district },
+                        token: token
+                    });
                 });
 
                 if (messages.length > 0) {
                     await admin.messaging().sendEach(messages);
-                    console.log(`[WEATHER_ALERT] Sent ${messages.length} alerts to ${district}.`);
+                    console.log(`[WEATHER_ALERT] Sent ${messages.length} alerts (Registered + Guests).`);
                 }
             }
         } catch (err: any) {

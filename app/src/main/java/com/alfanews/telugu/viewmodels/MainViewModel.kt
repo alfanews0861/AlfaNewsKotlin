@@ -50,6 +50,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isUpdateDownloaded = MutableStateFlow(false)
     val isUpdateDownloaded: StateFlow<Boolean> = _isUpdateDownloaded.asStateFlow()
 
+    private val _notificationsGranted = MutableStateFlow(true)
+    val notificationsGranted: StateFlow<Boolean> = _notificationsGranted.asStateFlow()
+
     init {
         // 🚀 QUICK CACHE LOAD: Immediately load basic user info from preferences
         // to prevent role reset (Guest/Subscriber) while waiting for Firebase.
@@ -210,6 +213,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setUpdateDownloaded(downloaded: Boolean) {
         _isUpdateDownloaded.value = downloaded
+    }
+
+    fun setNotificationsGranted(granted: Boolean) {
+        _notificationsGranted.value = granted
     }
 
     fun signOut() {
