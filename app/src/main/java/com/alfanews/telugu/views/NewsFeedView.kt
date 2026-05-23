@@ -311,9 +311,17 @@ fun NewsFeedView(
                     val isAd = (page + 1) % 6 == 0
                     if (isAd) {
                         val adIndex = page / 6
-                        if (localAds.isNotEmpty()) {
-                            val localAd = localAds[adIndex % localAds.size]
-                            "home_local_ad_${localAd.id}_$page"
+                        val totalLocalCount = localAds.size
+                        val totalSlots = if (totalLocalCount in 1..5) totalLocalCount + 1 else totalLocalCount
+                        
+                        if (totalLocalCount > 0) {
+                            val slotIndex = adIndex % totalSlots
+                            if (slotIndex < totalLocalCount) {
+                                val localAd = localAds[slotIndex]
+                                "home_local_ad_${localAd.id}_$page"
+                            } else {
+                                "home_ad_fallback_mix_$page"
+                            }
                         } else {
                             "home_ad_fallback_$page"
                         }

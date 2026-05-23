@@ -2,6 +2,8 @@ package com.alfanews.telugu.views
 
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
@@ -273,7 +275,10 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
         if (adMediaType == AdMediaType.HTML) {
             OutlinedTextField(value = htmlContent, onValueChange = { htmlContent = it }, label = { Text("HTML Code") }, modifier = Modifier.fillMaxWidth().height(150.dp))
         } else {
-            val pickMedia = rememberMediaPicker { adImageUri = it }
+            val launcher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.GetContent()
+            ) { uri -> adImageUri = uri }
+
             Card(elevation = CardDefaults.cardElevation(2.dp)) {
                 Column(Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (adImageUri != null) {
@@ -285,10 +290,13 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
                             }
                         }
                     }
-                    Button(onClick = { pickMedia() }, modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = { 
+                        val mimeType = if (adMediaType == AdMediaType.VIDEO) "video/*" else "image/*"
+                        launcher.launch(mimeType) 
+                    }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.UploadFile, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text(if (adImageUri != null) "మీడియా మార్చండి" else "ఫోటో/వీడియో ఎంచుకోండి")
+                        Text(if (adImageUri != null) "మీడియా మార్చండి" else if (adMediaType == AdMediaType.VIDEO) "వీడియో ఎంచుకోండి (MP4)" else "ఫోటో ఎంచుకోండి")
                     }
                 }
             }
@@ -306,9 +314,22 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
         Card(elevation = CardDefaults.cardElevation(2.dp)) {
              Column(Modifier.padding(16.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("టార్గెట్ ఆడియెన్స్", style = MaterialTheme.typography.titleLarge)
-                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                     TargetingDropdown(label = "రాష్ట్రం", options = mapOf("ALL" to "అందరికీ", "TS" to "TS", "AP" to "AP"), selected = targetState, onSelected = { targetState = it; targetDistrict = "ALL" })
-                     TargetingDropdown(label = "జిల్లా", options = (if(targetState == "ALL") emptyMap() else (if(targetState == "TS") Constants.TS_DISTRICTS else Constants.AP_DISTRICTS).associateWith { it }), selected = targetDistrict, onSelected = { targetDistrict = it }, enabled = targetState != "ALL")
+                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                     TargetingDropdown(
+                         label = "రాష్ట్రం", 
+                         options = mapOf("ALL" to "అందరికీ", "TS" to "TS", "AP" to "AP"), 
+                         selected = targetState, 
+                         onSelected = { targetState = it; targetDistrict = "ALL" },
+                         modifier = Modifier.weight(1f)
+                     )
+                     TargetingDropdown(
+                         label = "జిల్లా", 
+                         options = (if(targetState == "ALL") emptyMap() else (if(targetState == "TS") Constants.TS_DISTRICTS else Constants.AP_DISTRICTS).associateWith { it }), 
+                         selected = targetDistrict, 
+                         onSelected = { targetDistrict = it }, 
+                         enabled = targetState != "ALL",
+                         modifier = Modifier.weight(1f)
+                     )
                  }
              }
         }
