@@ -10,7 +10,6 @@ import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.services.FirebaseService
-import com.alfanews.telugu.services.WeatherService
 import com.alfanews.telugu.utils.PreferenceManager
 import com.alfanews.telugu.utils.Constants
 import com.google.android.gms.location.LocationServices
@@ -164,53 +163,6 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
-    private suspend fun generateWeatherPost(place: String?, district: String?, lat: Double? = null, lon: Double? = null): NewsPost {
-        val isViewingDetectedDistrict = district == prefs.detectedDistrict
-        val location = if (isViewingDetectedDistrict) (place ?: district ?: "హైదరాబాద్") else (district ?: "హైదరాబాద్")
-        val displayLocation = location
-        val weatherData = WeatherService.fetchWeather(location, lat, lon)
-        var temperatureStr = "31°C"
-        var weatherHeadlineTe = "సాధారణ వాతావరణం"
-        var weatherContentTe = "ప్రస్తుతం $location లో వాతావరణం సాధారణంగా ఉంది."
-        var weatherHeadlineEn = "Normal Weather ($temperatureStr)"
-        
-        if (weatherData != null) {
-            temperatureStr = "${weatherData.temp.toInt()}°C"
-            weatherHeadlineTe = WeatherService.getWeatherDescription(weatherData.code)
-            weatherContentTe = buildString {
-                append("నేడు $location లో వాతావరణం ${WeatherService.getWeatherDescription(weatherData.code)}. ")
-                append("ప్రస్తుత ఉష్ణోగ్రత ${weatherData.temp.toInt()}°C గా ఉంది. ")
-                append("గాలి వేగం గంటకు ${weatherData.wind.toInt()} కిలోమీటర్లు. ")
-                append("ఇది ${WeatherService.formatTime(weatherData.time)} గంటల సమయం నాటి సమాచారం. ")
-                when (weatherData.code) {
-                    0 -> append("ఆకాశం నిర్మలంగా ఉంది.")
-                    1, 2, 3 -> append("ఆకాశం పాక్షికంగా మేఘావృతమై ఉంటుంది.")
-                    45, 48 -> append("పొగమంచు కురిసే అవకాశం ఉంది.")
-                    51, 53, 55, 61, 63, 65, 80, 81, 82 -> append("వర్షం పడే అవకాశం ఉంది.")
-                    95, 96, 99 -> append("పిడుగులతో కూడిన భారీ వర్షం పడే సూచనలు ఉన్నాయి.")
-                    else -> append("వాతావరణం సాధారణంగా ఉంటుంది.")
-                }
-            }
-            weatherHeadlineEn = "${WeatherService.getWeatherTypeLabel(weatherData.code)} ($temperatureStr)"
-        }
-
-        return NewsPost(
-            id = "weather_${System.currentTimeMillis() / (1000 * 60 * 60)}",
-            headline = com.alfanews.telugu.models.Headline(
-                telugu = "$displayLocation వాతావరణం: $weatherHeadlineTe",
-                english = "$displayLocation Weather: $weatherHeadlineEn"
-            ),
-            content = com.alfanews.telugu.models.Content(
-                telugu = weatherContentTe,
-                english = "Current weather update for $location."
-            ),
-            location = displayLocation,
-            type = "weather",
-            timestamp = System.currentTimeMillis(),
-            latitude = lat,
-            longitude = lon
-        )
-    }
 
     private fun loadLocalAds(district: String) {
         viewModelScope.launch {
@@ -310,12 +262,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 val lat = prefs.lastLat.takeIf { it != 0.0 }
                 val lon = prefs.lastLon.takeIf { it != 0.0 }
                 
-                if (finalPosts.size >= 8) {
-                    finalPosts.add(8, generateWeatherPost(prefs.localPlace, district, lat, lon))
-                } else {
-                    // ✅ ALWAYS add weather post, even if there's no other news
-                    finalPosts.add(0, generateWeatherPost(prefs.localPlace, district, lat, lon))
-                }
+                // Weather post removed as per user request to improve performance
 
                 _news.value = finalPosts
                 _shouldScrollToTop.value = true 

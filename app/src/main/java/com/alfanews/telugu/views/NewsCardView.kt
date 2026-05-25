@@ -30,7 +30,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Comment
-import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.media3.common.Player
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Edit
@@ -59,6 +60,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import android.view.LayoutInflater
 import androidx.core.content.FileProvider
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
@@ -80,6 +82,7 @@ import com.alfanews.telugu.ui.theme.Poppins
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.utils.SafeImageLoader
 import com.google.firebase.firestore.FieldValue
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
@@ -629,7 +632,13 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
         val decorView = window.decorView
         val windowWidth = decorView.width
         val windowHeight = decorView.height
-        val safeBounds = Rect(bounds.left.coerceIn(0, windowWidth), bounds.top.coerceIn(0, windowHeight), bounds.right.coerceIn(0, windowWidth), bounds.bottom.coerceIn(0, windowHeight))
+        // Start from y=0 to include the LogoHeader at the top of the window
+        val safeBounds = Rect(
+            bounds.left.coerceIn(0, windowWidth),
+            0,
+            bounds.right.coerceIn(0, windowWidth),
+            bounds.bottom.coerceIn(0, windowHeight)
+        )
         if (safeBounds.width() <= 0 || safeBounds.height() <= 0) {
             continuation.resume(null)
             return@suspendCoroutine
@@ -692,36 +701,63 @@ fun ActionButton(icon: androidx.compose.ui.graphics.vector.ImageVector, count: S
 }
 
 @Composable
-fun VideoPlayerView(videoUrl: String) {
-    val context = LocalContext.current
-    val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            val mediaItem = MediaItem.fromUri(videoUrl)
-            setMediaItem(mediaItem)
-            prepare()
-            playWhenReady = false
-            repeatMode = ExoPlayer.REPEAT_MODE_ONE
-        }
-    }
-    DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
-    AndroidView(factory = { PlayerView(context).apply { player = exoPlayer; useController = true } }, modifier = Modifier.fillMaxSize())
-}
-
-@Composable
 fun YouTubePlayerComponent(youtubeUrl: String) {
     val videoId = extractYoutubeVideoId(youtubeUrl) ?: return
-    AndroidView(
-        factory = { ctx ->
-            YouTubePlayerView(ctx).apply {
-                addYouTubePlayerListener(object : AbstractYouTubePlayerListener() {
-                    override fun onReady(youTubePlayer: YouTubePlayer) {
-                        youTubePlayer.cueVideo(videoId, 0f)
-                    }
-                })
+    var player by remember { mutableStateOf<YouTubePlayer?>(null) }
+    var isPlaying by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f)
+            .clickable {
+                if (isPlaying) player?.pause() else player?.play()
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        AndroidView(
+            factory = { ctx ->
+                YouTubePlayerView(ctx).apply {
+                    enableAutomaticInitialization = false
+                    val options = IFramePlayerOptions.Builder(ctx)
+                        .controls(0)
+                        .modestBranding(1)
+                        .rel(0)
+                        .ivLoadPolicy(3)
+                        .build()
+
+                    initialize(object : AbstractYouTubePlayerListener() {
+                        override fun onReady(youTubePlayer: YouTubePlayer) {
+                            player = youTubePlayer
+                            youTubePlayer.cueVideo(videoId, 0f)
+                            youTubePlayer.addListener(object : AbstractYouTubePlayerListener() {
+                                override fun onStateChange(youTubePlayer: YouTubePlayer, state: com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState) {
+                                    isPlaying = state == com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerState.PLAYING
+                                }
+                            })
+                        }
+                    }, options)
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        if (!isPlaying) {
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .background(Color.Black.copy(alpha = 0.4f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Play",
+                    tint = Color.White,
+                    modifier = Modifier.size(40.dp)
+                )
             }
-        },
-        modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-    )
+        }
+    }
 }
 
 private val YOUTUBE_ID_PATTERN = java.util.regex.Pattern.compile("^.*(?:(?:youtu\\.be/|v/|vi/|u/\\w/|embed/|shorts/)|(?:(?:watch)?\\?v(?:i)?=|&v(?:i)?=))([^#&?]*).*", java.util.regex.Pattern.CASE_INSENSITIVE)

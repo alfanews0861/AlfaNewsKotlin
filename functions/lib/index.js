@@ -70,7 +70,7 @@ const SCHEDULED_MODEL = "gemini-3-flash-preview";
 const PRO_MODEL = "gemini-3.1-pro-preview";
 // News processing uses Flash for speed
 const FLASH_MODEL = "gemini-3-flash-preview";
-const IMAGEN_MODEL = "imagen-4.0-generate-001";
+const IMAGEN_MODEL = "imagen-4.0-generate-001"; // Using 4.0 as requested for text rendering and quality
 (0, v2_1.setGlobalOptions)({
     region: REGION,
     maxInstances: 10,
@@ -282,12 +282,24 @@ async function generateImageWithRetry(ai, prompt, aspectRatio = '9:16', retries 
             const imgRes = await ai.models.generateImages({
                 model: IMAGEN_MODEL,
                 prompt: prompt,
-                config: { numberOfImages: 1, aspectRatio: aspectRatio }
+                config: {
+                    numberOfImages: 1,
+                    aspectRatio: aspectRatio,
+                    safetyFilterLevel: 'block_few', // Allow more creative/historical content
+                    personGeneration: 'allow_all', // Crucial for history/daily life
+                    includeRaiReason: true
+                }
             });
             if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
                 return buffer_1.Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
             }
-            console.warn(`[AI_IMAGE] Attempt ${i + 1} returned no images.`);
+            const reason = imgRes.generatedImages?.[0]?.raiReason || "Safety/Filtered";
+            console.warn(`[AI_IMAGE] Attempt ${i + 1} returned no images. Reason: ${reason}`);
+            // Add delay between retries even if it's just a safety filter hit
+            if (i < retries - 1) {
+                const delay = Math.pow(2, i) * 3000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
         }
         catch (err) {
             console.error(`[AI_IMAGE] Attempt ${i + 1} failed:`, err.message);
@@ -315,8 +327,11 @@ exports.scheduleFestivalGreeting = (0, scheduler_1.onSchedule)({ schedule: "0 5 
     try {
         const checkRes = await ai.models.generateContent({
             model: SCHEDULED_MODEL,
-            contents: [{ role: "user", parts: [{ text: `Today's exact date is ${dateStr}. Strictly check if there is a major festival celebrated by Telugu people (Hindu, Muslim, Christian, or National holidays) exactly on this date. Do not invent festivals or hallucinate. If there is no festival today, return isFestival: false. JSON.` }] }],
-            config: { systemInstruction: "Output JSON only. Be highly accurate with calendar dates.", temperature: 0.1, responseMimeType: "application/json", responseSchema: schema }
+            contents: [{ role: "user", parts: [{ text: `Today's exact date is ${dateStr}.
+            Check if there is ANY festival, important religious day, Jayanti (anniversary of a great person), or cultural event celebrated by Telugu people (Hindu, Muslim, Christian, or National holidays) on this date.
+            Include not just major festivals, but also regional, minor, and community-specific events (like Ekadashi, Masa Shivaratri, specific Jayantis, or local Telugu traditions).
+            Do not invent events. If there is absolutely no special day today, return isFestival: false. Otherwise, return the details in JSON.` }] }],
+            config: { systemInstruction: "Output JSON only. Be accurate with the Telugu calendar and regional events.", temperature: 0.2, responseMimeType: "application/json", responseSchema: schema }
         });
         const data = parseAIJson(checkRes.text || "{}");
         if (!data.isFestival || !data.festivalTe || data.festivalTe === "None") {
@@ -426,7 +441,9 @@ exports.scheduleHistoryOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "30 4 
     try {
         const res = await ai.models.generateContent({
             model: SCHEDULED_MODEL,
-            contents: [{ role: "user", parts: [{ text: `Out of all historical events that happened on ${dateStr}, pick the single most important event. Write a 60 words detailed news about it and provide a generic historical image prompt. Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be sharp and punchy. Output JSON.` }] }],
+            contents: [{ role: "user", parts: [{ text: `Out of all historical events that happened on ${dateStr}, pick the single most important event. Write a 60 words detailed news about it.
+            Also, provide a HIGHLY DETAILED, photorealistic, and safe image prompt that describes the scene without mentioning specific modern people or controversial figures. Focus on the architecture, clothing of the era, and the general atmosphere.
+            Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be sharp and punchy. Output JSON.` }] }],
             config: {
                 responseMimeType: "application/json",
                 responseSchema: schema,
@@ -434,8 +451,10 @@ exports.scheduleHistoryOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "30 4 
             }
         });
         const data = parseAIJson(res.text || "{}");
-        if (!data.headlineTe)
+        if (!data.headlineTe) {
+            console.warn(`[HISTORY] AI response missing headlineTe. Raw text:`, res.text);
             return;
+        }
         let mediaUrl = "";
         const buffer = await generateImageWithRetry(ai, `Historical photorealistic image: ${data.imagePrompt}, dramatic lighting, no text.`, '16:9');
         if (buffer) {
@@ -472,37 +491,38 @@ exports.generateDailyCartoon = (0, scheduler_1.onSchedule)({ schedule: "0 6 * * 
                 properties: {
                     topic: { type: genai_1.Type.STRING },
                     visualDescription: { type: genai_1.Type.STRING },
-                    teluguCaption: { type: genai_1.Type.STRING }
+                    teluguCaption: { type: genai_1.Type.STRING },
+                    speechBubbleText: { type: genai_1.Type.STRING }
                 },
-                required: ["topic", "visualDescription", "teluguCaption"]
+                required: ["topic", "visualDescription", "teluguCaption", "speechBubbleText"]
             };
             const topicRes = await ai.models.generateContent({
                 model: SCHEDULED_MODEL,
                 contents: [{ role: "user", parts: [{ text: `Today's Date: ${todayStr}.
-Role: You are an award-winning editorial and political cartoonist for a leading Telugu news daily.
-Goal: Identify a highly relevant, satirical, and humorous current political topic in ${state} (India) from the last 24-48 hours.
-Stance: Be critical of the ruling government's policies, failures, or ironies.
+Current Political Landscape:
+- Andhra Pradesh: NDA (TDP+JSP+BJP) in power. CM: Chandrababu Naidu, Deputy CM: Pawan Kalyan. Opposition: YSRCP (Jagan).
+- Telangana: Congress in power. CM: Revanth Reddy. Opposition: BRS (KCR).
 
 Task:
-1. Choose a trending issue.
-2. Design a visual scene.
-3. IMPORTANT: For the politicians involved, provide a VERY DETAILED description of their physical features to ensure high likeness in AI generation. Describe their face shape, hair style, glasses, facial hair, and common clothing (e.g., specific colored scarf or shirt).
-4. Create a punchy, funny Telugu caption.
+1. Identify a trending, humorous political incident from the last 24 hours in ${state}.
+2. Create a sharp satirical cartoon scene.
+3. For the characters involved, create a VERY DETAILED visual description focusing on their iconic features (e.g., specific hairstyle, beard, glasses, body language, typical clothes) so they look exactly like the real politicians WITHOUT using their names in the final image prompt.
+4. Create a funny Telugu dialogue for a speech bubble (max 8 words).
 
-Provide the output in JSON with fields: topic, visualDescription, teluguCaption.` }] }],
-                config: { temperature: 0.9, responseMimeType: "application/json", responseSchema: schema }
+Return JSON: {topic, visualDescription, teluguCaption, speechBubbleText}` }] }],
+                config: { temperature: 0.95, responseMimeType: "application/json", responseSchema: schema }
             });
             const cartoonData = parseAIJson(topicRes.text || "{}");
-            const topic = cartoonData.topic || "political irony";
             const visual = cartoonData.visualDescription || "politicians in a satirical situation";
-            const teluguText = cartoonData.teluguCaption || "";
-            const buffer = await generateImageWithRetry(ai, `A high-detail, professional editorial political caricature for a premium Telugu newspaper.
-Topic: ${topic} in ${state}, India.
-Visual: ${visual}.
-Style: Clean ink line art with professional digital coloring, high-quality caricature style.
-Likeness: The caricatures MUST have a strong likeness to the real-world politicians described. Focus on recognizable facial features.
-Composition: Clean, NO TEXT, no speech bubbles, no gibberish letters. The image should be purely visual.
-Quality: 4k, artistic, award-winning editorial style.`, '9:16');
+            const bubbleText = cartoonData.speechBubbleText || "";
+            const teluguText = cartoonData.teluguCaption || "నేటి రాజకీయ కార్టూన్";
+            const buffer = await generateImageWithRetry(ai, `A high-end, professional editorial political caricature.
+Style: Sharp ink lines with professional digital watercolor.
+Scene: ${visual}.
+Details: The characters must have a very strong, recognizable likeness to the Indian politicians they represent based on the detailed features.
+Feature: Include a clear speech bubble with this EXACT Telugu text: "${bubbleText}".
+Rendering: The Telugu script must be elegant, bold, and perfectly legible.
+Quality: 8k, masterpiece, iconic newspaper style.`, '9:16');
             if (buffer) {
                 const mediaUrl = await saveBufferToStorage(buffer, `CARTOON_${state.replace(" ", "")}`) || "";
                 await db.collection('news').add({

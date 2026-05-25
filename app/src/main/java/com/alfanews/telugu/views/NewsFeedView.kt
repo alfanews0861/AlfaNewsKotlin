@@ -348,6 +348,8 @@ fun NewsFeedView(
                                 // 3. Local ads are rotated using (adIndex % totalLocalCount).
                                 val preferAdMob = adIndex % 2 == 0
 
+                                val isCurrentPage = pagerState.currentPage == page
+
                                 if (preferAdMob) {
                                     // 🚀 AdMob Slot (Priority)
                                     if (nativeAd != null) {
@@ -355,7 +357,7 @@ fun NewsFeedView(
                                     } else if (totalLocalCount > 0) {
                                         // Fallback to Local Ad if AdMob is still loading or failed
                                         val localAd = localAds[adIndex % totalLocalCount]
-                                        LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize())
+                                        LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize(), isActive = isCurrentPage)
                                     } else {
                                         AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = null)
                                     }
@@ -363,7 +365,7 @@ fun NewsFeedView(
                                     // 🏠 Local Ad Slot (Priority)
                                     if (totalLocalCount > 0) {
                                         val localAd = localAds[adIndex % totalLocalCount]
-                                        LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize())
+                                        LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize(), isActive = isCurrentPage)
                                     } else if (nativeAd != null) {
                                         // Fallback to AdMob if no local ads are available
                                         AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)

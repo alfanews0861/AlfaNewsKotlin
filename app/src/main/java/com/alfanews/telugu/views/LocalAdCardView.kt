@@ -68,7 +68,8 @@ import kotlin.coroutines.suspendCoroutine
 @Composable
 fun LocalAdCardView(
     ad: LocalAd,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isActive: Boolean = true
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -148,7 +149,9 @@ fun LocalAdCardView(
                 AdMediaType.VIDEO -> {
                     VideoPlayerView(
                         videoUrl = ad.bannerUrl,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        autoPlay = isActive,
+                        muted = false // Audio should play if autoplaying
                     )
                 }
                 AdMediaType.HTML -> {
@@ -320,7 +323,7 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
         val windowHeight = decorView.height
         val safeBounds = Rect(
             bounds.left.coerceIn(0, windowWidth),
-            bounds.top.coerceIn(0, windowHeight),
+            0, // Start from y=0 to include the logo header at the top of the window
             bounds.right.coerceIn(0, windowWidth),
             bounds.bottom.coerceIn(0, windowHeight)
         )

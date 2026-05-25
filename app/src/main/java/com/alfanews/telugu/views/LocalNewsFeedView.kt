@@ -344,13 +344,15 @@ fun LocalNewsFeedView(
                             // 3. Fallbacks ensure an ad is always shown if either source fails.
                             val preferAdMob = adIndex % 2 == 0
 
+                            val isCurrentPage = pagerState.currentPage == page
+
                             if (preferAdMob) {
                                 // 🚀 AdMob Slot (Priority)
                                 if (nativeAd != null) {
                                     AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)
                                 } else if (totalLocalCount > 0) {
                                     val localAd = localAds[adIndex % totalLocalCount]
-                                    LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize())
+                                    LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize(), isActive = isCurrentPage)
                                 } else {
                                     AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = null)
                                 }
@@ -358,7 +360,7 @@ fun LocalNewsFeedView(
                                 // 🏠 Local Ad Slot (Priority)
                                 if (totalLocalCount > 0) {
                                     val localAd = localAds[adIndex % totalLocalCount]
-                                    LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize())
+                                    LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize(), isActive = isCurrentPage)
                                 } else if (nativeAd != null) {
                                     AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)
                                 } else {
@@ -370,31 +372,19 @@ fun LocalNewsFeedView(
                             if (newsIndex < news.size) {
                                 val post = news[newsIndex]
 
-                                if (post.type == "weather") {
-                                    WeatherCardView(
-                                        post = post,
-                                        language = language,
-                                        onLocationRequest = {
-                                            viewModel.detectLocation(context, currentUser)
-                                        },
-                                        modifier = Modifier.fillMaxSize(),
-                                        showTopHeader = false // ✅ Header already shown at top level
-                                    )
-                                } else {
-                                    NewsCardView(
-                                        post = post,
-                                        language = language,
-                                        currentUser = currentUser,
-                                        onProfileClick = onProfileClickRemembered,
-                                        onReporterClick = onReporterClickRemembered,
-                                        onDistrictClick = { showDistrictPicker = true },
-                                        onEditClick = onEditClickRemembered,
-                                        modifier = Modifier.fillMaxSize(),
-                                        district = activeDistrict,
-                                        showDistrictSelector = false,
-                                        showTopHeader = false // ✅ Header is already shown at top level
-                                    )
-                                }
+                                NewsCardView(
+                                    post = post,
+                                    language = language,
+                                    currentUser = currentUser,
+                                    onProfileClick = onProfileClickRemembered,
+                                    onReporterClick = onReporterClickRemembered,
+                                    onDistrictClick = { showDistrictPicker = true },
+                                    onEditClick = onEditClickRemembered,
+                                    modifier = Modifier.fillMaxSize(),
+                                    district = activeDistrict,
+                                    showDistrictSelector = false,
+                                    showTopHeader = false // ✅ Header is already shown at top level
+                                )
                             }
                         }
                     }

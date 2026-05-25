@@ -303,7 +303,11 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
                     if (adImageUri != null) {
                         Box(modifier = Modifier.fillMaxWidth().height(200.dp).clip(MaterialTheme.shapes.medium)) {
                             if (adMediaType == AdMediaType.VIDEO) {
-                                VideoPlayerView(videoUrl = adImageUri.toString(), modifier = Modifier.fillMaxSize())
+                                VideoPlayerView(
+                                    videoUrl = adImageUri.toString(), 
+                                    modifier = Modifier.fillMaxSize(),
+                                    autoPlay = true
+                                )
                             } else {
                                 AsyncImage(model = adImageUri, contentDescription = "Preview", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                             }
