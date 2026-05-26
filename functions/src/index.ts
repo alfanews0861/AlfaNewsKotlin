@@ -52,7 +52,7 @@ const getAIInstance = () => new GoogleGenAI({
 /**
  * Helper: Notify reporter with human-friendly messages (Hiding AI involvement)
  */
-async function notifyReporter(reporterId: string, postId: string, headline: string, type: 'SUCCESS' | 'INTERNAL_ERROR' | 'POLICY_VIOLATION') {
+async function notifyReporter(reporterId: string, postId: string, headline: string, type: 'SUCCESS' | 'INTERNAL_ERROR' | 'POLICY_VIOLATION', imageUrl?: string) {
     try {
         const userDoc = await db.collection('users').doc(reporterId).get();
         if (!userDoc.exists) return;
@@ -79,15 +79,18 @@ async function notifyReporter(reporterId: string, postId: string, headline: stri
             body = `మీ వార్తలోని అంశాలు మా నిబంధనలకు విరుద్ధంగా ఉన్నందున ప్రచురించబడలేదు.`;
         } else {
             title = 'వార్త ప్రచురణలో అంతరాయం! ❌';
-            body = `సాంకేతిక కారణాల వల్ల మీ వార్త ప్రచురించబడలేదు. దయచేసి మళ్ళీ ప్రయత్నించండి.`;
+            body = `సాంకేతిక కారణాల వల్ల మీ వార్త ప్రచురించబడలేదు. దయచేసి మళ్ళీ ప్రయత్నిచండి.`;
         }
 
         const message = {
-            notification: { title, body },
+            notification: { title, body, image: imageUrl || "" },
             data: {
                 actionUrl: `alfanews://news/${postId}`,
                 newsId: postId,
-                type: `REPORTER_SUBMISSION_${type}`
+                type: `REPORTER_SUBMISSION_${type}`,
+                title,
+                body,
+                imageUrl: imageUrl || ""
             }
         };
 
@@ -638,7 +641,12 @@ export const checkSevereWeatherAlerts = onSchedule({
                     const token = doc.data().fcmToken;
                     if (token) messages.push({
                         notification: { title: alertTitle, body: alertBody },
-                        data: { type: "WEATHER_ALERT", district: district },
+                        data: {
+                            type: "WEATHER_ALERT",
+                            district: district,
+                            title: alertTitle,
+                            body: alertBody
+                        },
                         token: token
                     });
                 });
@@ -648,7 +656,12 @@ export const checkSevereWeatherAlerts = onSchedule({
                     const token = doc.data().fcmToken;
                     if (token) messages.push({
                         notification: { title: alertTitle, body: alertBody },
-                        data: { type: "WEATHER_ALERT", district: district },
+                        data: {
+                            type: "WEATHER_ALERT",
+                            district: district,
+                            title: alertTitle,
+                            body: alertBody
+                        },
                         token: token
                     });
                 });
@@ -812,7 +825,7 @@ export const onNewsPostWritten = onDocumentWritten({
                 if (isRejected) {
                     console.warn(`[TRIGGER] Post ${postId} REJECTED: ${aiProcessedData.rejectionReason}`);
                     if (data.reporter?.id) {
-                        await notifyReporter(data.reporter.id, postId, headline, 'POLICY_VIOLATION');
+                        await notifyReporter(data.reporter.id, postId, headline, 'POLICY_VIOLATION', data.mediaUrl || "");
                     }
                     return; // Stop processing further (no video/YouTube)
                 }
@@ -823,7 +836,7 @@ export const onNewsPostWritten = onDocumentWritten({
             console.error(`[TRIGGER] AI Processing failed for ${postId}:`, aiErr.message);
             await db.collection('news').doc(postId).update({ status: "FAILED", error: `Editorial: ${aiErr.message}` });
             if (data.isReporter && data.reporter?.id) {
-                await notifyReporter(data.reporter.id, postId, data.headline?.telugu || "", 'INTERNAL_ERROR');
+                await notifyReporter(data.reporter.id, postId, data.headline?.telugu || "", 'INTERNAL_ERROR', data.mediaUrl || "");
             }
             return; // Stop if AI enhancement fails
         }
@@ -1153,7 +1166,7 @@ export const onNewsPostWritten = onDocumentWritten({
 
                     // Success Notification
                     if (data.isReporter && data.reporter?.id) {
-                        await notifyReporter(data.reporter.id, postId, data.headline?.telugu || headline, 'SUCCESS');
+                        await notifyReporter(data.reporter.id, postId, data.headline?.telugu || headline, 'SUCCESS', data.mediaUrl || "");
                     }
 
                     // Update local data for notification
@@ -1197,12 +1210,14 @@ export const triggerPushBroadcast = onCall(async (request) => {
     }
 
     const message: any = {
-        notification: { title, body },
+        notification: { title, body, image: imageUrl || "" },
         data: {
             actionUrl: actionUrl || "",
             newsId: newsId || "",
             channelId: channelId || "general_news",
-            imageUrl: imageUrl || ""
+            imageUrl: imageUrl || "",
+            title: title,
+            body: body
         },
         topic: topic || 'all_users'
     };

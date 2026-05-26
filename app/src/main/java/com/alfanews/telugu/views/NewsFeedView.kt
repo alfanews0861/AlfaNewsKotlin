@@ -384,7 +384,8 @@ fun NewsFeedView(
                                             onLocationRequest = {
                                                 viewModel.detectLocation(context, currentUser, language)
                                             },
-                                            modifier = Modifier.fillMaxSize()
+                                            modifier = Modifier.fillMaxSize(),
+                                            showTopHeader = false // ✅ Fix: Double header removed as LogoHeader is already present
                                         )
                                     } else {
                                         NewsCardView(

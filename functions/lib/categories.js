@@ -74,6 +74,21 @@ exports.CANONICAL_CATEGORIES = {
         telugu: "జీవనశైలి",
         english: "Lifestyle",
         aliases: ["ఫ్యాషన్", "fashion", "ఆహారం", "food", "recipe", "ఫిట్‌నెస్", "fitness", "healthy", "సౌందర్యం", "beauty", "makeup", "clothing"]
+    },
+    // ✅ ADDED DISTRICTS TO PREVENT STRIPPING IN NORMALIZATION
+    DISTRICTS: {
+        telugu: "జిల్లా వార్త",
+        english: "District",
+        aliases: [
+            "ఆదిలాబాద్", "భద్రాద్రి కొత్తగూడెం", "హన్మకొండ", "హైదరాబాద్", "జగిత్యాల", "జనగాం", "జయశంకర్ భూపాలపల్లి",
+            "జోగులాంబ గద్వాల", "కామారెడ్డి", "కరీంనగర్", "ఖమ్మం", "కుమ్రం భీమ్ ఆసిఫాబాద్", "మహబూబాబాద్", "మహబూబ్ నగర్",
+            "మంచిర్యాల", "మెదక్", "మేడ్చల్ మల్కాజిగిరి", "ములుగు", "నాగర్ కర్నూల్", "నల్గొండ", "నారాయణపేట", "నిర్మల్",
+            "నిజామాబాద్", "పెద్దపల్లి", "రాజన్న సిరిసిల్ల", "రంగారెడ్డి", "సంగారెడ్డి", "సిద్దిపేట", "సూర్యాపేట",
+            "వికారాబాద్", "వనపర్తి", "వరంగల్", "యాదాద్రి భువనగిరి", "అల్లూరి సీతారామరాజు", "అనకాపల్లి", "అనంతపురం",
+            "అన్నమయ్య", "బాపట్ల", "చిత్తూరు", "కోనసీమ", "తూర్పు గోదావరి", "ఏలూరు", "గుంటూరు", "కాకినాడ", "కృష్ణా",
+            "కర్నూలు", "నంద్యాల", "ఎన్టీఆర్", "పల్నాడు", "పార్వతీపురం మన్యం", "ప్రకాశం", "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+            "శ్రీ సత్యసాయి", "శ్రీకాకుళం", "తిరుపతి", "విశాఖపట్నం", "విజయనగరం", "పశ్చిమ గోదావరి", "వైఎస్ఆర్ కడప"
+        ]
     }
 };
 exports.CATEGORY_LIST = Object.keys(exports.CANONICAL_CATEGORIES).map(key => ({
@@ -96,11 +111,16 @@ function normalizeCategory(input) {
             return canConfig.telugu;
         }
         // Check aliases
-        if (canConfig.aliases.some(alias => cleaned === alias.toLowerCase())) {
+        if (canConfig.aliases.some((alias) => cleaned === alias.toLowerCase())) {
+            // IF IT'S A DISTRICT, RETURN THE EXACT ALIAS (THE DISTRICT NAME) INSTEAD OF "District"
+            if (key === "DISTRICTS")
+                return input.trim();
             return canConfig.telugu;
         }
         // Check if input contains any alias (partial match)
-        if (canConfig.aliases.some(alias => cleaned.includes(alias.toLowerCase()) || alias.toLowerCase().includes(cleaned))) {
+        if (canConfig.aliases.some((alias) => cleaned.includes(alias.toLowerCase()) || alias.toLowerCase().includes(cleaned))) {
+            if (key === "DISTRICTS")
+                return input.trim();
             return canConfig.telugu;
         }
     }

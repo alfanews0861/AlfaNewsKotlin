@@ -224,8 +224,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
 
                 try {
-                    // 🚀 USE 'approved' instead of 'status' to include both old and new news
-                    val query = newsRef
+                    // 🚀 STEP 1: Try finding by category array (Fastest & Standard)
+                    var query = newsRef
                         .whereEqualTo("approved", true)
                         .whereArrayContains("categories", district)
                         .orderBy("timestamp", Query.Direction.DESCENDING)
@@ -235,8 +235,26 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     posts = withContext(Dispatchers.Default) {
                         snapshot!!.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
                     }
+
+                    // 🚀 STEP 2: Fallback - If no results, try matching by 'district' field directly
+                    // This handles cases where AI might have missed adding district to categories array
+                    if (posts.isEmpty()) {
+                        val fallbackQuery = newsRef
+                            .whereEqualTo("approved", true)
+                            .whereEqualTo("district", district)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(pageSize.toLong())
+                        
+                        val fallbackSnapshot = fallbackQuery.get().await()
+                        if (!fallbackSnapshot.isEmpty) {
+                            snapshot = fallbackSnapshot
+                            posts = withContext(Dispatchers.Default) {
+                                fallbackSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                            }
+                        }
+                    }
                 } catch (e: Exception) {
-                    android.util.Log.e("LocalNewsFeedViewModel", "Primary query failed: ${e.message}")
+                    android.util.Log.e("LocalNewsFeedViewModel", "News fetch failed for $district: ${e.message}")
                 }
                 
                 lastDocument = snapshot?.documents?.lastOrNull()
@@ -282,13 +300,27 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                  var newPosts: List<NewsPost> = emptyList()
                  var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
                  try {
-                     val query = newsRef
+                     // 🚀 CHANGED: Match logic with loadNews for consistency
+                     var query = newsRef
                          .whereEqualTo("approved", true)
-                         .whereArrayContains("categories", district)
+                         .whereEqualTo("district", district)
                          .orderBy("timestamp", Query.Direction.DESCENDING)
                          .startAfter(currentLastDoc)
                          .limit(pageSize.toLong())
+                     
                      snapshot = query.get().await()
+                     
+                     if (snapshot.isEmpty) {
+                         // 🔄 FALLBACK: Try categories array if district field search returns nothing
+                         val backupQuery = newsRef
+                             .whereEqualTo("approved", true)
+                             .whereArrayContains("categories", district)
+                             .orderBy("timestamp", Query.Direction.DESCENDING)
+                             .startAfter(currentLastDoc)
+                             .limit(pageSize.toLong())
+                         snapshot = backupQuery.get().await()
+                     }
+
                      newPosts = withContext(Dispatchers.Default) {
                          snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
                      }

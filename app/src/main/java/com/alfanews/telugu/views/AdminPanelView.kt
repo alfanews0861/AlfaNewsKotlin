@@ -58,6 +58,7 @@ fun AdminPanelView(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var editingPost by remember { mutableStateOf<NewsPost?>(null) }
+    var selectedPostForView by remember { mutableStateOf<NewsPost?>(null) }
     var savingProfile by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -78,7 +79,7 @@ fun AdminPanelView(
 
     val accessiblePages = when (user.role) {
         UserRole.GUEST, UserRole.SUBSCRIBER -> allPages.filter { it.id == "profile" }
-        UserRole.REPORTER -> allPages.filter { listOf("profile", "post", "ads", "edit-profile", "id-card").contains(it.id) }
+        UserRole.REPORTER -> allPages.filter { listOf("profile", "post", "ads", "manage", "edit-profile", "id-card").contains(it.id) }
         UserRole.REGIONAL_INCHARGE -> allPages.filter { listOf("profile", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card").contains(it.id) }
         UserRole.EDITOR -> allPages.filter { listOf("profile", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card").contains(it.id) }
         UserRole.ADMIN -> allPages
@@ -312,8 +313,9 @@ fun AdminPanelView(
                         postToEdit = editingPost,
                         onActionComplete = { postId -> 
                             editingPost = null
-                            activePage = if (listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN).contains(user.role)) "manage" else "profile"
-                            if (postId.isNotBlank()) {
+                            // ✅ Now Reporters also go to 'manage' page to see their 'Pending' post
+                            activePage = if (listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN).contains(user.role)) "manage" else "profile"
+                            if (postId.isNotBlank() && postId != "HOME_ONLY") {
                                 onPostPublished(postId)
                             }
                         }
@@ -322,6 +324,10 @@ fun AdminPanelView(
                         onEditPost = { post ->
                             editingPost = post
                             activePage = "post"
+                        },
+                        onViewPost = { post ->
+                            // ✅ Now instead of a Dialog preview, we trigger the full app view
+                            onPostPublished(post.id)
                         },
                         currentUser = user
                     )
@@ -334,6 +340,8 @@ fun AdminPanelView(
                 }
             }
         }
+        
+        /* Preview Dialog removed to show actual page instead */
     }
 }
 

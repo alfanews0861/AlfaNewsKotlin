@@ -170,7 +170,7 @@ fun PostNewsPageView(
     }
 
     fun handleSubmit() {
-        if (headline.isBlank() || content.isBlank() || (category == "జిల్లా వార్త" && district.isBlank())) {
+        if (headline.isBlank() || content.isBlank() || district.isBlank()) {
             Toast.makeText(context, context.getString(R.string.fill_details_error), Toast.LENGTH_SHORT).show()
             return
         }
@@ -249,12 +249,12 @@ fun PostNewsPageView(
                     // Redirection Logic: AI Processing is always background now
                     val isVideoPost = finalMediaTypes.contains("VIDEO")
                     if (isVideoPost) {
-                        Toast.makeText(context, "మీ వార్త ప్రాసెస్ అవుతోంది, దయచేసి 10 నిమిషాల తర్వాత చూడండి.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "మీ వార్త పరిశీలించబడుతోంది, దయచేసి 10 నిమిషాల తర్వాత చూడండి.", Toast.LENGTH_LONG).show()
                         delay(1200)
                         onActionComplete("HOME_ONLY") // Custom marker for MainScreen
                     } else {
-                        // Even for images, we wait for AI processing to complete (Background)
-                        Toast.makeText(context, "మీ వార్త విశ్లేషించబడుతోంది, కొద్దిసేపటి తర్వాత హోమ్ ఫీడ్ లో చూడవచ్చు.", Toast.LENGTH_LONG).show()
+                        // Changed message to hide AI processing
+                        Toast.makeText(context, "మీ వార్త పరిశీలనలో ఉంది, కొద్దిసేపటి తర్వాత హోమ్ ఫీడ్ లో చూడవచ్చు.", Toast.LENGTH_LONG).show()
                         delay(1500)
                         onActionComplete("HOME_ONLY") // Go back to Home, don't show raw post
                     }

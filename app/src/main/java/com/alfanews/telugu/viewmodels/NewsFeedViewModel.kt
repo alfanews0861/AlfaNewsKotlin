@@ -110,7 +110,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private val strictlyGlobalKeywords = listOf(
         "సినిమా", "స్పోర్ట్స్", "జాతీయం", "అంతర్జాతీయం", "వ్యాపారం", 
         "ఆరోగ్యం", "విద్య", "టెక్నాలజీ", "వ్యవసాయం", "భక్తి", 
-        "వినోదం", "ప్రపంచం", "క్రైమ్", "లైఫ్ స్టైల్", "జనరల్", "రాష్ట్రం"
+        "వినోదం", "ప్రపంచం", "క్రైమ్", "లైఫ్ స్టైల్", "జనరల్", "రాష్ట్రం",
+        "రాష్ట్ర వార్తలు", "ముఖ్యాంశాలు", "బ్రేకింగ్", "వైరల్", "తాజా వార్తలు"
     )
 
     private fun isGlobalCategory(category: String): Boolean {
@@ -400,14 +401,14 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 if (post.type != "news") return@filter true
                 
                 val currentDist = _userDistrict.value
-                val isGlobal = globalDistricts.contains(post.district) || post.district == "State" || post.district == null
-                val matchesDistrict = currentDist != null && (post.district == currentDist || post.categories.contains(currentDist))
-                val hasGlobalCategory = post.categories.any { isGlobalCategory(it) }
+                val isDistrictNewsCategory = post.categories.contains("జిల్లా వార్త")
+                val matchesUserDistrict = currentDist != null && (post.district == currentDist || post.categories.contains(currentDist))
                 
-                // Allow if it's Global/State/Null OR if it matches our selected district OR is a general category
-                if (isGlobal || matchesDistrict || hasGlobalCategory) return@filter true
+                // ✅ Home feed filtering rule:
+                // Everything except 'District News' category should appear,
+                // unless it matches the user's selected district.
+                if (!isDistrictNewsCategory || matchesUserDistrict) return@filter true
                 
-                // Otherwise, it's a post from another district, so filter it out
                 false
             }
 
@@ -430,22 +431,22 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
            val preferredCategories = try { AnalyticsService.getUserPreferredCategories().toSet() } catch (e: Exception) { emptySet() }
 
-           // 🚀 1. Separate State and Local news
-           val stateNews = normalNews.filter { post ->
-               globalDistricts.contains(post.district) || post.district == "State" || post.district == null
+           // 🚀 1. Separate "Fresh" (General) and Local news
+           // Per user request: Everything except 'District News' category should be in the fresh section
+           val generalFreshNews = normalNews.filter { post ->
+               !post.categories.contains("జిల్లా వార్త")
            }
            
-           // 🚀 2. Slots 2-6 (Index 1-5): Top 5 State Fresh News (Preferred categories prioritized)
-           // KHACHITAMGA JILLA VAARTHALU UNDAVU
-           val preferredState = stateNews.filter { post -> post.categories.any { it in preferredCategories } }
+           // 🚀 2. Slots 2-6 (Index 1-5): Top 5 General Fresh News (Preferred categories prioritized)
+           val preferredGeneral = generalFreshNews.filter { post -> post.categories.any { it in preferredCategories } }
                .sortedByDescending { it.timestamp }
-           val otherState = stateNews.filter { it !in preferredState }
+           val otherGeneral = generalFreshNews.filter { it !in preferredGeneral }
                .sortedByDescending { it.timestamp }
            
-           val top5State = (preferredState + otherState).take(5)
-           val top5Ids = top5State.map { it.id }.toSet()
+           val top5Fresh = (preferredGeneral + otherGeneral).take(5)
+           val top5Ids = top5Fresh.map { it.id }.toSet()
 
-           // 🚀 3. Process remaining news for the rest of the feed (Includes Local news)
+           // 🚀 3. Process remaining news for the rest of the feed
            val remainingNormal = normalNews.filter { it.id !in top5Ids }
            val freshCountAdjusted = if (freshCount > 5) freshCount - 5 else 0
            
@@ -460,7 +461,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            val discoveryNews = remainingNormal.filter { it.id !in freshIdsTotal && it.id !in personalizedIds }
                .filter { post -> post.categories.none { it in preferredCategories } }.shuffled().take(discoveryCount)
 
-           val blendedNews = (top5State + freshNewsRemaining + scoredNews + discoveryNews).toMutableList()
+           val blendedNews = (top5Fresh + freshNewsRemaining + scoredNews + discoveryNews).toMutableList()
 
            if (isFirstPage) {
                fun insertSafely(list: MutableList<NewsPost>, post: NewsPost, targetIdx: Int) {
@@ -471,6 +472,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                val lat = prefs.lastLat.takeIf { it != 0.0 }
                val lon = prefs.lastLon.takeIf { it != 0.0 }
                insertSafely(blendedNews, generateWeatherPost(prefs.localPlace, _userDistrict.value, lat, lon), 8)
+
                if (historyPosts.isNotEmpty()) { insertSafely(blendedNews, historyPosts.first(), 9) }
                if (cartoonPosts.isNotEmpty()) {
                    val userDist = _userDistrict.value

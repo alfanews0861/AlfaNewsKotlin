@@ -127,8 +127,18 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                // అందరు యూజర్ల కోసం
                 FirebaseMessaging.getInstance().subscribeToTopic("all_users").await()
                 FirebaseMessaging.getInstance().subscribeToTopic("breaking_news").await()
+                
+                // ✅ జిల్లా ఆధారిత టాపిక్ కి సబ్‌స్క్రయిబ్ చేయడం
+                val userDistrict = prefs.userDistrict
+                if (!userDistrict.isNullOrBlank()) {
+                    val topicName = "district_${userDistrict.replace(" ", "_")}"
+                    FirebaseMessaging.getInstance().subscribeToTopic(topicName).await()
+                    Log.d("MyFirebaseMsgService", "Subscribed to district topic: $topicName")
+                }
+
                 Log.d("MyFirebaseMsgService", "Subscribed to default topics")
             } catch (e: Exception) {
                 Log.e("MyFirebaseMsgService", "Failed to subscribe to topics", e)

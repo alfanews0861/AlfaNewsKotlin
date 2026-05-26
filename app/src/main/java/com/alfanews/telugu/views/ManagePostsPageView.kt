@@ -43,7 +43,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -65,6 +67,7 @@ import kotlinx.coroutines.tasks.await
 @Composable
 fun ManagePostsPageView(
     onEditPost: (NewsPost) -> Unit,
+    onViewPost: (NewsPost) -> Unit = {},
     currentUser: User? = null
 ) {
     var posts by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
@@ -76,20 +79,24 @@ fun ManagePostsPageView(
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
     var showBroadcastDialog by remember { mutableStateOf<com.alfanews.telugu.models.NewsPost?>(null) }
 
-    fun fetchPosts() {
-        scope.launch {
-            loading = true
-            try {
-                var query = FirebaseService.db.collection("news")
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
+    // ✅ REAL-TIME LISTENER: Updates automatically when status changes from 'Pending' to 'Live'
+    androidx.compose.runtime.DisposableEffect(currentUser) {
+        var query = FirebaseService.db.collection("news")
+            .orderBy("timestamp", Query.Direction.DESCENDING)
 
-                // Regional Incharge అయితే కేటాయించిన జిల్లాల వార్తలు మాత్రమే చూపిస్తాము
-                if (currentUser?.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {
-                    query = query.whereIn("district", currentUser.assignedDistricts)
-                }
+        if (currentUser?.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {
+            query = query.whereIn("district", currentUser.assignedDistricts)
+        }
+        
+        if (currentUser?.role == UserRole.REPORTER) {
+            query = query.whereEqualTo("reporter.id", currentUser.id)
+        }
 
-                val snapshot = query.limit(100).get().await()
-
+        val listener = query.limit(100).addSnapshotListener { snapshot, e ->
+            loading = false
+            if (e != null) return@addSnapshotListener
+            
+            if (snapshot != null) {
                 posts = snapshot.documents.mapNotNull { doc ->
                     val data = doc.data ?: return@mapNotNull null
                     val headlineData = data["headline"] as? Map<*, *> ?: emptyMap<Any, Any>()
@@ -128,19 +135,14 @@ fun ManagePostsPageView(
                         categories = data["categories"] as? List<String> ?: emptyList(),
                         likes = (data["likes"] as? Number)?.toInt() ?: (data["likes"] as? String)?.toIntOrNull() ?: 0,
                         comments = (data["comments"] as? Number)?.toInt() ?: (data["comments"] as? String)?.toIntOrNull() ?: 0,
-                        shares = (data["shares"] as? Number)?.toInt() ?: (data["shares"] as? String)?.toIntOrNull() ?: 0
+                        shares = (data["shares"] as? Number)?.toInt() ?: (data["shares"] as? String)?.toIntOrNull() ?: 0,
+                        approved = data["approved"] as? Boolean ?: false
                     )
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                loading = false
             }
         }
-    }
-
-    LaunchedEffect(Unit) {
-        fetchPosts()
+        
+        onDispose { listener.remove() }
     }
 
     fun confirmDelete(postId: String) {
@@ -198,20 +200,27 @@ fun ManagePostsPageView(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .width(8.dp)
-                    .height(24.dp)
-                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))
-            )
-            Text(
-                text = "వార్తల నిర్వహణ",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(8.dp)
+                        .height(24.dp)
+                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))
+                )
+                Text(
+                    text = "వార్తల నిర్వహణ",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            
+            /* Refresh button removed as it's now real-time */
         }
 
         Divider(modifier = Modifier.padding(vertical = 16.dp))
@@ -239,7 +248,15 @@ fun ManagePostsPageView(
                 } else {
                     items(posts) { post ->
                         Card(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (post.approved) {
+                                        onViewPost(post)
+                                    } else {
+                                        Toast.makeText(context, "మీ వార్త పరిశీలనలో ఉంది...", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
                             shape = RoundedCornerShape(8.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.background),
@@ -269,11 +286,33 @@ fun ManagePostsPageView(
                                         fontSize = 17.sp,
                                         maxLines = 2
                                     )
-                                    Text(
-                                        text = "${post.categories.firstOrNull() ?: ""} • ${post.reporter.name}",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "${post.categories.firstOrNull() ?: ""} • ${post.reporter.name}",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                        )
+                                        
+                                        // ✅ Status Badge
+                                        val statusColor = if (post.approved) Color(0xFF4CAF50) else Color(0xFFFF9800)
+                                        val statusText = if (post.approved) "Live" else "Pending"
+                                        
+                                        Surface(
+                                            color = statusColor.copy(alpha = 0.1f),
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                text = statusText,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = statusColor,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
                                 }
 
                                 Row(
