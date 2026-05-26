@@ -14,7 +14,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 const ffmpeg = require('fluent-ffmpeg');
-import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentWritten } from "firebase-functions/v2/firestore";
 import { normalizeCategory, normalizeCategories, getCategorySystemInstruction } from './categories';
 
 admin.initializeApp();
@@ -176,7 +176,7 @@ async function performAIProcessing(headline: string, content: string, actualPost
         ...(actualPostData?.district ? [actualPostData.district] : [])
     ])).filter(c => !!c && c !== "OTHER");
 
-    console.log(`[AI_PROCESSING] Original category: "${aiCategory}" → Normalized: "${normalizedCategory}" (IsReporter: ${isReporter})`);
+    console.log(`[EDITORIAL_PROCESS] Original category: "${aiCategory}" → Normalized: "${normalizedCategory}" (IsReporter: ${isReporter})`);
     console.log(`[AI_PROCESSING] Final primary category: "${primaryCategory}"`);
     console.log(`[AI_PROCESSING] Final categories: ${JSON.stringify(canonicalCategories)}`);
 
@@ -249,43 +249,48 @@ async function saveImageLocally(externalUrl: string, prefix: string): Promise<st
 }
 
 /**
- * Helper: Generate image with retry logic
+ * Helper: Generate image with retry logic and model fallback
  */
 async function generateImageWithRetry(ai: any, prompt: string, aspectRatio: '1:1' | '9:16' | '16:9' | '3:4' | '4:3' = '9:16', retries = 3): Promise<Buffer | null> {
-    for (let i = 0; i < retries; i++) {
-        try {
-            console.log(`[AI_IMAGE] Attempt ${i + 1} for prompt: ${prompt.substring(0, 50)}...`);
-            const imgRes = await ai.models.generateImages({
-                model: IMAGEN_MODEL,
-                prompt: prompt,
-                config: {
-                    numberOfImages: 1,
-                    aspectRatio: aspectRatio,
-                    safetyFilterLevel: 'block_few', // Allow more creative/historical content
-                    personGeneration: 'allow_all',  // Crucial for history/daily life
-                    includeRaiReason: true
+    const modelsToTry = [IMAGEN_MODEL, "imagen-3.0-generate-001"];
+
+    for (const currentModel of modelsToTry) {
+        for (let i = 0; i < retries; i++) {
+            try {
+                console.log(`[AI_IMAGE] Attempt ${i + 1} using ${currentModel} for prompt: ${prompt.substring(0, 50)}...`);
+                const imgRes = await ai.models.generateImages({
+                    model: currentModel,
+                    prompt: prompt,
+                    config: {
+                        numberOfImages: 1,
+                        aspectRatio: aspectRatio,
+                        safetyFilterLevel: 'block_few', // Allow more creative/historical content
+                        personGeneration: 'allow_all',  // Crucial for history/daily life
+                        includeRaiReason: true
+                    }
+                });
+
+                if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
+                    console.log(`[AI_IMAGE] Success with ${currentModel}`);
+                    return Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
                 }
-            });
 
-            if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
-                return Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
-            }
+                const reason = imgRes.generatedImages?.[0]?.raiReason || "Safety/Filtered";
+                console.warn(`[AI_IMAGE] Attempt ${i + 1} (${currentModel}) returned no images. Reason: ${reason}`);
 
-            const reason = imgRes.generatedImages?.[0]?.raiReason || "Safety/Filtered";
-            console.warn(`[AI_IMAGE] Attempt ${i + 1} returned no images. Reason: ${reason}`);
-
-            // Add delay between retries even if it's just a safety filter hit
-            if (i < retries - 1) {
+                // If it's a safety filter hit, don't just retry the same model immediately, maybe wait or try next model
+                if (i < retries - 1) {
+                    const delay = Math.pow(2, i) * 2000;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            } catch (err: any) {
+                console.error(`[AI_IMAGE] Attempt ${i + 1} (${currentModel}) failed:`, err.message);
+                if (i === retries - 1 && currentModel === modelsToTry[modelsToTry.length - 1]) return null;
                 const delay = Math.pow(2, i) * 3000;
                 await new Promise(resolve => setTimeout(resolve, delay));
             }
-        } catch (err: any) {
-            console.error(`[AI_IMAGE] Attempt ${i + 1} failed:`, err.message);
-            if (i === retries - 1) return null;
-            // Exponential backoff
-            const delay = Math.pow(2, i) * 5000;
-            await new Promise(resolve => setTimeout(resolve, delay));
         }
+        console.log(`[AI_IMAGE] ${currentModel} failed after ${retries} attempts, trying next model...`);
     }
     return null;
 }
@@ -323,7 +328,9 @@ export const scheduleFestivalGreeting = onSchedule({ schedule: "0 5 * * *", time
         console.log(`[FESTIVAL] Found festival: ${data.festivalTe}. Generating greeting...`);
 
         let mediaUrl = "";
-        const buffer = await generateImageWithRetry(ai, `Beautiful high quality aesthetic background for ${data.imagePrompt || data.festivalTe} festival greeting in India, warm atmosphere, space for text, no text.`, '9:16');
+        const buffer = await generateImageWithRetry(ai, `A stunning traditional Indian spiritual art illustration of ${data.imagePrompt || data.festivalTe}.
+        Style: Divine aesthetic, vibrant colors, oil painting on canvas, heavenly atmosphere, golden lighting.
+        Note: Focus on the spiritual and cultural essence of the festival, beautiful composition, no text.`, '9:16');
         if (buffer) {
             mediaUrl = await saveBufferToStorage(buffer, "GREETING") || "";
         }
@@ -380,7 +387,9 @@ export const scheduleQuoteOfTheDay = onSchedule({ schedule: "0 4 * * *", timeZon
         if (!data.quoteTe) return;
 
         let mediaUrl = "";
-        const buffer = await generateImageWithRetry(ai, `Photorealistic aesthetic portrait or background of ${data.imagePrompt}, warm lighting, very beautiful, absolutely no text, no words.`, '9:16');
+        const buffer = await generateImageWithRetry(ai, `A very beautiful and artistic aesthetic background representing ${data.imagePrompt}.
+        Style: Concept art, soft bokeh, cinematic lighting, peaceful and inspirational atmosphere.
+        Quality: Masterpiece, 8k resolution, absolutely no text, no words, no letters.`, '9:16');
         if (buffer) {
             mediaUrl = await saveBufferToStorage(buffer, "QUOTE") || "";
         }
@@ -409,7 +418,7 @@ export const scheduleQuoteOfTheDay = onSchedule({ schedule: "0 4 * * *", timeZon
  */
 export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
     const ai = getAIInstance();
-    const dateStr = new Date().toLocaleDateString('te-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'long' });
+    const dateStr = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'long' });
 
     const schema = {
         type: Type.OBJECT,
@@ -427,8 +436,8 @@ export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", time
         const res = await ai.models.generateContent({
             model: SCHEDULED_MODEL,
             contents: [{ role: "user", parts: [{ text: `Out of all historical events that happened on ${dateStr}, pick the single most important event. Write a 60 words detailed news about it.
-            Also, provide a HIGHLY DETAILED, photorealistic, and safe image prompt that describes the scene without mentioning specific modern people or controversial figures. Focus on the architecture, clothing of the era, and the general atmosphere.
-            Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be sharp and punchy. Output JSON.` }] }],
+            Also, provide a HIGHLY DETAILED, photorealistic, and safe image prompt that describes the scene without mentioning specific living people, modern politicians, or controversial figures. Focus on the era-appropriate architecture, clothing, and the general atmosphere.
+            Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). Output JSON.` }] }],
             config: {
                 responseMimeType: "application/json",
                 responseSchema: schema,
@@ -442,7 +451,9 @@ export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", time
         }
 
         let mediaUrl = "";
-        const buffer = await generateImageWithRetry(ai, `Historical photorealistic image: ${data.imagePrompt}, dramatic lighting, no text.`, '16:9');
+        const buffer = await generateImageWithRetry(ai, `A grand cinematic historical reconstruction of: ${data.imagePrompt}.
+        Style: Epic movie scene, era-appropriate architecture and attire, dramatic atmospheric lighting, photorealistic digital art.
+        Note: Focus on the historical event's scale and importance, masterpiece, no text.`, '16:9');
         if (buffer) {
             mediaUrl = await saveBufferToStorage(buffer, "HISTORY") || "";
         }
@@ -492,7 +503,7 @@ Current Political Landscape:
 Task:
 1. Identify a trending, humorous political incident from the last 24 hours in ${state}.
 2. Create a sharp satirical cartoon scene.
-3. For the characters involved, create a VERY DETAILED visual description focusing on their iconic features (e.g., specific hairstyle, beard, glasses, body language, typical clothes) so they look exactly like the real politicians WITHOUT using their names in the final image prompt.
+3. For the characters involved, create a detailed visual description focusing on their recognizable features (e.g., hairstyle, glasses, typical clothes) WITHOUT using their real names in the image prompt to ensure safety compliance. Focus on the situation and satire.
 4. Create a funny Telugu dialogue for a speech bubble (max 8 words).
 
 Return JSON: {topic, visualDescription, teluguCaption, speechBubbleText}` }] }],
@@ -504,13 +515,12 @@ Return JSON: {topic, visualDescription, teluguCaption, speechBubbleText}` }] }],
             const bubbleText = cartoonData.speechBubbleText || "";
             const teluguText = cartoonData.teluguCaption || "నేటి రాజకీయ కార్టూన్";
 
-            const buffer = await generateImageWithRetry(ai, `A high-end, professional editorial political caricature.
-Style: Sharp ink lines with professional digital watercolor.
+            const buffer = await generateImageWithRetry(ai, `A professional hand-drawn editorial political satire cartoon sketch.
+Style: Sharp ink lines with professional digital watercolor, classic newspaper caricature style.
 Scene: ${visual}.
-Details: The characters must have a very strong, recognizable likeness to the Indian politicians they represent based on the detailed features.
-Feature: Include a clear speech bubble with this EXACT Telugu text: "${bubbleText}".
-Rendering: The Telugu script must be elegant, bold, and perfectly legible.
-Quality: 8k, masterpiece, iconic newspaper style.`, '9:16');
+Note: The image is a creative satirical illustration of a political situation.
+Details: Clear composition, expressive characters, professional artistry.
+Feature: Include a speech bubble with this text: "${bubbleText}".`, '9:16');
 
             if (buffer) {
                 const mediaUrl = await saveBufferToStorage(buffer, `CARTOON_${state.replace(" ", "")}`) || "";
@@ -764,28 +774,28 @@ export const processReporterSubmission = onCall(async (request) => {
 
 
 /**
- * 6.2 Background News Processing (AI + Video + YouTube)
- * Handles ALL background tasks after a news post is created.
- * Note: Uses YouTube Secrets from Secret Manager.
+ * 6.2 Background News Processing (Editorial Review + Video)
+ * Handles ALL background tasks after a news post is created OR edited.
  */
-export const onNewsPostCreated = onDocumentCreated({
+export const onNewsPostWritten = onDocumentWritten({
     document: "news/{postId}",
     secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"],
     memory: "4GiB",
-    timeoutSeconds: 540 // Increased to 9 minutes for long videos
+    timeoutSeconds: 540
 }, async (event) => {
-    const snapshot = event.data;
-    if (!snapshot) return;
+    const snapshot = event.data?.after;
+    if (!snapshot || !snapshot.exists) return; // Ignore deletions
+
     let data = snapshot.data();
     const postId = event.params.postId;
 
-    console.log(`[TRIGGER] Processing new post: ${postId}`);
+    console.log(`[TRIGGER] Processing post (Created/Edited): ${postId}`);
 
-    // 1. AI Processing (if not already done)
+    // 1. Editorial Review (if not already done or if reset by an edit)
     if (data && data.aiProcessed === false) {
         console.log(`[TRIGGER] Running background AI processing for ${postId}`);
         try {
-            await db.collection('news').doc(postId).update({ status: "PROCESSING_AI" });
+            await db.collection('news').doc(postId).update({ status: "REVIEWING_CONTENT" });
             const headline = data.headline?.telugu || "";
             const content = data.content?.telugu || "";
             if (headline && content) {
@@ -811,7 +821,7 @@ export const onNewsPostCreated = onDocumentCreated({
             }
         } catch (aiErr: any) {
             console.error(`[TRIGGER] AI Processing failed for ${postId}:`, aiErr.message);
-            await db.collection('news').doc(postId).update({ status: "FAILED", error: `AI: ${aiErr.message}` });
+            await db.collection('news').doc(postId).update({ status: "FAILED", error: `Editorial: ${aiErr.message}` });
             if (data.isReporter && data.reporter?.id) {
                 await notifyReporter(data.reporter.id, postId, data.headline?.telugu || "", 'INTERNAL_ERROR');
             }
@@ -906,7 +916,7 @@ export const onNewsPostCreated = onDocumentCreated({
                     if (frames.length > 0) {
                         const frameParts = frames.map(p => ({ inlineData: { data: fs.readFileSync(p).toString('base64'), mimeType: 'image/jpeg' } }));
 
-                        // Ask AI to analyze video content + reporter notes
+                        // Ask Editor to analyze video content + reporter notes
                         const analysisRes = await ai.models.generateContent({
                             model: FLASH_MODEL,
                             contents: [{
@@ -929,8 +939,8 @@ export const onNewsPostCreated = onDocumentCreated({
 
                         const analysisData = parseAIJson(analysisRes.text || "{}");
                         if (analysisData.summary) {
-                            console.log(`[VIDEO_PROCESS] AI generated/refined summary from video analysis.`);
-                            teluguNews = analysisData.summary; // Use AI-refined news
+                            console.log(`[VIDEO_PROCESS] Editorial team generated/refined summary from video analysis.`);
+                            teluguNews = analysisData.summary; // Use editorial-refined news
                         }
                         videoAnalysis = analysisData;
                     }
@@ -948,7 +958,7 @@ export const onNewsPostCreated = onDocumentCreated({
 
                 // 2. Generate Voice-over (Try High Quality Chirp HD first, fallback to Standard)
                 console.log(`[VIDEO_PROCESS] Generating high-quality voice-over for ${teluguNews.length} characters...`);
-                await db.collection('news').doc(postId).update({ status: "PROCESSING_VOICE_OVER" });
+                await db.collection('news').doc(postId).update({ status: "PREPARING_MEDIA" });
 
                 const ttsAuth = new google.auth.GoogleAuth({
                     scopes: ['https://www.googleapis.com/auth/cloud-platform']
@@ -998,7 +1008,7 @@ export const onNewsPostCreated = onDocumentCreated({
                 const isBase64 = /^[A-Za-z0-9+/=]+$/.test(audioText.trim().substring(0, 50));
                 if (!isBase64 || audioText.length < 500) {
                     console.error(`[VIDEO_PROCESS] Invalid audio response. Base64: ${isBase64}, Length: ${audioText.length}`);
-                    throw new Error("AI ద్వారా వాయిస్-ఓవర్ జనరేట్ కాలేదు. రెస్పాన్స్ సరిగ్గా లేదు.");
+                    throw new Error("వాయిస్-ఓవర్ జనరేట్ కాలేదు. రెస్పాన్స్ సరిగ్గా లేదు.");
                 }
 
                 fs.writeFileSync(audioPath, Buffer.from(audioText, 'base64'));
@@ -1018,7 +1028,7 @@ export const onNewsPostCreated = onDocumentCreated({
 
                 // 3. Merge Audio and Video (Mixed with Background Ducking)
                 console.log(`[VIDEO_PROCESS] Merging audio and video with dynamic background ducking...`);
-                await db.collection('news').doc(postId).update({ status: "MERGING_MEDIA" });
+                await db.collection('news').doc(postId).update({ status: "FINALIZING_POST" });
 
                 await new Promise((resolve, reject) => {
                     ffmpeg(videoPath)
