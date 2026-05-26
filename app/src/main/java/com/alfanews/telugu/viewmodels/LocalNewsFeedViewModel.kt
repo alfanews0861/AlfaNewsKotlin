@@ -236,17 +236,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         snapshot!!.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
                     }
                 } catch (e: Exception) {
-                    try {
-                         val fallbackQuery = newsRef
-                             .whereEqualTo("approved", true)
-                             .whereEqualTo("district", district)
-                             .orderBy("timestamp", Query.Direction.DESCENDING)
-                             .limit(pageSize.toLong())
-                         snapshot = fallbackQuery.get().await()
-                         posts = withContext(Dispatchers.Default) {
-                             snapshot!!.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
-                         }
-                     } catch (e2: Exception) { }
+                    android.util.Log.e("LocalNewsFeedViewModel", "Primary query failed: ${e.message}")
                 }
                 
                 lastDocument = snapshot?.documents?.lastOrNull()
@@ -303,18 +293,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                          snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
                      }
                  } catch (e: Exception) {
-                     try {
-                         val fallbackQuery = newsRef
-                             .whereEqualTo("approved", true)
-                             .whereEqualTo("district", district)
-                             .orderBy("timestamp", Query.Direction.DESCENDING)
-                             .startAfter(currentLastDoc)
-                             .limit(pageSize.toLong())
-                         snapshot = fallbackQuery.get().await()
-                         newPosts = withContext(Dispatchers.Default) {
-                             snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
-                         }
-                     } catch (e2: Exception) { }
+                     android.util.Log.e("LocalNewsFeedViewModel", "LoadMore query failed: ${e.message}")
                  }
                   if (newPosts.isNotEmpty()) {
                       lastDocument = snapshot?.documents?.lastOrNull()

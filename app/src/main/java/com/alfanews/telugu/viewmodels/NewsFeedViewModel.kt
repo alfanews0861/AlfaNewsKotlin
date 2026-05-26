@@ -107,6 +107,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         "Devotional", "Lifestyle", "AndhraPradesh", "Telangana"
     )
 
+    private val strictlyGlobalKeywords = listOf(
+        "సినిమా", "స్పోర్ట్స్", "జాతీయం", "అంతర్జాతీయం", "వ్యాపారం", 
+        "ఆరోగ్యం", "విద్య", "టెక్నాలజీ", "వ్యవసాయం", "భక్తి", 
+        "వినోదం", "ప్రపంచం", "క్రైమ్", "లైఫ్ స్టైల్", "జనరల్", "రాష్ట్రం"
+    )
+
+    private fun isGlobalCategory(category: String): Boolean {
+        return strictlyGlobalKeywords.any { kw -> category.contains(kw, ignoreCase = true) }
+    }
+
     private val FETCH_LIMIT = 20 
 
      fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null) {
@@ -264,6 +274,12 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
                    _news.value = finalPosts.distinctBy { it.id }
                    
+                   if (finalPosts.isNotEmpty()) {
+                       try {
+                           AnalyticsService.logBulkCategoryViews(finalPosts.map { it.categories }, weight = 1)
+                       } catch (e: Exception) { }
+                   }
+                   
                    if (initialPostId == null) {
                        _shouldScrollToTop.value = true
                    }
@@ -324,6 +340,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                  mainCursor = mainBatch.second
 
                    if (newPosts.isNotEmpty()) {
+                      try {
+                          AnalyticsService.logBulkCategoryViews(newPosts.map { it.categories }, weight = 1)
+                      } catch (e: Exception) { }
+                      
                       val currentIds = _news.value.map { it.id }.toSet()
                       val uniqueNewPosts = newPosts.filter { !currentIds.contains(it.id) }
                       if (uniqueNewPosts.isNotEmpty()) {
@@ -382,9 +402,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 val currentDist = _userDistrict.value
                 val isGlobal = globalDistricts.contains(post.district) || post.district == "State" || post.district == null
                 val matchesDistrict = currentDist != null && (post.district == currentDist || post.categories.contains(currentDist))
+                val hasGlobalCategory = post.categories.any { isGlobalCategory(it) }
                 
-                // Allow if it's Global/State/Null OR if it matches our selected district
-                if (isGlobal || matchesDistrict) return@filter true
+                // Allow if it's Global/State/Null OR if it matches our selected district OR is a general category
+                if (isGlobal || matchesDistrict || hasGlobalCategory) return@filter true
                 
                 // Otherwise, it's a post from another district, so filter it out
                 false

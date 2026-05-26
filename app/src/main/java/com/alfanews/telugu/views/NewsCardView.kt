@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.media3.common.Player
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
