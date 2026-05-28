@@ -152,7 +152,7 @@ fun LocalNewsFeedView(
     // 🚀 సెన్సిటివిటీని పెంచడానికి ఫ్లింగ్ బిహేవియర్ (ఇమేజ్ మరియు కంటెంట్ ఏరియాలో ఒకేలా ఉంటుంది)
     val flingBehavior = PagerDefaults.flingBehavior(
         state = pagerState,
-        snapPositionalThreshold = 0.15f // 15% దూరం జరిపితే చాలు పేజీ మారిపోతుంది
+        snapPositionalThreshold = 0.10f // 10% దూరం జరిపితే చాలు పేజీ మారిపోతుంది
     )
 
     // 🔄 Auto-scroll to top when fresh news is loaded after a long time

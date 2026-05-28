@@ -166,7 +166,7 @@ fun NewsFeedView(
     // 🚀 సెన్సిటివిటీని పెంచడానికి ఫ్లింగ్ బిహేవియర్ (ఇమేజ్ మరియు కంటెంట్ ఏరియాలో ఒకేలా ఉంటుంది)
     val flingBehavior = PagerDefaults.flingBehavior(
         state = pagerState,
-        snapPositionalThreshold = 0.15f // 15% దూరం జరిపితే చాలు పేజీ మారిపోతుంది (చాలా స్మూత్ గా ఉంటుంది)
+        snapPositionalThreshold = 0.10f // 10% దూరం జరిపితే చాలు పేజీ మారిపోతుంది (చాలా స్మూత్ గా ఉంటుంది)
     )
 
     // Scroll to shared/initial post when available
