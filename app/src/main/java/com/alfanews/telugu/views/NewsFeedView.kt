@@ -258,7 +258,7 @@ fun NewsFeedView(
             // ✅ FIXED HEADER: Always visible even if news is empty or loading
             LogoHeader(
                 district = userDistrict,
-                showDistrictSelector = true,
+                showDistrictSelector = false,
                 onDistrictClick = onDistrictClickRemembered
             )
 
