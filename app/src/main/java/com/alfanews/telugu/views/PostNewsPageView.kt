@@ -97,11 +97,10 @@ fun PostNewsPageView(
     val stateLabel = stringResource(R.string.state)
     val districtLabel = stringResource(R.string.district)
     val mandalLabel = stringResource(R.string.mandal)
-    val categoryLabel = stringResource(R.string.category)
     val detailsLabel = stringResource(R.string.news_details)
     val headlineLabel = stringResource(R.string.headline)
     val contentLabel = stringResource(R.string.news_content)
-    val regionCategoryLabel = stringResource(R.string.region_category)
+    val regionDetailsLabel = stringResource(R.string.region_details)
     val mediaLabel = stringResource(R.string.news_media)
     
     var statusMessage by remember { mutableStateOf("") }
@@ -151,12 +150,6 @@ fun PostNewsPageView(
 
     val mandalOptions = remember(mandals) {
         mandals.map { it to it }
-    }
-
-    val categoryOptions = remember {
-        Constants.CATEGORIES.map { cat -> 
-            cat to context.getString(Constants.CATEGORY_RES_MAP[cat] ?: R.string.cat_others) 
-        }
     }
 
     val stateOptions = remember(tsString, apString) {
@@ -314,7 +307,7 @@ fun PostNewsPageView(
                 elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(regionCategoryLabel, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                    Text(regionDetailsLabel, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Dropdown(label = stateLabel, options = stateOptions, selected = state, onSelected = { s -> state = s; district = "" }, modifier = Modifier.weight(1f))
                         Dropdown(label = districtLabel, options = districtOptions, selected = district, onSelected = { d -> district = d; location = "" }, modifier = Modifier.weight(1f))
@@ -334,8 +327,6 @@ fun PostNewsPageView(
                             )
                         )
                     }
-
-                    Dropdown(label = categoryLabel, options = categoryOptions, selected = category, onSelected = { c -> category = c }, modifier = Modifier.fillMaxWidth())
                 }
             }
 

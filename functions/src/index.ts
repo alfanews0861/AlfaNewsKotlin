@@ -168,9 +168,9 @@ async function performAIProcessing(headline: string, content: string, actualPost
     const aiCategory = aiRes.refinedCategory || actualPostData?.category || "OTHER";
     const normalizedCategory = normalizeCategory(aiCategory);
 
-    // ✅ REPORTERS FIX: Primary category is ALWAYS "జిల్లా వార్తలు" for reporter submissions
+    // ✅ REPORTERS FIX: Primary category is ALWAYS "జిల్లా వార్త" for reporter submissions
     const isReporter = actualPostData?.isReporter === true || actualPostData?.processingType === "REPORTER_SUBMISSION";
-    const primaryCategory = isReporter ? "జిల్లా వార్తలు" : normalizedCategory;
+    const primaryCategory = isReporter ? "జిల్లా వార్త" : normalizedCategory;
 
     // ✅ Build canonical categories array
     const canonicalCategories = Array.from(new Set([
