@@ -1,0 +1,23 @@
+[
+  {
+    "eventType": "VIEW_CLICKED",
+    "elementDescription": "Home",
+    "resourceName": "com.alfanews.telugu:id/nav_home"
+  },
+  {
+    "eventType": "VIEW_SWIPED",
+    "elementDescription": "News Feed",
+    "direction": "UP",
+    "resourceName": "com.alfanews.telugu:id/news_list"
+  },
+  {
+    "eventType": "VIEW_CLICKED",
+    "elementDescription": "Reporter Section",
+    "resourceName": "com.alfanews.telugu:id/nav_reporter"
+  },
+  {
+    "eventType": "VIEW_TEXT_CHANGED",
+    "replacementText": "Test News Headline from Robo",
+    "resourceName": "com.alfanews.telugu:id/et_headline"
+  }
+]

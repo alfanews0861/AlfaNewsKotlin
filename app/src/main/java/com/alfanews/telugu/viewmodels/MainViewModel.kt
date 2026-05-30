@@ -58,7 +58,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // 🧪 TEST LAB BRIDGE: Firebase Test Lab లో టెస్టింగ్ కోసం మారుపేరు (Mock) యూజర్ ని సెట్ చేయడం.
         val isTestLab = Settings.System.getString(application.contentResolver, "firebase.test.lab") == "true"
         if (isTestLab) {
-            val testRoleSetting = Settings.System.getString(application.contentResolver, "firebase.test.lab.role")
+            // Robo Test లో 'Environment Variables' లేదా 'Intent' ద్వారా రోల్ పంపవచ్చు
+            // ప్రస్తుతానికి సిస్టమ్ సెట్టింగ్ మరియు సురక్షితమైన ఫాల్‌బ్యాక్ చూద్దాం
+            val testRoleSetting = Settings.System.getString(application.contentResolver, "firebase.test.lab.role") ?: "REPORTER"
             val mockUser = when (testRoleSetting) {
                 "REPORTER" -> User(
                     id = "ftl_reporter",
