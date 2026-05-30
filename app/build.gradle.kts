@@ -17,8 +17,8 @@ android {
         applicationId = "com.alfanews.telugu"
         minSdk = 24
         targetSdk = 35
-        versionCode = 587
-        versionName = "Sree_5.3.4"
+        versionCode = 589
+        versionName = "Sree_5.3.6"
         multiDexEnabled = true
 
         val properties = Properties()
@@ -30,6 +30,7 @@ android {
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiApiKey\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        resourceConfigurations += listOf("te", "en")
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -63,8 +64,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
             
             proguardFiles(
