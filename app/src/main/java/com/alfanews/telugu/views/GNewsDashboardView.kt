@@ -80,14 +80,14 @@ fun GNewsDashboardView() {
                     .orderBy("timestamp", Query.Direction.DESCENDING)
                     .limit(20)
                     .get().await()
-                logs = logSnapshot.documents.map { it.data!! }
+                logs = logSnapshot.documents.map { it.data ?: mapOf() }
 
                 // Fetch recent GNews
                 val newsSnapshot = FirebaseService.db.collection("news")
                     .orderBy("timestamp", Query.Direction.DESCENDING)
                     .limit(15)
                     .get().await()
-                recentNews = newsSnapshot.documents.map { it.data!! }
+                recentNews = newsSnapshot.documents.map { it.data ?: mapOf() }
 
             } catch (e: Exception) {
                 e.printStackTrace()

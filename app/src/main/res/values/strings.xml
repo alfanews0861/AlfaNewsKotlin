@@ -40,11 +40,6 @@
     <string name="theme_system">System</string>
     <string name="policies_info">Policies and Information</string>
     <string name="storage_management">Storage Management</string>
-    <string name="cache_size_limit">App Cache Limit</string>
-    <string name="cache_size_100mb">100 MB (Recommended)</string>
-    <string name="cache_size_200mb">200 MB</string>
-    <string name="cache_size_500mb">500 MB</string>
-    <string name="cache_size_unlimited">Unlimited (Not Recommended)</string>
     <string name="current_cache_usage">Current Storage Usage: %1$s</string>
     <string name="clear_cache_now">Clear All Cache Now</string>
     <string name="cache_cleared_success">Cache cleared successfully!</string>

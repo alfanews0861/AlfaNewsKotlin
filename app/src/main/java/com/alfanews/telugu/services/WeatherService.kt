@@ -62,7 +62,10 @@ interface WeatherApiService {
         @Query("current_weather") currentWeather: Boolean = true,
         @Query("hourly") hourly: String = "relative_humidity_2m",
         @Query("daily") daily: String = "weathercode,temperature_2m_max,temperature_2m_min,uv_index_max",
-        @Query("timezone") timezone: String = "auto"
+        @Query("timezone") timezone: String = "auto",
+        @Query("temperature_unit") tempUnit: String = "celsius",
+        @Query("wind_speed_unit") windUnit: String = "kmh",
+        @Query("precipitation_unit") precipUnit: String = "mm"
     ): WeatherResponse
 }
 
@@ -140,6 +143,18 @@ object WeatherService {
         "పశ్చిమ గోదావరి" to "Bhimavaram",
         "వైఎస్ఆర్ కడప" to "Kadapa"
     )
+
+    // Mapping for reverse lookup (English to Telugu)
+    private val reverseLocationMapping = locationMapping.entries.associate { it.value to it.key }
+
+    fun getTeluguNameForEnglish(englishName: String): String? {
+        // Direct match
+        reverseLocationMapping[englishName]?.let { return it }
+        // Partial match
+        return reverseLocationMapping.entries.find { 
+            it.key.contains(englishName, ignoreCase = true) || englishName.contains(it.key, ignoreCase = true) 
+        }?.value
+    }
 
     /**
      * జిల్లా పేరు ఆధారంగా నిజమైన వాతావరణ సమాచారాన్ని తెస్తుంది.

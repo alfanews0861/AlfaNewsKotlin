@@ -101,17 +101,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private var consecutiveEmptyLoads = 0
 
     private val globalDistricts = listOf(
-        "Politics", "Sports", "Cinema", "National", "International", 
-        "Business", "Crime", "Health", "Education", "Technology", 
-        "Agriculture", "General", "State", "Entertainment", "World",
-        "Devotional", "Lifestyle", "AndhraPradesh", "Telangana"
+        "State", "National", "International", "AndhraPradesh", "Telangana",
+        "Andhra Pradesh", "Telangana State", "India", "World"
     )
 
     private val strictlyGlobalKeywords = listOf(
         "సినిమా", "స్పోర్ట్స్", "జాతీయం", "అంతర్జాతీయం", "వ్యాపారం", 
         "ఆరోగ్యం", "విద్య", "టెక్నాలజీ", "వ్యవసాయం", "భక్తి", 
         "వినోదం", "ప్రపంచం", "క్రైమ్", "లైఫ్ స్టైల్", "జనరల్", "రాష్ట్రం",
-        "రాష్ట్ర వార్తలు", "ముఖ్యాంశాలు", "బ్రేకింగ్", "వైరల్", "తాజా వార్తలు"
+        "రాష్ట్ర వార్తలు", "ముఖ్యాంశాలు", "బ్రేకింగ్", "వైరల్", "తాజా వార్తలు",
+        "ఆంధ్రప్రదేశ్", "తెలంగాణ", "భారతదేశం", "రాజకీయం"
     )
 
     private fun isGlobalCategory(category: String): Boolean {
@@ -465,13 +464,19 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
            if (isFirstPage) {
                fun insertSafely(list: MutableList<NewsPost>, post: NewsPost, targetIdx: Int) {
-                   if (list.isEmpty()) { list.add(post) } 
-                   else { val actualIdx = if (targetIdx >= list.size) list.size else targetIdx; list.add(actualIdx, post) }
+                   if (list.isEmpty()) return // Do not insert if list is empty to prevent it being at index 0
+                   val actualIdx = if (targetIdx >= list.size) list.size else targetIdx
+                   list.add(actualIdx, post)
                }
                if (quoteGreetings.isNotEmpty()) { insertSafely(blendedNews, quoteGreetings.first(), 6) }
-               val lat = prefs.lastLat.takeIf { it != 0.0 }
-               val lon = prefs.lastLon.takeIf { it != 0.0 }
-               insertSafely(blendedNews, generateWeatherPost(prefs.localPlace, _userDistrict.value, lat, lon), 8)
+               
+               // ✅ WEATHER CARD FIX:
+               // Moved back to index 8 as per user request to ensure no delays at start.
+               if (blendedNews.size >= 5) {
+                   val lat = prefs.lastLat.takeIf { it != 0.0 }
+                   val lon = prefs.lastLon.takeIf { it != 0.0 }
+                   insertSafely(blendedNews, generateWeatherPost(prefs.localPlace, _userDistrict.value, lat, lon), 8)
+               }
 
                if (historyPosts.isNotEmpty()) { insertSafely(blendedNews, historyPosts.first(), 9) }
                if (cartoonPosts.isNotEmpty()) {
@@ -546,7 +551,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 } ?: com.alfanews.telugu.models.Entities(),
                 type = data["type"]?.toString() ?: "news",
                 approved = data["approved"] as? Boolean ?: false,
-                aiProcessed = data["aiProcessed"] as? Boolean ?: false
+                aiProcessed = data["aiProcessed"] as? Boolean ?: false,
+                isReporter = data["isReporter"] as? Boolean ?: (data["processingType"]?.toString() == "REPORTER_SUBMISSION")
             )
         } catch (e: Exception) { null }
     }
@@ -555,7 +561,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     fun detectLocation(context: Context, currentUser: User?, language: Language = Language.TELUGU) {
         viewModelScope.launch {
             try {
-                kotlinx.coroutines.withTimeout(2000L) {
+                // 🚀 INCREASED TIMEOUT: 5 seconds for better GPS reliability
+                kotlinx.coroutines.withTimeout(5000L) {
                     val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
                     val location = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
                     if (location != null) { processLocationUpdate(context, location.latitude, location.longitude, language, currentUser) }
@@ -573,8 +580,24 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     val address = addresses[0]
                     val locality = address.locality ?: address.subLocality ?: address.subAdminArea
                     if (locality != null) { prefs.localPlace = locality; prefs.lastLat = lat; prefs.lastLon = lon }
-                    val detectedName = address.subAdminArea ?: address.locality ?: address.adminArea
-                    val mappedDistrict = Constants.ALL_DISTRICTS.find { it.contains(detectedName ?: "", ignoreCase = true) || (detectedName ?: "").contains(it, ignoreCase = true) }
+                    
+                    val detectedName = address.subAdminArea ?: address.locality ?: address.adminArea ?: ""
+                    
+                    // 🌍 SMART MAPPING: Try Telugu first, then English mapping
+                    var mappedDistrict = Constants.ALL_DISTRICTS.find { 
+                        it.contains(detectedName, ignoreCase = true) || detectedName.contains(it, ignoreCase = true) 
+                    }
+                    
+                    if (mappedDistrict == null) {
+                        // Try English Geocoder fallback for better matching
+                        val engGeocoder = Geocoder(context, Locale.ENGLISH)
+                        val engAddresses = engGeocoder.getFromLocation(lat, lon, 1)
+                        val engName = engAddresses?.firstOrNull()?.let { it.subAdminArea ?: it.locality ?: it.adminArea }
+                        if (engName != null) {
+                            mappedDistrict = WeatherService.getTeluguNameForEnglish(engName)
+                        }
+                    }
+
                     if (mappedDistrict != null && prefs.detectedDistrict != mappedDistrict) {
                         prefs.detectedDistrict = mappedDistrict
                         withContext(Dispatchers.Main) { _userDistrict.value = mappedDistrict; loadNews(language, currentUser) }
@@ -612,21 +635,26 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
      private suspend fun generateWeatherPost(place: String?, district: String?, lat: Double? = null, lon: Double? = null): NewsPost {
          val location = if (district == prefs.detectedDistrict) (place ?: district ?: "హైదరాబాద్") else (district ?: "హైదరాబాద్")
          
-         // 🚀 ZERO WAITING: Timeout for weather fetch to prevent blocking the feed
+         // 🚀 INSTANT LOAD: Reduced timeout to 400ms. 
+         // If weather data takes longer, it will use defaults/cache to avoid delaying the news feed.
          val weatherData = try {
-             kotlinx.coroutines.withTimeout(800L) {
+             kotlinx.coroutines.withTimeout(400L) {
                  WeatherService.fetchWeather(location, lat, lon)
              }
          } catch (e: Exception) { null }
 
-         var temperatureStr = "31°C"; var weatherHeadlineTe = "సాధారణ వాతావరణం"; var weatherContentTe = "ప్రస్తుతం $location లో వాతావరణం సాధారణంగా ఉంది."
+         var temperatureStr = ""; var weatherHeadlineTe = "వాతావరణ సమాచారం"; var weatherContentTe = "ప్రస్తుతం $location లో వాతావరణం సాధారణంగా ఉంది."
          if (weatherData != null) {
-             temperatureStr = "${weatherData.temp.toInt()}°C"; weatherHeadlineTe = WeatherService.getWeatherDescription(weatherData.code)
+             temperatureStr = "${weatherData.temp.toInt()}°C "
+             weatherHeadlineTe = WeatherService.getWeatherDescription(weatherData.code)
              weatherContentTe = "నేడు $location లో వాతావరణం ${WeatherService.getWeatherDescription(weatherData.code)}. ప్రస్తుత ఉష్ణోగ్రత ${weatherData.temp.toInt()}°C గా ఉంది. గాలి వేగం గంటకు ${weatherData.wind.toInt()} కిలోమీటర్లు."
          }
          return NewsPost(
              id = "weather_${System.currentTimeMillis() / (1000 * 60 * 10)}",
-             headline = com.alfanews.telugu.models.Headline(telugu = "$location వాతావరణం: $weatherHeadlineTe", english = "$location Weather"),
+             headline = com.alfanews.telugu.models.Headline(
+                 telugu = "$temperatureStr$location వాతావరణం: $weatherHeadlineTe", 
+                 english = "$temperatureStr$location Weather"
+             ),
              content = com.alfanews.telugu.models.Content(telugu = weatherContentTe, english = "Current weather update for $location."),
              location = location, type = "weather", timestamp = System.currentTimeMillis(), latitude = lat, longitude = lon
          )

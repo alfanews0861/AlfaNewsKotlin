@@ -412,8 +412,9 @@ fun NewsCardView(
                                         .align(Alignment.BottomStart)
                                         .padding(10.dp)
                                         .clickable {
-                                            if (!post.originalUrl.isNullOrEmpty()) {
-                                                uriHandler.openUri(post.originalUrl!!)
+                                            val url = post.originalUrl
+                                            if (!url.isNullOrEmpty()) {
+                                                uriHandler.openUri(url)
                                             } else {
                                                 onReporterClick(post.reporter.id)
                                             }
@@ -765,6 +766,6 @@ private val YOUTUBE_ID_PATTERN = java.util.regex.Pattern.compile("^.*(?:(?:youtu
 
 fun extractYoutubeVideoId(url: String?): String? {
     if (url.isNullOrEmpty()) return null
-    val matcher = YOUTUBE_ID_PATTERN.matcher(url!!)
+    val matcher = YOUTUBE_ID_PATTERN.matcher(url)
     return if (matcher.matches()) matcher.group(1) else null
 }

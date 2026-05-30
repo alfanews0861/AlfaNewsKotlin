@@ -68,8 +68,8 @@ fun WeatherCardView(
         )
     }
     
-    // We consider it "Not Precise" if weatherData says so (meaning no GPS coords were used)
-    val isUsingGPS = (weatherData?.isPrecise == true && hasLocationPermission.value) || isLoading
+    // ✅ ROBUSTNESS: We consider it "Not Precise" if weatherData says so (meaning no GPS coords were used)
+    val isUsingGPS = (weatherData?.isPrecise == true && hasLocationPermission.value) || isLoading || (post.latitude != null && post.latitude != 0.0)
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -104,8 +104,9 @@ fun WeatherCardView(
 
     // Temperature to display: real API data or fallback from text
     val temperature: String = remember(weatherData, headline) {
-        if (weatherData != null) {
-            weatherData!!.temp.toInt().toString()
+        val currentData = weatherData
+        if (currentData != null) {
+            currentData.temp.toInt().toString()
         } else {
             // Try to extract from headline (e.g., "31°C")
             val regex = "(\\d+)°C".toRegex()
@@ -142,7 +143,7 @@ fun WeatherCardView(
                 95, 96, 99 -> WeatherType.THUNDERSTORM
                 else -> WeatherType.PARTLY_CLOUDY
             }
-            headline.contains("ఎండ", ignoreCase = true) || headline.contains("Sunny", ignoreCase = true) -> WeatherType.SUNNY
+            headline.contains("ఎండ", ignoreCase = true) || headline.contains("Sunny", ignoreCase = true) || headline.contains("Clear", ignoreCase = true) -> WeatherType.SUNNY
             headline.contains("వర్షం", ignoreCase = true) || headline.contains("Rain", ignoreCase = true) -> WeatherType.RAINY
             headline.contains("పిడుగు", ignoreCase = true) || headline.contains("Thunder", ignoreCase = true) -> WeatherType.THUNDERSTORM
             headline.contains("మేఘావృతం", ignoreCase = true) || headline.contains("Cloudy", ignoreCase = true) -> WeatherType.CLOUDY
@@ -159,57 +160,62 @@ fun WeatherCardView(
         }
     }
 
+    // ✅ ROBUSTNESS: Determine if we should show the loader or the content
+    val showContent = remember(isLoading, temperature) {
+        !isLoading || (temperature != "—" && temperature.isNotEmpty())
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // GPS WARNING BANNER
-        if (!isUsingGPS) {
-            Surface(
-                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        if (hasLocationPermission.value) {
-                            onLocationRequest()
-                            retryTrigger++
-                        } else {
-                            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                        }
+    // GPS WARNING BANNER - ✅ Made more subtle and robust
+    if (!isUsingGPS && !isLoading) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+            shape = RoundedCornerShape(0.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    if (hasLocationPermission.value) {
+                        onLocationRequest()
+                        retryTrigger++
+                    } else {
+                        permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                     }
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.GpsFixed,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = if (language == Language.TELUGU)
-                            "GPS లేనందువల్ల మీ ప్రాంత వాతావరణం ఇవ్వలేకపోతున్నాం. ఖచ్చితమైన సమాచారం మరియు వార్తల కోసం GPS అనుమతించండి. (ప్రస్తుతం జిల్లా కేంద్రం వాతావరణం)"
-                        else
-                            "Unable to fetch local weather without GPS. Grant location for precise weather and news. (Showing district weather)",
-                        fontSize = 12.sp,
-                        fontFamily = Mallanna,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        lineHeight = 16.sp,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Icon(
-                        Icons.Default.ChevronRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(16.dp)
-                    )
                 }
+        ) {
+            Row(
+                modifier = Modifier.padding(vertical = 6.dp, horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.LocationOff,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (language == Language.TELUGU)
+                        "ఖచ్చితమైన వాతావరణం కోసం GPS అనుమతించండి."
+                    else
+                        "Enable GPS for precise local weather.",
+                    fontSize = 11.sp,
+                    fontFamily = Mallanna,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(14.dp)
+                )
             }
         }
+    }
 
         // HEADER - App Name - ✅ Only show if requested
         if (showTopHeader) {
@@ -293,7 +299,7 @@ fun WeatherCardView(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                if (isLoading) {
+                if (!showContent) {
                     CircularProgressIndicator(
                         color = Color.White,
                         modifier = Modifier.size(48.dp),
@@ -306,7 +312,7 @@ fun WeatherCardView(
                         fontSize = 14.sp,
                         fontFamily = Mallanna
                     )
-                } else if (error) {
+                } else if (error && weatherData == null) {
                     Icon(Icons.Default.CloudOff, contentDescription = null, tint = Color.White, modifier = Modifier.size(48.dp))
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -375,7 +381,7 @@ fun WeatherCardView(
             Text(
                 text = if (weatherTime.isNotEmpty())
                     "Live • $weatherTime"
-                else "Live Update",
+                else if (isLoading) "Live • Updating..." else "Live Update",
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 11.sp,
                 modifier = Modifier

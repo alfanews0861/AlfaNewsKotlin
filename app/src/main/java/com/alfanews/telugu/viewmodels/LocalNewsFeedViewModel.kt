@@ -224,24 +224,24 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
 
                 try {
-                    // 🚀 STEP 1: Try finding by category array (Fastest & Standard)
+                    // 🚀 STEP 1: Search by 'district' field directly (Strict District Isolation)
                     var query = newsRef
                         .whereEqualTo("approved", true)
-                        .whereArrayContains("categories", district)
+                        .whereEqualTo("district", district)
                         .orderBy("timestamp", Query.Direction.DESCENDING)
                         .limit(pageSize.toLong())
                     
                     snapshot = query.get().await()
+                    val currentSnapshot = snapshot
                     posts = withContext(Dispatchers.Default) {
-                        snapshot!!.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                        currentSnapshot?.documents?.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) } ?: emptyList()
                     }
 
-                    // 🚀 STEP 2: Fallback - If no results, try matching by 'district' field directly
-                    // This handles cases where AI might have missed adding district to categories array
+                    // 🚀 STEP 2: Fallback - Search by categories array if district field search is empty
                     if (posts.isEmpty()) {
                         val fallbackQuery = newsRef
                             .whereEqualTo("approved", true)
-                            .whereEqualTo("district", district)
+                            .whereArrayContains("categories", district)
                             .orderBy("timestamp", Query.Direction.DESCENDING)
                             .limit(pageSize.toLong())
                         
@@ -322,7 +322,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                      }
 
                      newPosts = withContext(Dispatchers.Default) {
-                         snapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                         snapshot?.documents?.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) } ?: emptyList()
                      }
                  } catch (e: Exception) {
                      android.util.Log.e("LocalNewsFeedViewModel", "LoadMore query failed: ${e.message}")

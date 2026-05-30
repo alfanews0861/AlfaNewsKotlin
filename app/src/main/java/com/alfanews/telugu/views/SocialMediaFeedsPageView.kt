@@ -101,9 +101,10 @@ fun SocialMediaFeedsPageView() {
                     "category" to category
                 )
 
-                if (editingId != null) {
+                val currentId = editingId
+                if (currentId != null) {
                     FirebaseService.db.collection("social_feeds")
-                        .document(editingId!!)
+                        .document(currentId)
                         .update(feedData as Map<String, Any>)
                         .await()
                 } else {

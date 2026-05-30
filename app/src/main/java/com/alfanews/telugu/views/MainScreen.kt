@@ -195,9 +195,10 @@ fun MainScreen(
 
                 val user = currentUser
 
-                if (reporterIdToShow != null) {
+                val currentReporterId = reporterIdToShow
+                if (currentReporterId != null) {
                     ReporterProfileView(
-                        reporterId = reporterIdToShow!!,
+                        reporterId = currentReporterId,
                         language = language,
                         currentUser = user,
                         onBack = { reporterIdToShow = null }
@@ -420,9 +421,9 @@ fun ProfileContainer(
 
     val isStaff = user != null && (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.REGIONAL_INCHARGE || user.role == UserRole.REPORTER)
     
-    if (isStaff) {
+    if (isStaff && user != null) {
         AdminPanelView(
-            user = user!!,
+            user = user,
             onClose = { viewModel.setActiveTab("home") },
             language = language,
             setLanguage = { newLanguage -> viewModel.setLanguage(newLanguage) },

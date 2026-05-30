@@ -83,7 +83,12 @@ async function notifyReporter(reporterId: string, postId: string, headline: stri
         }
 
         const message = {
-            notification: { title, body, image: imageUrl || "" },
+            notification: { title, body },
+            android: {
+                notification: {
+                    imageUrl: imageUrl || ""
+                }
+            },
             data: {
                 actionUrl: `alfanews://news/${postId}`,
                 newsId: postId,
@@ -165,30 +170,43 @@ async function performAIProcessing(headline: string, content: string, actualPost
     };
 
     // ✅ NORMALIZE the AI-returned category to canonical form
-    const aiCategory = aiRes.refinedCategory || actualPostData?.category || "OTHER";
-    const normalizedCategory = normalizeCategory(aiCategory);
+    const aiCategoryDetected = aiRes.refinedCategory || actualPostData?.category || "OTHER";
+    const canonicalCategory = normalizeCategory(aiCategoryDetected);
 
     // ✅ REPORTERS FIX: Primary category is ALWAYS "జిల్లా వార్త" for reporter submissions
-    const isReporter = actualPostData?.isReporter === true || actualPostData?.processingType === "REPORTER_SUBMISSION";
-    const primaryCategory = isReporter ? "జిల్లా వార్త" : normalizedCategory;
+    // User Rule: Reporter news must ONLY have "జిల్లా వార్త" category.
+    const isReporterPost = actualPostData?.isReporter === true || actualPostData?.processingType === "REPORTER_SUBMISSION";
 
-    // ✅ Build canonical categories array
-    const canonicalCategories = Array.from(new Set([
-        normalizedCategory,
-        ...normalizeCategories(actualPostData?.categories || []),
-        ...(actualPostData?.district ? [actualPostData.district] : [])
-    ])).filter(c => !!c && c !== "OTHER");
+    let primaryCategory: string;
+    let finalCategories: string[];
 
-    console.log(`[EDITORIAL_PROCESS] Original category: "${aiCategory}" → Normalized: "${normalizedCategory}" (IsReporter: ${isReporter})`);
+    if (isReporterPost) {
+        primaryCategory = "జిల్లా వార్త";
+        // For reporters, we only keep "జిల్లా వార్త" and the specific district
+        finalCategories = ["జిల్లా వార్త"];
+        if (actualPostData?.district) {
+            finalCategories.push(actualPostData.district);
+        }
+    } else {
+        primaryCategory = canonicalCategory;
+        finalCategories = Array.from(new Set([
+            primaryCategory,
+            canonicalCategory,
+            ...normalizeCategories(actualPostData?.categories || []),
+            ...(actualPostData?.district ? [actualPostData.district] : [])
+        ])).filter(c => !!c && c !== "OTHER");
+    }
+
+    console.log(`[EDITORIAL_PROCESS] Original category: "${aiCategoryDetected}" → Canonical: "${canonicalCategory}" (IsReporter: ${isReporterPost})`);
     console.log(`[AI_PROCESSING] Final primary category: "${primaryCategory}"`);
-    console.log(`[AI_PROCESSING] Final categories: ${JSON.stringify(canonicalCategories)}`);
+    console.log(`[AI_PROCESSING] Final categories: ${JSON.stringify(finalCategories)}`);
 
     return {
         headline: { telugu: finalHeadline, english: finalHeadlineEn },
         content: { telugu: finalContent, english: finalContentEn },
         location: aiRes.location || actualPostData?.location || "",
         category: primaryCategory,
-        categories: canonicalCategories,
+        categories: finalCategories,
         tags: aiRes.tags || [],
         entities: normalizedEntities,
         isSafeForYouTube: aiRes.isSafeForYouTube ?? true,
@@ -762,8 +780,8 @@ export const processReporterSubmission = onCall(async (request) => {
             isReporter: true,
             isCitizen: false,
             aiProcessed: false, // Flag for background trigger to handle Gemini
-            approved: false,    // Ensure not visible until AI processes it
-            status: "PENDING", // Initial status for tracking
+            approved: false,    // ✅ Option B: Start as pending, wait for AI
+            status: "PENDING",  // ✅ Show as pending in manage news
             processingType: "REPORTER_SUBMISSION",
             timestamp: postData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
@@ -790,16 +808,19 @@ export const processReporterSubmission = onCall(async (request) => {
  * 6.2 Background News Processing (Editorial Review + Video)
  * Handles ALL background tasks after a news post is created OR edited.
  */
-export const onNewsPostWritten = onDocumentWritten({
+export const onNewsPostCreated = onDocumentCreated({
     document: "news/{postId}",
     secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"],
     memory: "4GiB",
     timeoutSeconds: 540
 }, async (event) => {
-    const snapshot = event.data?.after;
+    const snapshot = event.data;
     if (!snapshot || !snapshot.exists) return; // Ignore deletions
 
-    let data = snapshot.data();
+    const initialData = snapshot.data();
+    if (!initialData) return; // Guard against undefined data
+    let data: any = initialData;
+
     const postId = event.params.postId;
 
     console.log(`[TRIGGER] Processing post (Created/Edited): ${postId}`);
@@ -808,22 +829,34 @@ export const onNewsPostWritten = onDocumentWritten({
     if (data && data.aiProcessed === false) {
         console.log(`[TRIGGER] Running background AI processing for ${postId}`);
         try {
-            await db.collection('news').doc(postId).update({ status: "REVIEWING_CONTENT" });
+            const isReporter = data.isReporter === true || data.processingType === "REPORTER_SUBMISSION";
+
+            // For citizens, we might show "REVIEWING_CONTENT"
+            if (!isReporter) {
+                await db.collection('news').doc(postId).update({ status: "REVIEWING_CONTENT" });
+            }
+
             const headline = data.headline?.telugu || "";
             const content = data.content?.telugu || "";
             if (headline && content) {
                 const aiProcessedData = await performAIProcessing(headline, content, data);
-                // ✅ NEWS VALIDATION: Check if AI rejected the post for being personal or violating policies
-                const isRejected = aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
 
-                await db.collection('news').doc(postId).update({
+                // ✅ NEWS VALIDATION: Check if AI rejected the post
+                // ⚠️ USER RULE: Reporter news should NOT have AI Rejection. Only Citizen Journalism.
+                const aiRejectionDetected = aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
+                const isReporterInvolved = data.isReporter === true || data.processingType === "REPORTER_SUBMISSION";
+                const isRejected = !isReporterInvolved && aiRejectionDetected;
+
+                const updatePayload = {
                     ...aiProcessedData,
                     status: isRejected ? "REJECTED" : "published",
-                    approved: !isRejected // ✅ Only approve if NOT rejected
-                });
+                    approved: isReporterInvolved ? true : !isRejected // ✅ Reporter always approved, Citizen only if NOT rejected
+                };
+
+                await db.collection('news').doc(postId).update(updatePayload);
 
                 if (isRejected) {
-                    console.warn(`[TRIGGER] Post ${postId} REJECTED: ${aiProcessedData.rejectionReason}`);
+                    console.warn(`[TRIGGER] Citizen Post ${postId} REJECTED: ${aiProcessedData.rejectionReason}`);
                     if (data.reporter?.id) {
                         await notifyReporter(data.reporter.id, postId, headline, 'POLICY_VIOLATION', data.mediaUrl || "");
                     }
@@ -1210,7 +1243,12 @@ export const triggerPushBroadcast = onCall(async (request) => {
     }
 
     const message: any = {
-        notification: { title, body, image: imageUrl || "" },
+        notification: { title, body },
+        android: {
+            notification: {
+                imageUrl: imageUrl || ""
+            }
+        },
         data: {
             actionUrl: actionUrl || "",
             newsId: newsId || "",

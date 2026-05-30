@@ -54,11 +54,9 @@ fun PostClassifiedAdView(
         scope.launch {
             isSubmitting = true
             try {
-                val imageUrl = if (imageUri != null) {
-                    uploadImageToStorage(context, imageUri!!, "classifieds-media")
-                } else {
-                    ""
-                }
+                val imageUrl = imageUri?.let { uri ->
+                    uploadImageToStorage(context, uri, "classifieds-media")
+                } ?: ""
 
                 if (imageUrl.isEmpty()) {
                     Toast.makeText(context, "దయచేసి ఫోటోను అప్‌లోడ్ చేయండి.", Toast.LENGTH_SHORT).show()

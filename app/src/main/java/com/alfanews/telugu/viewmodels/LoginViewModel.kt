@@ -61,7 +61,7 @@ class LoginViewModel : ViewModel() {
             _uiState.value = LoginUiState(isLoading = true)
             try {
                 val authResult = FirebaseService.auth.signInWithCredential(credential).await()
-                val user = authResult.user!!
+                val user = authResult.user ?: throw Exception("అథెంటికేషన్ విఫలమైంది: యూజర్ దొరకలేదు.")
 
                 val userRef = FirebaseService.db.collection("users").document(user.uid)
                 val existingUserDoc = userRef.get().await()
@@ -117,10 +117,10 @@ class LoginViewModel : ViewModel() {
                     )
                     
                     // Update profile info only if it was provided by the auth provider
-                    if (!user.phoneNumber.isNullOrEmpty()) updateData["phone"] = user.phoneNumber!!
-                    if (!user.email.isNullOrEmpty()) updateData["email"] = user.email!!
-                    if (user.photoUrl != null) updateData["photoUrl"] = user.photoUrl!!.toString()
-                    if (!user.displayName.isNullOrEmpty()) updateData["name"] = user.displayName!!
+                    user.phoneNumber?.let { if (it.isNotEmpty()) updateData["phone"] = it }
+                    user.email?.let { if (it.isNotEmpty()) updateData["email"] = it }
+                    user.photoUrl?.let { updateData["photoUrl"] = it.toString() }
+                    user.displayName?.let { if (it.isNotEmpty()) updateData["name"] = it }
                     
                     userRef.update(updateData).await()
                     _uiState.value = LoginUiState(isLoginSuccessful = true, isNewUser = false)

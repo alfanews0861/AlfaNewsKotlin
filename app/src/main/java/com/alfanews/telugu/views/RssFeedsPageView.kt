@@ -102,8 +102,9 @@ fun RssFeedsPageView() {
                     feedData["district"] = null
                 }
 
-                if (editingRssId != null) {
-                    FirebaseService.db.collection("rss_feeds").document(editingRssId!!).update(feedData).await()
+                val currentId = editingRssId
+                if (currentId != null) {
+                    FirebaseService.db.collection("rss_feeds").document(currentId).update(feedData).await()
                 } else {
                     feedData["lastStatus"] = "active"
                     feedData["isPaused"] = false

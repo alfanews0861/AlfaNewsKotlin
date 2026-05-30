@@ -85,7 +85,7 @@ const getAIInstance = () => new genai_1.GoogleGenAI({
 /**
  * Helper: Notify reporter with human-friendly messages (Hiding AI involvement)
  */
-async function notifyReporter(reporterId, postId, headline, type) {
+async function notifyReporter(reporterId, postId, headline, type, imageUrl) {
     try {
         const userDoc = await db.collection('users').doc(reporterId).get();
         if (!userDoc.exists)
@@ -116,14 +116,22 @@ async function notifyReporter(reporterId, postId, headline, type) {
         }
         else {
             title = 'వార్త ప్రచురణలో అంతరాయం! ❌';
-            body = `సాంకేతిక కారణాల వల్ల మీ వార్త ప్రచురించబడలేదు. దయచేసి మళ్ళీ ప్రయత్నించండి.`;
+            body = `సాంకేతిక కారణాల వల్ల మీ వార్త ప్రచురించబడలేదు. దయచేసి మళ్ళీ ప్రయత్నిచండి.`;
         }
         const message = {
             notification: { title, body },
+            android: {
+                notification: {
+                    imageUrl: imageUrl || ""
+                }
+            },
             data: {
                 actionUrl: `alfanews://news/${postId}`,
                 newsId: postId,
-                type: `REPORTER_SUBMISSION_${type}`
+                type: `REPORTER_SUBMISSION_${type}`,
+                title,
+                body,
+                imageUrl: imageUrl || ""
             }
         };
         const sendPromises = tokens.map(token => admin.messaging().send({ ...message, token }).catch(async (err) => {
@@ -192,26 +200,39 @@ async function performAIProcessing(headline, content, actualPostData) {
         locations: Array.isArray(aiRes.entities?.locations) ? aiRes.entities.locations : []
     };
     // ✅ NORMALIZE the AI-returned category to canonical form
-    const aiCategory = aiRes.refinedCategory || actualPostData?.category || "OTHER";
-    const normalizedCategory = (0, categories_1.normalizeCategory)(aiCategory);
-    // ✅ REPORTERS FIX: Primary category is ALWAYS "జిల్లా వార్తలు" for reporter submissions
-    const isReporter = actualPostData?.isReporter === true || actualPostData?.processingType === "REPORTER_SUBMISSION";
-    const primaryCategory = isReporter ? "జిల్లా వార్తలు" : normalizedCategory;
-    // ✅ Build canonical categories array
-    const canonicalCategories = Array.from(new Set([
-        normalizedCategory,
-        ...(0, categories_1.normalizeCategories)(actualPostData?.categories || []),
-        ...(actualPostData?.district ? [actualPostData.district] : [])
-    ])).filter(c => !!c && c !== "OTHER");
-    console.log(`[AI_PROCESSING] Original category: "${aiCategory}" → Normalized: "${normalizedCategory}" (IsReporter: ${isReporter})`);
+    const aiCategoryDetected = aiRes.refinedCategory || actualPostData?.category || "OTHER";
+    const canonicalCategory = (0, categories_1.normalizeCategory)(aiCategoryDetected);
+    // ✅ REPORTERS FIX: Primary category is ALWAYS "జిల్లా వార్త" for reporter submissions
+    // User Rule: Reporter news must ONLY have "జిల్లా వార్త" category.
+    const isReporterPost = actualPostData?.isReporter === true || actualPostData?.processingType === "REPORTER_SUBMISSION";
+    let primaryCategory;
+    let finalCategories;
+    if (isReporterPost) {
+        primaryCategory = "జిల్లా వార్త";
+        // For reporters, we only keep "జిల్లా వార్త" and the specific district
+        finalCategories = ["జిల్లా వార్త"];
+        if (actualPostData?.district) {
+            finalCategories.push(actualPostData.district);
+        }
+    }
+    else {
+        primaryCategory = canonicalCategory;
+        finalCategories = Array.from(new Set([
+            primaryCategory,
+            canonicalCategory,
+            ...(0, categories_1.normalizeCategories)(actualPostData?.categories || []),
+            ...(actualPostData?.district ? [actualPostData.district] : [])
+        ])).filter(c => !!c && c !== "OTHER");
+    }
+    console.log(`[EDITORIAL_PROCESS] Original category: "${aiCategoryDetected}" → Canonical: "${canonicalCategory}" (IsReporter: ${isReporterPost})`);
     console.log(`[AI_PROCESSING] Final primary category: "${primaryCategory}"`);
-    console.log(`[AI_PROCESSING] Final categories: ${JSON.stringify(canonicalCategories)}`);
+    console.log(`[AI_PROCESSING] Final categories: ${JSON.stringify(finalCategories)}`);
     return {
         headline: { telugu: finalHeadline, english: finalHeadlineEn },
         content: { telugu: finalContent, english: finalContentEn },
         location: aiRes.location || actualPostData?.location || "",
         category: primaryCategory,
-        categories: canonicalCategories,
+        categories: finalCategories,
         tags: aiRes.tags || [],
         entities: normalizedEntities,
         isSafeForYouTube: aiRes.isSafeForYouTube ?? true,
@@ -273,42 +294,46 @@ async function saveImageLocally(externalUrl, prefix) {
     }
 }
 /**
- * Helper: Generate image with retry logic
+ * Helper: Generate image with retry logic and model fallback
  */
 async function generateImageWithRetry(ai, prompt, aspectRatio = '9:16', retries = 3) {
-    for (let i = 0; i < retries; i++) {
-        try {
-            console.log(`[AI_IMAGE] Attempt ${i + 1} for prompt: ${prompt.substring(0, 50)}...`);
-            const imgRes = await ai.models.generateImages({
-                model: IMAGEN_MODEL,
-                prompt: prompt,
-                config: {
-                    numberOfImages: 1,
-                    aspectRatio: aspectRatio,
-                    safetyFilterLevel: 'block_few', // Allow more creative/historical content
-                    personGeneration: 'allow_all', // Crucial for history/daily life
-                    includeRaiReason: true
+    const modelsToTry = [IMAGEN_MODEL, "imagen-3.0-generate-001"];
+    for (const currentModel of modelsToTry) {
+        for (let i = 0; i < retries; i++) {
+            try {
+                console.log(`[AI_IMAGE] Attempt ${i + 1} using ${currentModel} for prompt: ${prompt.substring(0, 50)}...`);
+                const imgRes = await ai.models.generateImages({
+                    model: currentModel,
+                    prompt: prompt,
+                    config: {
+                        numberOfImages: 1,
+                        aspectRatio: aspectRatio,
+                        safetyFilterLevel: 'block_few', // Allow more creative/historical content
+                        personGeneration: 'allow_all', // Crucial for history/daily life
+                        includeRaiReason: true
+                    }
+                });
+                if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
+                    console.log(`[AI_IMAGE] Success with ${currentModel}`);
+                    return buffer_1.Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
                 }
-            });
-            if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
-                return buffer_1.Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
+                const reason = imgRes.generatedImages?.[0]?.raiReason || "Safety/Filtered";
+                console.warn(`[AI_IMAGE] Attempt ${i + 1} (${currentModel}) returned no images. Reason: ${reason}`);
+                // If it's a safety filter hit, don't just retry the same model immediately, maybe wait or try next model
+                if (i < retries - 1) {
+                    const delay = Math.pow(2, i) * 2000;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
             }
-            const reason = imgRes.generatedImages?.[0]?.raiReason || "Safety/Filtered";
-            console.warn(`[AI_IMAGE] Attempt ${i + 1} returned no images. Reason: ${reason}`);
-            // Add delay between retries even if it's just a safety filter hit
-            if (i < retries - 1) {
+            catch (err) {
+                console.error(`[AI_IMAGE] Attempt ${i + 1} (${currentModel}) failed:`, err.message);
+                if (i === retries - 1 && currentModel === modelsToTry[modelsToTry.length - 1])
+                    return null;
                 const delay = Math.pow(2, i) * 3000;
                 await new Promise(resolve => setTimeout(resolve, delay));
             }
         }
-        catch (err) {
-            console.error(`[AI_IMAGE] Attempt ${i + 1} failed:`, err.message);
-            if (i === retries - 1)
-                return null;
-            // Exponential backoff
-            const delay = Math.pow(2, i) * 5000;
-            await new Promise(resolve => setTimeout(resolve, delay));
-        }
+        console.log(`[AI_IMAGE] ${currentModel} failed after ${retries} attempts, trying next model...`);
     }
     return null;
 }
@@ -340,7 +365,9 @@ exports.scheduleFestivalGreeting = (0, scheduler_1.onSchedule)({ schedule: "0 5 
         }
         console.log(`[FESTIVAL] Found festival: ${data.festivalTe}. Generating greeting...`);
         let mediaUrl = "";
-        const buffer = await generateImageWithRetry(ai, `Beautiful high quality aesthetic background for ${data.imagePrompt || data.festivalTe} festival greeting in India, warm atmosphere, space for text, no text.`, '9:16');
+        const buffer = await generateImageWithRetry(ai, `A stunning traditional Indian spiritual art illustration of ${data.imagePrompt || data.festivalTe}.
+        Style: Divine aesthetic, vibrant colors, oil painting on canvas, heavenly atmosphere, golden lighting.
+        Note: Focus on the spiritual and cultural essence of the festival, beautiful composition, no text.`, '9:16');
         if (buffer) {
             mediaUrl = await saveBufferToStorage(buffer, "GREETING") || "";
         }
@@ -396,7 +423,9 @@ exports.scheduleQuoteOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "0 4 * *
         if (!data.quoteTe)
             return;
         let mediaUrl = "";
-        const buffer = await generateImageWithRetry(ai, `Photorealistic aesthetic portrait or background of ${data.imagePrompt}, warm lighting, very beautiful, absolutely no text, no words.`, '9:16');
+        const buffer = await generateImageWithRetry(ai, `A very beautiful and artistic aesthetic background representing ${data.imagePrompt}.
+        Style: Concept art, soft bokeh, cinematic lighting, peaceful and inspirational atmosphere.
+        Quality: Masterpiece, 8k resolution, absolutely no text, no words, no letters.`, '9:16');
         if (buffer) {
             mediaUrl = await saveBufferToStorage(buffer, "QUOTE") || "";
         }
@@ -426,7 +455,7 @@ exports.scheduleQuoteOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "0 4 * *
  */
 exports.scheduleHistoryOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "30 4 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
     const ai = getAIInstance();
-    const dateStr = new Date().toLocaleDateString('te-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'long' });
+    const dateStr = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'long' });
     const schema = {
         type: genai_1.Type.OBJECT,
         properties: {
@@ -442,8 +471,8 @@ exports.scheduleHistoryOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "30 4 
         const res = await ai.models.generateContent({
             model: SCHEDULED_MODEL,
             contents: [{ role: "user", parts: [{ text: `Out of all historical events that happened on ${dateStr}, pick the single most important event. Write a 60 words detailed news about it.
-            Also, provide a HIGHLY DETAILED, photorealistic, and safe image prompt that describes the scene without mentioning specific modern people or controversial figures. Focus on the architecture, clothing of the era, and the general atmosphere.
-            Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be sharp and punchy. Output JSON.` }] }],
+            Also, provide a HIGHLY DETAILED, photorealistic, and safe image prompt that describes the scene without mentioning specific living people, modern politicians, or controversial figures. Focus on the era-appropriate architecture, clothing, and the general atmosphere.
+            Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). Output JSON.` }] }],
             config: {
                 responseMimeType: "application/json",
                 responseSchema: schema,
@@ -456,7 +485,9 @@ exports.scheduleHistoryOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "30 4 
             return;
         }
         let mediaUrl = "";
-        const buffer = await generateImageWithRetry(ai, `Historical photorealistic image: ${data.imagePrompt}, dramatic lighting, no text.`, '16:9');
+        const buffer = await generateImageWithRetry(ai, `A grand cinematic historical reconstruction of: ${data.imagePrompt}.
+        Style: Epic movie scene, era-appropriate architecture and attire, dramatic atmospheric lighting, photorealistic digital art.
+        Note: Focus on the historical event's scale and importance, masterpiece, no text.`, '16:9');
         if (buffer) {
             mediaUrl = await saveBufferToStorage(buffer, "HISTORY") || "";
         }
@@ -506,7 +537,7 @@ Current Political Landscape:
 Task:
 1. Identify a trending, humorous political incident from the last 24 hours in ${state}.
 2. Create a sharp satirical cartoon scene.
-3. For the characters involved, create a VERY DETAILED visual description focusing on their iconic features (e.g., specific hairstyle, beard, glasses, body language, typical clothes) so they look exactly like the real politicians WITHOUT using their names in the final image prompt.
+3. For the characters involved, create a detailed visual description focusing on their recognizable features (e.g., hairstyle, glasses, typical clothes) WITHOUT using their real names in the image prompt to ensure safety compliance. Focus on the situation and satire.
 4. Create a funny Telugu dialogue for a speech bubble (max 8 words).
 
 Return JSON: {topic, visualDescription, teluguCaption, speechBubbleText}` }] }],
@@ -516,13 +547,12 @@ Return JSON: {topic, visualDescription, teluguCaption, speechBubbleText}` }] }],
             const visual = cartoonData.visualDescription || "politicians in a satirical situation";
             const bubbleText = cartoonData.speechBubbleText || "";
             const teluguText = cartoonData.teluguCaption || "నేటి రాజకీయ కార్టూన్";
-            const buffer = await generateImageWithRetry(ai, `A high-end, professional editorial political caricature.
-Style: Sharp ink lines with professional digital watercolor.
+            const buffer = await generateImageWithRetry(ai, `A professional hand-drawn editorial political satire cartoon sketch.
+Style: Sharp ink lines with professional digital watercolor, classic newspaper caricature style.
 Scene: ${visual}.
-Details: The characters must have a very strong, recognizable likeness to the Indian politicians they represent based on the detailed features.
-Feature: Include a clear speech bubble with this EXACT Telugu text: "${bubbleText}".
-Rendering: The Telugu script must be elegant, bold, and perfectly legible.
-Quality: 8k, masterpiece, iconic newspaper style.`, '9:16');
+Note: The image is a creative satirical illustration of a political situation.
+Details: Clear composition, expressive characters, professional artistry.
+Feature: Include a speech bubble with this text: "${bubbleText}".`, '9:16');
             if (buffer) {
                 const mediaUrl = await saveBufferToStorage(buffer, `CARTOON_${state.replace(" ", "")}`) || "";
                 await db.collection('news').add({
@@ -633,7 +663,12 @@ exports.checkSevereWeatherAlerts = (0, scheduler_1.onSchedule)({
                     if (token)
                         messages.push({
                             notification: { title: alertTitle, body: alertBody },
-                            data: { type: "WEATHER_ALERT", district: district },
+                            data: {
+                                type: "WEATHER_ALERT",
+                                district: district,
+                                title: alertTitle,
+                                body: alertBody
+                            },
                             token: token
                         });
                 });
@@ -643,7 +678,12 @@ exports.checkSevereWeatherAlerts = (0, scheduler_1.onSchedule)({
                     if (token)
                         messages.push({
                             notification: { title: alertTitle, body: alertBody },
-                            data: { type: "WEATHER_ALERT", district: district },
+                            data: {
+                                type: "WEATHER_ALERT",
+                                district: district,
+                                title: alertTitle,
+                                body: alertBody
+                            },
                             token: token
                         });
                 });
@@ -736,8 +776,8 @@ exports.processReporterSubmission = (0, https_1.onCall)(async (request) => {
             isReporter: true,
             isCitizen: false,
             aiProcessed: false, // Flag for background trigger to handle Gemini
-            approved: false, // Ensure not visible until AI processes it
-            status: "PENDING", // Initial status for tracking
+            approved: false, // ✅ Option B: Start as pending, wait for AI
+            status: "PENDING", // ✅ Show as pending in manage news
             processingType: "REPORTER_SUBMISSION",
             timestamp: postData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
@@ -760,42 +800,52 @@ exports.processReporterSubmission = (0, https_1.onCall)(async (request) => {
     }
 });
 /**
- * 6.2 Background News Processing (AI + Video + YouTube)
- * Handles ALL background tasks after a news post is created.
- * Note: Uses YouTube Secrets from Secret Manager.
+ * 6.2 Background News Processing (Editorial Review + Video)
+ * Handles ALL background tasks after a news post is created OR edited.
  */
 exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
     document: "news/{postId}",
     secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"],
     memory: "4GiB",
-    timeoutSeconds: 540 // Increased to 9 minutes for long videos
+    timeoutSeconds: 540
 }, async (event) => {
     const snapshot = event.data;
-    if (!snapshot)
-        return;
-    let data = snapshot.data();
+    if (!snapshot || !snapshot.exists)
+        return; // Ignore deletions
+    const initialData = snapshot.data();
+    if (!initialData)
+        return; // Guard against undefined data
+    let data = initialData;
     const postId = event.params.postId;
-    console.log(`[TRIGGER] Processing new post: ${postId}`);
-    // 1. AI Processing (if not already done)
+    console.log(`[TRIGGER] Processing post (Created/Edited): ${postId}`);
+    // 1. Editorial Review (if not already done or if reset by an edit)
     if (data && data.aiProcessed === false) {
         console.log(`[TRIGGER] Running background AI processing for ${postId}`);
         try {
-            await db.collection('news').doc(postId).update({ status: "PROCESSING_AI" });
+            const isReporter = data.isReporter === true || data.processingType === "REPORTER_SUBMISSION";
+            // For citizens, we might show "REVIEWING_CONTENT"
+            if (!isReporter) {
+                await db.collection('news').doc(postId).update({ status: "REVIEWING_CONTENT" });
+            }
             const headline = data.headline?.telugu || "";
             const content = data.content?.telugu || "";
             if (headline && content) {
                 const aiProcessedData = await performAIProcessing(headline, content, data);
-                // ✅ NEWS VALIDATION: Check if AI rejected the post for being personal or violating policies
-                const isRejected = aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
-                await db.collection('news').doc(postId).update({
+                // ✅ NEWS VALIDATION: Check if AI rejected the post
+                // ⚠️ USER RULE: Reporter news should NOT have AI Rejection. Only Citizen Journalism.
+                const aiRejectionDetected = aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
+                const isReporterInvolved = data.isReporter === true || data.processingType === "REPORTER_SUBMISSION";
+                const isRejected = !isReporterInvolved && aiRejectionDetected;
+                const updatePayload = {
                     ...aiProcessedData,
                     status: isRejected ? "REJECTED" : "published",
-                    approved: !isRejected // ✅ Only approve if NOT rejected
-                });
+                    approved: isReporterInvolved ? true : !isRejected // ✅ Reporter always approved, Citizen only if NOT rejected
+                };
+                await db.collection('news').doc(postId).update(updatePayload);
                 if (isRejected) {
-                    console.warn(`[TRIGGER] Post ${postId} REJECTED: ${aiProcessedData.rejectionReason}`);
+                    console.warn(`[TRIGGER] Citizen Post ${postId} REJECTED: ${aiProcessedData.rejectionReason}`);
                     if (data.reporter?.id) {
-                        await notifyReporter(data.reporter.id, postId, headline, 'POLICY_VIOLATION');
+                        await notifyReporter(data.reporter.id, postId, headline, 'POLICY_VIOLATION', data.mediaUrl || "");
                     }
                     return; // Stop processing further (no video/YouTube)
                 }
@@ -804,9 +854,9 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
         }
         catch (aiErr) {
             console.error(`[TRIGGER] AI Processing failed for ${postId}:`, aiErr.message);
-            await db.collection('news').doc(postId).update({ status: "FAILED", error: `AI: ${aiErr.message}` });
+            await db.collection('news').doc(postId).update({ status: "FAILED", error: `Editorial: ${aiErr.message}` });
             if (data.isReporter && data.reporter?.id) {
-                await notifyReporter(data.reporter.id, postId, data.headline?.telugu || "", 'INTERNAL_ERROR');
+                await notifyReporter(data.reporter.id, postId, data.headline?.telugu || "", 'INTERNAL_ERROR', data.mediaUrl || "");
             }
             return; // Stop if AI enhancement fails
         }
@@ -891,7 +941,7 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
                     const frames = Array.from({ length: frameCount }, (_, i) => path.join(tempDir, `frame-${postId}-${i + 1}.jpg`)).filter(p => fs.existsSync(p));
                     if (frames.length > 0) {
                         const frameParts = frames.map(p => ({ inlineData: { data: fs.readFileSync(p).toString('base64'), mimeType: 'image/jpeg' } }));
-                        // Ask AI to analyze video content + reporter notes
+                        // Ask Editor to analyze video content + reporter notes
                         const analysisRes = await ai.models.generateContent({
                             model: FLASH_MODEL,
                             contents: [{
@@ -913,8 +963,8 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
                         });
                         const analysisData = parseAIJson(analysisRes.text || "{}");
                         if (analysisData.summary) {
-                            console.log(`[VIDEO_PROCESS] AI generated/refined summary from video analysis.`);
-                            teluguNews = analysisData.summary; // Use AI-refined news
+                            console.log(`[VIDEO_PROCESS] Editorial team generated/refined summary from video analysis.`);
+                            teluguNews = analysisData.summary; // Use editorial-refined news
                         }
                         videoAnalysis = analysisData;
                     }
@@ -930,7 +980,7 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
                 }
                 // 2. Generate Voice-over (Try High Quality Chirp HD first, fallback to Standard)
                 console.log(`[VIDEO_PROCESS] Generating high-quality voice-over for ${teluguNews.length} characters...`);
-                await db.collection('news').doc(postId).update({ status: "PROCESSING_VOICE_OVER" });
+                await db.collection('news').doc(postId).update({ status: "PREPARING_MEDIA" });
                 const ttsAuth = new google.auth.GoogleAuth({
                     scopes: ['https://www.googleapis.com/auth/cloud-platform']
                 });
@@ -972,7 +1022,7 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
                 const isBase64 = /^[A-Za-z0-9+/=]+$/.test(audioText.trim().substring(0, 50));
                 if (!isBase64 || audioText.length < 500) {
                     console.error(`[VIDEO_PROCESS] Invalid audio response. Base64: ${isBase64}, Length: ${audioText.length}`);
-                    throw new Error("AI ద్వారా వాయిస్-ఓవర్ జనరేట్ కాలేదు. రెస్పాన్స్ సరిగ్గా లేదు.");
+                    throw new Error("వాయిస్-ఓవర్ జనరేట్ కాలేదు. రెస్పాన్స్ సరిగ్గా లేదు.");
                 }
                 fs.writeFileSync(audioPath, buffer_1.Buffer.from(audioText, 'base64'));
                 // 2.1 Get Voice-over Duration (needed for dynamic ducking)
@@ -990,7 +1040,7 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
                 console.log(`[VIDEO_PROCESS] Voice-over duration: ${voiceOverDuration}s`);
                 // 3. Merge Audio and Video (Mixed with Background Ducking)
                 console.log(`[VIDEO_PROCESS] Merging audio and video with dynamic background ducking...`);
-                await db.collection('news').doc(postId).update({ status: "MERGING_MEDIA" });
+                await db.collection('news').doc(postId).update({ status: "FINALIZING_POST" });
                 await new Promise((resolve, reject) => {
                     ffmpeg(videoPath)
                         .input(audioPath)
@@ -1104,7 +1154,7 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentCreated)({
                 });
                 // Success Notification
                 if (data.isReporter && data.reporter?.id) {
-                    await notifyReporter(data.reporter.id, postId, data.headline?.telugu || headline, 'SUCCESS');
+                    await notifyReporter(data.reporter.id, postId, data.headline?.telugu || headline, 'SUCCESS', data.mediaUrl || "");
                 }
                 // Update local data for notification
                 data.youtubeUrl = youtubeUrl;
@@ -1146,11 +1196,18 @@ exports.triggerPushBroadcast = (0, https_1.onCall)(async (request) => {
     }
     const message = {
         notification: { title, body },
+        android: {
+            notification: {
+                imageUrl: imageUrl || ""
+            }
+        },
         data: {
             actionUrl: actionUrl || "",
             newsId: newsId || "",
             channelId: channelId || "general_news",
-            imageUrl: imageUrl || ""
+            imageUrl: imageUrl || "",
+            title: title,
+            body: body
         },
         topic: topic || 'all_users'
     };

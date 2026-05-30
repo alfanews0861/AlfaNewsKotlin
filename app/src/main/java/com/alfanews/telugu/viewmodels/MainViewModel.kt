@@ -11,6 +11,7 @@ import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.PreferenceManager
 import com.alfanews.telugu.models.ThemeMode
+import android.provider.Settings
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
@@ -54,6 +55,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val notificationsGranted: StateFlow<Boolean> = _notificationsGranted.asStateFlow()
 
     init {
+        // 🧪 TEST LAB BRIDGE: Firebase Test Lab లో టెస్టింగ్ కోసం మారుపేరు (Mock) యూజర్ ని సెట్ చేయడం.
+        val isTestLab = Settings.System.getString(application.contentResolver, "firebase.test.lab") == "true"
+        if (isTestLab) {
+            val testRoleSetting = Settings.System.getString(application.contentResolver, "firebase.test.lab.role")
+            val mockUser = when (testRoleSetting) {
+                "REPORTER" -> User(
+                    id = "ftl_reporter",
+                    name = "Test Reporter (FTL)",
+                    role = UserRole.REPORTER,
+                    district = "Guntur"
+                )
+                "AVID_USER" -> User(
+                    id = "ftl_avid_user",
+                    name = "Avid Reader (FTL)",
+                    role = UserRole.SUBSCRIBER,
+                    categoryScores = mapOf("politics" to 100, "cinema" to 80, "sports" to 50),
+                    district = "Nizamabad"
+                )
+                else -> null
+            }
+            if (mockUser != null) {
+                _currentUser.value = mockUser
+            }
+        }
+
         // 🚀 QUICK CACHE LOAD: Immediately load basic user info from preferences
         // to prevent role reset (Guest/Subscriber) while waiting for Firebase.
         val cachedId = prefs.userId
@@ -68,6 +94,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         FirebaseService.auth.addAuthStateListener { auth ->
+            // Test Lab లో Mock User ఉన్నప్పుడు Auth Listener ని స్కిప్ చేస్తాం
+            if (isTestLab && _currentUser.value?.id?.startsWith("ftl_") == true) return@addAuthStateListener
+
             userListener?.remove() 
             val firebaseUser = auth.currentUser
             if (firebaseUser == null) {

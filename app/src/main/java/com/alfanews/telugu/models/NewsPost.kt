@@ -103,6 +103,7 @@ data class NewsPost(
     val longitude: Double? = null,
     val approved: Boolean = false,
     val aiProcessed: Boolean = false,
+    val isReporter: Boolean = false, // ADDED: To differentiate reporter posts in the feed
 
     // పాత వెర్షన్ల కోసం కేటాయించబడిన ఫీల్డ్స్ (Deprecated)
     val category: String? = null,

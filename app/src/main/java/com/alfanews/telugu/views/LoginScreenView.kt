@@ -64,8 +64,8 @@ fun LoginScreenView(
         if (result.resultCode == Activity.RESULT_OK) {
             val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             try {
-                val account = task.getResult(ApiException::class.java)!!
-                val idToken: String? = account.idToken
+                val account = task.getResult(ApiException::class.java)
+                val idToken: String? = account?.idToken
                 if (idToken != null) {
                     val credential = GoogleAuthProvider.getCredential(idToken, null)
                     loginViewModel.signInWithCredential(credential, context)
@@ -148,14 +148,14 @@ fun LoginScreenView(
                             modifier = Modifier.padding(top = 4.dp, bottom = 32.dp)
                         )
 
-                        if (loginUiState.errorMessage != null) {
+                        loginUiState.errorMessage?.let { errorMsg ->
                             Surface(
                                 color = MaterialTheme.colorScheme.errorContainer,
                                 shape = MaterialTheme.shapes.medium,
                                 modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
                             ) {
                                 Text(
-                                    text = loginUiState.errorMessage!!,
+                                    text = errorMsg,
                                     color = MaterialTheme.colorScheme.onErrorContainer,
                                     modifier = Modifier.padding(12.dp),
                                     textAlign = TextAlign.Center,

@@ -48,8 +48,12 @@ export const sendPersonalizedNotification = onSchedule({
             await admin.messaging().send({
                 notification: {
                     title: '🌟 తాజా ముఖ్య వార్తలు (AlfaNews)',
-                    body: (headline + "").substring(0, 150),
-                    image: imageUrl
+                    body: (headline + "").substring(0, 150)
+                },
+                android: {
+                    notification: {
+                        imageUrl: imageUrl
+                    }
                 },
                 data: {
                     actionUrl: `alfanews://news/${topNews.id}`,
@@ -84,8 +88,12 @@ export const sendPersonalizedNotification = onSchedule({
                 await admin.messaging().send({
                     notification: {
                         title: `📍 ${district} తాజా వార్త`,
-                        body: (headline + "").substring(0, 150),
-                        image: imageUrl
+                        body: (headline + "").substring(0, 150)
+                    },
+                    android: {
+                        notification: {
+                            imageUrl: imageUrl
+                        }
                     },
                     data: {
                         actionUrl: `alfanews://news/${districtNews.id}`,

@@ -175,7 +175,9 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
             isSubmitting = true
             try {
                 val bannerUrl = if (adMediaType != AdMediaType.HTML) {
-                    uploadMediaToStorage(context, adImageUri!!, "local-ads", isVideo = adMediaType == AdMediaType.VIDEO)
+                    adImageUri?.let { uri ->
+                        uploadMediaToStorage(context, uri, "local-ads", isVideo = adMediaType == AdMediaType.VIDEO)
+                    } ?: ""
                 } else ""
 
                 val initialStatus = if (currentUser.role == UserRole.ADMIN) AdStatus.ACTIVE else AdStatus.PENDING_PAYMENT

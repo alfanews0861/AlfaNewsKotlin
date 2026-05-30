@@ -126,9 +126,10 @@ fun WebScrapingPageView() {
                     payload["meta"] = null
                 }
 
-                if (editingId != null) {
+                val currentId = editingId
+                if (currentId != null) {
                     FirebaseService.db.collection("scraping_sources")
-                        .document(editingId!!)
+                        .document(currentId)
                         .update(payload)
                         .await()
                 } else {
@@ -562,7 +563,7 @@ fun WebScrapingPageView() {
                                         siteUrl = src.url
                                         siteName = src.siteName
                                         category = src.category
-                                        if (src.state != null) selectedState = src.state!!
+                                        src.state?.let { selectedState = it }
                                         selectedDistrict = src.district
                                         scrapeGroup = (src.group ?: 1).toString()
                                         editingId = src.id

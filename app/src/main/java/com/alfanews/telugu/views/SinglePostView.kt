@@ -178,14 +178,16 @@ fun SinglePostView(
 
                 // Post content
                 Box(modifier = Modifier.fillMaxSize()) {
-                    NewsCardView(
-                        post = post!!,
-                        language = language,
-                        currentUser = currentUser,
-                        onProfileClick = onLoginRequest,
-                        onReporterClick = {},
-                        onDistrictClick = onDistrictClick
-                    )
+                    post?.let { safePost ->
+                        NewsCardView(
+                            post = safePost,
+                            language = language,
+                            currentUser = currentUser,
+                            onProfileClick = onLoginRequest,
+                            onReporterClick = {},
+                            onDistrictClick = onDistrictClick
+                        )
+                    }
                 }
             }
         }
