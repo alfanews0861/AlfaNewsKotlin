@@ -15,6 +15,22 @@ const getAIInstance = () => {
         apiVersion: "v1beta"
     });
 };
+/**
+ * Helper to parse AI JSON response
+ */
+function parseAIJson(text) {
+    try {
+        let cleanText = text.trim();
+        if (cleanText.startsWith('```')) {
+            cleanText = cleanText.replace(/^```(json)?\n/, '').replace(/\n```$/, '');
+        }
+        return JSON.parse(cleanText);
+    }
+    catch (e) {
+        console.error("[GEMINI-SERVICE] JSON parse error:", e);
+        return null;
+    }
+}
 const processSocialPostWithAI = async (socialText, platform, category) => {
     const ai = getAIInstance();
     const schema = {
@@ -43,8 +59,8 @@ const processSocialPostWithAI = async (socialText, platform, category) => {
         const text = response.text;
         if (!text)
             return null;
-        const parsed = JSON.parse(text.trim());
-        return parsed.isNewsFound ? parsed : null;
+        const parsed = parseAIJson(text);
+        return parsed && parsed.isNewsFound ? parsed : null;
     }
     catch (error) {
         console.error("Gemini Social Error:", error.message);
@@ -86,7 +102,7 @@ const processCitizenContentWithAI = async (rawContent) => {
         const text = response.text;
         if (!text)
             throw new Error("Empty AI response");
-        return JSON.parse(text.trim());
+        return parseAIJson(text);
     }
     catch (error) {
         console.error("Gemini Citizen Error:", error.message);
@@ -120,7 +136,7 @@ const processContentWithAI = async (rawContent, rawHeadline) => {
         const text = response.text;
         if (!text)
             throw new Error("Empty AI response");
-        return JSON.parse(text.trim());
+        return parseAIJson(text);
     }
     catch (error) {
         console.error("Gemini Editor Error:", error.message);
