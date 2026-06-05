@@ -15,6 +15,22 @@ const getAIInstance = () => {
     });
 };
 
+/**
+ * Helper to parse AI JSON response
+ */
+function parseAIJson(text: string) {
+    try {
+        let cleanText = text.trim();
+        if (cleanText.startsWith('```')) {
+            cleanText = cleanText.replace(/^```(json)?\n/, '').replace(/\n```$/, '');
+        }
+        return JSON.parse(cleanText);
+    } catch(e) {
+        console.error("[GEMINI-SERVICE] JSON parse error:", e);
+        return null;
+    }
+}
+
 export const processSocialPostWithAI = async (
     socialText: string,
     platform: string,
@@ -51,11 +67,12 @@ export const processSocialPostWithAI = async (
                 responseMimeType: "application/json",
                 responseSchema: schema,
             },
-        });
+        } as any);
+
         const text = response.text as string;
         if (!text) return null;
-        const parsed = JSON.parse(text.trim());
-        return parsed.isNewsFound ? parsed : null;
+        const parsed = parseAIJson(text);
+        return parsed && parsed.isNewsFound ? parsed : null;
     } catch (error: any) {
         console.error("Gemini Social Error:", error.message);
         return null;
@@ -105,10 +122,11 @@ export const processCitizenContentWithAI = async (
                 responseMimeType: "application/json",
                 responseSchema: schema,
             }
-        });
+        } as any);
+
         const text = response.text as string;
         if (!text) throw new Error("Empty AI response");
-        return JSON.parse(text.trim());
+        return parseAIJson(text);
     } catch (error: any) {
         console.error("Gemini Citizen Error:", error.message);
         throw error;
@@ -146,10 +164,11 @@ export const processContentWithAI = async (
                 responseMimeType: "application/json",
                 responseSchema: schema,
             }
-        });
+        } as any);
+
         const text = response.text as string;
         if (!text) throw new Error("Empty AI response");
-        return JSON.parse(text.trim());
+        return parseAIJson(text);
     } catch (error: any) {
         console.error("Gemini Editor Error:", error.message);
         throw error;

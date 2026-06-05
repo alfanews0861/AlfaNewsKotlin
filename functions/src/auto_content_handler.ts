@@ -301,3 +301,69 @@ export const checkSevereWeatherAlerts = onSchedule({
         } catch (err: any) { console.error(`[WEATHER_ALERT] Error:`, err.message); }
     }
 });
+
+/**
+ * 6. Cleanup Old News (120 days old)
+ * Runs every Sunday at 2:00 AM IST to reduce Storage and Firestore costs.
+ */
+export const cleanupOldNews = onSchedule({
+    schedule: "0 2 * * 0",
+    timeZone: "Asia/Kolkata",
+    memory: "1GiB",
+    timeoutSeconds: 540
+}, async (event) => {
+    console.log("[CLEANUP] Starting weekly cleanup of old news...");
+    const bucket = admin.storage().bucket();
+    const fourMonthsAgo = new Date();
+    fourMonthsAgo.setDate(fourMonthsAgo.getDate() - 120);
+
+    try {
+        const oldNewsQuery = await db.collection('news')
+            .where('timestamp', '<', admin.firestore.Timestamp.fromDate(fourMonthsAgo))
+            .limit(500) // Process in batches to avoid timeout
+            .get();
+
+        if (oldNewsQuery.empty) {
+            console.log("[CLEANUP] No old news found to delete.");
+            return;
+        }
+
+        console.log(`[CLEANUP] Found ${oldNewsQuery.size} documents older than 120 days.`);
+
+        let deletedFilesCount = 0;
+        const deletePromises = oldNewsQuery.docs.map(async (doc) => {
+            const data = doc.data();
+
+            // 1. Delete associated media files from Storage
+            const mediaUrls = data.mediaUrls || [];
+            if (data.mediaUrl) mediaUrls.push(data.mediaUrl);
+
+            for (const url of mediaUrls) {
+                if (url && typeof url === 'string' && url.includes('firebasestorage.googleapis.com')) {
+                    try {
+                        const urlObj = new URL(url);
+                        const filePath = decodeURIComponent(urlObj.pathname.split('/o/')[1].split('?')[0]);
+                        await bucket.file(filePath).delete();
+                        deletedFilesCount++;
+                    } catch (e) {
+                        // Ignore errors if file already deleted
+                    }
+                }
+            }
+
+            // 2. Update Firestore document to clear media instead of deleting the whole doc
+            return db.collection('news').doc(doc.id).update({
+                mediaUrl: "",
+                mediaUrls: [],
+                mediaDeleted: true,
+                lastCleanupAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        });
+
+        await Promise.all(deletePromises);
+        console.log(`[CLEANUP] Successfully cleaned ${oldNewsQuery.size} documents and deleted ${deletedFilesCount} media files.`);
+
+    } catch (error: any) {
+        console.error("[CLEANUP] Error during cleanup:", error.message);
+    }
+});
