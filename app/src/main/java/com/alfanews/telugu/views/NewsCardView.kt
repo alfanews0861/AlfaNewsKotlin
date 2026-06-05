@@ -135,7 +135,7 @@ fun NewsCardView(
     val isEnglish = language == Language.ENGLISH
     val headlineSize = if (isEnglish) 19.sp else 22.sp
     val headlineLineHeight = if (isEnglish) 27.sp else 30.sp
-    val contentSize = if (isEnglish) 16.sp else 18.sp
+    val contentSize = if (isEnglish) 16.sp else 19.sp
     val contentLineHeight = if (isEnglish) 23.sp else 26.sp
 
     val englishRegex = remember { Regex("[a-zA-Z]") }
