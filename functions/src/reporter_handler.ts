@@ -7,10 +7,17 @@ const db = admin.firestore();
 /**
  * Helper: Notify reporter with human-friendly messages
  */
-export async function notifyReporter(reporterId: string, postId: string, headline: string, type: 'SUCCESS' | 'INTERNAL_ERROR' | 'POLICY_VIOLATION', imageUrl?: string) {
+export async function notifyReporter(
+    reporterId: string,
+    postId: string,
+    headline: string,
+    type: 'SUCCESS' | 'INTERNAL_ERROR' | 'POLICY_VIOLATION',
+    imageUrl?: string
+) {
     try {
         const userDoc = await db.collection('users').doc(reporterId).get();
         if (!userDoc.exists) return;
+
         const userData = userDoc.data();
         if (userData && userData.notificationsEnabled === false) return;
 
@@ -21,6 +28,7 @@ export async function notifyReporter(reporterId: string, postId: string, headlin
                 if (t && typeof t === 'string' && !tokens.includes(t)) tokens.push(t);
             });
         }
+
         if (tokens.length === 0) return;
 
         let title = "";
@@ -39,7 +47,9 @@ export async function notifyReporter(reporterId: string, postId: string, headlin
 
         const message = {
             notification: { title, body },
-            android: { notification: { imageUrl: imageUrl || "" } },
+            android: {
+                notification: { imageUrl: imageUrl || "" }
+            },
             data: {
                 actionUrl: `alfanews://news/${postId}`,
                 newsId: postId,
@@ -52,7 +62,8 @@ export async function notifyReporter(reporterId: string, postId: string, headlin
 
         const sendPromises = tokens.map(token =>
             admin.messaging().send({ ...message, token }).catch(async err => {
-                if (err.code === 'messaging/registration-token-not-registered' || err.code === 'messaging/invalid-registration-token') {
+                if (err.code === 'messaging/registration-token-not-registered' ||
+                    err.code === 'messaging/invalid-registration-token') {
                     const updates: any = {};
                     if (userData?.fcmToken === token) updates.fcmToken = admin.firestore.FieldValue.delete();
                     updates.fcmTokens = admin.firestore.FieldValue.arrayRemove(token);
@@ -60,8 +71,11 @@ export async function notifyReporter(reporterId: string, postId: string, headlin
                 }
             })
         );
+
         await Promise.all(sendPromises);
-    } catch (e: any) { console.error(`[NOTIFY] Error:`, e.message); }
+    } catch (e: any) {
+        console.error(`[NOTIFY] Error:`, e.message);
+    }
 }
 
 /**
@@ -69,8 +83,10 @@ export async function notifyReporter(reporterId: string, postId: string, headlin
  */
 export const processReporterSubmission = onCall(async (request) => {
     const { postId, headline: rawHeadline, content: rawContent, postData } = request.data;
+
     try {
         console.log(`[REPORTER_SUBMISSION] Quick acceptance for post: ${postId || 'new'}`);
+
         const headline = rawHeadline || postData?.headline?.telugu || "";
         const content = rawContent || postData?.content?.telugu || "";
 
@@ -83,13 +99,20 @@ export const processReporterSubmission = onCall(async (request) => {
 
         const finalData = {
             ...postData,
-            headline: { telugu: headline, english: postData?.headline?.english || "" },
-            content: { telugu: content, english: postData?.content?.telugu || "" },
+            headline: {
+                telugu: headline,
+                english: postData?.headline?.english || ""
+            },
+            content: {
+                telugu: content,
+                english: postData?.content?.english || ""
+            },
             mediaUrl: mediaUrl,
             mediaUrls: mediaUrls,
             isReporter: true,
             isCitizen: false,
             aiProcessed: false,
+            videoProcessed: false, // Explicit false so trigger guard detects changes reliably
             approved: false,
             status: "PENDING",
             processingType: "REPORTER_SUBMISSION",
@@ -112,6 +135,9 @@ export const processReporterSubmission = onCall(async (request) => {
 
 export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL_PASS"] }, async (request) => {
     const data = request.data;
-    await db.collection('reporter_applications').add({ ...data, timestamp: admin.firestore.FieldValue.serverTimestamp() });
+    await db.collection('reporter_applications').add({
+        ...data,
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+    });
     return { success: true };
 });

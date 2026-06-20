@@ -1,0 +1,7 @@
+- `[ ]` Refactor `onNewsPostCreated` in `news_handler.ts`
+    - `[ ]` Improve trigger guard (status + aiProcessed check)
+    - `[ ]` Consolidate Firestore updates (remove intermediate REVIEWING_CONTENT)
+    - `[ ]` Ensure strict approval logic (approved: true only after AI/Video)
+- `[ ]` Build and verify Cloud Functions
+    - `[ ]` Run `npm run build` in functions directory
+- `[ ]` Verify logic via dry run/code analysis

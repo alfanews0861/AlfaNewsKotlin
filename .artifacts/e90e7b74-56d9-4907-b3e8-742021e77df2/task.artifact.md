@@ -1,0 +1,3 @@
+- [x] Update `news_handler.ts` to use percentage-based logo sizing
+- [x] Verify FFmpeg filter syntax
+- [ ] Create walkthrough summary

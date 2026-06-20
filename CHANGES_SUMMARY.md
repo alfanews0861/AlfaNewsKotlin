@@ -203,7 +203,7 @@ Post appears in feed with enhanced content
 ## 🔧 Technical Details
 
 ### Cloud Functions Used
-- **Model**: `gemini-3-flash-preview` (PRO_MODEL)
+- **Model**: `gemini-3.1-flash` (PRO_MODEL)
 - **Temperature**: 0.4
 - **Response Format**: JSON with schema
 - **Languages**: Telugu + English

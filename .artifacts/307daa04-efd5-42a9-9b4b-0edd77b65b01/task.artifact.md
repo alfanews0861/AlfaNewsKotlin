@@ -1,0 +1,2 @@
+- [ ] Update `news_handler.ts` to include hashtags, location, and entities in YouTube description
+- [ ] Verify build

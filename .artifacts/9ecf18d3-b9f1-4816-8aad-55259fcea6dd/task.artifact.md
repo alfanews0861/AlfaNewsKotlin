@@ -1,0 +1,5 @@
+- [ ] Increase scaling capacity in `index.ts`
+- [ ] Implement robust JSON extraction in `utils.ts`
+- [ ] Fix TTS limit and trigger scaling in `news_handler.ts`
+- [ ] Deploy functions to Firebase
+- [ ] Verify fix in live logs

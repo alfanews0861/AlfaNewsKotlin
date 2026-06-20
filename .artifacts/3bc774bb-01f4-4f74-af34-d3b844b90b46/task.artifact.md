@@ -1,0 +1,7 @@
+- [ ] Update FFmpeg audio filters in `news_handler.ts`
+    - [ ] Change `amix=duration=first` to `amix=duration=longest`
+    - [ ] Add `normalize=0` to `amix` filter
+    - [ ] Adjust `dropout_transition`
+    - [ ] Add `highpass` to TTS audio
+- [ ] Verify changes with `analyze_file`
+- [ ] Create walkthrough artifact

@@ -1,0 +1,3 @@
+- [ ] Fix Imagen model configuration and enums in `utils.ts`
+- [ ] Refine image generation prompts in `auto_content_handler.ts`
+- [ ] Verify build

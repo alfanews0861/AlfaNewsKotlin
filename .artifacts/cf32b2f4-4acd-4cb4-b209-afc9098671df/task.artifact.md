@@ -1,0 +1,15 @@
+- [ ] Update Android `FestivalGreetingWorker.kt` models
+    - [ ] Update text model to `gemini-3.1-flash`
+    - [ ] Update image model to `gemini-3.1-flash-image`
+- [ ] Update Cloud Functions test scripts
+    - [ ] `functions/test_latest_models.js`
+    - [ ] `functions/test_models.js`
+    - [ ] `functions/test_trending_news.js`
+- [ ] Update Documentation
+    - [ ] `CHANGES_SUMMARY.md`
+    - [ ] `IMPLEMENTATION_SUMMARY.md`
+    - [ ] `PROCESSING_FLOW_DIAGRAM.md`
+    - [ ] `QUICK_START_GUIDE.md`
+    - [ ] `README_REPORTER_AI_PROCESSING.md`
+- [ ] Build Cloud Functions (`npm run build`)
+- [ ] Verify build and remaining occurrences

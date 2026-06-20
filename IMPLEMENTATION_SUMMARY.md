@@ -29,7 +29,7 @@ aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
 #### B. New `processReporterSubmission` Function (Lines 508-604)
 - **Purpose**: Dedicated function explicitly for processing reporter news submissions
 - **Features**:
-  - Uses the same PRO_MODEL (gemini-3-flash-preview) for high-quality output
+  - Uses the same PRO_MODEL (gemini-3.1-flash) for high-quality output
   - Distinct system instruction optimized for editor workflow: "You are a Senior Editor processing a reporter's news submission. Enhance and refine the 70-word Telugu article."
   - Always sets `isReporter: true` and `isCitizen: false`
   - Preserves reporter information during processing
@@ -160,7 +160,7 @@ suspend fun processReporterSubmission(
 1. **Proper Differentiation**: Posts are now clearly marked as either citizen or reporter submissions
 2. **Optimized Processing**: Reporter submissions get editor-focused AI instructions
 3. **Audit Trail**: `processingType` and `aiProcessedAt` fields provide tracking
-4. **Consistency**: Both flows use the same high-quality PRO_MODEL (Gemini-3-Flash)
+4. **Consistency**: Both flows use the same high-quality PRO_MODEL (Gemini-3.1-Flash)
 5. **Quality Improvement**: All reporter submissions now go through AI enhancement
 6. **Scalability**: Dedicated functions allow for future optimization specific to each submission type
 
@@ -180,7 +180,7 @@ suspend fun processReporterSubmission(
 ## Notes
 
 - All timestamps use IST (Asia/Kolkata) timezone
-- Both functions use `PRO_MODEL` (gemini-3-flash-preview) for quality
+- Both functions use `PRO_MODEL` (gemini-3.1-flash) for quality
 - Image optimization happens automatically for media URLs
 - Story fingerprint is generated for duplicate detection
 - Categories are automatically refined based on content

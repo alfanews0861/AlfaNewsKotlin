@@ -14,7 +14,7 @@ This implementation ensures that **reporter news submissions are automatically p
 ### 1. Cloud Functions (`functions/src/index.ts`)
 - Enhanced `processNewsPost()` to handle both submission types
 - Added new `processReporterSubmission()` function for dedicated reporter processing
-- Both functions use Gemini-3-Flash AI for high-quality output
+- Both functions use Gemini-3.1-Flash AI for high-quality output
 - Proper flagging with `isReporter`, `isCitizen`, and `processingType` fields
 
 ### 2. Android App
@@ -44,7 +44,7 @@ Reporter/Citizen Submits News
            ↓
    Appropriate Cloud Function called
            ↓
-   AI Enhancement Applied (Gemini-3-Flash)
+   AI Enhancement Applied (Gemini-3.1-Flash)
            ↓
   Output JSON with enhanced content
            ↓
@@ -121,7 +121,7 @@ db.collection('news')
 ## AI Processing Details
 
 ### Model Used
-- **Model Name**: `gemini-3-flash-preview` (PRO_MODEL)
+- **Model Name**: `gemini-3.1-flash` (PRO_MODEL)
 - **Temperature**: 0.4 (consistent, controlled output)
 - **Response Format**: JSON with schema validation
 
@@ -240,7 +240,7 @@ This implementation includes comprehensive documentation:
 1. **No Breaking Changes**: Existing citizen post functionality preserved
 2. **Backwards Compatible**: Old posts continue to work as before
 3. **Clear Flagging**: Every post clearly marked as type
-4. **Consistent Quality**: Both types use high-quality AI (Gemini-3-Flash)
+4. **Consistent Quality**: Both types use high-quality AI (Gemini-3.1-Flash)
 5. **Audit Ready**: All processing tracked with timestamps
 6. **Future Proof**: Architecture allows easy customization per type
 
