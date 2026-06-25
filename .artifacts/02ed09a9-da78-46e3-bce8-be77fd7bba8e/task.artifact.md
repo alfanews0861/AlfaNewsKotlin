@@ -1,3 +1,2 @@
-- `[ ]` Update `functions/src/utils.ts` with `gemini-3.1-flash-image`
-- `[ ]` Build functions to verify changes
-- `[ ]` Deploy functions to Firebase
+- `[x]` Redeploy `onNewsPostCreated` specifically to apply v1beta fix (Success with 4GiB)
+- `[/]` Verify reporter news processing in logs

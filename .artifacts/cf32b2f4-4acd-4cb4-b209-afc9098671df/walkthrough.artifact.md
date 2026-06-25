@@ -1,35 +1,40 @@
-# Walkthrough - Gemini Model Migration (3.5 Flash → 3.1 Flash)
+# Walkthrough - Gemini API Fallback (3-Key Strategy)
 
-I have completed the migration of Gemini models from version `3.5-flash` to `3.1-flash` across the entire project, including the Android app, Cloud Functions, and all documentation. Additionally, the image generation model in the Android app has been synchronized with the backend to use `gemini-3.1-flash-image`.
+I have implemented a robust fallback mechanism for Gemini API calls in Cloud Functions. This ensures that the system stays operational even if individual API keys hit their rate limits or encounter billing issues, while prioritizing free tier usage to save costs.
 
-## Changes Made
+## Key Changes
 
-### Android App
-- **[FestivalGreetingWorker.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/workers/FestivalGreetingWorker.kt)**:
-    - Updated text generation model to `gemini-3.1-flash`.
-    - Updated image generation endpoint to `gemini-3.1-flash-image`.
+### Centralized Fallback Logic
+- **[utils.ts](file:///C:/AlfaKotlin/functions/src/utils.ts)**:
+    - Added `runWithAIFallback<T>`: A high-order function that wraps AI operations.
+    - **Priority Order**:
+        1. `FREE_GEMINI_API_KEY_1`
+        2. `FREE_GEMINI_API_KEY_2`
+        3. `PAID_GEMINI_API_KEY`
+    - It automatically detects `429` (Rate Limit) errors and quota-related failures, then transparently retries with the next available key.
 
-### Cloud Functions
-- **[utils.ts](file:///C:/AlfaKotlin/functions/src/utils.ts)**: (Already updated by user, verified consistency).
-- **Compiled JS**: Ran `npm run build` to ensure `lib/utils.js` reflects the model changes.
-- **Test Scripts**:
-    - [test_latest_models.js](file:///C:/AlfaKotlin/functions/test_latest_models.js)
-    - [test_models.js](file:///C:/AlfaKotlin/functions/test_models.js)
-    - [test_trending_news.js](file:///C:/AlfaKotlin/functions/test_trending_news.js)
-
-### Documentation
-- Updated model references in:
-    - [CHANGES_SUMMARY.md](file:///C:/AlfaKotlin/CHANGES_SUMMARY.md)
-    - [IMPLEMENTATION_SUMMARY.md](file:///C:/AlfaKotlin/IMPLEMENTATION_SUMMARY.md)
-    - [PROCESSING_FLOW_DIAGRAM.md](file:///C:/AlfaKotlin/PROCESSING_FLOW_DIAGRAM.md)
-    - [QUICK_START_GUIDE.md](file:///C:/AlfaKotlin/QUICK_START_GUIDE.md)
-    - [README_REPORTER_AI_PROCESSING.md](file:///C:/AlfaKotlin/README_REPORTER_AI_PROCESSING.md)
+### Refactored AI Entry Points
+- **[geminiService.ts](file:///C:/AlfaKotlin/functions/src/geminiService.ts)**: All text processing (Social, Citizen, Editor) now uses the fallback wrapper.
+- **[auto_content_handler.ts](file:///C:/AlfaKotlin/functions/src/auto_content_handler.ts)**: Scheduled tasks (Festival Greetings, Quotes, History, Cartoons) are now protected by the fallback logic.
+- **[news_handler.ts](file:///C:/AlfaKotlin/functions/src/news_handler.ts)**: The primary news enhancement logic (`performAIProcessing`) now supports multi-key fallback.
+- **[utils.ts](file:///C:/AlfaKotlin/functions/src/utils.ts)**: `generateImageWithRetry` now also benefits from the same fallback strategy.
 
 ## Verification Results
 
-### Build Status
-- **Backend**: `npm run build` succeeded.
-- **Model Check**: `grep` confirms no remaining occurrences of `gemini-3.5-flash` in source code or documentation.
+### Build & Compilation
+- **Success**: `npm run build` completed without errors, confirming all TypeScript changes are valid.
+- **Consistency**: All major AI flows in the backend are now using this unified strategy.
 
-> [!TIP]
-> All AI-powered features (News categorization, Reporter processing, and Festival Greetings) are now consistently using the `3.1-flash` family of models.
+> [!IMPORTANT]
+> **Next Steps for User**:
+> 1. Create a `functions/.env` file.
+> 2. Add your 3 keys as follows:
+>    ```env
+>    FREE_GEMINI_API_KEY_1="your_key_1"
+>    FREE_GEMINI_API_KEY_2="your_key_2"
+>    PAID_GEMINI_API_KEY="your_key_3"
+>    ```
+> 3. Deploy the changes: `firebase deploy --only functions`.
+
+### Monitoring
+You can monitor the fallback behavior in your Firebase logs. Look for the `[AI-FALLBACK]` warning prefix, which will tell you when a key switch occurs and why.

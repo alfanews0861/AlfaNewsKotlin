@@ -37,20 +37,25 @@ exports.sendPersonalizedNotification = void 0;
 const admin = __importStar(require("firebase-admin"));
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const v2_1 = require("firebase-functions/v2");
-// చివరిగా పంపిన వార్తలను ట్రాక్ చేయడానికి
-const lastSentNewsIdMap = new Map();
+// Persistent tracking via Firestore instead of in-memory map
+// settings/notifications { lastSentNewsIdMap: { districtName: newsId, general: newsId } }
 const DISTRICTS = [
     "హైదరాబాద్", "విశాఖపట్నం", "విజయవాడ", "గుంటూరు", "నెల్లూరు",
     "కర్నూలు", "వరంగల్", "ఖమ్మం", "కరీంనగర్", "నిజామాబాద్",
     "తిరుపతి", "అనంతపురం", "కడప", "కాకినాడ", "రాజమహేంద్రవరం"
 ];
 exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
-    schedule: "0 0,1,2,4,5,6,8,9,10,12,13,14,16,17,18,20,21,22 * * *",
+    schedule: "0 8,13,18,21 * * *",
     timeZone: "Asia/Kolkata",
     timeoutSeconds: 540,
     memory: "1GiB"
 }, async (event) => {
     const db = admin.firestore();
+    // Fetch persistent tracking data
+    const settingsRef = db.collection('settings').doc('notifications');
+    const settingsDoc = await settingsRef.get();
+    const lastSentMap = settingsDoc.exists ? (settingsDoc.data()?.lastSentNewsIdMap || {}) : {};
+    const updatedMap = { ...lastSentMap };
     const istHour = parseInt(new Intl.DateTimeFormat('en-GB', {
         hour: 'numeric',
         hour12: false,
@@ -69,7 +74,7 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
     // --- 1. జనరల్ నోటిఫికేషన్ (ప్రతి 2 గంటలకు - సరి గంటలలో) ---
     if (istHour % 2 === 0) {
         const topNews = allNews.sort((a, b) => (b.score || 0) - (a.score || 0))[0];
-        if (topNews && lastSentNewsIdMap.get('general') !== topNews.id) {
+        if (topNews && lastSentMap['general'] !== topNews.id) {
             const headline = topNews.headline?.telugu || topNews.headline?.english || topNews.headline || "నేటి ముఖ్య వార్తలు";
             const imageUrl = topNews.mediaUrl || "";
             await admin.messaging().send({
@@ -92,7 +97,7 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
                 },
                 topic: 'all_users'
             });
-            lastSentNewsIdMap.set('general', topNews.id);
+            updatedMap['general'] = topNews.id;
             v2_1.logger.log(`[NOTIF] Broadcasted general top news.`);
         }
     }
@@ -102,7 +107,7 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
             const districtNews = allNews
                 .filter((n) => (Array.isArray(n.categories) && n.categories.includes(district)) || n.district === district)
                 .sort((a, b) => (b.score || 0) - (a.score || 0))[0];
-            if (!districtNews || lastSentNewsIdMap.get(district) === districtNews.id)
+            if (!districtNews || lastSentMap[district] === districtNews.id)
                 continue;
             const headline = districtNews.headline?.telugu || `${district} తాజా వార్త`;
             const imageUrl = districtNews.mediaUrl || "";
@@ -129,7 +134,7 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
                     },
                     topic: topicName
                 });
-                lastSentNewsIdMap.set(district, districtNews.id);
+                updatedMap[district] = districtNews.id;
                 v2_1.logger.log(`[NOTIF] Sent to district topic: ${topicName}`);
             }
             catch (e) {
@@ -137,5 +142,10 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
             }
         }
     }
+    // Save updated tracking map to Firestore
+    await settingsRef.set({
+        lastSentNewsIdMap: updatedMap,
+        lastRunAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
 });
 //# sourceMappingURL=notification_engine.js.map

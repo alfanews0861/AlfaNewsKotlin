@@ -4,16 +4,18 @@ import { Buffer } from 'buffer';
 const sharp = require('sharp');
 
 export const REGION = "asia-south1";
-export const SCHEDULED_MODEL = "gemini-3.1-flash-lite";
-export const PRO_MODEL = "gemini-3.1-flash";
-export const FLASH_MODEL = "gemini-3.1-flash-lite";
+export const SCHEDULED_MODEL = "gemini-3.5-flash";
+export const PRO_MODEL = "gemini-3.5-flash";
+export const FLASH_MODEL = "gemini-3.5-flash";
 export const IMAGEN_MODEL = "gemini-3.1-flash-image";
 export const IMAGEN_FAST_MODEL = "gemini-3.1-flash-image";
 
 const TEXT_MODELS = [
-    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash",
     "gemini-3.1-flash",
-    "gemini-3.0-flash"
+    "gemini-3.1-pro",
+    "gemini-3.1-flash-lite",
+    "gemini-3-flash"
 ];
 
 /**
@@ -32,11 +34,41 @@ const API_KEYS = [
  */
 const getAIInstanceInternal = (apiKey: string) => new GoogleGenAI({
     apiKey,
-    apiVersion: "v1"
+    apiVersion: "v1beta"
 });
 
 /**
+ * Helper to extract HTTP status code from various types of SDK errors
+ */
+function extractErrorStatus(err: any): number {
+    if (!err) return 0;
+
+    // 1. Direct properties
+    if (typeof err.status === 'number') return err.status;
+    if (typeof err.code === 'number') return err.code;
+
+    // 2. Nested properties (Common in Gemini/Firebase SDKs)
+    if (err.error && typeof err.error.code === 'number') return err.error.code;
+    if (err.response && typeof err.response.status === 'number') return err.response.status;
+
+    // 3. String-based detection (Fallback)
+    const errStr = JSON.stringify(err).toLowerCase();
+    const msg = String(err.message || "").toLowerCase();
+    const fullSearch = msg + " " + errStr;
+
+    if (fullSearch.includes("429") || fullSearch.includes("quota") || fullSearch.includes("limit") || fullSearch.includes("exhausted")) return 429;
+    if (fullSearch.includes("503") || fullSearch.includes("unavailable") || fullSearch.includes("demand") || fullSearch.includes("overloaded")) return 503;
+    if (fullSearch.includes("404") || fullSearch.includes("not found")) return 404;
+    if (fullSearch.includes("500") || fullSearch.includes("internal server error")) return 500;
+    if (fullSearch.includes("504") || fullSearch.includes("deadline") || fullSearch.includes("timeout")) return 504;
+    if (fullSearch.includes("403") || fullSearch.includes("permission") || fullSearch.includes("forbidden")) return 403;
+
+    return 0;
+}
+
+/**
  * Core wrapper to run AI operations with automatic fallback across multiple keys AND models.
+ * Integrated with Exponential Backoff for 503/500 errors.
  */
 export async function runWithAIFallback<T>(
     operation: (ai: any, modelName: string) => Promise<T>,
@@ -53,35 +85,50 @@ export async function runWithAIFallback<T>(
         const ai = getAIInstanceInternal(currentKey);
 
         for (let m = 0; m < modelsToTry.length; m++) {
-            const currentModel = modelsToTry[m];
+            const currentModelName = modelsToTry[m];
 
-            try {
-                return await operation(ai, currentModel);
-            } catch (err: any) {
-                lastError = err;
-                const status = err.status || (err.message?.includes("429") ? 429 : (err.message?.includes("404") ? 404 : 0));
+            // INTERNAL RETRY LOOP for Exponential Backoff (Official Recommendation)
+            const MAX_RETRIES = 3;
+            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                try {
+                    const result = await operation(ai, currentModelName);
+                    if (m > 0 || k > 0 || attempt > 1) {
+                        console.log(`[AI-SUCCESS] Model ${currentModelName} (${keyLabel}) succeeded on attempt ${attempt}.`);
+                    }
+                    return result;
+                } catch (err: any) {
+                    lastError = err;
+                    const status = extractErrorStatus(err);
+                    const errMsg = String(err.message || "Unknown error");
 
-                // If model not found, try next model with same key
-                if (status === 404 && m < modelsToTry.length - 1) {
-                    console.warn(`[MODEL-FALLBACK] Model ${currentModel} failed (404) with key ${keyLabel}. Trying ${modelsToTry[m+1]}...`);
-                    continue;
+                    // 1. Transient Server Errors (503, 500, 504, 408) -> RETRY SAME MODEL
+                    const isRetryable = [503, 500, 504, 408].includes(status);
+                    if (isRetryable && attempt < MAX_RETRIES) {
+                        const delay = Math.pow(2, attempt - 1) * 1000 + (Math.random() * 500); // 1s, 2s, 4s + Jitter
+                        console.warn(`[RETRY] ${currentModelName} failed (${status}). Attempt ${attempt}/${MAX_RETRIES}. Waiting ${Math.round(delay)}ms...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue; // Try same model again
+                    }
+
+                    // 2. Model Errors (404, or exhausted retries) -> FALLBACK TO NEXT MODEL
+                    const isModelError = status === 404 || isRetryable;
+                    if (isModelError && m < modelsToTry.length - 1) {
+                        console.warn(`[MODEL-FALLBACK] ${currentModelName} failed (${status}) after ${attempt} attempts. Trying ${modelsToTry[m+1]}...`);
+                        break; // Breaks the retry loop to try next model in outer loop
+                    }
+
+                    // 3. Key/Account Errors (429, 403) -> FALLBACK TO NEXT KEY
+                    const isKeyError = status === 429 || status === 403;
+                    if (isKeyError && k < keysToTry.length - 1) {
+                        console.warn(`[KEY-FALLBACK] Key ${keyLabel} failed (${status}). Switching to next key.`);
+                        m = modelsToTry.length; // Force break outer model loop
+                        break; // Breaks retry loop
+                    }
+
+                    // 4. Fatal/Unknown Errors
+                    console.error(`[AI-FATAL-FINAL] Error with ${currentModelName} (${keyLabel}). Status: ${status}. Message: ${errMsg.substring(0, 100)}`);
+                    throw err;
                 }
-
-                const isQuotaError = status === 429 ||
-                                   err.message?.toLowerCase().includes("quota") ||
-                                   err.message?.toLowerCase().includes("limit") ||
-                                   err.message?.toLowerCase().includes("billing");
-
-                // If quota error, break model loop to switch key
-                if (isQuotaError && k < keysToTry.length - 1) {
-                    console.warn(`[KEY-FALLBACK] Key ${keyLabel} failed with quota error using ${currentModel}. Switching to next key.`);
-                    break;
-                }
-
-                // IMPORTANT: If NOT a quota error (e.g. 400, 404, Schema Error), DO NOT switch keys.
-                // Log and throw the error to be handled by the caller or retry within same key.
-                console.error(`[AI-ERROR] Permanent error with key ${keyLabel} and model ${currentModel}:`, err.message);
-                throw err;
             }
         }
     }
@@ -157,69 +204,39 @@ export async function generateImageWithRetry(
     aiUnused: any, // Keeping signature but using internal fallback
     prompt: string,
     aspectRatio: '1:1' | '9:16' | '16:9' | '3:4' | '4:3' = '9:16',
-    retries = 3
+    retriesUnused = 3
 ): Promise<Buffer | null> {
-    return await runWithAIFallback(async (ai) => {
-        const modelsToTry = [IMAGEN_MODEL, "imagen-3.0-generate-001"];
+    const modelsToTry = [IMAGEN_MODEL, "imagen-3.0-generate-002", "imagen-3.0-generate-001"];
 
-        for (const currentModel of modelsToTry) {
-            const isGemini = currentModel.startsWith("gemini-");
+    return await runWithAIFallback(async (model) => {
+        const isGemini = model.model.startsWith("gemini-");
 
-            for (let i = 0; i < retries; i++) {
-                try {
-                    console.log(`[AI_IMAGE] Attempt ${i + 1} using ${currentModel} for prompt: ${prompt.substring(0, 50)}...`);
-
-                    if (isGemini) {
-                        const imgRes = await ai.models.generateContent({
-                            model: currentModel,
-                            contents: [{ role: "user", parts: [{ text: prompt }] }],
-                            config: {
-                                responseModalities: ["IMAGE"],
-                                imageConfig: {
-                                    aspectRatio: aspectRatio,
-                                    imageSize: '1K'
-                                }
-                            }
-                        } as any);
-
-                        const imagePart = imgRes.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
-                        if (imagePart?.inlineData?.data) {
-                            console.log(`[AI_IMAGE] Success with ${currentModel}`);
-                            return Buffer.from(imagePart.inlineData.data, 'base64');
-                        }
-                    } else {
-                        const imgRes = await ai.models.generateImages({
-                            model: currentModel,
-                            prompt: prompt,
-                            config: {
-                                numberOfImages: 1,
-                                aspectRatio: aspectRatio,
-                                safetyFilterLevel: 'BLOCK_ONLY_HIGH',
-                                personGeneration: 'ALLOW_ALL',
-                                includeRaiReason: true
-                            }
-                        });
-
-                        if (imgRes.generatedImages?.[0]?.image?.imageBytes) {
-                            console.log(`[AI_IMAGE] Success with ${currentModel}`);
-                            return Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
-                        }
-                    }
-
-                    console.warn(`[AI_IMAGE] Attempt ${i + 1} (${currentModel}) returned no images.`);
-
-                    if (i < retries - 1) {
-                        const delay = Math.pow(2, i) * 2000;
-                        await new Promise(resolve => setTimeout(resolve, delay));
-                    }
-                } catch (err: any) {
-                    console.error(`[AI_IMAGE] Attempt ${i + 1} (${currentModel}) failed:`, err.message);
-                    if (i === retries - 1 && currentModel === modelsToTry[modelsToTry.length - 1]) throw err; // Re-throw to trigger key fallback
-                    const delay = Math.pow(2, i) * 3000;
-                    await new Promise(resolve => setTimeout(resolve, delay));
+        if (isGemini) {
+            const imgRes = await model.generateContent({
+                contents: [{ role: "user", parts: [{ text: prompt }] }],
+                config: {
+                    responseModalities: ["TEXT", "IMAGE"],
+                    imageConfig: { aspectRatio, imageSize: '1K' }
                 }
-            }
+            } as any);
+
+            const imagePart = imgRes.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
+            if (imagePart?.inlineData?.data) return Buffer.from(imagePart.inlineData.data, 'base64');
+        } else {
+            // For older Imagen models via vertex path if supported by SDK version
+            // Note: Modern GoogleGenAI usually prefers the generateContent path for multimodal
+            const imgRes = await model.generateImages({
+                prompt: prompt,
+                config: {
+                    numberOfImages: 1,
+                    aspectRatio: aspectRatio,
+                    safetyFilterLevel: 'BLOCK_ONLY_HIGH',
+                    personGeneration: 'ALLOW_ALL',
+                    includeRaiReason: true
+                }
+            });
+            if (imgRes.generatedImages?.[0]?.image?.imageBytes) return Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
         }
         return null;
-    });
+    }, modelsToTry);
 }

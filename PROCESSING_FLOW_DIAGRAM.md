@@ -55,7 +55,7 @@
          │  submission. Enhance and refine   │
          │  the 70-word Telugu article."     │
          │                                    │
-         │ Model: Gemini-3-Flash-Preview    │
+         │ Model: Gemini-3.1-Flash           │
          │ Temperature: 0.4                  │
          │ Output: JSON with structured      │
          │         schema                    │
@@ -149,7 +149,7 @@
          │ "You are a Senior Journalist.     │
          │  Write 70 words in Telugu."       │
          │                                    │
-         │ Model: Gemini-3-Flash-Preview    │
+         │ Model: Gemini-3.1-Flash           │
          │ Temperature: 0.4                  │
          │ Output: JSON with structured      │
          │         schema                    │
@@ -209,7 +209,7 @@
 ## AI Processing Details
 
 ### Both Functions Use
-- **Model**: `gemini-3-flash-preview` (PRO_MODEL)
+- **Model**: `gemini-3.1-flash` (PRO_MODEL)
 - **Temperature**: 0.4 (controlled, consistent output)
 - **Response Format**: JSON with schema validation
 - **Languages**: Telugu (primary) + English (translation)

@@ -2,37 +2,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.processContentWithAI = exports.processCitizenContentWithAI = exports.processSocialPostWithAI = void 0;
 const genai_1 = require("@google/genai");
-const PRIMARY_MODEL = "gemini-3-flash-preview";
-/**
- * Robust helper to create AI instance with the correct API key.
- */
-const getAIInstance = () => {
-    if (!process.env.API_KEY && !process.env.GEMINI_API_KEY) {
-        console.error("[GEMINI-SERVICE] CRITICAL: API_KEY is missing in environment.");
-    }
-    return new genai_1.GoogleGenAI({
-        apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY || "",
-        apiVersion: "v1beta"
-    });
-};
-/**
- * Helper to parse AI JSON response
- */
-function parseAIJson(text) {
-    try {
-        let cleanText = text.trim();
-        if (cleanText.startsWith('```')) {
-            cleanText = cleanText.replace(/^```(json)?\n/, '').replace(/\n```$/, '');
-        }
-        return JSON.parse(cleanText);
-    }
-    catch (e) {
-        console.error("[GEMINI-SERVICE] JSON parse error:", e);
-        return null;
-    }
-}
+const utils_1 = require("./utils");
+const PRIMARY_MODEL = utils_1.PRO_MODEL;
 const processSocialPostWithAI = async (socialText, platform, category) => {
-    const ai = getAIInstance();
     const schema = {
         type: genai_1.Type.OBJECT,
         properties: {
@@ -45,12 +17,15 @@ const processSocialPostWithAI = async (socialText, platform, category) => {
         },
         required: ["isNewsFound", "headline", "content", "headlineEn", "contentEn", "category"],
     };
-    try {
+    return await (0, utils_1.runWithAIFallback)(async (ai, modelName) => {
         const response = await ai.models.generateContent({
-            model: PRIMARY_MODEL,
+            model: modelName,
             contents: [{ role: "user", parts: [{ text: `Platform: ${platform}\nCategory: ${category}\nInput Text:\n${socialText}` }] }],
-            config: {
-                systemInstruction: `You are a Senior News Editor. Extract news and write in a single paragraph in Telugu (between 300 to 330 characters) and a single paragraph in English (maximum 60 words), ensuring people and locations are included without changing the original meaning. Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be punchy like a 'punch dialogue', direct (sootiga), and extracted from the content. Match the news tone: if inquisitive, the headline should be a sharp and direct question. If no news found, set isNewsFound: false. Output JSON.`,
+            systemInstruction: { role: "system", parts: [{ text: `You are a Senior News Editor. Extract news and write in a single detailed paragraph in Telugu (between 450 to 600 characters) and a single paragraph in English (maximum 70 words).
+            The content must adapt to the context: use a critical (vimarsanaatmakamaa) tone for investigative/political news, and a descriptive (vivaranaatmakamaa) tone for general news. Ensure the narrative is precise (kathitamgaa).
+            CRITICAL: You MUST integrate all people, locations, and organizations (entities) naturally into the news narrative itself.
+            Generate a single-sentence Telugu headline that is exceptionally clear and direct (sootiga). STRICT LIMIT: MAXIMUM 55 CHARACTERS including spaces. English headline (max 12 words). The Telugu headline must be punchy, extracted from content, and NOT a long sentence. Match the news tone: if inquisitive, the headline should be a sharp and direct question. If no news found, set isNewsFound: false. Output JSON.` }] },
+            generationConfig: {
                 temperature: 0.4,
                 responseMimeType: "application/json",
                 responseSchema: schema,
@@ -59,17 +34,12 @@ const processSocialPostWithAI = async (socialText, platform, category) => {
         const text = response.text;
         if (!text)
             return null;
-        const parsed = parseAIJson(text);
+        const parsed = (0, utils_1.parseAIJson)(text);
         return parsed && parsed.isNewsFound ? parsed : null;
-    }
-    catch (error) {
-        console.error("Gemini Social Error:", error.message);
-        return null;
-    }
+    });
 };
 exports.processSocialPostWithAI = processSocialPostWithAI;
 const processCitizenContentWithAI = async (rawContent) => {
-    const ai = getAIInstance();
     const schema = {
         type: genai_1.Type.OBJECT,
         properties: {
@@ -88,12 +58,15 @@ const processCitizenContentWithAI = async (rawContent) => {
         },
         required: ["success"],
     };
-    try {
+    return await (0, utils_1.runWithAIFallback)(async (ai, modelName) => {
         const response = await ai.models.generateContent({
-            model: PRIMARY_MODEL,
+            model: modelName,
             contents: [{ role: "user", parts: [{ text: `Citizen Submission:\n${rawContent}` }] }],
-            config: {
-                systemInstruction: `You are a Senior News Editor. Analyze news for public interest. If accepted, write in a single paragraph in Telugu (between 300 to 330 characters) and a single paragraph in English (maximum 60 words), ensuring people and locations are included without changing the original meaning. Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be punchy like a 'punch dialogue', direct (sootiga), and extracted from the content. Match the news tone: if inquisitive, the headline should be a sharp and direct question. Output JSON only.`,
+            systemInstruction: { role: "system", parts: [{ text: `You are a Senior News Editor. Analyze news for public interest. If accepted, write in a single detailed paragraph in Telugu (between 450 to 600 characters) and a single paragraph in English (maximum 70 words).
+            The content must adapt to the context: use a critical (vimarsanaatmakamaa) tone for investigative/political news, and a descriptive (vivaranaatmakamaa) tone for general news. Ensure the narrative is precise (kathitamgaa).
+            CRITICAL: You MUST integrate all people, locations, and organizations (entities) naturally into the news narrative itself.
+            Generate a single-sentence Telugu headline that is exceptionally clear and direct (sootiga). STRICT LIMIT: MAXIMUM 55 CHARACTERS including spaces. English headline (max 12 words). The Telugu headline must be punchy, direct (sootiga), and extracted from the content. Match the news tone: if inquisitive, the headline should be a sharp and direct question. Output JSON only.` }] },
+            generationConfig: {
                 temperature: 0.4,
                 responseMimeType: "application/json",
                 responseSchema: schema,
@@ -102,16 +75,11 @@ const processCitizenContentWithAI = async (rawContent) => {
         const text = response.text;
         if (!text)
             throw new Error("Empty AI response");
-        return parseAIJson(text);
-    }
-    catch (error) {
-        console.error("Gemini Citizen Error:", error.message);
-        throw error;
-    }
+        return (0, utils_1.parseAIJson)(text);
+    });
 };
 exports.processCitizenContentWithAI = processCitizenContentWithAI;
 const processContentWithAI = async (rawContent, rawHeadline) => {
-    const ai = getAIInstance();
     const schema = {
         type: genai_1.Type.OBJECT,
         properties: {
@@ -122,12 +90,15 @@ const processContentWithAI = async (rawContent, rawHeadline) => {
         },
         required: ["summarizedTeluguContent", "generatedTeluguHeadline", "englishHeadline", "englishContent"],
     };
-    try {
+    return await (0, utils_1.runWithAIFallback)(async (ai, modelName) => {
         const response = await ai.models.generateContent({
-            model: PRIMARY_MODEL,
+            model: modelName,
             contents: [{ role: "user", parts: [{ text: `Headline: ${rawHeadline || 'N/A'}\nContent: ${rawContent}` }] }],
-            config: {
-                systemInstruction: `You are a Senior News Editor. Write the news in a single paragraph in Telugu (between 300 to 330 characters) and a single paragraph in English (maximum 60 words), ensuring people and locations are included without changing the original meaning. Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be punchy like a 'punch dialogue', direct (sootiga), and extracted from the content. Match the news tone: if inquisitive, the headline should be a sharp and direct question. Output JSON.`,
+            systemInstruction: { role: "system", parts: [{ text: `You are a Senior News Editor. Write the news in a single detailed paragraph in Telugu (between 450 to 600 characters) and a single paragraph in English (maximum 70 words).
+            The content must adapt to the context: use a critical (vimarsanaatmakamaa) tone for investigative/political news, and a descriptive (vivaranaatmakamaa) tone for general news. Ensure the narrative is precise (kathitamgaa).
+            CRITICAL: You MUST integrate all people, locations, and organizations (entities) naturally into the news narrative itself.
+            Generate a single-sentence Telugu headline that is exceptionally clear and direct (sootiga). STRICT LIMIT: MAXIMUM 55 CHARACTERS including spaces. English headline (max 12 words). The Telugu headline must be punchy, direct (sootiga), and extracted from the content. Match the news tone: if inquisitive, the headline should be a sharp and direct question. Output JSON.` }] },
+            generationConfig: {
                 temperature: 0.4,
                 responseMimeType: "application/json",
                 responseSchema: schema,
@@ -136,12 +107,8 @@ const processContentWithAI = async (rawContent, rawHeadline) => {
         const text = response.text;
         if (!text)
             throw new Error("Empty AI response");
-        return parseAIJson(text);
-    }
-    catch (error) {
-        console.error("Gemini Editor Error:", error.message);
-        throw error;
-    }
+        return (0, utils_1.parseAIJson)(text);
+    });
 };
 exports.processContentWithAI = processContentWithAI;
 //# sourceMappingURL=geminiService.js.map

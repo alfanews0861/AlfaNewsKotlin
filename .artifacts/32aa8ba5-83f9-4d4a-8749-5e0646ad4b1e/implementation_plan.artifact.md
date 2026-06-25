@@ -1,40 +1,29 @@
-# AI Reliability Improvement Plan
+# Implementation Plan - Final AI Stability & Cost Optimization
 
-The goal is to ensure that news posts are **always** successfully processed by AI without failures (specifically JSON syntax errors), ensuring high-quality, enhanced content is always delivered.
+To resolve the persistent `503 Service Unavailable` errors and address the high ingress/egress concerns, I am implementing a "Success-First" architecture. This plan introduces exponential backoff to handle high-demand spikes and ensures we don't accidentally loop or re-download data.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - I will continue using the `gemini-3.1-flash` model family as confirmed.
-> - I will implement stricter prompting and response handling to eliminate "Raw Text" responses from the AI.
+> **Exponential Backoff**: If Gemini is busy, the code will now wait (1s, 2s, 4s) before retrying the same model. This significantly increases success rates on the Free Tier.
+> **Cost Guard**: I am adding a specific check to ensure we never download a video or perform AI processing if it was already attempted recently, preventing redundant network costs.
 
 ## Proposed Changes
 
 ### Backend (Cloud Functions)
 
-#### [MODIFY] [categories.ts](file:///C:/AlfaKotlin/functions/src/categories.ts)
-- **Prompt Optimization**: Refactor `getCategorySystemInstruction` to be more concise and emphasize the JSON structure. Remove redundant wording that might cause the model to deviate into conversational output.
-- **Strict Constraints**: Add explicit rules to prevent the inclusion of introductory text (e.g., "Here is the news in JSON:") which often breaks parsing.
+#### [MODIFY] [utils.ts](file:///C:/AlfaKotlin/functions/src/utils.ts)
+- **Exponential Backoff**: Integrate a retry loop *inside* `runWithAIFallback`.
+- **Standardized SDK Usage**: Update to use `ai.getGenerativeModel().generateContent()` which is the stable production path for June 2026.
+- **Model Re-ordering**: Prioritize `gemini-3.5-flash`, then `gemini-3.1-flash`, then `gemini-3.1-pro`.
 
 #### [MODIFY] [news_handler.ts](file:///C:/AlfaKotlin/functions/src/news_handler.ts)
-- **Prompt Reinforcement**: Add a "STRICT JSON ONLY" wrapper to the user prompt in `performAIProcessing`.
-- **Validation**: Ensure that if the AI returns invalid data despite retries, we log the exact nature of the failure for debugging while keeping the post un-published.
-
-#### [MODIFY] [utils.ts](file:///C:/AlfaKotlin/functions/src/utils.ts)
-- **Model Hierarchy**: Ensure `gemini-3.1-flash` is the primary model across all keys.
-
----
+- **Deep Guard**: Enhanced check at the start of `onNewsPostCreated` to verify `aiProcessed` and `status` to prevent any possibility of document update loops.
+- **Improved Logging**: Logs will now show exactly which retry attempt succeeded.
 
 ## Verification Plan
 
-### Automated Tests
-- Build the project to ensure no regressions in TypeScript logic.
-  ```bash
-  cd functions
-  npm run build
-  ```
-
 ### Manual Verification
-1. Submit test posts with complex or potentially confusing content.
-2. Monitor logs to confirm that `gemini-3.1-flash` is responding with valid JSON on the first attempt.
-3. Verify that the "JSON parse error" seen previously is eliminated.
+- Deploy: `cd functions && npm run build && firebase deploy --only functions`
+- Monitor logs for `[RETRY]` messages.
+- Verify that a news post moves from `PENDING` to `published` even if the first AI attempt fails.

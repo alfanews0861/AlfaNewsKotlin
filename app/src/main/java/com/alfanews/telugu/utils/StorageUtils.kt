@@ -30,13 +30,33 @@ suspend fun uploadImageToStorage(
         val bitmap = BitmapFactory.decodeStream(inputStream)
             ?: throw IllegalArgumentException("చిత్రం సరిగ్గా లేదు. వేరే ఫోటో ప్రయత్నించండి.")
             
+        // 📏 RESIZE LOGIC: Max 1280px to save bandwidth
+        val resizedBitmap = if (bitmap.width > 1280 || bitmap.height > 1280) {
+            val ratio = bitmap.width.toFloat() / bitmap.height.toFloat()
+            val (targetWidth, targetHeight) = if (ratio > 1) {
+                1280 to (1280 / ratio).toInt()
+            } else {
+                (1280 * ratio).toInt() to 1280
+            }
+            Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
+        } else {
+            bitmap
+        }
+
         val baos = ByteArrayOutputStream()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 80, baos)
+            resizedBitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 80, baos)
         } else {
             @Suppress("DEPRECATION")
-            bitmap.compress(Bitmap.CompressFormat.WEBP, 80, baos)
+            resizedBitmap.compress(Bitmap.CompressFormat.WEBP, 80, baos)
         }
+        
+        // Recycle if scaled
+        if (resizedBitmap != bitmap) {
+            resizedBitmap.recycle()
+        }
+        bitmap.recycle()
+
         val data = baos.toByteArray()
         
         val uploadTask = imageRef.putBytes(data).await()

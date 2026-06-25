@@ -14,10 +14,10 @@ const db = admin.firestore();
 
 setGlobalOptions({
     region: REGION,
-    maxInstances: 10,
-    memory: "2GiB",
+    maxInstances: 5,
+    memory: "512MiB",
     timeoutSeconds: 300,
-    concurrency: 40
+    concurrency: 10
 });
 
 // 1. Export Scheduled/Auto-Content Functions

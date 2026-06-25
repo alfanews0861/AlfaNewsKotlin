@@ -1,15 +1,10 @@
-- [ ] Update Android `FestivalGreetingWorker.kt` models
-    - [ ] Update text model to `gemini-3.1-flash`
-    - [ ] Update image model to `gemini-3.1-flash-image`
-- [ ] Update Cloud Functions test scripts
-    - [ ] `functions/test_latest_models.js`
-    - [ ] `functions/test_models.js`
-    - [ ] `functions/test_trending_news.js`
-- [ ] Update Documentation
-    - [ ] `CHANGES_SUMMARY.md`
-    - [ ] `IMPLEMENTATION_SUMMARY.md`
-    - [ ] `PROCESSING_FLOW_DIAGRAM.md`
-    - [ ] `QUICK_START_GUIDE.md`
-    - [ ] `README_REPORTER_AI_PROCESSING.md`
-- [ ] Build Cloud Functions (`npm run build`)
-- [ ] Verify build and remaining occurrences
+- [x] Update Android `FestivalGreetingWorker.kt` models (Completed in previous turn)
+- [x] Update Cloud Functions test scripts (Completed in previous turn)
+- [x] Update Documentation (Completed in previous turn)
+- [x] Implement Gemini API Fallback (3 Keys)
+    - [x] Add `runWithAIFallback` helper to `utils.ts`
+    - [x] Refactor `geminiService.ts`
+    - [x] Refactor `auto_content_handler.ts`
+    - [x] Refactor `news_handler.ts`
+    - [x] Update `generateImageWithRetry` in `utils.ts`
+- [x] Final build check (`npm run build`)

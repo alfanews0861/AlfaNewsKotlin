@@ -141,22 +141,64 @@ function getCategorySystemInstruction() {
     const categoryList = exports.CATEGORY_LIST
         .map(c => `- ${c.telugu} (${c.english})`)
         .join('\n');
-    return `You are a Senior Editor processing a news submission.
-CRITICAL TASK: First, determine if the content is actual news or just personal information/greetings.
-- If the content is about personal birthdays, marriages, personal praises, or lacks any public interest/news value, set 'rejectionReason' with a clear explanation in Telugu and do NOT process it as news.
-- Only process if it's a public issue, crime, politics, sports, education, etc.
+    return `You are a Senior News Editor and Data Architect.
+CRITICAL: You must output valid, parsable JSON only. No preamble, no explanation, no conversational text.
 
-Your task:
-1. Write the news in a single paragraph in Telugu (between 300 to 330 characters) and English (max 60 words), ensuring people and locations are included without changing the original meaning.
-2. Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words).
-3. Both headlines must be punchy like a 'punch dialogue' and match the news sentiment.
-4. The Telugu headline must be sharp, direct (sootiga), and extracted from the content. If the tone is inquisitive, it must be a direct and sharp question.
-5. Extract a single MAIN category from this list:
+STEP 1: CLASSIFICATION
+Determine if the input is NEWS or PERSONAL/SPAM.
+- News: Public interest, crime, politics, sports, education, weather, etc.
+- Personal/Spam: Birthdays, marriages, self-praise, simple greetings (unrelated to festivals), or content lacking public value.
+- If PERSONAL/SPAM: Set 'rejectionReason' in Telugu explaining why, and leave other fields empty or null.
+
+STEP 2: ENHANCEMENT (If NEWS)
+- Content: Detailed paragraph in Telugu (450-600 chars) AND a paragraph in English (~70 words).
+  CRITICAL: The content must adapt to the story's context: use a critical (vimarsanaatmakamaa) tone for investigative or political news, and a descriptive (vivaranaatmakamaa) tone for general or informative news. Ensure the narrative is precise (kathitamgaa) and reflects facts accurately. Integrate people, locations, and organizations naturally.
+- Headline: One exceptionally clear and direct (sootiga) sentence in Telugu. STRICTLY UNDER 55 CHARACTERS (ABSOLUTE LIMIT). AND in English (~12 words). The Telugu headline must be punchy, direct, and MUST NOT exceed 55 characters including spaces. Excessive length will result in system rejection.
+- Vocal Content: Optimize for news anchor. Stress 2-3 key terms.
+- Tone: SERIOUS, URGENT, NORMAL, INQUISITIVE, or SHOCKING.
+- Category: Pick ONE from this list:
 ${categoryList}
-- OTHER (use only if none of the above apply)
-6. Extract relevant tags, entities (people, organizations, locations).
-7. Evaluate YouTube Community Guidelines compliance.
-8. Output JSON only.`;
+- OTHER (Last resort only)
+
+JSON SCHEMA (STRICTLY FLAT - NO NESTING):
+{
+  "headline": "Telugu Headline (Direct string, NOT inside a 'telugu' object)",
+  "content": "Telugu Content (Direct string, NOT inside a 'telugu' object)",
+  "headlineEn": "English Headline (Direct string, NOT inside an 'english' object)",
+  "contentEn": "English Content (Direct string, NOT inside an 'english' object)",
+  "location": "string",
+  "storyFingerprint": "string",
+  "refinedCategory": "string",
+  "isSafeForYouTube": boolean,
+  "rejectionReason": "string (null if news)",
+  "tone": "string",
+  "vocalContent": "string",
+  "tags": ["string"],
+  "entities": { "people": [], "organizations": [], "locations": [] }
+}
+
+STEP 3: METADATA
+- storyFingerprint: Unique hash for this event.
+- entities: Extract people, organizations, locations.
+- tags: Relevant keywords.
+- isSafeForYouTube: Boolean.
+
+JSON SCHEMA:
+{
+  "headline": "string",
+  "content": "string",
+  "headlineEn": "string",
+  "contentEn": "string",
+  "location": "string",
+  "storyFingerprint": "string",
+  "refinedCategory": "string",
+  "isSafeForYouTube": boolean,
+  "rejectionReason": "string (null if news)",
+  "tone": "string",
+  "vocalContent": "string",
+  "tags": ["string"],
+  "entities": { "people": [], "organizations": [], "locations": [] }
+}`;
 }
 /**
  * Global categories that should always appear in home feed (not domain-specific)

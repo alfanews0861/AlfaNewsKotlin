@@ -1,7 +1,6 @@
-- `[ ]` Refactor `onNewsPostCreated` in `news_handler.ts`
-    - `[ ]` Improve trigger guard (status + aiProcessed check)
-    - `[ ]` Consolidate Firestore updates (remove intermediate REVIEWING_CONTENT)
-    - `[ ]` Ensure strict approval logic (approved: true only after AI/Video)
-- `[ ]` Build and verify Cloud Functions
-    - `[ ]` Run `npm run build` in functions directory
-- `[ ]` Verify logic via dry run/code analysis
+- `[x]` Deep research on Gemini API models (June 2026 status)
+- `[ ]` Revert `runWithAIFallback` signature to maintain backward compatibility
+- `[ ]` Implement robust Exponential Backoff around the legacy `(ai, modelName)` callback
+- `[ ]` Fix all call sites (`news_handler.ts`, `auto_content_handler.ts`, `geminiService.ts`)
+- `[ ]` Verify successful compilation with `npm run build`
+- `[ ]` Final deployment signal

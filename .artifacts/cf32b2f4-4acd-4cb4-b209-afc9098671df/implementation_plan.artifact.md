@@ -1,44 +1,32 @@
-# Implementation Plan - Update Gemini Models to 3.1 Flash
+# Implementation Plan - Fix Gemini API Integration & Add 3.1 Flash Lite Fallback
 
-The user has switched Gemini models from version 3.5 Flash to 3.1 Flash. While these version numbers (3.5, 3.1) appear to be project-specific or future-dated placeholders (as official Gemini versions are currently 1.5), they are consistently used across the codebase and documentation. I will update all remaining occurrences of `gemini-3.5-flash` to `gemini-3.1-flash` to ensure consistency.
+The goal is to fix the Gemini API errors and implement a smart model fallback strategy. Since we are in June 2026 and you've confirmed `gemini-3.1-flash` is a working model, we will stick with it but add a fallback to `gemini-3.1-flash-lite` if the primary fails.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - The Android app's `FestivalGreetingWorker` is currently using `imagen-4.0-generate-001` for image generation. I will update its text model to `gemini-3.1-flash` but I need to know if the image model should also be "downgraded" to `gemini-3.1-flash-image` to match the backend's `utils.ts`.
-> - I will update the documentation files to reflect the new model version.
+> - We will use **`v1beta`** because the `v1` endpoint is currently rejecting `responseSchema` and `systemInstruction` fields (Error 400).
+> - If `gemini-3.1-flash` still returns a 404 in `v1beta`, the system will automatically try **`gemini-3.1-flash-lite`**.
+> - I will also include **`gemini-1.5-flash`** as a final safety fallback to ensure your news never stops processing.
 
 ## Proposed Changes
 
-### Android App
-
-#### [MODIFY] [FestivalGreetingWorker.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/workers/FestivalGreetingWorker.kt)
-- Update `modelName` from `gemini-3.5-flash` to `gemini-3.1-flash`.
-
 ### Cloud Functions
 
-#### [MODIFY] [test_latest_models.js](file:///C:/AlfaKotlin/functions/test_latest_models.js)
-- Update model list to include `gemini-3.1-flash`.
+#### [MODIFY] [utils.ts](file:///C:/AlfaKotlin/functions/src/utils.ts)
+- Change `apiVersion` back to `"v1beta"`.
+- Implement a model-level fallback inside `runWithAIFallback`.
+- The logic will try: `gemini-3.1-flash` -> `gemini-3.1-flash-lite` -> `gemini-1.5-flash`.
+- This will be nested inside the API Key fallback logic, creating a very resilient system.
 
-#### [MODIFY] [test_models.js](file:///C:/AlfaKotlin/functions/test_models.js)
-- Update model list.
-
-#### [MODIFY] [test_trending_news.js](file:///C:/AlfaKotlin/functions/test_trending_news.js)
-- Update model used in trending news tests.
-
-### Documentation
-
-#### [MODIFY] [CHANGES_SUMMARY.md](file:///C:/AlfaKotlin/CHANGES_SUMMARY.md)
-#### [MODIFY] [IMPLEMENTATION_SUMMARY.md](file:///C:/AlfaKotlin/IMPLEMENTATION_SUMMARY.md)
-#### [MODIFY] [PROCESSING_FLOW_DIAGRAM.md](file:///C:/AlfaKotlin/PROCESSING_FLOW_DIAGRAM.md)
-#### [MODIFY] [QUICK_START_GUIDE.md](file:///C:/AlfaKotlin/QUICK_START_GUIDE.md)
-#### [MODIFY] [README_REPORTER_AI_PROCESSING.md](file:///C:/AlfaKotlin/README_REPORTER_AI_PROCESSING.md)
+#### [MODIFY] [geminiService.ts](file:///C:/AlfaKotlin/functions/src/geminiService.ts)
+- Ensure the `PRIMARY_MODEL` constant is used, but allow the fallback logic in `utils.ts` to override it if needed.
 
 ## Verification Plan
 
 ### Automated Tests
-- Run `npm run build` in `functions/` to ensure `lib/utils.js` is updated from `src/utils.ts`.
-- Run `gradlew :app:assembleDebug` to verify the Android app still builds.
+- Run `npm run build` to verify the code structure.
 
 ### Manual Verification
-- Verify that no occurrences of `gemini-3.5-flash` remain in the project (except for artifacts/logs).
+- Deploy to Firebase.
+- Monitor logs. If a model fails, you will see a log like: `[MODEL-FALLBACK] gemini-3.1-flash failed. Trying gemini-3.1-flash-lite...`

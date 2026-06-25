@@ -1,34 +1,35 @@
-# Implementation Plan - Percentage-based Logo Sizing for Videos
+# Implementation Plan - Adding Scrolling Text Watermark
 
-Currently, the logo added to news videos has a fixed size (90px) and fixed padding (25px). This results in inconsistent logo sizes across different video resolutions (SD, HD, Full HD). This plan proposes switching to percentage-based sizing and positioning using the `scale2ref` FFmpeg filter.
+The user wants a scrolling "alfanews" watermark moving from right to left across the video at a height near the middle, with a font size of 40px.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> The logo will now occupy **12% of the video width** and have a **2% margin** from the top-right corner. This will make it look consistent whether the video is 480p, 720p, or 1080p.
+> To ensure the text renders correctly in the Cloud Functions environment, a font file (e.g., `Arial.ttf` or `Roboto-Regular.ttf`) should ideally be present. I will attempt to use a standard system font path, but if it fails, a font file may need to be added to the `functions/assets` folder.
+
+> [!NOTE]
+> The watermark will be semi-transparent (`white@0.3`) to avoid obscuring the news content too much, while still being visible.
 
 ## Proposed Changes
 
 ### Backend (Cloud Functions)
 
 #### [MODIFY] [news_handler.ts](file:///C:/AlfaKotlin/functions/src/news_handler.ts)
-- Update the FFmpeg filter logic to use `scale2ref` for the logo.
-- Change fixed `90px` width to `main_w*0.12` (12% of video width).
-- Change fixed `25px` padding to `W*0.02` (2% of video width).
+- Update the FFmpeg filter chain to include a `drawtext` filter.
+- Position: Center of the screen vertically (`y=(H-th)/2`).
+- Animation: Right to left scrolling using `x=W-mod(t*150, W+tw)`.
+- Font size: 40px.
 
 ```typescript
-// Current
-filters.push('[2:v]scale=90:-1[l];[0:v][l]overlay=W-w-25:25[vl]');
-
-// Proposed
-filters.push('[2:v][0:v]scale2ref=w=main_w*0.12:h=-1[l][vref];[vref][l]overlay=W-w-W*0.02:W*0.02[vl]');
+// Proposed filter addition
+filters.push(`${vMap}drawtext=text='alfanews':fontcolor=white@0.3:fontsize=40:x=W-mod(t*150,W+tw):y=(H-th)/2[vtext]`);
 ```
 
 ## Verification Plan
 
 ### Automated Tests
-- I will check the TypeScript code for syntax errors.
-- Since I cannot run FFmpeg directly in this environment to process a real video, I will rely on the correctness of the FFmpeg filter syntax which is standard for relative scaling.
+- Check for TypeScript compilation errors with `npm run build`.
 
 ### Manual Verification
-- The user can deploy the functions and process a few videos of different resolutions (e.g., one SD and one HD) to verify the logo appears proportionally identical.
+- Deploy and process a video.
+- Check if the text "alfanews" scrolls from right to left across the middle of the video.

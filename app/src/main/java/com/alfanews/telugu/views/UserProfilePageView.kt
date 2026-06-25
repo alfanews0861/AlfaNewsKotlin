@@ -35,7 +35,6 @@ import com.alfanews.telugu.models.ThemeMode
 import com.alfanews.telugu.ui.theme.Poppins
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.ui.theme.Mallanna
-import com.alfanews.telugu.utils.PreferenceManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -58,13 +57,6 @@ fun UserProfilePageView(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val prefs = remember { PreferenceManager.getInstance(context) }
-
-    LaunchedEffect(Unit) {
-        if (prefs.storageLimitMB != 100) {
-            prefs.storageLimitMB = 100
-        }
-    }
 
     val isGuest = user.id == "guest" || user.role == UserRole.GUEST
     val isStaff = listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.REGIONAL_INCHARGE).contains(user.role)

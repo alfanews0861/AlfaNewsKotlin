@@ -51,10 +51,10 @@ if (admin.apps.length === 0) {
 const db = admin.firestore();
 (0, v2_1.setGlobalOptions)({
     region: utils_1.REGION,
-    maxInstances: 10,
-    memory: "2GiB",
+    maxInstances: 5,
+    memory: "512MiB",
     timeoutSeconds: 300,
-    concurrency: 40
+    concurrency: 10
 });
 // 1. Export Scheduled/Auto-Content Functions
 var auto_content_handler_1 = require("./auto_content_handler");

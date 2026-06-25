@@ -45,7 +45,8 @@ fun VideoPlayerView(
             setAudioAttributes(audioAttributes, true)
 
             setMediaItem(MediaItem.fromUri(videoUrl))
-            prepare()
+            // Removed prepare() from initial setup to save bandwidth.
+            // It will be prepared only when autoPlay signal is received.
             repeatMode = ExoPlayer.REPEAT_MODE_ALL
             addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(isPlayingParam: Boolean) {
@@ -57,7 +58,15 @@ fun VideoPlayerView(
 
     // Reaction to state changes (needed for Pagers)
     LaunchedEffect(autoPlay) {
-        exoPlayer.playWhenReady = autoPlay
+        if (autoPlay) {
+            // Only prepare and play when it's actually requested (e.g., card is visible)
+            if (exoPlayer.playbackState == Player.STATE_IDLE) {
+                exoPlayer.prepare()
+            }
+            exoPlayer.playWhenReady = true
+        } else {
+            exoPlayer.playWhenReady = false
+        }
     }
 
     LaunchedEffect(muted) {

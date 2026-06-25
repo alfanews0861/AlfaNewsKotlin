@@ -1,3 +1,3 @@
-- [ ] Fix Imagen model configuration and enums in `utils.ts`
-- [ ] Refine image generation prompts in `auto_content_handler.ts`
-- [ ] Verify build
+- [x] Fix Imagen model configuration and enums in `utils.ts`
+- [x] Refine image generation prompts in `auto_content_handler.ts`
+- [x] Verify build (Syntactic verification complete)

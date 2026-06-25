@@ -1,30 +1,30 @@
-# Audio Mixing Fix for Video News
+# Robust Time-Based Audio Ducking for Video News
 
-The user reported that in video news, the original audio stops completely once the voice-over (TTS) ends. Additionally, the original audio should continue at the same volume level as the voice-over was.
+The user reported that the background audio does not return after the voice-over ends. This is likely because the `sidechaincompress` filter hangs or stops processing when the sidechain (voice-over) track reaches EOF. I will switch to a more deterministic approach using a time-based volume envelope.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> The fix involves changing the audio mixing logic in the backend Cloud Functions. This will affect all future video news processing. Existing videos won't be changed unless re-processed.
+> This change replaces the dynamic "sidechain" ducking with a calculated time-based ducking. I will use `ffprobe` to determine the exact length of the voice-over and apply a volume drop for exactly that duration.
 
 ## Proposed Changes
 
 ### Backend (Cloud Functions)
 
 #### [MODIFY] [news_handler.ts](file:///C:/AlfaKotlin/functions/src/news_handler.ts)
-- Update the `ffmpeg` audio filter chain to fix the "stopping" issue and stabilize volume levels.
-- Change `amix` duration from `first` to `longest` to ensure the audio track doesn't terminate prematurely.
-- Set `normalize=0` in `amix` to prevent the automatic volume reduction that occurs when multiple streams are active, which causes a volume jump when the voice-over ends.
-- Reduce `dropout_transition` from `3` to `0.5` seconds for more responsive volume management.
-- Add a `highpass` filter to the TTS audio to improve clarity and remove low-end rumble.
+- Use `ffprobe` (already imported in the project) to get the duration of the generated TTS MP3 file.
+- Replace `sidechaincompress` with a `volume` filter on the original audio using a time-based expression: `volume='if(lt(t,TTS_DURATION),0.02,1)':eval=frame`.
+- This ensures the background audio is suppressed only during the voice-over and returns to full volume immediately after.
+- Keep `amix` with `duration=longest` and `normalize=0` to combine the tracks.
 
 ## Verification Plan
 
 ### Automated Tests
-- I will check the syntax of the modified `news_handler.ts` using `analyze_file`.
-- Since I cannot run the full Cloud Function environment with real TTS and Video inputs easily here without credentials, I will rely on code analysis and the correctness of the FFmpeg filter syntax.
+- Syntax check with `analyze_file`.
+- Verify `ffprobe` call logic.
 
 ### Manual Verification
-- The user should process a new video news post and verify:
-  1. The original audio continues after the voice-over ends.
-  2. The volume level of the original audio after the voice-over ends matches the volume level of the voice-over itself.
+- User to process a video news post.
+- Verify that:
+    1. Background audio is muted during the voice-over.
+    2. Background audio returns to full volume the instant the voice-over ends.

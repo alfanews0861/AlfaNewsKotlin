@@ -31,7 +31,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.media3.common.Player
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Share
@@ -61,11 +60,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import android.view.LayoutInflater
 import androidx.core.content.FileProvider
-import androidx.media3.common.MediaItem
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
@@ -81,9 +76,7 @@ import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.ui.theme.Poppins
 import com.alfanews.telugu.ui.theme.Ramabhadra
-import com.alfanews.telugu.utils.SafeImageLoader
 import com.google.firebase.firestore.FieldValue
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
@@ -107,10 +100,11 @@ fun NewsCardView(
     onDistrictClick: () -> Unit = {},
     district: String? = null,
     showDistrictSelector: Boolean = false,
-    showTopHeader: Boolean = true, // ✅ New parameter to toggle header
+    showTopHeader: Boolean = true,
     autoShare: Boolean = false,
     onAutoShareDone: () -> Unit = {},
-    onEditClick: (NewsPost) -> Unit = {}
+    onEditClick: (NewsPost) -> Unit = {},
+    isActive: Boolean = false
 ) {
     if (autoShare) onAutoShareDone()
     val context = LocalContext.current
@@ -129,8 +123,6 @@ fun NewsCardView(
 
     val headlineText = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
     val contentText = if (language == Language.TELUGU) post.content.telugu else post.content.english
-
-    val imageLoader = remember { SafeImageLoader.getImageLoader(context) }
 
     val isEnglish = language == Language.ENGLISH
     val headlineSize = if (isEnglish) 19.sp else 22.sp
@@ -246,13 +238,15 @@ fun NewsCardView(
                             val url = mediaList[page]
                             val type = mediaTypes.getOrNull(page) ?: MediaType.IMAGE
                             if (type == MediaType.VIDEO) {
-                                VideoPlayerView(videoUrl = url)
+                                VideoPlayerView(
+                                    videoUrl = url,
+                                    autoPlay = isActive && pagerState.currentPage == page
+                                )
                             } else {
                                 AsyncImage(
                                     model = ImageRequest.Builder(context).data(url).crossfade(true).allowHardware(true).build(),
                                     fallback = painterResource(id = R.drawable.fallback_news_image),
                                     error = painterResource(id = R.drawable.fallback_news_image),
-                                    imageLoader = imageLoader,
                                     contentDescription = headlineText,
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop,
@@ -320,7 +314,6 @@ fun NewsCardView(
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
-                // 1. Header (reduced height) - ✅ Only show if requested
                 if (showTopHeader) {
                     Row(
                         modifier = Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 16.dp),
@@ -328,53 +321,22 @@ fun NewsCardView(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "alfa",
-                                fontSize = 28.sp,
-                                fontFamily = Ramabhadra,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "news",
-                                fontSize = 28.sp,
-                                fontFamily = Ramabhadra,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                            Text(text = "alfa", fontSize = 28.sp, fontFamily = Ramabhadra, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            Text(text = "news", fontSize = 28.sp, fontFamily = Ramabhadra, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         }
                         if (showDistrictSelector) {
-                            TextButton(
-                                onClick = onDistrictClick,
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.LocationOn,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
+                            TextButton(onClick = onDistrictClick, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
+                                Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                                 Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = district ?: "Select District",
-                                    fontSize = 14.sp,
-                                    fontFamily = Ramabhadra,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                                Text(text = district ?: "Select District", fontSize = 14.sp, fontFamily = Ramabhadra, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                             }
                         }
                     }
                 }
                 
-                // 2. Media Section (0.38f)
                 Box(modifier = Modifier.fillMaxWidth().weight(0.38f)) {
-                    val mediaList = remember(post) {
-                        if (post.mediaUrls.isNotEmpty()) post.mediaUrls else if (post.mediaUrl.isNotEmpty()) listOf(post.mediaUrl) else emptyList<String>()
-                    }
-                    val mediaTypes = remember(post) {
-                        if (post.mediaTypes.isNotEmpty()) post.mediaTypes else listOf(post.mediaType)
-                    }
+                    val mediaList = remember(post) { if (post.mediaUrls.isNotEmpty()) post.mediaUrls else if (post.mediaUrl.isNotEmpty()) listOf(post.mediaUrl) else emptyList<String>() }
+                    val mediaTypes = remember(post) { if (post.mediaTypes.isNotEmpty()) post.mediaTypes else listOf(post.mediaType) }
                     
                     if (post.youtubeUrl != null && post.youtubeUrl.isNotEmpty()) {
                         YouTubePlayerComponent(youtubeUrl = post.youtubeUrl)
@@ -385,13 +347,12 @@ fun NewsCardView(
                                 val url = mediaList[page]
                                 val type = mediaTypes.getOrNull(page) ?: MediaType.IMAGE
                                 if (type == MediaType.VIDEO) {
-                                    VideoPlayerView(videoUrl = url)
+                                    VideoPlayerView(videoUrl = url, autoPlay = isActive && pagerState.currentPage == page)
                                 } else {
                                     AsyncImage(
                                         model = ImageRequest.Builder(context).data(url).crossfade(true).allowHardware(true).build(),
                                         fallback = painterResource(id = R.drawable.fallback_news_image),
                                         error = painterResource(id = R.drawable.fallback_news_image),
-                                        imageLoader = imageLoader,
                                         contentDescription = headlineText,
                                         modifier = Modifier.fillMaxSize(),
                                         contentScale = ContentScale.Crop,
@@ -400,7 +361,6 @@ fun NewsCardView(
                                 }
                             }
                             
-                            // Source Overlay on Image
                             if (post.reporter.name.isNotEmpty()) {
                                 val sourceText = if (language == Language.TELUGU) "మూలం: " else "Source: "
                                 Text(
@@ -408,17 +368,10 @@ fun NewsCardView(
                                     color = Color.White,
                                     fontSize = 11.sp,
                                     fontFamily = Mallanna,
-                                    modifier = Modifier
-                                        .align(Alignment.BottomStart)
-                                        .padding(10.dp)
-                                        .clickable {
-                                            val url = post.originalUrl
-                                            if (!url.isNullOrEmpty()) {
-                                                uriHandler.openUri(url)
-                                            } else {
-                                                onReporterClick(post.reporter.id)
-                                            }
-                                        }
+                                    modifier = Modifier.align(Alignment.BottomStart).padding(10.dp).clickable {
+                                        val url = post.originalUrl
+                                        if (!url.isNullOrEmpty()) uriHandler.openUri(url) else onReporterClick(post.reporter.id)
+                                    }
                                 )
                             }
                             
@@ -434,106 +387,38 @@ fun NewsCardView(
                     }
                 }
                 
-                // 3. Content + Icons Row (0.62f)
                 Row(modifier = Modifier.fillMaxWidth().weight(0.62f)) {
-                    // Content Column
                     Column(modifier = Modifier.weight(1f).padding(start = 16.dp, end = 0.dp, top = 8.dp, bottom = 12.dp)) {
-                        // Headline (Fixed)
-                        Text(
-                            text = headlineText, 
-                            style = TextStyle(
-                                fontSize = headlineSize, 
-                                lineHeight = headlineLineHeight, 
-                                fontWeight = headlineFontWeight, 
-                                fontFamily = headlineFontFamily,
-                                platformStyle = PlatformTextStyle(includeFontPadding = false)
-                            ), 
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        
+                        Text(text = headlineText, style = TextStyle(fontSize = headlineSize, lineHeight = headlineLineHeight, fontWeight = headlineFontWeight, fontFamily = headlineFontFamily, platformStyle = PlatformTextStyle(includeFontPadding = false)), color = MaterialTheme.colorScheme.onSurface)
                         Spacer(modifier = Modifier.height(8.dp))
-                        
-                        // Meta Section with Dotted Lines (Fixed)
                         DottedLine()
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Start
-                        ) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Start) {
                             if (post.reporter.name.isNotEmpty()) {
-                                Text(
-                                    text = post.reporter.name,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = Mallanna,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false).clickable { onReporterClick(post.reporter.id) }
-                                )
+                                Text(text = post.reporter.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = Mallanna, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).clickable { onReporterClick(post.reporter.id) })
                                 Text(text = " | ", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
                             }
                             Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(2.dp))
-                            Text(
-                                text = post.location,
-                                fontSize = 12.sp,
-                                fontFamily = Ramabhadra,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            
+                            Text(text = post.location, fontSize = 12.sp, fontFamily = Ramabhadra, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                             Spacer(Modifier.width(8.dp))
-                            
-                            Text(
-                                text = formattedTimestamp,
-                                fontSize = 10.sp,
-                                fontFamily = Mallanna,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Text(text = formattedTimestamp, fontSize = 10.sp, fontFamily = Mallanna, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        
                         DottedLine()
-                        
                         Spacer(modifier = Modifier.height(8.dp))
-                        
-                        // Scrollable Content Area (Only text scrolls if it exceeds available space)
                         Column(modifier = Modifier.weight(1f).verticalScroll(scrollState)) {
-                            Text(
-                                text = contentText, 
-                                style = TextStyle(
-                                    fontSize = contentSize, 
-                                    lineHeight = contentLineHeight, 
-                                    fontFamily = contentFontFamily,
-                                    platformStyle = PlatformTextStyle(includeFontPadding = false)
-                                ), 
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            
+                            Text(text = contentText, style = TextStyle(fontSize = contentSize, lineHeight = contentLineHeight, fontFamily = contentFontFamily, platformStyle = PlatformTextStyle(includeFontPadding = false)), color = MaterialTheme.colorScheme.onSurface)
                             Spacer(modifier = Modifier.height(40.dp))
                         }
                     }
 
-                    // 4. Icons Column (Vertically Centered in Content Area)
-                    Column(
-                        modifier = Modifier.width(64.dp).fillMaxHeight().padding(bottom = 40.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
+                    Column(modifier = Modifier.width(64.dp).fillMaxHeight().padding(bottom = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                         ActionButton(
                             icon = Icons.Default.Favorite,
                             count = likeCount.toString(),
                             isHighlighted = isLiked,
                             tint = MaterialTheme.colorScheme.onSurface,
                             onClick = {
-                                if (currentUser == null) {
-                                    onProfileClick()
-                                } else {
+                                if (currentUser == null) onProfileClick() else {
                                     isLiked = !isLiked
                                     likeCount = if (isLiked) likeCount + 1 else likeCount - 1
                                     scope.launch {
@@ -544,28 +429,12 @@ fun NewsCardView(
                             }
                         )
                         Spacer(modifier = Modifier.height(24.dp))
-                        ActionButton(
-                            icon = Icons.Default.Share,
-                            count = shareCount.toString(),
-                            isLoading = isSharing,
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            onClick = { if (!isSharing) performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, language, cardBounds, view) }
-                        )
+                        ActionButton(icon = Icons.Default.Share, count = shareCount.toString(), isLoading = isSharing, tint = MaterialTheme.colorScheme.onSurface, onClick = { if (!isSharing) performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, language, cardBounds, view) })
                         Spacer(modifier = Modifier.height(24.dp))
-                        ActionButton(
-                            icon = Icons.AutoMirrored.Filled.Comment, 
-                            count = commentCount.toString(), 
-                            tint = MaterialTheme.colorScheme.onSurface, 
-                            onClick = { showComments = true }
-                        )
-                        
+                        ActionButton(icon = Icons.AutoMirrored.Filled.Comment, count = commentCount.toString(), tint = MaterialTheme.colorScheme.onSurface, onClick = { showComments = true })
                         if (currentUser != null && (currentUser.role == UserRole.ADMIN || currentUser.role == UserRole.EDITOR || (currentUser.role == UserRole.REPORTER && post.reporter.id == currentUser.id))) {
                             Spacer(modifier = Modifier.height(24.dp))
-                            ActionButton(
-                                icon = Icons.Default.Edit,
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                onClick = { onEditClick(post) }
-                            )
+                            ActionButton(icon = Icons.Default.Edit, tint = MaterialTheme.colorScheme.onSurface, onClick = { onEditClick(post) })
                         }
                     }
                 }
@@ -577,16 +446,8 @@ fun NewsCardView(
 @Composable
 fun DottedLine() {
     val color = Color.Gray.copy(alpha = 0.4f)
-    Canvas(
-        modifier = Modifier.fillMaxWidth().height(1.dp)
-    ) {
-        drawLine(
-            color = color,
-            start = Offset(0f, 0f),
-            end = Offset(this.size.width, 0f),
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 3f), 0f),
-            strokeWidth = 0.8.dp.toPx()
-        )
+    Canvas(modifier = Modifier.fillMaxWidth().height(1.dp)) {
+        drawLine(color = color, start = Offset(0f, 0f), end = Offset(this.size.width, 0f), pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 3f), 0f), strokeWidth = 0.8.dp.toPx())
     }
 }
 
@@ -615,62 +476,32 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
                     FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener { setShareCount(1) }
                 } else Toast.makeText(context, context.getString(R.string.share_failed), Toast.LENGTH_SHORT).show()
             } else Toast.makeText(context, context.getString(R.string.screenshot_failed), Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-             Toast.makeText(context, "Share error", Toast.LENGTH_SHORT).show()
-        } finally {
-            setSharing(false)
-        }
+        } catch (e: Exception) { Toast.makeText(context, "Share error", Toast.LENGTH_SHORT).show() } finally { setSharing(false) }
     }
 }
 
 private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspendCoroutine { continuation ->
     val activity = findActivity(view.context)
     val window = activity?.window
-    if (window == null || bounds == null || bounds.isEmpty || bounds.width() <= 0 || bounds.height() <= 0) {
-        continuation.resume(null)
-        return@suspendCoroutine
-    }
+    if (window == null || bounds == null || bounds.isEmpty || bounds.width() <= 0 || bounds.height() <= 0) { continuation.resume(null); return@suspendCoroutine }
     try {
         val decorView = window.decorView
         val windowWidth = decorView.width
         val windowHeight = decorView.height
-        // Start from y=0 to include the LogoHeader at the top of the window
-        val safeBounds = Rect(
-            bounds.left.coerceIn(0, windowWidth),
-            0,
-            bounds.right.coerceIn(0, windowWidth),
-            bounds.bottom.coerceIn(0, windowHeight)
-        )
-        if (safeBounds.width() <= 0 || safeBounds.height() <= 0) {
-            continuation.resume(null)
-            return@suspendCoroutine
-        }
+        val safeBounds = Rect(bounds.left.coerceIn(0, windowWidth), 0, bounds.right.coerceIn(0, windowWidth), bounds.bottom.coerceIn(0, windowHeight))
+        if (safeBounds.width() <= 0 || safeBounds.height() <= 0) { continuation.resume(null); return@suspendCoroutine }
         val runtime = Runtime.getRuntime()
         val availableMemory = runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory())
-        val requiredMemory = safeBounds.width() * safeBounds.height() * 4L
-        if (requiredMemory > availableMemory * 0.5) {
-            Log.w("NewsCardView", "Insufficient memory for screenshot")
-            continuation.resume(null)
-            return@suspendCoroutine
-        }
+        if (safeBounds.width() * safeBounds.height() * 4L > availableMemory * 0.5) { Log.w("NewsCardView", "Insufficient memory for screenshot"); continuation.resume(null); return@suspendCoroutine }
         val bitmap = try { Bitmap.createBitmap(safeBounds.width(), safeBounds.height(), Bitmap.Config.ARGB_8888) } catch (oom: OutOfMemoryError) { null }
-        if (bitmap == null) {
-            continuation.resume(null)
-            return@suspendCoroutine
-        }
-        PixelCopy.request(window, safeBounds, bitmap, { copyResult ->
-            if (copyResult == PixelCopy.SUCCESS) continuation.resume(bitmap)
-            else { bitmap.recycle(); continuation.resume(null) }
-        }, Handler(Looper.getMainLooper()))
+        if (bitmap == null) { continuation.resume(null); return@suspendCoroutine }
+        PixelCopy.request(window, safeBounds, bitmap, { copyResult -> if (copyResult == PixelCopy.SUCCESS) continuation.resume(bitmap) else { bitmap.recycle(); continuation.resume(null) } }, Handler(Looper.getMainLooper()))
     } catch (e: Exception) { continuation.resume(null) }
 }
 
 private fun findActivity(context: Context): Activity? {
     var currentContext = context
-    while (currentContext is ContextWrapper) {
-        if (currentContext is Activity) return currentContext
-        currentContext = currentContext.baseContext
-    }
+    while (currentContext is ContextWrapper) { if (currentContext is Activity) return currentContext; currentContext = currentContext.baseContext }
     return null
 }
 
@@ -681,7 +512,6 @@ private fun saveImageToCache(context: Context, bitmap: Bitmap): Uri? {
         val file = File(imagesFolder, "news_share_${System.currentTimeMillis()}.png")
         val stream = FileOutputStream(file)
         bitmap.compress(Bitmap.CompressFormat.PNG, 90, stream)
-        stream.flush()
         stream.close()
         return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     } catch (e: Exception) { e.printStackTrace() }
@@ -708,26 +538,12 @@ fun YouTubePlayerComponent(youtubeUrl: String) {
     var player by remember { mutableStateOf<YouTubePlayer?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(16f / 9f)
-            .clickable {
-                if (isPlaying) player?.pause() else player?.play()
-            },
-        contentAlignment = Alignment.Center
-    ) {
+    Box(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clickable { if (isPlaying) player?.pause() else player?.play() }, contentAlignment = Alignment.Center) {
         AndroidView(
             factory = { ctx ->
                 YouTubePlayerView(ctx).apply {
                     enableAutomaticInitialization = false
-                    val options = IFramePlayerOptions.Builder(ctx)
-                        .controls(0)
-                        .modestBranding(1)
-                        .rel(0)
-                        .ivLoadPolicy(3)
-                        .build()
-
+                    val options = IFramePlayerOptions.Builder(ctx).controls(0).modestBranding(1).rel(0).ivLoadPolicy(3).build()
                     initialize(object : AbstractYouTubePlayerListener() {
                         override fun onReady(youTubePlayer: YouTubePlayer) {
                             player = youTubePlayer
@@ -743,20 +559,9 @@ fun YouTubePlayerComponent(youtubeUrl: String) {
             },
             modifier = Modifier.fillMaxSize()
         )
-
         if (!isPlaying) {
-            Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .background(Color.Black.copy(alpha = 0.4f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Play",
-                    tint = Color.White,
-                    modifier = Modifier.size(40.dp)
-                )
+            Box(modifier = Modifier.size(64.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape), contentAlignment = Alignment.Center) {
+                Icon(imageVector = Icons.Default.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(40.dp))
             }
         }
     }

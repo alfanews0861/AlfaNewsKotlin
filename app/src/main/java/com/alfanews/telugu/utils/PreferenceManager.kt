@@ -125,10 +125,10 @@ class PreferenceManager(context: Context) {
         }
 
     /** 
-     * యూజర్ ఎంచుకున్న స్టోరేజ్ లిమిట్ (MB లలో). డిఫాల్ట్ గా 100 MB.
+     * యూజర్ ఎంచుకున్న స్టోరేజ్ లిమిట్ (MB లలో). డిఫాల్ట్ గా 500 MB.
      */
     var storageLimitMB: Int
-        get() = prefs.getInt(KEY_STORAGE_LIMIT_MB, 100)
+        get() = prefs.getInt(KEY_STORAGE_LIMIT_MB, 500)
         set(value) {
             prefs.edit().putInt(KEY_STORAGE_LIMIT_MB, value).apply()
         }

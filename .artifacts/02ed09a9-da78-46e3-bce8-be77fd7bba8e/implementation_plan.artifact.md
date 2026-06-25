@@ -1,30 +1,25 @@
-# Implementation Plan: Update Image Generation Models to Gemini 3.1 Flash Image
+# Implementation Plan: Fix Reporter News Processing (onNewsPostCreated)
 
-The user wants to update all image generation models in the backend functions to use `gemini-3.1-flash-image`. This involves updating the constants and the retry logic in `utils.ts`.
+The user reports that reporter news submissions are failing. Logs confirm that the `onNewsPostCreated` function is hitting an "Unknown name: systemInstruction" error. This is because the function is still running on a previous "broken" deployment (using API version v1) and failed to update when I reverted to v1beta due to a CPU quota issue.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> The model name `gemini-3.1-flash-image` will be applied to all image generation tasks. Ensure this model is available and supports the `generateImages` method in the current environment.
+> I am reducing the memory of the `onNewsPostCreated` function from **4GiB to 1GiB**. This is necessary to satisfy the Google Cloud CPU quota and allow the function to finally deploy with the fixed code (v1beta).
 
 ## Proposed Changes
 
 ### Backend (Functions)
 
-#### [MODIFY] [utils.ts](file:///C:/AlfaKotlin/functions/src/utils.ts)
-
-- Update `IMAGEN_MODEL` and `IMAGEN_FAST_MODEL` constants to `"gemini-3.1-flash-image"`.
-- Update the `modelsToTry` array in `generateImageWithRetry` to use `gemini-3.1-flash-image` as the primary and fallback models.
+#### [MODIFY] [news_handler.ts](file:///C:/AlfaKotlin/functions/src/news_handler.ts)
+- Update `onNewsPostCreated` configuration:
+    - Change `memory: "4GiB"` to `memory: "1GiB"`.
 
 ## Verification Plan
 
 ### Automated Tests
-- Since this is a model string change, automated unit tests might pass if they mock the AI response.
-- A build check will be performed to ensure no syntax errors:
-  ```bash
-  cd functions && npm run build
-  ```
+- Build check: `cd functions && npm run build`.
 
 ### Manual Verification
-- Deploy the updated function and trigger an image generation task (e.g., via a news post submission or automated news processing).
-- Monitor logs for "[AI_IMAGE] Success with gemini-3.1-flash-image".
+- Deploy the function: `npx firebase deploy --only functions:onNewsPostCreated`.
+- Trigger a test reporter submission and check logs for successful AI processing.

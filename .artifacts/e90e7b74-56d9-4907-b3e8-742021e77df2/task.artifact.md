@@ -1,3 +1,6 @@
 - [x] Update `news_handler.ts` to use percentage-based logo sizing
 - [x] Verify FFmpeg filter syntax
-- [ ] Create walkthrough summary
+- [x] Create walkthrough summary
+- [x] Add scrolling text watermark "alfanews"
+    - [x] Update FFmpeg filters in `news_handler.ts`
+    - [x] Verify build

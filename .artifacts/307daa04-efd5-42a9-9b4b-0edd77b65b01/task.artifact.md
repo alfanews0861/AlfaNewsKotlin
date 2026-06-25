@@ -1,2 +1,4 @@
-- [ ] Update `news_handler.ts` to include hashtags, location, and entities in YouTube description
-- [ ] Verify build
+- `[x]` Refine `onNewsPostCreated` guard logic in `news_handler.ts`
+- `[x]` Implement streaming video download in `news_handler.ts`
+- `[x]` Ensure robust temp file cleanup in `onNewsPostCreated`
+- `[x]` Verify changes by running `npm run build` in `functions` directory

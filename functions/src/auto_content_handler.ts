@@ -2,7 +2,7 @@ import * as admin from "firebase-admin";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { Type } from "@google/genai";
 import {
-    getAIInstance,
+    runWithAIFallback,
     getISTDateString,
     parseAIJson,
     saveBufferToStorage,
@@ -15,8 +15,7 @@ const db = admin.firestore();
 /**
  * 2. Festival Greeting Function
  */
-export const scheduleFestivalGreeting = onSchedule({ schedule: "0 5 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
-    const ai = getAIInstance();
+export const scheduleFestivalGreeting = onSchedule({ schedule: "0 5 * * *", timeZone: "Asia/Kolkata", memory: "1GiB", timeoutSeconds: 540 }, async (event) => {
     const dateStr = getISTDateString();
     console.log(`[FESTIVAL] Checking festivals for ${dateStr}...`);
 
@@ -27,56 +26,58 @@ export const scheduleFestivalGreeting = onSchedule({ schedule: "0 5 * * *", time
     };
 
     try {
-        const checkRes = await ai.models.generateContent({
-            model: SCHEDULED_MODEL,
-            contents: [{ role: "user", parts: [{ text: `Today's exact date is ${dateStr}.
-            Check if there is ANY festival, important religious day, Jayanti (anniversary of a great person), or cultural event celebrated by Telugu people (Hindu, Muslim, Christian, or National holidays) on this date.
-            Include not just major festivals, but also regional, minor, and community-specific events (like Ekadashi, Masa Shivaratri, specific Jayantis, or local Telugu traditions).
-            Do not invent events. If there is absolutely no special day today, return isFestival: false. Otherwise, return the details in JSON.` }] }],
-            config: { systemInstruction: "Output JSON only. Be accurate with the Telugu calendar and regional events.", temperature: 0.2, responseMimeType: "application/json", responseSchema: schema }
+        await runWithAIFallback(async (ai, modelName) => {
+            const checkRes = await ai.models.generateContent({
+                model: modelName,
+                contents: [{ role: "user", parts: [{ text: `Today's exact date is ${dateStr}.
+                Check if there is ANY festival, important religious day, Jayanti (anniversary of a great person), or cultural event celebrated by Telugu people (Hindu, Muslim, Christian, or National holidays) on this date.
+                Include not just major festivals, but also regional, minor, and community-specific events (like Ekadashi, Masa Shivaratri, specific Jayantis, or local Telugu traditions).
+                Do not invent events. If there is absolutely no special day today, return isFestival: false. Otherwise, return the details in JSON.` }] }],
+                systemInstruction: { role: "system", parts: [{ text: "Output JSON only. Be accurate with the Telugu calendar and regional events." }] },
+                generationConfig: { temperature: 0.2, responseMimeType: "application/json", responseSchema: schema }
+            } as any);
+            const data = parseAIJson(checkRes.text || "{}");
+
+            if (!data.isFestival || !data.festivalTe || data.festivalTe === "None") {
+                console.log(`[FESTIVAL] No major festival found for today (${dateStr}).`);
+                return;
+            }
+
+            console.log(`[FESTIVAL] Found festival: ${data.festivalTe}. Generating greeting...`);
+
+            let mediaUrl = "";
+            const buffer = await generateImageWithRetry(ai, `A stunning traditional Indian spiritual art illustration of ${data.imagePrompt || data.festivalTe}.
+            Style: Divine aesthetic, vibrant colors, oil painting on canvas, heavenly atmosphere, golden lighting.
+            Note: Focus on the spiritual and cultural essence of the festival, beautiful composition, no text.`, '9:16');
+            if (buffer) {
+                mediaUrl = await saveBufferToStorage(buffer, "GREETING") || "";
+            }
+
+            await db.collection('news').add({
+                type: 'greeting',
+                postFormat: 'VERTICAL',
+                likes: 0,
+                comments: 0,
+                shares: 0,
+                headline: { telugu: `${data.festivalTe} శుభాకాంక్షలు!`, english: `Happy ${data.festivalTe}!` },
+                content: { telugu: data.greetingTe, english: data.greetingEn },
+                mediaUrl,
+                category: 'పండుగలు',
+                reporter: { id: 'system', name: 'AlfaNews Team' },
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                status: "published",
+                approved: true,
+                aiProcessed: true
+            });
+            console.log(`[FESTIVAL] Successfully created greeting post for ${data.festivalTe}.`);
         });
-        const data = parseAIJson(checkRes.text || "{}");
-
-        if (!data.isFestival || !data.festivalTe || data.festivalTe === "None") {
-            console.log(`[FESTIVAL] No major festival found for today (${dateStr}).`);
-            return;
-        }
-
-        console.log(`[FESTIVAL] Found festival: ${data.festivalTe}. Generating greeting...`);
-
-        let mediaUrl = "";
-        const buffer = await generateImageWithRetry(ai, `A stunning traditional Indian spiritual art illustration of ${data.imagePrompt || data.festivalTe}.
-        Style: Divine aesthetic, vibrant colors, oil painting on canvas, heavenly atmosphere, golden lighting.
-        Note: Focus on the spiritual and cultural essence of the festival, beautiful composition, no text.`, '9:16');
-        if (buffer) {
-            mediaUrl = await saveBufferToStorage(buffer, "GREETING") || "";
-        }
-
-        await db.collection('news').add({
-            type: 'greeting',
-            postFormat: 'VERTICAL',
-            likes: 0,
-            comments: 0,
-            shares: 0,
-            headline: { telugu: `${data.festivalTe} శుభాకాంక్షలు!`, english: `Happy ${data.festivalTe}!` },
-            content: { telugu: data.greetingTe, english: data.greetingEn },
-            mediaUrl,
-            category: 'పండుగలు',
-            reporter: { id: 'system', name: 'AlfaNews Team' },
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            status: "published",
-            approved: true,
-            aiProcessed: true
-        });
-        console.log(`[FESTIVAL] Successfully created greeting post for ${data.festivalTe}.`);
     } catch (e: any) { console.error("[FESTIVAL] Error:", e.message); }
 });
 
 /**
  * 3. Quote of the Day Function
  */
-export const scheduleQuoteOfTheDay = onSchedule({ schedule: "0 4 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
-    const ai = getAIInstance();
+export const scheduleQuoteOfTheDay = onSchedule({ schedule: "0 4 * * *", timeZone: "Asia/Kolkata", memory: "1GiB", timeoutSeconds: 540 }, async (event) => {
     const authorsAndThemes = ['Swami Vivekananda', 'APJ Abdul Kalam', 'Gautam Buddha', 'Mahatma Gandhi', 'Bhagavad Gita', 'Vemana', 'Sumathi Satakam', 'Chanakya', 'Socrates', 'Albert Einstein', 'Confucius', 'Telugu Proverbs', 'Rumi', 'Thirukkural', 'Jiddu Krishnamurti', 'Osho', 'Marcus Aurelius', 'Mother Teresa'];
     const todayStr = getISTDateString();
     const randomSeed = Math.floor(Math.random() * authorsAndThemes.length);
@@ -88,37 +89,39 @@ export const scheduleQuoteOfTheDay = onSchedule({ schedule: "0 4 * * *", timeZon
         required: ["quoteTe", "quoteEn", "author", "imagePrompt"]
     };
     try {
-        const res = await ai.models.generateContent({
-            model: SCHEDULED_MODEL,
-            contents: [{ role: "user", parts: [{ text: `Today is ${todayStr}. Provide a highly unique, rare, and deeply inspirational Telugu quote by ${selectedTheme}. Do NOT repeat common quotes. Make sure it is 100% unique for this specific date. Output JSON.` }] }],
-            config: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.8 }
-        });
-        const data = parseAIJson(res.text || "{}");
-        if (!data.quoteTe) return;
+        await runWithAIFallback(async (ai, modelName) => {
+            const res = await ai.models.generateContent({
+                model: modelName,
+                contents: [{ role: "user", parts: [{ text: `Today is ${todayStr}. Provide a highly unique, rare, and deeply inspirational Telugu quote by ${selectedTheme}. Do NOT repeat common quotes. Make sure it is 100% unique for this specific date. Output JSON.` }] }],
+                generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.8 }
+            } as any);
+            const data = parseAIJson(res.text || "{}");
+            if (!data.quoteTe) return;
 
-        let mediaUrl = "";
-        const buffer = await generateImageWithRetry(ai, `A very beautiful and artistic aesthetic background representing ${data.imagePrompt}.
-        Style: Concept art, soft bokeh, cinematic lighting, peaceful and inspirational atmosphere.
-        Quality: Masterpiece, 8k resolution, absolutely no text, no words, no letters.`, '9:16');
-        if (buffer) {
-            mediaUrl = await saveBufferToStorage(buffer, "QUOTE") || "";
-        }
+            let mediaUrl = "";
+            const buffer = await generateImageWithRetry(ai, `A very beautiful and artistic aesthetic background representing ${data.imagePrompt}.
+            Style: Concept art, soft bokeh, cinematic lighting, peaceful and inspirational atmosphere.
+            Quality: Masterpiece, 8k resolution, absolutely no text, no words, no letters.`, '9:16');
+            if (buffer) {
+                mediaUrl = await saveBufferToStorage(buffer, "QUOTE") || "";
+            }
 
-        await db.collection('news').add({
-            type: 'greeting',
-            postFormat: 'VERTICAL',
-            likes: 1,
-            comments: 0,
-            shares: 0,
-            headline: { telugu: "నేటి మంచి మాట", english: "Quote of the Day" },
-            content: { telugu: `${data.quoteTe}\n\n- ${data.author}`, english: `${data.quoteEn}\n\n- ${data.author}` },
-            mediaUrl,
-            category: 'ప్రేరణ',
-            reporter: { id: 'system', name: 'AlfaNews Team' },
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            status: "published",
-            approved: true,
-            aiProcessed: true
+            await db.collection('news').add({
+                type: 'greeting',
+                postFormat: 'VERTICAL',
+                likes: 1,
+                comments: 0,
+                shares: 0,
+                headline: { telugu: "నేటి మంచి మాట", english: "Quote of the Day" },
+                content: { telugu: `${data.quoteTe}\n\n- ${data.author}`, english: `${data.quoteEn}\n\n- ${data.author}` },
+                mediaUrl,
+                category: 'ప్రేరణ',
+                reporter: { id: 'system', name: 'AlfaNews Team' },
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                status: "published",
+                approved: true,
+                aiProcessed: true
+            });
         });
     } catch (e: any) { console.error("[QUOTE] Error:", e.message); }
 });
@@ -126,8 +129,7 @@ export const scheduleQuoteOfTheDay = onSchedule({ schedule: "0 4 * * *", timeZon
 /**
  * 4. On This Day Function
  */
-export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
-    const ai = getAIInstance();
+export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", timeZone: "Asia/Kolkata", memory: "1GiB", timeoutSeconds: 540 }, async (event) => {
     const dateStr = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'long' });
 
     const schema = {
@@ -137,35 +139,37 @@ export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", time
     };
 
     try {
-        const res = await ai.models.generateContent({
-            model: SCHEDULED_MODEL,
-            contents: [{ role: "user", parts: [{ text: `Out of all historical events that happened on ${dateStr}, pick the single most important event. Write a 60 words detailed news about it.
-            Also, provide a HIGHLY DETAILED, photorealistic, and safe image prompt that describes the scene without mentioning specific living people, modern politicians, or controversial figures. Focus on the era-appropriate architecture, clothing, and the general atmosphere.
-            Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). Output JSON.` }] }],
-            config: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.5 }
-        });
-        const data = parseAIJson(res.text || "{}");
-        if (!data.headlineTe) return;
+        await runWithAIFallback(async (ai, modelName) => {
+            const res = await ai.models.generateContent({
+                model: modelName,
+                contents: [{ role: "user", parts: [{ text: `Out of all historical events that happened on ${dateStr}, pick the single most important event. Write a 60 words detailed news about it.
+                Also, provide a HIGHLY DETAILED, photorealistic, and safe image prompt that describes the scene without mentioning specific living people, modern politicians, or controversial figures. Focus on the era-appropriate architecture, clothing, and the general atmosphere.
+                Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). Output JSON.` }] }],
+                generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.5 }
+            } as any);
+            const data = parseAIJson(res.text || "{}");
+            if (!data.headlineTe) return;
 
-        let mediaUrl = "";
-        const buffer = await generateImageWithRetry(ai, `A grand cinematic historical reconstruction of: ${data.imagePrompt}.
-        Style: Epic movie scene, era-appropriate architecture and attire, dramatic atmospheric lighting, photorealistic digital art.
-        Note: Focus on the historical event's scale and importance, masterpiece, no text.`, '16:9');
-        if (buffer) {
-            mediaUrl = await saveBufferToStorage(buffer, "HISTORY") || "";
-        }
+            let mediaUrl = "";
+            const buffer = await generateImageWithRetry(ai, `A grand cinematic historical reconstruction of: ${data.imagePrompt}.
+            Style: Epic movie scene, era-appropriate architecture and attire, dramatic atmospheric lighting, photorealistic digital art.
+            Note: Focus on the historical event's scale and importance, masterpiece, no text.`, '16:9');
+            if (buffer) {
+                mediaUrl = await saveBufferToStorage(buffer, "HISTORY") || "";
+            }
 
-        await db.collection('news').add({
-            type: 'history',
-            headline: { telugu: data.headlineTe, english: data.headlineEn },
-            content: { telugu: data.contentTe, english: data.contentEn },
-            mediaUrl,
-            category: 'చరిత్ర',
-            reporter: { id: 'system', name: 'AlfaNews Team' },
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            status: "published",
-            approved: true,
-            aiProcessed: true
+            await db.collection('news').add({
+                type: 'history',
+                headline: { telugu: data.headlineTe, english: data.headlineEn },
+                content: { telugu: data.contentTe, english: data.contentEn },
+                mediaUrl,
+                category: 'చరిత్ర',
+                reporter: { id: 'system', name: 'AlfaNews Team' },
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                status: "published",
+                approved: true,
+                aiProcessed: true
+            });
         });
     } catch (e: any) { console.error("[HISTORY] Error:", e.message); }
 });
@@ -173,56 +177,63 @@ export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", time
 /**
  * 5. Daily Cartoon Function
  */
-export const generateDailyCartoon = onSchedule({ schedule: "0 6 * * *", timeZone: "Asia/Kolkata" }, async (event) => {
-    const ai = getAIInstance();
+export const generateDailyCartoon = onSchedule({ schedule: "0 6 * * *", timeZone: "Asia/Kolkata", memory: "1GiB", timeoutSeconds: 540 }, async (event) => {
     const states = ["Andhra Pradesh", "Telangana"];
     const todayStr = getISTDateString();
     for (const state of states) {
         try {
-            const schema = {
-                type: Type.OBJECT,
-                properties: { topic: { type: Type.STRING }, visualDescription: { type: Type.STRING }, teluguCaption: { type: Type.STRING }, speechBubbleText: { type: Type.STRING } },
-                required: ["topic", "visualDescription", "teluguCaption", "speechBubbleText"]
-            };
+            await runWithAIFallback(async (ai, modelName) => {
+                const schema = {
+                    type: Type.OBJECT,
+                    properties: { topic: { type: Type.STRING }, visualDescription: { type: Type.STRING }, teluguCaption: { type: Type.STRING }, speechBubbleText: { type: Type.STRING } },
+                    required: ["topic", "visualDescription", "teluguCaption", "speechBubbleText"]
+                };
 
-            const topicRes = await ai.models.generateContent({
-                model: SCHEDULED_MODEL,
-                contents: [{ role: "user", parts: [{ text: `Today's Date: ${todayStr}.
-Current Political Landscape:
-- Andhra Pradesh: NDA (TDP+JSP+BJP) in power. CM: Chandrababu Naidu, Deputy CM: Pawan Kalyan. Opposition: YSRCP (Jagan).
-- Telangana: Congress in power. CM: Revanth Reddy. Opposition: BRS (KCR).
-Task: 1. Identify a trending humor incident. 2. Create satire cartoon. 3. Detailed description without names. 4. Funny Telugu dialogue. Return JSON.` }] }],
-                config: { temperature: 0.95, responseMimeType: "application/json", responseSchema: schema }
+                const topicRes = await ai.models.generateContent({
+                    model: modelName,
+                    contents: [{ role: "user", parts: [{ text: `Today's Date: ${todayStr}.
+    Current Political Landscape:
+    - Andhra Pradesh: NDA (TDP+JSP+BJP) in power. CM: Chandrababu Naidu, Deputy CM: Pawan Kalyan. Opposition: YSRCP (Jagan).
+    - Telangana: Congress in power. CM: Revanth Reddy. Opposition: BRS (KCR).
+    Task: 1. Identify a trending humor incident. 2. Create satire cartoon. 3. Detailed description without names. 4. Funny Telugu dialogue. Return JSON.` }] }],
+                    generationConfig: { temperature: 0.95, responseMimeType: "application/json", responseSchema: schema }
+                } as any);
+
+                const cartoonData = parseAIJson(topicRes.text || "{}");
+                const visual = cartoonData.visualDescription || "characters in a humorous situation";
+                const bubbleText = cartoonData.speechBubbleText || "";
+                const teluguText = cartoonData.teluguCaption || "నేటి రాజకీయ కార్టూన్";
+
+                // Improved prompt for Cartoon generation to avoid safety triggers while maintaining humor
+                const cartoonPrompt = `A high-quality, professional hand-drawn editorial cartoon sketch. Scene: ${visual}.
+                The style should be clean line art with minimal shading.
+                Include a speech bubble with this specific text: "${bubbleText}".
+                Ensure the atmosphere is lighthearted and artistic. No realistic violence or sensitive content.`;
+
+                const buffer = await generateImageWithRetry(ai, cartoonPrompt, '9:16');
+
+                if (buffer) {
+                    const mediaUrl = await saveBufferToStorage(buffer, `CARTOON_${state.replace(" ", "")}`) || "";
+                    await db.collection('news').add({
+                        type: 'cartoon',
+                        postFormat: 'VERTICAL',
+                        likes: 0,
+                        comments: 0,
+                        shares: 0,
+                        headline: { telugu: `${state === 'Andhra Pradesh' ? 'ఆంధ్రప్రదేశ్' : 'తెలంగాణ'} కార్టూన్`, english: `${state} Cartoon` },
+                        content: { telugu: teluguText, english: 'Daily Political Satire Cartoon' },
+                        mediaUrl,
+                        category: 'కార్టూన్',
+                        location: state,
+                        district: state,
+                        reporter: { id: 'BOT_Cartoonist', name: 'Alfa Cartoonist' },
+                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                        status: "published",
+                        approved: true,
+                        aiProcessed: true
+                    });
+                }
             });
-
-            const cartoonData = parseAIJson(topicRes.text || "{}");
-            const visual = cartoonData.visualDescription || "politicians in a satirical situation";
-            const bubbleText = cartoonData.speechBubbleText || "";
-            const teluguText = cartoonData.teluguCaption || "నేటి రాజకీయ కార్టూన్";
-
-            const buffer = await generateImageWithRetry(ai, `A professional hand-drawn editorial political satire cartoon sketch. Scene: ${visual}. Feature: Include a speech bubble with this text: "${bubbleText}".`, '9:16');
-
-            if (buffer) {
-                const mediaUrl = await saveBufferToStorage(buffer, `CARTOON_${state.replace(" ", "")}`) || "";
-                await db.collection('news').add({
-                    type: 'cartoon',
-                    postFormat: 'VERTICAL',
-                    likes: 0,
-                    comments: 0,
-                    shares: 0,
-                    headline: { telugu: `${state === 'Andhra Pradesh' ? 'ఆంధ్రప్రదేశ్' : 'తెలంగాణ'} కార్టూన్`, english: `${state} Cartoon` },
-                    content: { telugu: teluguText, english: 'Daily Political Satire Cartoon' },
-                    mediaUrl,
-                    category: 'కార్టూన్',
-                    location: state,
-                    district: state,
-                    reporter: { id: 'BOT_Cartoonist', name: 'Alfa Cartoonist' },
-                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                    status: "published",
-                    approved: true,
-                    aiProcessed: true
-                });
-            }
         } catch (e: any) { console.error(`[CARTOON] Error for ${state}:`, e.message); }
     }
 });
@@ -303,66 +314,86 @@ export const checkSevereWeatherAlerts = onSchedule({
 });
 
 /**
- * 6. Cleanup Old News (120 days old)
- * Runs every Sunday at 2:00 AM IST to reduce Storage and Firestore costs.
+ * 6. Cleanup Old News (60 days old)
+ * Runs every day at 3:00 AM IST to reduce Storage and Firestore costs.
  */
 export const cleanupOldNews = onSchedule({
-    schedule: "0 2 * * 0",
+    schedule: "0 3 * * *",
     timeZone: "Asia/Kolkata",
     memory: "1GiB",
     timeoutSeconds: 540
 }, async (event) => {
-    console.log("[CLEANUP] Starting weekly cleanup of old news...");
+    console.log("[CLEANUP] Starting daily cleanup of old news...");
     const bucket = admin.storage().bucket();
-    const fourMonthsAgo = new Date();
-    fourMonthsAgo.setDate(fourMonthsAgo.getDate() - 120);
+    const retentionDate = new Date();
+    retentionDate.setDate(retentionDate.getDate() - 60);
 
     try {
-        const oldNewsQuery = await db.collection('news')
-            .where('timestamp', '<', admin.firestore.Timestamp.fromDate(fourMonthsAgo))
-            .limit(500) // Process in batches to avoid timeout
-            .get();
+        const MAX_CLEANUP = 2000;
+        const BATCH_SIZE = 500;
+        let totalCleanedDocs = 0;
+        let totalDeletedFiles = 0;
 
-        if (oldNewsQuery.empty) {
-            console.log("[CLEANUP] No old news found to delete.");
-            return;
-        }
+        // Run in sub-batches to respect Free Tier and stay within memory limits
+        for (let i = 0; i < MAX_CLEANUP; i += BATCH_SIZE) {
+            const oldNewsQuery = await db.collection('news')
+                .where('timestamp', '<', admin.firestore.Timestamp.fromDate(retentionDate))
+                .orderBy('timestamp', 'asc') // Start from oldest to newest
+                .limit(BATCH_SIZE)
+                .get();
 
-        console.log(`[CLEANUP] Found ${oldNewsQuery.size} documents older than 120 days.`);
+            if (oldNewsQuery.empty) break;
 
-        let deletedFilesCount = 0;
-        const deletePromises = oldNewsQuery.docs.map(async (doc) => {
-            const data = doc.data();
+            const deletePromises = oldNewsQuery.docs.map(async (doc) => {
+                const data = doc.data();
 
-            // 1. Delete associated media files from Storage
-            const mediaUrls = data.mediaUrls || [];
-            if (data.mediaUrl) mediaUrls.push(data.mediaUrl);
+                // Skip if already cleaned up
+                if (data.mediaDeleted === true) return null;
 
-            for (const url of mediaUrls) {
-                if (url && typeof url === 'string' && url.includes('firebasestorage.googleapis.com')) {
-                    try {
-                        const urlObj = new URL(url);
-                        const filePath = decodeURIComponent(urlObj.pathname.split('/o/')[1].split('?')[0]);
-                        await bucket.file(filePath).delete();
-                        deletedFilesCount++;
-                    } catch (e) {
-                        // Ignore errors if file already deleted
+                const mediaUrls = data.mediaUrls || [];
+                if (data.mediaUrl) mediaUrls.push(data.mediaUrl);
+
+                for (const url of mediaUrls) {
+                    if (url && typeof url === 'string' && url.includes('firebasestorage.googleapis.com')) {
+                        try {
+                            // ROBUST PARSING: Handle both standard and token-based URLs
+                            const decodedUrl = decodeURIComponent(url);
+                            const pathParts = decodedUrl.split('/o/');
+                            if (pathParts.length < 2) continue;
+
+                            const filePath = pathParts[1].split('?')[0];
+
+                            console.log(`[CLEANUP] Deleting: ${filePath}`);
+                            await bucket.file(filePath).delete();
+                            totalDeletedFiles++;
+                        } catch (e: any) {
+                             // Ignore 404s (already deleted)
+                             if (!e.message?.includes("404")) {
+                                 console.warn(`[CLEANUP_WARN] Failed to delete ${url}:`, e.message);
+                             }
+                        }
                     }
                 }
-            }
 
-            // 2. Update Firestore document to clear media instead of deleting the whole doc
-            return db.collection('news').doc(doc.id).update({
-                mediaUrl: "",
-                mediaUrls: [],
-                mediaDeleted: true,
-                lastCleanupAt: admin.firestore.FieldValue.serverTimestamp()
+                return db.collection('news').doc(doc.id).update({
+                    mediaUrl: "",
+                    mediaUrls: [],
+                    mediaDeleted: true,
+                    lastCleanupAt: admin.firestore.FieldValue.serverTimestamp()
+                });
             });
-        });
 
-        await Promise.all(deletePromises);
-        console.log(`[CLEANUP] Successfully cleaned ${oldNewsQuery.size} documents and deleted ${deletedFilesCount} media files.`);
+            const results = await Promise.all(deletePromises);
+            const cleanedInThisBatch = results.filter(r => r !== null).length;
+            totalCleanedDocs += cleanedInThisBatch;
 
+            console.log(`[CLEANUP] Batch finished. Progress: ${totalCleanedDocs}/${MAX_CLEANUP} (Deleted ${totalDeletedFiles} files)`);
+
+            // If we didn't find many files to delete in this batch, we might be hitting a wall of already-cleaned docs.
+            // But we continue until MAX_CLEANUP to dig through them.
+        }
+
+        console.log(`[CLEANUP] Completed. Cleaned ${totalCleanedDocs} documents and deleted ${totalDeletedFiles} media files.`);
     } catch (error: any) {
         console.error("[CLEANUP] Error during cleanup:", error.message);
     }

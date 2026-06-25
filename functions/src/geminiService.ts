@@ -33,9 +33,10 @@ export const processSocialPostWithAI = async (
         const response = await ai.models.generateContent({
             model: modelName,
             contents: [{ role: "user", parts: [{ text: `Platform: ${platform}\nCategory: ${category}\nInput Text:\n${socialText}` }] }],
-            systemInstruction: { role: "system", parts: [{ text: `You are a Senior News Editor. Extract news and write in a single detailed paragraph in Telugu (between 300 to 360 characters) and a single paragraph in English (maximum 70 words).
-            CRITICAL: You MUST integrate all people, locations, and organizations (entities) naturally into the news narrative itself. A news story is incomplete without stating 'Who, Where, and What' explicitly in the text.
-            Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be punchy like a 'punch dialogue', direct (sootiga), and extracted from the content. Match the news tone: if inquisitive, the headline should be a sharp and direct question. If no news found, set isNewsFound: false. Output JSON.` }] },
+            systemInstruction: { role: "system", parts: [{ text: `You are a Senior News Editor. Extract news and write in a single detailed paragraph in Telugu (between 450 to 600 characters) and a single paragraph in English (maximum 70 words).
+            The content must adapt to the context: use a critical (vimarsanaatmakamaa) tone for investigative/political news, and a descriptive (vivaranaatmakamaa) tone for general news. Ensure the narrative is precise (kathitamgaa).
+            CRITICAL: You MUST integrate all people, locations, and organizations (entities) naturally into the news narrative itself.
+            Generate a single-sentence Telugu headline that is exceptionally clear and direct (sootiga). STRICT LIMIT: MAXIMUM 55 CHARACTERS including spaces. English headline (max 12 words). The Telugu headline must be punchy, extracted from content, and NOT a long sentence. Match the news tone: if inquisitive, the headline should be a sharp and direct question. If no news found, set isNewsFound: false. Output JSON.` }] },
             generationConfig: {
                 temperature: 0.4,
                 responseMimeType: "application/json",
@@ -86,9 +87,10 @@ export const processCitizenContentWithAI = async (
         const response = await ai.models.generateContent({
             model: modelName,
             contents: [{ role: "user", parts: [{ text: `Citizen Submission:\n${rawContent}` }] }],
-            systemInstruction: { role: "system", parts: [{ text: `You are a Senior News Editor. Analyze news for public interest. If accepted, write in a single detailed paragraph in Telugu (between 300 to 360 characters) and a single paragraph in English (maximum 70 words).
-            CRITICAL: You MUST integrate all people, locations, and organizations (entities) naturally into the news narrative itself. A news story is incomplete without stating 'Who, Where, and What' explicitly in the text.
-            Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be punchy like a 'punch dialogue', direct (sootiga), and extracted from the content. Match the news tone: if inquisitive, the headline should be a sharp and direct question. Output JSON only.` }] },
+            systemInstruction: { role: "system", parts: [{ text: `You are a Senior News Editor. Analyze news for public interest. If accepted, write in a single detailed paragraph in Telugu (between 450 to 600 characters) and a single paragraph in English (maximum 70 words).
+            The content must adapt to the context: use a critical (vimarsanaatmakamaa) tone for investigative/political news, and a descriptive (vivaranaatmakamaa) tone for general news. Ensure the narrative is precise (kathitamgaa).
+            CRITICAL: You MUST integrate all people, locations, and organizations (entities) naturally into the news narrative itself.
+            Generate a single-sentence Telugu headline that is exceptionally clear and direct (sootiga). STRICT LIMIT: MAXIMUM 55 CHARACTERS including spaces. English headline (max 12 words). The Telugu headline must be punchy, direct (sootiga), and extracted from the content. Match the news tone: if inquisitive, the headline should be a sharp and direct question. Output JSON only.` }] },
             generationConfig: {
                 temperature: 0.4,
                 responseMimeType: "application/json",
@@ -126,9 +128,10 @@ export const processContentWithAI = async (
         const response = await ai.models.generateContent({
             model: modelName,
             contents: [{ role: "user", parts: [{ text: `Headline: ${rawHeadline || 'N/A'}\nContent: ${rawContent}` }] }],
-            systemInstruction: { role: "system", parts: [{ text: `You are a Senior News Editor. Write the news in a single detailed paragraph in Telugu (between 300 to 360 characters) and a single paragraph in English (maximum 70 words).
-            CRITICAL: You MUST integrate all people, locations, and organizations (entities) naturally into the news narrative itself. A news story is incomplete without stating 'Who, Where, and What' explicitly in the text.
-            Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). The Telugu headline must be punchy like a 'punch dialogue', direct (sootiga), and extracted from the content. Match the news tone: if inquisitive, the headline should be a sharp and direct question. Output JSON.` }] },
+            systemInstruction: { role: "system", parts: [{ text: `You are a Senior News Editor. Write the news in a single detailed paragraph in Telugu (between 450 to 600 characters) and a single paragraph in English (maximum 70 words).
+            The content must adapt to the context: use a critical (vimarsanaatmakamaa) tone for investigative/political news, and a descriptive (vivaranaatmakamaa) tone for general news. Ensure the narrative is precise (kathitamgaa).
+            CRITICAL: You MUST integrate all people, locations, and organizations (entities) naturally into the news narrative itself.
+            Generate a single-sentence Telugu headline that is exceptionally clear and direct (sootiga). STRICT LIMIT: MAXIMUM 55 CHARACTERS including spaces. English headline (max 12 words). The Telugu headline must be punchy, direct (sootiga), and extracted from the content. Match the news tone: if inquisitive, the headline should be a sharp and direct question. Output JSON.` }] },
             generationConfig: {
                 temperature: 0.4,
                 responseMimeType: "application/json",

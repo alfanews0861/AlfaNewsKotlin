@@ -1,41 +1,36 @@
-# Implementation Plan - Fix Reporter Video Submission Corruption
+# Implementation Plan - Fix Reporter Video Submission Flow
 
-The reporter video submission flow is currently broken because of invalid AI model names, incorrect TTS voice configurations, and malformed SSML. The news gets stuck in "PENDING" or "REVIEWING_CONTENT" and never completes the video processing stage (merging audio/video and uploading to YouTube).
+The reporter video submission is currently getting stuck after the text AI processing. While the AI models and voice names are correct for the 2026 environment, the logic for transitioning from text processing to video processing has flaws, and the SSML format is invalid.
 
 ## User Review Required
 
-> [!IMPORTANT]
-> The AI model names in the codebase were found to be futuristic/fake (`gemini-3.5-flash`, `imagen-4.0`). I will revert them to the current stable versions (`gemini-1.5-flash`). If you intended to use experimental models, please let me know, but currently, they are causing the system to fail.
+> [!NOTE]
+> I have confirmed that `gemini-3.5-flash` and `te-IN-Chirp3-HD-Achernar` are the correct state-of-the-art models for June 2026. The issue is purely in the flow logic and SSML formatting.
 
 ## Proposed Changes
 
 ### Cloud Functions (Backend)
 
-#### [MODIFY] [utils.ts](file:///C:/AlfaKotlin/functions/src/utils.ts)
-- Update `FLASH_MODEL`, `PRO_MODEL`, and `SCHEDULED_MODEL` to `gemini-1.5-flash`.
-- Update `IMAGEN_MODEL` to `imagen-3.0-generate-001`.
-
-#### [MODIFY] [geminiService.ts](file:///C:/AlfaKotlin/functions/src/geminiService.ts)
-- Update `PRIMARY_MODEL` to `gemini-1.5-flash`.
-
 #### [MODIFY] [news_handler.ts](file:///C:/AlfaKotlin/functions/src/news_handler.ts)
-- **AI Processing**: Ensure `performAIProcessing` handles the model response correctly.
-- **Video Processing**:
-    - Change TTS voice to `te-IN-Standard-B` or `te-IN-Wavenet-B` (valid Google TTS voices).
-    - Add required `<speak>` tags to the SSML input for Text-to-Speech.
-    - Improve error logging for the FFMPEG and YouTube upload stages.
-- **Loop Prevention**: Refine the trigger logic to ensure that if `status` is `PENDING`, processing starts regardless of the `aiProcessed` flag (allowing for re-submissions).
+- **Loop Prevention Logic**:
+    - The current loop prevention skips the function if `aiProcessed` is true. However, when text processing completes, it sets `aiProcessed` to true, which causes the subsequent trigger (intended for video processing) to exit prematurely.
+    - I will refine this to allow processing if `videoProcessed` is false and a video exists, even if `aiProcessed` is true.
+- **SSML Formatting**:
+    - The TTS synthesis currently sends raw text to the `ssml` field. Google Cloud TTS requires SSML to be wrapped in `<speak>` tags.
+    - I will update the SSML payload: `<speak>${newsText}</speak>`.
+- **Resource Allocation**:
+    - Increase the memory to `2GiB` for the `onNewsPostCreated` trigger to handle FFMPEG processing of high-quality videos.
 
 ## Verification Plan
 
 ### Automated Tests
-- Run the build script for functions: `cd functions && npm run build`.
-- (Manual) Check Firebase console for any deployment errors.
+- Deploy the updated functions: `cd functions && npm run deploy`.
+- Monitor logs for the `[VIDEO_START]` and `[FFMPEG_CMD]` tags.
 
 ### Manual Verification
-1. **Submit Reporter Video**: Use the Android app as a reporter to submit a video post.
-2. **Firestore Monitor**: Watch the document in the `news` collection.
-    - Should change from `PENDING` -> `REVIEWING_CONTENT` (AI text processing).
-    - Should change to `PROCESSING_VIDEO` (FFMPEG/YouTube).
-    - Finally, should be `published` with a `youtubeUrl`.
-3. **App Verification**: Verify that the video news appears in the feed with the correct AI-enhanced headline and content.
+1. **Submit Reporter Video**: Use the Android app to submit a news story with a video.
+2. **Observe Firestore**:
+    - Status should move from `PENDING` to `REVIEWING_CONTENT`.
+    - Once AI text is generated, status should move to `PROCESSING_VIDEO`.
+    - After FFMPEG and YouTube upload, status should move to `published`.
+3. **Verify Outcome**: Ensure the post appears in the feed with a working YouTube link and AI-enhanced text.

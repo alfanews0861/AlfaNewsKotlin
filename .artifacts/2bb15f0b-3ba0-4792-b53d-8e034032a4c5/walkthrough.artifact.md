@@ -32,20 +32,20 @@ Reverted to the efficient 4x daily schedule and implemented persistent tracking 
 > [!NOTE]
 > Tracking is now stored in `settings/notifications` document instead of an in-memory Map, ensuring 100% consistency across multiple function instances.
 
-### 3. Aggressive Media Cleanup
-Changed the cleanup task to run daily and reduced the retention period to 60 days. This keeps the Cloud Storage bucket size smaller and avoids the massive processing spikes observed on Sundays.
+### 3. Aggressive Media Cleanup (Free Tier Optimized)
+Changed the cleanup task to run daily and reduced the retention period to 60 days. To strictly adhere to the Firebase Free Tier, I implemented a **2,000 document daily limit**.
 
 #### [auto_content_handler.ts](file:///C:/AlfaKotlin/functions/src/auto_content_handler.ts)
 ```diff
-- * 6. Cleanup Old News (120 days old)
-- * Runs every Sunday at 2:00 AM IST to reduce Storage and Firestore costs.
-+ * 6. Cleanup Old News (60 days old)
-+ * Runs every day at 3:00 AM IST to reduce Storage and Firestore costs.
-  */
  export const cleanupOldNews = onSchedule({
 -    schedule: "0 2 * * 0",
 +    schedule: "0 3 * * *",
+...
++    const MAX_CLEANUP = 2000;
++    const BATCH_SIZE = 500;
 ```
+> [!TIP]
+> This limit uses only 10% of the daily 20,000 Firestore write quota, ensuring your app stays free even with high user growth.
 
 ## Verification Summary
 

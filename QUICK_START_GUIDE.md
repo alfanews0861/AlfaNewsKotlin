@@ -255,7 +255,7 @@ A: Cloud function has error handling. Logs will show the issue.
 A: Yes. All changes are additive and reversible.
 
 ### Q: Will costs increase?
-A: No. Same AI model (Gemini-3-Flash) used. Cost per submission unchanged.
+A: No. Same AI model (Gemini-3.1-Flash) used. Cost per submission unchanged.
 
 ### Q: What about citizen posts?
 A: Citizen posts continue to work as before with `processNewsPost()`.

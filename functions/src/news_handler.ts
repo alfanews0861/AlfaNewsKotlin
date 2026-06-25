@@ -21,6 +21,36 @@ import { notifyReporter } from "./reporter_handler";
 const db = admin.firestore();
 
 /**
+ * Helper: Extract storage path from Firebase Storage URL
+ */
+function getStoragePathFromUrl(url: string): string | null {
+    if (!url || !url.includes('firebasestorage.googleapis.com')) return null;
+    try {
+        const decodedUrl = decodeURIComponent(url);
+        const parts = decodedUrl.split('/o/');
+        if (parts.length < 2) return null;
+        const pathWithParams = parts[1];
+        return pathWithParams.split('?')[0];
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * Helper: Delete file from Storage
+ */
+async function deleteOriginalFile(url: string) {
+    const filePath = getStoragePathFromUrl(url);
+    if (!filePath) return;
+    try {
+        console.log(`[CLEANUP] Deleting original file: ${filePath}`);
+        await admin.storage().bucket().file(filePath).delete();
+    } catch (e: any) {
+        console.warn(`[CLEANUP_ERR] Failed to delete ${filePath}:`, e.message);
+    }
+}
+
+/**
  * Helper: Perform AI enhancement on news content
  */
 async function performAIProcessing(headline: string, content: string, actualPostData: any): Promise<any> {
@@ -75,19 +105,20 @@ COMMAND:
 
         const aiRes = parseAIJson(result.text || result.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
 
-        // ROBUST FIELD EXTRACTION: Handle Flat AND Nested JSON
-        const finalContent = aiRes.content || aiRes.contentTe || aiRes.telugu?.content || aiRes.telugu?.contentTe || aiRes.summary || aiRes.description || aiRes.summarizedTeluguContent;
+        // ROBUST FIELD EXTRACTION: Handle Flat AND Nested JSON (including 'summary' inside 'telugu')
+        const finalContent = aiRes.content || aiRes.contentTe || aiRes.telugu?.content || aiRes.telugu?.contentTe || aiRes.telugu?.summary || aiRes.summaryTe || aiRes.summary || aiRes.description || aiRes.summarizedTeluguContent;
         const finalHeadline = aiRes.headline || aiRes.headlineTe || aiRes.telugu?.headline || aiRes.telugu?.headlineTe || aiRes.title || aiRes.generatedTeluguHeadline;
-        const finalContentEn = aiRes.contentEn || aiRes.content_en || aiRes.english?.content || aiRes.english?.contentEn || aiRes.englishContent || aiRes.summaryEn;
-        const finalHeadlineEn = aiRes.headlineEn || aiRes.headline_en || aiRes.english?.headline || aiRes.english?.headlineEn || aiRes.englishHeadline || aiRes.titleEn;
+        const finalContentEn = aiRes.contentEn || aiRes.content_en || aiRes.english?.content || aiRes.english?.contentEn || aiRes.english?.summary || aiRes.summaryEn || aiRes.englishContent;
+        const finalHeadlineEn = aiRes.headlineEn || aiRes.headline_en || aiRes.english?.headline || aiRes.english?.headlineEn || aiRes.titleEn || aiRes.englishHeadline;
 
         if (!finalContent || !finalHeadline) {
              console.error("[AI_SCHEMA_MISMATCH] AI response missing Telugu fields:", JSON.stringify(aiRes).substring(0, 300));
-             throw new Error("AI response missing mandatory Telugu fields.");
+             // Fallback for urgent display if we have AT LEAST some data
+             if (!finalContent && !finalHeadline) throw new Error("AI response missing mandatory Telugu fields.");
         }
 
         // Validate character count (Telugu)
-        if (finalContent.length < 250) {
+        if (finalContent.length < 400) {
              console.warn(`[AI_LENGTH_WARNING] Content too short: ${finalContent.length} chars. Proceeding but logging.`);
         }
 
@@ -210,13 +241,25 @@ export const onNewsPostCreated = onDocumentWritten({
     const isReporter = data.isReporter === true || data.processingType === "REPORTER_SUBMISSION";
 
     // 1. Guard against infinite loops or redundant processing
-    if (currentStatus === "REVIEWING_CONTENT" || currentStatus === "PROCESSING_VIDEO_START") {
+    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED"];
+    if (LOCKED_STATUSES.includes(currentStatus) && !data.forceReprocess) {
         return;
     }
 
     // 2. AI PROCESSING PHASE
     // Trigger if not processed and status is PENDING or missing
-    if (!data.aiProcessed && (currentStatus === "PENDING" || currentStatus === "")) {
+    if (!data.aiProcessed && (currentStatus === "PENDING" || currentStatus === "" || data.forceReprocess)) {
+        // Double check against DB to avoid race conditions
+        const latestDoc = await db.collection('news').doc(postId).get();
+        const latestData = latestDoc.data();
+        if (!latestData) return;
+
+        const latestStatus = (latestData.status || "").toUpperCase();
+        if (latestData.aiProcessed || latestStatus === "REVIEWING_CONTENT" || (LOCKED_STATUSES.includes(latestStatus) && !data.forceReprocess)) {
+            console.log(`[AI_SKIPPED] ${postId} already processing, done, or failed.`);
+            return;
+        }
+
         console.log(`[ON_WRITE_PROCEED] AI Start: ${postId}`);
 
         // LOCK immediately to prevent other instances
@@ -260,6 +303,17 @@ export const onNewsPostCreated = onDocumentWritten({
     const videoUrl = (videoIndex !== -1 && data.mediaUrls && data.mediaUrls[videoIndex]) || (videoIndex === 0 ? data.mediaUrl : null);
 
     if (data.aiProcessed && currentStatus === "PROCESSING_VIDEO" && !data.videoProcessed && videoUrl) {
+        // Double check against DB to avoid race conditions from onDocumentWritten
+        const latestDoc = await db.collection('news').doc(postId).get();
+        const latestData = latestDoc.data();
+        if (!latestData) return;
+
+        const latestStatus = (latestData.status || "").toUpperCase();
+        if (latestStatus === "PROCESSING_VIDEO_START" || latestData.videoProcessed || latestStatus === "FAILED") {
+            console.log(`[VIDEO_SKIPPED] ${postId} already processing, done, or failed.`);
+            return;
+        }
+
         console.log(`[VIDEO_START] ${postId}. URL: ${videoUrl.substring(0, 50)}...`);
 
         // LOCK immediately
@@ -414,6 +468,11 @@ export const onNewsPostCreated = onDocumentWritten({
                 status: "published",
                 approved: true
             });
+
+            // CLEANUP: Delete original video file to save storage costs
+            if (videoUrl) {
+                await deleteOriginalFile(videoUrl);
+            }
 
             if (isReporter && data.reporter?.id) await notifyReporter(data.reporter.id, postId, data.headline?.telugu || "", 'SUCCESS');
 

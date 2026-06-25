@@ -1,7 +1,7 @@
-- [ ] Update FFmpeg audio filters in `news_handler.ts`
-    - [ ] Change `amix=duration=first` to `amix=duration=longest`
-    - [ ] Add `normalize=0` to `amix` filter
-    - [ ] Adjust `dropout_transition`
-    - [ ] Add `highpass` to TTS audio
-- [ ] Verify changes with `analyze_file`
-- [ ] Create walkthrough artifact
+- [x] Update FFmpeg audio filters in `news_handler.ts` (Time-Based Envelope)
+    - [x] Implement `ffprobe` to detect TTS duration
+    - [x] Use `volume='if(lt(t,DURATION),0.01,1)'` for reliable muting/restoration
+- [x] Increase voice-over speed to `1.20`
+- [x] Build and Deploy Cloud Functions (`onNewsPostCreated`)
+- [x] Verify success via live logs
+- [x] Final Walkthrough updated

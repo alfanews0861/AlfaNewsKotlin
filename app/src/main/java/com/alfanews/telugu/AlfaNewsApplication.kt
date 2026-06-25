@@ -13,12 +13,7 @@ import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderF
 import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.utils.PreferenceManager
 import com.google.firebase.messaging.FirebaseMessaging
-import androidx.work.*
-import com.alfanews.telugu.workers.NewsNotificationWorker
-import com.alfanews.telugu.workers.FestivalGreetingWorker
 import java.io.File
-import java.util.concurrent.TimeUnit
-import java.util.Calendar
 import kotlinx.coroutines.*
 import coil3.ImageLoader
 import coil3.PlatformContext
@@ -64,10 +59,6 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
             
             // నోటిఫికేషన్ ఛానెల్‌లను సృష్టించడం (ముఖ్యంగా ఆండ్రాయిడ్ 13+ కోసం)
             createNotificationChannels()
-
-            scope.launch(Dispatchers.Default) {
-                scheduleNotificationWork()
-            }
         } catch (e: Exception) {
             // ఏదైనా ఎర్రర్ వస్తే యాప్ క్రాష్ అవ్వకుండా ఉండటానికి
             e.printStackTrace()
@@ -92,60 +83,20 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
         }
     }
 
-    private fun scheduleNotificationWork() {
-        try {
-            val notificationWork = PeriodicWorkRequestBuilder<NewsNotificationWorker>(24, TimeUnit.HOURS)
-                .setInitialDelay(calculateDelay(7, 0), TimeUnit.MILLISECONDS)
-                .build()
-            
-            WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-                "DailyNewsNotifications",
-                ExistingPeriodicWorkPolicy.KEEP,
-                notificationWork
-            )
-
-            val festivalWork = PeriodicWorkRequestBuilder<FestivalGreetingWorker>(24, TimeUnit.HOURS)
-                .setInitialDelay(calculateDelay(6, 0), TimeUnit.MILLISECONDS)
-                .build()
-            
-            WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-                "DailyFestivalGreeting",
-                ExistingPeriodicWorkPolicy.KEEP,
-                festivalWork
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun calculateDelay(hour: Int, minute: Int): Long {
-        val now = Calendar.getInstance()
-        val nextRun = Calendar.getInstance()
-        nextRun.set(Calendar.HOUR_OF_DAY, hour)
-        nextRun.set(Calendar.MINUTE, minute)
-        nextRun.set(Calendar.SECOND, 0)
-        
-        if (nextRun.before(now)) {
-            nextRun.add(Calendar.DAY_OF_YEAR, 1)
-        }
-        
-        return nextRun.timeInMillis - now.timeInMillis
-    }
-
     /**
      * 🖼️ Coil ఇమేజ్ లోడర్ కాన్ఫిగరేషన్ (Coil 3).
-     * యూజర్ ఎంచుకున్న స్టోరేజ్ లిమిట్ లో 50% ఇమేజెస్ కి కేటాయిస్తున్నాము.
+     * యూజర్ ఎంచుకున్న స్టోరేజ్ లిమిట్ లో 70% ఇమేజెస్ కి కేటాయిస్తున్నాము.
      */
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         val prefs = PreferenceManager.getInstance(context)
         val limitMB = prefs.storageLimitMB
-        // ఒకవేళ అపరిమితం (0) అయితే 500MB, లేదంటే సగం
-        val diskLimitBytes = if (limitMB <= 0) 500 * 1024 * 1024L else (limitMB / 2).toLong() * 1024 * 1024L
+        // ఒకవేళ అపరిమితం (0) అయితే 500MB, లేదంటే 70%
+        val diskLimitBytes = if (limitMB <= 0) 500 * 1024 * 1024L else (limitMB * 0.7).toLong() * 1024 * 1024L
 
         return ImageLoader.Builder(context)
             .memoryCache {
                 MemoryCache.Builder()
-                    .maxSizePercent(context, 0.15) // మెమరీలో 15% మాత్రమే
+                    .maxSizePercent(context, 0.20) // మెమరీలో 20%
                     .build()
             }
             .diskCache {

@@ -7,7 +7,7 @@ const ai = new GoogleGenAI({
 });
 
 async function run() {
-    const modelsToTest = ['gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-1.5-flash'];
+    const modelsToTest = ['gemini-3.1-flash', 'gemini-1.5-flash'];
 
     for (const model of modelsToTest) {
         try {

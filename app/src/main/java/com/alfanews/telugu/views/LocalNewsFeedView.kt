@@ -166,8 +166,8 @@ fun LocalNewsFeedView(
     val imageLoader = remember { com.alfanews.telugu.utils.SafeImageLoader.getImageLoader(context) }
     
     LaunchedEffect(news) {
-        // ✅ Aggressive Preloading: Load first 15 images to ensure smooth scroll for fast users
-        val postsToPreload = news.take(15)
+        // 🖼️ Memory Optimization: 10 కి అడ్జస్ట్ చేశాం
+        val postsToPreload = news.take(10)
         postsToPreload.forEach { post: NewsPost ->
             if (post.mediaUrl.isNotEmpty()) {
                 val request = ImageRequest.Builder(context)
@@ -189,8 +189,8 @@ fun LocalNewsFeedView(
                 viewModel.loadMore(language, currentUser)
             }
 
-            // ✅ Aggressive Preloading: Preload 15 images ahead for ultra-fast scrolling
-            (1..15).forEach { offset ->
+            // 🖼️ Memory Optimization: Preload 10 images ahead
+            (1..10).forEach { offset ->
                 val nextPageIndex = page + offset
                 val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
                 if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
@@ -383,7 +383,8 @@ fun LocalNewsFeedView(
                                     modifier = Modifier.fillMaxSize(),
                                     district = activeDistrict,
                                     showDistrictSelector = false,
-                                    showTopHeader = false // ✅ Header is already shown at top level
+                                    showTopHeader = false, // ✅ Header is already shown at top level
+                                    isActive = pagerState.currentPage == page
                                 )
                             }
                         }

@@ -1,6 +1,7 @@
-# Task: Backend AI News Enhancement
+# Task: AI Logic & Key Switching Fix
 
-- [ ] Update AI System Instructions in `categories.ts`
-- [ ] Refactor `performAIProcessing` in `news_handler.ts` to fix English fallback
-- [ ] Align prompts in `geminiService.ts`
-- [ ] Verify changes and log structure
+- [ ] Update `runWithAIFallback` in `utils.ts` to ONLY switch keys on quota errors (429)
+- [ ] Improve JSON parsing in `news_handler.ts` to handle nested structures
+- [ ] Simplify system instructions in `categories.ts` to enforce flat JSON
+- [ ] Deploy updated functions
+- [ ] Verify with live logs

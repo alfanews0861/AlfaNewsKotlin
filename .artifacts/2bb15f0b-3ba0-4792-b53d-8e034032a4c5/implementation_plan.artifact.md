@@ -32,9 +32,10 @@ This plan addresses the recent increase in cloud billing by optimizing resource 
 ### 3. Storage & Firestore Operation Optimization
 
 #### [MODIFY] [auto_content_handler.ts](file:///C:/AlfaKotlin/functions/src/auto_content_handler.ts)
-- **Schedule Change**: Change `cleanupOldNews` from weekly (`0 2 * * 0`) to daily (`0 3 * * *`). Running daily prevents massive spikes in Firestore writes and Storage deletions.
-- **Retention Period**: Reduce the cleanup threshold from **120 days** to **60 days**. This will aggressively reduce storage costs for media files.
-- **Batching**: Ensure it continues to process in batches to stay within execution limits.
+- **Schedule Change**: Change `cleanupOldNews` from weekly (`0 2 * * 0`) to daily (`0 3 * * *`).
+- **Retention Period**: Reduce the cleanup threshold from **120 days** to **60 days**.
+- **Free Tier Safety**: Limit processing to **2,000 documents per day**. This consumes only 10% of the daily free write quota (20k), leaving plenty for user activity.
+- **Batching**: Process in batches of 500 to ensure reliability and stay within memory/timeout limits.
 
 ## Verification Plan
 

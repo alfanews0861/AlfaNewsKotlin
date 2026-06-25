@@ -156,9 +156,9 @@ Determine if the input is NEWS or PERSONAL/SPAM.
 - If PERSONAL/SPAM: Set 'rejectionReason' in Telugu explaining why, and leave other fields empty or null.
 
 STEP 2: ENHANCEMENT (If NEWS)
-- Content: Detailed paragraph in Telugu (300-380 chars) AND a paragraph in English (~70 words).
-  CRITICAL: You MUST provide BOTH Telugu and English. Integrate people, locations, and organizations naturally.
-- Headline: One punchy sentence in Telugu (max 55 chars) AND in English (~12 words).
+- Content: Detailed paragraph in Telugu (450-600 chars) AND a paragraph in English (~70 words).
+  CRITICAL: The content must adapt to the story's context: use a critical (vimarsanaatmakamaa) tone for investigative or political news, and a descriptive (vivaranaatmakamaa) tone for general or informative news. Ensure the narrative is precise (kathitamgaa) and reflects facts accurately. Integrate people, locations, and organizations naturally.
+- Headline: One exceptionally clear and direct (sootiga) sentence in Telugu. STRICTLY UNDER 55 CHARACTERS (ABSOLUTE LIMIT). AND in English (~12 words). The Telugu headline must be punchy, direct, and MUST NOT exceed 55 characters including spaces. Excessive length will result in system rejection.
 - Vocal Content: Optimize for news anchor. Stress 2-3 key terms.
 - Tone: SERIOUS, URGENT, NORMAL, INQUISITIVE, or SHOCKING.
 - Category: Pick ONE from this list:

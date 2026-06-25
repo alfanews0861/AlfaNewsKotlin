@@ -42,7 +42,7 @@ class FestivalGreetingWorker(context: Context, params: WorkerParameters) : Corou
                 val checkPrompt = "Today is $today in India. Is there any major Indian festival (Hindu, Muslim, Christian, Sikh, etc.) today? If yes, respond ONLY with the exact English name of the festival. If no, respond ONLY with 'NO'."
                 
                 val textModel = GenerativeModel(
-                    modelName = "gemini-3-flash-preview",
+                    modelName = "gemini-3.1-flash",
                     apiKey = apiKey
                 )
                 
@@ -89,7 +89,7 @@ class FestivalGreetingWorker(context: Context, params: WorkerParameters) : Corou
             // NOTE: The v1/models/imagen API is generally NOT yet public, meaning you must use v1beta for Imagen!
             // If v1 doesn't work, this remains v1beta.
             val request = Request.Builder()
-                .url("https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=$apiKey")
+                .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:predict?key=$apiKey")
                 .post(requestBody)
                 .build()
 

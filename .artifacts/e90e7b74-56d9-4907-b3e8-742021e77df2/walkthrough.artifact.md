@@ -7,16 +7,24 @@ I have successfully updated the news video processing logic to handle logos prop
 ### Backend (Cloud Functions)
 
 #### [news_handler.ts](file:///C:/AlfaKotlin/functions/src/news_handler.ts)
-- Replaced the fixed pixel scaling for the logo with a dynamic scaling filter.
-- **Old Logic**: Fixed `90px` width and `25px` padding.
-- **New Logic**:
-    - Logo width is now **12%** of the video width (`main_w*0.12`).
-    - Padding/Margin is now **2%** of the video width (`W*0.02`).
-- Used the `scale2ref` FFmpeg filter to ensure the logo is scaled relative to the input video stream, regardless of its original resolution.
+- **Proportional Logo Scaling**: Replaced fixed pixel scaling for the logo with a dynamic scaling filter.
+    - Logo width: **12%** of video width.
+    - Padding: **2%** of video width.
+- **Scrolling Watermark**: Added a scrolling "alfanews" text watermark.
+    - **Movement**: Right to left across the video.
+    - **Position**: Vertically centered (`y=(H-th)/2`).
+    - **Size**: `40px`.
+    - **Appearance**: Semi-transparent white (`white@0.3`) for a subtle look.
 
 ```diff
-- filters.push('[2:v]scale=90:-1[l];[0:v][l]overlay=W-w-25:25[vl]');
-+ filters.push('[2:v][0:v]scale2ref=w=main_w*0.12:h=-1[l][vref];[vref][l]overlay=W-w-W*0.02:W*0.02[vl]');
+- filters.push('[2:v][0:v]scale2ref=w=main_w*0.12:h=-1[l][vref];[vref][l]overlay=W-w-W*0.02:W*0.02[vl]');
++ if (hasLogo) {
++     filters.push('[2:v][0:v]scale2ref=w=main_w*0.12:h=-1[l][vref];[vref][l]overlay=W-w-W*0.02:W*0.02[vlogo]');
++     vMap = '[vlogo]';
++ }
++ // Add scrolling watermark "alfanews"
++ filters.push(`${vMap}drawtext=text='alfanews':fontcolor=white@0.3:fontsize=40:x=W-mod(t*100,W+tw):y=(H-th)/2[vtext]`);
++ vMap = '[vtext]';
 ```
 
 ## Verification Results
