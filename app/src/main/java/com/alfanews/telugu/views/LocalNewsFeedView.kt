@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
 import coil3.request.crossfade
@@ -163,8 +164,6 @@ fun LocalNewsFeedView(
         }
     }
 
-    val imageLoader = remember { com.alfanews.telugu.utils.SafeImageLoader.getImageLoader(context) }
-    
     LaunchedEffect(news) {
         // 🖼️ Memory Optimization: 10 కి అడ్జస్ట్ చేశాం
         val postsToPreload = news.take(10)
@@ -172,12 +171,11 @@ fun LocalNewsFeedView(
             if (post.mediaUrl.isNotEmpty()) {
                 val request = ImageRequest.Builder(context)
                     .data(post.mediaUrl)
-                    .crossfade(false)
                     .allowHardware(false)
                     .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
                     .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
                     .build()
-                imageLoader.enqueue(request)
+                SingletonImageLoader.get(context).enqueue(request)
             }
         }
     }
@@ -198,12 +196,11 @@ fun LocalNewsFeedView(
                     if (post.mediaUrl.isNotEmpty()) {
                         val request = ImageRequest.Builder(context)
                             .data(post.mediaUrl)
-                            .crossfade(false)
                             .allowHardware(false)
                             .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
                             .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
                             .build()
-                        imageLoader.enqueue(request)
+                        SingletonImageLoader.get(context).enqueue(request)
                     }
                 }
             }

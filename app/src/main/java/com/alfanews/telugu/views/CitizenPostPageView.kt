@@ -194,7 +194,14 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
                     statusMessage = "మీడియా అప్‌లోడ్ చేయబడుతోంది..."
                     val mimeType = try { context.contentResolver.getType(localMediaUri) } catch (e: Exception) { null }
                     val isVideo = mimeType?.startsWith("video/") == true
-                    mediaUrl = uploadMediaToStorage(context, localMediaUri, "citizen-media", isVideo)
+                    
+                    try {
+                        mediaUrl = uploadMediaToStorage(context, localMediaUri, "citizen-media", isVideo)
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "మీడియా అప్‌లోడ్ విఫలమైంది: ${e.message}", Toast.LENGTH_SHORT).show()
+                        isSubmitting = false
+                        return@launch
+                    }
                 }
 
                 statusMessage = "వార్త సిద్ధం చేయబడుతోంది..."
@@ -231,10 +238,10 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
                     Toast.makeText(context, "ధన్యవాదాలు! మీ ప్రజా సమస్య విజయవంతంగా పంపబడింది. AI విశ్లేషణ తర్వాత ప్రచురించబడుతుంది.", Toast.LENGTH_LONG).show()
                     onClose()
                 } catch (e: Exception) {
-                    Toast.makeText(context, "లోపం: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "పంపడంలో లోపం: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "లోపం: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "అనిరీక్షిత లోపం: ${e.message}", Toast.LENGTH_LONG).show()
             } finally {
                 isSubmitting = false
             }

@@ -4,18 +4,16 @@ import { Buffer } from 'buffer';
 const sharp = require('sharp');
 
 export const REGION = "asia-south1";
-export const SCHEDULED_MODEL = "gemini-3.5-flash";
-export const PRO_MODEL = "gemini-3.5-flash";
-export const FLASH_MODEL = "gemini-3.5-flash";
+export const SCHEDULED_MODEL = "gemini-3.1-flash-lite";
+export const PRO_MODEL = "gemini-3.1-flash-lite";
+export const FLASH_MODEL = "gemini-3.1-flash-lite";
 export const IMAGEN_MODEL = "gemini-3.1-flash-image";
 export const IMAGEN_FAST_MODEL = "gemini-3.1-flash-image";
 
 const TEXT_MODELS = [
-    "gemini-3.5-flash",
-    "gemini-3.1-flash",
-    "gemini-3.1-pro",
     "gemini-3.1-flash-lite",
-    "gemini-3-flash"
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash"
 ];
 
 /**
@@ -34,7 +32,7 @@ const API_KEYS = [
  */
 const getAIInstanceInternal = (apiKey: string) => new GoogleGenAI({
     apiKey,
-    apiVersion: "v1beta"
+    apiVersion: "v1"
 });
 
 /**
@@ -179,7 +177,10 @@ export async function saveBufferToStorage(buffer: Buffer, prefix: string): Promi
         const bucket = admin.storage().bucket();
         const fileName = `news-media/${prefix}_${Date.now()}.webp`;
         await bucket.file(fileName).save(webpBuffer, {
-            metadata: { contentType: 'image/webp' }
+            metadata: {
+                contentType: 'image/webp',
+                cacheControl: 'public, max-age=31536000'
+            }
         });
         return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(fileName)}?alt=media`;
     } catch (e) {
@@ -201,42 +202,36 @@ export async function saveImageLocally(externalUrl: string, prefix: string): Pro
 }
 
 export async function generateImageWithRetry(
-    aiUnused: any, // Keeping signature but using internal fallback
+    aiUnused: any, // Keeping signature for compatibility
     prompt: string,
     aspectRatio: '1:1' | '9:16' | '16:9' | '3:4' | '4:3' = '9:16',
     retriesUnused = 3
 ): Promise<Buffer | null> {
     const modelsToTry = [IMAGEN_MODEL, "imagen-3.0-generate-002", "imagen-3.0-generate-001"];
 
-    return await runWithAIFallback(async (model) => {
-        const isGemini = model.model.startsWith("gemini-");
-
-        if (isGemini) {
-            const imgRes = await model.generateContent({
+    try {
+        return await runWithAIFallback(async (ai, modelName) => {
+            const response = await ai.models.generateContent({
+                model: modelName,
                 contents: [{ role: "user", parts: [{ text: prompt }] }],
                 config: {
-                    responseModalities: ["TEXT", "IMAGE"],
-                    imageConfig: { aspectRatio, imageSize: '1K' }
-                }
-            } as any);
-
-            const imagePart = imgRes.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
-            if (imagePart?.inlineData?.data) return Buffer.from(imagePart.inlineData.data, 'base64');
-        } else {
-            // For older Imagen models via vertex path if supported by SDK version
-            // Note: Modern GoogleGenAI usually prefers the generateContent path for multimodal
-            const imgRes = await model.generateImages({
-                prompt: prompt,
-                config: {
-                    numberOfImages: 1,
-                    aspectRatio: aspectRatio,
-                    safetyFilterLevel: 'BLOCK_ONLY_HIGH',
-                    personGeneration: 'ALLOW_ALL',
-                    includeRaiReason: true
+                    // @ts-ignore - responseModalities is newer
+                    responseModalities: ["IMAGE"],
                 }
             });
-            if (imgRes.generatedImages?.[0]?.image?.imageBytes) return Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
-        }
+
+            if (response.candidates && response.candidates.length > 0) {
+                const parts = response.candidates[0].content.parts;
+                const imagePart = parts.find((p: any) => p.inlineData);
+                if (imagePart && imagePart.inlineData) {
+                    return Buffer.from(imagePart.inlineData.data, 'base64');
+                }
+            }
+
+            throw new Error(`Model ${modelName} returned no image data`);
+        }, modelsToTry);
+    } catch (e: any) {
+        console.error("[IMAGE_GEN_ERROR] All attempts failed:", e.message);
         return null;
-    }, modelsToTry);
+    }
 }

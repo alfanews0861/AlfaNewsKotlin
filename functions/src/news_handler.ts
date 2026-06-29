@@ -91,35 +91,52 @@ Headline: ${headline}
 Content: ${content}
 
 COMMAND:
-1. Apply Senior Editor instructions.
-2. IMPORTANT: Generate output in BOTH Telugu AND English.
-3. Return results in the specified JSON schema.
-4. STRICTLY JSON ONLY.` }] }],
-            systemInstruction: { role: "system", parts: [{ text: getCategorySystemInstruction() }] },
-            generationConfig: {
+1. Write a descriptive paragraph in Telugu (content) between 500-600 chars. Capture the emotion and include ALL names/locations.
+2. Write a paragraph in English (contentEn) maximum 70 words.
+3. Generate a strong punchy Telugu headline (headline) maximum 10 words.
+4. Generate a sharp English headline (headlineEn) maximum 12 words.
+5. Return results in the specified JSON schema.
+6. STRICTLY JSON ONLY.` }] }],
+            config: {
+                systemInstruction: { role: "system", parts: [{ text: getCategorySystemInstruction() }] },
                 temperature: 0.4,
                 responseMimeType: "application/json",
-                responseSchema: schema,
+                responseJsonSchema: schema,
             }
         } as any);
 
         const aiRes = parseAIJson(result.text || result.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
 
-        // ROBUST FIELD EXTRACTION: Handle Flat AND Nested JSON (including 'summary' inside 'telugu')
-        const finalContent = aiRes.content || aiRes.contentTe || aiRes.telugu?.content || aiRes.telugu?.contentTe || aiRes.telugu?.summary || aiRes.summaryTe || aiRes.summary || aiRes.description || aiRes.summarizedTeluguContent;
-        const finalHeadline = aiRes.headline || aiRes.headlineTe || aiRes.telugu?.headline || aiRes.telugu?.headlineTe || aiRes.title || aiRes.generatedTeluguHeadline;
-        const finalContentEn = aiRes.contentEn || aiRes.content_en || aiRes.english?.content || aiRes.english?.contentEn || aiRes.english?.summary || aiRes.summaryEn || aiRes.englishContent;
-        const finalHeadlineEn = aiRes.headlineEn || aiRes.headline_en || aiRes.english?.headline || aiRes.english?.headlineEn || aiRes.titleEn || aiRes.englishHeadline;
+        // ROBUST FIELD EXTRACTION: Handle Flat AND Nested JSON
+        const finalContent = aiRes.content || aiRes.contentTe || aiRes.content_te ||
+            aiRes.telugu?.content || aiRes.telugu?.contentTe || aiRes.telugu?.summary ||
+            aiRes.telugu_version?.content || aiRes.telugu_version?.summary ||
+            aiRes.summaryTe || aiRes.summarized_telugu_content || aiRes.summary ||
+            aiRes.description || aiRes.summarizedTeluguContent;
+
+        const finalHeadline = aiRes.headline || aiRes.headlineTe || aiRes.headline_te ||
+            aiRes.telugu?.headline || aiRes.telugu?.headlineTe ||
+            aiRes.telugu_version?.headline || aiRes.telugu_version?.title ||
+            aiRes.title || aiRes.generated_telugu_headline || aiRes.generatedTeluguHeadline;
+
+        const finalHeadlineEn = aiRes.headlineEn || aiRes.headline_en ||
+            aiRes.english?.headline || aiRes.english?.headlineEn ||
+            aiRes.english_version?.headline || aiRes.english_version?.title ||
+            aiRes.titleEn || aiRes.englishHeadline || "";
 
         if (!finalContent || !finalHeadline) {
-             console.error("[AI_SCHEMA_MISMATCH] AI response missing Telugu fields:", JSON.stringify(aiRes).substring(0, 300));
-             // Fallback for urgent display if we have AT LEAST some data
-             if (!finalContent && !finalHeadline) throw new Error("AI response missing mandatory Telugu fields.");
+             console.error("[AI_SCHEMA_MISMATCH] AI response missing Telugu fields:", JSON.stringify(aiRes).substring(0, 500));
+             throw new Error("AI response missing mandatory Telugu fields.");
         }
 
+        const finalContentEn = aiRes.contentEn || aiRes.content_en ||
+            aiRes.english?.content || aiRes.english?.contentEn || aiRes.english?.summary ||
+            aiRes.english_version?.content || aiRes.english_version?.summary ||
+            aiRes.summaryEn || aiRes.summarized_english_content || aiRes.englishContent || "";
+
         // Validate character count (Telugu)
-        if (finalContent.length < 400) {
-             console.warn(`[AI_LENGTH_WARNING] Content too short: ${finalContent.length} chars. Proceeding but logging.`);
+        if (finalContent.length < 450) {
+             console.warn(`[AI_LENGTH_WARNING] Content too short: ${finalContent.length} chars. Target is 450-600. Proceeding but logging.`);
         }
 
         const normalizedEntities = {
@@ -150,8 +167,8 @@ COMMAND:
         }
 
         return {
-            headline: { telugu: finalHeadline, english: finalHeadlineEn },
-            content: { telugu: finalContent, english: finalContentEn },
+            headline: { telugu: finalHeadline || "", english: finalHeadlineEn || "" },
+            content: { telugu: finalContent || "", english: finalContentEn || "" },
             location: aiRes.location || actualPostData?.location || "",
             category: primaryCategory,
             categories: finalCategories,
@@ -160,7 +177,7 @@ COMMAND:
             isSafeForYouTube: aiRes.isSafeForYouTube ?? true,
             rejectionReason: aiRes.rejectionReason || "",
             tone: aiRes.tone || "NORMAL",
-            vocalContent: aiRes.vocalContent || finalContent,
+            vocalContent: aiRes.vocalContent || finalContent || "",
             storyFingerprint: aiRes.storyFingerprint || `gen_${Date.now()}`,
             aiProcessed: true,
             aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -241,7 +258,8 @@ export const onNewsPostCreated = onDocumentWritten({
     const isReporter = data.isReporter === true || data.processingType === "REPORTER_SUBMISSION";
 
     // 1. Guard against infinite loops or redundant processing
-    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED"];
+    // Added 'PUBLISHED' and 'PROCESSING_VIDEO' to locked statuses to prevent redundant triggers from non-content updates
+    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED", "PROCESSING_VIDEO"];
     if (LOCKED_STATUSES.includes(currentStatus) && !data.forceReprocess) {
         return;
     }

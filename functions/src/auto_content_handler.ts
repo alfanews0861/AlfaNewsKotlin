@@ -33,8 +33,12 @@ export const scheduleFestivalGreeting = onSchedule({ schedule: "0 5 * * *", time
                 Check if there is ANY festival, important religious day, Jayanti (anniversary of a great person), or cultural event celebrated by Telugu people (Hindu, Muslim, Christian, or National holidays) on this date.
                 Include not just major festivals, but also regional, minor, and community-specific events (like Ekadashi, Masa Shivaratri, specific Jayantis, or local Telugu traditions).
                 Do not invent events. If there is absolutely no special day today, return isFestival: false. Otherwise, return the details in JSON.` }] }],
-                systemInstruction: { role: "system", parts: [{ text: "Output JSON only. Be accurate with the Telugu calendar and regional events." }] },
-                generationConfig: { temperature: 0.2, responseMimeType: "application/json", responseSchema: schema }
+                config: {
+                    systemInstruction: { role: "system", parts: [{ text: "Output JSON only. Be accurate with the Telugu calendar and regional events." }] },
+                    temperature: 0.2,
+                    responseMimeType: "application/json",
+                    responseJsonSchema: schema
+                }
             } as any);
             const data = parseAIJson(checkRes.text || "{}");
 
@@ -93,7 +97,11 @@ export const scheduleQuoteOfTheDay = onSchedule({ schedule: "0 4 * * *", timeZon
             const res = await ai.models.generateContent({
                 model: modelName,
                 contents: [{ role: "user", parts: [{ text: `Today is ${todayStr}. Provide a highly unique, rare, and deeply inspirational Telugu quote by ${selectedTheme}. Do NOT repeat common quotes. Make sure it is 100% unique for this specific date. Output JSON.` }] }],
-                generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.8 }
+                config: {
+                    responseMimeType: "application/json",
+                    responseJsonSchema: schema,
+                    temperature: 0.8
+                }
             } as any);
             const data = parseAIJson(res.text || "{}");
             if (!data.quoteTe) return;
@@ -145,7 +153,11 @@ export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", time
                 contents: [{ role: "user", parts: [{ text: `Out of all historical events that happened on ${dateStr}, pick the single most important event. Write a 60 words detailed news about it.
                 Also, provide a HIGHLY DETAILED, photorealistic, and safe image prompt that describes the scene without mentioning specific living people, modern politicians, or controversial figures. Focus on the era-appropriate architecture, clothing, and the general atmosphere.
                 Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). Output JSON.` }] }],
-                generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.5 }
+                config: {
+                    responseMimeType: "application/json",
+                    responseJsonSchema: schema,
+                    temperature: 0.5
+                }
             } as any);
             const data = parseAIJson(res.text || "{}");
             if (!data.headlineTe) return;
@@ -196,7 +208,11 @@ export const generateDailyCartoon = onSchedule({ schedule: "0 6 * * *", timeZone
     - Andhra Pradesh: NDA (TDP+JSP+BJP) in power. CM: Chandrababu Naidu, Deputy CM: Pawan Kalyan. Opposition: YSRCP (Jagan).
     - Telangana: Congress in power. CM: Revanth Reddy. Opposition: BRS (KCR).
     Task: 1. Identify a trending humor incident. 2. Create satire cartoon. 3. Detailed description without names. 4. Funny Telugu dialogue. Return JSON.` }] }],
-                    generationConfig: { temperature: 0.95, responseMimeType: "application/json", responseSchema: schema }
+                    config: {
+                        temperature: 0.95,
+                        responseMimeType: "application/json",
+                        responseJsonSchema: schema
+                    }
                 } as any);
 
                 const cartoonData = parseAIJson(topicRes.text || "{}");
@@ -212,27 +228,31 @@ export const generateDailyCartoon = onSchedule({ schedule: "0 6 * * *", timeZone
 
                 const buffer = await generateImageWithRetry(ai, cartoonPrompt, '9:16');
 
+                let mediaUrl = "";
                 if (buffer) {
-                    const mediaUrl = await saveBufferToStorage(buffer, `CARTOON_${state.replace(" ", "")}`) || "";
-                    await db.collection('news').add({
-                        type: 'cartoon',
-                        postFormat: 'VERTICAL',
-                        likes: 0,
-                        comments: 0,
-                        shares: 0,
-                        headline: { telugu: `${state === 'Andhra Pradesh' ? 'ఆంధ్రప్రదేశ్' : 'తెలంగాణ'} కార్టూన్`, english: `${state} Cartoon` },
-                        content: { telugu: teluguText, english: 'Daily Political Satire Cartoon' },
-                        mediaUrl,
-                        category: 'కార్టూన్',
-                        location: state,
-                        district: state,
-                        reporter: { id: 'BOT_Cartoonist', name: 'Alfa Cartoonist' },
-                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                        status: "published",
-                        approved: true,
-                        aiProcessed: true
-                    });
+                    mediaUrl = await saveBufferToStorage(buffer, `CARTOON_${state.replace(" ", "")}`) || "";
+                } else {
+                    console.warn(`[CARTOON] Image generation failed for ${state}. Posting text-only cartoon status.`);
                 }
+
+                await db.collection('news').add({
+                    type: 'cartoon',
+                    postFormat: 'VERTICAL',
+                    likes: 0,
+                    comments: 0,
+                    shares: 0,
+                    headline: { telugu: `${state === 'Andhra Pradesh' ? 'ఆంధ్రప్రదేశ్' : 'తెలంగాణ'} కార్టూన్`, english: `${state} Cartoon` },
+                    content: { telugu: teluguText, english: 'Daily Political Satire Cartoon' },
+                    mediaUrl, // Might be empty if buffer is null
+                    category: 'కార్టూన్',
+                    location: state,
+                    district: state,
+                    reporter: { id: 'BOT_Cartoonist', name: 'Alfa Cartoonist' },
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    status: "published",
+                    approved: true,
+                    aiProcessed: true
+                });
             });
         } catch (e: any) { console.error(`[CARTOON] Error for ${state}:`, e.message); }
     }

@@ -1,0 +1,9 @@
+- [x] Remove redundant client-side workers in `AlfaNewsApplication.kt`
+- [x] Increase default storage limit in `PreferenceManager.kt`
+- [x] Fix storage limit reset bug in `UserProfilePageView.kt`
+- [x] Optimize and unify `ImageLoader` configuration
+    - [x] Update `AlfaNewsApplication.kt` singleton loader
+    - [x] Update `NewsCardView.kt` to use unified loader
+    - [x] Update `NewsFeedView.kt` to use unified loader
+- [x] Implement image resizing in `StorageUtils.kt` to reduce upload sizes
+- [x] Verification and Cleanup

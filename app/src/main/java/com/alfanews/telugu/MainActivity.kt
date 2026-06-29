@@ -185,15 +185,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkAppUpdate() {
+        if (this@MainActivity.isFinishing || this@MainActivity.isDestroyed) return
+        
         val appUpdateInfoTask = appUpdateManager.appUpdateInfo
         appUpdateInfoTask.addOnSuccessListener { appUpdateInfo ->
+            if (this@MainActivity.isFinishing || this@MainActivity.isDestroyed) return@addOnSuccessListener
+            
             if (appUpdateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
                 appUpdateInfo.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE)) {
                 
                 try {
                     appUpdateManager.startUpdateFlowForResult(
                         appUpdateInfo,
-                        this,
+                        this@MainActivity,
                         AppUpdateOptions.newBuilder(AppUpdateType.FLEXIBLE).build(),
                         updateRequestCode
                     )
@@ -205,7 +209,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun completeUpdate() {
-        appUpdateManager.completeUpdate()
+        try {
+            appUpdateManager.completeUpdate()
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to complete update", e)
+        }
     }
 
     private fun askNotificationPermission() {
@@ -248,9 +256,10 @@ class MainActivity : ComponentActivity() {
         com.alfanews.telugu.services.AnalyticsService.logNotificationPermissionStatus(isEnabled)
 
         appUpdateManager.appUpdateInfo.addOnSuccessListener { appUpdateInfo ->
+            if (this@MainActivity.isFinishing || this@MainActivity.isDestroyed) return@addOnSuccessListener
             // అప్‌డేట్ ఇప్పటికే డౌన్‌లోడ్ అయి ఉంటే, ఆటోమేటిక్‌గా ఇన్‌స్టాల్ చేయి
             if (appUpdateInfo.installStatus() == InstallStatus.DOWNLOADED) {
-                appUpdateManager.completeUpdate()
+                completeUpdate()
             }
         }
     }

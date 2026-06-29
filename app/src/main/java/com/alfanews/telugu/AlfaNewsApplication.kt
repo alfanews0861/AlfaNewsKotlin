@@ -13,7 +13,13 @@ import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderF
 import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.utils.PreferenceManager
 import com.google.firebase.messaging.FirebaseMessaging
+import androidx.work.WorkManager
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
+import okhttp3.Response
 import java.io.File
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.*
 import coil3.ImageLoader
 import coil3.PlatformContext
@@ -39,6 +45,9 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
 
             // 🛡️ స్టోరేజ్ గార్డ్ - పరిమితి మించకుండా చూస్తుంది
             runStorageGuard()
+
+            // 🛑 పాత వర్కర్లను ఆపడం (Billing costs తగ్గించడానికి)
+            cancelRedundantWorkers()
 
             // ఫైర్‌బేస్ యాప్ చెక్ - దీన్ని మరింత సేఫ్ గా మార్చాను
             val firebaseAppCheck = FirebaseAppCheck.getInstance()
@@ -94,6 +103,9 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
         val diskLimitBytes = if (limitMB <= 0) 500 * 1024 * 1024L else (limitMB * 0.7).toLong() * 1024 * 1024L
 
         return ImageLoader.Builder(context)
+            .components {
+                add(OkHttpNetworkFetcherFactory(callFactory = { createSafeOkHttpClient() }))
+            }
             .memoryCache {
                 MemoryCache.Builder()
                     .maxSizePercent(context, 0.20) // మెమరీలో 20%
@@ -190,6 +202,67 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
             } catch (e: Exception) {
                 e.printStackTrace()
             }
+        }
+    }
+
+    /**
+     * 🛑 పాత వెర్షన్లలో షెడ్యూల్ అయిన redundant వర్కర్లను (FestivalGreetingWorker, etc.) ఆపుతుంది.
+     * దీనివల్ల అనవసరమైన Gemini API మరియు Storage ఖర్చులు తగ్గుతాయి.
+     */
+    private fun cancelRedundantWorkers() {
+        try {
+            WorkManager.getInstance(this).cancelAllWork()
+            Log.d("AlfaNewsApp", "All legacy background workers cancelled.")
+        } catch (e: Exception) {
+            Log.e("AlfaNewsApp", "Failed to cancel workers: ${e.message}")
+        }
+    }
+
+    /**
+     * 🛡️ చిత్రాల అభ్యర్థనల కోసం హెడర్‌లను (Headers) జోడించే OkHttpClientని సృష్టిస్తుంది.
+     */
+    private fun createSafeOkHttpClient(): OkHttpClient {
+        return OkHttpClient.Builder()
+            .addInterceptor(SafeHeaderInterceptor())
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
+
+    /**
+     * 🛡️ ఇమేజ్ అభ్యర్థనలకు Referer మరియు User-Agent హెడర్‌లను జోడించే ఇంటర్‌సెప్టర్.
+     * బాహ్య వార్తా సంస్థల చిత్రాలను లోడ్ చేయడానికి ఇది అవసరం.
+     */
+    private class SafeHeaderInterceptor : Interceptor {
+        override fun intercept(chain: Interceptor.Chain): Response {
+            val originalRequest = chain.request()
+            val url = originalRequest.url.toString()
+
+            // Firebase Storage కి హెడర్లు అవసరం లేదు
+            if (url.contains("firebasestorage.googleapis.com", ignoreCase = true)) {
+                return chain.proceed(originalRequest)
+            }
+
+            // URL ఆధారంగా తగిన Refererని నిర్ణయించడం
+            val referer = when {
+                url.contains("eenadu", ignoreCase = true) -> "https://www.eenadu.net/"
+                url.contains("sakshi", ignoreCase = true) -> "https://www.sakshi.com/"
+                url.contains("suryaa", ignoreCase = true) -> "https://www.suryaa.com/"
+                url.contains("andhrajyothy", ignoreCase = true) -> "https://www.andhrajyothy.com/"
+                url.contains("andhrabhoomi", ignoreCase = true) -> "https://www.andhrabhoomi.net/"
+                url.contains("vaartha", ignoreCase = true) -> "https://www.vaartha.com/"
+                url.contains("greatandhra", ignoreCase = true) -> "https://www.greatandhra.com/"
+                url.contains("123telugu", ignoreCase = true) -> "https://www.123telugu.com/"
+                else -> "https://www.google.com/"
+            }
+
+            val newRequest = originalRequest.newBuilder()
+                .header("Referer", referer)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .build()
+
+            return chain.proceed(newRequest)
         }
     }
 

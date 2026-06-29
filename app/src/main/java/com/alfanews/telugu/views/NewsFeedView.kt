@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.imageLoader
+import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
 import androidx.compose.ui.res.stringResource
@@ -189,12 +189,18 @@ fun NewsFeedView(
                     if (post.mediaUrl.isNotEmpty()) {
                         val request = ImageRequest.Builder(context)
                             .data(post.mediaUrl)
-                            .crossfade(false)
-                            .allowHardware(false)
+                            .allowHardware(true) // 🚀 Use hardware bitmaps to save JVM heap
                             .build()
-                        context.imageLoader.enqueue(request)
+                        SingletonImageLoader.get(context).enqueue(request)
                     }
                 }
+            }
+
+            // ♻️ Ad Cleanup: Remove ads that are too far from the current page to save memory
+            val keysToRemove = preloadedAds.keys.filter { it < page - 12 || it > page + 36 }
+            keysToRemove.forEach { key: Int ->
+                preloadedAds[key]?.destroy() // Properly destroy NativeAd
+                preloadedAds.remove(key)
             }
 
             (1..24).forEach { offset ->

@@ -1,0 +1,6 @@
+- [x] Cancel redundant Android workers in `AlfaNewsApplication.kt`
+- [x] Delete `FestivalGreetingWorker.kt` and `NewsNotificationWorker.kt`
+- [x] Add `Cache-Control` headers in `functions/src/utils.ts`
+- [x] Refine `onNewsPostCreated` logic in `functions/src/news_handler.ts`
+- [x] Build and verify Cloud Functions
+- [x] Build and verify Android app

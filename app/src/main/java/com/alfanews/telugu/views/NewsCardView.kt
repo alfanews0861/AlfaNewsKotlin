@@ -315,23 +315,11 @@ fun NewsCardView(
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
                 if (showTopHeader) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = "alfa", fontSize = 28.sp, fontFamily = Ramabhadra, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            Text(text = "news", fontSize = 28.sp, fontFamily = Ramabhadra, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        }
-                        if (showDistrictSelector) {
-                            TextButton(onClick = onDistrictClick, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
-                                Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                                Spacer(Modifier.width(4.dp))
-                                Text(text = district ?: "Select District", fontSize = 14.sp, fontFamily = Ramabhadra, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            }
-                        }
-                    }
+                    LogoHeader(
+                        district = district,
+                        onDistrictClick = onDistrictClick,
+                        showDistrictSelector = showDistrictSelector
+                    )
                 }
                 
                 Box(modifier = Modifier.fillMaxWidth().weight(0.38f)) {
@@ -475,6 +463,7 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
                     context.startActivity(chooser)
                     FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener { setShareCount(1) }
                 } else Toast.makeText(context, context.getString(R.string.share_failed), Toast.LENGTH_SHORT).show()
+                bitmap.recycle() // ♻️ Recycle bitmap after sharing
             } else Toast.makeText(context, context.getString(R.string.screenshot_failed), Toast.LENGTH_SHORT).show()
         } catch (e: Exception) { Toast.makeText(context, "Share error", Toast.LENGTH_SHORT).show() } finally { setSharing(false) }
     }
@@ -495,8 +484,17 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
         if (safeBounds.width() * safeBounds.height() * 4L > availableMemory * 0.5) { Log.w("NewsCardView", "Insufficient memory for screenshot"); continuation.resume(null); return@suspendCoroutine }
         val bitmap = try { Bitmap.createBitmap(safeBounds.width(), safeBounds.height(), Bitmap.Config.ARGB_8888) } catch (oom: OutOfMemoryError) { null }
         if (bitmap == null) { continuation.resume(null); return@suspendCoroutine }
-        PixelCopy.request(window, safeBounds, bitmap, { copyResult -> if (copyResult == PixelCopy.SUCCESS) continuation.resume(bitmap) else { bitmap.recycle(); continuation.resume(null) } }, Handler(Looper.getMainLooper()))
-    } catch (e: Exception) { continuation.resume(null) }
+        PixelCopy.request(window, safeBounds, bitmap, { copyResult -> 
+            if (copyResult == PixelCopy.SUCCESS) {
+                continuation.resume(bitmap)
+            } else {
+                bitmap.recycle() // ♻️ Recycle on failure
+                continuation.resume(null)
+            }
+        }, Handler(Looper.getMainLooper()))
+    } catch (e: Exception) { 
+        continuation.resume(null) 
+    }
 }
 
 private fun findActivity(context: Context): Activity? {
@@ -557,7 +555,8 @@ fun YouTubePlayerComponent(youtubeUrl: String) {
                     }, options)
                 }
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
+            onRelease = { it.release() } // ♻️ Properly release player resources
         )
         if (!isPlaying) {
             Box(modifier = Modifier.size(64.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape), contentAlignment = Alignment.Center) {

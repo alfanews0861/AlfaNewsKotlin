@@ -281,17 +281,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 val photoDeferred = photoUri?.let {
                     async {
-                        val photoRef = FirebaseStorage.getInstance().reference.child("profile_images/${user.id}")
-                        val uploadTask = photoRef.putFile(it).await()
-                        uploadTask.storage.downloadUrl.await().toString()
+                        com.alfanews.telugu.utils.uploadImageToStorage(getApplication(), it, "profile_images")
                     }
                 }
 
                 val signatureDeferred = signatureUri?.let {
                     async {
-                        val signatureRef = FirebaseStorage.getInstance().reference.child("signatures/${user.id}")
-                        val uploadTask = signatureRef.putFile(it).await()
-                        uploadTask.storage.downloadUrl.await().toString()
+                        com.alfanews.telugu.utils.uploadImageToStorage(getApplication(), it, "signatures")
                     }
                 }
 

@@ -1,29 +1,27 @@
-# Implementation Plan - Final AI Stability & Cost Optimization
+# Implementation Plan - Force Entity Inclusion and Increase Content Depth
 
-To resolve the persistent `503 Service Unavailable` errors and address the high ingress/egress concerns, I am implementing a "Success-First" architecture. This plan introduces exponential backoff to handle high-demand spikes and ensures we don't accidentally loop or re-download data.
-
-## User Review Required
-
-> [!IMPORTANT]
-> **Exponential Backoff**: If Gemini is busy, the code will now wait (1s, 2s, 4s) before retrying the same model. This significantly increases success rates on the Free Tier.
-> **Cost Guard**: I am adding a specific check to ensure we never download a video or perform AI processing if it was already attempted recently, preventing redundant network costs.
+The user noted that the AI is missing specific names (villages, mandals) and generating content much shorter than the requested 450 characters (the example was ~200 chars). The new requirement is a minimum of **500 characters** and strict inclusion of **all** entities (people, locations, organizations).
 
 ## Proposed Changes
 
-### Backend (Cloud Functions)
+### [Component] Backend - AI Prompt Engineering
 
-#### [MODIFY] [utils.ts](file:///C:/AlfaKotlin/functions/src/utils.ts)
-- **Exponential Backoff**: Integrate a retry loop *inside* `runWithAIFallback`.
-- **Standardized SDK Usage**: Update to use `ai.getGenerativeModel().generateContent()` which is the stable production path for June 2026.
-- **Model Re-ordering**: Prioritize `gemini-3.5-flash`, then `gemini-3.1-flash`, then `gemini-3.1-pro`.
+#### [MODIFY] [geminiService.ts](file:///C:/AlfaKotlin/functions/src/geminiService.ts)
+- Update system instructions in `processSocialPostWithAI`, `processCitizenContentWithAI`, and `processContentWithAI`.
+- **New Target**: STRICTLY between **500 to 750 characters**.
+- **Entity Rule**: Explicitly state: "NEVER omit any names of people, specific villages, mandals, districts, or organizations found in the input. You must mention every specific entity at least once in the narrative."
+- **Expansion Logic**: "If the input is short, expand the story with descriptive detail about the event, the significance of the people involved, or the context of the location to reach the 500-character minimum."
+
+#### [MODIFY] [categories.ts](file:///C:/AlfaKotlin/functions/src/categories.ts)
+- Update `getCategorySystemInstruction`.
+- **New Target**: 500-750 characters.
+- Add the same strict entity inclusion rule: "CRITICAL: Do not summarize away specific details like village names or mandal names. Every proper noun from the input MUST appear in the generated Telugu content."
 
 #### [MODIFY] [news_handler.ts](file:///C:/AlfaKotlin/functions/src/news_handler.ts)
-- **Deep Guard**: Enhanced check at the start of `onNewsPostCreated` to verify `aiProcessed` and `status` to prevent any possibility of document update loops.
-- **Improved Logging**: Logs will now show exactly which retry attempt succeeded.
+- Increase the warning threshold from 450 to **500 characters**.
 
 ## Verification Plan
 
 ### Manual Verification
-- Deploy: `cd functions && npm run build && firebase deploy --only functions`
-- Monitor logs for `[RETRY]` messages.
-- Verify that a news post moves from `PENDING` to `published` even if the first AI attempt fails.
+- I will simulate the prompt with the user's provided "Original content" to see if the resulting length and entity inclusion are corrected.
+- Check if "గోపవరం మండలం" and "మడకలవారిపల్లె గ్రామం" are included in the output.

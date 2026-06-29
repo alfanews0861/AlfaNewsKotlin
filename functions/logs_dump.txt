@@ -1,0 +1,65 @@
+2026-06-15T23:43:09.117440Z ? onnewspostcreated: [ON_WRITE_SKIP] skipping M0pMa2cioUBrtJ8VPXYt: status not PENDING
+
+2026-06-15T23:43:16.858014Z ? onnewspostcreated: [AI_DONE] M0pMa2cioUBrtJ8VPXYt. Final Status: PROCESSING_VIDEO
+
+2026-06-15T23:43:16.910596Z ? onnewspostcreated: [VIDEO_START] M0pMa2cioUBrtJ8VPXYt. URL: https://firebasestorage.googleapis.com/v0/b/alfa-n...
+
+2026-06-15T23:43:16.952750Z ? onnewspostcreated: [VIDEO_DOWNLOAD] Downloading https://firebasestorage.googleapis.com/v0/b/alfa-n...
+
+2026-06-15T23:43:17.626632Z I onnewspostcreated: 
+2026-06-15T23:43:17.632218Z ? onnewspostcreated: [ON_WRITE] Post: M0pMa2cioUBrtJ8VPXYt, Status: PROCESSING_VIDEO, AI Processed: true
+
+2026-06-15T23:43:17.632351Z ? onnewspostcreated: [ON_WRITE_SKIP] skipping M0pMa2cioUBrtJ8VPXYt: status not PENDING
+
+2026-06-15T23:43:18.378334Z ? onnewspostcreated: [TTS_VOICE] Selected voice for M0pMa2cioUBrtJ8VPXYt: te-IN-Chirp3-HD-Charon
+
+2026-06-15T23:43:23.376200Z ? onnewspostcreated: [VIDEO_FFMPEG] Starting merge for M0pMa2cioUBrtJ8VPXYt. Logo: true at /workspace/assets/logo.png
+
+2026-06-15T23:43:23.564921Z ? onnewspostcreated: [FFMPEG_CMD] ffmpeg -i /tmp/input_M0pMa2cioUBrtJ8VPXYt.mp4 -i /tmp/audio_M0pMa2cioUBrtJ8VPXYt.mp3 -i /workspace/assets/logo.png -y -filter_complex [2:v][0:v]scale2ref=w=main_w*0.12:h=-1[l][vref];[vref][l]overlay=W-w-15:15[vlogo];[vlogo]drawtext=text='alfanews':fontcolor=white@0.2:fontsize=36:x=W-mod(t*100,W+300):y=(H-40)/2[vtext];[vtext]format=yuv420p[vf];[1:a]volume=3.5[outa] -map [vf] -map [outa] -shortest /tmp/output_M0pMa2cioUBrtJ8VPXYt.mp4
+
+2026-06-15T23:43:23.573482Z ? onnewspostcreated: [FFMPEG_ERR] ffmpeg exited with code 234: Failed to set value '[2:v][0:v]scale2ref=w=main_w*0.12:h=-1[l][vref];[vref][l]overlay=W-w-15:15[vlogo];[vlogo]drawtext=text='alfanews':fontcolor=white@0.2:fontsize=36:x=W-mod(t*100,W+300):y=(H-40)/2[vtext];[vtext]format=yuv420p[vf];[1:a]volume=3.5[outa]' for option 'filter_complex': Invalid argument
+Error parsing global options: Invalid argument
+
+
+2026-06-15T23:43:23.573666Z ? onnewspostcreated: [VIDEO_ERR] M0pMa2cioUBrtJ8VPXYt: ffmpeg exited with code 234: Failed to set value '[2:v][0:v]scale2ref=w=main_w*0.12:h=-1[l][vref];[vref][l]overlay=W-w-15:15[vlogo];[vlogo]drawtext=text='alfanews':fontcolor=white@0.2:fontsize=36:x=W-mod(t*100,W+300):y=(H-40)/2[vtext];[vtext]format=yuv420p[vf];[1:a]volume=3.5[outa]' for option 'filter_complex': Invalid argument
+Error parsing global options: Invalid argument
+
+
+2026-06-15T23:43:23.949808Z I onnewspostcreated: 
+2026-06-15T23:43:23.955583Z ? onnewspostcreated: [ON_WRITE] Post: M0pMa2cioUBrtJ8VPXYt, Status: FAILED, AI Processed: true
+
+2026-06-15T23:43:23.955602Z ? onnewspostcreated: [ON_WRITE_SKIP] skipping M0pMa2cioUBrtJ8VPXYt: status not PENDING
+
+2026-06-15T23:45:17.045266927Z N onNewsPostCreated: {"@type":"type.googleapis.com/google.cloud.audit.AuditLog","status":{},"authenticationInfo":{"principalEmail":"alfanews0861@gmail.com","principalSubject":"user:alfanews0861@gmail.com","oauthInfo":{"oauthClientId":"563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com"}},"requestMetadata":{"callerIp":"223.196.168.60","callerSuppliedUserAgent":"FirebaseCLI/15.18.0 agent-name/android_studio_agent,gzip(gfe),gzip(gfe)","requestAttributes":{"time":"2026-06-15T23:45:15.427463624Z","auth":{}},"destinationAttributes":{}},"serviceName":"cloudfunctions.googleapis.com","methodName":"google.cloud.functions.v2.FunctionService.UpdateFunction","authorizationInfo":[{"resource":"projects/alfa-news-31bf7/locations/asia-south1/functions/onNewsPostCreated","permission":"cloudfunctions.functions.update","granted":true,"resourceAttributes":{"service":"cloudfunctions.googleapis.com","name":"projects/alfa-news-31bf7/locations/asia-south1/functions/onNewsPostCreated","type":"cloudfunctions.googleapis.com/Function"},"permissionType":"ADMIN_WRITE"}],"resourceName":"projects/alfa-news-31bf7/locations/asia-south1/functions/onNewsPostCreated","request":{"function":{"labels":{"firebase-functions-hash":"897979bacbfc0ab9d1c38372c24a6b1a83e82fb1","deployment-tool":"cli-firebase"},"service_config":{"available_cpu":"2","available_memory":"4Gi","max_instance_request_concurrency":10,"secret_environment_variables":[{"secret":"YOUTUBE_CLIENT_ID","project_id":"alfa-news-31bf7","version":"2","key":"YOUTUBE_CLIENT_ID"},{"key":"YOUTUBE_CLIENT_SECRET","version":"2","secret":"YOUTUBE_CLIENT_SECRET","project_id":"alfa-news-31bf7"}],"timeout_seconds":540,"max_instance_count":3},"name":"projects/alfa-news-31bf7/locations/asia-south1/functions/onNewsPostCreated","event_trigger":{"trigger_region":"asia-south1","retry_policy":"RETRY_POLICY_DO_NOT_RETRY","event_filters":[{"value":"(default)","attribute":"database"},{"attribute":"namespace","value":"(default)"},{"attribute":"document","operator":"match-path-pattern","value":"news/{postId}"}],"event_type":"google.cloud.firestore.document.v1.written"},"build_config":{"entry_point":"onNewsPostCreated","source":{},"runtime":"nodejs24"}},"@type":"type.googleapis.com/google.cloud.functions.v2.UpdateFunctionRequest","update_mask":{"paths":["name","build_config.runtime","build_config.entry_point","build_config.source.storage_source.bucket","build_config.source.storage_source.object","build_config.environment_variables","build_config.source_token","service_config.environment_variables","service_config.secret_environment_variables","service_config.ingress_settings","service_config.timeout_seconds","service_config.service_account_email","service_config.available_memory","service_config.min_instance_count","service_config.max_instance_count","service_config.max_instance_request_concurrency","service_config.available_cpu","service_config.vpc_connector","service_config.vpc_connector_egress_settings","service_config.direct_vpc_network_interface","service_config.direct_vpc_egress","labels","event_trigger.event_type","event_trigger.retry_policy","event_trigger.event_filters","event_trigger.trigger_region"]}},"response":{"@type":"type.googleapis.com/google.longrunning.Operation"},"resourceLocation":{"currentLocations":["asia-south1"]}}
+2026-06-15T23:46:03.259159Z I onnewspostcreated: 
+2026-06-15T23:46:27.298181Z I onnewspostcreated: Starting new instance. Reason: DEPLOYMENT_ROLLOUT - Instance started due to traffic shifting between revisions due to deployment, traffic split adjustment, or deployment health check.
+2026-06-15T23:46:31.578717Z I onnewspostcreated: Default STARTUP TCP probe succeeded after 1 attempt for container "worker" on port 8080.
+2026-06-15T23:46:33.649681353Z N onNewsPostCreated: {"@type":"type.googleapis.com/google.cloud.audit.AuditLog","status":{},"authenticationInfo":{"principalEmail":"alfanews0861@gmail.com","principalSubject":"user:alfanews0861@gmail.com","oauthInfo":{"oauthClientId":"563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com"}},"requestMetadata":{"requestAttributes":{},"destinationAttributes":{}},"serviceName":"cloudfunctions.googleapis.com","methodName":"google.cloud.functions.v2.FunctionService.UpdateFunction","resourceName":"projects/alfa-news-31bf7/locations/asia-south1/functions/onNewsPostCreated","response":{"buildConfig":{"dockerRegistry":"ARTIFACT_REGISTRY","dockerRepository":"projects/alfa-news-31bf7/locations/asia-south1/repositories/gcf-artifacts","automaticUpdatePolicy":{},"serviceAccount":"projects/alfa-news-31bf7/serviceAccounts/930598073690-compute@developer.gserviceaccount.com","source":{},"entryPoint":"onNewsPostCreated","runtime":"nodejs24"},"labels":{"deployment-tool":"cli-firebase","firebase-functions-hash":"897979bacbfc0ab9d1c38372c24a6b1a83e82fb1"},"satisfiesPzi":true,"state":"ACTIVE","eventTrigger":{"eventType":"google.cloud.firestore.document.v1.written","pubsubTopic":"projects/alfa-news-31bf7/topics/eventarc-asia-south1-onnewspostcreated-318427-046","serviceAccountEmail":"930598073690-compute@developer.gserviceaccount.com","trigger":"projects/alfa-news-31bf7/locations/asia-south1/triggers/onnewspostcreated-318427","eventFilters":[{"value":"(default)","attribute":"namespace"},{"operator":"match-path-pattern","value":"news/{postId}","attribute":"document"},{"value":"(default)","attribute":"database"}],"triggerRegion":"asia-south1","retryPolicy":"RETRY_POLICY_DO_NOT_RETRY"},"@type":"type.googleapis.com/google.cloud.functions.v2.Function","environment":"GEN_2","createTime":"2026-06-05T02:57:35.460657375Z","updateTime":"2026-06-15T23:45:17.034934783Z","name":"projects/alfa-news-31bf7/locations/asia-south1/functions/onNewsPostCreated","url":"https://asia-south1-alfa-news-31bf7.cloudfunctions.net/onNewsPostCreated","satisfiesPzs":true,"serviceConfig":{"availableCpu":"2","maxInstanceRequestConcurrency":10,"secretEnvironmentVariables":[{"version":"2","secret":"YOUTUBE_CLIENT_ID","key":"YOUTUBE_CLIENT_ID","projectId":"alfa-news-31bf7"},{"secret":"YOUTUBE_CLIENT_SECRET","version":"2","projectId":"alfa-news-31bf7","key":"YOUTUBE_CLIENT_SECRET"}],"timeoutSeconds":540,"serviceAccountEmail":"930598073690-compute@developer.gserviceaccount.com","ingressSettings":"ALLOW_ALL","revision":"onnewspostcreated-00086-kej","uri":"https://onnewspostcreated-6el2vpci6a-el.a.run.app","allTrafficOnLatestRevision":true,"maxInstanceCount":3,"availableMemory":"4Gi"}},"resourceLocation":{"currentLocations":["asia-south1"]}}
+2026-06-15T23:47:32.962845Z ? onnewspostcreated: [ON_WRITE] Post: M0pMa2cioUBrtJ8VPXYt, Status: PENDING, AI Processed: false
+
+2026-06-15T23:47:32.963094Z ? onnewspostcreated: [ON_WRITE_PROCEED] Force processing: M0pMa2cioUBrtJ8VPXYt
+
+2026-06-15T23:47:33.485017Z ? onnewspostcreated: [AI_START] Processing: చిన్నారి అదృశ్యం: అటవీ జంతువుల...
+
+2026-06-15T23:47:33.686573Z I onnewspostcreated: 
+2026-06-15T23:47:33.693947Z ? onnewspostcreated: [ON_WRITE] Post: M0pMa2cioUBrtJ8VPXYt, Status: REVIEWING_CONTENT, AI Processed: false
+
+2026-06-15T23:47:33.694236Z ? onnewspostcreated: [ON_WRITE_SKIP] skipping M0pMa2cioUBrtJ8VPXYt: status not PENDING
+
+2026-06-15T23:47:43.302973Z ? onnewspostcreated: [AI_DONE] M0pMa2cioUBrtJ8VPXYt. Final Status: PROCESSING_VIDEO
+
+2026-06-15T23:47:43.362094Z ? onnewspostcreated: [VIDEO_START] M0pMa2cioUBrtJ8VPXYt. URL: https://firebasestorage.googleapis.com/v0/b/alfa-n...
+
+2026-06-15T23:47:43.396186Z ? onnewspostcreated: [VIDEO_DOWNLOAD] Downloading https://firebasestorage.googleapis.com/v0/b/alfa-n...
+
+2026-06-15T23:47:43.581227Z I onnewspostcreated: 
+2026-06-15T23:47:43.592974Z ? onnewspostcreated: [ON_WRITE] Post: M0pMa2cioUBrtJ8VPXYt, Status: PROCESSING_VIDEO, AI Processed: true
+
+2026-06-15T23:47:43.593075Z ? onnewspostcreated: [ON_WRITE_SKIP] skipping M0pMa2cioUBrtJ8VPXYt: status not PENDING
+
+2026-06-15T23:47:44.535419Z ? onnewspostcreated: [TTS_VOICE] Selected voice for M0pMa2cioUBrtJ8VPXYt: te-IN-Chirp3-HD-Kore
+
+2026-06-15T23:47:48.962124Z ? onnewspostcreated: [VIDEO_FFMPEG] Starting merge for M0pMa2cioUBrtJ8VPXYt. Logo: true at /workspace/assets/logo.png
+
+2026-06-15T23:47:49.199115Z ? onnewspostcreated: [FFMPEG_CMD] ffmpeg -i /tmp/input_M0pMa2cioUBrtJ8VPXYt.mp4 -i /tmp/audio_M0pMa2cioUBrtJ8VPXYt.mp3 -i /workspace/assets/logo.png -y -filter_complex [2:v][0:v]scale2ref=w=main_w*0.12:h=-1[l][vref];[vref][l]overlay=W-w-15:15[vlogo];[vlogo]format=yuv420p[vf];[1:a]volume=3.5[outa] -map [vf] -map [outa] -shortest /tmp/output_M0pMa2cioUBrtJ8VPXYt.mp4
+

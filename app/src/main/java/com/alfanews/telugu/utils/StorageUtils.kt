@@ -59,10 +59,23 @@ suspend fun uploadImageToStorage(
 
         val data = baos.toByteArray()
         
-        val uploadTask = imageRef.putBytes(data).await()
-        return imageRef.downloadUrl.await().toString()
+        Log.d("StorageUtils", "Starting byte upload to: $fileName (${data.size} bytes)")
+        try {
+            val uploadTask = imageRef.putBytes(data).await()
+            Log.d("StorageUtils", "Byte upload successful: $fileName")
+            return imageRef.downloadUrl.await().toString()
+        } catch (e: Exception) {
+            val msg = e.message ?: ""
+            if (msg.contains("permission", ignoreCase = true) || msg.contains("403")) {
+                Log.e("StorageUtils", "Firebase Storage Permission Error: $msg at $fileName", e)
+                throw Exception("ఈ ఫోల్డర్ లో ఫోటో అప్‌లోడ్ చేసే అనుమతి మీకు లేదు. ($folder)", e)
+            } else {
+                Log.e("StorageUtils", "Unexpected upload error: $msg at $fileName", e)
+                throw e
+            }
+        }
     } catch (e: Exception) {
-        Log.e("StorageUtils", "Error uploading image: ${e.message}", e)
+        Log.e("StorageUtils", "Image upload failed: ${e.message}", e)
         throw e
     }
 }
@@ -76,11 +89,19 @@ suspend fun uploadVideoToStorage(
         val fileName = "${folder}/${UUID.randomUUID()}_${System.currentTimeMillis()}.mp4"
         val videoRef = storageRef.child(fileName)
         
+        Log.d("StorageUtils", "Starting video upload to: $fileName")
         val uploadTask = videoRef.putFile(uri).await()
+        Log.d("StorageUtils", "Video upload successful: $fileName")
         return videoRef.downloadUrl.await().toString()
     } catch (e: Exception) {
-        Log.e("StorageUtils", "Error uploading video: ${e.message}", e)
-        throw e
+        val msg = e.message ?: ""
+        if (msg.contains("permission", ignoreCase = true) || msg.contains("403")) {
+            Log.e("StorageUtils", "Firebase Storage Permission Error: $msg at $folder", e)
+            throw Exception("ఈ ఫోల్డర్ లో వీడియో అప్‌లోడ్ చేసే అనుమతి మీకు లేదు. ($folder)", e)
+        } else {
+            Log.e("StorageUtils", "Error uploading video: $msg", e)
+            throw e
+        }
     }
 }
 

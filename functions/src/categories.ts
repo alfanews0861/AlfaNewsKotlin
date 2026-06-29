@@ -156,21 +156,21 @@ Determine if the input is NEWS or PERSONAL/SPAM.
 - If PERSONAL/SPAM: Set 'rejectionReason' in Telugu explaining why, and leave other fields empty or null.
 
 STEP 2: ENHANCEMENT (If NEWS)
-- Content: Detailed paragraph in Telugu (450-600 chars) AND a paragraph in English (~70 words).
-  CRITICAL: The content must adapt to the story's context: use a critical (vimarsanaatmakamaa) tone for investigative or political news, and a descriptive (vivaranaatmakamaa) tone for general or informative news. Ensure the narrative is precise (kathitamgaa) and reflects facts accurately. Integrate people, locations, and organizations naturally.
-- Headline: One exceptionally clear and direct (sootiga) sentence in Telugu. STRICTLY UNDER 55 CHARACTERS (ABSOLUTE LIMIT). AND in English (~12 words). The Telugu headline must be punchy, direct, and MUST NOT exceed 55 characters including spaces. Excessive length will result in system rejection.
+- Content: Detailed paragraph in Telugu (500-600 characters, ~65 words) AND a paragraph in English (~70 words).
+  STRICT PERSONA: You are a Senior Reporter. Capture the emotional essence (bhaavam) and include ALL names/locations.
+- Headline: Strong punch style (balamgaa) single sentence in Telugu (max 10 words) AND in English (~12 words).
 - Vocal Content: Optimize for news anchor. Stress 2-3 key terms.
 - Tone: SERIOUS, URGENT, NORMAL, INQUISITIVE, or SHOCKING.
 - Category: Pick ONE from this list:
 ${categoryList}
 - OTHER (Last resort only)
 
-JSON SCHEMA (STRICTLY FLAT - NO NESTING):
+JSON SCHEMA (STRICTLY FLAT):
 {
-  "headline": "Telugu Headline (Direct string, NOT inside a 'telugu' object)",
-  "content": "Telugu Content (Direct string, NOT inside a 'telugu' object)",
-  "headlineEn": "English Headline (Direct string, NOT inside an 'english' object)",
-  "contentEn": "English Content (Direct string, NOT inside an 'english' object)",
+  "headline": "Telugu Headline",
+  "content": "Telugu Content",
+  "headlineEn": "English Headline",
+  "contentEn": "English Content",
   "location": "string",
   "storyFingerprint": "string",
   "refinedCategory": "string",

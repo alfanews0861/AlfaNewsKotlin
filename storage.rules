@@ -3,16 +3,10 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     
-    // Helper function to check if user has REPORTER role
+    // Helper function to check if user has REPORTER role (or higher)
+    // Uses firestore.get() for cross-service permission check
     function hasReporterRole(uid) {
-      let userDoc = firestore.get(/databases/(default)/documents/users/$(uid));
-      return userDoc.exists && userDoc.data.role in ['REPORTER', 'EDITOR', 'ADMIN'];
-    }
-
-    // Helper function to check if user has ADMIN role
-    function hasAdminRole(uid) {
-      let userDoc = firestore.get(/databases/(default)/documents/users/$(uid));
-      return userDoc.exists && userDoc.data.role == 'ADMIN';
+      return firestore.get(/databases/(default)/documents/users/$(uid)).data.role in ['REPORTER', 'EDITOR', 'ADMIN', 'REGIONAL_INCHARGE'];
     }
 
     // Allow public read access to all files
@@ -27,6 +21,9 @@ service firebase.storage {
     match /profile_photos/{allPaths=**} {
       allow write: if request.auth != null;
     }
+    match /profile_images/{allPaths=**} {
+      allow write: if request.auth != null;
+    }
 
     // Signatures
     match /signatures/{allPaths=**} {
@@ -38,10 +35,9 @@ service firebase.storage {
       allow write: if request.auth != null;
     }
 
-    // News Media: Allow users with REPORTER, EDITOR, or ADMIN roles to upload
+    // News Media: Allow users with REPORTER, EDITOR, ADMIN, or REGIONAL_INCHARGE roles to upload
     match /news-media/{allPaths=**} {
-        allow write: if request.auth != null &&
-            hasReporterRole(request.auth.uid);
+        allow write: if request.auth != null && hasReporterRole(request.auth.uid);
     }
 
     // Citizen Media: Allow authenticated users to upload

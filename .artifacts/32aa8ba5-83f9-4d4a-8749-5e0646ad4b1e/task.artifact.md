@@ -1,6 +1,3 @@
-- `[x]` Deep research on Gemini API models (June 2026 status)
-- `[ ]` Revert `runWithAIFallback` signature to maintain backward compatibility
-- `[ ]` Implement robust Exponential Backoff around the legacy `(ai, modelName)` callback
-- `[ ]` Fix all call sites (`news_handler.ts`, `auto_content_handler.ts`, `geminiService.ts`)
-- `[ ]` Verify successful compilation with `npm run build`
-- `[ ]` Final deployment signal
+- [x] Update `geminiService.ts` system instructions
+- [x] Update `categories.ts` system instructions
+- [x] Verify character length logic in `news_handler.ts`

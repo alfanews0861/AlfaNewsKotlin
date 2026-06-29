@@ -1,0 +1,5 @@
+- [x] Update `LogoHeader.kt` with black background and new logo styles
+- [x] Add shadow to `LogoHeader` to cast over the content below
+- [x] Verify and update `NewsCardView.kt` to use the new header style
+- [x] Verify visibility in `NewsFeedView.kt` and `LocalNewsFeedView.kt`
+- [x] Verify in `SinglePostView.kt` if applicable
