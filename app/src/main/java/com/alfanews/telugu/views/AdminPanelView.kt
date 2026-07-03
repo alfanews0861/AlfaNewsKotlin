@@ -54,9 +54,10 @@ fun AdminPanelView(
     isModal: Boolean = false,
     onNavigate: (String) -> Unit = {},
     onPostPublished: (String) -> Unit = {},
-    onMenuClick: (() -> Unit)? = null
+    onMenuClick: (() -> Unit)? = null,
+    onPageChange: (String) -> Unit = {}
 ) {
-    var activePage by remember { mutableStateOf(initialPage) }
+    var activePage by remember(initialPage) { mutableStateOf(initialPage) }
     val scope = rememberCoroutineScope()
     var editingPost by remember { mutableStateOf<NewsPost?>(null) }
     var selectedPostForView by remember { mutableStateOf<NewsPost?>(null) }
@@ -74,8 +75,6 @@ fun AdminPanelView(
         AppPageConfig("manageReporters", stringResource(R.string.manage_reporters), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
         AppPageConfig("manageUsers", stringResource(R.string.manage_users), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
         AppPageConfig("adminNotify", stringResource(R.string.push_notifications_title), listOf(UserRole.ADMIN)),
-        AppPageConfig("scraping", stringResource(R.string.web_scraping), listOf(UserRole.ADMIN)),
-        AppPageConfig("gnews_dashboard", stringResource(R.string.gnews_dashboard), listOf(UserRole.ADMIN)),
         AppPageConfig("affiliate_settings", "Affiliate News API", listOf(UserRole.ADMIN))
     )
 
@@ -191,10 +190,14 @@ fun AdminPanelView(
                     themeMode = themeMode,
                     onThemeModeChange = onThemeModeChange,
                     onNavigate = { page ->
-                        if(listOf("edit-profile", "id-card").contains(page)) activePage = page
+                        if(listOf("edit-profile", "id-card", "messages").contains(page)) {
+                            activePage = page
+                            onPageChange(page)
+                        }
                         else onNavigate(page)
                      },
-                    onLoginRequest = onLoginRequest
+                    onLoginRequest = onLoginRequest,
+                    onMenuClick = onMenuClick
                 )
                 "edit-profile" -> EditProfilePageView(
                     user = user,
@@ -235,8 +238,6 @@ fun AdminPanelView(
                 "ads" -> AdsManagerPageView(currentUser = user)
                 "manageUsers" -> UserManagementPageView(currentUser = user)
                 "adminNotify" -> AdminNotificationsPageView()
-                "scraping" -> WebScrapingPageView()
-                "gnews_dashboard" -> GNewsDashboardView()
                 "affiliate_settings" -> AffiliateSettingsView(onBack = { activePage = "profile" })
             }
         }

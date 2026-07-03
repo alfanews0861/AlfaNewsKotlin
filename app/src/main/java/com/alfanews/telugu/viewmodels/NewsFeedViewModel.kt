@@ -102,7 +102,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     private val globalDistricts = listOf(
         "State", "National", "International", "AndhraPradesh", "Telangana",
-        "Andhra Pradesh", "Telangana State", "India", "World"
+        "Andhra Pradesh", "Telangana State", "India", "World", "AP", "TS", 
+        "State News", "National News", "General", "Andhra", "Global"
     )
 
     private val strictlyGlobalKeywords = listOf(
@@ -110,7 +111,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         "ఆరోగ్యం", "విద్య", "టెక్నాలజీ", "వ్యవసాయం", "భక్తి", 
         "వినోదం", "ప్రపంచం", "క్రైమ్", "లైఫ్ స్టైల్", "జనరల్", "రాష్ట్రం",
         "రాష్ట్ర వార్తలు", "ముఖ్యాంశాలు", "బ్రేకింగ్", "వైరల్", "తాజా వార్తలు",
-        "ఆంధ్రప్రదేశ్", "తెలంగాణ", "భారతదేశం", "రాజకీయం"
+        "ఆంధ్రప్రదేశ్", "తెలంగాణ", "భారతదేశం", "రాజకీయం", "సినిమా వార్తలు"
     )
 
     private fun isGlobalCategory(category: String): Boolean {
@@ -376,7 +377,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 val generalCats = globalDistricts.distinct().take(30)
                 query = query.whereIn("district", generalCats)
             } else if (district != null) {
-                query = query.whereArrayContains("categories", district)
+                // 🚀 FIX: Use whereEqualTo("district", ...) instead of whereArrayContains("categories", ...)
+                // to avoid Firestore conflict when baseQuery already has an array filter (like whereArrayContainsAny).
+                query = query.whereEqualTo("district", district)
             }
             query = query.orderBy("timestamp", Query.Direction.DESCENDING).limit(limit.toLong())
             if (currentCursor != null) query = query.startAfter(currentCursor)
@@ -427,10 +430,19 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             }
         }
 
-       private suspend fun rankAndBlendPosts(pref: kotlin.collections.List<NewsPost>, main: kotlin.collections.List<NewsPost>, local: kotlin.collections.List<NewsPost>, isFirstPage: Boolean = false): kotlin.collections.List<NewsPost> = withContext(Dispatchers.Default) {
-            val filteredPref = pref.filter { prefs.getPostViewCount(it.id) < 2 }
-            val filteredMain = main.filter { prefs.getPostViewCount(it.id) < 2 }
-            val filteredLocal = local.filter { prefs.getPostViewCount(it.id) < 2 }
+       private suspend fun rankAndBlendPosts(pref: List<NewsPost>, main: List<NewsPost>, local: List<NewsPost>, isFirstPage: Boolean = false): List<NewsPost> = withContext(Dispatchers.Default) {
+            val allRaw = (pref + main + local).distinctBy { it.id }
+            var filteredPref = pref.filter { prefs.getPostViewCount(it.id) < 2 }
+            var filteredMain = main.filter { prefs.getPostViewCount(it.id) < 2 }
+            var filteredLocal = local.filter { prefs.getPostViewCount(it.id) < 2 }
+
+            // 🚀 ROBUSTNESS: If everything is filtered out because it's "seen", 
+            // relax the filter to show recently seen news on the first page.
+            if (isFirstPage && filteredPref.isEmpty() && filteredMain.isEmpty() && filteredLocal.isEmpty() && allRaw.isNotEmpty()) {
+                filteredPref = pref.take(5)
+                filteredMain = main.take(10)
+                filteredLocal = local.take(10)
+            }
 
             val allPosts = (filteredPref + filteredMain + filteredLocal).distinctBy { it.id }.filter { post ->
                 if (post.type != "news") return@filter true
@@ -500,7 +512,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
            if (isFirstPage) {
                fun insertSafely(list: MutableList<NewsPost>, post: NewsPost, targetIdx: Int) {
-                   if (list.isEmpty()) return // Do not insert if list is empty to prevent it being at index 0
                    val actualIdx = if (targetIdx >= list.size) list.size else targetIdx
                    list.add(actualIdx, post)
                }

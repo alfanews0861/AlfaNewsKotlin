@@ -1,0 +1,9 @@
+- [x] Enable global drawer gestures in `MainScreen.kt`
+- [x] Pass `onMenuClick` to all sub-views in `MainScreen.kt`
+- [x] Add menu button and `LogoHeader` to `UserProfilePageView.kt`
+- [x] Update `AdminPanelView.kt` to handle `onMenuClick` for staff profile
+- [x] Add menu button to `ClassifiedsView.kt`
+- [x] Add menu button to `ReportersView.kt`
+- [x] Add menu button to `LeaderboardView.kt`
+- [x] Add menu button to `MessagesPageView.kt`
+- [x] Verify menu accessibility on all updated screens

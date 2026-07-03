@@ -35,7 +35,8 @@ import java.util.*
 @Composable
 fun MessagesPageView(
     user: User,
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    onMenuClick: (() -> Unit)? = null
 ) {
     var messages by remember { mutableStateOf<List<AppMessage>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -116,26 +117,11 @@ fun MessagesPageView(
             .background(Color(0xFFF9FAFB))
     ) {
         // Header
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shadowElevation = 4.dp,
-            color = Color.White
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Text(
-                    text = "ముఖ్యమైన సందేశాలు",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Black
-                )
-            }
-        }
-
+        LogoHeader(
+            onMenuClick = onMenuClick,
+            showDistrictSelector = false
+        )
+        
         if (loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color.Red)

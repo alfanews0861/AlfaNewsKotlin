@@ -1,6 +1,7 @@
 package com.alfanews.telugu.views
 
 import android.app.Activity
+import android.app.Application
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -19,14 +20,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import com.alfanews.telugu.R
+import com.alfanews.telugu.ViewModelFactory
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
@@ -35,6 +40,7 @@ import com.alfanews.telugu.models.ThemeMode
 import com.alfanews.telugu.ui.theme.Poppins
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.ui.theme.Mallanna
+import com.alfanews.telugu.viewmodels.LeaderboardViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -53,10 +59,16 @@ fun UserProfilePageView(
     onThemeModeChange: (ThemeMode) -> Unit = {},
     onNavigate: (String) -> Unit = {},
     onLoginRequest: (() -> Unit)? = null,
-    onToggleNotifications: (Boolean) -> Unit = {}
+    onToggleNotifications: (Boolean) -> Unit = {},
+    onMenuClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    val leaderboardViewModel: LeaderboardViewModel = viewModel(
+        factory = ViewModelFactory(context.applicationContext as Application)
+    )
+    val leaderboardEntries by leaderboardViewModel.leaderboard.collectAsStateWithLifecycle()
 
     val isGuest = user.id == "guest" || user.role == UserRole.GUEST
     val isStaff = listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.REGIONAL_INCHARGE).contains(user.role)
@@ -164,377 +176,436 @@ fun UserProfilePageView(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // వినియోగదారు సమాచార కార్డ్
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.05f))
+        LogoHeader(
+            onMenuClick = onMenuClick,
+            showDistrictSelector = false
+        )
+        
+        Column(
+            modifier = Modifier
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            // వినియోగదారు సమాచార కార్డ్
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.05f))
             ) {
-                Box(contentAlignment = Alignment.BottomEnd) {
-                    AsyncImage(
-                        model = user.photoUrl ?: "https://ui-avatars.com/api/?name=${URLEncoder.encode(user.name, "UTF-8")}&background=random",
-                        contentDescription = user.name,
-                        modifier = Modifier
-                            .size(110.dp)
-                            .clip(CircleShape)
-                            .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape)
-                    )
-                    if (!isGuest) {
-                        Surface(
-                            modifier = Modifier.size(32.dp).clickable { onNavigate("edit-profile") },
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary,
-                            shadowElevation = 2.dp
-                        ) {
-                            Icon(
-                                Icons.Default.Edit,
-                                contentDescription = stringResource(R.string.edit_profile),
-                                modifier = Modifier.padding(8.dp),
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(contentAlignment = Alignment.BottomEnd) {
+                        AsyncImage(
+                            model = user.photoUrl ?: "https://ui-avatars.com/api/?name=${URLEncoder.encode(user.name, "UTF-8")}&background=random",
+                            contentDescription = user.name,
+                            modifier = Modifier
+                                .size(110.dp)
+                                .clip(CircleShape)
+                                .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape)
+                        )
+                        if (!isGuest) {
+                            Surface(
+                                modifier = Modifier.size(32.dp).clickable { onNavigate("edit-profile") },
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primary,
+                                shadowElevation = 2.dp
+                            ) {
+                                Icon(
+                                    Icons.Default.Edit,
+                                    contentDescription = stringResource(R.string.edit_profile),
+                                    modifier = Modifier.padding(8.dp),
+                                    tint = MaterialTheme.colorScheme.onPrimary
+                                )
+                            }
                         }
                     }
-                }
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                Text(
-                    user.name,
-                    fontSize = 28.sp,
-                    fontFamily = Ramabhadra,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.Center
-                )
-                
-                Surface(
-                    modifier = Modifier.padding(top = 4.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                    shape = RoundedCornerShape(4.dp)
-                ) {
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
                     Text(
-                        text = when {
-                            isGuest -> stringResource(R.string.guest)
-                            user.role == UserRole.ADMIN -> stringResource(R.string.admin)
-                            user.role == UserRole.EDITOR -> stringResource(R.string.editor)
-                            user.role == UserRole.REPORTER -> stringResource(R.string.reporter)
-                            user.role == UserRole.SUBSCRIBER -> stringResource(R.string.subscriber)
-                            else -> user.role.name
-                        },
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        user.name,
+                        fontSize = 28.sp,
+                        fontFamily = Ramabhadra,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center
                     )
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                if (isGuest) {
-                    Button(
-                        onClick = { onLoginRequest?.invoke() },
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                        shape = MaterialTheme.shapes.medium,
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    
+                    Surface(
+                        modifier = Modifier.padding(top = 4.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(4.dp)
                     ) {
-                        Text(stringResource(R.string.login_signup), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                        Text(
+                            text = when {
+                                isGuest -> stringResource(R.string.guest)
+                                user.role == UserRole.ADMIN -> stringResource(R.string.admin)
+                                user.role == UserRole.EDITOR -> stringResource(R.string.editor)
+                                user.role == UserRole.REPORTER -> stringResource(R.string.reporter)
+                                user.role == UserRole.SUBSCRIBER -> stringResource(R.string.subscriber)
+                                else -> user.role.name
+                            },
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    if (isGuest) {
                         Button(
-                            onClick = { onNavigate("edit-profile") },
-                            modifier = Modifier.weight(1f).height(48.dp),
+                            onClick = { onLoginRequest?.invoke() },
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
                             shape = MaterialTheme.shapes.medium,
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
-                            Text(stringResource(R.string.edit_profile), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                            Text(stringResource(R.string.login_signup), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                         }
-                        if (isStaff) {
-                            OutlinedButton(
-                                onClick = { onNavigate("id-card") },
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Button(
+                                onClick = { onNavigate("edit-profile") },
                                 modifier = Modifier.weight(1f).height(48.dp),
                                 shape = MaterialTheme.shapes.medium,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                             ) {
-                                Text(stringResource(R.string.id_card), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.edit_profile), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                            }
+                            if (isStaff) {
+                                OutlinedButton(
+                                    onClick = { onNavigate("id-card") },
+                                    modifier = Modifier.weight(1f).height(48.dp),
+                                    shape = MaterialTheme.shapes.medium,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                                ) {
+                                    Text(stringResource(R.string.id_card), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }
                 }
             }
-        }
 
-        // ✉️ సందేశాలు (Messages) - logged-in users only
-        if (!isGuest) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onNavigate("messages") },
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Mail, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = stringResource(R.string.messages),
-                            fontFamily = Ramabhadra,
-                            fontSize = 18.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                }
-            }
-        }
-        
-        // భాష ఎంపిక (Language Selector)
-        SettingsGroup(
-            title = stringResource(R.string.news_language)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), MaterialTheme.shapes.medium)
-                    .padding(4.dp)
-            ) {
-                Box(
+            // ✉️ సందేశాలు (Messages) - logged-in users only
+            if (!isGuest) {
+                Surface(
                     modifier = Modifier
-                        .weight(1f)
-                        .height(40.dp)
-                        .clip(MaterialTheme.shapes.small)
-                        .background(if (language == Language.TELUGU) MaterialTheme.colorScheme.primary else Color.Transparent)
-                        .clickable { 
-                            if (language != Language.TELUGU) {
-                                setLanguage(Language.TELUGU)
-                                (context as? Activity)?.recreate()
-                            }
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(stringResource(R.string.language_telugu), fontWeight = FontWeight.Bold, color = if (language == Language.TELUGU) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(40.dp)
-                        .clip(MaterialTheme.shapes.small)
-                        .background(if (language == Language.ENGLISH) MaterialTheme.colorScheme.primary else Color.Transparent)
-                        .clickable { 
-                            if (language != Language.ENGLISH) {
-                                setLanguage(Language.ENGLISH)
-                                (context as? Activity)?.recreate()
-                            }
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(stringResource(R.string.language_english), fontWeight = FontWeight.Bold, color = if (language == Language.ENGLISH) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-
-        // థీమ్ ఎంపిక (Theme Selector)
-        SettingsGroup(stringResource(R.string.display_theme)) {
-             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), MaterialTheme.shapes.medium)
-                    .padding(4.dp)
-            ) {
-                ThemeOption(
-                    label = stringResource(R.string.theme_light),
-                    isSelected = themeMode == ThemeMode.LIGHT,
-                    onClick = { onThemeModeChange(ThemeMode.LIGHT) },
-                    modifier = Modifier.weight(1f)
-                )
-                ThemeOption(
-                    label = stringResource(R.string.theme_dark),
-                    isSelected = themeMode == ThemeMode.DARK,
-                    onClick = { onThemeModeChange(ThemeMode.DARK) },
-                    modifier = Modifier.weight(1f)
-                )
-                ThemeOption(
-                    label = stringResource(R.string.theme_system),
-                    isSelected = themeMode == ThemeMode.SYSTEM,
-                    onClick = { onThemeModeChange(ThemeMode.SYSTEM) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-
-        // నోటిఫికేషన్లు
-        SettingsGroup(stringResource(R.string.notifications)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(stringResource(R.string.push_notifications), color = MaterialTheme.colorScheme.onSurface)
-                }
-                Switch(
-                    checked = pushEnabled,
-                    onCheckedChange = { toggleNotifications() },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = MaterialTheme.colorScheme.primary
-                    )
-                )
-            }
-        }
-
-        // స్టోరేజ్ మేనేజ్‌మెంట్ (Storage Management)
-        SettingsGroup(stringResource(R.string.storage_management)) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = stringResource(R.string.current_cache_usage, currentCacheSize),
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                
-                Button(
-                    onClick = { clearCache() },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)),
-                    shape = MaterialTheme.shapes.small
-                ) {
-                    Text(stringResource(R.string.clear_cache_now), color = MaterialTheme.colorScheme.secondary)
-                }
-            }
-        }
-
-        // రిపోర్టర్ ఇన్సెంటివ్ సిస్టమ్ (Internal Staff Only)
-        if (isStaff) {
-            SettingsGroup(if (language == Language.TELUGU) "రిపోర్టర్ బోర్డ్" else "Reporter Board") {
-                Button(
-                    onClick = { onNavigate("leaderboard") },
-                    modifier = Modifier.fillMaxWidth(),
+                        .fillMaxWidth()
+                        .clickable { onNavigate("messages") },
                     shape = MaterialTheme.shapes.medium,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFFFD700).copy(alpha = 0.1f)
-                    ),
-                    border = BorderStroke(1.dp, Color(0xFFFFD700))
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.05f))
                 ) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            Icons.Default.EmojiEvents,
-                            contentDescription = null,
-                            tint = Color(0xFFDAA520)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (language == Language.TELUGU) "మంత్లీ లీడర్ బోర్డ్ (Leaderboard)" else "Monthly Leaderboard",
-                            color = Color(0xFFDAA520),
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        }
-
-        // మా గురించి మరియు సంప్రదించండి
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.05f))
-        ) {
-            Column {
-                mainLinks.forEachIndexed { index, (id, label) ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onNavigate(id) }
-                            .padding(16.dp),
+                        modifier = Modifier.padding(16.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = if (id == "about") Icons.Default.Info else Icons.Default.Email,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Icon(Icons.Default.Mail, contentDescription = null, tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
                             Spacer(modifier = Modifier.width(12.dp))
-                            Text(label, fontFamily = Ramabhadra, fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurface)
+                            Text(
+                                text = stringResource(R.string.messages),
+                                fontFamily = Ramabhadra,
+                                fontSize = 18.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                         Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
                     }
-                    if (index < mainLinks.size - 1) {
-                        Divider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
-                    }
                 }
             }
-        }
-
-        // ఇతర పాలసీలు
-        SettingsGroup(stringResource(R.string.policies_info)) {
-            Column {
-                policyLinks.forEachIndexed { index, (id, label) ->
-                    Row(
+            
+            // భాష ఎంపిక (Language Selector)
+            SettingsGroup(
+                title = stringResource(R.string.news_language)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), MaterialTheme.shapes.medium)
+                        .padding(4.dp)
+                ) {
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onNavigate(id) }
-                            .padding(vertical = 16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .weight(1f)
+                            .height(40.dp)
+                            .clip(MaterialTheme.shapes.small)
+                            .background(if (language == Language.TELUGU) MaterialTheme.colorScheme.primary else Color.Transparent)
+                            .clickable { 
+                                if (language != Language.TELUGU) {
+                                    setLanguage(Language.TELUGU)
+                                    (context as? Activity)?.recreate()
+                                }
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(label, fontFamily = Mallanna, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
+                        Text(stringResource(R.string.language_telugu), fontWeight = FontWeight.Bold, color = if (language == Language.TELUGU) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    if (index < policyLinks.size - 1) {
-                        Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .clip(MaterialTheme.shapes.small)
+                            .background(if (language == Language.ENGLISH) MaterialTheme.colorScheme.primary else Color.Transparent)
+                            .clickable { 
+                                if (language != Language.ENGLISH) {
+                                    setLanguage(Language.ENGLISH)
+                                    (context as? Activity)?.recreate()
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(stringResource(R.string.language_english), fontWeight = FontWeight.Bold, color = if (language == Language.ENGLISH) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // లాగ్ అవుట్ మరియు ఖాతా తొలగింపు
-        if (!isGuest) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { handleLogout() },
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    shape = MaterialTheme.shapes.medium,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+            // థీమ్ ఎంపిక (Theme Selector)
+            SettingsGroup(stringResource(R.string.display_theme)) {
+                 Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), MaterialTheme.shapes.medium)
+                        .padding(4.dp)
                 ) {
-                    Text(stringResource(R.string.logout), color = MaterialTheme.colorScheme.onErrorContainer, fontWeight = FontWeight.Bold)
-                }
-
-                TextButton(
-                    onClick = { handleDelete() },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(stringResource(R.string.delete_account), color = MaterialTheme.colorScheme.outline, fontSize = 12.sp)
+                    ThemeOption(
+                        label = stringResource(R.string.theme_light),
+                        isSelected = themeMode == ThemeMode.LIGHT,
+                        onClick = { onThemeModeChange(ThemeMode.LIGHT) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ThemeOption(
+                        label = stringResource(R.string.theme_dark),
+                        isSelected = themeMode == ThemeMode.DARK,
+                        onClick = { onThemeModeChange(ThemeMode.DARK) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ThemeOption(
+                        label = stringResource(R.string.theme_system),
+                        isSelected = themeMode == ThemeMode.SYSTEM,
+                        onClick = { onThemeModeChange(ThemeMode.SYSTEM) },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
+
+            // నోటిఫికేషన్లు
+            SettingsGroup(stringResource(R.string.notifications)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(stringResource(R.string.push_notifications), color = MaterialTheme.colorScheme.onSurface)
+                    }
+                    Switch(
+                        checked = pushEnabled,
+                        onCheckedChange = { toggleNotifications() },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                }
+            }
+
+            // స్టోరేజ్ మేనేజ్‌మెంట్ (Storage Management)
+            SettingsGroup(stringResource(R.string.storage_management)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = stringResource(R.string.current_cache_usage, currentCacheSize),
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    
+                    Button(
+                        onClick = { clearCache() },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)),
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Text(stringResource(R.string.clear_cache_now), color = MaterialTheme.colorScheme.secondary)
+                    }
+                }
+            }
+
+            // రిపోర్టర్ ఇన్సెంటివ్ సిస్టమ్ (Internal Staff Only)
+            if (isStaff) {
+                SettingsGroup(if (language == Language.TELUGU) "రిపోర్టర్ బోర్డ్" else "Reporter Board") {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // Top 3 Mini Leaderboard
+                        if (leaderboardEntries.isNotEmpty()) {
+                            leaderboardEntries.take(3).forEachIndexed { index, reporter: com.alfanews.telugu.models.User ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Rank icon
+                                    val rankColor = when (index) {
+                                        0 -> Color(0xFFFFD700) // Gold
+                                        1 -> Color(0xFFC0C0C0) // Silver
+                                        else -> Color(0xFFCD7F32) // Bronze
+                                    }
+                                    Icon(
+                                        Icons.Default.EmojiEvents,
+                                        contentDescription = null,
+                                        tint = rankColor,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    AsyncImage(
+                                        model = (reporter.photoUrl ?: "https://ui-avatars.com/api/?name=${URLEncoder.encode(reporter.name, "UTF-8")}&background=random"),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(32.dp).clip(CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                                        Text(reporter.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                        Text(reporter.district ?: "", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    Text(
+                                        text = reporter.points.toString(),
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 16.sp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().height(60.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    if (language == Language.TELUGU) "లీడర్ బోర్డ్ లోడ్ అవుతోంది..." else "Loading leaderboard...",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = { onNavigate("leaderboard") },
+                            modifier = Modifier.fillMaxWidth().height(40.dp),
+                            shape = MaterialTheme.shapes.small,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                            ),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text(
+                                text = if (language == Language.TELUGU) "పూర్తి వివరాలు చూడండి (View All)" else "View All",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
+            // మా గురించి మరియు సంప్రదించండి
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.05f))
+            ) {
+                Column {
+                    mainLinks.forEachIndexed { index, (id, label) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onNavigate(id) }
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (id == "about") Icons.Default.Info else Icons.Default.Email,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(label, fontFamily = Ramabhadra, fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
+                        }
+                        if (index < mainLinks.size - 1) {
+                            Divider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+                        }
+                    }
+                }
+            }
+
+            // ఇతర పాలసీలు
+            SettingsGroup(stringResource(R.string.policies_info)) {
+                Column {
+                    policyLinks.forEachIndexed { index, (id, label) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onNavigate(id) }
+                                .padding(vertical = 16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(label, fontFamily = Mallanna, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
+                        }
+                        if (index < policyLinks.size - 1) {
+                            Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // లాగ్ అవుట్ మరియు ఖాతా తొలగింపు
+            if (!isGuest) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { handleLogout() },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = MaterialTheme.shapes.medium,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                    ) {
+                        Text(stringResource(R.string.logout), color = MaterialTheme.colorScheme.onErrorContainer, fontWeight = FontWeight.Bold)
+                    }
+
+                    TextButton(
+                        onClick = { handleDelete() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.delete_account), color = MaterialTheme.colorScheme.outline, fontSize = 12.sp)
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }

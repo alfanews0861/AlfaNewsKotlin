@@ -44,6 +44,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _activeTab = MutableStateFlow("home")
     val activeTab: StateFlow<String> = _activeTab.asStateFlow()
 
+    private val _adminActivePage = MutableStateFlow("profile")
+    val adminActivePage: StateFlow<String> = _adminActivePage.asStateFlow()
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -317,6 +320,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setActiveTab(tab: String) {
         _activeTab.value = tab
+    }
+
+    fun setAdminActivePage(page: String) {
+        _adminActivePage.value = page
     }
 
     fun setLanguage(newLanguage: Language) {

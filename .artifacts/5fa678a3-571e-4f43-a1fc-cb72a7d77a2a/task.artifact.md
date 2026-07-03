@@ -1,0 +1,6 @@
+- `[x]` Remove Web Scraping and GNews Dashboard from `AppDrawer.kt`
+- `[x]` Remove Web Scraping and GNews Dashboard from `AdminPanelView.kt`
+- `[x]` Remove Web Scraping and GNews Dashboard from `MainScreen.kt` navigation logic
+- `[x]` Delete `WebScrapingPageView.kt`
+- `[x]` Delete `GNewsDashboardView.kt`
+- `[x]` Verify build

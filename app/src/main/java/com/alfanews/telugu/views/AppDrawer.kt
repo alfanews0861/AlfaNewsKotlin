@@ -40,8 +40,6 @@ fun AppDrawerContent(
         AppPageConfig("manageReporters", stringResource(R.string.manage_reporters), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
         AppPageConfig("manageUsers", stringResource(R.string.manage_users), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
         AppPageConfig("adminNotify", stringResource(R.string.push_notifications_title), listOf(UserRole.ADMIN)),
-        AppPageConfig("scraping", stringResource(R.string.web_scraping), listOf(UserRole.ADMIN)),
-        AppPageConfig("gnews_dashboard", stringResource(R.string.gnews_dashboard), listOf(UserRole.ADMIN)),
         AppPageConfig("affiliate_settings", "Affiliate News API", listOf(UserRole.ADMIN))
     )
 
@@ -114,8 +112,6 @@ fun AppDrawerContent(
                         "manageReporters" -> Icons.Default.AssignmentInd
                         "manageUsers" -> Icons.Default.Group
                         "adminNotify" -> Icons.Default.NotificationsActive
-                        "scraping" -> Icons.Default.CloudDownload
-                        "gnews_dashboard" -> Icons.Default.Dashboard
                         "affiliate_settings" -> Icons.Default.Link
                         else -> Icons.Default.Settings
                     }

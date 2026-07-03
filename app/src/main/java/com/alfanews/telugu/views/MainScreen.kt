@@ -101,11 +101,15 @@ fun MainScreen(
                     when (page) {
                         "home", "local", "create", "classifieds", "profile", "reporters", "leaderboard", "messages" -> {
                             mainViewModel.setActiveTab(page)
+                            if (page == "profile" || page == "messages") {
+                                mainViewModel.setAdminActivePage(page)
+                            }
                         }
                         "post" -> {
                             showPostNewsPage = true
                         }
-                        "manage", "manageReporters", "manageUsers", "adminNotify", "scraping", "gnews_dashboard", "affiliate_settings" -> {
+                        "manage", "manageReporters", "manageUsers", "adminNotify", "affiliate_settings", "ads" -> {
+                            mainViewModel.setAdminActivePage(page)
                             mainViewModel.setActiveTab("profile")
                         }
                     }
@@ -116,7 +120,7 @@ fun MainScreen(
                 }
             )
         },
-        gesturesEnabled = activeTab == "home" || activeTab == "local"
+        gesturesEnabled = true
     ) {
         Box(
             modifier = Modifier
@@ -351,7 +355,8 @@ fun MainScreen(
                             "classifieds" -> ClassifiedsView(
                                 currentUser = user, 
                                 initialMode = classifiedsInitialMode,
-                                onNavigateToLogin = { mainViewModel.setActiveTab("profile") }
+                                onNavigateToLogin = { mainViewModel.setActiveTab("profile") },
+                                onMenuClick = { scope.launch { drawerState.open() } }
                             )
                             "profile" -> ProfileContainer(
                                 language = language,
@@ -361,7 +366,8 @@ fun MainScreen(
                                     if (pageId == "edit-profile") {
                                         showEditProfilePage = true
                                     } else {
-                                        mainViewModel.setActiveTab(pageId)
+                                        mainViewModel.setAdminActivePage(pageId)
+                                        mainViewModel.setActiveTab("profile")
                                     }
                                 },
                                 onPostPublished = { postId ->
@@ -370,7 +376,8 @@ fun MainScreen(
                                         newsFeedViewModel.setSharedPostId(postId)
                                         newsFeedViewModel.loadNews(language, user, initialPostId = postId)
                                     }
-                                }
+                                },
+                                onMenuClick = { scope.launch { drawerState.open() } }
                             )
                             "about" -> PolicyContainer("about")
                             "contact" -> PolicyContainer("contact")
@@ -383,17 +390,20 @@ fun MainScreen(
                             "reporters" -> ReportersView(
                                 language = language,
                                 onBack = { mainViewModel.setActiveTab("profile") },
-                                onReporterClick = { reporterIdToShow = it }
+                                onReporterClick = { reporterIdToShow = it },
+                                onMenuClick = { scope.launch { drawerState.open() } }
                             )
                             "leaderboard" -> LeaderboardView(
                                 language = language,
                                 onBack = { mainViewModel.setActiveTab("profile") },
-                                onReporterClick = { reporterIdToShow = it }
+                                onReporterClick = { reporterIdToShow = it },
+                                onMenuClick = { scope.launch { drawerState.open() } }
                             )
                             "messages" -> if (user != null) {
                                 MessagesPageView(
                                     user = user,
-                                    onBack = { mainViewModel.setActiveTab("profile") }
+                                    onBack = { mainViewModel.setActiveTab("profile") },
+                                    onMenuClick = { scope.launch { drawerState.open() } }
                                 )
                             }
                             else -> NewsFeedView(
@@ -464,6 +474,7 @@ fun ProfileContainer(
 ) {
     var showLogin by remember { mutableStateOf(false) }
     val themeMode by viewModel.themeMode.collectAsState()
+    val adminActivePage by viewModel.adminActivePage.collectAsState()
     val user = currentUser
 
     val isStaff = user != null && (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.REGIONAL_INCHARGE || user.role == UserRole.REPORTER)
@@ -479,9 +490,11 @@ fun ProfileContainer(
             onLogout = { viewModel.signOut() },
             onLoginRequest = { showLogin = true },
             isModal = false,
+            initialPage = adminActivePage,
             onNavigate = onNavigate,
             onPostPublished = onPostPublished,
-            onMenuClick = onMenuClick
+            onMenuClick = onMenuClick,
+            onPageChange = { viewModel.setAdminActivePage(it) }
         )
     } else {
         UserProfilePageView(
@@ -492,7 +505,8 @@ fun ProfileContainer(
             onThemeModeChange = { viewModel.setThemeMode(it) },
             onNavigate = onNavigate,
             onLoginRequest = { showLogin = true },
-            onToggleNotifications = { viewModel.toggleNotifications(it) }
+            onToggleNotifications = { viewModel.toggleNotifications(it) },
+            onMenuClick = onMenuClick
         )
     }
 

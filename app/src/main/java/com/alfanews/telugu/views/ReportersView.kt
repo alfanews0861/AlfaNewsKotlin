@@ -39,7 +39,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 fun ReportersView(
     language: Language,
     onBack: () -> Unit,
-    onReporterClick: (String) -> Unit
+    onReporterClick: (String) -> Unit,
+    onMenuClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val viewModel: ReportersViewModel = viewModel(
@@ -75,8 +76,14 @@ fun ReportersView(
             TopAppBar(
                 title = { Text(stringResource(R.string.reporters_directory), fontFamily = Ramabhadra) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back))
+                    if (onMenuClick != null) {
+                        IconButton(onClick = onMenuClick) {
+                            Icon(Icons.Default.Menu, contentDescription = stringResource(R.string.menu))
+                        }
+                    } else {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back))
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

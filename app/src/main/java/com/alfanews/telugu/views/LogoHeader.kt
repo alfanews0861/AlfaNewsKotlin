@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.tooling.preview.Preview
 import com.alfanews.telugu.ui.theme.AlfaNewsTheme
+import com.alfanews.telugu.ui.theme.BrandDarkBlue
 import com.alfanews.telugu.ui.theme.Poppins
 
 @Preview(showBackground = true)
@@ -39,7 +40,7 @@ fun LogoHeader(
     onMenuClick: (() -> Unit)? = null
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.primary,
+        color = BrandDarkBlue,
         shadowElevation = 8.dp,
         modifier = modifier.fillMaxWidth()
     ) {
@@ -63,14 +64,23 @@ fun LogoHeader(
                         }
                     }
                     
-                    Text(
-                        text = "alfa news",
-                        fontSize = 24.sp,
-                        fontFamily = Poppins,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        modifier = Modifier.padding(start = if (onMenuClick == null) 8.dp else 0.dp)
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "alfa",
+                            fontSize = 24.sp,
+                            fontFamily = Poppins,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(start = if (onMenuClick == null) 8.dp else 0.dp)
+                        )
+                        Text(
+                            text = "news",
+                            fontSize = 24.sp,
+                            fontFamily = Poppins,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                    }
                 }
                 
                 if (showDistrictSelector && onDistrictClick != null) {
@@ -100,7 +110,7 @@ fun LogoHeader(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(2.dp)
+                    .height(4.dp)
                     .background(Color(0xFFF44336))
             )
         }

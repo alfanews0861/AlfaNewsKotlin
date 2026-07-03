@@ -1,0 +1,7 @@
+- [x] Fix technical bugs in `NewsFeedViewModel.kt`
+    - [x] Resolve Firestore query conflicts in `fetchFilteredBatch`
+    - [x] Broaden `globalDistricts` and `strictlyGlobalKeywords` for better main feed matching
+    - [x] Fix `insertSafely` logic to allow insertion into empty lists
+    - [x] Ensure `rankAndBlendPosts` doesn't return empty lists prematurely
+- [x] Verify the changes by dry-running the logic
+- [x] Create walkthrough of the fixes

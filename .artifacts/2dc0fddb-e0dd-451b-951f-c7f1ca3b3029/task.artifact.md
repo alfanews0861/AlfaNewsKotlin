@@ -1,0 +1,4 @@
+- [x] Update logo text to "alfanews" with split weights (Bold/SemiBold)
+- [x] Increase red line height to 4dp
+- [x] Verify white color for all header elements
+- [x] Update walkthrough
