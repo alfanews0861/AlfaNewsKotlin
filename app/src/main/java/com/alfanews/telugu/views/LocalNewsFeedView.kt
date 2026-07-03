@@ -53,7 +53,8 @@ fun LocalNewsFeedView(
     currentUser: User?,
     onProfileClick: () -> Unit = {},
     onReporterClick: (String) -> Unit = {},
-    onEditClick: (NewsPost) -> Unit = {}
+    onEditClick: (NewsPost) -> Unit = {},
+    onMenuClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -226,7 +227,8 @@ fun LocalNewsFeedView(
             LogoHeader(
                 district = if (isDetecting) "గుర్తిస్తున్నాము..." else (activeDistrict ?: "జిల్లాను ఎంచుకోండి"),
                 showDistrictSelector = true,
-                onDistrictClick = { showDistrictPicker = true }
+                onDistrictClick = { showDistrictPicker = true },
+                onMenuClick = onMenuClick
             )
 
             Box(modifier = Modifier.weight(1f)) {

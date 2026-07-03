@@ -16,7 +16,7 @@ import {
     REGION
 } from "./utils";
 import { normalizeCategory, normalizeCategories, getCategorySystemInstruction } from './categories';
-import { notifyReporter } from "./reporter_handler";
+import { notifyReporter, awardPointsToReporter, getAssignedReporter } from "./reporter_handler";
 
 const db = admin.firestore();
 
@@ -69,6 +69,15 @@ async function performAIProcessing(headline: string, content: string, actualPost
             tone: { type: Type.STRING },
             vocalContent: { type: Type.STRING },
             tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+            qualitySignals: {
+                type: Type.OBJECT,
+                properties: {
+                    biasScore: { type: Type.NUMBER },
+                    publicInterestScore: { type: Type.NUMBER },
+                    investigativeScore: { type: Type.NUMBER },
+                    isPersonalPraise: { type: Type.BOOLEAN }
+                }
+            },
             entities: {
                 type: Type.OBJECT,
                 properties: {
@@ -86,26 +95,22 @@ async function performAIProcessing(headline: string, content: string, actualPost
     return await runWithAIFallback(async (ai, modelName) => {
         const result = await ai.models.generateContent({
             model: modelName,
-            contents: [{ role: "user", parts: [{ text: `INPUT DATA:
-Headline: ${headline}
-Content: ${content}
-
-COMMAND:
-1. Write a descriptive paragraph in Telugu (content) between 500-600 chars. Capture the emotion and include ALL names/locations.
-2. Write a paragraph in English (contentEn) maximum 70 words.
-3. Generate a strong punchy Telugu headline (headline) maximum 10 words.
-4. Generate a sharp English headline (headlineEn) maximum 12 words.
-5. Return results in the specified JSON schema.
-6. STRICTLY JSON ONLY.` }] }],
+            contents: [{ role: "user", parts: [{ text: `Headline: ${headline}\nContent: ${content}` }] }],
             config: {
-                systemInstruction: { role: "system", parts: [{ text: getCategorySystemInstruction() }] },
+                systemInstruction: getCategorySystemInstruction(),
                 temperature: 0.4,
                 responseMimeType: "application/json",
-                responseJsonSchema: schema,
+                responseSchema: schema,
+                // Full compatibility aliases
+                system_instruction: getCategorySystemInstruction(),
+                response_mime_type: "application/json",
+                response_schema: schema
             }
         } as any);
 
-        const aiRes = parseAIJson(result.text || result.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
+        const rawText = result.text || result.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+        console.log(`[AI_RES] ${actualPostData.id || 'new'}:`, rawText.substring(0, 500));
+        const aiRes = parseAIJson(rawText);
 
         // ROBUST FIELD EXTRACTION: Handle Flat AND Nested JSON
         const finalContent = aiRes.content || aiRes.contentTe || aiRes.content_te ||
@@ -148,11 +153,12 @@ COMMAND:
         const aiCategoryDetected = aiRes.refinedCategory || actualPostData?.category || "OTHER";
         const canonicalCategory = normalizeCategory(aiCategoryDetected);
         const isReporterPost = actualPostData?.isReporter === true || actualPostData?.processingType === "REPORTER_SUBMISSION";
+        const isGlobal = actualPostData?.isGlobal === true;
 
         let primaryCategory: string;
         let finalCategories: string[];
 
-        if (isReporterPost) {
+        if (isReporterPost && !isGlobal) {
             primaryCategory = "జిల్లా వార్త";
             finalCategories = ["జిల్లా వార్త"];
             if (actualPostData?.district) finalCategories.push(actualPostData.district);
@@ -178,6 +184,7 @@ COMMAND:
             rejectionReason: aiRes.rejectionReason || "",
             tone: aiRes.tone || "NORMAL",
             vocalContent: aiRes.vocalContent || finalContent || "",
+            qualitySignals: aiRes.qualitySignals || { biasScore: 0.5, publicInterestScore: 0.5, investigativeScore: 0, isPersonalPraise: false },
             storyFingerprint: aiRes.storyFingerprint || `gen_${Date.now()}`,
             aiProcessed: true,
             aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -239,12 +246,32 @@ export const processNewsPost = onCall(async (request) => {
  * 6.2 Background News Processing (Triggered on Create/Update)
  */
 /**
+ * Helper: Calculate points based on media type and AI quality signals
+ */
+function calculateIncentivePoints(hasVideo: boolean, qs?: any): number {
+    let points = hasVideo ? 20 : 10;
+    if (!qs) return points;
+
+    // investigativeScore: High value investigative news (+30)
+    if (qs.investigativeScore > 0.8) points += 30;
+    // publicInterestScore: Public interest/Local problems (+15)
+    else if (qs.publicInterestScore > 0.7) points += 15;
+
+    // isPersonalPraise / biasScore: Reduced points for flattery or high bias
+    if (qs.isPersonalPraise === true || qs.biasScore > 0.75) {
+        points -= 8;
+    }
+
+    return Math.max(points, 2); // Minimum 2 points
+}
+
+/**
  * 6.2 Background News Processing (Combined Trigger)
  */
 export const onNewsPostCreated = onDocumentWritten({
     document: "news/{postId}",
     region: REGION,
-    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"],
+    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "AZURE_SPEECH_KEY", "AZURE_SPEECH_REGION"],
     memory: "2GiB",
     timeoutSeconds: 540,
     maxInstances: 5
@@ -254,46 +281,72 @@ export const onNewsPostCreated = onDocumentWritten({
     const postId = event.params.postId;
     let data: any = snapshot.data();
 
+    // Capture the original submitter to ensure they get the points,
+    // even if display reporter is reassigned.
+    const originalReporterId = data.reporter?.id;
+
     const currentStatus = (data.status || "").toUpperCase();
     const isReporter = data.isReporter === true || data.processingType === "REPORTER_SUBMISSION";
 
     // 1. Guard against infinite loops or redundant processing
-    // Added 'PUBLISHED' and 'PROCESSING_VIDEO' to locked statuses to prevent redundant triggers from non-content updates
-    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED", "PROCESSING_VIDEO"];
-    if (LOCKED_STATUSES.includes(currentStatus) && !data.forceReprocess) {
+    // We MUST re-fetch the document to ensure we aren't racing with another trigger instance
+    const latestDoc = await db.collection('news').doc(postId).get();
+    const latestData = latestDoc.data();
+    if (!latestData) return;
+
+    const latestStatus = (latestData.status || "").toUpperCase();
+
+    // Statuses that mean we've already started or finished processing
+    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED"];
+
+    if (LOCKED_STATUSES.includes(latestStatus) && !data.forceReprocess) {
+        console.log(`[TRIGGER_SKIPPED] ${postId} is already in state: ${latestStatus}`);
         return;
     }
 
     // 2. AI PROCESSING PHASE
     // Trigger if not processed and status is PENDING or missing
-    if (!data.aiProcessed && (currentStatus === "PENDING" || currentStatus === "" || data.forceReprocess)) {
-        // Double check against DB to avoid race conditions
-        const latestDoc = await db.collection('news').doc(postId).get();
-        const latestData = latestDoc.data();
-        if (!latestData) return;
-
-        const latestStatus = (latestData.status || "").toUpperCase();
-        if (latestData.aiProcessed || latestStatus === "REVIEWING_CONTENT" || (LOCKED_STATUSES.includes(latestStatus) && !data.forceReprocess)) {
-            console.log(`[AI_SKIPPED] ${postId} already processing, done, or failed.`);
-            return;
-        }
-
+    if (!latestData.aiProcessed && (latestStatus === "PENDING" || latestStatus === "" || data.forceReprocess)) {
         console.log(`[ON_WRITE_PROCEED] AI Start: ${postId}`);
 
-        // LOCK immediately to prevent other instances
-        await db.collection('news').doc(postId).update({ status: "REVIEWING_CONTENT" });
+        // LOCK immediately with a transaction-like update or at least a check-before-update
+        // We use status: "REVIEWING_CONTENT" as the lock.
+        await db.collection('news').doc(postId).update({
+            status: "REVIEWING_CONTENT",
+            lastProcessingStart: admin.firestore.FieldValue.serverTimestamp()
+        });
 
         try {
-            const headline = data.headline?.telugu || "";
-            const content = data.content?.telugu || "";
+            const headline = latestData.headline?.telugu || "";
+            const content = latestData.content?.telugu || "";
 
             if (!headline || !content) {
                  await db.collection('news').doc(postId).update({ status: "FAILED", error: "Missing headline or content" });
                  return;
             }
 
-            const aiProcessedData = await performAIProcessing(headline, content, data);
-            const isRejected = !isReporter && aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
+            const aiProcessedData = await performAIProcessing(headline, content, latestData);
+
+            // --- MANDALAM REPORTER ASSIGNMENT LOGIC ---
+            // If there's an assigned reporter for this mandalam, override the reporter field
+            const mandalamDistrict = aiProcessedData.categories.find((c: string) => c.includes("జిల్లా")) ? data.district : aiProcessedData.location; // Fallback logic
+            // Actually, we should use data.district or aiProcessedData.district if we added it.
+            // Let's use the location (mandalam) and the district from data or categories.
+            const targetDistrict = data.district || (aiProcessedData.categories.find((c: string) => !c.includes("వార్త") && c !== aiProcessedData.category));
+            const targetMandalam = aiProcessedData.location;
+
+            if (targetDistrict && targetMandalam) {
+                const assignedReporter = await getAssignedReporter(targetDistrict, targetMandalam);
+                if (assignedReporter) {
+                    console.log(`[REPORTER_ASSIGN] Reassigning ${postId} to ${assignedReporter.name} for mandalam ${targetMandalam}`);
+                    aiProcessedData.reporter = assignedReporter;
+                    aiProcessedData.isReporter = true;
+                }
+            }
+            // ------------------------------------------
+
+            const finalIsReporter = isReporter || aiProcessedData.isReporter;
+            const isRejected = !finalIsReporter && aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
 
             const mTypes = (data.mediaTypes || []).map((t: string) => t.toUpperCase());
             const hasVideo = mTypes.includes('VIDEO') || data.mediaType?.toUpperCase() === 'VIDEO';
@@ -301,11 +354,17 @@ export const onNewsPostCreated = onDocumentWritten({
             const updatePayload = {
                 ...aiProcessedData,
                 status: isRejected ? "REJECTED" : (hasVideo ? "PROCESSING_VIDEO" : "published"),
-                approved: isReporter ? (hasVideo ? false : true) : (!isRejected && !hasVideo)
+                approved: finalIsReporter ? (hasVideo ? false : true) : (!isRejected && !hasVideo)
             };
 
             console.log(`[AI_DONE] ${postId}. Status: ${updatePayload.status}, Approved: ${updatePayload.approved}`);
             await db.collection('news').doc(postId).update(updatePayload);
+
+            // Award points to the ORIGINAL submitter if published
+            if (updatePayload.status === "published" && finalIsReporter && originalReporterId) {
+                const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
+                await awardPointsToReporter(originalReporterId, points);
+            }
             return; // Exit and wait for the second trigger to handle video if needed
         } catch (err: any) {
             console.error(`[AI_ERR] ${postId}:`, err.message);
@@ -393,24 +452,24 @@ export const onNewsPostCreated = onDocumentWritten({
             processedText = processedText.replace(/[<>&'"]/g, '');
             processedText = processedText.replace(/\[\[STRESS\]\](.*?)\[\[\/STRESS\]\]/g, '<prosody volume="+2.5dB" rate="92%">$1</prosody>');
             processedText = processedText.replace(/(\d+)/g, '<say-as interpret-as="cardinal">$1</say-as>');
-            processedText = processedText.replace(/అంటే\.\.\./g, 'అంటే... <break time="250ms"/>');
-            processedText = processedText.replace(/ఆ\.\.\./g, 'ఆ... <break time="200ms"/>');
-            processedText = processedText.replace(/\.\.\./g, '... <break time="500ms"/>');
-            processedText = processedText.replace(/,/g, ', <break time="150ms"/>');
-            processedText = processedText.replace(/\./g, '. <break time="350ms"/>');
-            processedText = processedText.replace(/!/g, '! <break time="250ms"/>');
-            processedText = processedText.replace(/\?/g, '? <break time="250ms"/>');
+            processedText = processedText.replace(/అంటే\.\.\./g, 'అంటే... <break time="150ms"/>');
+            processedText = processedText.replace(/ఆ\.\.\./g, 'ఆ... <break time="100ms"/>');
+            processedText = processedText.replace(/\.\.\./g, '... <break time="300ms"/>');
+            processedText = processedText.replace(/,/g, ', <break time="40ms"/>');
+            processedText = processedText.replace(/\./g, '. <break time="100ms"/>');
+            processedText = processedText.replace(/!/g, '! <break time="80ms"/>');
+            processedText = processedText.replace(/\?/g, '? <break time="80ms"/>');
 
-            const selectedVoice = 'te-IN-Chirp3-HD-Kore';
-            const speed = 1.20;
+            const selectedVoice = 'te-IN-Chirp3-HD-Alpha';
+            const ssml = `<speak><prosody rate="1.25" pitch="0st" volume="+6dB">${processedText.substring(0, 4900)}</prosody></speak>`;
 
             const ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
                 body: JSON.stringify({
-                    input: { ssml: `<speak>${processedText.substring(0, 1500)}</speak>` },
+                    input: { ssml: ssml },
                     voice: { languageCode: 'te-IN', name: selectedVoice },
-                    audioConfig: { audioEncoding: 'MP3', speakingRate: speed }
+                    audioConfig: { audioEncoding: 'MP3' }
                 })
             });
 
@@ -487,12 +546,16 @@ export const onNewsPostCreated = onDocumentWritten({
                 approved: true
             });
 
-            // CLEANUP: Delete original video file to save storage costs
-            if (videoUrl) {
-                await deleteOriginalFile(videoUrl);
-            }
+            // Award points to ORIGINAL reporter for video publication
+            if (isReporter && originalReporterId) {
+                // Re-fetch to get latest quality signals from AI phase
+                const freshDoc = await db.collection('news').doc(postId).get();
+                const freshData = freshDoc.data();
+                const points = calculateIncentivePoints(true, freshData?.qualitySignals);
 
-            if (isReporter && data.reporter?.id) await notifyReporter(data.reporter.id, postId, data.headline?.telugu || "", 'SUCCESS');
+                await awardPointsToReporter(originalReporterId, points);
+                await notifyReporter(originalReporterId, postId, data.headline?.telugu || "", 'SUCCESS');
+            }
 
             [videoPath, audioPath, outputPath].forEach(p => { if (fs.existsSync(p)) fs.unlinkSync(p); });
         } catch (err: any) {

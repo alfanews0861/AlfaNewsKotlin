@@ -58,8 +58,12 @@ exports.scheduleFestivalGreeting = (0, scheduler_1.onSchedule)({ schedule: "0 5 
                 Check if there is ANY festival, important religious day, Jayanti (anniversary of a great person), or cultural event celebrated by Telugu people (Hindu, Muslim, Christian, or National holidays) on this date.
                 Include not just major festivals, but also regional, minor, and community-specific events (like Ekadashi, Masa Shivaratri, specific Jayantis, or local Telugu traditions).
                 Do not invent events. If there is absolutely no special day today, return isFestival: false. Otherwise, return the details in JSON.` }] }],
-                systemInstruction: { role: "system", parts: [{ text: "Output JSON only. Be accurate with the Telugu calendar and regional events." }] },
-                generationConfig: { temperature: 0.2, responseMimeType: "application/json", responseSchema: schema }
+                config: {
+                    systemInstruction: { role: "system", parts: [{ text: "Output JSON only. Be accurate with the Telugu calendar and regional events." }] },
+                    temperature: 0.2,
+                    responseMimeType: "application/json",
+                    responseJsonSchema: schema
+                }
             });
             const data = (0, utils_1.parseAIJson)(checkRes.text || "{}");
             if (!data.isFestival || !data.festivalTe || data.festivalTe === "None") {
@@ -115,7 +119,11 @@ exports.scheduleQuoteOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "0 4 * *
             const res = await ai.models.generateContent({
                 model: modelName,
                 contents: [{ role: "user", parts: [{ text: `Today is ${todayStr}. Provide a highly unique, rare, and deeply inspirational Telugu quote by ${selectedTheme}. Do NOT repeat common quotes. Make sure it is 100% unique for this specific date. Output JSON.` }] }],
-                generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.8 }
+                config: {
+                    responseMimeType: "application/json",
+                    responseJsonSchema: schema,
+                    temperature: 0.8
+                }
             });
             const data = (0, utils_1.parseAIJson)(res.text || "{}");
             if (!data.quoteTe)
@@ -166,7 +174,11 @@ exports.scheduleHistoryOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "30 4 
                 contents: [{ role: "user", parts: [{ text: `Out of all historical events that happened on ${dateStr}, pick the single most important event. Write a 60 words detailed news about it.
                 Also, provide a HIGHLY DETAILED, photorealistic, and safe image prompt that describes the scene without mentioning specific living people, modern politicians, or controversial figures. Focus on the era-appropriate architecture, clothing, and the general atmosphere.
                 Generate a single-sentence Telugu headline (max 55 characters) and an English headline (max 12 words). Output JSON.` }] }],
-                generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.5 }
+                config: {
+                    responseMimeType: "application/json",
+                    responseJsonSchema: schema,
+                    temperature: 0.5
+                }
             });
             const data = (0, utils_1.parseAIJson)(res.text || "{}");
             if (!data.headlineTe)
@@ -217,7 +229,11 @@ exports.generateDailyCartoon = (0, scheduler_1.onSchedule)({ schedule: "0 6 * * 
     - Andhra Pradesh: NDA (TDP+JSP+BJP) in power. CM: Chandrababu Naidu, Deputy CM: Pawan Kalyan. Opposition: YSRCP (Jagan).
     - Telangana: Congress in power. CM: Revanth Reddy. Opposition: BRS (KCR).
     Task: 1. Identify a trending humor incident. 2. Create satire cartoon. 3. Detailed description without names. 4. Funny Telugu dialogue. Return JSON.` }] }],
-                    generationConfig: { temperature: 0.95, responseMimeType: "application/json", responseSchema: schema }
+                    config: {
+                        temperature: 0.95,
+                        responseMimeType: "application/json",
+                        responseJsonSchema: schema
+                    }
                 });
                 const cartoonData = (0, utils_1.parseAIJson)(topicRes.text || "{}");
                 const visual = cartoonData.visualDescription || "characters in a humorous situation";
@@ -229,27 +245,31 @@ exports.generateDailyCartoon = (0, scheduler_1.onSchedule)({ schedule: "0 6 * * 
                 Include a speech bubble with this specific text: "${bubbleText}".
                 Ensure the atmosphere is lighthearted and artistic. No realistic violence or sensitive content.`;
                 const buffer = await (0, utils_1.generateImageWithRetry)(ai, cartoonPrompt, '9:16');
+                let mediaUrl = "";
                 if (buffer) {
-                    const mediaUrl = await (0, utils_1.saveBufferToStorage)(buffer, `CARTOON_${state.replace(" ", "")}`) || "";
-                    await db.collection('news').add({
-                        type: 'cartoon',
-                        postFormat: 'VERTICAL',
-                        likes: 0,
-                        comments: 0,
-                        shares: 0,
-                        headline: { telugu: `${state === 'Andhra Pradesh' ? 'ఆంధ్రప్రదేశ్' : 'తెలంగాణ'} కార్టూన్`, english: `${state} Cartoon` },
-                        content: { telugu: teluguText, english: 'Daily Political Satire Cartoon' },
-                        mediaUrl,
-                        category: 'కార్టూన్',
-                        location: state,
-                        district: state,
-                        reporter: { id: 'BOT_Cartoonist', name: 'Alfa Cartoonist' },
-                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                        status: "published",
-                        approved: true,
-                        aiProcessed: true
-                    });
+                    mediaUrl = await (0, utils_1.saveBufferToStorage)(buffer, `CARTOON_${state.replace(" ", "")}`) || "";
                 }
+                else {
+                    console.warn(`[CARTOON] Image generation failed for ${state}. Posting text-only cartoon status.`);
+                }
+                await db.collection('news').add({
+                    type: 'cartoon',
+                    postFormat: 'VERTICAL',
+                    likes: 0,
+                    comments: 0,
+                    shares: 0,
+                    headline: { telugu: `${state === 'Andhra Pradesh' ? 'ఆంధ్రప్రదేశ్' : 'తెలంగాణ'} కార్టూన్`, english: `${state} Cartoon` },
+                    content: { telugu: teluguText, english: 'Daily Political Satire Cartoon' },
+                    mediaUrl, // Might be empty if buffer is null
+                    category: 'కార్టూన్',
+                    location: state,
+                    district: state,
+                    reporter: { id: 'BOT_Cartoonist', name: 'Alfa Cartoonist' },
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    status: "published",
+                    approved: true,
+                    aiProcessed: true
+                });
             });
         }
         catch (e) {
@@ -313,6 +333,20 @@ exports.checkSevereWeatherAlerts = (0, scheduler_1.onSchedule)({
                 isSevere = true;
             }
             if (isSevere) {
+                // --- STATE TRACKING & COOLDOWN (Prevention of Spam/Billing Loop) ---
+                const alertStateRef = db.collection('settings').doc('weather_alerts');
+                const alertStateDoc = await alertStateRef.get();
+                const alertStateData = alertStateDoc.data() || {};
+                const districtState = alertStateData[district] || {};
+                const lastSentAt = districtState.lastAlertSentAt?.toDate()?.getTime() || 0;
+                const lastTitle = districtState.lastAlertTitle || "";
+                const now = Date.now();
+                const COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
+                if (lastTitle === alertTitle && (now - lastSentAt) < COOLDOWN_MS) {
+                    console.log(`[WEATHER_ALERT] Skipping duplicate alert for ${district} (Cooldown active)`);
+                    continue;
+                }
+                // -----------------------------------------------------------------
                 const registeredUsers = await db.collection('users').where('district', '==', district).where('notificationsEnabled', '!=', false).limit(500).get();
                 const guestUsers = await db.collection('anonymous_devices').where('notificationsEnabled', '!=', false).limit(500).get();
                 const messages = [];
@@ -326,8 +360,17 @@ exports.checkSevereWeatherAlerts = (0, scheduler_1.onSchedule)({
                     if (token)
                         messages.push({ notification: { title: alertTitle, body: alertBody }, data: { type: "WEATHER_ALERT", district, title: alertTitle, body: alertBody }, token });
                 });
-                if (messages.length > 0)
+                if (messages.length > 0) {
                     await admin.messaging().sendEach(messages);
+                    // Update state after successful send
+                    await alertStateRef.set({
+                        [district]: {
+                            lastAlertSentAt: admin.firestore.FieldValue.serverTimestamp(),
+                            lastAlertTitle: alertTitle
+                        }
+                    }, { merge: true });
+                    console.log(`[WEATHER_ALERT] Alert sent for ${district} and state updated.`);
+                }
             }
         }
         catch (err) {
@@ -357,12 +400,15 @@ exports.cleanupOldNews = (0, scheduler_1.onSchedule)({
         // Run in sub-batches to respect Free Tier and stay within memory limits
         for (let i = 0; i < MAX_CLEANUP; i += BATCH_SIZE) {
             const oldNewsQuery = await db.collection('news')
+                .where('approved', '==', true) // Only clean active news
                 .where('timestamp', '<', admin.firestore.Timestamp.fromDate(retentionDate))
                 .orderBy('timestamp', 'asc') // Start from oldest to newest
                 .limit(BATCH_SIZE)
                 .get();
-            if (oldNewsQuery.empty)
+            if (oldNewsQuery.empty) {
+                console.log(`[CLEANUP] No more active news found for retention period.`);
                 break;
+            }
             const deletePromises = oldNewsQuery.docs.map(async (doc) => {
                 const data = doc.data();
                 // Skip if already cleaned up
@@ -396,6 +442,8 @@ exports.cleanupOldNews = (0, scheduler_1.onSchedule)({
                     mediaUrl: "",
                     mediaUrls: [],
                     mediaDeleted: true,
+                    approved: false,
+                    status: "archived",
                     lastCleanupAt: admin.firestore.FieldValue.serverTimestamp()
                 });
             });

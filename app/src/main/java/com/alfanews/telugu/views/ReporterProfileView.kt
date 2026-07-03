@@ -1,5 +1,6 @@
 package com.alfanews.telugu.views
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,6 +14,7 @@ import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.LocationOn
@@ -135,7 +137,9 @@ fun ReporterProfileView(
                             UserRole.GUEST
                         },
                         address = data["address"] as? String,
-                        district = data["district"] as? String
+                        district = data["district"] as? String,
+                        points = (data["points"] as? Number)?.toInt() ?: 0,
+                        badges = (data["badges"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
                     )
                 }
             }
@@ -341,20 +345,61 @@ fun ReporterProfileView(
                             
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.Center
+                                horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally)
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(
                                         text = posts.size.toString(),
-                                        fontSize = 24.sp,
+                                        fontSize = 20.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
                                         text = "Posts",
-                                        fontSize = 12.sp,
+                                        fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
+                                }
+
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    val pointsText = (reporter?.points ?: 0).toString()
+                                    Text(
+                                        text = pointsText,
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFE91E63)
+                                    )
+                                    Text(
+                                        text = "Points",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                    )
+                                }
+                            }
+
+                            if (!reporter?.badges.isNullOrEmpty()) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    reporter?.badges?.forEach { badge ->
+                                        Surface(
+                                            color = Color(0xFFFFA000).copy(alpha = 0.1f),
+                                            shape = RoundedCornerShape(16.dp),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFA000).copy(alpha = 0.5f)),
+                                            modifier = Modifier.padding(horizontal = 4.dp)
+                                        ) {
+                                            Text(
+                                                text = badge,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFFFA000),
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

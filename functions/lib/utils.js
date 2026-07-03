@@ -70,7 +70,7 @@ const API_KEYS = [
  */
 const getAIInstanceInternal = (apiKey) => new genai_1.GoogleGenAI({
     apiKey,
-    apiVersion: "v1"
+    apiVersion: "v1beta"
 });
 /**
  * Helper to extract HTTP status code from various types of SDK errors
@@ -155,7 +155,13 @@ async function runWithAIFallback(operation, customModels) {
                         m = modelsToTry.length; // Force break outer model loop
                         break; // Breaks retry loop
                     }
-                    // 4. Fatal/Unknown Errors
+                    // 4. JSON/Truncation Errors (if operation throws for parsing) -> FALLBACK
+                    const isDataError = errMsg.includes("JSON") || errMsg.includes("parsing") || errMsg.includes("Unterminated");
+                    if (isDataError && m < modelsToTry.length - 1) {
+                        console.warn(`[DATA-FALLBACK] ${currentModelName} failed (${errMsg}). Trying ${modelsToTry[m + 1]}...`);
+                        break;
+                    }
+                    // 5. Fatal/Unknown Errors
                     console.error(`[AI-FATAL-FINAL] Error with ${currentModelName} (${keyLabel}). Status: ${status}. Message: ${errMsg.substring(0, 100)}`);
                     throw err;
                 }
@@ -227,40 +233,32 @@ async function saveImageLocally(externalUrl, prefix) {
         return null;
     }
 }
-async function generateImageWithRetry(aiUnused, // Keeping signature but using internal fallback
+async function generateImageWithRetry(aiUnused, // Keeping signature for compatibility
 prompt, aspectRatio = '9:16', retriesUnused = 3) {
     const modelsToTry = [exports.IMAGEN_MODEL, "imagen-3.0-generate-002", "imagen-3.0-generate-001"];
-    return await runWithAIFallback(async (model) => {
-        const isGemini = model.model.startsWith("gemini-");
-        if (isGemini) {
-            const imgRes = await model.generateContent({
+    try {
+        return await runWithAIFallback(async (ai, modelName) => {
+            const response = await ai.models.generateContent({
+                model: modelName,
                 contents: [{ role: "user", parts: [{ text: prompt }] }],
                 config: {
-                    responseModalities: ["TEXT", "IMAGE"],
-                    imageConfig: { aspectRatio, imageSize: '1K' }
+                    // @ts-ignore - responseModalities is newer
+                    responseModalities: ["IMAGE"],
                 }
             });
-            const imagePart = imgRes.candidates?.[0]?.content?.parts?.find((p) => p.inlineData);
-            if (imagePart?.inlineData?.data)
-                return buffer_1.Buffer.from(imagePart.inlineData.data, 'base64');
-        }
-        else {
-            // For older Imagen models via vertex path if supported by SDK version
-            // Note: Modern GoogleGenAI usually prefers the generateContent path for multimodal
-            const imgRes = await model.generateImages({
-                prompt: prompt,
-                config: {
-                    numberOfImages: 1,
-                    aspectRatio: aspectRatio,
-                    safetyFilterLevel: 'BLOCK_ONLY_HIGH',
-                    personGeneration: 'ALLOW_ALL',
-                    includeRaiReason: true
+            if (response.candidates && response.candidates.length > 0) {
+                const parts = response.candidates[0].content.parts;
+                const imagePart = parts.find((p) => p.inlineData);
+                if (imagePart && imagePart.inlineData) {
+                    return buffer_1.Buffer.from(imagePart.inlineData.data, 'base64');
                 }
-            });
-            if (imgRes.generatedImages?.[0]?.image?.imageBytes)
-                return buffer_1.Buffer.from(imgRes.generatedImages[0].image.imageBytes, 'base64');
-        }
+            }
+            throw new Error(`Model ${modelName} returned no image data`);
+        }, modelsToTry);
+    }
+    catch (e) {
+        console.error("[IMAGE_GEN_ERROR] All attempts failed:", e.message);
         return null;
-    }, modelsToTry);
+    }
 }
 //# sourceMappingURL=utils.js.map

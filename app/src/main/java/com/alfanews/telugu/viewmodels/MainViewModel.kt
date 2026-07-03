@@ -1,31 +1,39 @@
 package com.alfanews.telugu.viewmodels
 
 import android.app.Application
+import android.content.Context
 import android.net.Uri
+import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.alfanews.telugu.models.Language
+import com.alfanews.telugu.models.ThemeMode
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
+import com.alfanews.telugu.models.*
 import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseService
+import com.alfanews.telugu.utils.Constants
 import com.alfanews.telugu.utils.PreferenceManager
-import com.alfanews.telugu.models.ThemeMode
-import android.provider.Settings
+import com.alfanews.telugu.utils.uploadImageToStorage
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
-import com.google.firebase.storage.FirebaseStorage
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import java.util.Date
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = PreferenceManager.getInstance(application)
     private var userListener: ListenerRegistration? = null
+    private var newsListener: ListenerRegistration? = null
+    private val appStartTime = System.currentTimeMillis()
 
     private val _currentUser = MutableStateFlow<User?>(null)
     val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
@@ -54,12 +62,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _notificationsGranted = MutableStateFlow(true)
     val notificationsGranted: StateFlow<Boolean> = _notificationsGranted.asStateFlow()
 
+    private val _newNewsNotification = MutableStateFlow<NewsPost?>(null)
+    val newNewsNotification: StateFlow<NewsPost?> = _newNewsNotification.asStateFlow()
+
     init {
         // 🧪 TEST LAB BRIDGE: Firebase Test Lab లో టెస్టింగ్ కోసం మారుపేరు (Mock) యూజర్ ని సెట్ చేయడం.
         val isTestLab = Settings.System.getString(application.contentResolver, "firebase.test.lab") == "true"
         if (isTestLab) {
-            // Robo Test లో 'Environment Variables' లేదా 'Intent' ద్వారా రోల్ పంపవచ్చు
-            // ప్రస్తుతానికి సిస్టమ్ సెట్టింగ్ మరియు సురక్షితమైన ఫాల్‌బ్యాక్ చూద్దాం
             val testRoleSetting = Settings.System.getString(application.contentResolver, "firebase.test.lab.role") ?: "REPORTER"
             val mockUser = when (testRoleSetting) {
                 "REPORTER" -> User(
@@ -82,8 +91,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // 🚀 QUICK CACHE LOAD: Immediately load basic user info from preferences
-        // to prevent role reset (Guest/Subscriber) while waiting for Firebase.
         val cachedId = prefs.userId
         val cachedRole = prefs.userRole ?: "SUBSCRIBER"
         if (cachedId != null) {
@@ -96,7 +103,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         FirebaseService.auth.addAuthStateListener { auth ->
-            // Test Lab లో Mock User ఉన్నప్పుడు Auth Listener ని స్కిప్ చేస్తాం
             if (isTestLab && _currentUser.value?.id?.startsWith("ftl_") == true) return@addAuthStateListener
 
             userListener?.remove() 
@@ -109,26 +115,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             userListener = FirebaseService.db.collection("users").document(firebaseUser.uid)
                 .addSnapshotListener { snapshot, e ->
-                    if (e != null) {
-                        // 🔍 RESILIENCE: Network error వస్తే పాత డేటాను అలాగే ఉంచుతాము.
-                        return@addSnapshotListener
-                    }
+                    if (e != null) return@addSnapshotListener
 
                     if (snapshot != null && snapshot.exists()) {
-                        // Extract role explicitly to avoid deserialization issues
                         val rawRole = snapshot.get("role")
                         val parsedRole = UserRole.fromStringSafe(rawRole) ?: _currentUser.value?.role ?: UserRole.SUBSCRIBER
 
                         val userObj = try {
-                            // First attempt: Automatic mapping with explicit role conversion
                             val baseUser = snapshot.toObject(User::class.java)
-                            baseUser?.copy(
-                                id = snapshot.id,
-                                role = parsedRole
-                            )
-                        } catch (e: Exception) {
-                            // Second attempt: Manual mapping if automatic fails (Resilience)
-                            // This ensures we always get the correct role from Firestore
+                            baseUser?.copy(id = snapshot.id, role = parsedRole)
+                        } catch (ex: Exception) {
                             User(
                                 id = snapshot.id,
                                 name = snapshot.getString("name") ?: "User",
@@ -161,15 +157,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _currentUser.value = userObj
                         
                         if (userObj != null) {
-                            // 🚀 SYNC CACHE: Save fresh data to local preferences for offline use
                             prefs.userId = userObj.id
                             prefs.userName = snapshot.getString("name") ?: userObj.name
-                            prefs.userRole = userObj.role.name // Always store role name as String
+                            prefs.userRole = userObj.role.name
                             prefs.userDistrict = snapshot.getString("district") ?: userObj.district
 
                             AnalyticsService.onUserLogin(userObj)
                             
-                            // ఒకవేళ యూజర్ ఆసక్తులు లేదా జిల్లా మారితే, నోటిఫికేషన్ సబ్‌స్క్రిప్షన్లను అప్‌డేట్ చేయడం
                             if (prefs.isNotificationsEnabled) {
                                 val oldInterests = oldUser?.categoryScores?.keys ?: emptySet()
                                 val newInterests = userObj.categoryScores.keys
@@ -182,9 +176,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         }
                     } else {
-                        // 🔍 SAFETY: Avoid auto-creating users here to prevent race conditions 
-                        // and accidental role resets during initial auth state changes.
-                        // User creation is primarily handled by LoginViewModel during sign-in.
                         _currentUser.value = null
                     }
                 }
@@ -204,11 +195,124 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+
+        startNewsListener()
     }
+
+    private fun startNewsListener() {
+        newsListener?.remove()
+        newsListener = FirebaseService.db.collection("news")
+            .whereEqualTo("approved", true)
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+            .limit(1)
+            .addSnapshotListener { snapshot, e ->
+                if (e != null || snapshot == null || snapshot.isEmpty) return@addSnapshotListener
+                
+                val doc = snapshot.documents.firstOrNull() ?: return@addSnapshotListener
+                val post = mapDocumentToNewsPost(doc) ?: return@addSnapshotListener
+                
+                if (post.timestamp <= appStartTime) return@addSnapshotListener
+                if (_newNewsNotification.value?.id == post.id) return@addSnapshotListener
+
+                val userDist = _currentUser.value?.district ?: prefs.getEffectiveDistrict()
+                val isDistrictSpecific = Constants.ALL_DISTRICTS.contains(post.district)
+                
+                if (isDistrictSpecific) {
+                    if (post.district == userDist) {
+                        _newNewsNotification.value = post
+                    }
+                } else {
+                    _newNewsNotification.value = post
+                }
+            }
+    }
+
+    fun dismissInAppNotification() {
+        _newNewsNotification.value = null
+    }
+
+    private fun mapDocumentToNewsPost(doc: com.google.firebase.firestore.DocumentSnapshot): NewsPost? {
+        return try {
+            val data = doc.data ?: return null
+            val rawHeadline = data["headline"]
+            val rawContent = data["content"]
+            
+            val headlineTe = when (rawHeadline) {
+                is Map<*, *> -> rawHeadline["telugu"]?.toString() ?: ""
+                is String -> rawHeadline
+                else -> ""
+            }
+            val headlineEn = when (rawHeadline) {
+                is Map<*, *> -> rawHeadline["english"]?.toString() ?: ""
+                else -> ""
+            }
+            
+            val contentTe = when (rawContent) {
+                is Map<*, *> -> rawContent["telugu"]?.toString() ?: ""
+                is String -> rawContent
+                else -> ""
+            }
+            val contentEn = when (rawContent) {
+                is Map<*, *> -> rawContent["english"]?.toString() ?: ""
+                else -> ""
+            }
+
+            val likesCount = (data["likes"] as? Number)?.toInt() ?: 0
+            val commentsCount = (data["comments"] as? Number)?.toInt() ?: 0
+            val sharesCount = (data["shares"] as? Number)?.toInt() ?: 0
+            val postTimestamp = when (val ts = data["timestamp"]) {
+                is Timestamp -> ts.toDate().time
+                is Number -> ts.toLong()
+                is Date -> ts.time
+                else -> System.currentTimeMillis()
+            }
+            val categoryValue = data["category"]?.toString() ?: "General News"
+            val categoriesList = (data["categories"] as? List<*>)?.mapNotNull { it?.toString() } ?: listOf(categoryValue)
+
+            NewsPost(
+                id = doc.id,
+                headline = Headline(telugu = headlineTe, english = headlineEn),
+                content = Content(telugu = contentTe, english = contentEn),
+                mediaUrl = data["mediaUrl"]?.toString() ?: "",
+                mediaType = if (data["mediaType"]?.toString() == "VIDEO") MediaType.VIDEO else MediaType.IMAGE,
+                youtubeUrl = data["youtubeUrl"]?.toString(),
+                postFormat = if (data["postFormat"]?.toString() == "16:9") PostFormat.HORIZONTAL else PostFormat.VERTICAL,
+                reporter = Reporter(
+                    id = (data["reporter"] as? Map<*, *>)?.get("id")?.toString() ?: "",
+                    name = (data["reporter"] as? Map<*, *>)?.get("name")?.toString() ?: ""
+                ),
+                location = data["location"]?.toString() ?: "",
+                timestamp = postTimestamp,
+                categories = categoriesList,
+                likes = likesCount,
+                comments = commentsCount,
+                shares = sharesCount,
+                originalUrl = data["originalUrl"]?.toString(),
+                district = data["district"]?.toString() ?: "State",
+                verificationStatus = data["verificationStatus"]?.toString() ?: "UNVERIFIED",
+                category = categoryValue,
+                tags = (data["tags"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
+                entities = (data["entities"] as? Map<*, *>)?.let { entitiesMap ->
+                    Entities(
+                        people = (entitiesMap["people"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
+                        organizations = (entitiesMap["organizations"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
+                        locations = (entitiesMap["locations"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+                    )
+                } ?: Entities(),
+                type = data["type"]?.toString() ?: "news",
+                approved = data["approved"] as? Boolean ?: false,
+                aiProcessed = data["aiProcessed"] as? Boolean ?: false,
+                isGlobal = data["isGlobal"] as? Boolean ?: false,
+                isReporter = data["isReporter"] as? Boolean ?: (data["processingType"]?.toString() == "REPORTER_SUBMISSION")
+            )
+        } catch (ex: Exception) { null }
+    }
+
 
     override fun onCleared() {
         super.onCleared()
         userListener?.remove()
+        newsListener?.remove()
     }
 
     fun setActiveTab(tab: String) {
@@ -253,7 +357,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun signOut() {
         viewModelScope.launch {
             FirebaseService.auth.signOut()
-            prefs.clearUserData() // 🚀 CLEAR CACHE on logout
+            prefs.clearUserData()
             _currentUser.value = null
             userListener?.remove()
             AnalyticsService.onUserLogout()
@@ -279,22 +383,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "district" to district,
                 )
 
-                val photoDeferred = photoUri?.let {
-                    async {
-                        com.alfanews.telugu.utils.uploadImageToStorage(getApplication(), it, "profile_images")
-                    }
+                if (photoUri != null) {
+                    val url = uploadImageToStorage(getApplication(), photoUri, "profile_images")
+                    updates["photoUrl"] = url
                 }
 
-                val signatureDeferred = signatureUri?.let {
-                    async {
-                        com.alfanews.telugu.utils.uploadImageToStorage(getApplication(), it, "signatures")
-                    }
+                if (signatureUri != null) {
+                    val url = uploadImageToStorage(getApplication(), signatureUri, "signatures")
+                    updates["signatureUrl"] = url
                 }
 
-                photoDeferred?.await()?.let { updates["photoUrl"] = it }
-                signatureDeferred?.await()?.let { updates["signatureUrl"] = it }
-
-                // ఒకవేళ అడ్మిన్ ప్రొఫైల్ అప్‌డేట్ చేస్తుంటే, గ్లోబల్ సంతకాన్ని కూడా అప్‌డేట్ చేయడం
                 if (user.role == UserRole.ADMIN) {
                     val finalSignature = (updates["signatureUrl"] as? String) ?: user.signatureUrl
                     if (!finalSignature.isNullOrBlank()) {
@@ -322,17 +420,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         
         viewModelScope.launch {
             try {
-                // Unsubscribe from old interest-based topics
                 oldInterests.forEach { category ->
                     messaging.unsubscribeFromTopic("district_${d}_${category.lowercase()}").await()
                 }
-                // Subscribe to new interest-based topics
                 newInterests.forEach { category ->
                     messaging.subscribeToTopic("district_${d}_${category.lowercase()}").await()
                 }
-            } catch (e: Exception) {
-                // Log or handle error appropriately
-            }
+            } catch (e: Exception) { }
         }
     }
 
@@ -341,43 +435,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
             val user = _currentUser.value
             val district = user?.district?.lowercase()?.replace(" ", "_") ?: prefs.getEffectiveDistrict()?.lowercase()?.replace(" ", "_")
-            
-            // User interests tracked via categoryScores in User model
             val interests: Set<String> = user?.categoryScores?.keys ?: emptySet()
             
             try {
                 if (enabled) {
                     messaging.subscribeToTopic("all_users").await()
                     messaging.subscribeToTopic("breaking_news").await()
-                    
                     district?.let { d ->
                         messaging.subscribeToTopic("district_$d").await()
-                        // Subscribe to interest-based topics
-                        interests.forEach { category: String ->
+                        interests.forEach { category ->
                             messaging.subscribeToTopic("district_${d}_${category.lowercase()}").await()
                         }
                     }
                 } else {
                     messaging.unsubscribeFromTopic("all_users").await()
                     messaging.unsubscribeFromTopic("breaking_news").await()
-                    
                     district?.let { d ->
                         messaging.unsubscribeFromTopic("district_$d").await()
-                        // Unsubscribe from interest-based topics
-                        interests.forEach { category: String ->
+                        interests.forEach { category ->
                             messaging.unsubscribeFromTopic("district_${d}_${category.lowercase()}").await()
                         }
                     }
                 }
 
-                // Firestore మరియు Preferences అప్‌డేట్
                 prefs.isNotificationsEnabled = enabled
                 user?.id?.let { uid ->
                     FirebaseService.db.collection("users").document(uid).update("pushEnabled", enabled).await()
                 }
-            } catch (e: Exception) {
-                // Log or handle error appropriately
-            }
+            } catch (e: Exception) { }
         }
     }
 }

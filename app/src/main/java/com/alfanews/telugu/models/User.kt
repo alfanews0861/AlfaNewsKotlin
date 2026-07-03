@@ -4,7 +4,7 @@ package com.alfanews.telugu.models
  * అప్లికేషన్‌లోని వినియోగదారుల రకాలను (Roles) నిర్వచిస్తుంది.
  */
 enum class UserRole {
-    GUEST, SUBSCRIBER, REPORTER, REGIONAL_INCHARGE, EDITOR, ADMIN;
+    GUEST, SUBSCRIBER, REPORTER, REGIONAL_INCHARGE, EDITOR, ADMIN, NEWS_DESK;
 
     companion object {
         /**
@@ -46,6 +46,7 @@ enum class UserRole {
             val cleanValue = rawValue.uppercase()
             when (cleanValue) {
                 "ADMIN" -> return ADMIN
+                "NEWS_DESK", "NEWS DESK", "NEWSDESK" -> return NEWS_DESK
                 "REPORTER" -> return REPORTER
                 "EDITOR" -> return EDITOR
                 "REGIONAL_INCHARGE", "REGIONAL INCHARGE", "REGIONAL_IN_CHARGE" -> return REGIONAL_INCHARGE
@@ -92,5 +93,15 @@ data class User(
     val tagScores: Map<String, Int> = emptyMap(),
     val peopleScores: Map<String, Int> = emptyMap(),
     val organizationScores: Map<String, Int> = emptyMap(),
-    val locationScores: Map<String, Int> = emptyMap()
+    val locationScores: Map<String, Int> = emptyMap(),
+    
+    // ఇన్సెంటివ్ సిస్టమ్ ఫీల్డ్స్
+    val points: Int = 0,
+    val badges: List<String> = emptyList(),
+    
+    // రిపోర్టర్ మానిటరింగ్ ఫీల్డ్స్
+    val warningLevel: Int = 0,
+    val lastWarningDate: Long? = null,
+    val inProbation: Boolean = false,
+    val lastPostTimestamp: Long? = null
 )

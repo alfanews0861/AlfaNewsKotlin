@@ -1,0 +1,7 @@
+- `[x]` Create `AppDrawer.kt` for shared drawer content
+- `[x]` Redesign `LogoHeader.kt` (Blue bg, Red strip, White logo, Menu icon)
+- `[x]` Update `NewsFeedView.kt` to support menu click
+- `[x]` Update `LocalNewsFeedView.kt` to support menu click
+- `[x]` Implement `ModalNavigationDrawer` in `MainScreen.kt`
+- `[x]` Refactor `AdminPanelView.kt` to integrate with global drawer
+- `[x]` Verify UI and navigation

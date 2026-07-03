@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Switch
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -85,6 +86,7 @@ fun PostNewsPageView(
     var category by remember { mutableStateOf(postToEdit?.categories?.firstOrNull { !Constants.ALL_DISTRICTS.contains(it) } ?: "జిల్లా వార్త") }
     var state by remember { mutableStateOf(postToEdit?.state ?: user.state ?: "TS") }
     var district by remember { mutableStateOf(postToEdit?.district ?: user.district ?: "") }
+    var isGlobalNews by remember { mutableStateOf(postToEdit?.isGlobal ?: false) }
     var isSubmitting by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
@@ -163,7 +165,11 @@ fun PostNewsPageView(
     }
 
     fun handleSubmit() {
-        if (headline.isBlank() || content.isBlank() || district.isBlank()) {
+        if (!isGlobalNews && (headline.isBlank() || content.isBlank() || district.isBlank())) {
+            Toast.makeText(context, context.getString(R.string.fill_details_error), Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (isGlobalNews && (headline.isBlank() || content.isBlank())) {
             Toast.makeText(context, context.getString(R.string.fill_details_error), Toast.LENGTH_SHORT).show()
             return
         }
@@ -204,7 +210,13 @@ fun PostNewsPageView(
 
                 statusMessage = "వార్తను పంపిస్తున్నాము..."
                 
-                val finalCategories = listOf(category, district).filter { it.isNotBlank() }
+                val finalCategories = listOf(category, if (isGlobalNews) "State" else district).filter { it.isNotBlank() }
+
+                val reporterData = if (postToEdit != null) {
+                    mapOf("id" to postToEdit.reporter.id, "name" to postToEdit.reporter.name)
+                } else {
+                    mapOf("id" to user.id, "name" to user.name)
+                }
 
                 val postData = hashMapOf(
                     "mediaUrl" to (finalMediaUrls.firstOrNull() ?: ""),
@@ -214,10 +226,11 @@ fun PostNewsPageView(
                     "youtubeUrl" to youtubeUrl,
                     "location" to location,
                     "categories" to finalCategories,
-                    "reporter" to mapOf("id" to user.id, "name" to user.name),
+                    "reporter" to reporterData,
                     "category" to category,
-                    "district" to district,
+                    "district" to (if (isGlobalNews) "State" else district),
                     "state" to state,
+                    "isGlobal" to isGlobalNews,
                     "likes" to (postToEdit?.likes ?: 0),
                     "comments" to (postToEdit?.comments ?: 0),
                     "shares" to (postToEdit?.shares ?: 0),
@@ -308,24 +321,44 @@ fun PostNewsPageView(
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(regionDetailsLabel, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Dropdown(label = stateLabel, options = stateOptions, selected = state, onSelected = { s -> state = s; district = "" }, modifier = Modifier.weight(1f))
-                        Dropdown(label = districtLabel, options = districtOptions, selected = district, onSelected = { d -> district = d; location = "" }, modifier = Modifier.weight(1f))
-                    }
-                    
-                    if (mandals.isNotEmpty()) {
-                        Dropdown(label = mandalLabel, options = mandalOptions, selected = location, onSelected = { l -> location = l }, modifier = Modifier.fillMaxWidth())
-                    } else {
-                        OutlinedTextField(
-                            value = location,
-                            onValueChange = { location = it },
-                            label = { Text(stringResource(R.string.location_placeholder)) },
+
+                    if (user.role == UserRole.ADMIN || user.role == UserRole.NEWS_DESK) {
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(stringResource(R.string.global_news_label), style = MaterialTheme.typography.bodyLarge)
+                                Text(stringResource(R.string.global_news_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                checked = isGlobalNews,
+                                onCheckedChange = { isGlobalNews = it }
                             )
-                        )
+                        }
+                    }
+
+                    if (!isGlobalNews) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Dropdown(label = stateLabel, options = stateOptions, selected = state, onSelected = { s -> state = s; district = "" }, modifier = Modifier.weight(1f))
+                            Dropdown(label = districtLabel, options = districtOptions, selected = district, onSelected = { d -> district = d; location = "" }, modifier = Modifier.weight(1f))
+                        }
+
+                        if (mandals.isNotEmpty()) {
+                            Dropdown(label = mandalLabel, options = mandalOptions, selected = location, onSelected = { l -> location = l }, modifier = Modifier.fillMaxWidth())
+                        } else {
+                            OutlinedTextField(
+                                value = location,
+                                onValueChange = { location = it },
+                                label = { Text(stringResource(R.string.location_placeholder)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                )
+                            )
+                        }
                     }
                 }
             }

@@ -370,26 +370,62 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
      }
 
      private suspend fun fetchFilteredBatch(baseQuery: Query, cursor: DocumentSnapshot?, district: String?, excludeDistricts: Boolean, limit: Int = FETCH_LIMIT): Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?> {
-           var currentCursor = cursor
-           var query = baseQuery.whereEqualTo("approved", true)
-           if (excludeDistricts) {
-               val generalCats = globalDistricts.distinct().take(30)
-               query = query.whereIn("district", generalCats)
-           } else if (district != null) {
-               query = query.whereArrayContains("categories", district)
-           }
-           query = query.orderBy("timestamp", Query.Direction.DESCENDING).limit(limit.toLong())
-           if (currentCursor != null) query = query.startAfter(currentCursor)
-           val snapshot = query.get().await()
-           if (snapshot.isEmpty) {
-               return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
-           }
-           val batch = snapshot.documents.mapNotNull { doc ->
-               mapDocumentToNewsPost(doc)
-           }
-           currentCursor = snapshot.documents.lastOrNull()
-           return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(batch, currentCursor)
-       }
+            var currentCursor = cursor
+            var query = baseQuery.whereEqualTo("approved", true)
+            if (excludeDistricts) {
+                val generalCats = globalDistricts.distinct().take(30)
+                query = query.whereIn("district", generalCats)
+            } else if (district != null) {
+                query = query.whereArrayContains("categories", district)
+            }
+            query = query.orderBy("timestamp", Query.Direction.DESCENDING).limit(limit.toLong())
+            if (currentCursor != null) query = query.startAfter(currentCursor)
+            
+            try {
+                val snapshot = query.get().await()
+                if (snapshot.isEmpty) {
+                    if (excludeDistricts) {
+                        var fallbackQuery = baseQuery.whereEqualTo("approved", true)
+                            .orderBy("timestamp", Query.Direction.DESCENDING).limit(limit.toLong())
+                        if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
+                        val fallbackSnapshot = fallbackQuery.get().await()
+                        if (fallbackSnapshot.isEmpty) {
+                            return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
+                        }
+                        val batch = fallbackSnapshot.documents.mapNotNull { doc ->
+                            mapDocumentToNewsPost(doc)
+                        }
+                        currentCursor = fallbackSnapshot.documents.lastOrNull()
+                        return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(batch, currentCursor)
+                    }
+                    return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
+                }
+                val batch = snapshot.documents.mapNotNull { doc ->
+                    mapDocumentToNewsPost(doc)
+                }
+                currentCursor = snapshot.documents.lastOrNull()
+                return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(batch, currentCursor)
+            } catch (e: Exception) {
+                if (excludeDistricts) {
+                    try {
+                        var fallbackQuery = baseQuery.whereEqualTo("approved", true)
+                            .orderBy("timestamp", Query.Direction.DESCENDING).limit(limit.toLong())
+                        if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
+                        val fallbackSnapshot = fallbackQuery.get().await()
+                        if (!fallbackSnapshot.isEmpty) {
+                            val batch = fallbackSnapshot.documents.mapNotNull { doc ->
+                                mapDocumentToNewsPost(doc)
+                            }
+                            currentCursor = fallbackSnapshot.documents.lastOrNull()
+                            return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(batch, currentCursor)
+                        }
+                    } catch (ex: Exception) {
+                        // ignore and throw original exception
+                    }
+                }
+                throw e
+            }
+        }
 
        private suspend fun rankAndBlendPosts(pref: kotlin.collections.List<NewsPost>, main: kotlin.collections.List<NewsPost>, local: kotlin.collections.List<NewsPost>, isFirstPage: Boolean = false): kotlin.collections.List<NewsPost> = withContext(Dispatchers.Default) {
             val filteredPref = pref.filter { prefs.getPostViewCount(it.id) < 2 }
@@ -501,6 +537,29 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private fun mapDocumentToNewsPost(doc: DocumentSnapshot): NewsPost? {
         return try {
             val data = doc.data ?: return null
+            val rawHeadline = data["headline"]
+            val rawContent = data["content"]
+            
+            val headlineTe = when (rawHeadline) {
+                is Map<*, *> -> rawHeadline["telugu"]?.toString() ?: ""
+                is String -> rawHeadline
+                else -> ""
+            }
+            val headlineEn = when (rawHeadline) {
+                is Map<*, *> -> rawHeadline["english"]?.toString() ?: ""
+                else -> ""
+            }
+            
+            val contentTe = when (rawContent) {
+                is Map<*, *> -> rawContent["telugu"]?.toString() ?: ""
+                is String -> rawContent
+                else -> ""
+            }
+            val contentEn = when (rawContent) {
+                is Map<*, *> -> rawContent["english"]?.toString() ?: ""
+                else -> ""
+            }
+
             val likesCount = (data["likes"] as? Number)?.toInt() ?: 0
             val commentsCount = (data["comments"] as? Number)?.toInt() ?: 0
             val sharesCount = (data["shares"] as? Number)?.toInt() ?: 0
@@ -516,12 +575,12 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             NewsPost(
                 id = doc.id,
                 headline = com.alfanews.telugu.models.Headline(
-                    telugu = (data["headline"] as? Map<*, *>)?.get("telugu")?.toString() ?: "",
-                    english = (data["headline"] as? Map<*, *>)?.get("english")?.toString() ?: ""
+                    telugu = headlineTe,
+                    english = headlineEn
                 ),
                 content = com.alfanews.telugu.models.Content(
-                    telugu = (data["content"] as? Map<*, *>)?.get("telugu")?.toString() ?: "",
-                    english = (data["content"] as? Map<*, *>)?.get("english")?.toString() ?: ""
+                    telugu = contentTe,
+                    english = contentEn
                 ),
                 mediaUrl = data["mediaUrl"]?.toString() ?: "",
                 mediaType = if (data["mediaType"]?.toString() == "VIDEO") com.alfanews.telugu.models.MediaType.VIDEO else com.alfanews.telugu.models.MediaType.IMAGE,
@@ -552,6 +611,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 type = data["type"]?.toString() ?: "news",
                 approved = data["approved"] as? Boolean ?: false,
                 aiProcessed = data["aiProcessed"] as? Boolean ?: false,
+                isGlobal = data["isGlobal"] as? Boolean ?: false,
                 isReporter = data["isReporter"] as? Boolean ?: (data["processingType"]?.toString() == "REPORTER_SUBMISSION")
             )
         } catch (e: Exception) { null }

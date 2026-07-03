@@ -4,6 +4,7 @@ export enum UserRole {
   REPORTER = 'REPORTER',
   EDITOR = 'EDITOR',
   ADMIN = 'ADMIN',
+  NEWS_DESK = 'NEWS_DESK',
 }
 
 export interface User {
@@ -20,6 +21,13 @@ export interface User {
   idCardUrl?: string;
   state?: string;
   district?: string;
+  assignedMandal?: string;
+  points?: number;
+  badges?: string[];
+  warningLevel?: number;
+  lastWarningDate?: any;
+  inProbation?: boolean;
+  lastPostTimestamp?: any;
 }
 
 export enum PostFormat {
@@ -53,6 +61,8 @@ export interface NewsPost {
   comments: number;
   shares: number;
   originalUrl?: string; // To check for duplicates
+  affiliateUrl?: string; // New field for ecommerce products
+  productPrice?: string; // Optional price information
 }
 
 export enum Language {

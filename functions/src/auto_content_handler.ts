@@ -314,20 +314,80 @@ export const checkSevereWeatherAlerts = onSchedule({
             }
 
             if (isSevere) {
-                const registeredUsers = await db.collection('users').where('district', '==', district).where('notificationsEnabled', '!=', false).limit(500).get();
-                const guestUsers = await db.collection('anonymous_devices').where('notificationsEnabled', '!=', false).limit(500).get();
-                const messages: admin.messaging.Message[] = [];
+                // --- STATE TRACKING & COOLDOWN (Prevention of Spam/Billing Loop) ---
+                const alertStateRef = db.collection('settings').doc('weather_alerts');
+                const alertStateDoc = await alertStateRef.get();
+                const alertStateData = alertStateDoc.data() || {};
+                const districtState = alertStateData[district] || {};
 
-                registeredUsers.docs.forEach(doc => {
-                    const token = doc.data().fcmToken;
-                    if (token) messages.push({ notification: { title: alertTitle, body: alertBody }, data: { type: "WEATHER_ALERT", district, title: alertTitle, body: alertBody }, token });
-                });
-                guestUsers.docs.forEach(doc => {
-                    const token = doc.data().fcmToken;
-                    if (token) messages.push({ notification: { title: alertTitle, body: alertBody }, data: { type: "WEATHER_ALERT", district, title: alertTitle, body: alertBody }, token });
-                });
+                const lastSentAt = districtState.lastAlertSentAt?.toDate()?.getTime() || 0;
+                const lastTitle = districtState.lastAlertTitle || "";
+                const now = Date.now();
+                const COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
 
-                if (messages.length > 0) await admin.messaging().sendEach(messages);
+                if (lastTitle === alertTitle && (now - lastSentAt) < COOLDOWN_MS) {
+                    console.log(`[WEATHER_ALERT] Skipping duplicate alert for ${district} (Cooldown active)`);
+                    continue;
+                }
+                // -----------------------------------------------------------------
+
+                // --- NOTIFICATION BATCHING ---
+                const sendAlerts = async (collectionName: string) => {
+                    let lastDoc = null;
+                    let hasMoreUsers = true;
+                    while (hasMoreUsers) {
+                        let userQuery = db.collection(collectionName)
+                            .where('notificationsEnabled', '!=', false);
+
+                        if (collectionName === 'users') {
+                            userQuery = userQuery.where('district', '==', district);
+                        }
+
+                        if (lastDoc) userQuery = userQuery.startAfter(lastDoc);
+                        const userSnap = await userQuery.limit(500).get();
+
+                        if (userSnap.empty) {
+                            hasMoreUsers = false;
+                            break;
+                        }
+
+                        const messages: admin.messaging.Message[] = [];
+                        userSnap.docs.forEach(doc => {
+                            const token = doc.data().fcmToken;
+                            if (token) {
+                                messages.push({
+                                    notification: { title: alertTitle, body: alertBody },
+                                    data: { type: "WEATHER_ALERT", district, title: alertTitle, body: alertBody },
+                                    token
+                                });
+                            }
+                        });
+
+                        if (messages.length > 0) {
+                            try {
+                                const response = await admin.messaging().sendEach(messages);
+                                console.log(`[WEATHER_ALERT] Sent ${response.successCount} alerts to ${collectionName}.`);
+                            } catch (e: any) {
+                                console.error(`[WEATHER_ALERT_SEND_ERR] ${collectionName}:`, e.message);
+                            }
+                        }
+
+                        lastDoc = userSnap.docs[userSnap.docs.length - 1];
+                        hasMoreUsers = userSnap.docs.length === 500;
+                    }
+                };
+
+                await sendAlerts('users');
+                await sendAlerts('anonymous_devices');
+
+                // Update state after successful run
+                await alertStateRef.set({
+                    [district]: {
+                        lastAlertSentAt: admin.firestore.FieldValue.serverTimestamp(),
+                        lastAlertTitle: alertTitle
+                    }
+                }, { merge: true });
+                console.log(`[WEATHER_ALERT] Alert cycle completed for ${district}.`);
             }
         } catch (err: any) { console.error(`[WEATHER_ALERT] Error:`, err.message); }
     }
@@ -357,12 +417,16 @@ export const cleanupOldNews = onSchedule({
         // Run in sub-batches to respect Free Tier and stay within memory limits
         for (let i = 0; i < MAX_CLEANUP; i += BATCH_SIZE) {
             const oldNewsQuery = await db.collection('news')
+                .where('approved', '==', true) // Only clean active news
                 .where('timestamp', '<', admin.firestore.Timestamp.fromDate(retentionDate))
                 .orderBy('timestamp', 'asc') // Start from oldest to newest
                 .limit(BATCH_SIZE)
                 .get();
 
-            if (oldNewsQuery.empty) break;
+            if (oldNewsQuery.empty) {
+                console.log(`[CLEANUP] No more active news found for retention period.`);
+                break;
+            }
 
             const deletePromises = oldNewsQuery.docs.map(async (doc) => {
                 const data = doc.data();
@@ -399,6 +463,8 @@ export const cleanupOldNews = onSchedule({
                     mediaUrl: "",
                     mediaUrls: [],
                     mediaDeleted: true,
+                    approved: false,
+                    status: "archived",
                     lastCleanupAt: admin.firestore.FieldValue.serverTimestamp()
                 });
             });

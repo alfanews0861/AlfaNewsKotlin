@@ -49,7 +49,8 @@ fun NewsFeedView(
     onReporterClick: (String) -> Unit = {},
     onDistrictClick: () -> Unit = {},
     initialPostId: String? = null,
-    onEditClick: (NewsPost) -> Unit = {}
+    onEditClick: (NewsPost) -> Unit = {},
+    onMenuClick: () -> Unit = {}
 ) {
     val news by viewModel.news.collectAsStateWithLifecycle()
     val loading by viewModel.loading.collectAsStateWithLifecycle()
@@ -218,7 +219,8 @@ fun NewsFeedView(
             LogoHeader(
                 district = userDistrict,
                 showDistrictSelector = false,
-                onDistrictClick = onDistrictClickRemembered
+                onDistrictClick = onDistrictClickRemembered,
+                onMenuClick = onMenuClick
             )
 
             Box(modifier = Modifier.weight(1f)) {
@@ -237,11 +239,29 @@ fun NewsFeedView(
                             }
                         }
                     }
-                } else if (loading && news.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            CircularProgressIndicator(modifier = Modifier.size(40.dp), color = MaterialTheme.colorScheme.primary)
-                            Text(text = stringResource(R.string.news_preparing), color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge)
+                } else if (news.isEmpty()) {
+                    if (loading) {
+                        // Show loading spinner whenever news is empty and still loading
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                CircularProgressIndicator(modifier = Modifier.size(40.dp), color = MaterialTheme.colorScheme.primary)
+                                Text(text = stringResource(R.string.news_preparing), color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge)
+                            }
+                        }
+                    } else {
+                        // Show empty state / retry button when loading finished and news is still empty
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                                modifier = Modifier.padding(32.dp)
+                            ) {
+                                Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                Text(text = stringResource(R.string.no_news_available), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground, textAlign = TextAlign.Center)
+                                Button(onClick = { viewModel.loadNews(language, currentUser, initialPostId) }) {
+                                    Text(text = stringResource(R.string.retry))
+                                }
+                            }
                         }
                     }
                 } else {

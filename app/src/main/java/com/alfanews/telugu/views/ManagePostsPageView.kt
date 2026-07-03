@@ -107,7 +107,8 @@ fun ManagePostsPageView(
                         likes = (data["likes"] as? Number)?.toInt() ?: (data["likes"] as? String)?.toIntOrNull() ?: 0,
                         comments = (data["comments"] as? Number)?.toInt() ?: (data["comments"] as? String)?.toIntOrNull() ?: 0,
                         shares = (data["shares"] as? Number)?.toInt() ?: (data["shares"] as? String)?.toIntOrNull() ?: 0,
-                        approved = data["approved"] as? Boolean ?: false
+                        approved = data["approved"] as? Boolean ?: false,
+                        isGlobal = data["isGlobal"] as? Boolean ?: false
                     )
                 }
             }

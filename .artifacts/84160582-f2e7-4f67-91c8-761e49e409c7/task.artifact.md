@@ -1,0 +1,11 @@
+- [ ] Implement real-time news listener in `MainViewModel.kt`
+    - [ ] Add `newNewsNotification` StateFlow
+    - [ ] Implement district-aware filtering logic
+    - [ ] Add dismiss/cleanup logic
+- [ ] Create `InAppNotificationView.kt`
+    - [ ] Design glassmorphic slide-down banner
+    - [ ] Add animations and auto-dismiss timer
+- [ ] Integrate with `MainScreen.kt`
+    - [ ] Observe notification state
+    - [ ] Implement navigation logic on tap
+- [ ] Manual Verification

@@ -67,6 +67,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     private val pageSize = 20
     private var loadJob: Job? = null
     private var isFetching = false
+    private var consecutiveEmptyLoads = 0
     
     fun setDistrict(district: String) {
         if (prefs.selectedDistrict == district && _activeDistrict.value == district) return
@@ -217,6 +218,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
             lastDocument = null
             _hasMore.value = true
+            consecutiveEmptyLoads = 0
             
             try {
                 val newsRef = FirebaseService.db.collection("news")
@@ -297,10 +299,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
              isFetching = true
              try {
                  val newsRef = FirebaseService.db.collection("news")
-                 var newPosts: List<NewsPost> = emptyList()
                  var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
-                 try {
-                     // 🚀 CHANGED: Match logic with loadNews for consistency
+                 val newPosts = try {
                      var query = newsRef
                          .whereEqualTo("approved", true)
                          .whereEqualTo("district", district)
@@ -308,9 +308,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                          .startAfter(currentLastDoc)
                          .limit(pageSize.toLong())
                      
-                     snapshot = query.get().await()
+                     var snap = query.get().await()
                      
-                     if (snapshot.isEmpty) {
+                     if (snap.isEmpty) {
                          // 🔄 FALLBACK: Try categories array if district field search returns nothing
                          val backupQuery = newsRef
                              .whereEqualTo("approved", true)
@@ -318,25 +318,40 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                              .orderBy("timestamp", Query.Direction.DESCENDING)
                              .startAfter(currentLastDoc)
                              .limit(pageSize.toLong())
-                         snapshot = backupQuery.get().await()
+                         snap = backupQuery.get().await()
                      }
+                     snapshot = snap
 
-                     newPosts = withContext(Dispatchers.Default) {
-                         snapshot?.documents?.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) } ?: emptyList()
+                     withContext(Dispatchers.Default) {
+                         snap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
                      }
                  } catch (e: Exception) {
                      android.util.Log.e("LocalNewsFeedViewModel", "LoadMore query failed: ${e.message}")
+                     emptyList<NewsPost>()
                  }
-                  if (newPosts.isNotEmpty()) {
-                      lastDocument = snapshot?.documents?.lastOrNull()
-                      _hasMore.value = snapshot?.documents?.size == pageSize
-                      try {
-                          com.alfanews.telugu.services.AnalyticsService.logBulkCategoryViews(newPosts.map { it.categories }, weight = 1)
-                      } catch (e: Exception) { }
-                      _news.value = _news.value + newPosts
-                  } else {
-                      _hasMore.value = false
-                  }
+                 
+                 if (newPosts.isNotEmpty()) {
+                     lastDocument = snapshot?.documents?.lastOrNull()
+                     _hasMore.value = (snapshot?.documents?.size ?: 0) == pageSize
+                     
+                     val currentIds = _news.value.map { it.id }.toSet()
+                     val uniqueNewPosts = newPosts.filter { post: NewsPost -> !currentIds.contains(post.id) }
+                     
+                     if (uniqueNewPosts.isNotEmpty()) {
+                         try {
+                             com.alfanews.telugu.services.AnalyticsService.logBulkCategoryViews(uniqueNewPosts.map { it.categories }, weight = 1)
+                         } catch (e: Exception) { }
+                         _news.value = _news.value + uniqueNewPosts
+                         consecutiveEmptyLoads = 0
+                     } else {
+                         consecutiveEmptyLoads++
+                         if (consecutiveEmptyLoads >= 3) {
+                             _hasMore.value = false
+                         }
+                     }
+                 } else {
+                     _hasMore.value = false
+                 }
              } catch (e: Exception) {
                  _hasMore.value = false
              } finally {
@@ -405,7 +420,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 verificationStatus = data["verificationStatus"]?.toString() ?: "UNVERIFIED",
                 type = type,
                 approved = data["approved"] as? Boolean ?: false,
-                aiProcessed = data["aiProcessed"] as? Boolean ?: false
+                aiProcessed = data["aiProcessed"] as? Boolean ?: false,
+                isGlobal = data["isGlobal"] as? Boolean ?: false
             )
         } catch(e: Exception) {
             return null

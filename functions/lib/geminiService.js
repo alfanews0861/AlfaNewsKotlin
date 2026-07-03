@@ -21,19 +21,23 @@ const processSocialPostWithAI = async (socialText, platform, category) => {
         const response = await ai.models.generateContent({
             model: modelName,
             contents: [{ role: "user", parts: [{ text: `Platform: ${platform}\nCategory: ${category}\nInput Text:\n${socialText}` }] }],
-            systemInstruction: { role: "system", parts: [{ text: `You are a Senior Reporter.
+            config: {
+                systemInstruction: `You are a Senior Reporter.
             1. Write a detailed paragraph in Telugu (content) between 500-600 chars. Capture the emotional essence and include ALL names and locations.
             2. Write a paragraph in English (contentEn) maximum 70 words.
             3. Generate a strong punchy Telugu headline (headline) maximum 10 words.
             4. Generate a sharp English headline (headlineEn) maximum 12 words.
-            Output JSON only.` }] },
-            generationConfig: {
+            Output JSON only.`,
                 temperature: 0.4,
+                maxOutputTokens: 4096,
                 responseMimeType: "application/json",
                 responseSchema: schema,
+                // Safety
+                system_instruction: `You are a Senior Reporter. ...`,
+                max_output_tokens: 4096
             },
         });
-        const text = response.text;
+        const text = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!text)
             return null;
         const parsed = (0, utils_1.parseAIJson)(text);
@@ -64,19 +68,23 @@ const processCitizenContentWithAI = async (rawContent) => {
         const response = await ai.models.generateContent({
             model: modelName,
             contents: [{ role: "user", parts: [{ text: `Citizen Submission:\n${rawContent}` }] }],
-            systemInstruction: { role: "system", parts: [{ text: `You are a Senior Reporter.
+            config: {
+                systemInstruction: `You are a Senior Reporter.
             1. Write a detailed paragraph in Telugu (content) between 500-600 chars. Capture the emotional essence and include ALL names and locations.
             2. Write a paragraph in English (contentEn) maximum 70 words.
             3. Generate a strong punchy Telugu headline (headline) maximum 10 words.
             4. Generate a sharp English headline (headlineEn) maximum 12 words.
-            Output JSON only.` }] },
-            generationConfig: {
+            Output JSON only.`,
                 temperature: 0.4,
+                maxOutputTokens: 4096,
                 responseMimeType: "application/json",
                 responseSchema: schema,
+                // Safety
+                system_instruction: `You are a Senior Reporter. ...`,
+                max_output_tokens: 4096
             }
         });
-        const text = response.text;
+        const text = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!text)
             throw new Error("Empty AI response");
         return (0, utils_1.parseAIJson)(text);
@@ -98,19 +106,23 @@ const processContentWithAI = async (rawContent, rawHeadline) => {
         const response = await ai.models.generateContent({
             model: modelName,
             contents: [{ role: "user", parts: [{ text: `Headline: ${rawHeadline || 'N/A'}\nContent: ${rawContent}` }] }],
-            systemInstruction: { role: "system", parts: [{ text: `You are a Senior Reporter.
+            config: {
+                systemInstruction: `You are a Senior Reporter.
             1. Write a detailed paragraph in Telugu (content) between 500-600 chars. Capture the emotional essence and include ALL names and locations.
             2. Write a paragraph in English (contentEn) maximum 70 words.
             3. Generate a strong punchy Telugu headline (headline) maximum 10 words.
             4. Generate a sharp English headline (headlineEn) maximum 12 words.
-            Output JSON only.` }] },
-            generationConfig: {
+            Output JSON only.`,
                 temperature: 0.4,
+                maxOutputTokens: 4096,
                 responseMimeType: "application/json",
                 responseSchema: schema,
+                // Safety
+                system_instruction: `You are a Senior Reporter. ...`,
+                max_output_tokens: 4096
             }
         });
-        const text = response.text;
+        const text = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!text)
             throw new Error("Empty AI response");
         return (0, utils_1.parseAIJson)(text);

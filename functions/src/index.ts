@@ -30,10 +30,17 @@ export {
     cleanupOldNews
 } from "./auto_content_handler";
 
+export {
+    scheduleDailyAffiliateDeals
+} from "./affiliate_handler";
+
 // 2. Export Reporter Functions
 export {
     processReporterSubmission,
-    submitReporterApplication
+    submitReporterApplication,
+    backfillReporterPoints,
+    onNewsViewCountUpdated,
+    onNewsPostApproved
 } from "./reporter_handler";
 
 // 3. Export Main News Functions
@@ -44,6 +51,9 @@ export {
 
 // 4. Export Notification Engine
 export * from './notification_engine';
+
+// 5. Export Reporter Monitoring
+export * from './reporter_monitor';
 
 /**
  * Push Broadcast Function (Manual Push)

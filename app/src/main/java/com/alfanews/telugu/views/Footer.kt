@@ -31,6 +31,8 @@ fun Footer(
     activeTab: String,
     onTabChange: (String) -> Unit
 ) {
+    // Small change to trigger rebuild
+    val tab = activeTab
     Box(
         modifier = Modifier
             .fillMaxWidth()

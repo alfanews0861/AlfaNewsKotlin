@@ -1,0 +1,5 @@
+- [x] Update `AdMobService.kt` with robust preloading and concurrency handling.
+- [x] Implement `AdMobNativeAdCardView.kt` to properly display NativeAds.
+- [x] Verify `NewsFeedView.kt` integration and ad slot logic.
+- [x] Build the project to verify no compilation errors.
+- [ ] Build the project to verify no compilation errors.

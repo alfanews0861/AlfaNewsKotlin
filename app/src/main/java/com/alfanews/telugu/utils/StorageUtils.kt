@@ -118,6 +118,11 @@ suspend fun uploadMediaToStorage(
     }
 }
 
+object StorageUtils {
+    // Keep object for backward compatibility if needed, but better to use top-level
+}
+
+
 @Composable
 fun rememberMediaPicker(onMediaPicked: (Uri) -> Unit): () -> Unit {
     val launcher = rememberLauncherForActivityResult(

@@ -150,6 +150,7 @@ fun UserProfilePageView(
 
     // పాలసీ లింక్‌లు
     val policyLinks = listOf(
+        "reporters" to stringResource(R.string.reporters),
         "privacy-policy" to stringResource(R.string.privacy_policy),
         "terms" to stringResource(R.string.terms_of_service),
         "content-policy" to stringResource(R.string.content_policy),
@@ -274,6 +275,37 @@ fun UserProfilePageView(
                 }
             }
         }
+
+        // ✉️ సందేశాలు (Messages) - logged-in users only
+        if (!isGuest) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigate("messages") },
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Mail, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = stringResource(R.string.messages),
+                            fontFamily = Ramabhadra,
+                            fontSize = 18.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
         
         // భాష ఎంపిక (Language Selector)
         SettingsGroup(
@@ -388,6 +420,38 @@ fun UserProfilePageView(
                     shape = MaterialTheme.shapes.small
                 ) {
                     Text(stringResource(R.string.clear_cache_now), color = MaterialTheme.colorScheme.secondary)
+                }
+            }
+        }
+
+        // రిపోర్టర్ ఇన్సెంటివ్ సిస్టమ్ (Internal Staff Only)
+        if (isStaff) {
+            SettingsGroup(if (language == Language.TELUGU) "రిపోర్టర్ బోర్డ్" else "Reporter Board") {
+                Button(
+                    onClick = { onNavigate("leaderboard") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFFFD700).copy(alpha = 0.1f)
+                    ),
+                    border = BorderStroke(1.dp, Color(0xFFFFD700))
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            Icons.Default.EmojiEvents,
+                            contentDescription = null,
+                            tint = Color(0xFFDAA520)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (language == Language.TELUGU) "మంత్లీ లీడర్ బోర్డ్ (Leaderboard)" else "Monthly Leaderboard",
+                            color = Color(0xFFDAA520),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }

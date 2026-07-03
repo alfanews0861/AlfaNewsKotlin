@@ -29,10 +29,11 @@ import kotlinx.coroutines.launch
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.ui.theme.Poppins
-import com.alfanews.telugu.views.WhatsAppAutomationView
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
 import java.net.URLEncoder
 import java.util.*
+import java.util.UUID
 
 import androidx.compose.ui.res.stringResource
 import com.alfanews.telugu.R
@@ -52,10 +53,10 @@ fun AdminPanelView(
     onThemeModeChange: (ThemeMode) -> Unit = {},
     isModal: Boolean = false,
     onNavigate: (String) -> Unit = {},
-    onPostPublished: (String) -> Unit = {}
+    onPostPublished: (String) -> Unit = {},
+    onMenuClick: (() -> Unit)? = null
 ) {
     var activePage by remember { mutableStateOf(initialPage) }
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var editingPost by remember { mutableStateOf<NewsPost?>(null) }
     var selectedPostForView by remember { mutableStateOf<NewsPost?>(null) }
@@ -63,23 +64,25 @@ fun AdminPanelView(
     val context = LocalContext.current
 
     val allPages = listOf(
-        PageConfig("profile", stringResource(R.string.profile), listOf(UserRole.GUEST, UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        PageConfig("edit-profile", stringResource(R.string.edit_profile), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        PageConfig("id-card", stringResource(R.string.id_card), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        PageConfig("post", stringResource(R.string.post_news), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        // PageConfig("whatsappAutomation", "వాట్సాప్ ఆటోమేషన్", listOf(UserRole.REPORTER, UserRole.ADMIN)),
-        PageConfig("ads", stringResource(R.string.ads_manager), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        PageConfig("manage", stringResource(R.string.manage_news), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
-        PageConfig("manageReporters", stringResource(R.string.manage_reporters), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
-        PageConfig("manageUsers", stringResource(R.string.manage_users), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
-        PageConfig("adminNotify", stringResource(R.string.push_notifications_title), listOf(UserRole.ADMIN)),
-        PageConfig("scraping", stringResource(R.string.web_scraping), listOf(UserRole.ADMIN)),
-        PageConfig("gnews_dashboard", stringResource(R.string.gnews_dashboard), listOf(UserRole.ADMIN))
+        AppPageConfig("profile", stringResource(R.string.profile), listOf(UserRole.GUEST, UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
+        AppPageConfig("edit-profile", stringResource(R.string.edit_profile), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
+        AppPageConfig("id-card", stringResource(R.string.id_card), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
+        AppPageConfig("messages", stringResource(R.string.messages), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
+        AppPageConfig("post", stringResource(R.string.post_news), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
+        AppPageConfig("ads", stringResource(R.string.ads_manager), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
+        AppPageConfig("manage", stringResource(R.string.manage_news), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK)),
+        AppPageConfig("manageReporters", stringResource(R.string.manage_reporters), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
+        AppPageConfig("manageUsers", stringResource(R.string.manage_users), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
+        AppPageConfig("adminNotify", stringResource(R.string.push_notifications_title), listOf(UserRole.ADMIN)),
+        AppPageConfig("scraping", stringResource(R.string.web_scraping), listOf(UserRole.ADMIN)),
+        AppPageConfig("gnews_dashboard", stringResource(R.string.gnews_dashboard), listOf(UserRole.ADMIN)),
+        AppPageConfig("affiliate_settings", "Affiliate News API", listOf(UserRole.ADMIN))
     )
 
     val accessiblePages = when (user.role) {
         UserRole.GUEST, UserRole.SUBSCRIBER -> allPages.filter { it.id == "profile" }
-        UserRole.REPORTER -> allPages.filter { listOf("profile", "post", "ads", "manage", "edit-profile", "id-card").contains(it.id) }
+        UserRole.REPORTER -> allPages.filter { listOf("profile", "post", "ads", "manage", "edit-profile", "id-card", "messages").contains(it.id) }
+        UserRole.NEWS_DESK -> allPages.filter { listOf("profile", "post", "ads", "manage", "edit-profile", "id-card", "messages").contains(it.id) }
         UserRole.REGIONAL_INCHARGE -> allPages.filter { listOf("profile", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card").contains(it.id) }
         UserRole.EDITOR -> allPages.filter { listOf("profile", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card").contains(it.id) }
         UserRole.ADMIN -> allPages
@@ -109,7 +112,6 @@ fun AdminPanelView(
                 }
 
                 if (user.role == UserRole.ADMIN && !signatureUrl.isNullOrBlank()) {
-                    // Update global authorized signature if admin
                     try {
                         FirebaseService.db.collection("settings").document("android_config")
                             .update("authorized_signature", signatureUrl).await()
@@ -139,239 +141,104 @@ fun AdminPanelView(
         }
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet(
-                drawerContainerColor = MaterialTheme.colorScheme.background,
-                drawerTonalElevation = 8.dp,
-                modifier = Modifier.width(320.dp),
-                drawerShape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                                colors = listOf(
-                                    MaterialTheme.colorScheme.primaryContainer,
-                                    MaterialTheme.colorScheme.background
-                                )
-                            )
-                        )
-                        .padding(vertical = 32.dp, horizontal = 24.dp)
-                ) {
-                    Column {
-                        Text(
-                            stringResource(R.string.admin_panel),
-                            style = MaterialTheme.typography.headlineSmall.copy(
-                                fontFamily = Ramabhadra,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        )
-                        Text(
-                            stringResource(R.string.admin_dashboard),
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontFamily = Poppins,
-                                color = MaterialTheme.colorScheme.secondary
-                            )
-                        )
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        text = accessiblePages.find { it.id == activePage }?.label ?: stringResource(R.string.app_name),
+                        fontFamily = Ramabhadra,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                navigationIcon = {
+                    if (onMenuClick != null && !listOf("edit-profile", "id-card").contains(activePage)) {
+                        IconButton(onClick = onMenuClick) {
+                            Icon(Icons.Default.Menu, contentDescription = stringResource(R.string.menu))
+                        }
+                    } else {
+                         IconButton(onClick = { 
+                             if (activePage == "profile") onClose()
+                             else activePage = "profile" 
+                         }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back))
+                        }
+                    }
+                },
+                actions = {
+                    if (isModal) {
+                        IconButton(onClick = onClose) {
+                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.close))
+                        }
                     }
                 }
-
-                Divider(modifier = Modifier.padding(horizontal = 24.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                
-                Spacer(modifier = Modifier.height(16.dp))
-
-                accessiblePages.filter{ !listOf("edit-profile", "id-card").contains(it.id) }.forEach { page ->
-                    NavigationDrawerItem(
-                        label = { Text(page.label, fontFamily = Mallanna, fontSize = 18.sp, fontWeight = FontWeight.Medium) },
-                        selected = activePage == page.id,
-                        onClick = {
-                            if (activePage == "post" && page.id != "post") editingPost = null
-                            activePage = page.id
-                            scope.launch { drawerState.close() }
-                        },
-                        icon = {
-                            val icon = when(page.id) {
-                                "profile" -> Icons.Default.Person
-                                "post" -> Icons.Default.AddCircle
-                                "whatsappAutomation" -> Icons.Default.Link
-                                "ads" -> Icons.Default.AdsClick
-                                "manage" -> Icons.Default.Article
-                            "manageReporters" -> Icons.Default.AssignmentInd
-                            "manageUsers" -> Icons.Default.Group
-                                "adminNotify" -> Icons.Default.NotificationsActive
-                                "scraping" -> Icons.Default.CloudDownload
-                                "gnews_dashboard" -> Icons.Default.Dashboard
-                                else -> Icons.Default.Settings
-                            }
-                            Icon(icon, contentDescription = null)
-                        },
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = NavigationDrawerItemDefaults.colors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.onPrimary,
-                            selectedIconColor = MaterialTheme.colorScheme.onPrimary,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurface,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                        )
-                    )
-                }
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                if (user.role != UserRole.GUEST) {
-                    Divider(modifier = Modifier.padding(horizontal = 24.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                    NavigationDrawerItem(
-                        label = { Text(stringResource(R.string.logout), fontFamily = Mallanna, fontWeight = FontWeight.Bold) },
-                        selected = false,
-                        onClick = onLogout,
-                        icon = { Icon(Icons.Default.Logout, contentDescription = null) },
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 16.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = NavigationDrawerItemDefaults.colors(
-                            unselectedTextColor = MaterialTheme.colorScheme.error,
-                            unselectedIconColor = MaterialTheme.colorScheme.error
-                        )
-                    )
-                }
-            }
-        },
-        gesturesEnabled = accessiblePages.size > 1
-    ) {
-        Scaffold(
-            containerColor = MaterialTheme.colorScheme.background,
-            topBar = {
-                CenterAlignedTopAppBar(
-                    title = {
-                        Text(
-                            text = accessiblePages.find { it.id == activePage }?.label ?: stringResource(R.string.app_name),
-                            fontFamily = Ramabhadra,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                        navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
-                    ),
-                    navigationIcon = {
-                        if (accessiblePages.size > 1 && !listOf("edit-profile", "id-card").contains(activePage)) {
-                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                Icon(Icons.Default.Menu, contentDescription = stringResource(R.string.menu))
-                            }
-                        } else {
-                             IconButton(onClick = { activePage = "profile" }) {
-                                Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back))
-                            }
-                        }
-                    },
-                    actions = {
-                        if (isModal) {
-                            IconButton(onClick = onClose) {
-                                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.close))
-                            }
+            )
+        }
+    ) { padding ->
+        Box(modifier = Modifier.fillMaxSize().padding(padding).padding(top = 8.dp)) {
+            when (activePage) {
+                "profile" -> UserProfilePageView(
+                    user = user,
+                    language = language,
+                    setLanguage = setLanguage,
+                    themeMode = themeMode,
+                    onThemeModeChange = onThemeModeChange,
+                    onNavigate = { page ->
+                        if(listOf("edit-profile", "id-card").contains(page)) activePage = page
+                        else onNavigate(page)
+                     },
+                    onLoginRequest = onLoginRequest
+                )
+                "edit-profile" -> EditProfilePageView(
+                    user = user,
+                    onClose = { activePage = "profile" },
+                    onSave = ::saveProfile,
+                    saving = savingProfile
+                )
+                "id-card" -> IdCardPageView(
+                    user = user,
+                    onBack = { activePage = "profile" }
+                )
+                "messages" -> MessagesPageView(
+                    user = user,
+                    onBack = { activePage = "profile" }
+                )
+                "post" -> PostNewsPageView(
+                    user = user,
+                    postToEdit = editingPost,
+                    onActionComplete = { postId -> 
+                        editingPost = null
+                        activePage = if (listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN).contains(user.role)) "manage" else "profile"
+                        if (postId.isNotBlank() && postId != "HOME_ONLY") {
+                            onPostPublished(postId)
                         }
                     }
                 )
-            }
-        ) { padding ->
-            Box(modifier = Modifier.fillMaxSize().padding(padding).padding(top = 8.dp)) {
-                when (activePage) {
-                    "profile" -> UserProfilePageView(
-                        user = user,
-                        language = language,
-                        setLanguage = setLanguage,
-                        themeMode = themeMode,
-                        onThemeModeChange = onThemeModeChange,
-                        onNavigate = { page ->
-                            if(listOf("edit-profile", "id-card").contains(page)) activePage = page
-                            else onNavigate(page)
-                         },
-                        onLoginRequest = onLoginRequest
-                    )
-                    "edit-profile" -> EditProfilePageView(
-                        user = user,
-                        onClose = { activePage = "profile" },
-                        onSave = ::saveProfile,
-                        saving = savingProfile
-                    )
-                    "id-card" -> IdCardPageView(
-                        user = user,
-                        onBack = { activePage = "profile" }
-                    )
-                    /* "whatsappAutomation" -> WhatsAppAutomationView(
-                        userId = user.id,
-                        onBack = { activePage = "profile" }
-                    ) */
-                    "post" -> PostNewsPageView(
-                        user = user,
-                        postToEdit = editingPost,
-                        onActionComplete = { postId -> 
-                            editingPost = null
-                            // ✅ Now Reporters also go to 'manage' page to see their 'Pending' post
-                            activePage = if (listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN).contains(user.role)) "manage" else "profile"
-                            if (postId.isNotBlank() && postId != "HOME_ONLY") {
-                                onPostPublished(postId)
-                            }
-                        }
-                    )
-                    "manage" -> ManagePostsPageView(
-                        onEditPost = { post ->
-                            editingPost = post
-                            activePage = "post"
-                        },
-                        onViewPost = { post ->
-                            // ✅ Now instead of a Dialog preview, we trigger the full app view
-                            onPostPublished(post.id)
-                        },
-                        currentUser = user
-                    )
-                    "manageReporters" -> ReporterManagementPageView(currentUser = user)
-                    "ads" -> AdsManagerPageView(currentUser = user)
-                    "manageUsers" -> UserManagementPageView(currentUser = user)
-                    "adminNotify" -> AdminNotificationsPageView()
-                    "scraping" -> WebScrapingPageView()
-                    "gnews_dashboard" -> GNewsDashboardView()
-                }
+                "manage" -> ManagePostsPageView(
+                    onEditPost = { post ->
+                        editingPost = post
+                        activePage = "post"
+                    },
+                    onViewPost = { post ->
+                        onPostPublished(post.id)
+                    },
+                    currentUser = user
+                )
+                "manageReporters" -> ReporterManagementPageView(currentUser = user)
+                "ads" -> AdsManagerPageView(currentUser = user)
+                "manageUsers" -> UserManagementPageView(currentUser = user)
+                "adminNotify" -> AdminNotificationsPageView()
+                "scraping" -> WebScrapingPageView()
+                "gnews_dashboard" -> GNewsDashboardView()
+                "affiliate_settings" -> AffiliateSettingsView(onBack = { activePage = "profile" })
             }
         }
-        
-        /* Preview Dialog removed to show actual page instead */
-    }
-}
-
-data class PageConfig(
-    val id: String,
-    val label: String,
-    val roles: List<UserRole>
-)
-
-@Composable
-fun MenuItem(
-    label: String,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    textColor: Color = MaterialTheme.colorScheme.onSurfaceVariant
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .background(
-                if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
-            )
-            .padding(20.dp)
-    ) {
-        Text(
-            text = label,
-            fontSize = 20.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else textColor
-        )
     }
 }

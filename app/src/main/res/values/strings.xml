@@ -39,6 +39,12 @@
     <string name="theme_dark">Dark</string>
     <string name="theme_system">System</string>
     <string name="policies_info">Policies and Information</string>
+    <string name="reporters">Reporters</string>
+    <string name="reporters_directory">Reporters Directory</string>
+    <string name="select_state">Select State</string>
+    <string name="all_district_reporters">District Reporters</string>
+    <string name="mandal_reporter_details">Mandal Reporter Details</string>
+    <string name="no_reporters_found">No reporters found for this location.</string>
     <string name="storage_management">Storage Management</string>
     <string name="current_cache_usage">Current Storage Usage: %1$s</string>
     <string name="clear_cache_now">Clear All Cache Now</string>
@@ -63,6 +69,7 @@
     <string name="admin_dashboard">Admin Dashboard</string>
     <string name="manage_news">Manage News</string>
     <string name="manage_reporters">Reporter Management</string>
+    <string name="messages">Messages</string>
     <string name="manage_users">User Management</string>
     <string name="ads_manager">Ads Manager</string>
     <string name="push_notifications_title">Push Notifications</string>
@@ -270,6 +277,8 @@
     <string name="camera_permission_required">Camera permission required</string>
     <string name="telangana">Telangana</string>
     <string name="andhra_pradesh">Andhra Pradesh</string>
+    <string name="global_news_label">Global / State News</string>
+    <string name="global_news_desc">If enabled, this news will appear in the home feed for everyone.</string>
 
     <!-- Reporting -->
     <string name="citizen_journalism">Citizen Journalism</string>

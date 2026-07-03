@@ -1,0 +1,5 @@
+- `[x]` Define `assignedMandal` in `functions/src/types.ts`
+- `[x]` Create `getAssignedReporter` helper in `functions/src/reporter_handler.ts`
+- `[x]` Integrate reporter assignment logic into `onNewsPostCreated` in `functions/src/news_handler.ts`
+- `[x]` Update AI system instructions in `functions/src/categories.ts` for better Mandalam extraction
+- `[x]` Verify with a test script

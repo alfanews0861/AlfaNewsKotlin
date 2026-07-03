@@ -10,6 +10,7 @@ import com.google.android.gms.ads.LoadAdError
 import com.google.android.gms.ads.MobileAds
 import com.google.android.gms.ads.nativead.NativeAd
 import java.util.concurrent.ConcurrentLinkedQueue
+import kotlin.jvm.Synchronized
 
 /**
  * యాడ్ మాబ్ (AdMob) ప్రకటనలను నిర్వహించే సర్వీస్.
@@ -22,12 +23,10 @@ object AdMobService {
     private const val NATIVE_AD_UNIT_ID = "ca-app-pub-5787901991150360/1972465675"
     private const val MAX_NATIVE_ADS = 5
     private val nativeAds = ConcurrentLinkedQueue<NativeAd>()
+    private var isPreloading = false
 
     /**
      * యాడ్ మాబ్ SDK ని ప్రారంభిస్తుంది.
-     * 
-     * @param activity ప్రస్తుత యాక్టివిటీ.
-     * @param onInitializationComplete ప్రారంభం పూర్తయిన తర్వాత పిలవబడే ఫంక్షన్.
      */
     fun initialize(activity: Activity, onInitializationComplete: () -> Unit = {}) {
         MobileAds.initialize(activity) { initializationStatus ->
@@ -40,20 +39,36 @@ object AdMobService {
     /**
      * నేటివ్ యాడ్స్ ను ముందుగానే లోడ్ చేసి మెమరీలో ఉంచుతుంది.
      */
+    @Synchronized
     private fun preloadNativeAds(activity: Activity) {
-        if (nativeAds.size >= MAX_NATIVE_ADS) {
+        if (isPreloading || nativeAds.size >= MAX_NATIVE_ADS) {
             return
         }
 
         val numberOfAdsToLoad = MAX_NATIVE_ADS - nativeAds.size
+        if (numberOfAdsToLoad <= 0) return
+
+        isPreloading = true
+        Log.d(TAG, "Preloading $numberOfAdsToLoad native ads. Current size: ${nativeAds.size}")
 
         val adLoader = AdLoader.Builder(activity, NATIVE_AD_UNIT_ID)
             .forNativeAd { ad: NativeAd ->
                 nativeAds.add(ad)
+                Log.d(TAG, "Native ad preloaded successfully. New size: ${nativeAds.size}")
             }
             .withAdListener(object : AdListener() {
                 override fun onAdFailedToLoad(error: LoadAdError) {
-                    Log.e(TAG, "Native ad failed to preload: ${error.message}")
+                    Log.e(TAG, "Native ad failed to preload: ${error.message} (Code: ${error.code})")
+                    isPreloading = false
+                }
+
+                override fun onAdLoaded() {
+                    super.onAdLoaded()
+                    // If multiple ads were requested, this might be called multiple times or once depending on implementation
+                    // But typically loadAds(request, count) fills the internal count.
+                    if (nativeAds.size >= MAX_NATIVE_ADS) {
+                        isPreloading = false
+                    }
                 }
             })
             .build()
@@ -67,9 +82,11 @@ object AdMobService {
     fun loadNativeAd(activity: Activity, onAdLoaded: (NativeAd?) -> Unit) {
         val ad = nativeAds.poll()
         if (ad != null) {
+            Log.d(TAG, "Serving native ad from cache. Remaining: ${nativeAds.size}")
             onAdLoaded(ad)
+            
             // కాష్ లో యాడ్స్ తగ్గిపోతే మళ్ళీ లోడ్ చేయడం
-            if (nativeAds.size <= 1) {
+            if (nativeAds.size < MAX_NATIVE_ADS / 2) {
                 preloadNativeAds(activity)
             }
             return
@@ -78,7 +95,10 @@ object AdMobService {
         // కాష్ ఖాళీగా ఉంటే వెంటనే కొత్త యాడ్ లోడ్ చేయడం
         Log.d(TAG, "Ad cache empty. Loading a new native ad on demand.")
         val adLoader = AdLoader.Builder(activity, NATIVE_AD_UNIT_ID)
-            .forNativeAd { ad -> onAdLoaded(ad) }
+            .forNativeAd { loadedAd -> 
+                Log.d(TAG, "On-demand native ad loaded.")
+                onAdLoaded(loadedAd) 
+            }
             .withAdListener(object : AdListener() {
                 override fun onAdFailedToLoad(error: LoadAdError) {
                     Log.e(TAG, "On-demand native ad failed to load: ${error.message}")

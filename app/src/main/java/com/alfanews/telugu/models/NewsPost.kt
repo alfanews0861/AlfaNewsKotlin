@@ -96,6 +96,7 @@ data class NewsPost(
     val localAdUrl: String? = null,
     val localAdContact: String? = null,
     val originalUrl: String? = null,
+    val affiliateUrl: String? = null, // ADDED: For Amazon/Flipkart links
     val verificationStatus: String = "UNVERIFIED",
     val verificationReason: String? = null,
     val type: String? = null, // ADDED: To store 'news', 'greeting', 'history', 'cartoon'
@@ -104,6 +105,7 @@ data class NewsPost(
     val approved: Boolean = false,
     val aiProcessed: Boolean = false,
     val isReporter: Boolean = false, // ADDED: To differentiate reporter posts in the feed
+    val isGlobal: Boolean = false, // ADDED: For State/National level news
 
     // పాత వెర్షన్ల కోసం కేటాయించబడిన ఫీల్డ్స్ (Deprecated)
     val category: String? = null,

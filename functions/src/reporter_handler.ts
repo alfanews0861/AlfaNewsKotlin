@@ -1,6 +1,8 @@
 import * as admin from "firebase-admin";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import * as nodemailer from "nodemailer";
+import { REGION } from "./utils";
 
 const db = admin.firestore();
 
@@ -79,6 +81,170 @@ export async function notifyReporter(
 }
 
 /**
+ * Award points to reporter and update badges
+ */
+export async function awardPointsToReporter(reporterId: string, points: number) {
+    try {
+        if (!reporterId || reporterId.startsWith('BOT_') || reporterId.startsWith('SYSTEM_')) {
+            console.log(`[POINTS_SKIP] Skipping points for system account: ${reporterId}`);
+            return;
+        }
+
+        const userRef = db.collection('users').doc(reporterId);
+        await db.runTransaction(async (transaction) => {
+            const doc = await transaction.get(userRef);
+            if (!doc.exists) return;
+            const data = doc.data()!;
+            const currentPoints = (data.points || 0) + points;
+
+            // Calculate badges
+            const badges: string[] = [];
+            if (currentPoints >= 100) badges.push("BRONZE");
+            if (currentPoints >= 500) badges.push("SILVER");
+            if (currentPoints >= 2000) badges.push("GOLD");
+            if (currentPoints >= 10000) badges.push("DIAMOND");
+
+            transaction.update(userRef, {
+                points: currentPoints,
+                badges: badges
+            });
+
+            // --- MONTHLY LEADERBOARD TRACKING ---
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = (now.getMonth() + 1).toString().padStart(2, '0');
+            const monthlyId = `${year}_${month}`;
+
+            const monthlyRef = db.collection('monthly_leaderboard').doc(monthlyId)
+                .collection('reporters').doc(reporterId);
+
+            const monthlyDoc = await transaction.get(monthlyRef);
+            if (monthlyDoc.exists) {
+                transaction.update(monthlyRef, {
+                    points: admin.firestore.FieldValue.increment(points),
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                });
+            } else {
+                transaction.set(monthlyRef, {
+                    userId: reporterId,
+                    name: data.name || "Reporter",
+                    photoUrl: data.photoUrl || "",
+                    district: data.district || "",
+                    assignedMandal: data.assignedMandal || "",
+                    points: points,
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+            // ------------------------------------
+        });
+        console.log(`[POINTS] Awarded ${points} points to ${reporterId}`);
+    } catch (e: any) {
+        console.error(`[POINTS_ERR] Error:`, e.message);
+    }
+}
+
+/**
+ * Backfill points for all reporters based on their existing news posts
+ */
+export const backfillReporterPoints = onCall(async (request) => {
+    // Only admins can trigger backfill
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+        throw new HttpsError('unauthenticated', 'మీరు లాగిన్ అవ్వాలి.');
+    }
+
+    const adminDoc = await db.collection('users').doc(auth.uid).get();
+    if (adminDoc.data()?.role !== 'ADMIN') {
+        throw new HttpsError('permission-denied', 'అడ్మిన్లకు మాత్రమే ఈ అనుమతి ఉంది.');
+    }
+
+    console.log(`[BACKFILL] Starting points backfill...`);
+    const reportersSnapshot = await db.collection('users').where('role', '==', 'REPORTER').get();
+    const results = [];
+
+    for (const reporterDoc of reportersSnapshot.docs) {
+        const reporterId = reporterDoc.id;
+
+        // Fetch all approved news for this reporter
+        const newsSnapshot = await db.collection('news')
+            .where('reporter.id', '==', reporterId)
+            .where('approved', '==', true)
+            .get();
+
+        let totalPoints = 0;
+        newsSnapshot.docs.forEach(doc => {
+            const data = doc.data();
+            const mediaType = data.mediaType?.toUpperCase() || "";
+            const mediaTypes = (data.mediaTypes || []).map((t: string) => t.toUpperCase());
+            const isVideo = mediaType === 'VIDEO' || mediaTypes.includes('VIDEO');
+
+            totalPoints += isVideo ? 20 : 10;
+
+            // Reward for views (Legacy posts)
+            const longViews = data.longViews || 0;
+            const viewMilestones = Math.floor(longViews / 500);
+            totalPoints += (viewMilestones * 50);
+        });
+
+        // Calculate badges
+        const badges: string[] = [];
+        if (totalPoints >= 100) badges.push("BRONZE");
+        if (totalPoints >= 500) badges.push("SILVER");
+        if (totalPoints >= 2000) badges.push("GOLD");
+        if (totalPoints >= 10000) badges.push("DIAMOND");
+
+        // Update reporter doc
+        await db.collection('users').doc(reporterId).update({
+            points: totalPoints,
+            badges: badges,
+            lastPostTimestamp: newsSnapshot.empty ? null : newsSnapshot.docs[0].data().timestamp
+        });
+
+        results.push({
+            name: reporterDoc.data()?.name || reporterId,
+            points: totalPoints,
+            posts: newsSnapshot.size
+        });
+    }
+
+    console.log(`[BACKFILL] Completed. Processed ${results.length} reporters.`);
+    return { success: true, processed: results.length, details: results };
+});
+
+/**
+ * Award points for view milestones
+ * Triggered when longViews is updated
+ */
+export const onNewsViewCountUpdated = onDocumentWritten({
+    document: "news/{postId}",
+    region: REGION,
+}, async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+    if (!after || !after.isReporter) return;
+
+    const viewsBefore = before?.longViews || 0;
+    const viewsAfter = after.longViews || 0;
+    const reporterId = after.reporter?.id;
+    if (!reporterId) return;
+
+    // Award 50 points for every 500 views
+    const milestoneSize = 500;
+    const pointsPerMilestone = 50;
+
+    const milestonesBefore = Math.floor(viewsBefore / milestoneSize);
+    const milestonesAfter = Math.floor(viewsAfter / milestoneSize);
+
+    if (milestonesAfter > milestonesBefore) {
+        const newMilestones = milestonesAfter - milestonesBefore;
+        const totalPointsToAdd = newMilestones * pointsPerMilestone;
+
+        console.log(`[MILESTONE] News ${event.params.postId} reached ${viewsAfter} views. Awarding ${totalPointsToAdd} points to ${reporterId}`);
+        await awardPointsToReporter(reporterId, totalPointsToAdd);
+    }
+});
+
+/**
  * 6.1 Process Reporter Submission
  */
 export const processReporterSubmission = onCall(async (request) => {
@@ -135,9 +301,77 @@ export const processReporterSubmission = onCall(async (request) => {
 
 export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL_PASS"] }, async (request) => {
     const data = request.data;
+    const { district, mandal } = data;
+
+    if (!district || !mandal) {
+        throw new HttpsError('invalid-argument', 'జిల్లా మరియు మండలం తప్పనిసరి.');
+    }
+
+    // Check if reporter already exists for this mandal
+    const existingReporters = await db.collection('users')
+        .where('role', '==', 'REPORTER')
+        .where('district', '==', district)
+        .where('assignedMandal', '==', mandal)
+        .limit(1)
+        .get();
+
+    if (!existingReporters.empty) {
+        throw new HttpsError('already-exists', 'ఈ మండలానికి ఇప్పటికే రిపోర్టర్ కేటాయించబడ్డారు.');
+    }
+
     await db.collection('reporter_applications').add({
         ...data,
+        status: "PENDING",
         timestamp: admin.firestore.FieldValue.serverTimestamp()
     });
     return { success: true };
 });
+
+/**
+ * Update reporter's last post timestamp when a post is approved
+ */
+export const onNewsPostApproved = onDocumentWritten({
+    document: "news/{postId}",
+    region: REGION,
+}, async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+
+    // Trigger only if status changes to published or approved becomes true
+    if (after && after.approved === true && before?.approved !== true) {
+        const reporterId = after.reporter?.id;
+        if (!reporterId || reporterId.startsWith('BOT_') || reporterId.startsWith('SYSTEM_')) return;
+
+        console.log(`[POST_APPROVED] Updating lastPostTimestamp for reporter: ${reporterId}`);
+        await db.collection('users').doc(reporterId).update({
+            lastPostTimestamp: after.timestamp || admin.firestore.FieldValue.serverTimestamp()
+        });
+    }
+});
+
+/**
+ * Helper: Find assigned reporter for a specific Mandalam in a District
+ */
+export async function getAssignedReporter(district: string, mandalam: string): Promise<{ id: string, name: string } | null> {
+    try {
+        if (!district || !mandalam) return null;
+
+        const reporters = await db.collection('users')
+            .where('role', '==', 'REPORTER')
+            .where('district', '==', district)
+            .where('assignedMandal', '==', mandalam)
+            .limit(1)
+            .get();
+
+        if (reporters.empty) return null;
+
+        const data = reporters.docs[0].data();
+        return {
+            id: reporters.docs[0].id,
+            name: data.name || "Reporter"
+        };
+    } catch (e) {
+        console.error(`[GET_ASSIGNED_REPORTER_ERR] ${district}/${mandalam}:`, e);
+        return null;
+    }
+}

@@ -116,25 +116,21 @@ async function performAIProcessing(headline, content, actualPostData) {
     return await (0, utils_1.runWithAIFallback)(async (ai, modelName) => {
         const result = await ai.models.generateContent({
             model: modelName,
-            contents: [{ role: "user", parts: [{ text: `INPUT DATA:
-Headline: ${headline}
-Content: ${content}
-
-COMMAND:
-1. Write a descriptive paragraph in Telugu (content) between 500-600 chars. Capture the emotion and include ALL names/locations.
-2. Write a paragraph in English (contentEn) maximum 70 words.
-3. Generate a strong punchy Telugu headline (headline) maximum 10 words.
-4. Generate a sharp English headline (headlineEn) maximum 12 words.
-5. Return results in the specified JSON schema.
-6. STRICTLY JSON ONLY.` }] }],
-            systemInstruction: { role: "system", parts: [{ text: (0, categories_1.getCategorySystemInstruction)() }] },
-            generationConfig: {
+            contents: [{ role: "user", parts: [{ text: `Headline: ${headline}\nContent: ${content}` }] }],
+            config: {
+                systemInstruction: (0, categories_1.getCategorySystemInstruction)(),
                 temperature: 0.4,
                 responseMimeType: "application/json",
                 responseSchema: schema,
+                // Full compatibility aliases
+                system_instruction: (0, categories_1.getCategorySystemInstruction)(),
+                response_mime_type: "application/json",
+                response_schema: schema
             }
         });
-        const aiRes = (0, utils_1.parseAIJson)(result.text || result.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
+        const rawText = result.text || result.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+        console.log(`[AI_RES] ${actualPostData.id || 'new'}:`, rawText.substring(0, 500));
+        const aiRes = (0, utils_1.parseAIJson)(rawText);
         // ROBUST FIELD EXTRACTION: Handle Flat AND Nested JSON
         const finalContent = aiRes.content || aiRes.contentTe || aiRes.content_te ||
             aiRes.telugu?.content || aiRes.telugu?.contentTe || aiRes.telugu?.summary ||
@@ -263,7 +259,7 @@ exports.processNewsPost = (0, https_1.onCall)(async (request) => {
 exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
     document: "news/{postId}",
     region: utils_1.REGION,
-    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"],
+    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "AZURE_SPEECH_KEY", "AZURE_SPEECH_REGION"],
     memory: "2GiB",
     timeoutSeconds: 540,
     maxInstances: 5
@@ -276,8 +272,8 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
     const currentStatus = (data.status || "").toUpperCase();
     const isReporter = data.isReporter === true || data.processingType === "REPORTER_SUBMISSION";
     // 1. Guard against infinite loops or redundant processing
-    // Added 'PUBLISHED' and 'PROCESSING_VIDEO' to locked statuses to prevent redundant triggers from non-content updates
-    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED", "PROCESSING_VIDEO"];
+    // Removed 'PROCESSING_VIDEO' from locked statuses to allow transition from AI phase to Video phase
+    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED"];
     if (LOCKED_STATUSES.includes(currentStatus) && !data.forceReprocess) {
         return;
     }
@@ -395,22 +391,22 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
             processedText = processedText.replace(/[<>&'"]/g, '');
             processedText = processedText.replace(/\[\[STRESS\]\](.*?)\[\[\/STRESS\]\]/g, '<prosody volume="+2.5dB" rate="92%">$1</prosody>');
             processedText = processedText.replace(/(\d+)/g, '<say-as interpret-as="cardinal">$1</say-as>');
-            processedText = processedText.replace(/అంటే\.\.\./g, 'అంటే... <break time="250ms"/>');
-            processedText = processedText.replace(/ఆ\.\.\./g, 'ఆ... <break time="200ms"/>');
-            processedText = processedText.replace(/\.\.\./g, '... <break time="500ms"/>');
-            processedText = processedText.replace(/,/g, ', <break time="150ms"/>');
-            processedText = processedText.replace(/\./g, '. <break time="350ms"/>');
-            processedText = processedText.replace(/!/g, '! <break time="250ms"/>');
-            processedText = processedText.replace(/\?/g, '? <break time="250ms"/>');
-            const selectedVoice = 'te-IN-Chirp3-HD-Kore';
-            const speed = 1.20;
+            processedText = processedText.replace(/అంటే\.\.\./g, 'అంటే... <break time="150ms"/>');
+            processedText = processedText.replace(/ఆ\.\.\./g, 'ఆ... <break time="100ms"/>');
+            processedText = processedText.replace(/\.\.\./g, '... <break time="300ms"/>');
+            processedText = processedText.replace(/,/g, ', <break time="40ms"/>');
+            processedText = processedText.replace(/\./g, '. <break time="100ms"/>');
+            processedText = processedText.replace(/!/g, '! <break time="80ms"/>');
+            processedText = processedText.replace(/\?/g, '? <break time="80ms"/>');
+            const selectedVoice = 'te-IN-Chirp3-HD-Alpha';
+            const ssml = `<speak><prosody rate="1.25" pitch="0st" volume="+6dB">${processedText.substring(0, 4900)}</prosody></speak>`;
             const ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
                 body: JSON.stringify({
-                    input: { ssml: `<speak>${processedText.substring(0, 1500)}</speak>` },
+                    input: { ssml: ssml },
                     voice: { languageCode: 'te-IN', name: selectedVoice },
-                    audioConfig: { audioEncoding: 'MP3', speakingRate: speed }
+                    audioConfig: { audioEncoding: 'MP3' }
                 })
             });
             const ttsData = await ttsRes.json();

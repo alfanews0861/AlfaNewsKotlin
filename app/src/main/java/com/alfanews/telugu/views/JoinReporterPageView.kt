@@ -78,8 +78,8 @@ fun JoinReporterPageView(
     }
 
     // Memoize available mandals list based on occupied mandals
-    val availableMandalsList = remember(mandalsList, occupiedMandals) {
-        mandalsList.filter { !occupiedMandals.contains(it) }
+    val availableMandalsList = remember(selectedDistrict, mandalsList, occupiedMandals) {
+        mandalsList.filter { !occupiedMandals.contains("$selectedDistrict|$it") }
     }
 
     // Fetch occupied mandals from Firebase
@@ -89,10 +89,13 @@ fun JoinReporterPageView(
                 .whereEqualTo("role", "REPORTER")
                 .get()
                 .await()
-            val mandals = snapshot.documents.mapNotNull { it.getString("assignedMandal") }.toSet()
+            val mandals = snapshot.documents.mapNotNull { doc ->
+                val dist = (doc.get("district") as? String) ?: ""
+                val mandal = (doc.get("assignedMandal") as? String) ?: ""
+                if (dist != "" && mandal != "") "$dist|$mandal" else null
+            }.toSet()
             occupiedMandals = mandals
         } catch (e: Exception) {
-            // Error fetching occupied mandals
             e.printStackTrace()
         } finally {
             isLoadingOccupied = false
@@ -417,7 +420,10 @@ fun JoinReporterPageView(
                     
                     Button(
                         onClick = {
-                            if (fullName.isBlank() || phone.isBlank() || position.isBlank() || selectedDistrict.isBlank() || selectedMandal.isBlank()) {
+                            if (fullName.isBlank() || fatherName.isBlank() || phone.isBlank() || address.isBlank() || 
+                                position.isBlank() || interestedArea.isBlank() || education.isBlank() || 
+                                currentOrg.isBlank() || selectedDistrict.isBlank() || selectedMandal.isBlank() || 
+                                additionalMessage.isBlank()) {
                                 Toast.makeText(context, context.getString(R.string.fill_all_details), Toast.LENGTH_SHORT).show()
                                 return@Button
                             }

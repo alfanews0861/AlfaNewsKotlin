@@ -24,13 +24,13 @@ service cloud.firestore {
       // any user with an existing user document (i.e., a role) to create a citizen post.
       allow create: if request.auth != null && (
                       (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-                       getUserData().role in ['REPORTER', 'EDITOR', 'ADMIN'] ||
+                       getUserData().role in ['REPORTER', 'EDITOR', 'ADMIN', 'NEWS_DESK'] ||
                        (getUserData().role == 'REGIONAL_INCHARGE' && request.resource.data.district in getUserData().assignedDistricts)
                       )) ||
                       (request.resource.data.isCitizen == true)
                     );
       allow update, delete: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-        getUserData().role in ['EDITOR', 'ADMIN'] ||
+        getUserData().role in ['EDITOR', 'ADMIN', 'NEWS_DESK'] ||
         (getUserData().role == 'REPORTER' && resource.data.reporter.id == request.auth.uid) ||
         (getUserData().role == 'REGIONAL_INCHARGE' && resource.data.district in getUserData().assignedDistricts)
       );

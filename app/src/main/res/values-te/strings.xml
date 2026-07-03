@@ -39,6 +39,12 @@
     <string name="theme_dark">డార్క్ (Dark)</string>
     <string name="theme_system">సిస్టమ్ (System)</string>
     <string name="policies_info">పాలసీలు మరియు సమాచారం</string>
+    <string name="reporters">రిపోర్టర్లు</string>
+    <string name="reporters_directory">రిపోర్టర్ల వివరాలు</string>
+    <string name="select_state">రాష్ట్రం ఎంచుకోండి</string>
+    <string name="all_district_reporters">జిల్లా రిపోర్టర్లు</string>
+    <string name="mandal_reporter_details">మండల రిపోర్టర్ వివరాలు</string>
+    <string name="no_reporters_found">ఈ ప్రాంతంలో రిపోర్టర్లు ఎవరూ లేరు.</string>
     <string name="storage_management">స్టోరేజ్ మేనేజ్‌మెంట్</string>
     <string name="current_cache_usage">ప్రస్తుత స్టోరేజ్ వినియోగం: %1$s</string>
     <string name="clear_cache_now">కాష్ ని ఇప్పుడే క్లియర్ చేయండి</string>
@@ -61,6 +67,7 @@
     <string name="admin_dashboard">Admin Dashboard</string>
     <string name="manage_news">వార్తలను నిర్వహించండి</string>
     <string name="manage_reporters">రిపోర్టర్ల నిర్వహణ</string>
+    <string name="messages">సందేశాలు</string>
     <string name="manage_users">వినియోగదారు నిర్వహణ</string>
     <string name="ads_manager">ప్రకటనల నిర్వహణ</string>
     <string name="push_notifications_title">పుష్ నోటిఫికేషన్లు</string>
@@ -268,6 +275,8 @@
     <string name="camera_permission_required">కెమెరా పర్మిషన్ అవసరం</string>
     <string name="telangana">తెలంగాణ</string>
     <string name="andhra_pradesh">ఆంధ్రప్రదేశ్</string>
+    <string name="global_news_label">గ్లోబల్ / స్టేట్ వార్త</string>
+    <string name="global_news_desc">దీన్ని ఎనేబుల్ చేస్తే, ఈ వార్త అందరికీ హోమ్ ఫీడ్‌లో కనిపిస్తుంది.</string>
 
     <!-- Reporting -->
     <string name="citizen_journalism">సిటిజన్ జర్నలిజం</string>

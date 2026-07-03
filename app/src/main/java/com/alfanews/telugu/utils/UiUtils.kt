@@ -65,3 +65,8 @@ fun Modifier.glassmorphism(
             shape = RoundedCornerShape(cornerRadius)
         )
 }
+
+object UiUtils {
+    // Keep object for other utils if any
+}
+

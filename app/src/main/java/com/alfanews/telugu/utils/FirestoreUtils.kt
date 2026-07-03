@@ -49,6 +49,8 @@ fun DocumentSnapshot.toUserObject(): User? {
                 assignedDistricts = (this.get("assignedDistricts") as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
                 fcmTokens = (this.get("fcmTokens") as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
                 lastTokenUpdate = this.getLong("lastTokenUpdate"),
+                points = this.getLong("points")?.toInt() ?: 0,
+                badges = (this.get("badges") as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
                 categoryScores = (this.get("categoryScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
                 reporterScores = (this.get("reporterScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
                 tagScores = (this.get("tagScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),

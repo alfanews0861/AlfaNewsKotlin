@@ -6,7 +6,7 @@ service firebase.storage {
     // Helper function to check if user has REPORTER role (or higher)
     // Uses firestore.get() for cross-service permission check
     function hasReporterRole(uid) {
-      return firestore.get(/databases/(default)/documents/users/$(uid)).data.role in ['REPORTER', 'EDITOR', 'ADMIN', 'REGIONAL_INCHARGE'];
+      return firestore.get(/databases/(default)/documents/users/$(uid)).data.role in ['REPORTER', 'EDITOR', 'ADMIN', 'REGIONAL_INCHARGE', 'NEWS_DESK'];
     }
 
     // Allow public read access to all files

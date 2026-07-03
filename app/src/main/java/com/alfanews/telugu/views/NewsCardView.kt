@@ -30,16 +30,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Comment
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -376,11 +373,11 @@ fun NewsCardView(
                 }
                 
                 Row(modifier = Modifier.fillMaxWidth().weight(0.62f)) {
-                    Column(modifier = Modifier.weight(1f).padding(start = 16.dp, end = 0.dp, top = 8.dp, bottom = 12.dp)) {
+                    Column(modifier = Modifier.weight(1f).padding(start = 16.dp, end = 0.dp, top = 6.dp, bottom = 12.dp)) {
                         Text(text = headlineText, style = TextStyle(fontSize = headlineSize, lineHeight = headlineLineHeight, fontWeight = headlineFontWeight, fontFamily = headlineFontFamily, platformStyle = PlatformTextStyle(includeFontPadding = false)), color = MaterialTheme.colorScheme.onSurface)
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         DottedLine()
-                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Start) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Start) {
                             if (post.reporter.name.isNotEmpty()) {
                                 Text(text = post.reporter.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = Mallanna, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).clickable { onReporterClick(post.reporter.id) })
                                 Text(text = " | ", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
@@ -392,9 +389,66 @@ fun NewsCardView(
                             Text(text = formattedTimestamp, fontSize = 10.sp, fontFamily = Mallanna, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         DottedLine()
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Column(modifier = Modifier.weight(1f).verticalScroll(scrollState)) {
                             Text(text = contentText, style = TextStyle(fontSize = contentSize, lineHeight = contentLineHeight, fontFamily = contentFontFamily, platformStyle = PlatformTextStyle(includeFontPadding = false)), color = MaterialTheme.colorScheme.onSurface)
+                            
+                            if (post.affiliateUrl != null && post.affiliateUrl.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                if (post.type == "affiliate") {
+                                    // Style for regular news-like post with link
+                                    Text(
+                                        text = if (language == Language.TELUGU) "మరిన్ని వివరాలకు ఇక్కడ క్లిక్ చేయండి..." else "Click here for more details...",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                        style = TextStyle(fontSize = contentSize),
+                                        modifier = Modifier.clickable {
+                                            try {
+                                                uriHandler.openUri(post.affiliateUrl)
+                                                AnalyticsService.logAnalyticsEvent("affiliate_link_click", Bundle().apply { 
+                                                    putString("post_id", post.id)
+                                                    putString("url", post.affiliateUrl)
+                                                })
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Could not open link", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    )
+                                } else {
+                                    // Shop Now Button (Default for product type if any)
+                                    Button(
+                                        onClick = { 
+                                            try {
+                                                uriHandler.openUri(post.affiliateUrl)
+                                                AnalyticsService.logAnalyticsEvent("product_click", Bundle().apply { 
+                                                    putString("post_id", post.id)
+                                                    putString("url", post.affiliateUrl)
+                                                })
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Could not open link", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(48.dp)
+                                            .shadow(4.dp, RoundedCornerShape(8.dp)),
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFFFF9900), // Amazon Orange-ish
+                                            contentColor = Color.White
+                                        )
+                                    ) {
+                                        Icon(Icons.Default.Favorite, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = if (language == Language.TELUGU) "వస్తువును చూడండి (Shop Now)" else "View Product (Shop Now)",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                            
                             Spacer(modifier = Modifier.height(40.dp))
                         }
                     }

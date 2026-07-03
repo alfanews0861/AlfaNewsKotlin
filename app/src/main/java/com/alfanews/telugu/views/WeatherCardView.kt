@@ -1,7 +1,6 @@
 package com.alfanews.telugu.views
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -10,24 +9,25 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -38,10 +38,12 @@ import com.alfanews.telugu.services.WeatherService
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import java.util.Locale
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
- * వాతావరణం వివరాలను అత్యంత ప్రొఫెషనల్ మరియు అందమైన గ్రాఫిక్‌తో ప్రదర్శించే కార్డ్.
- * Real-time data WeatherService API నుండి వస్తుంది.
+ * వాతావరణ కార్డ్ - పూర్తి redesign మరియు bug fixes తో.
+ * Premium glassmorphism UI with correct API data handling.
  */
 @Composable
 fun WeatherCardView(
@@ -49,450 +51,547 @@ fun WeatherCardView(
     language: Language,
     modifier: Modifier = Modifier,
     onLocationRequest: () -> Unit = {},
-    showTopHeader: Boolean = true // ✅ New parameter
+    showTopHeader: Boolean = true
 ) {
     val context = LocalContext.current
     val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
     val content = if (language == Language.TELUGU) post.content.telugu else post.content.english
 
-    // Real-time API state
+    // State
     var weatherData by remember { mutableStateOf<WeatherService.WeatherData?>(null) }
     var isLoading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf(false) }
+    var hasError by remember { mutableStateOf(false) }
     var retryTrigger by remember { mutableStateOf(0) }
 
-    // GPS Status check
     val hasLocationPermission = remember {
         mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
         )
     }
-    
-    // ✅ ROBUSTNESS: We consider it "Not Precise" if weatherData says so (meaning no GPS coords were used)
-    val isUsingGPS = (weatherData?.isPrecise == true && hasLocationPermission.value) || isLoading || (post.latitude != null && post.latitude != 0.0)
+
+    val isUsingGPS = weatherData?.isPrecise == true ||
+            (post.latitude != null && post.latitude != 0.0)
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { isGranted: Boolean ->
+    ) { isGranted ->
         hasLocationPermission.value = isGranted
         if (isGranted) {
             onLocationRequest()
-            retryTrigger++ // Refresh weather when permission is granted
+            retryTrigger++
         }
     }
 
-    // Fetch real weather data from WeatherService
+    // Fetch weather
     LaunchedEffect(post.location, post.latitude, post.longitude, retryTrigger) {
         isLoading = true
-        error = false
+        hasError = false
         try {
             val data = WeatherService.fetchWeather(post.location, post.latitude, post.longitude)
-            if (data != null) {
-                weatherData = data
-            } else {
-                error = true
-            }
+            weatherData = data
+            hasError = data == null
         } catch (e: Exception) {
-            error = true
+            hasError = true
         }
         isLoading = false
     }
 
-    val realWeatherCode = weatherData?.code
-    val realTime = weatherData?.time?.let { WeatherService.formatTime(it) }
     val isDay = weatherData?.isDay ?: true
+    val realWeatherCode = weatherData?.code
 
-    // Temperature to display: real API data or fallback from text
-    val temperature: String = remember(weatherData, headline) {
-        val currentData = weatherData
-        if (currentData != null) {
-            currentData.temp.toInt().toString()
-        } else {
-            // Try to extract from headline (e.g., "31°C")
-            val regex = "(\\d+)°C".toRegex()
-            regex.find(headline)?.groupValues?.get(1) ?: "—"
-        }
-    }
-
-    val windSpeed: String = weatherData?.wind?.toInt()?.toString() ?: "—"
-    val humidity: String = weatherData?.humidity?.let { "$it%" } ?: "—"
-    val uvIndex: String = weatherData?.uvIndex?.let { String.format(Locale.getDefault(), "%.1f", it) } ?: "—"
-    val weatherTime: String = realTime ?: ""
-
-    // Animation for background
-    val infiniteTransition = rememberInfiniteTransition(label = "weather_bg")
-    val circleOffset by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 100f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(5000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "circle_offset"
-    )
-
-    // Weather type: from real code if available, else from headline keywords
+    // Weather type
     val weatherType = remember(realWeatherCode, headline, isDay) {
         val type = when {
             realWeatherCode != null -> when (realWeatherCode) {
                 0 -> WeatherType.SUNNY
                 1, 2, 3 -> WeatherType.PARTLY_CLOUDY
-                45, 48 -> WeatherType.CLOUDY
-                51, 53, 55 -> WeatherType.CLOUDY // Drizzle/Foggy as cloudy
+                45, 48 -> WeatherType.FOGGY
+                51, 53, 55 -> WeatherType.DRIZZLE
                 61, 63, 65, 80, 81, 82 -> WeatherType.RAINY
                 95, 96, 99 -> WeatherType.THUNDERSTORM
                 else -> WeatherType.PARTLY_CLOUDY
             }
-            headline.contains("ఎండ", ignoreCase = true) || headline.contains("Sunny", ignoreCase = true) || headline.contains("Clear", ignoreCase = true) -> WeatherType.SUNNY
-            headline.contains("వర్షం", ignoreCase = true) || headline.contains("Rain", ignoreCase = true) -> WeatherType.RAINY
-            headline.contains("పిడుగు", ignoreCase = true) || headline.contains("Thunder", ignoreCase = true) -> WeatherType.THUNDERSTORM
-            headline.contains("మేఘావృతం", ignoreCase = true) || headline.contains("Cloudy", ignoreCase = true) -> WeatherType.CLOUDY
+            headline.contains("ఎండ", ignoreCase = true) ||
+            headline.contains("Sunny", ignoreCase = true) ||
+            headline.contains("Clear", ignoreCase = true) -> WeatherType.SUNNY
+            headline.contains("వర్షం", ignoreCase = true) ||
+            headline.contains("Rain", ignoreCase = true) -> WeatherType.RAINY
+            headline.contains("పిడుగు", ignoreCase = true) ||
+            headline.contains("Thunder", ignoreCase = true) -> WeatherType.THUNDERSTORM
+            headline.contains("మేఘావృతం", ignoreCase = true) ||
+            headline.contains("Cloudy", ignoreCase = true) -> WeatherType.PARTLY_CLOUDY
             else -> WeatherType.PARTLY_CLOUDY
         }
-        
-        // Adjust for night
-        if (!isDay && type == WeatherType.SUNNY) {
-            type.copy(icon = Icons.Default.NightsStay, labelEn = "Clear Night", labelTe = "నిర్మలమైన రాత్రి")
-        } else if (!isDay && type == WeatherType.PARTLY_CLOUDY) {
-            type.copy(icon = Icons.Default.NightsStay, labelEn = "Cloudy Night", labelTe = "మేఘావృత రాత్రి")
-        } else {
-            type
-        }
+        if (!isDay && type == WeatherType.SUNNY) WeatherType.CLEAR_NIGHT
+        else if (!isDay && type == WeatherType.PARTLY_CLOUDY) WeatherType.CLOUDY_NIGHT
+        else type
     }
 
-    // ✅ ROBUSTNESS: Determine if we should show the loader or the content
-    val showContent = remember(isLoading, temperature) {
-        !isLoading || (temperature != "—" && temperature.isNotEmpty())
+    // Temperature
+    val temperature = remember(weatherData, headline) {
+        val d = weatherData
+        if (d != null) d.temp.toInt().toString()
+        else Regex("(\\d+)°C").find(headline)?.groupValues?.get(1) ?: "--"
     }
+    val windSpeed = weatherData?.wind?.toInt()?.toString() ?: "--"
+    val humidity = weatherData?.humidity?.let { "$it%" } ?: "--"
+    val uvIndex = weatherData?.uvIndex?.let { String.format(Locale.getDefault(), "%.1f", it) } ?: "--"
+    val feelsLike = weatherData?.temp?.let {
+        // Heat Index approximation
+        val h = (weatherData?.humidity ?: 50)
+        val t = it
+        val hi = t + (0.33 * (h / 100.0 * 6.105) - 0.7)
+        hi.toInt().toString()
+    } ?: "--"
+    val weatherTime = weatherData?.time?.let { WeatherService.formatTime(it) } ?: ""
+
+    // Animations
+    val infiniteTransition = rememberInfiniteTransition(label = "weather_anim")
+    val animPhase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * Math.PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(8000, easing = LinearEasing)
+        ),
+        label = "anim_phase"
+    )
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.95f,
+        targetValue = 1.05f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse"
+    )
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-    // GPS WARNING BANNER - ✅ Made more subtle and robust
-    if (!isUsingGPS && !isLoading) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-            shape = RoundedCornerShape(0.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable {
-                    if (hasLocationPermission.value) {
-                        onLocationRequest()
-                        retryTrigger++
-                    } else {
-                        permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                    }
-                }
-        ) {
+        // GPS Banner
+        if (!isUsingGPS && !isLoading) {
             Row(
-                modifier = Modifier.padding(vertical = 6.dp, horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                weatherType.colorStart.copy(alpha = 0.15f),
+                                weatherType.colorEnd.copy(alpha = 0.08f)
+                            )
+                        )
+                    )
+                    .clickable {
+                        if (hasLocationPermission.value) {
+                            onLocationRequest(); retryTrigger++
+                        } else {
+                            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                        }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
-                    Icons.Default.LocationOff,
+                    Icons.Rounded.MyLocation,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(14.dp)
+                    tint = weatherType.colorStart,
+                    modifier = Modifier.size(13.dp)
                 )
-                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = if (language == Language.TELUGU)
-                        "ఖచ్చితమైన వాతావరణం కోసం GPS అనుమతించండి."
-                    else
-                        "Enable GPS for precise local weather.",
+                        "ఖచ్చితమైన వాతావరణం కోసం GPS అనుమతించండి"
+                    else "Tap to enable GPS for precise weather",
                     fontSize = 11.sp,
                     fontFamily = Mallanna,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
                     modifier = Modifier.weight(1f)
                 )
                 Icon(
-                    Icons.Default.ChevronRight,
+                    Icons.Rounded.ChevronRight,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.size(14.dp)
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                    modifier = Modifier.size(13.dp)
                 )
             }
+            HorizontalDivider(thickness = 0.5.dp, color = weatherType.colorStart.copy(alpha = 0.2f))
         }
-    }
 
-        // HEADER - App Name - ✅ Only show if requested
+        // App Header
         if (showTopHeader) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(60.dp)
+                    .height(56.dp)
                     .padding(horizontal = 20.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "alfa",
-                    fontSize = 28.sp,
-                    fontFamily = Ramabhadra,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "news",
-                    fontSize = 28.sp,
-                    fontFamily = Ramabhadra,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Text("alfa", fontSize = 26.sp, fontFamily = Ramabhadra, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Text("news", fontSize = 26.sp, fontFamily = Ramabhadra, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.weight(1f))
-                Icon(
-                    imageVector = Icons.Default.LocationOn,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
+                Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.size(14.dp), tint = weatherType.colorStart)
+                Spacer(modifier = Modifier.width(3.dp))
                 Text(
-                    text = if (weatherTime.isNotEmpty()) "${post.location} ($weatherTime)" else post.location,
-                    fontSize = 14.sp,
+                    text = post.location,
+                    fontSize = 13.sp,
                     fontFamily = Ramabhadra,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(start = 4.dp)
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                 )
             }
         }
 
-        // WEATHER GRAPHIC AREA
+        // ═══════════════════════════════════════════
+        // WEATHER GRAPHIC AREA - Premium Design
+        // ═══════════════════════════════════════════
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(0.42f)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(weatherType.colorStart, weatherType.colorEnd)
+                .weight(0.45f)
+        ) {
+            // Animated gradient background
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width
+                val h = size.height
+
+                // Main gradient background
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(weatherType.colorStart, weatherType.colorEnd),
+                        startY = 0f,
+                        endY = h
                     )
                 )
-        ) {
-            // Decorative canvas circles
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val width = size.width
-                val height = size.height
+
+                // Animated floating orbs
+                val orb1X = w * 0.15f + (sin(animPhase.toDouble()) * w * 0.08f).toFloat()
+                val orb1Y = h * 0.25f + (cos(animPhase.toDouble()) * h * 0.06f).toFloat()
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color.White.copy(alpha = 0.15f), Color.Transparent),
-                        center = Offset(width * 0.2f + circleOffset, height * 0.3f),
-                        radius = width * 0.5f
+                        colors = listOf(Color.White.copy(alpha = 0.18f), Color.Transparent),
+                        center = Offset(orb1X, orb1Y),
+                        radius = w * 0.45f
                     ),
-                    radius = width * 0.5f,
-                    center = Offset(width * 0.2f + circleOffset, height * 0.3f)
+                    radius = w * 0.45f,
+                    center = Offset(orb1X, orb1Y)
                 )
+
+                val orb2X = w * 0.85f + (cos(animPhase.toDouble()) * w * 0.05f).toFloat()
+                val orb2Y = h * 0.7f + (sin(animPhase.toDouble()) * h * 0.08f).toFloat()
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color.White.copy(alpha = 0.1f), Color.Transparent),
-                        center = Offset(width * 0.9f - circleOffset, height * 0.8f),
-                        radius = width * 0.3f
+                        colors = listOf(Color.White.copy(alpha = 0.12f), Color.Transparent),
+                        center = Offset(orb2X, orb2Y),
+                        radius = w * 0.35f
                     ),
-                    radius = width * 0.3f,
-                    center = Offset(width * 0.9f - circleOffset, height * 0.8f)
+                    radius = w * 0.35f,
+                    center = Offset(orb2X, orb2Y)
+                )
+
+                // Bottom wave overlay
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.12f)),
+                        startY = h * 0.6f,
+                        endY = h
+                    )
                 )
             }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                if (!showContent) {
+            if (isLoading) {
+                // Loading state
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
                     CircularProgressIndicator(
                         color = Color.White,
-                        modifier = Modifier.size(48.dp),
-                        strokeWidth = 3.dp
+                        modifier = Modifier.size(40.dp),
+                        strokeWidth = 3.dp,
+                        trackColor = Color.White.copy(alpha = 0.25f)
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = if (language == Language.TELUGU) "వాతావరణ సమాచారం తెస్తున్నాం..." else "Fetching weather...",
-                        color = Color.White.copy(alpha = 0.8f),
-                        fontSize = 14.sp,
+                        text = if (language == Language.TELUGU) "వాతావరణ సమాచారం తెస్తున్నాం..." else "Fetching weather data...",
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 13.sp,
                         fontFamily = Mallanna
                     )
-                } else if (error && weatherData == null) {
-                    Icon(Icons.Default.CloudOff, contentDescription = null, tint = Color.White, modifier = Modifier.size(48.dp))
-                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            } else if (hasError) {
+                // Error state
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Rounded.CloudOff, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = if (language == Language.TELUGU) "సమాచారం అందుబాటులో లేదు" else "Weather unavailable",
-                        color = Color.White,
-                        fontSize = 16.sp,
+                        text = if (language == Language.TELUGU) "సమాచారం అందుబాటులో లేదు" else "Weather data unavailable",
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 15.sp,
                         fontFamily = Ramabhadra
                     )
-                    Button(
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
                         onClick = { retryTrigger++ },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f)),
-                        modifier = Modifier.padding(top = 8.dp)
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.6f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        shape = RoundedCornerShape(20.dp)
                     ) {
-                        Text(if (language == Language.TELUGU) "మళ్ళీ ప్రయత్నించు" else "Retry", color = Color.White)
+                        Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(if (language == Language.TELUGU) "మళ్ళీ ప్రయత్నించు" else "Retry", fontFamily = Mallanna)
                     }
-                } else {
+                }
+            } else {
+                // MAIN WEATHER DISPLAY
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Top row: Location + time
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Rounded.LocationOn,
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.9f),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = post.location,
+                                color = Color.White.copy(alpha = 0.9f),
+                                fontSize = 13.sp,
+                                fontFamily = Ramabhadra
+                            )
+                        }
+                        // Live badge
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.White.copy(alpha = 0.2f))
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF4CAF50))
+                            )
+                            Text(
+                                text = if (weatherTime.isNotEmpty()) "Live • $weatherTime" else "Live",
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontFamily = Ramabhadra
+                            )
+                        }
+                    }
+
+                    // Center: Big temperature + icon
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            imageVector = weatherType.icon,
-                            contentDescription = null,
-                            modifier = Modifier.size(90.dp),
-                            tint = Color.White
-                        )
+                        // Weather icon with glow
+                        Box(contentAlignment = Alignment.Center) {
+                            // Glow circle behind icon
+                            Box(
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.12f))
+                            )
+                            Icon(
+                                imageVector = weatherType.icon,
+                                contentDescription = null,
+                                modifier = Modifier.size(56.dp),
+                                tint = Color.White
+                            )
+                        }
 
-                        Spacer(modifier = Modifier.width(16.dp))
+                        Spacer(modifier = Modifier.width(20.dp))
 
                         Column {
                             Text(
                                 text = "$temperature°C",
                                 color = Color.White,
-                                fontSize = 60.sp,
+                                fontSize = 58.sp,
                                 fontFamily = Ramabhadra,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
                             )
                             Text(
                                 text = if (language == Language.TELUGU) weatherType.labelTe else weatherType.labelEn,
-                                color = Color.White.copy(alpha = 0.9f),
-                                fontSize = 20.sp,
+                                color = Color.White.copy(alpha = 0.85f),
+                                fontSize = 16.sp,
                                 fontFamily = Mallanna
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
-
+                    // Bottom: Stats row with glassmorphism
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color.Black.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
-                            .padding(12.dp),
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.Black.copy(alpha = 0.18f))
+                            .padding(vertical = 10.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        val currentTemp = weatherData?.temp
-                        val feelsLike = currentTemp?.let { (it + 1.2).toInt().toString() } ?: "—"
-                        WeatherDetailItem(Icons.Default.WaterDrop, stringResource(R.string.weather_humidity), humidity)
-                        WeatherDetailItem(Icons.Default.Air, stringResource(R.string.weather_wind), "$windSpeed km/h")
-                        WeatherDetailItem(Icons.Default.WbSunny, "UV", uvIndex)
-                        WeatherDetailItem(Icons.Default.Thermostat, stringResource(R.string.weather_feels_like), "$feelsLike°")
+                        WeatherStatItem(Icons.Rounded.WaterDrop, stringResource(R.string.weather_humidity), humidity)
+                        WeatherStatDivider()
+                        WeatherStatItem(Icons.Rounded.Air, stringResource(R.string.weather_wind), "$windSpeed km/h")
+                        WeatherStatDivider()
+                        WeatherStatItem(Icons.Rounded.WbSunny, "UV", uvIndex)
+                        WeatherStatDivider()
+                        WeatherStatItem(Icons.Rounded.Thermostat, stringResource(R.string.weather_feels_like), "$feelsLike°")
                     }
                 }
             }
-
-            Text(
-                text = if (weatherTime.isNotEmpty())
-                    "Live • $weatherTime"
-                else if (isLoading) "Live • Updating..." else "Live Update",
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = 11.sp,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(16.dp)
-            )
         }
 
-        // CONTENT AREA
+        // ═══════════════════════════════════════════
+        // CONTENT AREA - News + Forecast
+        // ═══════════════════════════════════════════
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(0.58f),
+                .weight(0.55f),
             color = MaterialTheme.colorScheme.background
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(20.dp)
+                    .padding(horizontal = 18.dp, vertical = 14.dp)
             ) {
+                // Headline
                 Text(
                     text = headline,
-                    fontSize = 22.sp,
+                    fontSize = 21.sp,
                     fontFamily = Ramabhadra,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface,
-                    lineHeight = 30.sp,
-                    modifier = Modifier.padding(bottom = 12.dp)
+                    lineHeight = 28.sp,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
                 )
 
+                // Content text
                 Text(
                     text = content,
-                    fontSize = 18.sp,
+                    fontSize = 17.sp,
                     fontFamily = Mallanna,
                     style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    lineHeight = 26.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                    lineHeight = 25.sp,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // UPCOMING FORECAST SECTION - based on real temp
+                // Forecast section header
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = stringResource(R.string.weather_upcoming),
-                        fontSize = 14.sp,
-                        fontFamily = Ramabhadra,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .height(14.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(weatherType.colorStart)
+                        )
+                        Text(
+                            text = stringResource(R.string.weather_upcoming),
+                            fontSize = 13.sp,
+                            fontFamily = Ramabhadra,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                     Text(
                         text = "Alfa Weather",
                         fontSize = 10.sp,
                         fontFamily = Ramabhadra,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
                     )
                 }
 
+                // Forecast cards
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     val forecasts = weatherData?.dailyForecast
                     if (forecasts != null && forecasts.size >= 3) {
-                        // Real Forecasts
                         forecasts.take(3).forEachIndexed { index, forecast ->
-                            val dayLabel = when(index) {
+                            val dayLabel = when (index) {
                                 0 -> stringResource(R.string.weather_today)
                                 1 -> stringResource(R.string.weather_tomorrow)
                                 else -> if (language == Language.TELUGU) "ఎల్లుండి" else "Day After"
                             }
-                            val icon = getWeatherIconForCode(forecast.code)
-                            ForecastItem(
-                                dayLabel,
-                                icon,
-                                "${forecast.maxTemp.toInt()}°",
-                                "${forecast.minTemp.toInt()}°",
-                                Modifier.weight(1f)
+                            PremiumForecastItem(
+                                day = dayLabel,
+                                icon = getWeatherIconForCode(forecast.code),
+                                max = "${forecast.maxTemp.toInt()}°",
+                                min = "${forecast.minTemp.toInt()}°",
+                                accentColor = weatherType.colorStart,
+                                isToday = index == 0,
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     } else {
-                        // Fallback Forecasts
                         val tempInt = weatherData?.temp?.toInt() ?: 32
-                        ForecastItem(
-                            stringResource(R.string.weather_today),
-                            weatherType.icon,
-                            "$tempInt°",
-                            "${tempInt - 5}°",
-                            Modifier.weight(1f)
+                        PremiumForecastItem(
+                            day = stringResource(R.string.weather_today),
+                            icon = weatherType.icon,
+                            max = "$tempInt°", min = "${tempInt - 5}°",
+                            accentColor = weatherType.colorStart, isToday = true,
+                            modifier = Modifier.weight(1f)
                         )
-                        ForecastItem(
-                            stringResource(R.string.weather_tomorrow),
-                            Icons.Default.WbCloudy,
-                            "${tempInt + 1}°",
-                            "${tempInt - 4}°",
-                            Modifier.weight(1f)
+                        PremiumForecastItem(
+                            day = stringResource(R.string.weather_tomorrow),
+                            icon = Icons.Rounded.WbCloudy,
+                            max = "${tempInt + 1}°", min = "${tempInt - 4}°",
+                            accentColor = weatherType.colorStart, isToday = false,
+                            modifier = Modifier.weight(1f)
                         )
-                        ForecastItem(
-                            if (language == Language.TELUGU) "ఎల్లుండి" else "Day After",
-                            Icons.Default.CloudQueue,
-                            "${tempInt - 1}°",
-                            "${tempInt - 6}°",
-                            Modifier.weight(1f)
+                        PremiumForecastItem(
+                            day = if (language == Language.TELUGU) "ఎల్లుండి" else "Day After",
+                            icon = Icons.Rounded.Cloud,
+                            max = "${tempInt - 1}°", min = "${tempInt - 6}°",
+                            accentColor = weatherType.colorStart, isToday = false,
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
@@ -501,43 +600,100 @@ fun WeatherCardView(
     }
 }
 
+// ─── Sub-components ───────────────────────────────────────
+
 @Composable
-fun WeatherDetailItem(icon: ImageVector, label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(imageVector = icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-        Text(text = value, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-        Text(text = label, color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp)
+private fun WeatherStatItem(icon: ImageVector, label: String, value: String) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Icon(imageVector = icon, contentDescription = null, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(17.dp))
+        Text(text = value, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = Ramabhadra)
+        Text(text = label, color = Color.White.copy(alpha = 0.65f), fontSize = 9.sp, fontFamily = Mallanna)
     }
 }
 
 @Composable
-fun ForecastItem(day: String, icon: ImageVector, max: String, min: String, modifier: Modifier = Modifier) {
+private fun WeatherStatDivider() {
+    Box(
+        modifier = Modifier
+            .width(0.5.dp)
+            .height(36.dp)
+            .background(Color.White.copy(alpha = 0.2f))
+    )
+}
+
+@Composable
+fun PremiumForecastItem(
+    day: String,
+    icon: ImageVector,
+    max: String,
+    min: String,
+    accentColor: Color,
+    isToday: Boolean,
+    modifier: Modifier = Modifier
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-            .padding(8.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (isToday) accentColor.copy(alpha = 0.12f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            )
+            .then(
+                if (isToday) Modifier // extra styling for today
+                else Modifier
+            )
+            .padding(vertical = 10.dp, horizontal = 6.dp)
     ) {
-        Text(text = day, fontSize = 11.sp, fontFamily = Ramabhadra, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Icon(imageVector = icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp).padding(vertical = 4.dp))
-        Row {
-            Text(text = max, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(text = min, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        Text(
+            text = day,
+            fontSize = 10.sp,
+            fontFamily = Ramabhadra,
+            color = if (isToday) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (isToday) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = max,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = Ramabhadra,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = min,
+            fontSize = 11.sp,
+            fontFamily = Ramabhadra,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+        )
     }
 }
 
+// ─── Helpers ──────────────────────────────────────────────
+
 fun getWeatherIconForCode(code: Int): ImageVector {
     return when (code) {
-        0 -> Icons.Default.WbSunny
-        1, 2, 3 -> Icons.Default.WbCloudy
-        45, 48 -> Icons.Default.Cloud
-        61, 63, 65, 80, 81, 82 -> Icons.Default.Umbrella
-        95, 96, 99 -> Icons.Default.Thunderstorm
-        else -> Icons.Default.WbCloudy
+        0 -> Icons.Rounded.WbSunny
+        1, 2, 3 -> Icons.Rounded.WbCloudy
+        45, 48 -> Icons.Rounded.Cloud
+        51, 53, 55 -> Icons.Rounded.Grain
+        61, 63, 65, 80, 81, 82 -> Icons.Rounded.Umbrella
+        95, 96, 99 -> Icons.Rounded.Thunderstorm
+        else -> Icons.Rounded.WbCloudy
     }
 }
+
+// ─── WeatherType with expanded palette ────────────────────
 
 data class WeatherType(
     val icon: ImageVector,
@@ -547,10 +703,45 @@ data class WeatherType(
     val labelEn: String
 ) {
     companion object {
-        val SUNNY = WeatherType(Icons.Default.WbSunny, Color(0xFFFFB300), Color(0xFFFF6F00), "ఎండగా ఉంది", "Sunny")
-        val RAINY = WeatherType(Icons.Default.Umbrella, Color(0xFF1976D2), Color(0xFF0D47A1), "వర్షం పడే అవకాశం", "Rainy")
-        val THUNDERSTORM = WeatherType(Icons.Default.Thunderstorm, Color(0xFF4527A0), Color(0xFF311B92), "పిడుగులతో కూడిన వర్షం", "Thunderstorm")
-        val CLOUDY = WeatherType(Icons.Default.Cloud, Color(0xFF78909C), Color(0xFF455A64), "మేఘావృతం", "Cloudy")
-        val PARTLY_CLOUDY = WeatherType(Icons.Default.WbCloudy, Color(0xFF00ACC1), Color(0xFF006064), "అక్కడక్కడ మేఘాలు", "Partly Cloudy")
+        val SUNNY = WeatherType(
+            Icons.Rounded.WbSunny,
+            Color(0xFFFFB300), Color(0xFFE65100),
+            "ఎండగా ఉంది", "Sunny"
+        )
+        val PARTLY_CLOUDY = WeatherType(
+            Icons.Rounded.WbCloudy,
+            Color(0xFF26C6DA), Color(0xFF00838F),
+            "అక్కడక్కడ మేఘాలు", "Partly Cloudy"
+        )
+        val RAINY = WeatherType(
+            Icons.Rounded.Umbrella,
+            Color(0xFF1E88E5), Color(0xFF0D47A1),
+            "వర్షం పడే అవకాశం", "Rainy"
+        )
+        val THUNDERSTORM = WeatherType(
+            Icons.Rounded.Thunderstorm,
+            Color(0xFF5E35B1), Color(0xFF1A237E),
+            "పిడుగులతో కూడిన వర్షం", "Thunderstorm"
+        )
+        val FOGGY = WeatherType(
+            Icons.Rounded.Cloud,
+            Color(0xFF78909C), Color(0xFF37474F),
+            "పొగమంచు", "Foggy"
+        )
+        val DRIZZLE = WeatherType(
+            Icons.Rounded.Grain,
+            Color(0xFF42A5F5), Color(0xFF1565C0),
+            "చినుకులు పడుతున్నాయి", "Drizzle"
+        )
+        val CLEAR_NIGHT = WeatherType(
+            Icons.Rounded.NightsStay,
+            Color(0xFF1A237E), Color(0xFF000051),
+            "నిర్మలమైన రాత్రి", "Clear Night"
+        )
+        val CLOUDY_NIGHT = WeatherType(
+            Icons.Rounded.NightsStay,
+            Color(0xFF37474F), Color(0xFF102027),
+            "మేఘావృత రాత్రి", "Cloudy Night"
+        )
     }
 }

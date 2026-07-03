@@ -1,0 +1,21 @@
+# Task: AI-Powered Ecommerce Affiliate Integration
+
+- `[x]` Update Firestore Schema & Backend Types
+    - `[x]` Modify `functions/src/types.ts` to include `affiliateUrl` and `productPrice`
+- `[x]` Implement AI Product-to-News Conversion
+    - `[x]` Add `processProductWithAI` to `functions/src/geminiService.ts`
+- `[x]` Update Android Data Models
+    - `[x]` Add `affiliateUrl` to `NewsPost.kt`
+- `[x]` Update Mobile UI (News Feed)
+    - `[x]` Implement "Shop Now" button in `NewsCardView.kt`
+- `[x]` Verification
+    - `[x]` Verify Firestore document structure
+    - `[x]` Test link opening on device/emulator (Build successful)
+- `[x]` Automated Daily Affiliate Fetching (New Request)
+    - `[x]` Research Amazon India PA API & Flipkart API (Done)
+    - `[x]` Create `functions/src/affiliate_handler.ts` with AWS SigV4 logic
+    - `[x]` Register function in `functions/src/index.ts`
+    - `[x]` Create `AffiliateSettingsView.kt` in Android app
+    - `[x]` Update `AdminPanelView.kt` to include settings page
+    - `[x]` Update `NewsCardView.kt` to show "మరిన్ని వివరాలకు..." for affiliate posts
+    - `[x]` Final Build Verification (Succeeded)

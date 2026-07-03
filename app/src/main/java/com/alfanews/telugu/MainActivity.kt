@@ -357,6 +357,10 @@ class ViewModelFactory(private val application: Application) : ViewModelProvider
                 @Suppress("UNCHECKED_CAST")
                 LocalNewsFeedViewModel(application) as T
             }
+            modelClass.isAssignableFrom(com.alfanews.telugu.viewmodels.ReportersViewModel::class.java) -> {
+                @Suppress("UNCHECKED_CAST")
+                com.alfanews.telugu.viewmodels.ReportersViewModel(application) as T
+            }
             else -> throw IllegalArgumentException("Unknown ViewModel class")
         }
     }

@@ -28,11 +28,17 @@ const API_KEYS = [
 ].filter(key => !!key) as string[];
 
 /**
+ * Safety flag to prevent unexpected billing.
+ * Set to true only if you want to allow falling back to the PAID_GEMINI_API_KEY.
+ */
+const PAID_FALLBACK_ENABLED = process.env.PAID_FALLBACK_ENABLED === "true";
+
+/**
  * Internal helper to get a specific AI instance
  */
 const getAIInstanceInternal = (apiKey: string) => new GoogleGenAI({
     apiKey,
-    apiVersion: "v1"
+    apiVersion: "v1beta"
 });
 
 /**
@@ -79,6 +85,13 @@ export async function runWithAIFallback<T>(
 
     for (let k = 0; k < keysToTry.length; k++) {
         const currentKey = keysToTry[k];
+        const isPaidKey = currentKey === process.env.PAID_GEMINI_API_KEY;
+
+        if (isPaidKey && !PAID_FALLBACK_ENABLED) {
+            console.warn(`[AI-SKIP] Paid key detected but PAID_FALLBACK_ENABLED is false. Skipping.`);
+            continue;
+        }
+
         const keyLabel = k === 0 ? "FREE_1" : k === 1 ? "FREE_2" : k === 2 ? "PAID" : "FALLBACK";
         const ai = getAIInstanceInternal(currentKey);
 
@@ -123,7 +136,14 @@ export async function runWithAIFallback<T>(
                         break; // Breaks retry loop
                     }
 
-                    // 4. Fatal/Unknown Errors
+                    // 4. JSON/Truncation Errors (if operation throws for parsing) -> FALLBACK
+                    const isDataError = errMsg.includes("JSON") || errMsg.includes("parsing") || errMsg.includes("Unterminated");
+                    if (isDataError && m < modelsToTry.length - 1) {
+                        console.warn(`[DATA-FALLBACK] ${currentModelName} failed (${errMsg}). Trying ${modelsToTry[m+1]}...`);
+                        break;
+                    }
+
+                    // 5. Fatal/Unknown Errors
                     console.error(`[AI-FATAL-FINAL] Error with ${currentModelName} (${keyLabel}). Status: ${status}. Message: ${errMsg.substring(0, 100)}`);
                     throw err;
                 }

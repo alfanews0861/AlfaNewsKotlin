@@ -12,7 +12,8 @@ async function insertTrendingNews() {
             mediaType: 'IMAGE',
             postFormat: 'VERTICAL',
             category: 'Technology',
-            location: 'Andhra Pradesh',
+            location: 'Kavali', // Mandalam name for testing
+            district: 'Nellore',
             likes: 154,
             comments: 23,
             shares: 45,

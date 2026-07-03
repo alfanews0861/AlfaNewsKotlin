@@ -154,7 +154,7 @@ STEP 2: ENHANCEMENT (If NEWS)
 - Content: Detailed paragraph in Telugu (500-600 characters, ~65 words) AND a paragraph in English (~70 words).
   STRICT PERSONA: You are a Senior Reporter. Capture the emotional essence (bhaavam) and include ALL names/locations.
 - Headline: Strong punch style (balamgaa) single sentence in Telugu (max 10 words) AND in English (~12 words).
-- Vocal Content: Optimize for news anchor. Stress 2-3 key terms.
+- Vocal Content: A concise news anchor script in Telugu (approx 70 words). Sound natural and professional. Use [[STRESS]]term[[/STRESS]] for emphasis.
 - Tone: SERIOUS, URGENT, NORMAL, INQUISITIVE, or SHOCKING.
 - Category: Pick ONE from this list:
 ${categoryList}

@@ -35,7 +35,8 @@ data class CurrentWeather(
 
 data class HourlyData(
     @SerializedName("time") val time: List<String>,
-    @SerializedName("relative_humidity_2m") val humidity: List<Int>?
+    @SerializedName("relative_humidity_2m") val humidity: List<Int>?,
+    @SerializedName("apparent_temperature") val feelsLike: List<Double>?
 )
 
 data class DailyData(
@@ -60,7 +61,7 @@ interface WeatherApiService {
         @Query("latitude") lat: Double,
         @Query("longitude") lon: Double,
         @Query("current_weather") currentWeather: Boolean = true,
-        @Query("hourly") hourly: String = "relative_humidity_2m",
+        @Query("hourly") hourly: String = "relative_humidity_2m,apparent_temperature",
         @Query("daily") daily: String = "weathercode,temperature_2m_max,temperature_2m_min,uv_index_max",
         @Query("timezone") timezone: String = "auto",
         @Query("temperature_unit") tempUnit: String = "celsius",
@@ -238,10 +239,19 @@ object WeatherService {
             }
             
             val weatherResponse = api.getWeather(latitude, longitude)
-            
-            // Get current humidity (first hourly value)
-            val currentHumidity = weatherResponse.hourly?.humidity?.firstOrNull()
-            
+
+            // ✅ FIX: Match current hour index for accurate humidity
+            val currentTimeStr = weatherResponse.currentWeather.time // e.g. "2024-05-20T14:00"
+            val hourlyTimes = weatherResponse.hourly?.time
+            val currentHourIndex = hourlyTimes?.indexOfFirst { it == currentTimeStr }
+                ?.takeIf { it >= 0 }
+                ?: hourlyTimes?.size?.let { minOf(it - 1, 0) }
+                ?: 0
+            val currentHumidity = weatherResponse.hourly?.humidity?.getOrNull(currentHourIndex)
+
+            // ✅ FIX: Today's UV index (index 0 = today)
+            val todayUV = weatherResponse.daily?.uvIndex?.getOrNull(0)
+
             // Build daily forecast
             val daily = weatherResponse.daily
             val forecastList = mutableListOf<DayForecast>()
@@ -258,13 +268,13 @@ object WeatherService {
 
             val isPrecise = validLat != null && validLon != null
             val result = WeatherData(
-                temp = weatherResponse.currentWeather.temperature, 
+                temp = weatherResponse.currentWeather.temperature,
                 code = weatherResponse.currentWeather.weatherCode,
                 wind = weatherResponse.currentWeather.windSpeed,
                 time = weatherResponse.currentWeather.time,
                 humidity = currentHumidity,
                 isDay = weatherResponse.currentWeather.isDay == 1,
-                uvIndex = weatherResponse.daily?.uvIndex?.firstOrNull(),
+                uvIndex = todayUV,
                 isPrecise = isPrecise,
                 dailyForecast = forecastList
             )
