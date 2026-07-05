@@ -51,6 +51,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 fun LocalNewsFeedView(
     language: Language,
     currentUser: User?,
+    onDistrictClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
     onReporterClick: (String) -> Unit = {},
     onEditClick: (NewsPost) -> Unit = {},
@@ -77,14 +78,11 @@ fun LocalNewsFeedView(
     val loading by viewModel.loading.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val hasMore by viewModel.hasMore.collectAsStateWithLifecycle()
-    val activeDistrict by viewModel.activeDistrict.collectAsStateWithLifecycle()
+    val viewModelActiveDistrict by viewModel.activeDistrict.collectAsStateWithLifecycle()
     val isDetecting by viewModel.isDetecting.collectAsStateWithLifecycle()
     val shouldScrollToTop by viewModel.shouldScrollToTop.collectAsStateWithLifecycle()
     val localAds by viewModel.localAds.collectAsStateWithLifecycle()
     val preloadedAds = remember { mutableStateMapOf<Int, NativeAd?>() }
-
-    var showDistrictPicker by remember { mutableStateOf(false) }
-    var selectedState by remember { mutableStateOf("TS") }
 
     var hasLocationPermission by remember {
         mutableStateOf(
@@ -117,7 +115,7 @@ fun LocalNewsFeedView(
     }
 
     LaunchedEffect(currentUser) {
-        if (activeDistrict == null) {
+        if (viewModelActiveDistrict == null) {
             if (hasLocationPermission) {
                 viewModel.detectLocation(context, currentUser)
             } else {
@@ -126,8 +124,8 @@ fun LocalNewsFeedView(
         }
     }
 
-    LaunchedEffect(activeDistrict) {
-        if (activeDistrict != null) {
+    LaunchedEffect(viewModelActiveDistrict) {
+        if (viewModelActiveDistrict != null) {
             if (news.isEmpty() && !loading) {
                 viewModel.loadNews(language, currentUser)
             } else {
@@ -284,9 +282,9 @@ fun LocalNewsFeedView(
                     )
                 }
             }
-        } else if (news.isEmpty() && activeDistrict == null) {
+        } else if (news.isEmpty() && viewModelActiveDistrict == null) {
             LaunchedEffect(Unit) {
-                showDistrictPicker = true
+                onDistrictClick()
             }
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -303,7 +301,7 @@ fun LocalNewsFeedView(
                         fontFamily = Ramabhadra
                     )
                     Button(
-                        onClick = { showDistrictPicker = true },
+                        onClick = onDistrictClick,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
                         Text(stringResource(R.string.select_district), fontFamily = Ramabhadra)
@@ -370,10 +368,10 @@ fun LocalNewsFeedView(
                             currentUser = currentUser,
                             onProfileClick = onProfileClickRemembered,
                             onReporterClick = onReporterClickRemembered,
-                            onDistrictClick = { showDistrictPicker = true },
+                            onDistrictClick = onDistrictClick,
                             onEditClick = onEditClickRemembered,
                             modifier = Modifier.fillMaxSize(),
-                            district = activeDistrict,
+                            district = viewModelActiveDistrict,
                             showDistrictSelector = false,
                             showTopHeader = false,
                             isActive = pagerState.currentPage == page
@@ -384,73 +382,5 @@ fun LocalNewsFeedView(
         }
     }
 
-    if (showDistrictPicker) {
-        AlertDialog(
-            onDismissRequest = { if (activeDistrict != null) showDistrictPicker = false },
-            title = { Text("నివాస ప్రాంతాన్ని ఎంచుకోండి", fontFamily = Ramabhadra) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = selectedState == "TS",
-                            onClick = { selectedState = "TS" },
-                            label = { Text("తెలంగాణ") },
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = selectedState == "AP",
-                            onClick = { selectedState = "AP" },
-                            label = { Text("ఆంధ్రప్రదేశ్") },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    var expanded by remember { mutableStateOf(false) }
-                    val districts = if (selectedState == "TS") Constants.TS_DISTRICTS else Constants.AP_DISTRICTS
-                    
-                    ExposedDropdownMenuBox(
-                        expanded = expanded,
-                        onExpandedChange = { expanded = !expanded }
-                    ) {
-                        OutlinedTextField(
-                            value = activeDistrict ?: "జిల్లాను ఎంచుకోండి",
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("జిల్లా") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                            modifier = Modifier.menuAnchor().fillMaxWidth()
-                        )
-
-                        ExposedDropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false }
-                        ) {
-                            districts.forEach { district ->
-                                DropdownMenuItem(
-                                    text = { Text(district) },
-                                    onClick = {
-                                        viewModel.setDistrict(district)
-                                        expanded = false
-                                        showDistrictPicker = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                if (activeDistrict != null) {
-                    TextButton(onClick = { showDistrictPicker = false }) {
-                        Text("రద్దు", color = Color.Gray)
-                    }
-                }
-            }
-        )
-    }
+    // Shared DistrictPicker moved to MainScreen
 }

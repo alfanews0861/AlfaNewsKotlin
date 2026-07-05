@@ -4,12 +4,18 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.ThemeMode
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 /**
  * అప్లికేషన్ యొక్క [SharedPreferences]ని నిర్వహిస్తుంది.
  */
 class PreferenceManager(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("alfa_news_prefs", Context.MODE_PRIVATE)
+
+    private val _districtChanges = MutableSharedFlow<String?>(extraBufferCapacity = 1)
+    val districtChanges: SharedFlow<String?> = _districtChanges.asSharedFlow()
 
     companion object {
         private const val KEY_LANGUAGE = "key_language"
@@ -74,6 +80,7 @@ class PreferenceManager(context: Context) {
         get() = prefs.getString(KEY_SELECTED_DISTRICT, null)
         set(value) {
             prefs.edit().putString(KEY_SELECTED_DISTRICT, value).apply()
+            _districtChanges.tryEmit(getEffectiveDistrict())
         }
 
     /** ఆటోమేటిక్‌గా (GPS/IP) గుర్తించబడిన జిల్లా. */
@@ -81,6 +88,7 @@ class PreferenceManager(context: Context) {
         get() = prefs.getString(KEY_DETECTED_DISTRICT, null)
         set(value) {
             prefs.edit().putString(KEY_DETECTED_DISTRICT, value).apply()
+            _districtChanges.tryEmit(getEffectiveDistrict())
         }
 
     /** 

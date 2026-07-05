@@ -114,42 +114,31 @@ fun JoinReporterPageView(
     }
 
     AlfaNewsTheme {
-        Scaffold(
-            topBar = {
-                CenterAlignedTopAppBar(
-                    title = { 
-                        Text(
-                            stringResource(R.string.join_reporter), 
-                            fontFamily = Ramabhadra,
-                            fontSize = 20.sp
-                        ) 
-                    },
-                    navigationIcon = { 
-                        IconButton(onClick = onClose) { 
-                            Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back)) 
-                        } 
-                    },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                        navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
-                    )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.join_reporter),
+                    fontSize = 24.sp,
+                    fontFamily = Ramabhadra,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
-            },
-            content = { paddingValues ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues)
-                        .padding(16.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
                 ) {
-                    ElevatedCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
-                    ) {
                         Column(
                             modifier = Modifier.padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -475,7 +464,7 @@ fun JoinReporterPageView(
                     }
                 }
             }
-        )
+        }
 
         showSuccessDialog?.let { message ->
             AlertDialog(

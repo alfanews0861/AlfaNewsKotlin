@@ -118,18 +118,15 @@ fun UserManagementPageView(currentUser: User) {
     }
 
     AlfaNewsTheme {
-        Scaffold(
-            snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
-        ) { paddingValues ->
-            Column(modifier = Modifier.fillMaxSize().padding(paddingValues).padding(16.dp)) {
-                OutlinedTextField(
-                    value = searchTerm,
-                    onValueChange = { searchTerm = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("పేరు లేదా ఈమెయిల్ ద్వారా శోధించండి...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                    singleLine = true
-                )
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            OutlinedTextField(
+                value = searchTerm,
+                onValueChange = { searchTerm = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("పేరు లేదా ఈమెయిల్ ద్వారా శోధించండి...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                singleLine = true
+            )
 
                 Spacer(modifier = Modifier.height(16.dp))
 

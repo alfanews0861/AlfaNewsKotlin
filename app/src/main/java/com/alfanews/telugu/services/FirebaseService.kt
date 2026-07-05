@@ -38,5 +38,5 @@ object FirebaseService {
     val storage: FirebaseStorage by lazy { FirebaseStorage.getInstance() }
     
     /** ఫైర్‌బేస్ క్లౌడ్ ఫంక్షన్స్ (Cloud Functions) ఇన్‌స్టన్స్. */
-    val functions: FirebaseFunctions by lazy { FirebaseFunctions.getInstance() }
+    val functions: FirebaseFunctions by lazy { FirebaseFunctions.getInstance("asia-south1") }
 }

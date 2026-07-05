@@ -95,6 +95,15 @@ fun ReportersView(
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
+            Text(
+                text = stringResource(R.string.reporters),
+                fontSize = 24.sp,
+                fontFamily = Ramabhadra,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+
             // Selection Boxes
             Column(
                 modifier = Modifier

@@ -25,6 +25,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -34,6 +35,17 @@ import java.util.Locale
 class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = PreferenceManager.getInstance(application)
     
+    init {
+        viewModelScope.launch {
+            prefs.districtChanges.collectLatest { district ->
+                if (district != _activeDistrict.value) {
+                    _activeDistrict.value = district
+                    loadNews(Language.TELUGU, null)
+                }
+            }
+        }
+    }
+
     private val _news = MutableStateFlow<List<NewsPost>>(emptyList())
     val news: StateFlow<List<NewsPost>> = _news.asStateFlow()
     

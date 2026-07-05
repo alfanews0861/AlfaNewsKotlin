@@ -26,6 +26,7 @@ import com.alfanews.telugu.R
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.ui.theme.Poppins
+import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.utils.Constants
 import com.alfanews.telugu.utils.glassmorphism
 
@@ -72,7 +73,16 @@ fun EditProfilePageView(
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-        // Name Edit
+            Text(
+                text = stringResource(R.string.edit_profile),
+                fontSize = 24.sp,
+                fontFamily = Ramabhadra,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            // Name Edit
         Column {
             Text(
                 text = stringResource(R.string.display_name),

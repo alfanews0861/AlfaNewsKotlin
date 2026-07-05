@@ -1,5 +1,4 @@
-- [x] Backend: Update `backfillReporterPoints` in `reporter_handler.ts`
-- [x] Backend: Ensure `awardPointsToReporter` correctly updates monthly leaderboard
-- [x] Android: Update `LeaderboardViewModel.kt` to fetch current month's leaderboard
-- [x] Android: Update `LeaderboardView.kt` UI for monthly context
-- [x] Verification: Confirmed consistency between Backend and Android logic
+- `[x]` Update `FirebaseFunctionsService.kt` to support `imageUrl`
+- `[x]` Update `AdminNotificationsPageView.kt` to pass `mediaUrl` to the broadcast service
+- `[x]` Fix `triggerPushBroadcast` Cloud Function in `index.ts` to handle empty image URLs
+- `[x]` Verify changes

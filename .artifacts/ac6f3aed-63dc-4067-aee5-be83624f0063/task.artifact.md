@@ -1,0 +1,13 @@
+- [x] Refactor `LogoHeader.kt` to always show logo
+- [x] Refactor `MainScreen.kt` to remove titles from `LogoHeader` calls
+- [x] Add sub-headers to page content:
+    - [x] `AdminPanelView.kt`
+    - [x] `ReportersView.kt`
+    - [x] `LeaderboardView.kt`
+    - [x] `PostNewsPageView.kt`
+    - [x] `JoinReporterPageView.kt`
+    - [x] `EditProfilePageView.kt`
+    - [x] `MessagesPageView.kt`
+    - [x] `ClassifiedsView.kt`
+    - [x] `UserManagementPageView.kt` (removed Scaffold)
+- [x] Verify UI consistency across screens

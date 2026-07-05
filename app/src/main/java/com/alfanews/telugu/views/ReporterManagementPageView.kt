@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
+import com.alfanews.telugu.services.FirebaseFunctionsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.ui.theme.Mallanna
@@ -107,9 +108,13 @@ fun ReporterManagementPageView(currentUser: User) {
                     scope.launch {
                         isBackfilling = true
                         try {
-                            FirebaseService.functions.getHttpsCallable("backfillReporterPoints").call().await()
-                            Toast.makeText(context, "డేటా విజయవంతంగా అప్‌డేట్ చేయబడింది!", Toast.LENGTH_SHORT).show()
-                            fetchData()
+                            val result = FirebaseFunctionsService.backfillReporterPoints()
+                            if (result.isSuccess) {
+                                Toast.makeText(context, "డేటా విజయవంతంగా అప్‌డేట్ చేయబడింది!", Toast.LENGTH_SHORT).show()
+                                fetchData()
+                            } else {
+                                Toast.makeText(context, "Error: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                            }
                         } catch (e: Exception) {
                             Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
                         } finally {

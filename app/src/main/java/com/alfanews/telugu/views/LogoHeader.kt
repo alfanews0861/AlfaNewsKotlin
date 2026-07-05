@@ -16,7 +16,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.alfanews.telugu.ui.theme.AlfaNewsTheme
 import com.alfanews.telugu.ui.theme.BrandDarkBlue
 import com.alfanews.telugu.ui.theme.Poppins
-import com.alfanews.telugu.ui.theme.Ramabhadra
 
 @Preview(showBackground = true)
 @Composable
@@ -33,7 +32,6 @@ fun LogoHeaderPreview() {
 @Composable
 fun LogoHeader(
     modifier: Modifier = Modifier,
-    title: String? = null,
     district: String? = null,
     onDistrictClick: (() -> Unit)? = null,
     showDistrictSelector: Boolean = false,
@@ -76,35 +74,24 @@ fun LogoHeader(
                         }
                     }
                     
-                    if (title != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(start = if (onMenuClick == null && onBackClick == null) 12.dp else 4.dp)
+                    ) {
                         Text(
-                            text = title,
-                            fontSize = 20.sp,
-                            fontFamily = Ramabhadra,
+                            text = "alfa",
+                            fontSize = 24.sp,
+                            fontFamily = Poppins,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            modifier = Modifier.padding(start = 8.dp)
+                            color = Color.White
                         )
-                    } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(start = if (onMenuClick == null && onBackClick == null) 12.dp else 4.dp)
-                        ) {
-                            Text(
-                                text = "alfa",
-                                fontSize = 24.sp,
-                                fontFamily = Poppins,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            Text(
-                                text = "news",
-                                fontSize = 24.sp,
-                                fontFamily = Poppins,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color.White
-                            )
-                        }
+                        Text(
+                            text = "news",
+                            fontSize = 24.sp,
+                            fontFamily = Poppins,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
                     }
                 }
                 

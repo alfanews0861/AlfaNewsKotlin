@@ -29,7 +29,8 @@ object FirebaseFunctionsService {
         actionUrl: String,
         topic: String = "all_users",
         silent: Boolean = false,
-        channelId: String? = null
+        channelId: String? = null,
+        imageUrl: String? = null
     ): Result<Map<String, Any>> {
         val data = mutableMapOf<String, Any>(
             "title" to title,
@@ -39,6 +40,7 @@ object FirebaseFunctionsService {
             "silent" to silent
         )
         channelId?.let { data["channelId"] = it }
+        imageUrl?.let { data["imageUrl"] = it }
         return callFunction("triggerPushBroadcast", data)
     }
 
@@ -84,6 +86,10 @@ object FirebaseFunctionsService {
     suspend fun fetchGNews(apiKey: String? = null): Result<Map<String, Any>> {
         val data = if (apiKey != null) mapOf("apiKey" to apiKey) else null
         return callFunction("fetchGNews", data)
+    }
+
+    suspend fun backfillReporterPoints(): Result<Map<String, Any>> {
+        return callFunction("backfillReporterPoints")
     }
     
     

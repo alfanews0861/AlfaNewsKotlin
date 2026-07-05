@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import com.alfanews.telugu.models.AppMessage
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.services.FirebaseService
+import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
@@ -116,10 +117,13 @@ fun MessagesPageView(
             .fillMaxSize()
             .background(Color(0xFFF9FAFB))
     ) {
-        // Header
-        LogoHeader(
-            onMenuClick = onMenuClick,
-            showDistrictSelector = false
+        Text(
+            text = "సందేశాలు",
+            fontSize = 24.sp,
+            fontFamily = Ramabhadra,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
         )
         
         if (loading) {

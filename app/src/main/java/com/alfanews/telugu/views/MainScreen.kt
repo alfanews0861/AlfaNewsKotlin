@@ -39,6 +39,8 @@ fun MainScreen(
     val currentUser by mainViewModel.currentUser.collectAsStateWithLifecycle()
     val language by mainViewModel.language.collectAsStateWithLifecycle()
     val activeTab by mainViewModel.activeTab.collectAsStateWithLifecycle()
+    val activeDistrict by mainViewModel.activeDistrict.collectAsStateWithLifecycle()
+    val showDistrictPicker by mainViewModel.showDistrictPicker.collectAsStateWithLifecycle()
     val themeMode by mainViewModel.themeMode.collectAsStateWithLifecycle()
     val showOnboarding by mainViewModel.showOnboarding.collectAsStateWithLifecycle()
     val showRatingDialog by mainViewModel.showRatingDialog.collectAsStateWithLifecycle()
@@ -154,79 +156,30 @@ fun MainScreen(
                 topBar = {
                     val user = currentUser
                     val role = user?.role
-                    val isStaff = role == UserRole.ADMIN || role == UserRole.EDITOR || role == UserRole.REGIONAL_INCHARGE || role == UserRole.REPORTER
 
                     when {
-                        reporterIdToShow != null -> { /* ReporterProfileView handles its own for now */ }
                         showPostNewsPage -> {
                             LogoHeader(
-                                title = stringResource(R.string.post_news),
-                                onBackClick = { 
-                                    showPostNewsPage = false
-                                    editingNewsPost = null
-                                }
+                                onMenuClick = { scope.launch { drawerState.open() } }
                             )
                         }
                         showJoinReporterPage -> {
                             LogoHeader(
-                                title = stringResource(R.string.join_reporter),
-                                onBackClick = { showJoinReporterPage = false }
+                                onMenuClick = { scope.launch { drawerState.open() } }
                             )
                         }
                         showEditProfilePage -> {
                             LogoHeader(
-                                title = stringResource(R.string.edit_profile),
-                                onBackClick = { showEditProfilePage = false }
+                                onMenuClick = { scope.launch { drawerState.open() } }
                             )
                         }
                         else -> {
-                            when (activeTab) {
-                                "home" -> LogoHeader(
-                                    onMenuClick = { scope.launch { drawerState.open() } }
-                                )
-                                "local" -> {
-                                    val dist by newsFeedViewModel.userDistrict.collectAsStateWithLifecycle()
-                                    LogoHeader(
-                                        district = dist,
-                                        showDistrictSelector = true,
-                                        onDistrictClick = { /* LocalNewsFeedView handles this for now, but we could trigger it here */ },
-                                        onMenuClick = { scope.launch { drawerState.open() } }
-                                    )
-                                }
-                                "profile" -> LogoHeader(
-                                    title = if (isStaff) stringResource(R.string.admin_panel) else stringResource(R.string.profile),
-                                    onMenuClick = { scope.launch { drawerState.open() } }
-                                )
-                                "reporters" -> LogoHeader(
-                                    title = stringResource(R.string.reporters_directory),
-                                    onBackClick = { mainViewModel.setActiveTab("profile") }
-                                )
-                                "leaderboard" -> LogoHeader(
-                                    title = if (language == Language.TELUGU) "మంత్లీ లీడర్ బోర్డ్" else "Monthly Leaderboard",
-                                    onBackClick = { mainViewModel.setActiveTab("profile") }
-                                )
-                                "messages" -> LogoHeader(
-                                    title = stringResource(R.string.messages),
-                                    onBackClick = { mainViewModel.setActiveTab("profile") }
-                                )
-                                "classifieds" -> LogoHeader(
-                                    title = stringResource(R.string.classifieds),
-                                    onMenuClick = { scope.launch { drawerState.open() } }
-                                )
-                                "about", "contact", "privacy-policy", "terms", "content-policy", "disclaimer", "ad-policy", "data-collection" -> {
-                                    val pageTitle = when(activeTab) {
-                                        "about" -> stringResource(R.string.about_us)
-                                        "contact" -> stringResource(R.string.contact_us)
-                                        "privacy-policy" -> stringResource(R.string.privacy_policy)
-                                        "terms" -> stringResource(R.string.terms_of_service)
-                                        else -> activeTab.replace("-", " ")
-                                    }
-                                    LogoHeader(
-                                        title = pageTitle,
-                                        onBackClick = { mainViewModel.setActiveTab("profile") }
-                                    )
-                                }
-                            }
+                            LogoHeader(
+                                district = activeDistrict,
+                                showDistrictSelector = true,
+                                onDistrictClick = { mainViewModel.setShowDistrictPicker(true) },
+                                onMenuClick = { scope.launch { drawerState.open() } }
+                            )
                         }
                     }
                 },
@@ -359,6 +312,7 @@ fun MainScreen(
                                 currentUser = user, 
                                 viewModel = newsFeedViewModel,
                                 onReporterClick = { reporterIdToShow = it },
+                                onDistrictClick = { mainViewModel.setShowDistrictPicker(true) },
                                 onEditClick = { post ->
                                     editingNewsPost = post
                                     showPostNewsPage = true
@@ -368,6 +322,7 @@ fun MainScreen(
                             "local" -> LocalNewsFeedView(
                                 language = language, 
                                 currentUser = user, 
+                                onDistrictClick = { mainViewModel.setShowDistrictPicker(true) },
                                 onProfileClick = { mainViewModel.setActiveTab("profile") },
                                 onReporterClick = { reporterIdToShow = it },
                                 onEditClick = { post ->
@@ -512,6 +467,17 @@ fun MainScreen(
                         Text(stringResource(R.string.later))
                     }
                 }
+            )
+        }
+
+        if (showDistrictPicker) {
+            DistrictPickerDialog(
+                activeDistrict = activeDistrict,
+                onDistrictSelected = { district ->
+                    mainViewModel.setDistrict(district)
+                    mainViewModel.setShowDistrictPicker(false)
+                },
+                onDismissRequest = { mainViewModel.setShowDistrictPicker(false) }
             )
         }
     }

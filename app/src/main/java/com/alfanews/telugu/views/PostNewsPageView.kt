@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.R
 import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.models.User
@@ -282,7 +284,16 @@ fun PostNewsPageView(
             modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Spacer(modifier = Modifier.height(48.dp)) // Space for custom top bar
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Text(
+                text = if (postToEdit != null) updateString else publishString,
+                fontSize = 24.sp,
+                fontFamily = Ramabhadra,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
 
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),

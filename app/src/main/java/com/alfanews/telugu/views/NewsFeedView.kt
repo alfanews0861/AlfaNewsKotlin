@@ -58,7 +58,7 @@ fun NewsFeedView(
     val hasMore by viewModel.hasMore.collectAsStateWithLifecycle()
     val sharedPostId by viewModel.sharedPostId.collectAsStateWithLifecycle()
     val shouldScrollToTop by viewModel.shouldScrollToTop.collectAsStateWithLifecycle()
-    val userDistrict by viewModel.userDistrict.collectAsStateWithLifecycle()
+    val viewModelActiveDistrict by viewModel.userDistrict.collectAsStateWithLifecycle()
     val localAds by viewModel.localAds.collectAsStateWithLifecycle()
     val preloadedAds = remember { mutableStateMapOf<Int, NativeAd?>() }
 
@@ -93,21 +93,13 @@ fun NewsFeedView(
             viewModel.refreshIfStale(language, currentUser)
         }
         
-        if (userDistrict == null) {
+        if (viewModelActiveDistrict == null) {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                 viewModel.detectLocation(context, currentUser, language)
             } else {
                 permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
             }
         }
-    }
-
-    var previousDistrict by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(userDistrict) {
-        if (userDistrict != null && previousDistrict == null && news.isNotEmpty()) {
-            viewModel.loadNews(language, currentUser)
-        }
-        previousDistrict = userDistrict
     }
 
     fun loadAdForPage(page: Int) {

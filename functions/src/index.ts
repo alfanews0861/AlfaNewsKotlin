@@ -66,7 +66,6 @@ export const triggerPushBroadcast = onCall(async (request) => {
         notification: { title, body },
         android: {
             notification: {
-                imageUrl: imageUrl || "",
                 channelId: channelId || "general_news",
                 priority: silent ? "low" : "high" as any,
                 defaultSound: !silent
@@ -76,12 +75,17 @@ export const triggerPushBroadcast = onCall(async (request) => {
             actionUrl: actionUrl || "",
             newsId: newsId || "",
             channelId: channelId || "general_news",
-            imageUrl: imageUrl || "",
             title: title,
             body: body
         },
         topic: topic || 'all_users'
     };
+
+    if (imageUrl && imageUrl.startsWith('http')) {
+        message.notification.imageUrl = imageUrl;
+        message.android.notification.imageUrl = imageUrl;
+        message.data.imageUrl = imageUrl;
+    }
 
     try {
         const response = await admin.messaging().send(message);

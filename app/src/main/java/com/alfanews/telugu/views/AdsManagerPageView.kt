@@ -61,44 +61,41 @@ fun AdsManagerPageView(currentUser: User) {
     var activeTab by remember { mutableStateOf("create") }
 
     AlfaNewsTheme {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text("స్థానిక ప్రకటనలు") },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                )
-            }
-        ) {
-            Column(modifier = Modifier.fillMaxSize().padding(it)) {
-                TabRow(
-                    selectedTabIndex = when (activeTab) {
-                        "create" -> 0
-                        "my_ads" -> 1
-                        else -> if (currentUser.role == UserRole.ADMIN) 2 else 0
-                    },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Tab(selected = activeTab == "create", onClick = { activeTab = "create" }) {
-                        Text("కొత్త యాడ్", modifier = Modifier.padding(16.dp))
-                    }
-                    Tab(selected = activeTab == "my_ads", onClick = { activeTab = "my_ads" }) {
-                        Text("నా యాడ్స్", modifier = Modifier.padding(16.dp))
-                    }
-                    if (currentUser.role == UserRole.ADMIN) {
-                        Tab(selected = activeTab == "admin", onClick = { activeTab = "admin" }) {
-                            Text("అడ్మిన్", modifier = Modifier.padding(16.dp))
-                        }
-                    }
-                }
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Text(
+                text = "స్థానిక ప్రకటనలు",
+                fontSize = 24.sp,
+                fontFamily = com.alfanews.telugu.ui.theme.Ramabhadra,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
 
-                when (activeTab) {
-                    "create" -> CreateAdView(currentUser) { activeTab = "my_ads" }
-                    "my_ads" -> MyAdsView(currentUser)
-                    "admin" -> if (currentUser.role == UserRole.ADMIN) AdminAdsView() else Text("Access Denied")
+            TabRow(
+                selectedTabIndex = when (activeTab) {
+                    "create" -> 0
+                    "my_ads" -> 1
+                    else -> if (currentUser.role == UserRole.ADMIN) 2 else 0
+                },
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Tab(selected = activeTab == "create", onClick = { activeTab = "create" }) {
+                    Text("కొత్త యాడ్", modifier = Modifier.padding(16.dp))
                 }
+                Tab(selected = activeTab == "my_ads", onClick = { activeTab = "my_ads" }) {
+                    Text("నా యాడ్స్", modifier = Modifier.padding(16.dp))
+                }
+                if (currentUser.role == UserRole.ADMIN) {
+                    Tab(selected = activeTab == "admin", onClick = { activeTab = "admin" }) {
+                        Text("అడ్మిన్", modifier = Modifier.padding(16.dp))
+                    }
+                }
+            }
+
+            when (activeTab) {
+                "create" -> CreateAdView(currentUser) { activeTab = "my_ads" }
+                "my_ads" -> MyAdsView(currentUser)
+                "admin" -> if (currentUser.role == UserRole.ADMIN) AdminAdsView() else Text("Access Denied")
             }
         }
     }

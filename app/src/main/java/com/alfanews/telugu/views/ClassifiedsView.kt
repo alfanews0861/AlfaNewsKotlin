@@ -117,30 +117,10 @@ fun ClassifiedsView(
             .background(MaterialTheme.colorScheme.background)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (onMenuClick != null && viewMode == ClassifiedsViewMode.CATEGORIES) {
-                IconButton(onClick = onMenuClick) {
-                    Icon(Icons.Default.Menu, contentDescription = "Menu", tint = MaterialTheme.colorScheme.primary)
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-            } else if (viewMode != ClassifiedsViewMode.CATEGORIES) {
-                IconButton(onClick = {
-                    when (viewMode) {
-                        ClassifiedsViewMode.DETAIL -> viewMode = ClassifiedsViewMode.CATEGORY_ADS
-                        ClassifiedsViewMode.CATEGORY_ADS -> viewMode = ClassifiedsViewMode.CATEGORIES
-                        ClassifiedsViewMode.MY_ADS -> viewMode = ClassifiedsViewMode.CATEGORIES
-                        ClassifiedsViewMode.POST -> viewMode = ClassifiedsViewMode.CATEGORIES
-                        else -> viewMode = ClassifiedsViewMode.CATEGORIES
-                    }
-                }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.primary)
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-            }
-
             Text(
                 text = when (viewMode) {
                     ClassifiedsViewMode.CATEGORIES -> stringResource(R.string.title_classifieds)
@@ -150,8 +130,8 @@ fun ClassifiedsView(
                     ClassifiedsViewMode.POST -> stringResource(R.string.post_ad)
                     else -> stringResource(R.string.title_classifieds)
                 },
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Black,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
                 fontFamily = com.alfanews.telugu.ui.theme.Ramabhadra,
                 color = MaterialTheme.colorScheme.onBackground
             )

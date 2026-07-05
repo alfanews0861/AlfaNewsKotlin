@@ -241,35 +241,15 @@ fun ReporterProfileView(
                 modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                // Header Span
+                // Title Span
                 item(span = { GridItemSpan(2) }) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shadowElevation = 2.dp,
-                        color = MaterialTheme.colorScheme.surface
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(onClick = onBack) {
-                                Icon(
-                                    Icons.Default.ArrowBack, 
-                                    contentDescription = "Back",
-                                    tint = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            Text(
-                                text = "Reporter Profile",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
+                    Text(
+                        text = if (language == Language.TELUGU) "రిపోర్టర్ ప్రొఫైల్" else "Reporter Profile",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
+                    )
                 }
 
                 // Profile Info Span

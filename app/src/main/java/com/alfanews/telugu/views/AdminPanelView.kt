@@ -140,63 +140,78 @@ fun AdminPanelView(
     }
 
     Box(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
-        when (activePage) {
-            "profile" -> UserProfilePageView(
-                user = user,
-                language = language,
-                setLanguage = setLanguage,
-                themeMode = themeMode,
-                onThemeModeChange = onThemeModeChange,
-                onNavigate = { page ->
-                    if(listOf("edit-profile", "id-card", "messages").contains(page)) {
-                        activePage = page
-                        onPageChange(page)
-                    }
-                    else onNavigate(page)
-                 },
-                onLoginRequest = onLoginRequest,
-                onMenuClick = onMenuClick
-            )
-            "edit-profile" -> EditProfilePageView(
-                user = user,
-                onClose = { activePage = "profile" },
-                onSave = ::saveProfile,
-                saving = savingProfile
-            )
-            "id-card" -> IdCardPageView(
-                user = user,
-                onBack = { activePage = "profile" }
-            )
-            "messages" -> MessagesPageView(
-                user = user,
-                onBack = { activePage = "profile" }
-            )
-            "post" -> PostNewsPageView(
-                user = user,
-                postToEdit = editingPost,
-                onActionComplete = { postId -> 
-                    editingPost = null
-                    activePage = if (listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN).contains(user.role)) "manage" else "profile"
-                    if (postId.isNotBlank() && postId != "HOME_ONLY") {
-                        onPostPublished(postId)
-                    }
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (activePage != "post") {
+                Text(
+                    text = stringResource(R.string.admin_panel),
+                    fontSize = 24.sp,
+                    fontFamily = Ramabhadra,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+            
+            Box(modifier = Modifier.weight(1f)) {
+                when (activePage) {
+                    "profile" -> UserProfilePageView(
+                        user = user,
+                        language = language,
+                        setLanguage = setLanguage,
+                        themeMode = themeMode,
+                        onThemeModeChange = onThemeModeChange,
+                        onNavigate = { page ->
+                            if(listOf("edit-profile", "id-card", "messages").contains(page)) {
+                                activePage = page
+                                onPageChange(page)
+                            }
+                            else onNavigate(page)
+                         },
+                        onLoginRequest = onLoginRequest,
+                        onMenuClick = onMenuClick
+                    )
+                    "edit-profile" -> EditProfilePageView(
+                        user = user,
+                        onClose = { activePage = "profile" },
+                        onSave = ::saveProfile,
+                        saving = savingProfile
+                    )
+                    "id-card" -> IdCardPageView(
+                        user = user,
+                        onBack = { activePage = "profile" }
+                    )
+                    "messages" -> MessagesPageView(
+                        user = user,
+                        onBack = { activePage = "profile" }
+                    )
+                    "post" -> PostNewsPageView(
+                        user = user,
+                        postToEdit = editingPost,
+                        onActionComplete = { postId -> 
+                            editingPost = null
+                            activePage = if (listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN).contains(user.role)) "manage" else "profile"
+                            if (postId.isNotBlank() && postId != "HOME_ONLY") {
+                                onPostPublished(postId)
+                            }
+                        }
+                    )
+                    "manage" -> ManagePostsPageView(
+                        onEditPost = { post ->
+                            editingPost = post
+                            activePage = "post"
+                        },
+                        onViewPost = { post ->
+                            onPostPublished(post.id)
+                        },
+                        currentUser = user
+                    )
+                    "manageReporters" -> ReporterManagementPageView(currentUser = user)
+                    "ads" -> AdsManagerPageView(currentUser = user)
+                    "manageUsers" -> UserManagementPageView(currentUser = user)
+                    "adminNotify" -> AdminNotificationsPageView()
+                    "affiliate_settings" -> AffiliateSettingsView(onBack = { activePage = "profile" })
                 }
-            )
-            "manage" -> ManagePostsPageView(
-                onEditPost = { post ->
-                    editingPost = post
-                    activePage = "post"
-                },
-                onViewPost = { post ->
-                    onPostPublished(post.id)
-                },
-                currentUser = user
-            )
-            "manageReporters" -> ReporterManagementPageView(currentUser = user)
-            "ads" -> AdsManagerPageView(currentUser = user)
-            "manageUsers" -> UserManagementPageView(currentUser = user)
-            "adminNotify" -> AdminNotificationsPageView()
-            "affiliate_settings" -> AffiliateSettingsView(onBack = { activePage = "profile" })
+            }
         }
     }
 }

@@ -54,29 +54,14 @@ fun LeaderboardView(
             .background(MaterialTheme.colorScheme.background)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header for Monthly Leaderboard
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.primaryContainer,
-                tonalElevation = 4.dp
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = if (language == Language.TELUGU) "ఈ నెల టాప్ 10 రిపోర్టర్లు" else "Top 10 Reporters of the Month",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Text(
-                        text = if (language == Language.TELUGU) "ప్రతి నెలా రిసెట్ చేయబడుతుంది" else "Resets every month",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                    )
-                }
-            }
+            Text(
+                text = if (language == Language.TELUGU) "మంత్లీ లీడర్ బోర్డ్" else "Monthly Leaderboard",
+                fontSize = 24.sp,
+                fontFamily = Ramabhadra,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
 
             if (loading) {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {

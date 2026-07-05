@@ -25,6 +25,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.Date
@@ -65,10 +66,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _notificationsGranted = MutableStateFlow(true)
     val notificationsGranted: StateFlow<Boolean> = _notificationsGranted.asStateFlow()
 
+    private val _activeDistrict = MutableStateFlow(prefs.getEffectiveDistrict())
+    val activeDistrict: StateFlow<String?> = _activeDistrict.asStateFlow()
+
+    private val _showDistrictPicker = MutableStateFlow(false)
+    val showDistrictPicker: StateFlow<Boolean> = _showDistrictPicker.asStateFlow()
+
     private val _newNewsNotification = MutableStateFlow<NewsPost?>(null)
     val newNewsNotification: StateFlow<NewsPost?> = _newNewsNotification.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            prefs.districtChanges.collectLatest { district ->
+                _activeDistrict.value = district
+            }
+        }
+
         // 🧪 TEST LAB BRIDGE: Firebase Test Lab లో టెస్టింగ్ కోసం మారుపేరు (Mock) యూజర్ ని సెట్ చేయడం.
         val isTestLab = Settings.System.getString(application.contentResolver, "firebase.test.lab") == "true"
         if (isTestLab) {
@@ -359,6 +372,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setNotificationsGranted(granted: Boolean) {
         _notificationsGranted.value = granted
+    }
+
+    fun setShowDistrictPicker(show: Boolean) {
+        _showDistrictPicker.value = show
+    }
+
+    fun setDistrict(district: String) {
+        prefs.selectedDistrict = district
+        _activeDistrict.value = district
+        // Trigger news refresh if needed, or rely on ViewModels observing prefs/activeDistrict
+        viewModelScope.launch {
+            _currentUser.value?.id?.let { uid ->
+                FirebaseService.db.collection("users").document(uid).update("district", district)
+            }
+        }
     }
 
     fun signOut() {

@@ -1,39 +1,36 @@
-# Walkthrough - AdMob Preloading Fix
+# Walkthrough - Fixed Manual Push Broadcast Error
 
-I have fixed the issue where AdMob native ads were not preloading correctly. The root cause was a logic flaw in `AdMobService` that could leave the preloading process stuck in an active state even if it failed or partially completed.
+I have fixed the error that prevented sending manual push notifications from the mobile app and improved the notifications to include the news image.
 
-## Changes Made
+## Changes
 
-### AdMob Service Optimization
+### Backend (Cloud Functions)
 
-I updated [AdMobService.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/services/AdMobService.kt) with the following improvements:
+#### [index.ts](file:///C:/AlfaKotlin/functions/src/index.ts)
+- Fixed the `triggerPushBroadcast` function to avoid sending an empty `imageUrl` to FCM.
+- Added logic to only include the image if it is a valid URL, preventing the "imageUrl must be a valid URL string" error.
 
-- **Atomic State Management**: Replaced the simple `Boolean` flag with `AtomicBoolean` to ensure thread-safe state transitions during concurrent ad requests.
-- **Robust Reset Logic**: The `isPreloading` flag is now guaranteed to reset in both success (`onAdLoaded`) and failure (`onAdFailedToLoad`) scenarios. This prevents the "stuck" state that was blocking subsequent preload attempts.
-- **Improved Logging**: Added detailed logs to track the cache size and preloading cycles, making it easier to verify the behavior in Logcat.
+### Mobile App (Android)
 
-```kotlin
-// Improved preloading check and reset logic
-if (!isPreloading.compareAndSet(false, true)) {
-    Log.d(TAG, "Preload already in progress. Skipping.")
-    return
-}
+#### [FirebaseFunctionsService.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/services/FirebaseFunctionsService.kt)
+- Added `imageUrl` parameter to the `triggerPushBroadcast` service method.
 
-// ... inside ad callbacks ...
-override fun onAdLoaded() {
-    super.onAdLoaded()
-    Log.d(TAG, "Native ad batch load operation completed. Cache size: ${nativeAds.size}")
-    isPreloading.set(false)
-}
-```
+#### [AdminNotificationsPageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/AdminNotificationsPageView.kt)
+- Updated the "SEND BROADCAST" logic to extract and send the news post's image URL. This means notifications sent from the admin panel will now correctly show the news image to users.
 
 ## Verification Results
 
-### Automated Verification
-- **Gradle Build**: Successfully completed `app:assembleDebug`, confirming no syntax errors or dependency issues.
+### Code Review
+- The Cloud Function logic now conditionally adds the `imageUrl` field only if it's a non-empty string starting with `http`.
+- The Android app correctly passes the `mediaUrl` from the selected `NewsPost` model.
 
-### Manual Verification Steps (Recommended)
-1. Filter Logcat by `AdMobService`.
-2. Observe `Starting preload for X native ads` messages during app startup.
-3. Verify that `Native ad preloaded successfully` appears as ads are cached.
-4. Scroll through the news feed and confirm that ads appear without the loading spinner.
+### Next Steps
+
+> [!IMPORTANT]
+> **You MUST deploy the updated Cloud Function** for the fix to take effect:
+> ```bash
+> cd functions
+> firebase deploy --only functions:triggerPushBroadcast
+> ```
+
+After deployment, you can test by sending a broadcast for any news post from the app's Admin Panel.
