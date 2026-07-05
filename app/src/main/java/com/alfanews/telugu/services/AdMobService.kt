@@ -10,6 +10,7 @@ import com.google.android.gms.ads.LoadAdError
 import com.google.android.gms.ads.MobileAds
 import com.google.android.gms.ads.nativead.NativeAd
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.jvm.Synchronized
 
 /**
@@ -23,7 +24,7 @@ object AdMobService {
     private const val NATIVE_AD_UNIT_ID = "ca-app-pub-5787901991150360/1972465675"
     private const val MAX_NATIVE_ADS = 5
     private val nativeAds = ConcurrentLinkedQueue<NativeAd>()
-    private var isPreloading = false
+    private val isPreloading = AtomicBoolean(false)
 
     /**
      * యాడ్ మాబ్ SDK ని ప్రారంభిస్తుంది.
@@ -41,34 +42,40 @@ object AdMobService {
      */
     @Synchronized
     private fun preloadNativeAds(activity: Activity) {
-        if (isPreloading || nativeAds.size >= MAX_NATIVE_ADS) {
+        if (nativeAds.size >= MAX_NATIVE_ADS) {
+            Log.d(TAG, "Native ad cache full (${nativeAds.size}). Skipping preload.")
+            return
+        }
+
+        if (!isPreloading.compareAndSet(false, true)) {
+            Log.d(TAG, "Preload already in progress. Skipping.")
             return
         }
 
         val numberOfAdsToLoad = MAX_NATIVE_ADS - nativeAds.size
-        if (numberOfAdsToLoad <= 0) return
-
-        isPreloading = true
-        Log.d(TAG, "Preloading $numberOfAdsToLoad native ads. Current size: ${nativeAds.size}")
+        Log.d(TAG, "Starting preload for $numberOfAdsToLoad native ads. Current cache size: ${nativeAds.size}")
 
         val adLoader = AdLoader.Builder(activity, NATIVE_AD_UNIT_ID)
             .forNativeAd { ad: NativeAd ->
                 nativeAds.add(ad)
-                Log.d(TAG, "Native ad preloaded successfully. New size: ${nativeAds.size}")
+                Log.d(TAG, "Native ad preloaded successfully. New cache size: ${nativeAds.size}")
+                
+                // If we reached the target, we can allow more preloads later
+                if (nativeAds.size >= MAX_NATIVE_ADS) {
+                    isPreloading.set(false)
+                }
             }
             .withAdListener(object : AdListener() {
                 override fun onAdFailedToLoad(error: LoadAdError) {
                     Log.e(TAG, "Native ad failed to preload: ${error.message} (Code: ${error.code})")
-                    isPreloading = false
+                    isPreloading.set(false)
                 }
 
                 override fun onAdLoaded() {
                     super.onAdLoaded()
-                    // If multiple ads were requested, this might be called multiple times or once depending on implementation
-                    // But typically loadAds(request, count) fills the internal count.
-                    if (nativeAds.size >= MAX_NATIVE_ADS) {
-                        isPreloading = false
-                    }
+                    Log.d(TAG, "Native ad batch load operation completed. Cache size: ${nativeAds.size}")
+                    // Reset flag anyway when batch completes to avoid getting stuck
+                    isPreloading.set(false)
                 }
             })
             .build()

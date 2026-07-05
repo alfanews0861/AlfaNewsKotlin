@@ -347,30 +347,57 @@ exports.checkSevereWeatherAlerts = (0, scheduler_1.onSchedule)({
                     continue;
                 }
                 // -----------------------------------------------------------------
-                const registeredUsers = await db.collection('users').where('district', '==', district).where('notificationsEnabled', '!=', false).limit(500).get();
-                const guestUsers = await db.collection('anonymous_devices').where('notificationsEnabled', '!=', false).limit(500).get();
-                const messages = [];
-                registeredUsers.docs.forEach(doc => {
-                    const token = doc.data().fcmToken;
-                    if (token)
-                        messages.push({ notification: { title: alertTitle, body: alertBody }, data: { type: "WEATHER_ALERT", district, title: alertTitle, body: alertBody }, token });
-                });
-                guestUsers.docs.forEach(doc => {
-                    const token = doc.data().fcmToken;
-                    if (token)
-                        messages.push({ notification: { title: alertTitle, body: alertBody }, data: { type: "WEATHER_ALERT", district, title: alertTitle, body: alertBody }, token });
-                });
-                if (messages.length > 0) {
-                    await admin.messaging().sendEach(messages);
-                    // Update state after successful send
-                    await alertStateRef.set({
-                        [district]: {
-                            lastAlertSentAt: admin.firestore.FieldValue.serverTimestamp(),
-                            lastAlertTitle: alertTitle
+                // --- NOTIFICATION BATCHING ---
+                const sendAlerts = async (collectionName) => {
+                    let lastDoc = null;
+                    let hasMoreUsers = true;
+                    while (hasMoreUsers) {
+                        let userQuery = db.collection(collectionName)
+                            .where('notificationsEnabled', '!=', false);
+                        if (collectionName === 'users') {
+                            userQuery = userQuery.where('district', '==', district);
                         }
-                    }, { merge: true });
-                    console.log(`[WEATHER_ALERT] Alert sent for ${district} and state updated.`);
-                }
+                        if (lastDoc)
+                            userQuery = userQuery.startAfter(lastDoc);
+                        const userSnap = await userQuery.limit(500).get();
+                        if (userSnap.empty) {
+                            hasMoreUsers = false;
+                            break;
+                        }
+                        const messages = [];
+                        userSnap.docs.forEach(doc => {
+                            const token = doc.data().fcmToken;
+                            if (token) {
+                                messages.push({
+                                    notification: { title: alertTitle, body: alertBody },
+                                    data: { type: "WEATHER_ALERT", district, title: alertTitle, body: alertBody },
+                                    token
+                                });
+                            }
+                        });
+                        if (messages.length > 0) {
+                            try {
+                                const response = await admin.messaging().sendEach(messages);
+                                console.log(`[WEATHER_ALERT] Sent ${response.successCount} alerts to ${collectionName}.`);
+                            }
+                            catch (e) {
+                                console.error(`[WEATHER_ALERT_SEND_ERR] ${collectionName}:`, e.message);
+                            }
+                        }
+                        lastDoc = userSnap.docs[userSnap.docs.length - 1];
+                        hasMoreUsers = userSnap.docs.length === 500;
+                    }
+                };
+                await sendAlerts('users');
+                await sendAlerts('anonymous_devices');
+                // Update state after successful run
+                await alertStateRef.set({
+                    [district]: {
+                        lastAlertSentAt: admin.firestore.FieldValue.serverTimestamp(),
+                        lastAlertTitle: alertTitle
+                    }
+                }, { merge: true });
+                console.log(`[WEATHER_ALERT] Alert cycle completed for ${district}.`);
             }
         }
         catch (err) {

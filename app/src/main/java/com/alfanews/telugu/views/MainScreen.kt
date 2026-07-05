@@ -151,6 +151,85 @@ fun MainScreen(
             Scaffold(
                 containerColor = Color.Transparent,
                 snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+                topBar = {
+                    val user = currentUser
+                    val role = user?.role
+                    val isStaff = role == UserRole.ADMIN || role == UserRole.EDITOR || role == UserRole.REGIONAL_INCHARGE || role == UserRole.REPORTER
+
+                    when {
+                        reporterIdToShow != null -> { /* ReporterProfileView handles its own for now */ }
+                        showPostNewsPage -> {
+                            LogoHeader(
+                                title = stringResource(R.string.post_news),
+                                onBackClick = { 
+                                    showPostNewsPage = false
+                                    editingNewsPost = null
+                                }
+                            )
+                        }
+                        showJoinReporterPage -> {
+                            LogoHeader(
+                                title = stringResource(R.string.join_reporter),
+                                onBackClick = { showJoinReporterPage = false }
+                            )
+                        }
+                        showEditProfilePage -> {
+                            LogoHeader(
+                                title = stringResource(R.string.edit_profile),
+                                onBackClick = { showEditProfilePage = false }
+                            )
+                        }
+                        else -> {
+                            when (activeTab) {
+                                "home" -> LogoHeader(
+                                    onMenuClick = { scope.launch { drawerState.open() } }
+                                )
+                                "local" -> {
+                                    val dist by newsFeedViewModel.userDistrict.collectAsStateWithLifecycle()
+                                    LogoHeader(
+                                        district = dist,
+                                        showDistrictSelector = true,
+                                        onDistrictClick = { /* LocalNewsFeedView handles this for now, but we could trigger it here */ },
+                                        onMenuClick = { scope.launch { drawerState.open() } }
+                                    )
+                                }
+                                "profile" -> LogoHeader(
+                                    title = if (isStaff) stringResource(R.string.admin_panel) else stringResource(R.string.profile),
+                                    onMenuClick = { scope.launch { drawerState.open() } }
+                                )
+                                "reporters" -> LogoHeader(
+                                    title = stringResource(R.string.reporters_directory),
+                                    onBackClick = { mainViewModel.setActiveTab("profile") }
+                                )
+                                "leaderboard" -> LogoHeader(
+                                    title = if (language == Language.TELUGU) "మంత్లీ లీడర్ బోర్డ్" else "Monthly Leaderboard",
+                                    onBackClick = { mainViewModel.setActiveTab("profile") }
+                                )
+                                "messages" -> LogoHeader(
+                                    title = stringResource(R.string.messages),
+                                    onBackClick = { mainViewModel.setActiveTab("profile") }
+                                )
+                                "classifieds" -> LogoHeader(
+                                    title = stringResource(R.string.classifieds),
+                                    onMenuClick = { scope.launch { drawerState.open() } }
+                                )
+                                "about", "contact", "privacy-policy", "terms", "content-policy", "disclaimer", "ad-policy", "data-collection" -> {
+                                    val pageTitle = when(activeTab) {
+                                        "about" -> stringResource(R.string.about_us)
+                                        "contact" -> stringResource(R.string.contact_us)
+                                        "privacy-policy" -> stringResource(R.string.privacy_policy)
+                                        "terms" -> stringResource(R.string.terms_of_service)
+                                        else -> activeTab.replace("-", " ")
+                                    }
+                                    LogoHeader(
+                                        title = pageTitle,
+                                        onBackClick = { mainViewModel.setActiveTab("profile") }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
                 bottomBar = {
                     if (!showPostNewsPage && !showJoinReporterPage && !showEditProfilePage && reporterIdToShow == null) {
                         Footer(
@@ -240,47 +319,21 @@ fun MainScreen(
                             onBack = { reporterIdToShow = null }
                         )
                     } else if (showPostNewsPage && user != null) {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            PostNewsPageView(
-                                user = user,
-                                postToEdit = editingNewsPost,
-                                onActionComplete = { postId: String -> 
-                                    showPostNewsPage = false
-                                    editingNewsPost = null
-                                    if (postId == "HOME_ONLY") {
-                                        mainViewModel.setActiveTab("home")
-                                    } else if (postId.isNotBlank()) {
-                                        mainViewModel.setActiveTab("home")
-                                        newsFeedViewModel.setSharedPostId(postId)
-                                        newsFeedViewModel.loadNews(language, user, initialPostId = postId)
-                                    }
-                                }
-                            )
-                            
-                            Surface(
-                                modifier = Modifier.fillMaxWidth().height(56.dp),
-                                color = MaterialTheme.colorScheme.primary,
-                                tonalElevation = 4.dp
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 4.dp)
-                                ) {
-                                    IconButton(onClick = { 
-                                        showPostNewsPage = false
-                                        editingNewsPost = null
-                                    }) {
-                                        Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back), tint = MaterialTheme.colorScheme.onPrimary)
-                                    }
-                                    Text(
-                                        text = stringResource(R.string.post_news),
-                                        style = MaterialTheme.typography.titleLarge,
-                                        modifier = Modifier.padding(start = 8.dp),
-                                        color = MaterialTheme.colorScheme.onPrimary
-                                    )
+                        PostNewsPageView(
+                            user = user,
+                            postToEdit = editingNewsPost,
+                            onActionComplete = { postId: String -> 
+                                showPostNewsPage = false
+                                editingNewsPost = null
+                                if (postId == "HOME_ONLY") {
+                                    mainViewModel.setActiveTab("home")
+                                } else if (postId.isNotBlank()) {
+                                    mainViewModel.setActiveTab("home")
+                                    newsFeedViewModel.setSharedPostId(postId)
+                                    newsFeedViewModel.loadNews(language, user, initialPostId = postId)
                                 }
                             }
-                        }
+                        )
                     } else if (showJoinReporterPage) {
                         JoinReporterPageView(
                             onClose = { showJoinReporterPage = false },
@@ -389,6 +442,7 @@ fun MainScreen(
                             "data-collection" -> PolicyContainer("data-collection")
                             "reporters" -> ReportersView(
                                 language = language,
+                                currentUser = user,
                                 onBack = { mainViewModel.setActiveTab("profile") },
                                 onReporterClick = { reporterIdToShow = it },
                                 onMenuClick = { scope.launch { drawerState.open() } }

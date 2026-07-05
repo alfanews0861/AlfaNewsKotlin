@@ -1,0 +1,7 @@
+- [x] Update `PreferenceManager.kt` with ad queue and caching methods
+- [x] Update `NewsFeedViewModel.kt` to implement ad priority, queueing, and metadata caching
+- [x] Update `LocalNewsFeedViewModel.kt` with consistent ad logic
+- [x] Update `LocalAdCardView.kt` to mark ads as seen
+- [x] Update `NewsFeedView.kt` to prioritize local ad slots and add preloading
+- [x] Update `LocalNewsFeedView.kt` with consistent slot priority and preloading
+- [x] Verify changes (Ad priority, Queueing, Caching, Preloading)

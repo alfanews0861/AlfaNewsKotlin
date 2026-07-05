@@ -36,7 +36,7 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.sendContactEmail = exports.triggerPushBroadcast = exports.onNewsPostCreated = exports.processNewsPost = exports.submitReporterApplication = exports.processReporterSubmission = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
+exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.sendContactEmail = exports.triggerPushBroadcast = exports.onNewsPostCreated = exports.processNewsPost = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
 /**
  * Alfa News - Cloud Functions v18.0 (Refactored & Modular)
  */
@@ -64,16 +64,23 @@ Object.defineProperty(exports, "scheduleHistoryOfTheDay", { enumerable: true, ge
 Object.defineProperty(exports, "generateDailyCartoon", { enumerable: true, get: function () { return auto_content_handler_1.generateDailyCartoon; } });
 Object.defineProperty(exports, "checkSevereWeatherAlerts", { enumerable: true, get: function () { return auto_content_handler_1.checkSevereWeatherAlerts; } });
 Object.defineProperty(exports, "cleanupOldNews", { enumerable: true, get: function () { return auto_content_handler_1.cleanupOldNews; } });
+var affiliate_handler_1 = require("./affiliate_handler");
+Object.defineProperty(exports, "scheduleDailyAffiliateDeals", { enumerable: true, get: function () { return affiliate_handler_1.scheduleDailyAffiliateDeals; } });
 // 2. Export Reporter Functions
 var reporter_handler_1 = require("./reporter_handler");
 Object.defineProperty(exports, "processReporterSubmission", { enumerable: true, get: function () { return reporter_handler_1.processReporterSubmission; } });
 Object.defineProperty(exports, "submitReporterApplication", { enumerable: true, get: function () { return reporter_handler_1.submitReporterApplication; } });
+Object.defineProperty(exports, "backfillReporterPoints", { enumerable: true, get: function () { return reporter_handler_1.backfillReporterPoints; } });
+Object.defineProperty(exports, "onNewsViewCountUpdated", { enumerable: true, get: function () { return reporter_handler_1.onNewsViewCountUpdated; } });
+Object.defineProperty(exports, "onNewsPostApproved", { enumerable: true, get: function () { return reporter_handler_1.onNewsPostApproved; } });
 // 3. Export Main News Functions
 var news_handler_1 = require("./news_handler");
 Object.defineProperty(exports, "processNewsPost", { enumerable: true, get: function () { return news_handler_1.processNewsPost; } });
 Object.defineProperty(exports, "onNewsPostCreated", { enumerable: true, get: function () { return news_handler_1.onNewsPostCreated; } });
 // 4. Export Notification Engine
 __exportStar(require("./notification_engine"), exports);
+// 5. Export Reporter Monitoring
+__exportStar(require("./reporter_monitor"), exports);
 /**
  * Push Broadcast Function (Manual Push)
  */

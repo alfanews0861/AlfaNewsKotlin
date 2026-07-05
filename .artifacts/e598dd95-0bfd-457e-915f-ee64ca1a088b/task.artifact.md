@@ -1,0 +1,7 @@
+- [x] Update `globalDistricts` in `NewsFeedViewModel.kt` to include Telugu names and hubs.
+- [x] Modify `loadNews` to fetch preferred categories news without district restriction.
+- [x] Modify `loadMore` to fetch preferred categories news without district restriction.
+- [x] Verify fix by reviewing query logic.
+- [x] Refactor `rankAndBlendPosts` filter logic in `NewsFeedViewModel.kt`.
+- [x] Verify balanced feed logic.
+- [x] Create walkthrough.

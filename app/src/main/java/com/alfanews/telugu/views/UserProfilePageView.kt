@@ -177,11 +177,6 @@ fun UserProfilePageView(
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
     ) {
-        LogoHeader(
-            onMenuClick = onMenuClick,
-            showDistrictSelector = false
-        )
-        
         Column(
             modifier = Modifier
                 .padding(16.dp),

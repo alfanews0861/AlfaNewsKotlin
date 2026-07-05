@@ -1,11 +1,9 @@
 package com.alfanews.telugu.views
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -18,6 +16,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.alfanews.telugu.ui.theme.AlfaNewsTheme
 import com.alfanews.telugu.ui.theme.BrandDarkBlue
 import com.alfanews.telugu.ui.theme.Poppins
+import com.alfanews.telugu.ui.theme.Ramabhadra
 
 @Preview(showBackground = true)
 @Composable
@@ -34,10 +33,12 @@ fun LogoHeaderPreview() {
 @Composable
 fun LogoHeader(
     modifier: Modifier = Modifier,
+    title: String? = null,
     district: String? = null,
     onDistrictClick: (() -> Unit)? = null,
     showDistrictSelector: Boolean = false,
-    onMenuClick: (() -> Unit)? = null
+    onMenuClick: (() -> Unit)? = null,
+    onBackClick: (() -> Unit)? = null
 ) {
     Surface(
         color = BrandDarkBlue,
@@ -49,12 +50,23 @@ fun LogoHeader(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp)
-                    .padding(horizontal = 8.dp),
+                    .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (onMenuClick != null) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (onBackClick != null) {
+                        IconButton(onClick = onBackClick) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "Back",
+                                tint = Color.White
+                            )
+                        }
+                    } else if (onMenuClick != null) {
                         IconButton(onClick = onMenuClick) {
                             Icon(
                                 imageVector = Icons.Default.Menu,
@@ -64,22 +76,35 @@ fun LogoHeader(
                         }
                     }
                     
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (title != null) {
                         Text(
-                            text = "alfa",
-                            fontSize = 24.sp,
-                            fontFamily = Poppins,
+                            text = title,
+                            fontSize = 20.sp,
+                            fontFamily = Ramabhadra,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
-                            modifier = Modifier.padding(start = if (onMenuClick == null) 8.dp else 0.dp)
+                            modifier = Modifier.padding(start = 8.dp)
                         )
-                        Text(
-                            text = "news",
-                            fontSize = 24.sp,
-                            fontFamily = Poppins,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White
-                        )
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(start = if (onMenuClick == null && onBackClick == null) 12.dp else 4.dp)
+                        ) {
+                            Text(
+                                text = "alfa",
+                                fontSize = 24.sp,
+                                fontFamily = Poppins,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "news",
+                                fontSize = 24.sp,
+                                fontFamily = Poppins,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                        }
                     }
                 }
                 

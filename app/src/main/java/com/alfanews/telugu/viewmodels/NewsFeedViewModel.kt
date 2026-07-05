@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
 import android.location.Geocoder
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.alfanews.telugu.models.Language
@@ -18,6 +19,8 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -63,11 +66,29 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 val now = System.currentTimeMillis()
-                val snapshot = FirebaseService.db.collection("local_ads")
-                    .whereEqualTo("status", com.alfanews.telugu.models.AdStatus.ACTIVE.name)
-                    .get().await()
+                val gson = Gson()
                 
-                val allAds = snapshot.documents.mapNotNull { com.alfanews.telugu.models.LocalAd.fromSnapshot(it) }
+                // 1. Check Cache
+                val cachedJson = prefs.getLocalAdsCache(district)
+                val cacheTime = prefs.getLocalAdsTimestamp(district)
+                val isCacheValid = (now - cacheTime) < (30L * 60L * 1000L) // 30 minutes
+                
+                val allAds = if (isCacheValid && cachedJson != null) {
+                    Log.d("NewsFeedVM", "Loading local ads from cache for $district")
+                    val type = object : TypeToken<List<com.alfanews.telugu.models.LocalAd>>() {}.type
+                    gson.fromJson<List<com.alfanews.telugu.models.LocalAd>>(cachedJson, type)
+                } else {
+                    Log.d("NewsFeedVM", "Fetching local ads from Firestore for $district")
+                    val snapshot = FirebaseService.db.collection("local_ads")
+                        .whereEqualTo("status", com.alfanews.telugu.models.AdStatus.ACTIVE.name)
+                        .get().await()
+                    
+                    val ads = snapshot.documents.mapNotNull { com.alfanews.telugu.models.LocalAd.fromSnapshot(it) }
+                    
+                    // Save to cache
+                    prefs.saveLocalAdsCache(district, gson.toJson(ads))
+                    ads
+                }
                 
                 val validAds = allAds.filter { ad ->
                     val isForDistrict = ad.targetDistrict == "ALL" || ad.targetDistrict == district
@@ -79,8 +100,23 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     } else true
                     isForDistrict && isWithinDate && isNotFinished
                 }
-                _localAds.value = validAds.shuffled()
+
+                // 2. Queue Logic (Seen vs Unseen)
+                val seenIds = prefs.getSeenLocalAdIds()
+                val unseenAds = validAds.filter { it.id !in seenIds }
+                val seenAds = validAds.filter { it.id in seenIds }
+
+                android.util.Log.d("NewsFeedVM", "Ad Queue - Total: ${validAds.size}, Unseen: ${unseenAds.size}, Seen: ${seenAds.size}")
+
+                if (unseenAds.isEmpty() && validAds.isNotEmpty()) {
+                    android.util.Log.d("NewsFeedVM", "All ads seen. Resetting seen list.")
+                    prefs.clearSeenLocalAds()
+                    _localAds.value = validAds.shuffled()
+                } else {
+                    _localAds.value = unseenAds.shuffled() + seenAds.shuffled()
+                }
             } catch (e: Exception) {
+                android.util.Log.e("NewsFeedVM", "Error loading local ads: ${e.message}")
                 _localAds.value = emptyList()
             }
         }
@@ -103,7 +139,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private val globalDistricts = listOf(
         "State", "National", "International", "AndhraPradesh", "Telangana",
         "Andhra Pradesh", "Telangana State", "India", "World", "AP", "TS", 
-        "State News", "National News", "General", "Andhra", "Global"
+        "State News", "National News", "General", "Andhra", "Global",
+        "హైదరాబాద్", "తెలంగాణ", "ఆంధ్రప్రదేశ్", "భారతదేశం", "ప్రపంచం", "జాతీయం",
+        "అంతర్జాతీయం", "రాష్ట్రం", "రాష్ట్ర వార్తలు", "Hyderabad"
     )
 
     private val strictlyGlobalKeywords = listOf(
@@ -193,7 +231,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    val prefBatchDeferred = async {
                        if (preferredCats.isNotEmpty() && !isNewUser) {
                            try {
-                               fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), null, district, excludeDistricts = false)
+                               // 🚀 FIX: Remove district filter for preferred categories news.
+                               // This allows global topics like Cinema/Sports (often tagged Hyderabad or State)
+                               // to appear for all users regardless of their location.
+                               fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), null, null, excludeDistricts = false)
                            } catch (e: Exception) { Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null) }
                        } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
                    }
@@ -227,7 +268,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    if (finalPosts.isEmpty() && (mainCursor != null || prefCursor != null || localCursor != null)) {
                        val extraPrefDeferred = async {
                            if (prefCursor != null && preferredCats.isNotEmpty()) {
-                               fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), prefCursor, district, excludeDistricts = false)
+                               // 🚀 FIX: Remove district filter for preferred categories news in extra batch too
+                               fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), prefCursor, null, excludeDistricts = false)
                            } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
                        }
                        val extraLocalDeferred = async {
@@ -308,7 +350,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                  
                  val prefBatchDeferred = async {
                      if (shouldFetchPref) {
-                         fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), prefCursor, district, excludeDistricts = false)
+                         // 🚀 FIX: Remove district filter for preferred categories in loadMore as well
+                         fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), prefCursor, null, excludeDistricts = false)
                      } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
                  }
                  val localBatchDeferred = async {
@@ -448,15 +491,36 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 if (post.type != "news") return@filter true
                 
                 val currentDist = _userDistrict.value
+                
+                // 1. 🛡️ REPORTER DISTRICT NEWS FILTER
+                // Only show 'District News' from reporters if it's the user's own district.
+                // Global topics like Cinema, Tech, and general state news should pass.
                 val isDistrictNewsCategory = post.categories.contains("జిల్లా వార్త")
-                val matchesUserDistrict = currentDist != null && (post.district == currentDist || post.categories.contains(currentDist))
+                if (isDistrictNewsCategory && post.isReporter) {
+                    val matchesUserDistrict = currentDist != null && 
+                        (post.district == currentDist || post.categories.contains(currentDist))
+                    if (!matchesUserDistrict) return@filter false
+                }
+
+                // 2. 🏛️ POLITICAL FILTER (State-Based)
+                // Telangana users -> Only Telangana politics
+                // AP users -> Only AP politics
+                // Hyderabad users -> Both states politics
+                val isPolitics = post.categories.any { it.contains("రాజకీయం", true) || it.contains("Politics", true) } || 
+                                 post.category?.contains("రాజకీయం", true) == true || post.category?.contains("Politics", true) == true
                 
-                // ✅ Home feed filtering rule:
-                // Everything except 'District News' category should appear,
-                // unless it matches the user's selected district.
-                if (!isDistrictNewsCategory || matchesUserDistrict) return@filter true
+                if (isPolitics && currentDist != null && currentDist != "హైదరాబాద్") {
+                    val userState = mapDistrictToState(currentDist)
+                    val postState = inferStateFromPost(post)
+                    
+                    // If user is from a state and post is from a different state, filter it out.
+                    // National/General politics (postState == null) are kept for everyone.
+                    if (userState != null && postState != null && userState != postState) {
+                        return@filter false
+                    }
+                }
                 
-                false
+                true
             }
 
            if (allPosts.isEmpty() && !isFirstPage) return@withContext emptyList<NewsPost>()
@@ -695,12 +759,56 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
      private fun mapDistrictToState(district: String?): String? {
          if (district == null) return null
+         
+         val telanganaStrings = listOf("Telangana", "Telangana State", "TS", "తెలంగాణ", "Telangana News")
+         val apStrings = listOf("Andhra Pradesh", "AndhraPradesh", "AP", "ఆంధ్రప్రదేశ్", "Andhra", "ఆంధ్ర", "AP News")
+         
          val telanganDistricts = Constants.TS_DISTRICTS; val apDistricts = Constants.AP_DISTRICTS
          return when {
-             telanganDistricts.contains(district) -> "Telangana"
-             apDistricts.contains(district) -> "Andhra Pradesh"
+             telanganDistricts.contains(district) || telanganaStrings.any { it.equals(district, ignoreCase = true) } -> "Telangana"
+             apDistricts.contains(district) || apStrings.any { it.equals(district, ignoreCase = true) } -> "Andhra Pradesh"
              else -> null
          }
+     }
+
+     /**
+      * 🧠 SMART INFERENCE:
+      * Determines if a news post belongs to Telangana or Andhra Pradesh 
+      * based on district, categories, or keywords in text.
+      */
+     private fun inferStateFromPost(post: NewsPost): String? {
+         // 1. Check direct district mapping
+         val dState = mapDistrictToState(post.district)
+         if (dState != null) return dState
+         
+         // 2. Check categories
+         val cats = post.categories
+         var i = 0
+         val size = cats.size
+         while (i < size) {
+             val cat = cats[i]
+             val cState = mapDistrictToState(cat)
+             if (cState != null) return cState
+             i = i + 1
+         }
+         
+         // 3. Entity/Keyword Inference from Headline & Content
+         val text = "${post.headline.telugu} ${post.content.telugu}"
+         
+         val tsTerms = listOf(
+             "రేవంత్", "కేసీఆర్", "కేటీఆర్", "హరీష్ రావు", "కోమటిరెడ్డి", "విక్రమార్క", 
+             "ఈటల", "బండి సంజయ్", "కిషన్ రెడ్డి", "బీఆర్ఎస్", "బిఆర్ఎస్", "TRS", "తెలంగాణ"
+         )
+         val apTerms = listOf(
+             "చంద్రబాబు", "పవన్ కళ్యాణ్", "జనసేన", "లోకేష్", "జగన్", "వైసీపీ", 
+             "YSRCP", "టీడీపీ", "TDP", "ఆంధ్రప్రదేశ్", "వైఎస్ఆర్", "అనిత"
+         )
+
+         // Use a word-boundary match or just contains for speed in a feed
+         if (tsTerms.any { text.contains(it, ignoreCase = true) }) return "Telangana"
+         if (apTerms.any { text.contains(it, ignoreCase = true) }) return "Andhra Pradesh"
+         
+         return null
      }
 
      private suspend fun generateWeatherPost(place: String?, district: String?, lat: Double? = null, lon: Double? = null): NewsPost {

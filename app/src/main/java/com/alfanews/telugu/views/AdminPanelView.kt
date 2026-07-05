@@ -60,7 +60,6 @@ fun AdminPanelView(
     var activePage by remember(initialPage) { mutableStateOf(initialPage) }
     val scope = rememberCoroutineScope()
     var editingPost by remember { mutableStateOf<NewsPost?>(null) }
-    var selectedPostForView by remember { mutableStateOf<NewsPost?>(null) }
     var savingProfile by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -140,106 +139,64 @@ fun AdminPanelView(
         }
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Text(
-                        text = accessiblePages.find { it.id == activePage }?.label ?: stringResource(R.string.app_name),
-                        fontFamily = Ramabhadra,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
-                ),
-                navigationIcon = {
-                    if (onMenuClick != null && !listOf("edit-profile", "id-card").contains(activePage)) {
-                        IconButton(onClick = onMenuClick) {
-                            Icon(Icons.Default.Menu, contentDescription = stringResource(R.string.menu))
-                        }
-                    } else {
-                         IconButton(onClick = { 
-                             if (activePage == "profile") onClose()
-                             else activePage = "profile" 
-                         }) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back))
-                        }
+    Box(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
+        when (activePage) {
+            "profile" -> UserProfilePageView(
+                user = user,
+                language = language,
+                setLanguage = setLanguage,
+                themeMode = themeMode,
+                onThemeModeChange = onThemeModeChange,
+                onNavigate = { page ->
+                    if(listOf("edit-profile", "id-card", "messages").contains(page)) {
+                        activePage = page
+                        onPageChange(page)
                     }
-                },
-                actions = {
-                    if (isModal) {
-                        IconButton(onClick = onClose) {
-                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.close))
-                        }
+                    else onNavigate(page)
+                 },
+                onLoginRequest = onLoginRequest,
+                onMenuClick = onMenuClick
+            )
+            "edit-profile" -> EditProfilePageView(
+                user = user,
+                onClose = { activePage = "profile" },
+                onSave = ::saveProfile,
+                saving = savingProfile
+            )
+            "id-card" -> IdCardPageView(
+                user = user,
+                onBack = { activePage = "profile" }
+            )
+            "messages" -> MessagesPageView(
+                user = user,
+                onBack = { activePage = "profile" }
+            )
+            "post" -> PostNewsPageView(
+                user = user,
+                postToEdit = editingPost,
+                onActionComplete = { postId -> 
+                    editingPost = null
+                    activePage = if (listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN).contains(user.role)) "manage" else "profile"
+                    if (postId.isNotBlank() && postId != "HOME_ONLY") {
+                        onPostPublished(postId)
                     }
                 }
             )
-        }
-    ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding).padding(top = 8.dp)) {
-            when (activePage) {
-                "profile" -> UserProfilePageView(
-                    user = user,
-                    language = language,
-                    setLanguage = setLanguage,
-                    themeMode = themeMode,
-                    onThemeModeChange = onThemeModeChange,
-                    onNavigate = { page ->
-                        if(listOf("edit-profile", "id-card", "messages").contains(page)) {
-                            activePage = page
-                            onPageChange(page)
-                        }
-                        else onNavigate(page)
-                     },
-                    onLoginRequest = onLoginRequest,
-                    onMenuClick = onMenuClick
-                )
-                "edit-profile" -> EditProfilePageView(
-                    user = user,
-                    onClose = { activePage = "profile" },
-                    onSave = ::saveProfile,
-                    saving = savingProfile
-                )
-                "id-card" -> IdCardPageView(
-                    user = user,
-                    onBack = { activePage = "profile" }
-                )
-                "messages" -> MessagesPageView(
-                    user = user,
-                    onBack = { activePage = "profile" }
-                )
-                "post" -> PostNewsPageView(
-                    user = user,
-                    postToEdit = editingPost,
-                    onActionComplete = { postId -> 
-                        editingPost = null
-                        activePage = if (listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN).contains(user.role)) "manage" else "profile"
-                        if (postId.isNotBlank() && postId != "HOME_ONLY") {
-                            onPostPublished(postId)
-                        }
-                    }
-                )
-                "manage" -> ManagePostsPageView(
-                    onEditPost = { post ->
-                        editingPost = post
-                        activePage = "post"
-                    },
-                    onViewPost = { post ->
-                        onPostPublished(post.id)
-                    },
-                    currentUser = user
-                )
-                "manageReporters" -> ReporterManagementPageView(currentUser = user)
-                "ads" -> AdsManagerPageView(currentUser = user)
-                "manageUsers" -> UserManagementPageView(currentUser = user)
-                "adminNotify" -> AdminNotificationsPageView()
-                "affiliate_settings" -> AffiliateSettingsView(onBack = { activePage = "profile" })
-            }
+            "manage" -> ManagePostsPageView(
+                onEditPost = { post ->
+                    editingPost = post
+                    activePage = "post"
+                },
+                onViewPost = { post ->
+                    onPostPublished(post.id)
+                },
+                currentUser = user
+            )
+            "manageReporters" -> ReporterManagementPageView(currentUser = user)
+            "ads" -> AdsManagerPageView(currentUser = user)
+            "manageUsers" -> UserManagementPageView(currentUser = user)
+            "adminNotify" -> AdminNotificationsPageView()
+            "affiliate_settings" -> AffiliateSettingsView(onBack = { activePage = "profile" })
         }
     }
 }

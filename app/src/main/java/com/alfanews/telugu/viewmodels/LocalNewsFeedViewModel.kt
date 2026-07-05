@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
 import android.location.Geocoder
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.alfanews.telugu.models.Language
@@ -16,6 +17,8 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -169,10 +172,30 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         viewModelScope.launch {
             try {
                 val now = System.currentTimeMillis()
-                val snapshot = FirebaseService.db.collection("local_ads")
-                    .whereEqualTo("status", com.alfanews.telugu.models.AdStatus.ACTIVE.name)
-                    .get().await()
-                val allAds = snapshot.documents.mapNotNull { com.alfanews.telugu.models.LocalAd.fromSnapshot(it) }
+                val gson = Gson()
+                
+                // 1. Check Cache
+                val cachedJson = prefs.getLocalAdsCache(district)
+                val cacheTime = prefs.getLocalAdsTimestamp(district)
+                val isCacheValid = (now - cacheTime) < (30L * 60L * 1000L) // 30 minutes
+                
+                val allAds = if (isCacheValid && cachedJson != null) {
+                    Log.d("LocalNewsFeedVM", "Loading local ads from cache for $district")
+                    val type = object : TypeToken<List<com.alfanews.telugu.models.LocalAd>>() {}.type
+                    gson.fromJson<List<com.alfanews.telugu.models.LocalAd>>(cachedJson, type)
+                } else {
+                    Log.d("LocalNewsFeedVM", "Fetching local ads from Firestore for $district")
+                    val snapshot = FirebaseService.db.collection("local_ads")
+                        .whereEqualTo("status", com.alfanews.telugu.models.AdStatus.ACTIVE.name)
+                        .get().await()
+                    
+                    val ads = snapshot.documents.mapNotNull { com.alfanews.telugu.models.LocalAd.fromSnapshot(it) }
+                    
+                    // Save to cache
+                    prefs.saveLocalAdsCache(district, gson.toJson(ads))
+                    ads
+                }
+
                 val validAds = allAds.filter { ad ->
                     val isForDistrict = ad.targetDistrict == "ALL" || ad.targetDistrict == district
                     val isWithinDate = if (ad.adType == com.alfanews.telugu.models.AdType.TIME_BASED_FIXED) {
@@ -183,8 +206,23 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     } else true
                     isForDistrict && isWithinDate && isNotFinished
                 }
-                _localAds.value = validAds.shuffled()
+                
+                // 2. Queue Logic (Seen vs Unseen)
+                val seenIds = prefs.getSeenLocalAdIds()
+                val unseenAds = validAds.filter { it.id !in seenIds }
+                val seenAds = validAds.filter { it.id in seenIds }
+
+                Log.d("LocalNewsFeedVM", "Ad Queue - Total: ${validAds.size}, Unseen: ${unseenAds.size}, Seen: ${seenAds.size}")
+
+                if (unseenAds.isEmpty() && validAds.isNotEmpty()) {
+                    Log.d("LocalNewsFeedVM", "All ads seen. Resetting seen list.")
+                    prefs.clearSeenLocalAds()
+                    _localAds.value = validAds.shuffled()
+                } else {
+                    _localAds.value = unseenAds.shuffled() + seenAds.shuffled()
+                }
             } catch (e: Exception) {
+                Log.e("LocalNewsFeedVM", "Error loading local ads: ${e.message}")
                 _localAds.value = emptyList()
             }
         }

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.processContentWithAI = exports.processCitizenContentWithAI = exports.processSocialPostWithAI = void 0;
+exports.processProductWithAI = exports.processContentWithAI = exports.processCitizenContentWithAI = exports.processSocialPostWithAI = void 0;
 const genai_1 = require("@google/genai");
 const utils_1 = require("./utils");
 const PRIMARY_MODEL = utils_1.PRO_MODEL;
@@ -27,6 +27,7 @@ const processSocialPostWithAI = async (socialText, platform, category) => {
             2. Write a paragraph in English (contentEn) maximum 70 words.
             3. Generate a strong punchy Telugu headline (headline) maximum 10 words.
             4. Generate a sharp English headline (headlineEn) maximum 12 words.
+            LEGAL COMPLIANCE: Use objective, neutral language. For accusations or unverified info, use "allegedly" or "reportedly" (తెలుగులో: "ఆరోపణలు వస్తున్నాయి", "సమాచారం అందుతోంది"). Avoid libel.
             Output JSON only.`,
                 temperature: 0.4,
                 maxOutputTokens: 4096,
@@ -74,6 +75,7 @@ const processCitizenContentWithAI = async (rawContent) => {
             2. Write a paragraph in English (contentEn) maximum 70 words.
             3. Generate a strong punchy Telugu headline (headline) maximum 10 words.
             4. Generate a sharp English headline (headlineEn) maximum 12 words.
+            LEGAL COMPLIANCE: Use objective, neutral language. For accusations or unverified info, use "allegedly" or "reportedly" (తెలుగులో: "ఆరోపణలు వస్తున్నాయి", "సమాచారం అందుతోంది"). Avoid libel.
             Output JSON only.`,
                 temperature: 0.4,
                 maxOutputTokens: 4096,
@@ -112,6 +114,7 @@ const processContentWithAI = async (rawContent, rawHeadline) => {
             2. Write a paragraph in English (contentEn) maximum 70 words.
             3. Generate a strong punchy Telugu headline (headline) maximum 10 words.
             4. Generate a sharp English headline (headlineEn) maximum 12 words.
+            LEGAL COMPLIANCE: Use objective, neutral language. For accusations or unverified info, use "allegedly" or "reportedly" (తెలుగులో: "ఆరోపణలు వస్తున్నాయి", "సమాచారం అందుతోంది"). Avoid libel.
             Output JSON only.`,
                 temperature: 0.4,
                 maxOutputTokens: 4096,
@@ -129,4 +132,44 @@ const processContentWithAI = async (rawContent, rawHeadline) => {
     });
 };
 exports.processContentWithAI = processContentWithAI;
+const processProductWithAI = async (productInfo) => {
+    const schema = {
+        type: genai_1.Type.OBJECT,
+        properties: {
+            headline: { type: genai_1.Type.STRING },
+            content: { type: genai_1.Type.STRING },
+            headlineEn: { type: genai_1.Type.STRING },
+            contentEn: { type: genai_1.Type.STRING },
+            category: { type: genai_1.Type.STRING }
+        },
+        required: ["headline", "content", "headlineEn", "contentEn", "category"],
+    };
+    return await (0, utils_1.runWithAIFallback)(async (ai, modelName) => {
+        const response = await ai.models.generateContent({
+            model: modelName,
+            contents: [{ role: "user", parts: [{ text: `Product Info:\n${productInfo}` }] }],
+            config: {
+                systemInstruction: `You are a Tech & Lifestyle Reporter.
+            1. Convert the provided product information into an exciting news story in Telugu (content) between 400-500 chars. Focus on the value, features, or a massive discount.
+            2. Write a professional news paragraph in English (contentEn) maximum 60 words.
+            3. Generate an eye-catching Telugu headline (headline) maximum 10 words.
+            4. Generate a professional English headline (headlineEn) maximum 12 words.
+            5. Categorize this as 'Gadgets', 'Fashion', or 'Lifestyle'.
+            Output JSON only.`,
+                temperature: 0.5,
+                maxOutputTokens: 2048,
+                responseMimeType: "application/json",
+                responseSchema: schema,
+                // Safety
+                system_instruction: `You are a Tech & Lifestyle Reporter. ...`,
+                max_output_tokens: 2048
+            }
+        });
+        const text = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text)
+            throw new Error("Empty AI response");
+        return (0, utils_1.parseAIJson)(text);
+    });
+};
+exports.processProductWithAI = processProductWithAI;
 //# sourceMappingURL=geminiService.js.map

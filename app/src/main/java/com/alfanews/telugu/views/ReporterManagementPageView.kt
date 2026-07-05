@@ -97,6 +97,40 @@ fun ReporterManagementPageView(currentUser: User) {
             }
         }
 
+        // Admin Backfill Button
+        if (currentUser.role == UserRole.ADMIN) {
+            val context = LocalContext.current
+            var isBackfilling by remember { mutableStateOf(false) }
+            
+            Button(
+                onClick = {
+                    scope.launch {
+                        isBackfilling = true
+                        try {
+                            FirebaseService.functions.getHttpsCallable("backfillReporterPoints").call().await()
+                            Toast.makeText(context, "డేటా విజయవంతంగా అప్‌డేట్ చేయబడింది!", Toast.LENGTH_SHORT).show()
+                            fetchData()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                        } finally {
+                            isBackfilling = false
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                enabled = !isBackfilling
+            ) {
+                if (isBackfilling) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
+                } else {
+                    Icon(Icons.Default.Sync, contentDescription = null)
+                }
+                Spacer(Modifier.width(8.dp))
+                Text("లీడర్ బోర్డ్ డేటా సింక్ (Admin)")
+            }
+        }
+
         if (loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()

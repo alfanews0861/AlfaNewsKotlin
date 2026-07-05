@@ -62,9 +62,7 @@ fun LocalNewsFeedView(
         factory = ViewModelFactory(context.applicationContext as Application)
     )
     val news by viewModel.news.collectAsStateWithLifecycle()
-    // ... (rest of the code)
 
-    // 🔄 App Resume అయినప్పుడు ఆటోమేటిక్‌గా టాప్‌కి వెళ్లి రిఫ్రెష్ చేస్తుంది
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -108,7 +106,7 @@ fun LocalNewsFeedView(
 
     fun loadAdForPage(page: Int) {
         if (!preloadedAds.containsKey(page)) {
-            preloadedAds[page] = null // Placeholder
+            preloadedAds[page] = null 
             val activity = context as? android.app.Activity
             activity?.let {
                 AdMobService.loadNativeAd(it) { ad ->
@@ -119,7 +117,6 @@ fun LocalNewsFeedView(
     }
 
     LaunchedEffect(currentUser) {
-        // ఇక్కడ activeDistrict ఇప్పటికే ఉంటే (Profile లేదా Manual Selection) మళ్ళీ డిటెక్ట్ చేయకూడదు
         if (activeDistrict == null) {
             if (hasLocationPermission) {
                 viewModel.detectLocation(context, currentUser)
@@ -139,7 +136,6 @@ fun LocalNewsFeedView(
         }
     }
 
-    // 🔄 పర్ఫార్మెన్స్ ఆప్టిమైజేషన్స్
     val onReporterClickRemembered = remember(onReporterClick) { onReporterClick }
     val onProfileClickRemembered = remember(onProfileClick) { onProfileClick }
     val onEditClickRemembered = remember(onEditClick) { onEditClick }
@@ -151,13 +147,11 @@ fun LocalNewsFeedView(
     }
     val pagerState = rememberPagerState(pageCount = { totalCount })
 
-    // 🚀 సెన్సిటివిటీని పెంచడానికి ఫ్లింగ్ బిహేవియర్ (ఇమేజ్ మరియు కంటెంట్ ఏరియాలో ఒకేలా ఉంటుంది)
     val flingBehavior = PagerDefaults.flingBehavior(
         state = pagerState,
-        snapPositionalThreshold = 0.10f // 10% దూరం జరిపితే చాలు పేజీ మారిపోతుంది
+        snapPositionalThreshold = 0.10f
     )
 
-    // 🔄 Auto-scroll to top when fresh news is loaded after a long time
     LaunchedEffect(shouldScrollToTop) {
         if (shouldScrollToTop && news.isNotEmpty()) {
             pagerState.animateScrollToPage(0)
@@ -166,7 +160,6 @@ fun LocalNewsFeedView(
     }
 
     LaunchedEffect(news) {
-        // 🖼️ Memory Optimization: 10 కి అడ్జస్ట్ చేశాం
         val postsToPreload = news.take(10)
         postsToPreload.forEach { post: NewsPost ->
             if (post.mediaUrl.isNotEmpty()) {
@@ -188,7 +181,6 @@ fun LocalNewsFeedView(
                 viewModel.loadMore(language, currentUser)
             }
 
-            // 🖼️ Memory Optimization: Preload 10 images ahead
             (1..10).forEach { offset ->
                 val nextPageIndex = page + offset
                 val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
@@ -206,11 +198,24 @@ fun LocalNewsFeedView(
                 }
             }
 
-            // Preload AdMob ads up to 24 pages ahead (Ensures at least 4 ads are always ready)
+            // 🚀 LOCAL AD PRELOADING:
             (1..24).forEach { offset ->
                 val futurePage = page + offset
-                val isAdSlot = (futurePage + 1) % 6 == 0
-                if (isAdSlot && futurePage < totalCount) {
+                val isAdPage = (futurePage + 1) % 6 == 0
+                if (isAdPage && futurePage < totalCount) {
+                    val adIndex = futurePage / 6
+                    if (adIndex < localAds.size) {
+                        val ad = localAds[adIndex]
+                        if (ad.bannerUrl.isNotEmpty()) {
+                            val request = ImageRequest.Builder(context)
+                                .data(ad.bannerUrl)
+                                .allowHardware(true)
+                                .build()
+                            SingletonImageLoader.get(context).enqueue(request)
+                        }
+                    }
+                    
+                    // AdMob preloading
                     loadAdForPage(futurePage)
                 }
             }
@@ -222,171 +227,157 @@ fun LocalNewsFeedView(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // ✅ FIXED HEADER: Always visible even if news is empty or loading
-            LogoHeader(
-                district = if (isDetecting) "గుర్తిస్తున్నాము..." else (activeDistrict ?: "జిల్లాను ఎంచుకోండి"),
-                showDistrictSelector = true,
-                onDistrictClick = { showDistrictPicker = true },
-                onMenuClick = onMenuClick
-            )
+        if (!isOnline && news.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                    )
+                    Text(
+                        text = stringResource(R.string.no_internet),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontFamily = Ramabhadra
+                    )
+                    Text(
+                        text = stringResource(R.string.check_internet),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        fontFamily = Ramabhadra
+                    )
+                    Button(
+                        onClick = { viewModel.loadNews(language, currentUser) }
+                    ) {
+                        Text(text = stringResource(R.string.retry), fontFamily = Ramabhadra)
+                    }
+                }
+            }
+        } else if ((loading || isDetecting) && news.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(40.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = if (isDetecting) stringResource(R.string.detecting_location) else stringResource(R.string.news_preparing),
+                        color = MaterialTheme.colorScheme.onBackground,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontFamily = Ramabhadra
+                    )
+                }
+            }
+        } else if (news.isEmpty() && activeDistrict == null) {
+            LaunchedEffect(Unit) {
+                showDistrictPicker = true
+            }
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.select_district_prompt),
+                        color = MaterialTheme.colorScheme.onBackground,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontFamily = Ramabhadra
+                    )
+                    Button(
+                        onClick = { showDistrictPicker = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Text(stringResource(R.string.select_district), fontFamily = Ramabhadra)
+                    }
+                }
+            }
+        } else {
+            VerticalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                userScrollEnabled = true,
+                flingBehavior = flingBehavior,
+                key = { page ->
+                    val isAd = (page + 1) % 6 == 0
+                    if (isAd) {
+                        "local_ad_slot_$page"
+                    } else {
+                        val idx = page - (page / 6)
+                        if (idx < news.size) news[idx].id else "local_empty_$page"
+                    }
+                }
+            ) { page ->
+                val isAdPagePager = (page + 1) % 6 == 0
+                if (isAdPagePager) {
+                    val adIndex = page / 6
+                    val nativeAd = preloadedAds[page]
+                    val totalLocalCount = localAds.size
+                    val isCurrentPage = pagerState.currentPage == page
 
-            Box(modifier = Modifier.weight(1f)) {
-                if (!isOnline && news.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                            modifier = Modifier.padding(32.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Warning,
-                                contentDescription = null,
-                                modifier = Modifier.size(64.dp),
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                            )
-                            Text(
-                                text = stringResource(R.string.no_internet),
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                fontFamily = Ramabhadra
-                            )
-                            Text(
-                                text = stringResource(R.string.check_internet),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                fontFamily = Ramabhadra
-                            )
-                            Button(
-                                onClick = { viewModel.loadNews(language, currentUser) }
-                            ) {
-                                Text(text = stringResource(R.string.retry), fontFamily = Ramabhadra)
-                            }
+                    // 🚀 PRIORITY LOGIC:
+                    // Slot 1 (Page 6) & Slot 2 (Page 12) -> Prefer Local Ads
+                    // Slot 3+ -> Alternate between AdMob and Local Ads
+                    
+                    val strictlyLocal = adIndex == 0 || adIndex == 1
+                    val preferAdMob = if (strictlyLocal) false else adIndex % 2 == 0
+
+                    if (preferAdMob) {
+                        if (nativeAd != null) {
+                            AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)
+                        } else if (totalLocalCount > 0) {
+                            val localAd = localAds[adIndex % totalLocalCount]
+                            LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize(), isActive = isCurrentPage)
+                        } else {
+                            AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = null)
                         }
-                    }
-                } else if ((loading || isDetecting) && news.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(40.dp),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = if (isDetecting) stringResource(R.string.detecting_location) else stringResource(R.string.news_preparing),
-                                color = MaterialTheme.colorScheme.onBackground,
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontFamily = Ramabhadra
-                            )
-                        }
-                    }
-                } else if (news.isEmpty() && activeDistrict == null) {
-                    LaunchedEffect(Unit) {
-                        showDistrictPicker = true
-                    }
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.select_district_prompt),
-                                color = MaterialTheme.colorScheme.onBackground,
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontFamily = Ramabhadra
-                            )
-                            Button(
-                                onClick = { showDistrictPicker = true },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                            ) {
-                                Text(stringResource(R.string.select_district), fontFamily = Ramabhadra)
-                            }
+                    } else {
+                        if (totalLocalCount > 0) {
+                            val localAd = localAds[adIndex % totalLocalCount]
+                            LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize(), isActive = isCurrentPage)
+                        } else if (nativeAd != null) {
+                            AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)
+                        } else {
+                            AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = null)
                         }
                     }
                 } else {
-                    VerticalPager(
-                        state = pagerState,
-                        modifier = Modifier.fillMaxSize(),
-                        userScrollEnabled = true,
-                        flingBehavior = flingBehavior,
-                        key = { page ->
-                            val isAd = (page + 1) % 6 == 0
-                            if (isAd) {
-                                "local_ad_slot_$page"
-                            } else {
-                                val idx = page - (page / 6)
-                                if (idx < news.size) news[idx].id else "local_empty_$page"
-                            }
-                        }
-                    ) { page ->
-                        val isAdPagePager = (page + 1) % 6 == 0
-                        if (isAdPagePager) {
-                            val adIndex = page / 6
-                            val nativeAd = preloadedAds[page]
-                            val totalLocalCount = localAds.size
+                    val newsIndex = page - (page / 6)
+                    if (newsIndex < news.size) {
+                        val post = news[newsIndex]
 
-                            // 🔄 Smart Rotation & Priority Logic:
-                            // 1. AdMob and Local Ads rotate 1:1 to ensure variety.
-                            // 2. Priority is given to AdMob in even slots, Local in odd slots.
-                            // 3. Fallbacks ensure an ad is always shown if either source fails.
-                            val preferAdMob = adIndex % 2 == 0
-
-                            val isCurrentPage = pagerState.currentPage == page
-
-                            if (preferAdMob) {
-                                // 🚀 AdMob Slot (Priority)
-                                if (nativeAd != null) {
-                                    AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)
-                                } else if (totalLocalCount > 0) {
-                                    val localAd = localAds[adIndex % totalLocalCount]
-                                    LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize(), isActive = isCurrentPage)
-                                } else {
-                                    AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = null)
-                                }
-                            } else {
-                                // 🏠 Local Ad Slot (Priority)
-                                if (totalLocalCount > 0) {
-                                    val localAd = localAds[adIndex % totalLocalCount]
-                                    LocalAdCardView(ad = localAd, modifier = Modifier.fillMaxSize(), isActive = isCurrentPage)
-                                } else if (nativeAd != null) {
-                                    AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = nativeAd)
-                                } else {
-                                    AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = null)
-                                }
-                            }
-                        } else {
-                            val newsIndex = page - (page / 6)
-                            if (newsIndex < news.size) {
-                                val post = news[newsIndex]
-
-                                NewsCardView(
-                                    post = post,
-                                    language = language,
-                                    currentUser = currentUser,
-                                    onProfileClick = onProfileClickRemembered,
-                                    onReporterClick = onReporterClickRemembered,
-                                    onDistrictClick = { showDistrictPicker = true },
-                                    onEditClick = onEditClickRemembered,
-                                    modifier = Modifier.fillMaxSize(),
-                                    district = activeDistrict,
-                                    showDistrictSelector = false,
-                                    showTopHeader = false, // ✅ Header is already shown at top level
-                                    isActive = pagerState.currentPage == page
-                                )
-                            }
-                        }
+                        NewsCardView(
+                            post = post,
+                            language = language,
+                            currentUser = currentUser,
+                            onProfileClick = onProfileClickRemembered,
+                            onReporterClick = onReporterClickRemembered,
+                            onDistrictClick = { showDistrictPicker = true },
+                            onEditClick = onEditClickRemembered,
+                            modifier = Modifier.fillMaxSize(),
+                            district = activeDistrict,
+                            showDistrictSelector = false,
+                            showTopHeader = false,
+                            isActive = pagerState.currentPage == page
+                        )
                     }
                 }
             }

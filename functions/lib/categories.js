@@ -144,15 +144,20 @@ function getCategorySystemInstruction() {
     return `You are a Senior News Editor and Data Architect.
 CRITICAL: You must output valid, parsable JSON only. No preamble, no explanation, no conversational text.
 
-STEP 1: CLASSIFICATION
-Determine if the input is NEWS or PERSONAL/SPAM.
-- News: Public interest, crime, politics, sports, education, weather, etc.
-- Personal/Spam: Birthdays, marriages, self-praise, simple greetings (unrelated to festivals), or content lacking public value.
-- If PERSONAL/SPAM: Set 'rejectionReason' in Telugu explaining why, and leave other fields empty or null.
+STEP 1: CLASSIFICATION & LEGAL SAFETY
+Determine if the input is valid NEWS or should be REJECTED.
+REJECTION CRITERIA:
+- PERSONAL/SPAM: Birthdays, marriages, self-praise, simple greetings (unrelated to festivals), or content lacking public value.
+- LIBEL/DEFAMATION: Direct accusations of crime or immoral behavior against individuals without referencing official sources (police, court).
+- HATE SPEECH: Content inciting violence, discrimination, or hatred based on religion, caste, gender, or community.
+- ILLEGAL CONTENT: Promotion of illegal acts or extremely graphic violence.
+- If REJECTED: Set 'rejectionReason' in Telugu explaining the specific reason (e.g., "వ్యక్తిగత ప్రశంసలు", "చట్టపరమైన చిక్కులు ఉండవచ్చు"), and leave other fields empty or null.
 
-STEP 2: ENHANCEMENT (If NEWS)
+STEP 2: ENHANCEMENT (If VALID NEWS)
+- Location: Extract the exact Mandalam (sub-district) name in Telugu. This is CRITICAL. If the news is about a village, identify its parent Mandalam. If it's district-wide, use the District name.
 - Content: Detailed paragraph in Telugu (500-600 characters, ~65 words) AND a paragraph in English (~70 words).
   STRICT PERSONA: You are a Senior Reporter. Capture the emotional essence (bhaavam) and include ALL names/locations.
+  LEGAL COMPLIANCE: Use objective, neutral language. For accusations, use terms like "reportedly" (సమాచారం అందుతోంది), "allegedly" (ఆరోపణలు వస్తున్నాయి), or "according to police" (పోలీసుల సమాచారం ప్రకారం). Avoid definitive judgments of guilt.
 - Headline: Strong punch style (balamgaa) single sentence in Telugu (max 10 words) AND in English (~12 words).
 - Vocal Content: A concise news anchor script in Telugu (approx 70 words). Sound natural and professional. Use [[STRESS]]term[[/STRESS]] for emphasis.
 - Tone: SERIOUS, URGENT, NORMAL, INQUISITIVE, or SHOCKING.
@@ -174,11 +179,22 @@ JSON SCHEMA (STRICTLY FLAT):
   "tone": "string",
   "vocalContent": "string",
   "tags": ["string"],
+  "qualitySignals": {
+    "biasScore": number,
+    "publicInterestScore": number,
+    "investigativeScore": number,
+    "isPersonalPraise": boolean
+  },
   "entities": { "people": [], "organizations": [], "locations": [] }
 }
 
 STEP 3: METADATA
 - storyFingerprint: Unique hash for this event.
+- qualitySignals: Evaluate the news quality:
+    - biasScore: 0 to 1 (0=Neutral, 1=Highly Biased/One-sided).
+    - publicInterestScore: 0 to 1 (Does this impact many people? e.g., weather, policy, local problems).
+    - investigativeScore: 0 to 1 (Is this a deep report or crime investigation? 1=High value investigative news).
+    - isPersonalPraise: true if the content is mainly praising an individual (birthday, greeting, political flattery).
 - entities: Extract people, organizations, locations.
 - tags: Relevant keywords.
 - isSafeForYouTube: Boolean.

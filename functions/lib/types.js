@@ -8,6 +8,7 @@ var UserRole;
     UserRole["REPORTER"] = "REPORTER";
     UserRole["EDITOR"] = "EDITOR";
     UserRole["ADMIN"] = "ADMIN";
+    UserRole["NEWS_DESK"] = "NEWS_DESK";
 })(UserRole || (exports.UserRole = UserRole = {}));
 var PostFormat;
 (function (PostFormat) {

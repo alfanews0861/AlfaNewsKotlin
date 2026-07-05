@@ -96,6 +96,9 @@ fun LocalAdCardView(
         if (!isPreview) {
             FirebaseService.db.collection("local_ads").document(ad.id)
                 .update("viewsCurrent", FieldValue.increment(1))
+            
+            // క్యూ మేనేజ్మెంట్ కోసం యాడ్ ని "చూసినట్లుగా" మార్క్ చేయడం
+            com.alfanews.telugu.utils.PreferenceManager.getInstance(context).markLocalAdSeen(ad.id)
         }
     }
 

@@ -33,6 +33,9 @@ class PreferenceManager(context: Context) {
         private const val KEY_USER_NAME = "key_user_name"
         private const val KEY_USER_ROLE = "key_user_role"
         private const val KEY_USER_DISTRICT = "key_user_district"
+        private const val KEY_SEEN_LOCAL_ADS = "key_seen_local_ads"
+        private const val KEY_LOCAL_ADS_CACHE_PREFIX = "key_local_ads_cache_"
+        private const val KEY_LOCAL_ADS_TS_PREFIX = "key_local_ads_ts_"
 
         @Volatile
         private var INSTANCE: PreferenceManager? = null
@@ -214,6 +217,41 @@ class PreferenceManager(context: Context) {
 
     fun getPostViewCount(postId: String): Int {
         return prefs.getInt("vc_$postId", 0)
+    }
+
+    /**
+     * లోకల్ యాడ్ చూసినట్లుగా గుర్తు పెట్టుకుంటుంది.
+     */
+    fun markLocalAdSeen(adId: String) {
+        val seenIds = getSeenLocalAdIds().toMutableSet()
+        seenIds.add(adId)
+        prefs.edit().putStringSet(KEY_SEEN_LOCAL_ADS, seenIds).apply()
+    }
+
+    fun getSeenLocalAdIds(): Set<String> {
+        return prefs.getStringSet(KEY_SEEN_LOCAL_ADS, emptySet()) ?: emptySet()
+    }
+
+    fun clearSeenLocalAds() {
+        prefs.edit().remove(KEY_SEEN_LOCAL_ADS).apply()
+    }
+
+    /**
+     * లోకల్ యాడ్స్ మెటాడేటా కాషింగ్
+     */
+    fun saveLocalAdsCache(district: String, adsJson: String) {
+        prefs.edit()
+            .putString("$KEY_LOCAL_ADS_CACHE_PREFIX$district", adsJson)
+            .putLong("$KEY_LOCAL_ADS_TS_PREFIX$district", System.currentTimeMillis())
+            .apply()
+    }
+
+    fun getLocalAdsCache(district: String): String? {
+        return prefs.getString("$KEY_LOCAL_ADS_CACHE_PREFIX$district", null)
+    }
+
+    fun getLocalAdsTimestamp(district: String): Long {
+        return prefs.getLong("$KEY_LOCAL_ADS_TS_PREFIX$district", 0L)
     }
 
     /** 

@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 @Composable
 fun ReportersView(
     language: Language,
+    currentUser: User?,
     onBack: () -> Unit,
     onReporterClick: (String) -> Unit,
     onMenuClick: (() -> Unit)? = null
@@ -49,8 +50,16 @@ fun ReportersView(
     val reporters by viewModel.reporters.collectAsStateWithLifecycle()
     val loading by viewModel.loading.collectAsStateWithLifecycle()
 
-    var selectedState by remember { mutableStateOf("") }
-    var selectedDistrict by remember { mutableStateOf("") }
+    var selectedState by remember { 
+        val initialDistrict = currentUser?.district
+        val state = if (initialDistrict != null) {
+            if (Constants.TS_DISTRICTS.contains(initialDistrict)) "TS"
+            else if (Constants.AP_DISTRICTS.contains(initialDistrict)) "AP"
+            else ""
+        } else ""
+        mutableStateOf(state) 
+    }
+    var selectedDistrict by remember { mutableStateOf(currentUser?.district ?: "") }
     var selectedMandal by remember { mutableStateOf("") }
     
     var stateExpanded by remember { mutableStateOf(false) }
@@ -65,40 +74,26 @@ fun ReportersView(
     val districts = if (selectedState == "TS") Constants.TS_DISTRICTS else if (selectedState == "AP") Constants.AP_DISTRICTS else emptyList()
     val mandals = if (selectedDistrict.isNotEmpty()) Constants.MANDAL_DATA[selectedDistrict] ?: emptyList() else emptyList()
 
+    // Initial fetch if we have a district from profile
+    LaunchedEffect(Unit) {
+        if (selectedDistrict.isNotEmpty()) {
+            viewModel.fetchReporters(selectedDistrict, null)
+        }
+    }
+
     LaunchedEffect(selectedDistrict, selectedMandal) {
         if (selectedDistrict.isNotEmpty()) {
             viewModel.fetchReporters(selectedDistrict, selectedMandal.ifEmpty { null })
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.reporters_directory), fontFamily = Ramabhadra) },
-                navigationIcon = {
-                    if (onMenuClick != null) {
-                        IconButton(onClick = onMenuClick) {
-                            Icon(Icons.Default.Menu, contentDescription = stringResource(R.string.menu))
-                        }
-                    } else {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back))
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            )
-        }
-    ) { padding ->
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(MaterialTheme.colorScheme.background)
+            modifier = Modifier.fillMaxSize()
         ) {
             // Selection Boxes
             Column(
@@ -237,7 +232,28 @@ fun ReportersView(
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
-            } else if (reporters.isEmpty() && selectedDistrict.isNotEmpty()) {
+            } else if (selectedDistrict.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.LocationOn,
+                            contentDescription = null,
+                            modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = if (language == Language.TELUGU) "రిపోర్టర్ల వివరాల కోసం దయచేసి జిల్లాను ఎంచుకోండి." else "Please select a district to view reporters.",
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else if (reporters.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
                         stringResource(R.string.no_reporters_found),

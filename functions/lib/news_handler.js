@@ -101,6 +101,15 @@ async function performAIProcessing(headline, content, actualPostData) {
             tone: { type: genai_1.Type.STRING },
             vocalContent: { type: genai_1.Type.STRING },
             tags: { type: genai_1.Type.ARRAY, items: { type: genai_1.Type.STRING } },
+            qualitySignals: {
+                type: genai_1.Type.OBJECT,
+                properties: {
+                    biasScore: { type: genai_1.Type.NUMBER },
+                    publicInterestScore: { type: genai_1.Type.NUMBER },
+                    investigativeScore: { type: genai_1.Type.NUMBER },
+                    isPersonalPraise: { type: genai_1.Type.BOOLEAN }
+                }
+            },
             entities: {
                 type: genai_1.Type.OBJECT,
                 properties: {
@@ -165,9 +174,10 @@ async function performAIProcessing(headline, content, actualPostData) {
         const aiCategoryDetected = aiRes.refinedCategory || actualPostData?.category || "OTHER";
         const canonicalCategory = (0, categories_1.normalizeCategory)(aiCategoryDetected);
         const isReporterPost = actualPostData?.isReporter === true || actualPostData?.processingType === "REPORTER_SUBMISSION";
+        const isGlobal = actualPostData?.isGlobal === true;
         let primaryCategory;
         let finalCategories;
-        if (isReporterPost) {
+        if (isReporterPost && !isGlobal) {
             primaryCategory = "జిల్లా వార్త";
             finalCategories = ["జిల్లా వార్త"];
             if (actualPostData?.district)
@@ -194,6 +204,7 @@ async function performAIProcessing(headline, content, actualPostData) {
             rejectionReason: aiRes.rejectionReason || "",
             tone: aiRes.tone || "NORMAL",
             vocalContent: aiRes.vocalContent || finalContent || "",
+            qualitySignals: aiRes.qualitySignals || { biasScore: 0.5, publicInterestScore: 0.5, investigativeScore: 0, isPersonalPraise: false },
             storyFingerprint: aiRes.storyFingerprint || `gen_${Date.now()}`,
             aiProcessed: true,
             aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -254,6 +265,25 @@ exports.processNewsPost = (0, https_1.onCall)(async (request) => {
  * 6.2 Background News Processing (Triggered on Create/Update)
  */
 /**
+ * Helper: Calculate points based on media type and AI quality signals
+ */
+function calculateIncentivePoints(hasVideo, qs) {
+    let points = hasVideo ? 20 : 10;
+    if (!qs)
+        return points;
+    // investigativeScore: High value investigative news (+30)
+    if (qs.investigativeScore > 0.8)
+        points += 30;
+    // publicInterestScore: Public interest/Local problems (+15)
+    else if (qs.publicInterestScore > 0.7)
+        points += 15;
+    // isPersonalPraise / biasScore: Reduced points for flattery or high bias
+    if (qs.isPersonalPraise === true || qs.biasScore > 0.75) {
+        points -= 8;
+    }
+    return Math.max(points, 2); // Minimum 2 points
+}
+/**
  * 6.2 Background News Processing (Combined Trigger)
  */
 exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
@@ -269,48 +299,74 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
         return;
     const postId = event.params.postId;
     let data = snapshot.data();
+    // Capture the original submitter to ensure they get the points,
+    // even if display reporter is reassigned.
+    const originalReporterId = data.reporter?.id;
     const currentStatus = (data.status || "").toUpperCase();
     const isReporter = data.isReporter === true || data.processingType === "REPORTER_SUBMISSION";
     // 1. Guard against infinite loops or redundant processing
-    // Removed 'PROCESSING_VIDEO' from locked statuses to allow transition from AI phase to Video phase
+    // We MUST re-fetch the document to ensure we aren't racing with another trigger instance
+    const latestDoc = await db.collection('news').doc(postId).get();
+    const latestData = latestDoc.data();
+    if (!latestData)
+        return;
+    const latestStatus = (latestData.status || "").toUpperCase();
+    // Statuses that mean we've already started or finished processing
     const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED"];
-    if (LOCKED_STATUSES.includes(currentStatus) && !data.forceReprocess) {
+    if (LOCKED_STATUSES.includes(latestStatus) && !data.forceReprocess) {
+        console.log(`[TRIGGER_SKIPPED] ${postId} is already in state: ${latestStatus}`);
         return;
     }
     // 2. AI PROCESSING PHASE
     // Trigger if not processed and status is PENDING or missing
-    if (!data.aiProcessed && (currentStatus === "PENDING" || currentStatus === "" || data.forceReprocess)) {
-        // Double check against DB to avoid race conditions
-        const latestDoc = await db.collection('news').doc(postId).get();
-        const latestData = latestDoc.data();
-        if (!latestData)
-            return;
-        const latestStatus = (latestData.status || "").toUpperCase();
-        if (latestData.aiProcessed || latestStatus === "REVIEWING_CONTENT" || (LOCKED_STATUSES.includes(latestStatus) && !data.forceReprocess)) {
-            console.log(`[AI_SKIPPED] ${postId} already processing, done, or failed.`);
-            return;
-        }
+    if (!latestData.aiProcessed && (latestStatus === "PENDING" || latestStatus === "" || data.forceReprocess)) {
         console.log(`[ON_WRITE_PROCEED] AI Start: ${postId}`);
-        // LOCK immediately to prevent other instances
-        await db.collection('news').doc(postId).update({ status: "REVIEWING_CONTENT" });
+        // LOCK immediately with a transaction-like update or at least a check-before-update
+        // We use status: "REVIEWING_CONTENT" as the lock.
+        await db.collection('news').doc(postId).update({
+            status: "REVIEWING_CONTENT",
+            lastProcessingStart: admin.firestore.FieldValue.serverTimestamp()
+        });
         try {
-            const headline = data.headline?.telugu || "";
-            const content = data.content?.telugu || "";
+            const headline = latestData.headline?.telugu || "";
+            const content = latestData.content?.telugu || "";
             if (!headline || !content) {
                 await db.collection('news').doc(postId).update({ status: "FAILED", error: "Missing headline or content" });
                 return;
             }
-            const aiProcessedData = await performAIProcessing(headline, content, data);
-            const isRejected = !isReporter && aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
+            const aiProcessedData = await performAIProcessing(headline, content, latestData);
+            // --- MANDALAM REPORTER ASSIGNMENT LOGIC ---
+            // If there's an assigned reporter for this mandalam, override the reporter field
+            const mandalamDistrict = aiProcessedData.categories.find((c) => c.includes("జిల్లా")) ? data.district : aiProcessedData.location; // Fallback logic
+            // Actually, we should use data.district or aiProcessedData.district if we added it.
+            // Let's use the location (mandalam) and the district from data or categories.
+            const targetDistrict = data.district || (aiProcessedData.categories.find((c) => !c.includes("వార్త") && c !== aiProcessedData.category));
+            const targetMandalam = aiProcessedData.location;
+            if (targetDistrict && targetMandalam) {
+                const assignedReporter = await (0, reporter_handler_1.getAssignedReporter)(targetDistrict, targetMandalam);
+                if (assignedReporter) {
+                    console.log(`[REPORTER_ASSIGN] Reassigning ${postId} to ${assignedReporter.name} for mandalam ${targetMandalam}`);
+                    aiProcessedData.reporter = assignedReporter;
+                    aiProcessedData.isReporter = true;
+                }
+            }
+            // ------------------------------------------
+            const finalIsReporter = isReporter || aiProcessedData.isReporter;
+            const isRejected = !finalIsReporter && aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
             const mTypes = (data.mediaTypes || []).map((t) => t.toUpperCase());
             const hasVideo = mTypes.includes('VIDEO') || data.mediaType?.toUpperCase() === 'VIDEO';
             const updatePayload = {
                 ...aiProcessedData,
                 status: isRejected ? "REJECTED" : (hasVideo ? "PROCESSING_VIDEO" : "published"),
-                approved: isReporter ? (hasVideo ? false : true) : (!isRejected && !hasVideo)
+                approved: finalIsReporter ? (hasVideo ? false : true) : (!isRejected && !hasVideo)
             };
             console.log(`[AI_DONE] ${postId}. Status: ${updatePayload.status}, Approved: ${updatePayload.approved}`);
             await db.collection('news').doc(postId).update(updatePayload);
+            // Award points to the ORIGINAL submitter if published
+            if (updatePayload.status === "published" && finalIsReporter && originalReporterId) {
+                const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
+                await (0, reporter_handler_1.awardPointsToReporter)(originalReporterId, points);
+            }
             return; // Exit and wait for the second trigger to handle video if needed
         }
         catch (err) {
@@ -479,12 +535,15 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                 status: "published",
                 approved: true
             });
-            // CLEANUP: Delete original video file to save storage costs
-            if (videoUrl) {
-                await deleteOriginalFile(videoUrl);
+            // Award points to ORIGINAL reporter for video publication
+            if (isReporter && originalReporterId) {
+                // Re-fetch to get latest quality signals from AI phase
+                const freshDoc = await db.collection('news').doc(postId).get();
+                const freshData = freshDoc.data();
+                const points = calculateIncentivePoints(true, freshData?.qualitySignals);
+                await (0, reporter_handler_1.awardPointsToReporter)(originalReporterId, points);
+                await (0, reporter_handler_1.notifyReporter)(originalReporterId, postId, data.headline?.telugu || "", 'SUCCESS');
             }
-            if (isReporter && data.reporter?.id)
-                await (0, reporter_handler_1.notifyReporter)(data.reporter.id, postId, data.headline?.telugu || "", 'SUCCESS');
             [videoPath, audioPath, outputPath].forEach(p => { if (fs.existsSync(p))
                 fs.unlinkSync(p); });
         }

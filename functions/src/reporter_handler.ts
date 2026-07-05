@@ -6,6 +6,9 @@ import { REGION } from "./utils";
 
 const db = admin.firestore();
 
+const MILESTONE_SIZE = 500;
+const POINTS_PER_MILESTONE = 50;
+
 /**
  * Helper: Notify reporter with human-friendly messages
  */
@@ -159,11 +162,12 @@ export const backfillReporterPoints = onCall(async (request) => {
     }
 
     console.log(`[BACKFILL] Starting points backfill...`);
-    const reportersSnapshot = await db.collection('users').where('role', '==', 'REPORTER').get();
+        const reportersSnapshot = await db.collection('users').where('role', '==', 'REPORTER').get();
     const results = [];
 
     for (const reporterDoc of reportersSnapshot.docs) {
         const reporterId = reporterDoc.id;
+        const reporterData = reporterDoc.data();
 
         // Fetch all approved news for this reporter
         const newsSnapshot = await db.collection('news')
@@ -172,18 +176,40 @@ export const backfillReporterPoints = onCall(async (request) => {
             .get();
 
         let totalPoints = 0;
+        const monthlyPointsMap: { [key: string]: number } = {};
+
         newsSnapshot.docs.forEach(doc => {
             const data = doc.data();
             const mediaType = data.mediaType?.toUpperCase() || "";
             const mediaTypes = (data.mediaTypes || []).map((t: string) => t.toUpperCase());
             const isVideo = mediaType === 'VIDEO' || mediaTypes.includes('VIDEO');
 
-            totalPoints += isVideo ? 20 : 10;
+            const postPoints = isVideo ? 20 : 10;
+            totalPoints += postPoints;
+
+            // Calculate monthly points
+            const ts = data.timestamp;
+            let date: Date;
+            if (ts && typeof ts.toDate === 'function') {
+                date = ts.toDate();
+            } else if (ts && ts._seconds) {
+                date = new Date(ts._seconds * 1000);
+            } else {
+                date = new Date();
+            }
+
+            const monthId = `${date.getFullYear()}_${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+            monthlyPointsMap[monthId] = (monthlyPointsMap[monthId] || 0) + postPoints;
 
             // Reward for views (Legacy posts)
             const longViews = data.longViews || 0;
-            const viewMilestones = Math.floor(longViews / 500);
-            totalPoints += (viewMilestones * 50);
+            const viewMilestones = Math.floor(longViews / MILESTONE_SIZE);
+            const viewPoints = (viewMilestones * POINTS_PER_MILESTONE);
+            totalPoints += viewPoints;
+            // Note: View points are typically awarded at the time of milestone,
+            // but for backfill we'll put them in the post's original month or current month.
+            // Let's put them in the post's original month for historical accuracy.
+            monthlyPointsMap[monthId] = (monthlyPointsMap[monthId] || 0) + viewPoints;
         });
 
         // Calculate badges
@@ -193,12 +219,28 @@ export const backfillReporterPoints = onCall(async (request) => {
         if (totalPoints >= 2000) badges.push("GOLD");
         if (totalPoints >= 10000) badges.push("DIAMOND");
 
-        // Update reporter doc
+        // Update reporter doc (Global points)
         await db.collection('users').doc(reporterId).update({
             points: totalPoints,
             badges: badges,
             lastPostTimestamp: newsSnapshot.empty ? null : newsSnapshot.docs[0].data().timestamp
         });
+
+        // Update Monthly Leaderboards
+        for (const [monthId, points] of Object.entries(monthlyPointsMap)) {
+            const monthlyRef = db.collection('monthly_leaderboard').doc(monthId)
+                .collection('reporters').doc(reporterId);
+
+            await monthlyRef.set({
+                userId: reporterId,
+                name: reporterData.name || "Reporter",
+                photoUrl: reporterData.photoUrl || "",
+                district: reporterData.district || "",
+                assignedMandal: reporterData.assignedMandal || "",
+                points: points,
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+        }
 
         results.push({
             name: reporterDoc.data()?.name || reporterId,
@@ -228,16 +270,13 @@ export const onNewsViewCountUpdated = onDocumentWritten({
     const reporterId = after.reporter?.id;
     if (!reporterId) return;
 
-    // Award 50 points for every 500 views
-    const milestoneSize = 500;
-    const pointsPerMilestone = 50;
-
-    const milestonesBefore = Math.floor(viewsBefore / milestoneSize);
-    const milestonesAfter = Math.floor(viewsAfter / milestoneSize);
+    // Award points for milestones
+    const milestonesBefore = Math.floor(viewsBefore / MILESTONE_SIZE);
+    const milestonesAfter = Math.floor(viewsAfter / MILESTONE_SIZE);
 
     if (milestonesAfter > milestonesBefore) {
         const newMilestones = milestonesAfter - milestonesBefore;
-        const totalPointsToAdd = newMilestones * pointsPerMilestone;
+        const totalPointsToAdd = newMilestones * POINTS_PER_MILESTONE;
 
         console.log(`[MILESTONE] News ${event.params.postId} reached ${viewsAfter} views. Awarding ${totalPointsToAdd} points to ${reporterId}`);
         await awardPointsToReporter(reporterId, totalPointsToAdd);

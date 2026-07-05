@@ -66,6 +66,11 @@ const API_KEYS = [
     process.env.API_KEY
 ].filter(key => !!key);
 /**
+ * Safety flag to prevent unexpected billing.
+ * Set to true only if you want to allow falling back to the PAID_GEMINI_API_KEY.
+ */
+const PAID_FALLBACK_ENABLED = process.env.PAID_FALLBACK_ENABLED === "true";
+/**
  * Internal helper to get a specific AI instance
  */
 const getAIInstanceInternal = (apiKey) => new genai_1.GoogleGenAI({
@@ -116,6 +121,11 @@ async function runWithAIFallback(operation, customModels) {
     let lastError = null;
     for (let k = 0; k < keysToTry.length; k++) {
         const currentKey = keysToTry[k];
+        const isPaidKey = currentKey === process.env.PAID_GEMINI_API_KEY;
+        if (isPaidKey && !PAID_FALLBACK_ENABLED) {
+            console.warn(`[AI-SKIP] Paid key detected but PAID_FALLBACK_ENABLED is false. Skipping.`);
+            continue;
+        }
         const keyLabel = k === 0 ? "FREE_1" : k === 1 ? "FREE_2" : k === 2 ? "PAID" : "FALLBACK";
         const ai = getAIInstanceInternal(currentKey);
         for (let m = 0; m < modelsToTry.length; m++) {
