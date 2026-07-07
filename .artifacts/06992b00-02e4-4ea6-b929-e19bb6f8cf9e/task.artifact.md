@@ -1,0 +1,3 @@
+- [ ] Fix syntax errors in `JoinReporterPageView.kt`
+- [ ] Fix syntax errors in `UserManagementPageView.kt`
+- [ ] Verify build

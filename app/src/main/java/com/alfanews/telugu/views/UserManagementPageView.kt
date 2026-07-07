@@ -162,7 +162,6 @@ fun UserManagementPageView(currentUser: User) {
             }
         }
     }
-}
 
 @Composable
 private fun UserManagementCard(

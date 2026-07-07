@@ -100,7 +100,7 @@ fun JoinReporterPageView(
         } finally {
             isLoadingOccupied = false
         }
-    }
+}
 
     // Close dropdowns when state changes
     LaunchedEffect(selectedState) {
@@ -487,5 +487,4 @@ fun JoinReporterPageView(
                 }
             )
         }
-    }
 }
