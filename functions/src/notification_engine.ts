@@ -46,19 +46,28 @@ export const sendPersonalizedNotification = onSchedule({
 
     // --- 1. జనరల్ నోటిఫికేషన్ (ప్రతి 2 గంటలకు - సరి గంటలలో) ---
     if (istHour % 2 === 0) {
-        const topNews = allNews.sort((a: any, b: any) => (b.score || 0) - (a.score || 0))[0];
+        // Rich Content ప్రాధాన్యత: స్కోరు ఎక్కువగా ఉండి, ఫోటో ఉన్న వార్తలను ముందుగా ఎంచుకుంటాం
+        const topNews = allNews.sort((a: any, b: any) => {
+            const scoreA = (a.score || 0) + (a.mediaUrl ? 100 : 0);
+            const scoreB = (b.score || 0) + (b.mediaUrl ? 100 : 0);
+            return scoreB - scoreA;
+        })[0];
+
         if (topNews && lastSentMap['general'] !== topNews.id) {
             const headline = topNews.headline?.telugu || topNews.headline?.english || topNews.headline || "నేటి ముఖ్య వార్తలు";
             const imageUrl = topNews.mediaUrl || "";
 
-            await admin.messaging().send({
+            const message: admin.messaging.Message = {
                 notification: {
                     title: '🌟 తాజా ముఖ్య వార్తలు (AlfaNews)',
                     body: (headline + "").substring(0, 150)
                 },
                 android: {
                     notification: {
-                        imageUrl: imageUrl
+                        imageUrl: imageUrl,
+                        priority: 'high',
+                        channelId: 'general_news',
+                        clickAction: 'FLUTTER_NOTIFICATION_CLICK' // For consistency if needed, but we use actionUrl
                     }
                 },
                 data: {
@@ -70,9 +79,11 @@ export const sendPersonalizedNotification = onSchedule({
                     body: (headline + "").substring(0, 150)
                 },
                 topic: 'all_users'
-            });
+            };
+
+            await admin.messaging().send(message);
             updatedMap['general'] = topNews.id;
-            logger.log(`[NOTIF] Broadcasted general top news.`);
+            logger.log(`[NOTIF] Broadcasted general top news with ID: ${topNews.id}`);
         }
     }
     // --- 2. జిల్లా నోటిఫికేషన్ (ప్రతి 4 గంటలకు - 1, 5, 9, 13, 17, 21 గంటలలో) ---
@@ -80,7 +91,11 @@ export const sendPersonalizedNotification = onSchedule({
         for (const district of DISTRICTS) {
             const districtNews = allNews
                 .filter((n: any) => (Array.isArray(n.categories) && n.categories.includes(district)) || n.district === district)
-                .sort((a: any, b: any) => (b.score || 0) - (a.score || 0))[0];
+                .sort((a: any, b: any) => {
+                    const scoreA = (a.score || 0) + (a.mediaUrl ? 100 : 0);
+                    const scoreB = (b.score || 0) + (b.mediaUrl ? 100 : 0);
+                    return scoreB - scoreA;
+                })[0];
 
             if (!districtNews || lastSentMap[district] === districtNews.id) continue;
 
@@ -91,14 +106,16 @@ export const sendPersonalizedNotification = onSchedule({
             const topicName = `district_${district.replace(/\s+/g, '_')}`;
 
             try {
-                await admin.messaging().send({
+                const message: admin.messaging.Message = {
                     notification: {
                         title: `📍 ${district} తాజా వార్త`,
                         body: (headline + "").substring(0, 150)
                     },
                     android: {
                         notification: {
-                            imageUrl: imageUrl
+                            imageUrl: imageUrl,
+                            priority: 'high',
+                            channelId: 'local_news'
                         }
                     },
                     data: {
@@ -110,9 +127,11 @@ export const sendPersonalizedNotification = onSchedule({
                         body: (headline + "").substring(0, 150)
                     },
                     topic: topicName
-                });
+                };
+
+                await admin.messaging().send(message);
                 updatedMap[district] = districtNews.id;
-                logger.log(`[NOTIF] Sent to district topic: ${topicName}`);
+                logger.log(`[NOTIF] Sent to district topic: ${topicName}, newsId: ${districtNews.id}`);
             } catch (e) {
                 logger.error(`[NOTIF] Error in topic ${topicName}:`, e);
             }

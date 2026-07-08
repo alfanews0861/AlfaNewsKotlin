@@ -57,19 +57,21 @@ import kotlin.math.max
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AdsManagerPageView(currentUser: User) {
+fun AdsManagerPageView(currentUser: User, showTitle: Boolean = true) {
     var activeTab by remember { mutableStateOf("create") }
 
     AlfaNewsTheme {
         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            Text(
-                text = "స్థానిక ప్రకటనలు",
-                fontSize = 24.sp,
-                fontFamily = com.alfanews.telugu.ui.theme.Ramabhadra,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
+            if (showTitle) {
+                Text(
+                    text = "స్థానిక ప్రకటనలు",
+                    fontSize = 24.sp,
+                    fontFamily = com.alfanews.telugu.ui.theme.Ramabhadra,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+            }
 
             TabRow(
                 selectedTabIndex = when (activeTab) {

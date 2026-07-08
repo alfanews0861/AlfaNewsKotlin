@@ -1,0 +1,8 @@
+- [x] Update `AdminPanelView.kt` to show dynamic headers
+- [x] Add `showTitle` support to `EditProfilePageView.kt`
+- [x] Add `showTitle` support to `ManagePostsPageView.kt`
+- [x] Add `showTitle` support to `AdsManagerPageView.kt`
+- [x] Add `showTitle` support to `AdminNotificationsPageView.kt`
+- [x] Add `showTitle` support to `MessagesPageView.kt`
+- [x] Add `showTitle` support to `AffiliateSettingsView.kt`
+- [x] Verify all pages in Admin Panel have correct headers

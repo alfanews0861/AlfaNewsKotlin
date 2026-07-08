@@ -36,7 +36,8 @@ fun EditProfilePageView(
     user: User,
     onClose: () -> Unit,
     onSave: (name: String, phone: String, address: String, district: String, photoUri: Uri?, signatureUri: Uri?) -> Unit,
-    saving: Boolean = false
+    saving: Boolean = false,
+    showTitle: Boolean = true
 ) {
     var editName by remember { mutableStateOf(user.name) }
     var editPhone by remember { mutableStateOf(user.phone ?: "") }
@@ -73,14 +74,16 @@ fun EditProfilePageView(
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            Text(
-                text = stringResource(R.string.edit_profile),
-                fontSize = 24.sp,
-                fontFamily = Ramabhadra,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
+            if (showTitle) {
+                Text(
+                    text = stringResource(R.string.edit_profile),
+                    fontSize = 24.sp,
+                    fontFamily = Ramabhadra,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
 
             // Name Edit
         Column {

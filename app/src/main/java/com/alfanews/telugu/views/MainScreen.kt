@@ -374,8 +374,17 @@ fun MainScreen(
                                     if (pageId == "edit-profile") {
                                         showEditProfilePage = true
                                     } else {
-                                        mainViewModel.setAdminActivePage(pageId)
-                                        mainViewModel.setActiveTab("profile")
+                                        val topLevelPages = listOf(
+                                            "about", "contact", "privacy-policy", "terms", 
+                                            "content-policy", "disclaimer", "ad-policy", 
+                                            "data-collection", "reporters", "leaderboard"
+                                        )
+                                        if (topLevelPages.contains(pageId)) {
+                                            mainViewModel.setActiveTab(pageId)
+                                        } else {
+                                            mainViewModel.setAdminActivePage(pageId)
+                                            mainViewModel.setActiveTab("profile")
+                                        }
                                     }
                                 },
                                 onPostPublished = { postId ->

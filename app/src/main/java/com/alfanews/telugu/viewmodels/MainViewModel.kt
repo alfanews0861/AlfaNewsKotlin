@@ -213,6 +213,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         startNewsListener()
+        ensureDefaultSubscriptions()
+    }
+
+    private fun ensureDefaultSubscriptions() {
+        if (prefs.isNotificationsEnabled) {
+            viewModelScope.launch {
+                try {
+                    val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
+                    messaging.subscribeToTopic("all_users").await()
+                    messaging.subscribeToTopic("breaking_news").await()
+                    
+                    val district = prefs.getEffectiveDistrict()
+                    if (!district.isNullOrBlank()) {
+                        val topicName = "district_${district.replace(" ", "_")}"
+                        messaging.subscribeToTopic(topicName).await()
+                    }
+                    
+                    // సబ్‌స్క్రయిబ్ అయినట్లు అనలిటిక్స్ లో లాగ్ చేయడం
+                    AnalyticsService.logAnalyticsEvent("default_topics_subscribed")
+                } catch (e: Exception) {
+                    // Fail silently, retry on next launch
+                }
+            }
+        }
     }
 
     private fun startNewsListener() {

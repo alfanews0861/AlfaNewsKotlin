@@ -69,9 +69,10 @@ fun UserProfilePageView(
         factory = ViewModelFactory(context.applicationContext as Application)
     )
     val leaderboardEntries by leaderboardViewModel.leaderboard.collectAsStateWithLifecycle()
+    val leaderboardLoading by leaderboardViewModel.loading.collectAsStateWithLifecycle()
 
     val isGuest = user.id == "guest" || user.role == UserRole.GUEST
-    val isStaff = listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.REGIONAL_INCHARGE).contains(user.role)
+    val isStaff = listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.REGIONAL_INCHARGE, UserRole.NEWS_DESK).contains(user.role)
 
     var pushEnabled by remember { mutableStateOf(user.pushEnabled) }
 
@@ -156,13 +157,13 @@ fun UserProfilePageView(
 
     // ముఖ్యమైన లింక్‌లు
     val mainLinks = listOf(
+        "reporters" to stringResource(R.string.reporters),
         "about" to stringResource(R.string.about_us),
         "contact" to stringResource(R.string.contact_us)
     )
 
     // పాలసీ లింక్‌లు
     val policyLinks = listOf(
-        "reporters" to stringResource(R.string.reporters),
         "privacy-policy" to stringResource(R.string.privacy_policy),
         "terms" to stringResource(R.string.terms_of_service),
         "content-policy" to stringResource(R.string.content_policy),
@@ -444,7 +445,14 @@ fun UserProfilePageView(
                 SettingsGroup(if (language == Language.TELUGU) "రిపోర్టర్ బోర్డ్" else "Reporter Board") {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         // Top 3 Mini Leaderboard
-                        if (leaderboardEntries.isNotEmpty()) {
+                        if (leaderboardLoading) {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().height(60.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                            }
+                        } else if (leaderboardEntries.isNotEmpty()) {
                             leaderboardEntries.take(3).forEachIndexed { index, reporter: com.alfanews.telugu.models.User ->
                                 Row(
                                     modifier = Modifier
@@ -491,7 +499,7 @@ fun UserProfilePageView(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    if (language == Language.TELUGU) "లీడర్ బోర్డ్ లోడ్ అవుతోంది..." else "Loading leaderboard...",
+                                    if (language == Language.TELUGU) "డేటా అందుబాటులో లేదు." else "No data available.",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -537,8 +545,13 @@ fun UserProfilePageView(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                val icon = when(id) {
+                                    "reporters" -> Icons.Default.People
+                                    "about" -> Icons.Default.Info
+                                    else -> Icons.Default.Email
+                                }
                                 Icon(
-                                    imageVector = if (id == "about") Icons.Default.Info else Icons.Default.Email,
+                                    imageVector = icon,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
                                     modifier = Modifier.size(20.dp)

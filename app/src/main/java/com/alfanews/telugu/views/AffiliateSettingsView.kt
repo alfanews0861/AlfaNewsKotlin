@@ -19,7 +19,7 @@ import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AffiliateSettingsView(onBack: () -> Unit) {
+fun AffiliateSettingsView(onBack: () -> Unit, showTitle: Boolean = true) {
     var amazonAccessKey by remember { mutableStateOf("") }
     var amazonSecretKey by remember { mutableStateOf("") }
     var amazonAssociateTag by remember { mutableStateOf("") }
@@ -78,7 +78,9 @@ fun AffiliateSettingsView(onBack: () -> Unit) {
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Affiliate News API Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        if (showTitle) {
+            Text("Affiliate News API Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        }
         
         if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.padding(32.dp))

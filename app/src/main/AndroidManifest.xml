@@ -101,6 +101,12 @@
             </intent-filter>
         </service>
 
+        <receiver android:name=".services.NotificationActionReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="com.alfanews.telugu.ACTION_SHARE" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>

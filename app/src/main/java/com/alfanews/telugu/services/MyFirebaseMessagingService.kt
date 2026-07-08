@@ -17,6 +17,7 @@ import com.alfanews.telugu.utils.PreferenceManager
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.alfanews.telugu.services.NotificationActionReceiver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -173,6 +174,9 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
      * @param imageUrl నోటిఫికేషన్‌లో చూపించాల్సిన చిత్రం URL.
      */
     private fun sendNotification(title: String, messageBody: String, channelId: String, actionUrl: String?, imageUrl: String?) {
+        val newsId = Uri.parse(actionUrl ?: "").lastPathSegment ?: ""
+        
+        // 1. ప్రధాన క్లిక్ యాక్షన్: వార్తను చదవడం
         val intent = if (actionUrl != null && actionUrl.isNotEmpty()) {
             Intent(Intent.ACTION_VIEW, Uri.parse(actionUrl))
         } else {
@@ -188,12 +192,31 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        // 2. షేర్ బటన్ యాక్షన్
+        val shareIntent = Intent(this, NotificationActionReceiver::class.java).apply {
+            action = "com.alfanews.telugu.ACTION_SHARE"
+            putExtra("title", title)
+            putExtra("body", messageBody)
+            putExtra("url", actionUrl ?: "https://play.google.com/store/apps/details?id=com.alfanews.telugu")
+            putExtra("newsId", newsId)
+        }
+        val sharePendingIntent = PendingIntent.getBroadcast(
+            this,
+            System.currentTimeMillis().toInt(),
+            shareIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val notificationBuilder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.app_icon_new)
             .setContentTitle(title)
             .setContentText(messageBody)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .addAction(R.drawable.ic_launcher_foreground, "చదవండి", pendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "షేర్ చేయండి", sharePendingIntent)
 
         // 🖼️ Rich Notification: ఫోటో ఉంటే దాన్ని డౌన్‌లోడ్ చేసి చూపిస్తాం
         if (!imageUrl.isNullOrBlank()) {
@@ -208,11 +231,16 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     notificationBuilder.setLargeIcon(bitmap)
                     notificationBuilder.setStyle(NotificationCompat.BigPictureStyle()
                         .bigPicture(bitmap)
+                        .setBigContentTitle(title)
+                        .setSummaryText(messageBody)
                         .bigLargeIcon(null as Bitmap?))
                 }
             } catch (e: Exception) {
                 Log.e("MyFirebaseMsgService", "Error loading notification image", e)
             }
+        } else {
+            // చిత్రం లేకపోతే BigTextStyle ఉపయోగిస్తాం
+            notificationBuilder.setStyle(NotificationCompat.BigTextStyle().bigText(messageBody))
         }
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

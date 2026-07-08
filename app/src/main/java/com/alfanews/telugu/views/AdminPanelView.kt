@@ -142,8 +142,9 @@ fun AdminPanelView(
     Box(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
         Column(modifier = Modifier.fillMaxSize()) {
             if (activePage != "post") {
+                val pageTitle = allPages.find { it.id == activePage }?.label ?: ""
                 Text(
-                    text = stringResource(R.string.admin_panel),
+                    text = pageTitle,
                     fontSize = 24.sp,
                     fontFamily = Ramabhadra,
                     fontWeight = FontWeight.Bold,
@@ -174,7 +175,8 @@ fun AdminPanelView(
                         user = user,
                         onClose = { activePage = "profile" },
                         onSave = ::saveProfile,
-                        saving = savingProfile
+                        saving = savingProfile,
+                        showTitle = false
                     )
                     "id-card" -> IdCardPageView(
                         user = user,
@@ -182,7 +184,8 @@ fun AdminPanelView(
                     )
                     "messages" -> MessagesPageView(
                         user = user,
-                        onBack = { activePage = "profile" }
+                        onBack = { activePage = "profile" },
+                        showTitle = false
                     )
                     "post" -> PostNewsPageView(
                         user = user,
@@ -203,13 +206,14 @@ fun AdminPanelView(
                         onViewPost = { post ->
                             onPostPublished(post.id)
                         },
-                        currentUser = user
+                        currentUser = user,
+                        showTitle = false
                     )
                     "manageReporters" -> ReporterManagementPageView(currentUser = user)
-                    "ads" -> AdsManagerPageView(currentUser = user)
+                    "ads" -> AdsManagerPageView(currentUser = user, showTitle = false)
                     "manageUsers" -> UserManagementPageView(currentUser = user)
-                    "adminNotify" -> AdminNotificationsPageView()
-                    "affiliate_settings" -> AffiliateSettingsView(onBack = { activePage = "profile" })
+                    "adminNotify" -> AdminNotificationsPageView(showTitle = false)
+                    "affiliate_settings" -> AffiliateSettingsView(onBack = { activePage = "profile" }, showTitle = false)
                 }
             }
         }

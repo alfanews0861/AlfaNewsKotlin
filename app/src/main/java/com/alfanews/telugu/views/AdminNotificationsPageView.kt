@@ -50,7 +50,7 @@ import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AdminNotificationsPageView() {
+fun AdminNotificationsPageView(showTitle: Boolean = true) {
     var latestPosts by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
     var selectedPostId by remember { mutableStateOf("") }
     var isSending by remember { mutableStateOf(false) }
@@ -177,16 +177,18 @@ fun AdminNotificationsPageView() {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("📢", fontSize = 24.sp)
-                Text(
-                    text = "Mobile Push Broadcast",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
+            if (showTitle) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("📢", fontSize = 24.sp)
+                    Text(
+                        text = "Mobile Push Broadcast",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             Card(

@@ -37,7 +37,8 @@ import java.util.*
 fun MessagesPageView(
     user: User,
     onBack: () -> Unit = {},
-    onMenuClick: (() -> Unit)? = null
+    onMenuClick: (() -> Unit)? = null,
+    showTitle: Boolean = true
 ) {
     var messages by remember { mutableStateOf<List<AppMessage>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -117,14 +118,16 @@ fun MessagesPageView(
             .fillMaxSize()
             .background(Color(0xFFF9FAFB))
     ) {
-        Text(
-            text = "సందేశాలు",
-            fontSize = 24.sp,
-            fontFamily = Ramabhadra,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
-        )
+        if (showTitle) {
+            Text(
+                text = "సందేశాలు",
+                fontSize = 24.sp,
+                fontFamily = Ramabhadra,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
+            )
+        }
         
         if (loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

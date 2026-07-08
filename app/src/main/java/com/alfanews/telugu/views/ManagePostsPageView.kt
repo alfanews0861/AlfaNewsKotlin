@@ -33,19 +33,24 @@ import com.alfanews.telugu.services.FirebaseService
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManagePostsPageView(
     onEditPost: (NewsPost) -> Unit,
     onViewPost: (NewsPost) -> Unit = {},
-    currentUser: User? = null
+    currentUser: User? = null,
+    showTitle: Boolean = true
 ) {
     var posts by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var isBroadcasting by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val dateFormat = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
 
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
     var showBroadcastDialog by remember { mutableStateOf<NewsPost?>(null) }
@@ -169,30 +174,32 @@ fun ManagePostsPageView(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        if (showTitle) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .width(6.dp)
-                        .height(28.dp)
-                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(3.dp))
-                )
-                Text(
-                    text = "వార్తల నిర్వహణ",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.ExtraBold
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(6.dp)
+                            .height(28.dp)
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(3.dp))
+                    )
+                    Text(
+                        text = "వార్తల నిర్వహణ",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
             }
-        }
 
-        Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+        }
 
         if (loading) {
             Box(
@@ -281,8 +288,9 @@ fun ManagePostsPageView(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
+                                        val timeString = dateFormat.format(Date(post.timestamp))
                                         Text(
-                                            text = "${post.categories.firstOrNull() ?: "General"} • ${post.reporter.name}",
+                                            text = "${post.categories.firstOrNull() ?: "General"} • ${post.reporter.name} • $timeString",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                         )
