@@ -219,6 +219,7 @@ fun ReporterProfileView(
                         language = language,
                         currentUser = currentUser,
                         modifier = Modifier.fillMaxSize(),
+                        showTopHeader = false,
                         onReporterClick = { /* Already on reporter page */ }
                     )
                 }

@@ -1,49 +1,42 @@
-# Notification System Improvements Walkthrough
+# Navigation Fix Walkthrough
 
-I have implemented the requested fixes and enhancements to the notification system to ensure every user receives rich, engaging notifications by default.
+Fixed the issue where navigation from "overlay" pages (like Post News, Join Reporter, and Reporter Profile) was not working correctly when using the drawer menu or bottom footer.
 
 ## Changes Made
 
-### 1. Rich Notifications with Action Buttons
-Updated the Android app to show "Rich Notifications" that include:
-- **Image Preview**: Large images are now displayed correctly in the notification tray.
-- **Action Buttons**: Added **"చదవండి" (Read)** and **"షేర్ చేయండి" (Share)** buttons.
-- **Share Implementation**: Clicking "Share" directly opens the system share sheet with the news headline and link, without requiring the user to open the app first.
+### Main Screen Navigation Logic
+Updated [MainScreen.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/MainScreen.kt) to ensure that all conditional visibility flags (overlays) are reset whenever the user initiates navigation to a different section.
 
-### 2. Default Notifications for All Users
-Ensured that notifications are active for everyone by default:
-- **Auto-Subscription**: On every app launch, if notifications are enabled in settings, the app verifies and re-subscribes to critical topics (`all_users`, `breaking_news`, and the user's district).
-- **Background Robustness**: The subscription logic is now handled in `MainViewModel`, ensuring it runs whenever the user interacts with the app.
+#### Resetting Overlays in Drawer
+Added reset logic in `onPageSelected` within the `ModalNavigationDrawer`. This ensures that if a user is on the "Post News" page and clicks "Home" in the drawer, the "Post News" page is dismissed and the Home feed is shown.
 
-### 3. Backend Enhancements
-Refined the Cloud Functions logic (`notification_engine.ts`):
-- **Rich Content Prioritization**: The system now gives a "bonus" score to news articles that have images, ensuring they are chosen more often for notifications.
-- **Improved FCM Payload**: Added more metadata to the FCM payload to support high-priority delivery and rich styling on Android.
+```kotlin
+onPageSelected = { page ->
+    scope.launch { drawerState.close() }
 
-### 4. Unit Testing
-Created a new test suite [notification_engine.test.ts](file:///C:/AlfaKotlin/functions/src/notification_engine.test.ts) to verify:
-- News sorting and rich content prioritization logic.
-- District-based filtering accuracy.
-- FCM payload structure consistency.
+    // Reset overlay states to ensure navigation works from any sub-page
+    showPostNewsPage = false
+    showJoinReporterPage = false
+    showEditProfilePage = false
+    reporterIdToShow = null
+    editingNewsPost = null
 
-## Verification Results
+    // ... rest of navigation logic
+}
+```
 
-### Android App
-- [x] `MyFirebaseMessagingService.kt` syntax verified (Zero errors).
-- [x] `NotificationActionReceiver.kt` created and registered.
-- [x] `MainViewModel.kt` subscription logic added.
+#### Resetting Overlays in Bottom Footer
+Applied the same reset logic to the `Footer`'s `onTabChange` callback. This allows users to switch between main tabs (Home, Local, Create, Classifieds, Profile) even if they are currently inside a sub-page like "Edit Profile".
 
-### Cloud Functions
-- [x] `notification_engine.ts` updated with improved selection logic.
-- [x] Unit test file created and logic verified.
+#### Resetting Overlays on Logout
+Ensured that all UI states are cleared when the user logs out from the drawer menu.
+
+## Verification Summary
+
+### Manual Logic Review
+- Verified that `showPostNewsPage` and other flags were "blocking" the rendering of the `activeTab` content in the `Scaffold` body.
+- Confirmed that resetting these flags to `false` allows the `when(activeTab)` block to execute correctly.
+- Verified that `AdminPanelView` uses `remember(initialPage)`, which correctly handles navigation to specific admin pages triggered from the drawer.
 
 > [!TIP]
-> To see these changes in action, deploy the Cloud Functions and restart the Android app. New notifications will now include images and action buttons.
-
-## Modified Files
-- [MyFirebaseMessagingService.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/services/MyFirebaseMessagingService.kt)
-- [NotificationActionReceiver.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/services/NotificationActionReceiver.kt)
-- [MainViewModel.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/viewmodels/MainViewModel.kt)
-- [AndroidManifest.xml](file:///C:/AlfaKotlin/app/src/main/AndroidManifest.xml)
-- [notification_engine.ts](file:///C:/AlfaKotlin/functions/src/notification_engine.ts)
-- [notification_engine.test.ts](file:///C:/AlfaKotlin/functions/src/notification_engine.test.ts)
+> This pattern of resetting overlay states during top-level navigation is a standard way to handle non-stack-based conditional UI in Jetpack Compose.

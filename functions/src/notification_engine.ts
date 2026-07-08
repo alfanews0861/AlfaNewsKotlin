@@ -1,6 +1,7 @@
 import * as admin from 'firebase-admin';
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions/v2";
+import { getTopicName } from './utils';
 
 // Persistent tracking via Firestore instead of in-memory map
 // settings/notifications { lastSentNewsIdMap: { districtName: newsId, general: newsId } }
@@ -102,8 +103,8 @@ export const sendPersonalizedNotification = onSchedule({
             const headline = districtNews.headline?.telugu || `${district} తాజా వార్త`;
             const imageUrl = districtNews.mediaUrl || "";
 
-            // ✅ TOPIC BASED: జిల్లా టాపిక్ కి పంపుతాం
-            const topicName = `district_${district.replace(/\s+/g, '_')}`;
+            // ✅ TOPIC BASED: జిల్లా టాపిక్ కి పంపుతాం (సురక్షితమైన పేరుతో)
+            const topicName = getTopicName("district", district);
 
             try {
                 const message: admin.messaging.Message = {

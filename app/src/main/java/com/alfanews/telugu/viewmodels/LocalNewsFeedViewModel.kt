@@ -325,7 +325,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 // Weather post removed as per user request to improve performance
 
                 _news.value = finalPosts
-                _shouldScrollToTop.value = true 
+                // Only scroll to top if we are loading the first page (lastDocument is null)
+                if (lastDocument == null) {
+                    _shouldScrollToTop.value = true 
+                }
                 _loading.value = false 
 
                 val currentTime = System.currentTimeMillis()
@@ -435,6 +438,15 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             }
             val categoriesList = (data["categories"] as? List<*>)?.mapNotNull { it?.toString() }
                 ?: listOfNotNull(data["category"]?.toString(), data["district"]?.toString())
+
+            val mediaUrls = (data["mediaUrls"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+            val mediaTypes = (data["mediaTypes"] as? List<*>)?.mapNotNull { typeStr ->
+                when (typeStr?.toString()) {
+                    "VIDEO" -> com.alfanews.telugu.models.MediaType.VIDEO
+                    else -> com.alfanews.telugu.models.MediaType.IMAGE
+                }
+            } ?: emptyList()
+
             return NewsPost(
                 id = id,
                 headline = com.alfanews.telugu.models.Headline(
@@ -450,6 +462,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     "VIDEO" -> com.alfanews.telugu.models.MediaType.VIDEO
                     else -> com.alfanews.telugu.models.MediaType.IMAGE
                 },
+                mediaUrls = mediaUrls,
+                mediaTypes = mediaTypes,
                 youtubeUrl = data["youtubeUrl"]?.toString(),
                 postFormat = when (data["postFormat"]?.toString()) {
                     "16:9" -> com.alfanews.telugu.models.PostFormat.HORIZONTAL

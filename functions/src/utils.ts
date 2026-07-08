@@ -10,6 +10,31 @@ export const FLASH_MODEL = "gemini-3.1-flash-lite";
 export const IMAGEN_MODEL = "gemini-3.1-flash-image";
 export const IMAGEN_FAST_MODEL = "gemini-3.1-flash-image";
 
+/**
+ * Converts any string into a safe FCM topic name.
+ * FCM supports: [a-zA-Z0-9-_.~%]+
+ * We use hex encoding for non-alphanumeric characters to ensure uniqueness and compatibility.
+ */
+export function slugify(text: string): string {
+    if (!text) return "default";
+
+    // Allow alphanumeric, dash, underscore, dot, tilde, and percent
+    // But for safety with Telugu, we hex-encode everything that isn't basic ASCII
+    return text.split('').map(char => {
+        const code = char.charCodeAt(0);
+        // Safe ASCII: a-z, A-Z, 0-9
+        if ((code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
+            return char;
+        }
+        // Encode everything else as hex
+        return code.toString(16).padStart(4, '0');
+    }).join('').substring(0, 80); // FCM Limit is 900, but let's keep it sane
+}
+
+export function getTopicName(prefix: string, value: string): string {
+    return `${prefix}_${slugify(value)}`;
+}
+
 const TEXT_MODELS = [
     "gemini-3.1-flash-lite",
     "gemini-2.5-flash-lite",

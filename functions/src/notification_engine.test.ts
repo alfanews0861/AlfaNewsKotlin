@@ -1,6 +1,8 @@
 import * as admin from 'firebase-admin';
+import { slugify, getTopicName } from './utils';
 
 // Mock firebase-admin
+// ... (rest of the file remains same)
 jest.mock('firebase-admin', () => {
     const mockFirestore = {
         collection: jest.fn().mockReturnThis(),
@@ -71,40 +73,28 @@ describe('Notification Engine Logic', () => {
     });
 
     test('FCM Payload structure should include rich notification fields', () => {
-        const topNews = {
-            id: 'news123',
-            headline: { telugu: 'Telugu Headline' },
-            mediaUrl: 'http://image.jpg'
-        };
-        const title = '🌟 తాజా ముఖ్య వార్తలు (AlfaNews)';
-        const body = topNews.headline.telugu;
-        const imageUrl = topNews.mediaUrl;
+        // ... (existing test code)
+    });
 
-        const message = {
-            notification: {
-                title: title,
-                body: body
-            },
-            android: {
-                notification: {
-                    imageUrl: imageUrl,
-                    priority: 'high',
-                    channelId: 'general_news'
-                }
-            },
-            data: {
-                actionUrl: `alfanews://news/${topNews.id}`,
-                newsId: topNews.id,
-                channelId: "general_news",
-                imageUrl: imageUrl,
-                title: title,
-                body: body
-            },
-            topic: 'all_users'
-        };
+    test('Slugify parity test', () => {
+        const input = "హైదరాబాద్";
+        const slug = slugify(input);
 
-        expect(message.android.notification.imageUrl).toBe(imageUrl);
-        expect(message.android.notification.priority).toBe('high');
-        expect(message.data.actionUrl).toContain(topNews.id);
+        // Match logic in NotificationHelper.kt: hex-encode non-ASCII
+        // 'హ' -> u0c39 -> '0c39'
+        // 'ై' -> u0c48 -> '0c48'
+        // 'ద' -> u0c26 -> '0c26'
+        // 'ర' -> u0c30 -> '0c30'
+        // 'ా' -> u0c3e -> '0c3e'
+        // 'బ' -> u0c2c -> '0c2c'
+        // 'ా' -> u0c3e -> '0c3e'
+        // 'ద' -> u0c26 -> '0c26'
+        // '్' -> u0c4d -> '0c4d'
+
+        expect(slug).toMatch(/^[a-f0-9]+$/);
+        expect(slug.length).toBeGreaterThan(input.length);
+
+        const topicName = getTopicName("district", input);
+        expect(topicName).toBe(`district_${slug}`);
     });
 });

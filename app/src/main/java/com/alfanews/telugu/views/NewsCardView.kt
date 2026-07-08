@@ -116,8 +116,6 @@ fun NewsCardView(
     var hasReadFinished by remember(post.id) { mutableStateOf(false) }
     var startTime by remember { mutableStateOf<Long?>(null) }
 
-    var cardBounds by remember(post.id) { mutableStateOf<Rect?>(null) }
-
     val headlineText = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
     val contentText = if (language == Language.TELUGU) post.content.telugu else post.content.english
 
@@ -194,28 +192,7 @@ fun NewsCardView(
     val isCartoonCard = post.type == "cartoon"
 
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .onGloballyPositioned { coordinates ->
-                val position = coordinates.positionInWindow()
-                val size = coordinates.size
-                if (size.width > 0 && size.height > 0) {
-                    val newBounds = Rect(
-                        position.x.toInt(),
-                        position.y.toInt(),
-                        (position.x + size.width).toInt(),
-                        (position.y + size.height).toInt()
-                    )
-                    val current = cardBounds
-                    if (current == null || 
-                        Math.abs(current.left - newBounds.left) > 5 ||
-                        Math.abs(current.top - newBounds.top) > 5 ||
-                        current.width() != newBounds.width() ||
-                        current.height() != newBounds.height()) {
-                        cardBounds = newBounds
-                    }
-                }
-            }
+        modifier = modifier.fillMaxSize()
     ) {
         if (isSpecialCard || isCartoonCard) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
@@ -303,7 +280,13 @@ fun NewsCardView(
                         count = shareCount.toString(),
                         isLoading = isSharing,
                         tint = Color.White,
-                        onClick = { if (!isSharing) performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, language, cardBounds, view) }
+                        onClick = { 
+                            if (!isSharing) {
+                                val bounds = Rect()
+                                view.getGlobalVisibleRect(bounds)
+                                performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, language, bounds, view) 
+                            }
+                        }
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                     ActionButton(icon = Icons.AutoMirrored.Filled.Comment, count = commentCount.toString(), tint = Color.White, onClick = { showComments = true })
@@ -471,7 +454,19 @@ fun NewsCardView(
                             }
                         )
                         Spacer(modifier = Modifier.height(24.dp))
-                        ActionButton(icon = Icons.Default.Share, count = shareCount.toString(), isLoading = isSharing, tint = MaterialTheme.colorScheme.onSurface, onClick = { if (!isSharing) performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, language, cardBounds, view) })
+                        ActionButton(
+                            icon = Icons.Default.Share, 
+                            count = shareCount.toString(), 
+                            isLoading = isSharing, 
+                            tint = MaterialTheme.colorScheme.onSurface, 
+                            onClick = { 
+                                if (!isSharing) {
+                                    val bounds = Rect()
+                                    view.getGlobalVisibleRect(bounds)
+                                    performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, language, bounds, view) 
+                                }
+                            }
+                        )
                         Spacer(modifier = Modifier.height(24.dp))
                         ActionButton(icon = Icons.AutoMirrored.Filled.Comment, count = commentCount.toString(), tint = MaterialTheme.colorScheme.onSurface, onClick = { showComments = true })
                         if (currentUser != null && (currentUser.role == UserRole.ADMIN || currentUser.role == UserRole.EDITOR || (currentUser.role == UserRole.REPORTER && post.reporter.id == currentUser.id))) {

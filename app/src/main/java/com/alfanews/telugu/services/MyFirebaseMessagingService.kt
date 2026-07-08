@@ -13,6 +13,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.alfanews.telugu.MainActivity
 import com.alfanews.telugu.R
+import com.alfanews.telugu.utils.NotificationHelper
 import com.alfanews.telugu.utils.PreferenceManager
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -132,12 +133,12 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 FirebaseMessaging.getInstance().subscribeToTopic("all_users").await()
                 FirebaseMessaging.getInstance().subscribeToTopic("breaking_news").await()
                 
-                // ✅ జిల్లా ఆధారిత టాపిక్ కి సబ్‌స్క్రయిబ్ చేయడం
+                // ✅ జిల్లా ఆధారిత టాపిక్ కి సబ్‌స్క్రయిబ్ చేయడం (సురక్షితమైన పేరుతో)
                 val userDistrict = prefs.userDistrict
                 if (!userDistrict.isNullOrBlank()) {
-                    val topicName = "district_${userDistrict.replace(" ", "_")}"
+                    val topicName = NotificationHelper.getTopicName("district", userDistrict)
                     FirebaseMessaging.getInstance().subscribeToTopic(topicName).await()
-                    Log.d("MyFirebaseMsgService", "Subscribed to district topic: $topicName")
+                    Log.d("MyFirebaseMsgService", "Subscribed to safe district topic: $topicName")
                 }
 
                 Log.d("MyFirebaseMsgService", "Subscribed to default topics")

@@ -77,7 +77,6 @@ fun LocalAdCardView(
     val isPreview = ad.id.isEmpty() || ad.id.startsWith("preview_")
 
     var isLiked by remember(ad.id) { mutableStateOf(false) }
-    var cardBounds by remember(ad.id) { mutableStateOf<Rect?>(null) }
     var isSharing by remember { mutableStateOf(false) }
 
     val initialLikeCount = remember(ad.id) {
@@ -126,18 +125,6 @@ fun LocalAdCardView(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            .onGloballyPositioned { coordinates ->
-                val position = coordinates.positionInWindow()
-                val size = coordinates.size
-                if (size.width > 0 && size.height > 0) {
-                    cardBounds = Rect(
-                        position.x.toInt(),
-                        position.y.toInt(),
-                        (position.x + size.width).toInt(),
-                        (position.y + size.height).toInt()
-                    )
-                }
-            }
     ) {
         Box(modifier = Modifier.fillMaxSize().clickable { handleAdClick() }) {
             when (ad.adMediaType) {
@@ -220,12 +207,14 @@ fun LocalAdCardView(
                 tint = Color.White,
                 onClick = {
                     if (!isSharing) {
+                        val bounds = Rect()
+                        view.getGlobalVisibleRect(bounds)
                         performAdShare(scope, isSharing, { isSharing = it }, { 
                             shareCount++ 
                             if (!isPreview) {
                                 FirebaseService.db.collection("local_ads").document(ad.id).update("shares", FieldValue.increment(1))
                             }
-                        }, ad, context, cardBounds, view)
+                        }, ad, context, bounds, view)
                     }
                 }
             )

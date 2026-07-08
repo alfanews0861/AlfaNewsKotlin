@@ -1,49 +1,44 @@
-# Notification System Improvements Implementation Plan
+# Navigation Fix for AlfaNews
 
-This plan addresses the user's request to fix notification flaws, ensure everyone gets rich notifications, enable them by default, and add unit tests.
+Fixes the issue where the navigation menu items do not work when clicked from specific pages (Post News, Join Reporter, Reporter Profile, etc.).
 
 ## User Review Required
 
 > [!IMPORTANT]
-> **Rich Notifications Implementation**: I will add "Read" and "Share" action buttons to notifications. "Share" will open the system share sheet directly.
-> **Default Notifications**: I will ensure that even if the app's background service is killed, the app attempts to subscribe to topics on every main activity launch.
+> The fix involves resetting local UI state flags in `MainScreen.kt` whenever a navigation item is selected from the drawer. This ensures that "overlay" pages are dismissed when the user chooses to go to a different top-level section.
 
 ## Proposed Changes
 
-### Android App
+### Mobile App
 
-#### [MODIFY] [MyFirebaseMessagingService.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/services/MyFirebaseMessagingService.kt)
-- Update `sendNotification` to include action buttons: "చదవండి" (Read) and "షేర్ చేయండి" (Share).
-- Improve `BigPictureStyle` implementation to ensure high-quality rich notifications.
-- Optimize image downloading to be more robust.
+#### [MODIFY] [MainScreen.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/MainScreen.kt)
+- Update `onPageSelected` in the `ModalNavigationDrawer` to reset the following state variables:
+    - `showPostNewsPage`
+    - `showJoinReporterPage`
+    - `showEditProfilePage`
+    - `reporterIdToShow`
+    - `editingNewsPost`
+- This ensures that if the user is on one of these sub-pages and uses the drawer to navigate elsewhere, the sub-page is dismissed.
 
-#### [MODIFY] [MainViewModel.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/viewmodels/MainViewModel.kt)
-- Add a check on app startup to ensure FCM topic subscriptions are active if `notificationsEnabled` is true in preferences.
-
----
-
-### Cloud Functions
-
-#### [MODIFY] [notification_engine.ts](file:///C:/AlfaKotlin/functions/src/notification_engine.ts)
-- Ensure the payload always contains `imageUrl` for news that has media.
-- Add a fallback for the "all_users" broadcast to ensure it's triggered even if some news fields are missing.
-- Refine the news selection logic to ensure the *best* rich content is prioritized.
-
-#### [NEW] [notification_engine.test.ts](file:///C:/AlfaKotlin/functions/src/notification_engine.test.ts)
-- Create unit tests for the notification engine logic using `firebase-functions-test`.
-- Verify news selection, sorting, and FCM payload structure.
-
----
+#### [MODIFY] [AdminPanelView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/AdminPanelView.kt)
+- Ensure that the internal `activePage` state correctly reacts to changes in `initialPage` by using `LaunchedEffect` or ensuring `remember(initialPage)` is working as expected.
 
 ## Verification Plan
 
-### Automated Tests
-- Run the new unit tests: `npm run build && npx jest src/notification_engine.test.ts` (if jest is available) or equivalent test runner.
-- Build the Android app to ensure no compilation errors.
-
 ### Manual Verification
-- Deploy the updated Cloud Function.
-- Use `triggerPushBroadcast` or wait for the schedule to see if the notification appears on a device.
-- Verify that the notification has an image and action buttons.
-- Verify that clicking "Share" opens the share sheet.
-- Clear app storage and verify that notifications are enabled by default on fresh install.
+1.  **Post News Page**:
+    - Navigate to "Post News" from the drawer or "Create" menu.
+    - Open the drawer and click "Home".
+    - **Expected**: The app should navigate to the Home feed and the Post News screen should be gone.
+2.  **Reporter Profile**:
+    - Open a reporter's profile from any news card.
+    - Open the drawer and click "Local News".
+    - **Expected**: The app should navigate to the Local News feed.
+3.  **Admin Pages**:
+    - If logged in as Editor/Admin, navigate to "Manage News".
+    - Open the drawer and click "Admin Notifications".
+    - **Expected**: The app should switch to the Admin Notifications page within the admin panel.
+4.  **Edit Profile**:
+    - Go to Profile -> Edit Profile.
+    - Open the drawer and click "Classifieds".
+    - **Expected**: The app should navigate to the Classifieds section.

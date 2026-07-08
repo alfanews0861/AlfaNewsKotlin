@@ -183,6 +183,7 @@ fun SinglePostView(
                             post = safePost,
                             language = language,
                             currentUser = currentUser,
+                            showTopHeader = false,
                             onProfileClick = onLoginRequest,
                             onReporterClick = {},
                             onDistrictClick = onDistrictClick

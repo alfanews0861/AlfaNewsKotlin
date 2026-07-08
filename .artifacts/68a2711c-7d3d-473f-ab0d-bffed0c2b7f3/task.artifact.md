@@ -1,0 +1,7 @@
+- [x] Optimize Local News Feed Performance and Stability
+    - [x] Update `LocalNewsFeedViewModel.kt` (Data mapping & signals)
+    - [x] Update `NewsCardView.kt` (Just-in-time bounds & media mapping)
+    - [x] Update `LocalAdCardView.kt` (Just-in-time bounds)
+    - [x] Update `LocalNewsFeedView.kt` (Preloading logic & hardware bitmaps)
+- [x] Verification
+    - [x] Compile check

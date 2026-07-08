@@ -14,6 +14,7 @@ import com.alfanews.telugu.models.*
 import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.Constants
+import com.alfanews.telugu.utils.NotificationHelper
 import com.alfanews.telugu.utils.PreferenceManager
 import com.alfanews.telugu.utils.uploadImageToStorage
 import com.google.firebase.Timestamp
@@ -226,7 +227,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     
                     val district = prefs.getEffectiveDistrict()
                     if (!district.isNullOrBlank()) {
-                        val topicName = "district_${district.replace(" ", "_")}"
+                        val topicName = NotificationHelper.getTopicName("district", district)
                         messaging.subscribeToTopic(topicName).await()
                     }
                     
@@ -475,15 +476,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateInterestSubscriptions(oldInterests: Set<String>, newInterests: Set<String>, district: String?) {
         val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
-        val d = district?.lowercase()?.replace(" ", "_") ?: return
+        val d = district ?: return
         
         viewModelScope.launch {
             try {
                 oldInterests.forEach { category ->
-                    messaging.unsubscribeFromTopic("district_${d}_${category.lowercase()}").await()
+                    val topic = NotificationHelper.getTopicName("interest_${NotificationHelper.slugify(d)}", category)
+                    messaging.unsubscribeFromTopic(topic).await()
                 }
                 newInterests.forEach { category ->
-                    messaging.subscribeToTopic("district_${d}_${category.lowercase()}").await()
+                    val topic = NotificationHelper.getTopicName("interest_${NotificationHelper.slugify(d)}", category)
+                    messaging.subscribeToTopic(topic).await()
                 }
             } catch (e: Exception) { }
         }
@@ -493,7 +496,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
             val user = _currentUser.value
-            val district = user?.district?.lowercase()?.replace(" ", "_") ?: prefs.getEffectiveDistrict()?.lowercase()?.replace(" ", "_")
+            val district = user?.district ?: prefs.getEffectiveDistrict()
             val interests: Set<String> = user?.categoryScores?.keys ?: emptySet()
             
             try {
@@ -501,18 +504,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     messaging.subscribeToTopic("all_users").await()
                     messaging.subscribeToTopic("breaking_news").await()
                     district?.let { d ->
-                        messaging.subscribeToTopic("district_$d").await()
+                        val districtTopic = NotificationHelper.getTopicName("district", d)
+                        messaging.subscribeToTopic(districtTopic).await()
                         interests.forEach { category ->
-                            messaging.subscribeToTopic("district_${d}_${category.lowercase()}").await()
+                            val interestTopic = NotificationHelper.getTopicName("interest_${NotificationHelper.slugify(d)}", category)
+                            messaging.subscribeToTopic(interestTopic).await()
                         }
                     }
                 } else {
                     messaging.unsubscribeFromTopic("all_users").await()
                     messaging.unsubscribeFromTopic("breaking_news").await()
                     district?.let { d ->
-                        messaging.unsubscribeFromTopic("district_$d").await()
+                        val districtTopic = NotificationHelper.getTopicName("district", d)
+                        messaging.unsubscribeFromTopic(districtTopic).await()
                         interests.forEach { category ->
-                            messaging.unsubscribeFromTopic("district_${d}_${category.lowercase()}").await()
+                            val interestTopic = NotificationHelper.getTopicName("interest_${NotificationHelper.slugify(d)}", category)
+                            messaging.unsubscribeFromTopic(interestTopic).await()
                         }
                     }
                 }

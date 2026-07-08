@@ -1,12 +1,5 @@
-- [ ] **Android App Enhancements**
-    - [ ] Add Action Buttons (Read/Share) to `MyFirebaseMessagingService.kt`
-    - [ ] Optimize Rich Notification image loading in `MyFirebaseMessagingService.kt`
-    - [ ] Ensure topic subscription on App Startup in `MainViewModel.kt`
-- [ ] **Cloud Functions Enhancements**
-    - [ ] Ensure `imageUrl` in FCM payload in `notification_engine.ts`
-    - [ ] Refine news selection logic in `notification_engine.ts`
-    - [ ] Add fallback for "all_users" broadcast
-- [ ] **Testing & Verification**
-    - [ ] Create `notification_engine.test.ts`
-    - [ ] Run unit tests for Cloud Functions
-    - [ ] Build and verify Android app compilation
+- [x] Reset overlay states in `MainScreen.kt` during drawer navigation
+- [x] Reset overlay states in `MainScreen.kt` during bottom bar (Footer) navigation
+- [x] Reset overlay states in `MainScreen.kt` during logout
+- [x] Ensure `AdminPanelView.kt` reacts to page changes correctly
+- [x] Verify navigation logic and state management

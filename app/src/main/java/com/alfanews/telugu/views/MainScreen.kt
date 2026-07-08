@@ -100,6 +100,14 @@ fun MainScreen(
                 activePage = activeTab,
                 onPageSelected = { page ->
                     scope.launch { drawerState.close() }
+                    
+                    // Reset overlay states to ensure navigation works from any sub-page
+                    showPostNewsPage = false
+                    showJoinReporterPage = false
+                    showEditProfilePage = false
+                    reporterIdToShow = null
+                    editingNewsPost = null
+                    
                     when (page) {
                         "home", "local", "create", "classifieds", "profile", "reporters", "leaderboard", "messages" -> {
                             mainViewModel.setActiveTab(page)
@@ -118,6 +126,12 @@ fun MainScreen(
                 },
                 onLogout = {
                     scope.launch { drawerState.close() }
+                    // Reset overlay states on logout
+                    showPostNewsPage = false
+                    showJoinReporterPage = false
+                    showEditProfilePage = false
+                    reporterIdToShow = null
+                    editingNewsPost = null
                     mainViewModel.signOut()
                 }
             )
@@ -184,15 +198,20 @@ fun MainScreen(
                     }
                 },
                 bottomBar = {
-                    if (!showPostNewsPage && !showJoinReporterPage && !showEditProfilePage && reporterIdToShow == null) {
-                        Footer(
-                            activeTab = activeTab,
-                            onTabChange = { tab: String -> 
-                                classifiedsInitialMode = ClassifiedsViewMode.CATEGORIES
-                                mainViewModel.setActiveTab(tab) 
-                            }
-                        )
-                    }
+                    Footer(
+                        activeTab = activeTab,
+                        onTabChange = { tab: String -> 
+                            // Reset overlay states when switching tabs via footer
+                            showPostNewsPage = false
+                            showJoinReporterPage = false
+                            showEditProfilePage = false
+                            reporterIdToShow = null
+                            editingNewsPost = null
+                            
+                            classifiedsInitialMode = ClassifiedsViewMode.CATEGORIES
+                            mainViewModel.setActiveTab(tab) 
+                        }
+                    )
                 }
             ) { paddingValues ->
                 Column(

@@ -1,0 +1,3 @@
+- [x] Fix double header in `ReporterProfileView.kt`
+- [x] Fix potential double header in `SinglePostView.kt`
+- [x] Verify changes

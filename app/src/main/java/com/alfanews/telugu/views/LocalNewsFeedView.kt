@@ -163,7 +163,7 @@ fun LocalNewsFeedView(
             if (post.mediaUrl.isNotEmpty()) {
                 val request = ImageRequest.Builder(context)
                     .data(post.mediaUrl)
-                    .allowHardware(false)
+                    .allowHardware(true)
                     .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
                     .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
                     .build()
@@ -175,7 +175,7 @@ fun LocalNewsFeedView(
     LaunchedEffect(pagerState, news.size) { 
         snapshotFlow { pagerState.currentPage }.collect { page ->
             val newsIndex = page - (page / 6)
-            if (newsIndex >= news.size - 7 && hasMore && !loading) {
+            if (newsIndex >= news.size - 5 && hasMore && !loading) {
                 viewModel.loadMore(language, currentUser)
             }
 
@@ -187,7 +187,7 @@ fun LocalNewsFeedView(
                     if (post.mediaUrl.isNotEmpty()) {
                         val request = ImageRequest.Builder(context)
                             .data(post.mediaUrl)
-                            .allowHardware(false)
+                            .allowHardware(true)
                             .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
                             .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
                             .build()
@@ -197,7 +197,7 @@ fun LocalNewsFeedView(
             }
 
             // 🚀 LOCAL AD PRELOADING:
-            (1..24).forEach { offset ->
+            (1..12).forEach { offset ->
                 val futurePage = page + offset
                 val isAdPage = (futurePage + 1) % 6 == 0
                 if (isAdPage && futurePage < totalCount) {
