@@ -33,6 +33,7 @@ import com.alfanews.telugu.models.ThemeMode
 import com.alfanews.telugu.viewmodels.MainViewModel
 import com.alfanews.telugu.viewmodels.NewsFeedViewModel
 import com.alfanews.telugu.views.MainScreen
+import com.alfanews.telugu.views.SplashScreenView
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.appupdate.AppUpdateOptions
@@ -46,11 +47,16 @@ import androidx.core.app.NotificationManagerCompat
 import android.content.Context
 import com.alfanews.telugu.utils.LocaleHelper
 import com.alfanews.telugu.utils.PreferenceManager
+import com.alfanews.telugu.BuildConfig
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 /**
  * ఆల్ఫా న్యూస్ అప్లికేషన్ యొక్క ప్రధాన యాక్టివిటీ (Activity).
  */
 class MainActivity : ComponentActivity() {
+
+    private var showAnimatedSplash by mutableStateOf(true)
 
     private lateinit var appUpdateManager: AppUpdateManager
     private val updateRequestCode = 123
@@ -88,12 +94,20 @@ class MainActivity : ComponentActivity() {
 
         appUpdateManager = AppUpdateManagerFactory.create(this)
         appUpdateManager.registerListener(installStateUpdatedListener)
-        checkAppUpdate()
-
-        // Keep the splash screen on screen until news is loaded
-        splashScreen.setKeepOnScreenCondition {
-            newsFeedViewModel.news.value.isEmpty() && newsFeedViewModel.loading.value
+        
+        // Observe minVersionCode for mandatory updates
+        lifecycleScope.launch {
+            mainViewModel.minVersionCode.collect { minCode ->
+                if (minCode > 0) {
+                    checkAppUpdate(minCode)
+                } else {
+                    checkAppUpdate()
+                }
+            }
         }
+
+        // Hand over control to our custom Animated Splash Screen immediately
+        splashScreen.setKeepOnScreenCondition { false }
 
         WindowCompat.setDecorFitsSystemWindows(window, true)
         AdMobService.initialize(this)
@@ -146,63 +160,90 @@ class MainActivity : ComponentActivity() {
         // Regular HTTPS links will be handled above via FirebaseDynamicLinks
 
         setContent {
-            val themeMode by mainViewModel.themeMode.collectAsState()
+            if (showAnimatedSplash) {
+                val newsLoaded by newsFeedViewModel.news.collectAsState()
+                val isLoading by newsFeedViewModel.loading.collectAsState()
+                
+                SplashScreenView(
+                    isReady = newsLoaded.isNotEmpty() || !isLoading,
+                    onFinished = { showAnimatedSplash = false }
+                )
+            } else {
+                val themeMode by mainViewModel.themeMode.collectAsState()
+                
+                val isDarkTheme = when (themeMode) {
+                    ThemeMode.LIGHT -> false
+                    ThemeMode.DARK -> true
+                    ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                }
 
-            val isDarkTheme = when (themeMode) {
-                ThemeMode.LIGHT -> false
-                ThemeMode.DARK -> true
-                ThemeMode.SYSTEM -> isSystemInDarkTheme()
-            }
-
-            AlfaNewsTheme(darkTheme = isDarkTheme) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    MaterialTheme.colorScheme.background,
-                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                                    MaterialTheme.colorScheme.background
+                AlfaNewsTheme(darkTheme = isDarkTheme) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.background,
+                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                        MaterialTheme.colorScheme.background
+                                    )
                                 )
                             )
-                        )
-                ) {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        color = Color.Transparent
                     ) {
-                        MainScreen(
-                            mainViewModel = mainViewModel, 
-                            newsFeedViewModel = newsFeedViewModel,
-                            checkForUpdate = this@MainActivity::checkAppUpdate,
-                            completeUpdate = this@MainActivity::completeUpdate
-                        )
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            color = Color.Transparent
+                        ) {
+                            MainScreen(
+                                mainViewModel = mainViewModel, 
+                                newsFeedViewModel = newsFeedViewModel,
+                                checkForUpdate = this@MainActivity::checkAppUpdate,
+                                completeUpdate = this@MainActivity::completeUpdate
+                            )
+                        }
                     }
                 }
             }
         }
     }
 
-    private fun checkAppUpdate() {
+    private fun checkAppUpdate(minRequiredVersion: Int = 0) {
         if (this@MainActivity.isFinishing || this@MainActivity.isDestroyed) return
         
         val appUpdateInfoTask = appUpdateManager.appUpdateInfo
         appUpdateInfoTask.addOnSuccessListener { appUpdateInfo ->
             if (this@MainActivity.isFinishing || this@MainActivity.isDestroyed) return@addOnSuccessListener
             
+            val isMandatory = BuildConfig.VERSION_CODE < minRequiredVersion
+            val updateType = if (isMandatory) AppUpdateType.IMMEDIATE else AppUpdateType.FLEXIBLE
+
             if (appUpdateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
-                appUpdateInfo.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE)) {
+                appUpdateInfo.isUpdateTypeAllowed(updateType)) {
                 
                 try {
                     appUpdateManager.startUpdateFlowForResult(
                         appUpdateInfo,
                         this@MainActivity,
-                        AppUpdateOptions.newBuilder(AppUpdateType.FLEXIBLE).build(),
+                        AppUpdateOptions.newBuilder(updateType).build(),
                         updateRequestCode
                     )
                 } catch (e: Exception) {
                     Log.e("MainActivity", "Failed to start update flow", e)
+                }
+            }
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == updateRequestCode) {
+            if (resultCode != RESULT_OK) {
+                // If the update was mandatory and failed/cancelled, we might want to exit or retry
+                val minCode = mainViewModel.minVersionCode.value
+                if (BuildConfig.VERSION_CODE < minCode) {
+                    Log.d("MainActivity", "Update flow failed/cancelled for mandatory update. Retrying...")
+                    checkAppUpdate(minCode)
                 }
             }
         }

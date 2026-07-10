@@ -1,0 +1,6 @@
+- [ ] Modify `MainActivity.kt` to handle `SplashScreenView` transition
+    - [ ] Add `showAnimatedSplash` state
+    - [ ] Update `setContent` to conditionally show `SplashScreenView`
+    - [ ] Adjust `setKeepOnScreenCondition`
+- [ ] Verify synchronization between data loading and animation
+- [ ] Test cold start behavior
