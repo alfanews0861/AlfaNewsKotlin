@@ -294,14 +294,6 @@ fun NewsCardView(
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
-                if (showTopHeader) {
-                    LogoHeader(
-                        district = district,
-                        onDistrictClick = onDistrictClick,
-                        showDistrictSelector = showDistrictSelector
-                    )
-                }
-                
                 Box(modifier = Modifier.fillMaxWidth().weight(0.38f)) {
                     val mediaList = remember(post) { if (post.mediaUrls.isNotEmpty()) post.mediaUrls else if (post.mediaUrl.isNotEmpty()) listOf(post.mediaUrl) else emptyList<String>() }
                     val mediaTypes = remember(post) { if (post.mediaTypes.isNotEmpty()) post.mediaTypes else listOf(post.mediaType) }

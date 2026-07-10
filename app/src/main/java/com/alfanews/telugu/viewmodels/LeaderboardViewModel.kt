@@ -30,17 +30,35 @@ class LeaderboardViewModel(application: Application) : AndroidViewModel(applicat
             _loading.value = true
             try {
                 val calendar = Calendar.getInstance()
-                val year = calendar.get(Calendar.YEAR)
-                val month = (calendar.get(Calendar.MONTH) + 1).toString().padStart(2, '0')
-                val monthlyId = "${year}_${month}"
+                
+                // Try current month first
+                var year = calendar.get(Calendar.YEAR)
+                var month = (calendar.get(Calendar.MONTH) + 1).toString().padStart(2, '0')
+                var monthlyId = "${year}_${month}"
 
-                val snapshot = FirebaseService.db.collection("monthly_leaderboard")
+                var snapshot = FirebaseService.db.collection("monthly_leaderboard")
                     .document(monthlyId)
                     .collection("reporters")
                     .orderBy("points", Query.Direction.DESCENDING)
                     .limit(10)
                     .get()
                     .await()
+
+                // If current month is empty, try previous month
+                if (snapshot.isEmpty) {
+                    calendar.add(Calendar.MONTH, -1)
+                    year = calendar.get(Calendar.YEAR)
+                    month = (calendar.get(Calendar.MONTH) + 1).toString().padStart(2, '0')
+                    monthlyId = "${year}_${month}"
+                    
+                    snapshot = FirebaseService.db.collection("monthly_leaderboard")
+                        .document(monthlyId)
+                        .collection("reporters")
+                        .orderBy("points", Query.Direction.DESCENDING)
+                        .limit(10)
+                        .get()
+                        .await()
+                }
 
                 val entries = snapshot.documents.mapNotNull { doc ->
                     val data = doc.data ?: return@mapNotNull null

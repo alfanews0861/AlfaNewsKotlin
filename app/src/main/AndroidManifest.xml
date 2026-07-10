@@ -70,6 +70,26 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="alfanews" android:host="news" />
             </intent-filter>
+
+            <!-- Reporter Deep Link: https://alfanews.app/verify/{reporterId} -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="alfanews.app" android:pathPrefix="/verify" />
+                <data android:scheme="https" android:host="www.alfanews.app" android:pathPrefix="/verify" />
+                <data android:scheme="https" android:host="alfanews.app" android:pathPrefix="/reporter" />
+                <data android:scheme="https" android:host="www.alfanews.app" android:pathPrefix="/reporter" />
+            </intent-filter>
+
+            <!-- Custom Scheme Reporter Deep Link: alfanews://verify/{reporterId} -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="alfanews" android:host="verify" />
+                <data android:scheme="alfanews" android:host="reporter" />
+            </intent-filter>
         </activity>
 
         <!-- Firebase Dynamic Links Configuration -->

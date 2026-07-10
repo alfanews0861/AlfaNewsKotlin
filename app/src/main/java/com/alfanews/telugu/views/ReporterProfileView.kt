@@ -242,17 +242,6 @@ fun ReporterProfileView(
                 modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                // Title Span
-                item(span = { GridItemSpan(2) }) {
-                    Text(
-                        text = if (language == Language.TELUGU) "రిపోర్టర్ ప్రొఫైల్" else "Reporter Profile",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
-                    )
-                }
-
                 // Profile Info Span
                 item(span = { GridItemSpan(2) }) {
                     Surface(

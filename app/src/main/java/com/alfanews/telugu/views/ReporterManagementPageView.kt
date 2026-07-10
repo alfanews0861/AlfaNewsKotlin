@@ -1,8 +1,11 @@
 package com.alfanews.telugu.views
 
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,6 +25,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
@@ -30,6 +36,7 @@ import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.utils.Constants
 import com.alfanews.telugu.utils.toUserObject
+import com.alfanews.telugu.viewmodels.ReportersViewModel
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -37,6 +44,9 @@ import kotlinx.coroutines.tasks.await
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReporterManagementPageView(currentUser: User) {
+    val reportersViewModel: ReportersViewModel = viewModel()
+    val reporterStats by reportersViewModel.reporterStats.collectAsStateWithLifecycle()
+
     var selectedTab by remember { mutableStateOf(0) }
     val tabs = listOf("దరఖాస్తులు", "రిపోర్టర్లు")
 
@@ -70,6 +80,11 @@ fun ReporterManagementPageView(currentUser: User) {
                         baseQuery.get().await()
                     }
                     reporters = snapshot.documents.mapNotNull { it.toUserObject() }
+                    
+                    // Fetch stats for these reporters
+                    if (reporters.isNotEmpty()) {
+                        reportersViewModel.fetchReportersForStats(reporters.map { it.id })
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -83,17 +98,23 @@ fun ReporterManagementPageView(currentUser: User) {
         fetchData()
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         TabRow(
             selectedTabIndex = selectedTab,
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.primary
+            containerColor = Color(0xFF121212),
+            contentColor = Color.White,
+            indicator = { tabPositions ->
+                TabRowDefaults.Indicator(
+                    Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
+                    color = Color.White
+                )
+            }
         ) {
             tabs.forEachIndexed { index, title ->
                 Tab(
                     selected = selectedTab == index,
                     onClick = { selectedTab = index },
-                    text = { Text(title, fontFamily = Ramabhadra) }
+                    text = { Text(title, fontFamily = Ramabhadra, color = if (selectedTab == index) Color.White else Color.Gray) }
                 )
             }
         }
@@ -165,6 +186,7 @@ fun ReporterManagementPageView(currentUser: User) {
                             ReporterListCard(
                                 reporter = reporter,
                                 currentUser = currentUser,
+                                stats = reporterStats[reporter.id],
                                 onRefresh = { fetchData() }
                             )
                         }
@@ -285,6 +307,7 @@ fun ApplicationCard(
 fun ReporterListCard(
     reporter: User,
     currentUser: User,
+    stats: com.alfanews.telugu.viewmodels.ReporterStats? = null,
     onRefresh: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -296,30 +319,51 @@ fun ReporterListCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFF1E1E1E), // Dark grey/black theme
+            contentColor = Color.White
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        border = BorderStroke(1.dp, Color.Gray.copy(alpha = 0.5f))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AsyncImage(
                     model = reporter.photoUrl ?: "https://ui-avatars.com/api/?name=${reporter.name}&background=random",
                     contentDescription = null,
-                    modifier = Modifier.size(50.dp).clip(CircleShape),
+                    modifier = Modifier.size(56.dp).clip(CircleShape).border(1.5.dp, Color.Gray, CircleShape),
                     contentScale = ContentScale.Crop
                 )
                 
                 Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
-                    Text(reporter.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("${reporter.district} - ${reporter.assignedMandal}", fontSize = 12.sp, color = Color.Gray)
-                        IconButton(onClick = { isEditingLocation = !isEditingLocation }) {
-                            Icon(Icons.Default.EditLocation, contentDescription = "Edit Location", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
+                    Text(reporter.name, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.White)
                     
-                    Row(modifier = Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        BadgeChip("Points: ${reporter.points}", Color(0xFFE91E63))
-                        if (reporter.badges.size > 0) {
-                            BadgeChip(reporter.badges[reporter.badges.size - 1], Color(0xFFFFA000))
+                    // Phone number with click-to-call
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable {
+                            if (!reporter.phone.isNullOrEmpty()) {
+                                try {
+                                    val intent = Intent(Intent.ACTION_DIAL).apply {
+                                        data = Uri.parse("tel:${reporter.phone}")
+                                    }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "కాల్ చేయలేకపోతున్నాము.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    ) {
+                        Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF4CAF50))
+                        Spacer(Modifier.width(4.dp))
+                        Text(reporter.phone ?: "No Phone", fontSize = 14.sp, color = Color(0xFF4CAF50), fontWeight = FontWeight.Medium)
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${reporter.district} - ${reporter.assignedMandal}", fontSize = 12.sp, color = Color.LightGray)
+                        IconButton(onClick = { isEditingLocation = !isEditingLocation }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Default.EditLocation, contentDescription = "Edit Location", modifier = Modifier.size(16.dp), tint = Color.Gray)
                         }
                     }
                 }
@@ -339,19 +383,31 @@ fun ReporterListCard(
                     Icon(
                         if (reporter.role == UserRole.REPORTER) Icons.Default.Block else Icons.Default.CheckCircle,
                         contentDescription = "Toggle Status",
-                        tint = if (reporter.role == UserRole.REPORTER) Color.Red else Color.Green
+                        tint = if (reporter.role == UserRole.REPORTER) Color(0xFFEF5350) else Color(0xFF66BB6A)
                     )
                 }
-                
-                if (currentUser.role == UserRole.ADMIN) {
-                    IconButton(onClick = {
-                        scope.launch {
-                            FirebaseService.db.collection("users").document(reporter.id).update("role", UserRole.SUBSCRIBER.toString()).await()
-                            onRefresh()
-                        }
-                    }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Remove", tint = Color.Gray)
-                    }
+            }
+
+            // Statistics Row
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("ఈ రోజు", fontSize = 10.sp, color = Color.Gray)
+                    Text("${stats?.todayPosts ?: 0}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Color.White)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("గత వారం", fontSize = 10.sp, color = Color.Gray)
+                    Text("${stats?.weekPosts ?: 0}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Color.White)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("పాయింట్లు", fontSize = 10.sp, color = Color.Gray)
+                    Text("${reporter.points}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Color(0xFFFFA000))
                 }
             }
 

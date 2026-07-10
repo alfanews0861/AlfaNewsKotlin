@@ -114,5 +114,29 @@ service cloud.firestore {
       allow read: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
       allow write: if false; // Only manageable via Cloud Functions and Admin SDK Server
     }
+
+    // Monthly Leaderboard - Public Read, Admin Write
+    match /monthly_leaderboard/{monthId} {
+      allow read: if true;
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
+
+      match /reporters/{reporterId} {
+        allow read: if true;
+        allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
+      }
+    }
+
+    // Reporter Applications
+    match /reporter_applications/{appId} {
+      allow create: if true;
+      allow read, update, delete: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                                  getUserData().role in ['ADMIN', 'REGIONAL_INCHARGE'];
+    }
+
+    // Anonymous/Guest Devices for Notifications
+    match /anonymous_devices/{deviceId} {
+      allow read: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
+      allow create, update: if true;
+    }
   }
 }

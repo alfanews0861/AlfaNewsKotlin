@@ -1,44 +1,48 @@
-# Navigation Fix for AlfaNews
+# Reporter Management and Navigation Improvements
 
-Fixes the issue where the navigation menu items do not work when clicked from specific pages (Post News, Join Reporter, Reporter Profile, etc.).
+This plan covers updates to the Reporter Management UI, fixing the Reporter Board on the profile page, and correcting the redirection after posting news.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> The fix involves resetting local UI state flags in `MainScreen.kt` whenever a navigation item is selected from the drawer. This ensures that "overlay" pages are dismissed when the user chooses to go to a different top-level section.
+> The redirection after posting news will now go to the "Manage News" page instead of the Home page for reporters.
 
 ## Proposed Changes
 
-### Mobile App
+### [Component] Reporter Management
+
+#### [MODIFY] [ReportersViewModel.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/viewmodels/ReportersViewModel.kt)
+- Add `ReporterStats` data class.
+- Add `_reporterStats` StateFlow to store post counts for each reporter.
+- Implement `fetchStatsForReporters(reporterIds: List<String>)` to query the `news` collection for "Today" and "Last Week" post counts.
+- Update `fetchReporters` to automatically fetch stats after reporters are loaded.
+
+#### [MODIFY] [ReporterManagementPageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/ReporterManagementPageView.kt)
+- Update `ReporterListCard` to:
+    - Show the reporter's phone number.
+    - Add a click listener to the phone number to initiate a phone call using `Intent.ACTION_DIAL`.
+    - Display "Today's Posts" and "Last Week's Posts" fetched from the ViewModel.
+    - Apply a "Black and Grey" theme style for better visibility.
+
+### [Component] Profile Page & Navigation
+
+#### [MODIFY] [LeaderboardViewModel.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/viewmodels/LeaderboardViewModel.kt)
+- Improve `fetchLeaderboard` to handle empty monthly results by potentially falling back to the previous month or a general leaderboard if appropriate (to be determined during implementation).
+- Add logging to help diagnose why the board might be empty.
 
 #### [MODIFY] [MainScreen.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/MainScreen.kt)
-- Update `onPageSelected` in the `ModalNavigationDrawer` to reset the following state variables:
-    - `showPostNewsPage`
-    - `showJoinReporterPage`
-    - `showEditProfilePage`
-    - `reporterIdToShow`
-    - `editingNewsPost`
-- This ensures that if the user is on one of these sub-pages and uses the drawer to navigate elsewhere, the sub-page is dismissed.
-
-#### [MODIFY] [AdminPanelView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/AdminPanelView.kt)
-- Ensure that the internal `activePage` state correctly reacts to changes in `initialPage` by using `LaunchedEffect` or ensuring `remember(initialPage)` is working as expected.
+- Update the `onActionComplete` callback for `PostNewsPageView`.
+- For reporters/staff, set `mainViewModel.setAdminActivePage("manage")` and `mainViewModel.setActiveTab("profile")` to ensure they land on the "Manage News" page after a successful post.
 
 ## Verification Plan
 
+### Automated Tests
+- I will verify the logic changes in the ViewModels by inspecting the flow of data.
+- Since I cannot run the full app with Firebase connection in this environment, I will rely on code analysis and structure verification.
+
 ### Manual Verification
-1.  **Post News Page**:
-    - Navigate to "Post News" from the drawer or "Create" menu.
-    - Open the drawer and click "Home".
-    - **Expected**: The app should navigate to the Home feed and the Post News screen should be gone.
-2.  **Reporter Profile**:
-    - Open a reporter's profile from any news card.
-    - Open the drawer and click "Local News".
-    - **Expected**: The app should navigate to the Local News feed.
-3.  **Admin Pages**:
-    - If logged in as Editor/Admin, navigate to "Manage News".
-    - Open the drawer and click "Admin Notifications".
-    - **Expected**: The app should switch to the Admin Notifications page within the admin panel.
-4.  **Edit Profile**:
-    - Go to Profile -> Edit Profile.
-    - Open the drawer and click "Classifieds".
-    - **Expected**: The app should navigate to the Classifieds section.
+- Deploy the app and verify:
+    1. After posting a news item, the app redirects to the "Manage News" page.
+    2. The Reporter Management page shows phone numbers and post counts (Today/Last Week).
+    3. Clicking a phone number opens the dialer.
+    4. The Reporter Board on the profile page shows data if available.

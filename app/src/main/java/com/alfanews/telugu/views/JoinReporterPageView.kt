@@ -7,7 +7,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -52,7 +52,7 @@ fun JoinReporterPageView(
     var occupiedMandals by remember { mutableStateOf<Set<String>>(emptySet()) }
     var isLoadingOccupied by remember { mutableStateOf(true) }
     
-    // Dropdown expanded states - moved to top to prevent recreation
+    // Dropdown expanded states
     var districtExpanded by remember { mutableStateOf(false) }
     var mandalExpanded by remember { mutableStateOf(false) }
 
@@ -67,22 +67,18 @@ fun JoinReporterPageView(
         stringResource(R.string.mandal_reporter)
     )
     
-    // Memoize district list based on selected state
     val districtsList = remember(selectedState) {
         if (selectedState == "TS") Constants.TS_DISTRICTS else Constants.AP_DISTRICTS
     }
 
-    // Memoize mandal list based on selected district
     val mandalsList = remember(selectedDistrict) {
         Constants.MANDAL_DATA[selectedDistrict] ?: emptyList<String>()
     }
 
-    // Memoize available mandals list based on occupied mandals
     val availableMandalsList = remember(selectedDistrict, mandalsList, occupiedMandals) {
         mandalsList.filter { !occupiedMandals.contains("$selectedDistrict|$it") }
     }
 
-    // Fetch occupied mandals from Firebase
     LaunchedEffect(Unit) {
         try {
             val snapshot = FirebaseService.db.collection("users")
@@ -100,15 +96,13 @@ fun JoinReporterPageView(
         } finally {
             isLoadingOccupied = false
         }
-}
+    }
 
-    // Close dropdowns when state changes
     LaunchedEffect(selectedState) {
         districtExpanded = false
         mandalExpanded = false
     }
 
-    // Close mandal dropdown when district changes
     LaunchedEffect(selectedDistrict) {
         mandalExpanded = false
     }
@@ -120,25 +114,46 @@ fun JoinReporterPageView(
                 .padding(16.dp)
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                modifier = Modifier.fillMaxSize()
             ) {
-                Text(
-                    text = stringResource(R.string.join_reporter),
-                    fontSize = 24.sp,
-                    fontFamily = Ramabhadra,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-
-                ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+                // Header Row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    IconButton(onClick = onClose) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                    
+                    Text(
+                        text = stringResource(R.string.join_reporter),
+                        fontSize = 20.sp,
+                        fontFamily = Ramabhadra,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(start = 4.dp)
+                    )
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    ElevatedCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+                    ) {
                         Column(
                             modifier = Modifier.padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -264,7 +279,6 @@ fun JoinReporterPageView(
                             }
                             
                             if (selectedDistrict.isNotEmpty()) {
-
                                 ExposedDropdownMenuBox(
                                     expanded = mandalExpanded,
                                     onExpandedChange = { mandalExpanded = !mandalExpanded }
@@ -487,4 +501,5 @@ fun JoinReporterPageView(
                 }
             )
         }
+    }
 }

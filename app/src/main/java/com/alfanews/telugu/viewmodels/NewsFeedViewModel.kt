@@ -826,15 +826,14 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
      private suspend fun generateWeatherPost(place: String?, district: String?, lat: Double? = null, lon: Double? = null): NewsPost {
          val location = if (district == prefs.detectedDistrict) (place ?: district ?: "హైదరాబాద్") else (district ?: "హైదరాబాద్")
          
-         // 🚀 INSTANT LOAD: Reduced timeout to 400ms. 
-         // If weather data takes longer, it will use defaults/cache to avoid delaying the news feed.
+         // 🚀 IMPROVED TIMEOUT: 1500ms for better API reliability on mobile networks.
          val weatherData = try {
-             kotlinx.coroutines.withTimeout(400L) {
+             kotlinx.coroutines.withTimeout(1500L) {
                  WeatherService.fetchWeather(location, lat, lon)
              }
          } catch (e: Exception) { null }
 
-         var temperatureStr = ""; var weatherHeadlineTe = "వాతావరణ సమాచారం"; var weatherContentTe = "ప్రస్తుతం $location లో వాతావరణం సాధారణంగా ఉంది."
+         var temperatureStr = ""; var weatherHeadlineTe = "వాతావరణ తాజా సమాచారం"; var weatherContentTe = "ప్రస్తుతం $location లో వాతావరణ వివరాలు అందుబాటులో లేవు. మళ్ళీ ప్రయత్నించండి."
          if (weatherData != null) {
              temperatureStr = "${weatherData.temp.toInt()}°C "
              weatherHeadlineTe = WeatherService.getWeatherDescription(weatherData.code)

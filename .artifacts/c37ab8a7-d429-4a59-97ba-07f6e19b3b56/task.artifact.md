@@ -1,5 +1,7 @@
-- [x] Reset overlay states in `MainScreen.kt` during drawer navigation
-- [x] Reset overlay states in `MainScreen.kt` during bottom bar (Footer) navigation
-- [x] Reset overlay states in `MainScreen.kt` during logout
-- [x] Ensure `AdminPanelView.kt` reacts to page changes correctly
-- [x] Verify navigation logic and state management
+# Task List - Reporter Management & Navigation Fixes
+
+- [x] Update `ReportersViewModel.kt` to include post statistics (Today & Last Week)
+- [x] Update `ReporterManagementPageView.kt` UI with phone number, click-to-call, and stats
+- [x] Investigate and fix "Reporter Board" in `LeaderboardViewModel.kt`
+- [x] Update `MainScreen.kt` to redirect to "Manage News" after posting
+- [x] Verify all changes

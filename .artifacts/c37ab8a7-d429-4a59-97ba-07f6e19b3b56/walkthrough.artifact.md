@@ -1,42 +1,50 @@
-# Navigation Fix Walkthrough
+# Walkthrough - Reporter Management & Navigation Updates
 
-Fixed the issue where navigation from "overlay" pages (like Post News, Join Reporter, and Reporter Profile) was not working correctly when using the drawer menu or bottom footer.
+I have implemented the requested changes for reporter management, profile leaderboard fixes, and post-submission redirection.
 
 ## Changes Made
 
-### Main Screen Navigation Logic
-Updated [MainScreen.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/MainScreen.kt) to ensure that all conditional visibility flags (overlays) are reset whenever the user initiates navigation to a different section.
+### 1. Reporter Management Enhancements
+- **Statistics**: Added "Today" and "Last Week" post counts for each reporter.
+- **Click-to-Call**: Integrated the phone number into the reporter card with a direct calling feature.
+- **UI Theme**: Updated the Reporter Management page with a professional **Black and Grey** theme for better contrast and visibility.
+- **Stats Logic**: Implemented `fetchReportersForStats` in `ReportersViewModel` to calculate post counts directly from Firestore.
 
-#### Resetting Overlays in Drawer
-Added reset logic in `onPageSelected` within the `ModalNavigationDrawer`. This ensures that if a user is on the "Post News" page and clicks "Home" in the drawer, the "Post News" page is dismissed and the Home feed is shown.
+### 2. Reporter Board (Leaderboard) Fix
+- **Fallback Logic**: Updated `LeaderboardViewModel` to check the previous month's data if the current month's leaderboard is not yet available (common at the start of a month).
 
+### 3. Post-Submission Redirection
+- **Manage News Redirect**: Updated `MainScreen.kt` so that when a Reporter or Staff member posts news, they are now automatically redirected to the **"Manage News"** page instead of the Home feed. This allows them to immediately see the status of their post.
+
+## Verification Results
+
+### UI Comparison
+````carousel
 ```kotlin
-onPageSelected = { page ->
-    scope.launch { drawerState.close() }
-
-    // Reset overlay states to ensure navigation works from any sub-page
-    showPostNewsPage = false
-    showJoinReporterPage = false
-    showEditProfilePage = false
-    reporterIdToShow = null
-    editingNewsPost = null
-
-    // ... rest of navigation logic
+// ReporterListCard (New Theme & Features)
+Card(
+    containerColor = Color(0xFF1E1E1E),
+    contentColor = Color.White
+) {
+    // Phone with clickable dialer
+    // Stats: Today, Last Week, Points
 }
 ```
+<!-- slide -->
+```kotlin
+// Redirection Logic
+if (isStaff) {
+    mainViewModel.setAdminActivePage("manage")
+    mainViewModel.setActiveTab("profile")
+}
+```
+````
 
-#### Resetting Overlays in Bottom Footer
-Applied the same reset logic to the `Footer`'s `onTabChange` callback. This allows users to switch between main tabs (Home, Local, Create, Classifieds, Profile) even if they are currently inside a sub-page like "Edit Profile".
+### Key Files Modified
+- [ReportersViewModel.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/viewmodels/ReportersViewModel.kt)
+- [ReporterManagementPageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/ReporterManagementPageView.kt)
+- [LeaderboardViewModel.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/viewmodels/LeaderboardViewModel.kt)
+- [MainScreen.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/MainScreen.kt)
 
-#### Resetting Overlays on Logout
-Ensured that all UI states are cleared when the user logs out from the drawer menu.
-
-## Verification Summary
-
-### Manual Logic Review
-- Verified that `showPostNewsPage` and other flags were "blocking" the rendering of the `activeTab` content in the `Scaffold` body.
-- Confirmed that resetting these flags to `false` allows the `when(activeTab)` block to execute correctly.
-- Verified that `AdminPanelView` uses `remember(initialPage)`, which correctly handles navigation to specific admin pages triggered from the drawer.
-
-> [!TIP]
-> This pattern of resetting overlay states during top-level navigation is a standard way to handle non-stack-based conditional UI in Jetpack Compose.
+> [!NOTE]
+> The post counts are calculated in real-time when the reporter list is loaded for a specific district/mandal.

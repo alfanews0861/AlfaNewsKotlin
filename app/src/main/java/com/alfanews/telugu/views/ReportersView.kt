@@ -95,15 +95,6 @@ fun ReportersView(
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            Text(
-                text = stringResource(R.string.reporters),
-                fontSize = 24.sp,
-                fontFamily = Ramabhadra,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-
             // Selection Boxes
             Column(
                 modifier = Modifier
@@ -276,7 +267,7 @@ fun ReportersView(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(reporters) { reporter ->
+                    items(items = reporters, key = { it.id }) { reporter ->
                         ReporterCard(
                             reporter = reporter,
                             onClick = { onReporterClick(reporter.id) }

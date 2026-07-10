@@ -76,6 +76,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _newNewsNotification = MutableStateFlow<NewsPost?>(null)
     val newNewsNotification: StateFlow<NewsPost?> = _newNewsNotification.asStateFlow()
 
+    private val _reporterIdToShow = MutableStateFlow<String?>(null)
+    val reporterIdToShow: StateFlow<String?> = _reporterIdToShow.asStateFlow()
+
+    private val _activeWeatherAlert = MutableStateFlow<WeatherAlert?>(null)
+    val activeWeatherAlert: StateFlow<WeatherAlert?> = _activeWeatherAlert.asStateFlow()
+
+    private var weatherAlertListener: ListenerRegistration? = null
+
     init {
         viewModelScope.launch {
             prefs.districtChanges.collectLatest { district ->
@@ -214,7 +222,53 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         startNewsListener()
+        startWeatherAlertListener()
         ensureDefaultSubscriptions()
+    }
+
+    private fun startWeatherAlertListener() {
+        weatherAlertListener?.remove()
+        weatherAlertListener = FirebaseService.db.collection("settings").document("weather_alerts")
+            .addSnapshotListener { snapshot, e ->
+                if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                
+                val district = _activeDistrict.value
+                if (district == null) {
+                    _activeWeatherAlert.value = null
+                    return@addSnapshotListener
+                }
+
+                val data = snapshot.data ?: return@addSnapshotListener
+                @Suppress("UNCHECKED_CAST")
+                val districtData = data[district] as? Map<String, Any>
+                
+                if (districtData != null) {
+                    val lastSent = districtData["lastAlertSentAt"] as? Timestamp
+                    val lastSentTime = lastSent?.toDate()?.time ?: 0L
+                    val now = System.currentTimeMillis()
+                    val diff = now - lastSentTime
+                    val threshold = 6 * 60 * 60 * 1000L
+                    
+                    // Show alert if sent in the last 6 hours
+                    if (lastSentTime > 0 && diff < threshold) {
+                        _activeWeatherAlert.value = WeatherAlert(
+                            title = districtData["lastAlertTitle"]?.toString() ?: "Weather Alert",
+                            body = districtData["lastAlertBody"]?.toString() ?: "",
+                            district = district,
+                            timestamp = lastSentTime,
+                            severity = districtData["severity"]?.toString() ?: "WARNING"
+                        )
+                    } else {
+                        _activeWeatherAlert.value = null
+                    }
+                } else {
+                    _activeWeatherAlert.value = null
+                }
+            }
+    }
+
+    fun dismissWeatherAlert() {
+        _activeWeatherAlert.value = null
     }
 
     private fun ensureDefaultSubscriptions() {
@@ -401,6 +455,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setShowDistrictPicker(show: Boolean) {
         _showDistrictPicker.value = show
+    }
+
+    fun setReporterIdToShow(id: String?) {
+        _reporterIdToShow.value = id
     }
 
     fun setDistrict(district: String) {

@@ -357,7 +357,19 @@ export const checkSevereWeatherAlerts = onSchedule({
                             if (token) {
                                 messages.push({
                                     notification: { title: alertTitle, body: alertBody },
-                                    data: { type: "WEATHER_ALERT", district, title: alertTitle, body: alertBody },
+                                    data: {
+                                        type: "WEATHER_ALERT",
+                                        district,
+                                        title: alertTitle,
+                                        body: alertBody,
+                                        channelId: "weather_alerts"
+                                    },
+                                    android: {
+                                        notification: {
+                                            channelId: "weather_alerts",
+                                            priority: "high"
+                                        }
+                                    },
                                     token
                                 });
                             }
@@ -384,7 +396,9 @@ export const checkSevereWeatherAlerts = onSchedule({
                 await alertStateRef.set({
                     [district]: {
                         lastAlertSentAt: admin.firestore.FieldValue.serverTimestamp(),
-                        lastAlertTitle: alertTitle
+                        lastAlertTitle: alertTitle,
+                        lastAlertBody: alertBody,
+                        severity: (weatherCode === 95 || weatherCode === 96 || weatherCode === 99 || temp >= 42) ? "SEVERE" : "WARNING"
                     }
                 }, { merge: true });
                 console.log(`[WEATHER_ALERT] Alert cycle completed for ${district}.`);

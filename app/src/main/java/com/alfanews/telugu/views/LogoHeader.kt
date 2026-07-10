@@ -35,96 +35,76 @@ fun LogoHeader(
     district: String? = null,
     onDistrictClick: (() -> Unit)? = null,
     showDistrictSelector: Boolean = false,
-    onMenuClick: (() -> Unit)? = null,
-    onBackClick: (() -> Unit)? = null
+    onMenuClick: (() -> Unit)? = null
 ) {
     Surface(
         color = BrandDarkBlue,
-        shadowElevation = 8.dp,
         modifier = modifier.fillMaxWidth()
     ) {
-        Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                modifier = Modifier.weight(1f)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    if (onBackClick != null) {
-                        IconButton(onClick = onBackClick) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowBack,
-                                contentDescription = "Back",
-                                tint = Color.White
-                            )
-                        }
-                    } else if (onMenuClick != null) {
-                        IconButton(onClick = onMenuClick) {
-                            Icon(
-                                imageVector = Icons.Default.Menu,
-                                contentDescription = "Menu",
-                                tint = Color.White
-                            )
-                        }
-                    }
-                    
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(start = if (onMenuClick == null && onBackClick == null) 12.dp else 4.dp)
-                    ) {
-                        Text(
-                            text = "alfa",
-                            fontSize = 24.sp,
-                            fontFamily = Poppins,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "news",
-                            fontSize = 24.sp,
-                            fontFamily = Poppins,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White
+                if (onMenuClick != null) {
+                    IconButton(onClick = onMenuClick) {
+                        Icon(
+                            imageVector = Icons.Default.Menu,
+                            contentDescription = "Menu",
+                            tint = Color.White
                         )
                     }
                 }
                 
-                if (showDistrictSelector && onDistrictClick != null) {
-                    TextButton(
-                        onClick = onDistrictClick,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.LocationOn,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = Color.White
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = district ?: "Select District",
-                            fontSize = 14.sp,
-                            fontFamily = Poppins,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(start = if (onMenuClick == null) 12.dp else 4.dp)
+                ) {
+                    Text(
+                        text = "alfa",
+                        fontSize = 24.sp,
+                        fontFamily = Poppins,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "news",
+                        fontSize = 24.sp,
+                        fontFamily = Poppins,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    )
                 }
             }
             
-            // Red strip at the bottom
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .background(Color(0xFFF44336))
-            )
+            if (showDistrictSelector && onDistrictClick != null) {
+                TextButton(
+                    onClick = onDistrictClick,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = Color.White
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = district ?: "Select District",
+                        fontSize = 14.sp,
+                        fontFamily = Poppins,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
         }
     }
 }

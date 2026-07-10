@@ -311,28 +311,42 @@ class MainActivity : ComponentActivity() {
             val uri = intentData ?: fcmActionUrl?.let { Uri.parse(it) }
 
             uri?.let { u ->
-                val postId = when (u.scheme) {
+                var postId: String? = null
+                var reporterId: String? = null
+
+                when (u.scheme) {
                     "alfanews" -> {
-                        // alfanews://news/POST_ID
-                        if (u.host == "news") u.lastPathSegment else null
+                        // alfanews://news/POST_ID or alfanews://reporter/REPORTER_ID
+                        when (u.host) {
+                            "news" -> postId = u.lastPathSegment
+                            "reporter", "verify" -> reporterId = u.lastPathSegment
+                        }
                     }
                     "http", "https" -> {
-                        // https://alfanews.app/news/POST_ID or https://www.alfanews.app/news/POST_ID
+                        // https://alfanews.app/news/POST_ID or https://alfanews.app/verify/REPORTER_ID
                         val host = u.host
                         if (host == "alfanews.app" || host == "www.alfanews.app") {
                             val pathSegments = u.pathSegments
-                            if (pathSegments.size >= 2 && pathSegments[0] == "news") pathSegments[1] else null
-                        } else null
+                            if (pathSegments.size >= 2) {
+                                when (pathSegments[0]) {
+                                    "news" -> postId = pathSegments[1]
+                                    "reporter", "verify" -> reporterId = pathSegments[1]
+                                }
+                            }
+                        }
                     }
-                    else -> null
                 }
 
-                postId?.let { id ->
+                if (postId != null) {
+                    val id = postId!!
                     // 🔗 CRITICAL: Set sharedPostId so UI knows to scroll to this post
-                    // This must happen BEFORE or alongside loadNews
                     newsFeedViewModel.setSharedPostId(id)
                     mainViewModel.setActiveTab("home")
                     newsFeedViewModel.loadNews(mainViewModel.language.value, mainViewModel.currentUser.value, initialPostId = id)
+                }
+
+                if (reporterId != null) {
+                    mainViewModel.setReporterIdToShow(reporterId)
                 }
             }
         } catch (e: Exception) {

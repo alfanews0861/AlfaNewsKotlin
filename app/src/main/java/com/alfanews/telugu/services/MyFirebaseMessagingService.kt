@@ -38,7 +38,8 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     private enum class AppNotificationChannel(val id: String, val channelName: String, val importance: Int) {
         GENERAL("general_news", "General News", NotificationManager.IMPORTANCE_DEFAULT),
         BREAKING("breaking_news", "Breaking News", NotificationManager.IMPORTANCE_HIGH),
-        LOCAL("local_news", "Local News", NotificationManager.IMPORTANCE_DEFAULT)
+        LOCAL("local_news", "Local News", NotificationManager.IMPORTANCE_DEFAULT),
+        WEATHER("weather_alerts", "Weather Alerts", NotificationManager.IMPORTANCE_HIGH)
     }
 
     override fun onCreate() {

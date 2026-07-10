@@ -63,7 +63,7 @@ interface WeatherApiService {
         @Query("current_weather") currentWeather: Boolean = true,
         @Query("hourly") hourly: String = "relative_humidity_2m,apparent_temperature",
         @Query("daily") daily: String = "weathercode,temperature_2m_max,temperature_2m_min,uv_index_max",
-        @Query("timezone") timezone: String = "auto",
+        @Query("timezone") timezone: String = "Asia/Kolkata",
         @Query("temperature_unit") tempUnit: String = "celsius",
         @Query("wind_speed_unit") windUnit: String = "kmh",
         @Query("precipitation_unit") precipUnit: String = "mm"
@@ -167,6 +167,7 @@ object WeatherService {
         val wind: Double,
         val time: String,
         val humidity: Int? = null,
+        val feelsLike: Double? = null,
         val isDay: Boolean = true,
         val uvIndex: Double? = null,
         val isPrecise: Boolean = true,
@@ -200,15 +201,20 @@ object WeatherService {
                 longitude = validLon
             } else {
                 val searchName = locationMapping[locationName] ?: locationName
-                val finalSearchName = "$searchName, India"
+                val parentDistrictTe = Constants.MANDAL_DATA.entries.find { it.value.contains(locationName) }?.key
+                val parentDistrictEn = locationMapping[parentDistrictTe]
+                
+                val finalSearchName = if (parentDistrictEn != null && searchName != parentDistrictEn) {
+                    "$searchName, $parentDistrictEn, India"
+                } else {
+                    "$searchName, India"
+                }
+                
                 val geoResponse = api.getCoordinates(finalSearchName)
                 val location = geoResponse.results?.firstOrNull() 
                 
                 if (location == null) {
                     // Fallback: If mandal name is not found, try searching with district context in English
-                    val parentDistrictTe = Constants.MANDAL_DATA.entries.find { it.value.contains(locationName) }?.key
-                    val parentDistrictEn = locationMapping[parentDistrictTe]
-                    
                     val contextualSearch = if (parentDistrictEn != null) {
                         "$locationName, $parentDistrictEn, India"
                     } else if (parentDistrictTe != null) {
@@ -248,6 +254,7 @@ object WeatherService {
                 ?: hourlyTimes?.size?.let { minOf(it - 1, 0) }
                 ?: 0
             val currentHumidity = weatherResponse.hourly?.humidity?.getOrNull(currentHourIndex)
+            val currentFeelsLike = weatherResponse.hourly?.feelsLike?.getOrNull(currentHourIndex)
 
             // ✅ FIX: Today's UV index (index 0 = today)
             val todayUV = weatherResponse.daily?.uvIndex?.getOrNull(0)
@@ -273,6 +280,7 @@ object WeatherService {
                 wind = weatherResponse.currentWeather.windSpeed,
                 time = weatherResponse.currentWeather.time,
                 humidity = currentHumidity,
+                feelsLike = currentFeelsLike,
                 isDay = weatherResponse.currentWeather.isDay == 1,
                 uvIndex = todayUV,
                 isPrecise = isPrecise,
@@ -299,8 +307,9 @@ object WeatherService {
             val minute = timePart.substring(colonIdx + 1, minOf(colonIdx + 3, timePart.length))
             val displayHour = if (hour % 12 == 0) 12 else hour % 12
             val period = when (hour) {
-                in 0..4   -> "రాత్రి"
-                in 5..11  -> "ఉదయం"
+                in 0..3   -> "రాత్రి"
+                in 4..6   -> "తెల్లవారుజామున"
+                in 7..11  -> "ఉదయం"
                 12        -> "మధ్యాహ్నం"
                 in 13..16 -> "మధ్యాహ్నం"
                 in 17..19 -> "సాయంత్రం"

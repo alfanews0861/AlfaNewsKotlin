@@ -214,7 +214,7 @@ fun IdCardContent(
             ) {
                 // QR Code
                 AsyncImage(
-                    model = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=alfa_id_${user.id}",
+                    model = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https://alfanews.app/verify/${user.id}",
                     contentDescription = "QR Code",
                     modifier = Modifier.size(90.dp)
                 )

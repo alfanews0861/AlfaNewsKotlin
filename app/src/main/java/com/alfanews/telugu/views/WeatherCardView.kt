@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.compose.ui.tooling.preview.Preview
 import com.alfanews.telugu.R
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.NewsPost
@@ -138,13 +139,16 @@ fun WeatherCardView(
     val windSpeed = weatherData?.wind?.toInt()?.toString() ?: "--"
     val humidity = weatherData?.humidity?.let { "$it%" } ?: "--"
     val uvIndex = weatherData?.uvIndex?.let { String.format(Locale.getDefault(), "%.1f", it) } ?: "--"
-    val feelsLike = weatherData?.temp?.let {
-        // Heat Index approximation
-        val h = (weatherData?.humidity ?: 50)
-        val t = it
-        val hi = t + (0.33 * (h / 100.0 * 6.105) - 0.7)
-        hi.toInt().toString()
-    } ?: "--"
+    val feelsLike = when {
+        weatherData?.feelsLike != null -> weatherData?.feelsLike?.toInt().toString()
+        weatherData?.temp != null -> {
+            val h = (weatherData?.humidity ?: 50)
+            val t = weatherData?.temp!!
+            val hi = t + (0.33 * (h / 100.0 * 6.105) - 0.7)
+            hi.toInt().toString()
+        }
+        else -> "--"
+    }
     val weatherTime = weatherData?.time?.let { WeatherService.formatTime(it) } ?: ""
 
     // Animations
@@ -742,6 +746,32 @@ data class WeatherType(
             Icons.Rounded.NightsStay,
             Color(0xFF37474F), Color(0xFF102027),
             "మేఘావృత రాత్రి", "Cloudy Night"
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun WeatherCardPreview() {
+    val mockPost = com.alfanews.telugu.models.NewsPost(
+        id = "weather_mock",
+        headline = com.alfanews.telugu.models.Headline(
+            telugu = "32°C హైదరాబాద్ వాతావరణం: ఆకాశం నిర్మలంగా ఉంది",
+            english = "32°C Hyderabad Weather"
+        ),
+        content = com.alfanews.telugu.models.Content(
+            telugu = "నేడు హైదరాబాద్ లో వాతావరణం ఆకాశం నిర్మలంగా ఉంది. ప్రస్తుత ఉష్ణోగ్రత 32°C గా ఉంది. గాలి వేగం గంటకు 12 కిలోమీటర్లు.",
+            english = "Current weather update for Hyderabad."
+        ),
+        location = "హైదరాబాద్",
+        type = "weather"
+    )
+    
+    MaterialTheme {
+        WeatherCardView(
+            post = mockPost,
+            language = com.alfanews.telugu.models.Language.TELUGU,
+            modifier = Modifier.fillMaxSize()
         )
     }
 }

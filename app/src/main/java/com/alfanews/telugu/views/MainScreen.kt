@@ -14,18 +14,23 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.alfanews.telugu.MainActivity
 import com.alfanews.telugu.R
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.NewsPost
+import com.alfanews.telugu.models.WeatherAlert
 import com.alfanews.telugu.models.ThemeMode
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
+import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.viewmodels.MainViewModel
 import com.alfanews.telugu.viewmodels.NewsFeedViewModel
 import com.alfanews.telugu.views.policy.*
+import com.alfanews.telugu.views.WeatherAlertBanner
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -36,15 +41,17 @@ fun MainScreen(
     checkForUpdate: () -> Unit,
     completeUpdate: () -> Unit
 ) {
-    val currentUser by mainViewModel.currentUser.collectAsStateWithLifecycle()
-    val language by mainViewModel.language.collectAsStateWithLifecycle()
-    val activeTab by mainViewModel.activeTab.collectAsStateWithLifecycle()
-    val activeDistrict by mainViewModel.activeDistrict.collectAsStateWithLifecycle()
+    val currentUser: User? by mainViewModel.currentUser.collectAsStateWithLifecycle()
+    val language: Language by mainViewModel.language.collectAsStateWithLifecycle()
+    val activeTab: String by mainViewModel.activeTab.collectAsStateWithLifecycle()
+    val activeDistrict: String? by mainViewModel.activeDistrict.collectAsStateWithLifecycle()
     val showDistrictPicker by mainViewModel.showDistrictPicker.collectAsStateWithLifecycle()
-    val themeMode by mainViewModel.themeMode.collectAsStateWithLifecycle()
+    val themeMode: ThemeMode by mainViewModel.themeMode.collectAsStateWithLifecycle()
     val showOnboarding by mainViewModel.showOnboarding.collectAsStateWithLifecycle()
     val showRatingDialog by mainViewModel.showRatingDialog.collectAsStateWithLifecycle()
     val newNewsNotification by mainViewModel.newNewsNotification.collectAsStateWithLifecycle()
+    val activeWeatherAlert by mainViewModel.activeWeatherAlert.collectAsStateWithLifecycle()
+    val reporterIdToShow: String? by mainViewModel.reporterIdToShow.collectAsStateWithLifecycle()
 
     val news by newsFeedViewModel.news.collectAsStateWithLifecycle()
     
@@ -52,7 +59,6 @@ fun MainScreen(
     var showJoinReporterPage by remember { mutableStateOf(false) }
     var showEditProfilePage by remember { mutableStateOf(false) }
     var editingNewsPost by remember { mutableStateOf<NewsPost?>(null) }
-    var reporterIdToShow by remember { mutableStateOf<String?>(null) }
     
     var classifiedsInitialMode by remember { mutableStateOf(ClassifiedsViewMode.CATEGORIES) }
 
@@ -105,7 +111,7 @@ fun MainScreen(
                     showPostNewsPage = false
                     showJoinReporterPage = false
                     showEditProfilePage = false
-                    reporterIdToShow = null
+                    mainViewModel.setReporterIdToShow(null)
                     editingNewsPost = null
                     
                     when (page) {
@@ -130,7 +136,7 @@ fun MainScreen(
                     showPostNewsPage = false
                     showJoinReporterPage = false
                     showEditProfilePage = false
-                    reporterIdToShow = null
+                    mainViewModel.setReporterIdToShow(null)
                     editingNewsPost = null
                     mainViewModel.signOut()
                 }
@@ -168,33 +174,89 @@ fun MainScreen(
                 containerColor = Color.Transparent,
                 snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                 topBar = {
-                    val user = currentUser
-                    val role = user?.role
+                    Column {
+                        LogoHeader(
+                            district = activeDistrict,
+                            showDistrictSelector = (activeTab == "home" || activeTab == "local") && !showPostNewsPage && !showJoinReporterPage && !showEditProfilePage && (reporterIdToShow == null),
+                            onDistrictClick = { mainViewModel.setShowDistrictPicker(true) },
+                            onMenuClick = { scope.launch { drawerState.open() } }
+                        )
 
-                    when {
-                        showPostNewsPage -> {
-                            LogoHeader(
-                                onMenuClick = { scope.launch { drawerState.open() } }
-                            )
+                        // Contextual Sub-Header Row
+                        val subHeaderTitle = when {
+                            reporterIdToShow != null -> if (language == Language.TELUGU) "రిపోర్టర్ ప్రొఫైల్" else "Reporter Profile"
+                            showPostNewsPage -> if (language == Language.TELUGU) "వార్తను ప్రచురించండి" else "Publish News"
+                            showJoinReporterPage -> stringResource(R.string.join_reporter)
+                            showEditProfilePage -> stringResource(R.string.edit_profile)
+                            activeTab == "reporters" -> stringResource(R.string.reporters)
+                            activeTab == "leaderboard" -> if (language == Language.TELUGU) "మంత్లీ లీడర్ బోర్డ్" else "Monthly Leaderboard"
+                            activeTab == "messages" -> if (language == Language.TELUGU) "సందేశాలు" else "Messages"
+                            listOf("about", "contact", "privacy-policy", "terms", "content-policy", "disclaimer", "ad-policy", "data-collection").contains(activeTab) -> {
+                                when (activeTab) {
+                                    "about" -> stringResource(R.string.about_us)
+                                    "contact" -> stringResource(R.string.contact_us)
+                                    "privacy-policy" -> stringResource(R.string.privacy_policy)
+                                    "terms" -> stringResource(R.string.terms_of_service)
+                                    "content-policy" -> stringResource(R.string.content_policy)
+                                    "disclaimer" -> stringResource(R.string.disclaimer)
+                                    "ad-policy" -> stringResource(R.string.ad_policy)
+                                    "data-collection" -> stringResource(R.string.data_policy)
+                                    else -> ""
+                                }
+                            }
+                            else -> null
                         }
-                        showJoinReporterPage -> {
-                            LogoHeader(
-                                onMenuClick = { scope.launch { drawerState.open() } }
-                            )
+
+                        if (subHeaderTitle != null) {
+                            val onBackAction = {
+                                when {
+                                    reporterIdToShow != null -> mainViewModel.setReporterIdToShow(null)
+                                    showPostNewsPage -> {
+                                        showPostNewsPage = false
+                                        editingNewsPost = null
+                                    }
+                                    showJoinReporterPage -> showJoinReporterPage = false
+                                    showEditProfilePage -> showEditProfilePage = false
+                                    else -> mainViewModel.setActiveTab("profile")
+                                }
+                            }
+
+                            Surface(
+                                color = MaterialTheme.colorScheme.surface,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 4.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    IconButton(onClick = onBackAction) {
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowBack,
+                                            contentDescription = "Back",
+                                            tint = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                    Text(
+                                        text = subHeaderTitle,
+                                        fontSize = 18.sp,
+                                        fontFamily = Ramabhadra,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.padding(start = 4.dp)
+                                    )
+                                }
+                            }
                         }
-                        showEditProfilePage -> {
-                            LogoHeader(
-                                onMenuClick = { scope.launch { drawerState.open() } }
-                            )
-                        }
-                        else -> {
-                            LogoHeader(
-                                district = activeDistrict,
-                                showDistrictSelector = true,
-                                onDistrictClick = { mainViewModel.setShowDistrictPicker(true) },
-                                onMenuClick = { scope.launch { drawerState.open() } }
-                            )
-                        }
+
+                        // Red strip at the bottom of the entire topBar
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .background(Color(0xFFF44336))
+                        )
                     }
                 },
                 bottomBar = {
@@ -205,7 +267,7 @@ fun MainScreen(
                             showPostNewsPage = false
                             showJoinReporterPage = false
                             showEditProfilePage = false
-                            reporterIdToShow = null
+                            mainViewModel.setReporterIdToShow(null)
                             editingNewsPost = null
                             
                             classifiedsInitialMode = ClassifiedsViewMode.CATEGORIES
@@ -219,7 +281,14 @@ fun MainScreen(
                         .fillMaxSize()
                         .padding(paddingValues)
                 ) {
-                    if (!notificationsGranted && showNotifBannerSession && activeTab == "home" && reporterIdToShow == null && !showPostNewsPage) {
+                    activeWeatherAlert?.let { alert: WeatherAlert ->
+                        WeatherAlertBanner(
+                            alert = alert,
+                            onDismiss = { mainViewModel.dismissWeatherAlert() }
+                        )
+                    }
+
+                    if (!notificationsGranted && showNotifBannerSession && activeTab == "home" && (reporterIdToShow == null) && !showPostNewsPage) {
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -288,7 +357,7 @@ fun MainScreen(
                             reporterId = currentReporterId,
                             language = language,
                             currentUser = user,
-                            onBack = { reporterIdToShow = null }
+                            onBack = { mainViewModel.setReporterIdToShow(null) }
                         )
                     } else if (showPostNewsPage && user != null) {
                         PostNewsPageView(
@@ -297,12 +366,20 @@ fun MainScreen(
                             onActionComplete = { postId: String -> 
                                 showPostNewsPage = false
                                 editingNewsPost = null
-                                if (postId == "HOME_ONLY") {
-                                    mainViewModel.setActiveTab("home")
-                                } else if (postId.isNotBlank()) {
-                                    mainViewModel.setActiveTab("home")
-                                    newsFeedViewModel.setSharedPostId(postId)
-                                    newsFeedViewModel.loadNews(language, user, initialPostId = postId)
+                                
+                                val isStaff = listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK).contains(user.role)
+                                
+                                if (isStaff) {
+                                    mainViewModel.setAdminActivePage("manage")
+                                    mainViewModel.setActiveTab("profile")
+                                } else {
+                                    if (postId == "HOME_ONLY") {
+                                        mainViewModel.setActiveTab("home")
+                                    } else if (postId != "") {
+                                        mainViewModel.setActiveTab("home")
+                                        newsFeedViewModel.setSharedPostId(postId)
+                                        newsFeedViewModel.loadNews(language, user, initialPostId = postId)
+                                    }
                                 }
                             }
                         )
@@ -330,7 +407,7 @@ fun MainScreen(
                                 language = language, 
                                 currentUser = user, 
                                 viewModel = newsFeedViewModel,
-                                onReporterClick = { reporterIdToShow = it },
+                                onReporterClick = { mainViewModel.setReporterIdToShow(it) },
                                 onDistrictClick = { mainViewModel.setShowDistrictPicker(true) },
                                 onEditClick = { post ->
                                     editingNewsPost = post
@@ -343,7 +420,7 @@ fun MainScreen(
                                 currentUser = user, 
                                 onDistrictClick = { mainViewModel.setShowDistrictPicker(true) },
                                 onProfileClick = { mainViewModel.setActiveTab("profile") },
-                                onReporterClick = { reporterIdToShow = it },
+                                onReporterClick = { mainViewModel.setReporterIdToShow(it) },
                                 onEditClick = { post ->
                                     editingNewsPost = post
                                     showPostNewsPage = true
@@ -407,7 +484,7 @@ fun MainScreen(
                                     }
                                 },
                                 onPostPublished = { postId ->
-                                    if (postId.isNotBlank()) {
+                                    if (postId != "") {
                                         mainViewModel.setActiveTab("home")
                                         newsFeedViewModel.setSharedPostId(postId)
                                         newsFeedViewModel.loadNews(language, user, initialPostId = postId)
@@ -427,13 +504,13 @@ fun MainScreen(
                                 language = language,
                                 currentUser = user,
                                 onBack = { mainViewModel.setActiveTab("profile") },
-                                onReporterClick = { reporterIdToShow = it },
+                                onReporterClick = { mainViewModel.setReporterIdToShow(it) },
                                 onMenuClick = { scope.launch { drawerState.open() } }
                             )
                             "leaderboard" -> LeaderboardView(
                                 language = language,
                                 onBack = { mainViewModel.setActiveTab("profile") },
-                                onReporterClick = { reporterIdToShow = it },
+                                onReporterClick = { mainViewModel.setReporterIdToShow(it) },
                                 onMenuClick = { scope.launch { drawerState.open() } }
                             )
                             "messages" -> if (user != null) {
@@ -447,7 +524,7 @@ fun MainScreen(
                                 language = language, 
                                 currentUser = user, 
                                 viewModel = newsFeedViewModel,
-                                onReporterClick = { reporterIdToShow = it },
+                                onReporterClick = { mainViewModel.setReporterIdToShow(it) },
                                 onEditClick = { post ->
                                     editingNewsPost = post
                                     showPostNewsPage = true

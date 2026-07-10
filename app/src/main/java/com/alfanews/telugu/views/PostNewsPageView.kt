@@ -8,16 +8,7 @@ import android.media.MediaMetadataRetriever
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -25,10 +16,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material.icons.filled.VideoLibrary
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.Switch
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -281,210 +269,233 @@ fun PostNewsPageView(
 
     AlfaNewsTheme {
         Column(
-            modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            Text(
-                text = if (postToEdit != null) updateString else publishString,
-                fontSize = 24.sp,
-                fontFamily = Ramabhadra,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+            // Header Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(detailsLabel, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
-                    OutlinedTextField(
-                        value = headline,
-                        onValueChange = { headline = it },
-                        label = { Text(headlineLabel) },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                        )
-                    )
-                    OutlinedTextField(
-                        value = content,
-                        onValueChange = { content = it },
-                        label = { Text(contentLabel) },
-                        modifier = Modifier.fillMaxWidth().height(200.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                        )
+                IconButton(onClick = { onActionComplete("") }) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onBackground
                     )
                 }
+                
+                Text(
+                    text = if (postToEdit != null) updateString else publishString,
+                    fontSize = 20.sp,
+                    fontFamily = Ramabhadra,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
             }
 
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(regionDetailsLabel, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
-
-                    if (user.role == UserRole.ADMIN || user.role == UserRole.NEWS_DESK) {
-                        Row(
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(detailsLabel, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                        OutlinedTextField(
+                            value = headline,
+                            onValueChange = { headline = it },
+                            label = { Text(headlineLabel) },
                             modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(stringResource(R.string.global_news_label), style = MaterialTheme.typography.bodyLarge)
-                                Text(stringResource(R.string.global_news_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Switch(
-                                checked = isGlobalNews,
-                                onCheckedChange = { isGlobalNews = it }
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
                             )
-                        }
+                        )
+                        OutlinedTextField(
+                            value = content,
+                            onValueChange = { content = it },
+                            label = { Text(contentLabel) },
+                            modifier = Modifier.fillMaxWidth().height(200.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                            )
+                        )
                     }
+                }
 
-                    if (!isGlobalNews) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            Dropdown(label = stateLabel, options = stateOptions, selected = state, onSelected = { s -> state = s; district = "" }, modifier = Modifier.weight(1f))
-                            Dropdown(label = districtLabel, options = districtOptions, selected = district, onSelected = { d -> district = d; location = "" }, modifier = Modifier.weight(1f))
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(regionDetailsLabel, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+
+                        if (user.role == UserRole.ADMIN || user.role == UserRole.NEWS_DESK) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(stringResource(R.string.global_news_label), style = MaterialTheme.typography.bodyLarge)
+                                    Text(stringResource(R.string.global_news_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Switch(
+                                    checked = isGlobalNews,
+                                    onCheckedChange = { isGlobalNews = it }
+                                )
+                            }
                         }
 
-                        if (mandals.isNotEmpty()) {
-                            Dropdown(label = mandalLabel, options = mandalOptions, selected = location, onSelected = { l -> location = l }, modifier = Modifier.fillMaxWidth())
-                        } else {
-                            OutlinedTextField(
-                                value = location,
-                                onValueChange = { location = it },
-                                label = { Text(stringResource(R.string.location_placeholder)) },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                        if (!isGlobalNews) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Dropdown(label = stateLabel, options = stateOptions, selected = state, onSelected = { s -> state = s; district = "" }, modifier = Modifier.weight(1f))
+                                Dropdown(label = districtLabel, options = districtOptions, selected = district, onSelected = { d -> district = d; location = "" }, modifier = Modifier.weight(1f))
+                            }
+
+                            if (mandals.isNotEmpty()) {
+                                Dropdown(label = mandalLabel, options = mandalOptions, selected = location, onSelected = { l -> location = l }, modifier = Modifier.fillMaxWidth())
+                            } else {
+                                OutlinedTextField(
+                                    value = location,
+                                    onValueChange = { location = it },
+                                    label = { Text(stringResource(R.string.location_placeholder)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }
-            }
 
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(mediaLabel, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
-                    
-                    val combinedMediaUrls = remember(mediaUrl, mediaUris) {
-                        val existing = if (mediaUrl.isNotEmpty()) listOf(mediaUrl) else emptyList()
-                        existing + mediaUris.map { it.toString() }
-                    }
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(mediaLabel, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                        
+                        val combinedMediaUrls = remember(mediaUrl, mediaUris) {
+                            val existing = if (mediaUrl.isNotEmpty()) listOf(mediaUrl) else emptyList()
+                            existing + mediaUris.map { it.toString() }
+                        }
 
-                    if (combinedMediaUrls.isNotEmpty()) {
-                        val pagerState = rememberPagerState(pageCount = { combinedMediaUrls.size })
-                        Box(modifier = Modifier.fillMaxWidth().height(250.dp).clip(MaterialTheme.shapes.medium)) {
-                            HorizontalPager(
-                                state = pagerState,
-                                modifier = Modifier.fillMaxSize()
-                            ) { page ->
-                                val mediaItem = combinedMediaUrls[page]
-                                val isVideo = mediaItem.contains("video", ignoreCase = true) || 
-                                              context.contentResolver.getType(Uri.parse(mediaItem))?.startsWith("video/") == true
-                                
-                                if (isVideo) {
-                                    VideoPlayerView(videoUrl = mediaItem)
-                                } else {
-                                    AsyncImage(
-                                        model = mediaItem,
-                                        contentDescription = "Selected Media",
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                }
-                            }
-                            
-                            if (combinedMediaUrls.size > 1) {
-                                Row(
-                                    Modifier.height(30.dp).fillMaxWidth().align(Alignment.BottomCenter).background(Color.Black.copy(alpha = 0.3f)),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    repeat(combinedMediaUrls.size) { iteration ->
-                                        val color = if (pagerState.currentPage == iteration) Color.White else Color.White.copy(alpha = 0.5f)
-                                        Box(
-                                            modifier = Modifier.padding(2.dp).clip(CircleShape).background(color).size(8.dp)
+                        if (combinedMediaUrls.isNotEmpty()) {
+                            val pagerState = rememberPagerState(pageCount = { combinedMediaUrls.size })
+                            Box(modifier = Modifier.fillMaxWidth().height(250.dp).clip(MaterialTheme.shapes.medium)) {
+                                HorizontalPager(
+                                    state = pagerState,
+                                    modifier = Modifier.fillMaxSize()
+                                ) { page ->
+                                    val mediaItem = combinedMediaUrls[page]
+                                    val isVideo = mediaItem.contains("video", ignoreCase = true) || 
+                                                  context.contentResolver.getType(Uri.parse(mediaItem))?.startsWith("video/") == true
+                                    
+                                    if (isVideo) {
+                                        VideoPlayerView(videoUrl = mediaItem)
+                                    } else {
+                                        AsyncImage(
+                                            model = mediaItem,
+                                            contentDescription = "Selected Media",
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
                                         )
                                     }
                                 }
-                            }
-
-                            IconButton(
-                                onClick = {
-                                    if (pagerState.currentPage < (if (mediaUrl.isNotEmpty()) 1 else 0)) {
-                                        mediaUrl = ""
-                                    } else {
-                                        val indexInUris = pagerState.currentPage - (if (mediaUrl.isNotEmpty()) 1 else 0)
-                                        mediaUris = mediaUris.filterIndexed { index, _ -> index != indexInUris }
+                                
+                                if (combinedMediaUrls.size > 1) {
+                                    Row(
+                                        Modifier.height(30.dp).fillMaxWidth().align(Alignment.BottomCenter).background(Color.Black.copy(alpha = 0.3f)),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        repeat(combinedMediaUrls.size) { iteration ->
+                                            val color = if (pagerState.currentPage == iteration) Color.White else Color.White.copy(alpha = 0.5f)
+                                            Box(
+                                                modifier = Modifier.padding(2.dp).clip(CircleShape).background(color).size(8.dp)
+                                            )
+                                        }
                                     }
-                                },
-                                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White)
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        if (pagerState.currentPage < (if (mediaUrl.isNotEmpty()) 1 else 0)) {
+                                            mediaUrl = ""
+                                        } else {
+                                            val indexInUris = pagerState.currentPage - (if (mediaUrl.isNotEmpty()) 1 else 0)
+                                            mediaUris = mediaUris.filterIndexed { index, _ -> index != indexInUris }
+                                        }
+                                    },
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White)
+                                }
                             }
                         }
-                    }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Button(
-                            onClick = { imageLauncher.launch("image/*") },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                            modifier = Modifier.weight(1f),
-                            enabled = (mediaUris.size + (if(mediaUrl.isNotEmpty()) 1 else 0)) < 3
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.size(8.dp))
-                            Text("Image")
+                            Button(
+                                onClick = { imageLauncher.launch("image/*") },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                modifier = Modifier.weight(1f),
+                                enabled = (mediaUris.size + (if(mediaUrl.isNotEmpty()) 1 else 0)) < 3
+                            ) {
+                                Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.size(8.dp))
+                                Text("Image")
+                            }
+
+                            Button(
+                                onClick = { videoLauncher.launch("video/*") },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4285F4)),
+                                modifier = Modifier.weight(1f),
+                                enabled = mediaUris.none { context.contentResolver.getType(it)?.startsWith("video/") == true } && (mediaUris.size + (if(mediaUrl.isNotEmpty()) 1 else 0)) < 3
+                            ) {
+                                Icon(Icons.Default.VideoLibrary, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.size(8.dp))
+                                Text("Video")
+                            }
                         }
 
-                        Button(
-                            onClick = { videoLauncher.launch("video/*") },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4285F4)),
-                            modifier = Modifier.weight(1f),
-                            enabled = mediaUris.none { context.contentResolver.getType(it)?.startsWith("video/") == true } && (mediaUris.size + (if(mediaUrl.isNotEmpty()) 1 else 0)) < 3
-                        ) {
-                            Icon(Icons.Default.VideoLibrary, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.size(8.dp))
-                            Text("Video")
-                        }
                     }
-
                 }
-            }
 
-            Button(
-                onClick = { handleSubmit() },
-                enabled = !isSubmitting,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-            ) {
-                if (isSubmitting) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
-                        Text(statusMessage)
+                Button(
+                    onClick = { handleSubmit() },
+                    enabled = !isSubmitting,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    if (isSubmitting) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
+                            Text(statusMessage)
+                        }
+                    } else {
+                        Text(if (postToEdit != null) updateString else publishString, fontSize = 18.sp)
                     }
-                } else {
-                    Text(if (postToEdit != null) updateString else publishString, fontSize = 18.sp)
                 }
             }
         }
