@@ -49,6 +49,7 @@ import com.alfanews.telugu.utils.LocaleHelper
 import com.alfanews.telugu.utils.PreferenceManager
 import com.alfanews.telugu.BuildConfig
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 /**

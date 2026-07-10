@@ -64,6 +64,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isUpdateDownloaded = MutableStateFlow(false)
     val isUpdateDownloaded: StateFlow<Boolean> = _isUpdateDownloaded.asStateFlow()
 
+    private val _minVersionCode = MutableStateFlow(0)
+    val minVersionCode: StateFlow<Int> = _minVersionCode.asStateFlow()
+
     private val _notificationsGranted = MutableStateFlow(true)
     val notificationsGranted: StateFlow<Boolean> = _notificationsGranted.asStateFlow()
 
@@ -223,7 +226,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         startNewsListener()
         startWeatherAlertListener()
+        startAppConfigListener()
         ensureDefaultSubscriptions()
+    }
+
+    private fun startAppConfigListener() {
+        FirebaseService.db.collection("settings").document("android_config")
+            .addSnapshotListener { snapshot, e ->
+                if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                
+                val minCode = (snapshot.get("min_version_code") as? Number)?.toInt() ?: 0
+                _minVersionCode.value = minCode
+            }
     }
 
     private fun startWeatherAlertListener() {
