@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
+import com.alfanews.telugu.models.canPostSurvey
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.R
@@ -100,6 +101,16 @@ fun CreateMenuView(
                         icon = "🎤",
                         gradientColors = listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.secondaryContainer),
                         onClick = { onAction("join_reporter") }
+                    )
+                }
+
+                if (currentUser != null && currentUser.canPostSurvey()) {
+                    CreateMenuButton(
+                        title = "కొత్త సర్వే పోస్ట్ చేయండి",
+                        subtitle = "సింగిల్ లేదా మల్టీ-పేజీ పోల్ / ఒపీనియన్",
+                        icon = "📊",
+                        gradientColors = listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.secondaryContainer),
+                        onClick = { onAction("survey") }
                     )
                 }
                 

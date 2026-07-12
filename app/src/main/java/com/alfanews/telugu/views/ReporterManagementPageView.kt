@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.*
@@ -47,12 +48,14 @@ import kotlinx.coroutines.tasks.await
 fun ReporterManagementPageView(currentUser: User) {
     val reportersViewModel: ReportersViewModel = viewModel()
     val reporterStats by reportersViewModel.reporterStats.collectAsStateWithLifecycle()
+    val reporters by reportersViewModel.filteredReporters.collectAsStateWithLifecycle()
+    val searchQuery by reportersViewModel.searchQuery.collectAsStateWithLifecycle()
+    val sortOrder by reportersViewModel.sortOrder.collectAsStateWithLifecycle()
 
     var selectedTab by remember { mutableStateOf(0) }
     val tabs = listOf("దరఖాస్తులు", "రిపోర్టర్లు")
 
     var applications by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
-    var reporters by remember { mutableStateOf<List<User>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
 
@@ -71,26 +74,15 @@ fun ReporterManagementPageView(currentUser: User) {
                         baseQuery.get().await()
                     }
                     applications = snapshot.documents.map { doc -> doc.data?.plus("id" to doc.id) ?: emptyMap() }
+                    loading = false
                 } else {
-                    val baseQuery = FirebaseService.db.collection("users")
-                        .whereEqualTo("role", "REPORTER")
-
-                    val snapshot = if (currentUser.role == UserRole.REGIONAL_INCHARGE) {
-                        baseQuery.whereIn("district", currentUser.assignedDistricts).get().await()
-                    } else {
-                        baseQuery.get().await()
-                    }
-                    reporters = snapshot.documents.mapNotNull { it.toUserObject() }
-                    
-                    // Fetch stats for these reporters
-                    if (reporters.isNotEmpty()) {
-                        reportersViewModel.fetchReportersForStats(reporters.map { it.id })
-                    }
+                    reportersViewModel.fetchReporters(currentUser)
+                    // ReportersViewModel updates the 'reporters' state flow, which we observe
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
-                loading = false
+                if (selectedTab == 0) loading = false
             }
         }
     }
@@ -98,6 +90,10 @@ fun ReporterManagementPageView(currentUser: User) {
     LaunchedEffect(selectedTab) {
         fetchData()
     }
+    
+    // Sync loading state with ViewModel when on reporters tab
+    val vmLoading by reportersViewModel.loading.collectAsStateWithLifecycle()
+    val effectiveLoading = if (selectedTab == 1) vmLoading else loading
 
     Column(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         TabRow(
@@ -120,8 +116,70 @@ fun ReporterManagementPageView(currentUser: User) {
             }
         }
 
+        if (selectedTab == 1) {
+            // Search and Sort Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { reportersViewModel.setSearchQuery(it) },
+                    placeholder = { Text("పేరు లేదా ఫోన్ నంబర్", fontSize = 12.sp, color = Color.Gray) },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(18.dp)) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color.White.copy(alpha = 0.5f),
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                        cursorColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(24.dp)
+                )
+
+                var sortExpanded by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(
+                        onClick = { sortExpanded = true },
+                        modifier = Modifier
+                            .background(Color.White.copy(alpha = 0.1f), CircleShape)
+                            .size(40.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort", tint = Color.White)
+                    }
+                    DropdownMenu(
+                        expanded = sortExpanded,
+                        onDismissRequest = { sortExpanded = false },
+                        modifier = Modifier.background(Color(0xFF1E1E1E))
+                    ) {
+                        val options = listOf(
+                            "Recent" to "ఇటీవలి",
+                            "Points" to "పాయింట్లు",
+                            "Today" to "ఈ రోజు పోస్ట్లు",
+                            "Week" to "వారపు పోస్ట్లు",
+                            "Name" to "పేరు"
+                        )
+                        options.forEach { (key, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label, color = if (sortOrder == key) Color.White else Color.Gray) },
+                                onClick = {
+                                    reportersViewModel.setSortOrder(key)
+                                    sortExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // Admin Backfill Button
-        if (currentUser.role == UserRole.ADMIN) {
+        if (currentUser.role == UserRole.ADMIN && selectedTab == 1) {
             val context = LocalContext.current
             var isBackfilling by remember { mutableStateOf(false) }
             
@@ -144,7 +202,7 @@ fun ReporterManagementPageView(currentUser: User) {
                         }
                     }
                 },
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
                 enabled = !isBackfilling
             ) {
@@ -158,13 +216,13 @@ fun ReporterManagementPageView(currentUser: User) {
             }
         }
 
-        if (loading) {
+        if (effectiveLoading && (selectedTab == 0 || (selectedTab == 1 && reporters.isEmpty()))) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(16.dp),
+                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 if (selectedTab == 0) {
@@ -181,7 +239,7 @@ fun ReporterManagementPageView(currentUser: User) {
                     }
                 } else {
                     if (reporters.isEmpty()) {
-                        item { Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) { Text("రిపోర్టర్లు ఎవరూ లేరు.") } }
+                        item { Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) { Text(if (searchQuery.isEmpty()) "రిపోర్టర్లు ఎవరూ లేరు." else "సరిపోలే రిపోర్టర్లు లేరు.") } }
                     } else {
                         items(reporters, key = { it.id }) { reporter ->
                             ReporterListCard(

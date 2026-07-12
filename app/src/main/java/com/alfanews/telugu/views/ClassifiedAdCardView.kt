@@ -17,10 +17,11 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.alfanews.telugu.models.ClassifiedAd
 import java.text.NumberFormat
-import java.text.SimpleDateFormat
+import com.alfanews.telugu.utils.DateTimeUtils
+import java.util.*
 import java.util.*
 
-private val dateFormat = SimpleDateFormat("dd MMM yyyy", Locale("en", "IN"))
+private val dateFormat = DateTimeUtils.getSimpleDateFormat("dd MMM yyyy", Locale("en", "IN"))
 
 private val priceFormat = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
 

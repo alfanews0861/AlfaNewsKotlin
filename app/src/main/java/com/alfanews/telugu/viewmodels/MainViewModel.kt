@@ -343,77 +343,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun mapDocumentToNewsPost(doc: com.google.firebase.firestore.DocumentSnapshot): NewsPost? {
         return try {
             val data = doc.data ?: return null
-            val rawHeadline = data["headline"]
-            val rawContent = data["content"]
-            
-            val headlineTe = when (rawHeadline) {
-                is Map<*, *> -> rawHeadline["telugu"]?.toString() ?: ""
-                is String -> rawHeadline
-                else -> ""
-            }
-            val headlineEn = when (rawHeadline) {
-                is Map<*, *> -> rawHeadline["english"]?.toString() ?: ""
-                else -> ""
-            }
-            
-            val contentTe = when (rawContent) {
-                is Map<*, *> -> rawContent["telugu"]?.toString() ?: ""
-                is String -> rawContent
-                else -> ""
-            }
-            val contentEn = when (rawContent) {
-                is Map<*, *> -> rawContent["english"]?.toString() ?: ""
-                else -> ""
-            }
-
-            val likesCount = (data["likes"] as? Number)?.toInt() ?: 0
-            val commentsCount = (data["comments"] as? Number)?.toInt() ?: 0
-            val sharesCount = (data["shares"] as? Number)?.toInt() ?: 0
-            val postTimestamp = when (val ts = data["timestamp"]) {
-                is Timestamp -> ts.toDate().time
-                is Number -> ts.toLong()
-                is Date -> ts.time
-                else -> System.currentTimeMillis()
-            }
-            val categoryValue = data["category"]?.toString() ?: "General News"
-            val categoriesList = (data["categories"] as? List<*>)?.mapNotNull { it?.toString() } ?: listOf(categoryValue)
-
-            NewsPost(
-                id = doc.id,
-                headline = Headline(telugu = headlineTe, english = headlineEn),
-                content = Content(telugu = contentTe, english = contentEn),
-                mediaUrl = data["mediaUrl"]?.toString() ?: "",
-                mediaType = if (data["mediaType"]?.toString() == "VIDEO") MediaType.VIDEO else MediaType.IMAGE,
-                youtubeUrl = data["youtubeUrl"]?.toString(),
-                postFormat = if (data["postFormat"]?.toString() == "16:9") PostFormat.HORIZONTAL else PostFormat.VERTICAL,
-                reporter = Reporter(
-                    id = (data["reporter"] as? Map<*, *>)?.get("id")?.toString() ?: "",
-                    name = (data["reporter"] as? Map<*, *>)?.get("name")?.toString() ?: ""
-                ),
-                location = data["location"]?.toString() ?: "",
-                timestamp = postTimestamp,
-                categories = categoriesList,
-                likes = likesCount,
-                comments = commentsCount,
-                shares = sharesCount,
-                originalUrl = data["originalUrl"]?.toString(),
-                district = data["district"]?.toString() ?: "State",
-                verificationStatus = data["verificationStatus"]?.toString() ?: "UNVERIFIED",
-                category = categoryValue,
-                tags = (data["tags"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
-                entities = (data["entities"] as? Map<*, *>)?.let { entitiesMap ->
-                    Entities(
-                        people = (entitiesMap["people"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
-                        organizations = (entitiesMap["organizations"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
-                        locations = (entitiesMap["locations"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
-                    )
-                } ?: Entities(),
-                type = data["type"]?.toString() ?: "news",
-                approved = data["approved"] as? Boolean ?: false,
-                aiProcessed = data["aiProcessed"] as? Boolean ?: false,
-                isGlobal = data["isGlobal"] as? Boolean ?: false,
-                isReporter = data["isReporter"] as? Boolean ?: (data["processingType"]?.toString() == "REPORTER_SUBMISSION")
-            )
+            com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
         } catch (ex: Exception) { null }
     }
 

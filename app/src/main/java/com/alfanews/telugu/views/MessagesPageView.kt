@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.alfanews.telugu.utils.DateTimeUtils
 import com.alfanews.telugu.models.AppMessage
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.services.FirebaseService
@@ -144,8 +145,9 @@ fun MessagesPageView(
 
 @Composable
 fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
-    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()) }
-    val dateStr = remember(msg.timestamp) { dateFormat.format(Date(msg.timestamp)) }
+    val dateStr = remember(msg.timestamp) { 
+        DateTimeUtils.formatTimestamp(msg.timestamp, "dd MMM yyyy, hh:mm a") 
+    }
 
     val bgColor = when(msg.importance) {
         "CRITICAL" -> Color(0xFFFEF2F2)

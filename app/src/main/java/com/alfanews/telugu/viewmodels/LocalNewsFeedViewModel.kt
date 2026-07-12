@@ -425,70 +425,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
 
     private fun convertToNewsPost(id: String, data: Map<String, Any?>): NewsPost? {
-         try {
-            val type = data["type"]?.toString() ?: "news"
-            val likesCount = (data["likes"] as? Number)?.toInt() ?: 0
-            val commentsCount = (data["comments"] as? Number)?.toInt() ?: 0
-            val sharesCount = (data["shares"] as? Number)?.toInt() ?: 0
-            val postTimestamp = when (val ts = data["timestamp"]) {
-                is com.google.firebase.Timestamp -> ts.toDate().time
-                is Number -> ts.toLong()
-                is java.util.Date -> ts.time
-                else -> System.currentTimeMillis()
-            }
-            val categoriesList = (data["categories"] as? List<*>)?.mapNotNull { it?.toString() }
-                ?: listOfNotNull(data["category"]?.toString(), data["district"]?.toString())
-
-            val mediaUrls = (data["mediaUrls"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
-            val mediaTypes = (data["mediaTypes"] as? List<*>)?.mapNotNull { typeStr ->
-                when (typeStr?.toString()) {
-                    "VIDEO" -> com.alfanews.telugu.models.MediaType.VIDEO
-                    else -> com.alfanews.telugu.models.MediaType.IMAGE
-                }
-            } ?: emptyList()
-
-            return NewsPost(
-                id = id,
-                headline = com.alfanews.telugu.models.Headline(
-                    telugu = (data["headline"] as? Map<*, *>)?.get("telugu")?.toString() ?: "",
-                    english = (data["headline"] as? Map<*, *>)?.get("english")?.toString() ?: ""
-                ),
-                content = com.alfanews.telugu.models.Content(
-                    telugu = (data["content"] as? Map<*, *>)?.get("telugu")?.toString() ?: "",
-                    english = (data["content"] as? Map<*, *>)?.get("english")?.toString() ?: ""
-                ),
-                mediaUrl = data["mediaUrl"]?.toString() ?: "",
-                mediaType = when (data["mediaType"]?.toString()) {
-                    "VIDEO" -> com.alfanews.telugu.models.MediaType.VIDEO
-                    else -> com.alfanews.telugu.models.MediaType.IMAGE
-                },
-                mediaUrls = mediaUrls,
-                mediaTypes = mediaTypes,
-                youtubeUrl = data["youtubeUrl"]?.toString(),
-                postFormat = when (data["postFormat"]?.toString()) {
-                    "16:9" -> com.alfanews.telugu.models.PostFormat.HORIZONTAL
-                    else -> com.alfanews.telugu.models.PostFormat.VERTICAL
-                },
-                reporter = com.alfanews.telugu.models.Reporter(
-                    id = (data["reporter"] as? Map<*, *>)?.get("id")?.toString() ?: "",
-                    name = (data["reporter"] as? Map<*, *>)?.get("name")?.toString() ?: ""
-                ),
-                location = data["location"]?.toString() ?: "",
-                timestamp = postTimestamp,
-                categories = categoriesList,
-                likes = likesCount,
-                comments = commentsCount,
-                shares = sharesCount,
-                originalUrl = data["originalUrl"]?.toString(),
-                district = data["district"]?.toString(),
-                verificationStatus = data["verificationStatus"]?.toString() ?: "UNVERIFIED",
-                type = type,
-                approved = data["approved"] as? Boolean ?: false,
-                aiProcessed = data["aiProcessed"] as? Boolean ?: false,
-                isGlobal = data["isGlobal"] as? Boolean ?: false
-            )
-        } catch(e: Exception) {
-            return null
+        return try {
+            com.alfanews.telugu.models.mapMapToNewsPost(id, data)
+        } catch (e: Exception) {
+            null
         }
     }
 }

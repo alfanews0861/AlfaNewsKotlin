@@ -42,7 +42,7 @@ import com.alfanews.telugu.viewmodels.ClassifiedsViewModel
 import com.google.android.gms.ads.nativead.NativeAd
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
-import java.text.SimpleDateFormat
+import com.alfanews.telugu.utils.DateTimeUtils
 import java.util.*
 
 enum class ClassifiedsViewMode {
@@ -407,7 +407,7 @@ fun ClassifiedAdDetailView(
 ) {
     val context = LocalContext.current
     val priceFormat = remember { NumberFormat.getCurrencyInstance(Locale("en", "IN")) }
-    val dateFormat = remember { SimpleDateFormat("dd MMMM yyyy", Locale.getDefault()) }
+    val dateFormat = remember { DateTimeUtils.getSimpleDateFormat("dd MMMM yyyy", Locale.getDefault()) }
 
     Column(
         modifier = Modifier

@@ -96,21 +96,6 @@ export async function awardPointsToReporter(reporterId: string, points: number) 
         const userRef = db.collection('users').doc(reporterId);
         await db.runTransaction(async (transaction) => {
             const doc = await transaction.get(userRef);
-            if (!doc.exists) return;
-            const data = doc.data()!;
-            const currentPoints = (data.points || 0) + points;
-
-            // Calculate badges
-            const badges: string[] = [];
-            if (currentPoints >= 100) badges.push("BRONZE");
-            if (currentPoints >= 500) badges.push("SILVER");
-            if (currentPoints >= 2000) badges.push("GOLD");
-            if (currentPoints >= 10000) badges.push("DIAMOND");
-
-            transaction.update(userRef, {
-                points: currentPoints,
-                badges: badges
-            });
 
             // --- MONTHLY LEADERBOARD TRACKING ---
             const now = new Date();
@@ -122,6 +107,23 @@ export async function awardPointsToReporter(reporterId: string, points: number) 
                 .collection('reporters').doc(reporterId);
 
             const monthlyDoc = await transaction.get(monthlyRef);
+            // ------------------------------------
+
+            const data = doc.exists ? doc.data()! : {};
+            const currentPoints = (data.points || 0) + points;
+
+            // Calculate badges
+            const badges: string[] = [];
+            if (currentPoints >= 100) badges.push("BRONZE");
+            if (currentPoints >= 500) badges.push("SILVER");
+            if (currentPoints >= 2000) badges.push("GOLD");
+            if (currentPoints >= 10000) badges.push("DIAMOND");
+
+            transaction.set(userRef, {
+                points: currentPoints,
+                badges: badges
+            }, { merge: true });
+
             if (monthlyDoc.exists) {
                 transaction.update(monthlyRef, {
                     points: admin.firestore.FieldValue.increment(points),
@@ -138,7 +140,6 @@ export async function awardPointsToReporter(reporterId: string, points: number) 
                     lastUpdated: admin.firestore.FieldValue.serverTimestamp()
                 });
             }
-            // ------------------------------------
         });
         console.log(`[POINTS] Awarded ${points} points to ${reporterId}`);
     } catch (e: any) {
@@ -382,9 +383,9 @@ export const onNewsPostApproved = onDocumentWritten({
         if (!reporterId || reporterId.startsWith('BOT_') || reporterId.startsWith('SYSTEM_')) return;
 
         console.log(`[POST_APPROVED] Updating lastPostTimestamp for reporter: ${reporterId}`);
-        await db.collection('users').doc(reporterId).update({
+        await db.collection('users').doc(reporterId).set({
             lastPostTimestamp: after.timestamp || admin.firestore.FieldValue.serverTimestamp()
-        });
+        }, { merge: true });
     }
 });
 
@@ -434,7 +435,7 @@ export const verifyReporter = onRequest(async (req, res) => {
         const statusColor = isVerified ? '#2ecc71' : '#e74c3c';
         const statusText = isVerified ? 'VERIFIED REPORTER ✅' : 'NOT A REPORTER ❌';
 
-        const html = \`
+        const html = `
             <!DOCTYPE html>
             <html lang="te">
             <head>
@@ -455,7 +456,7 @@ export const verifyReporter = onRequest(async (req, res) => {
                     .details { text-align: left; margin: 20px 0; border-top: 1px solid #eee; padding-top: 15px; }
                     .detail-item { margin-bottom: 12px; font-size: 15px; color: #555; display: flex; }
                     .detail-label { font-weight: bold; color: #333; width: 90px; flex-shrink: 0; }
-                    .status { display: inline-block; padding: 12px 25px; border-radius: 30px; background: \${statusColor}; color: white; font-weight: bold; margin-top: 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-size: 16px; }
+                    .status { display: inline-block; padding: 12px 25px; border-radius: 30px; background: ${statusColor}; color: white; font-weight: bold; margin-top: 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-size: 16px; }
                     .footer { padding: 15px; background: #f9f9f9; font-size: 12px; color: #999; border-top: 1px solid #eee; }
                     @media (max-width: 480px) {
                         .card { margin: 10px; }
@@ -471,31 +472,31 @@ export const verifyReporter = onRequest(async (req, res) => {
                     </div>
 
                     <div class="photo-container">
-                        <img src="\${user?.photoUrl || 'https://via.placeholder.com/160x200?text=No+Photo'}" alt="\${user?.name}" class="photo">
+                        <img src="${user?.photoUrl || 'https://via.placeholder.com/160x200?text=No+Photo'}" alt="${user?.name}" class="photo">
                     </div>
 
                     <div class="info">
-                        <div class="name">\${user?.name}</div>
-                        <div class="role">\${user?.role?.replace('_', ' ')}</div>
+                        <div class="name">${user?.name}</div>
+                        <div class="role">${user?.role?.replace('_', ' ')}</div>
 
-                        <div class="status">\${statusText}</div>
+                        <div class="status">${statusText}</div>
 
                         <div class="details">
-                            <div class="detail-item"><span class="detail-label">ID No:</span> <span>\${reporterId.slice(-8).toUpperCase()}</span></div>
-                            <div class="detail-item"><span class="detail-label">District:</span> <span>\${user?.district || 'N/A'}</span></div>
-                            <div class="detail-item"><span class="detail-label">Mandal:</span> <span>\${user?.assignedMandal || user?.mandal || 'N/A'}</span></div>
+                            <div class="detail-item"><span class="detail-label">ID No:</span> <span>${reporterId.slice(-8).toUpperCase()}</span></div>
+                            <div class="detail-item"><span class="detail-label">District:</span> <span>${user?.district || 'N/A'}</span></div>
+                            <div class="detail-item"><span class="detail-label">Mandal:</span> <span>${user?.assignedMandal || user?.mandal || 'N/A'}</span></div>
                             <div class="detail-item"><span class="detail-label">Valid Upto:</span> <span>31-12-2027</span></div>
                         </div>
                     </div>
 
                     <div class="footer">
                         © 2026 Alfa News Media Group. This is a digitally verified identity. <br>
-                        Verification Date: \${new Date().toLocaleDateString('te-IN')}
+                        Verification Date: ${new Date().toLocaleDateString('te-IN')}
                     </div>
                 </div>
             </body>
             </html>
-        \`;
+        `;
 
         res.status(200).send(html);
     } catch (error: any) {

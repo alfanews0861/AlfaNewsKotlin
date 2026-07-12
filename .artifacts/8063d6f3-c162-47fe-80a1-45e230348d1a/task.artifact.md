@@ -1,0 +1,6 @@
+- [x] Fix Firestore Transaction Read/Write Order in `awardPointsToReporter`
+- [x] Deploy updated functions
+- [x] Verify fix in logs
+- [/] Enhance Voice Over quality to "Studio Stereo"
+- [ ] Deploy `onNewsPostCreated` only
+- [ ] Verify audio quality

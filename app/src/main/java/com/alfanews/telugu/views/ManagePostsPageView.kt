@@ -30,6 +30,7 @@ import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.services.FirebaseFunctionsService
 import com.alfanews.telugu.services.FirebaseService
+import com.alfanews.telugu.utils.DateTimeUtils
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -50,7 +51,6 @@ fun ManagePostsPageView(
     var isBroadcasting by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val dateFormat = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
 
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
     var showBroadcastDialog by remember { mutableStateOf<NewsPost?>(null) }
@@ -288,7 +288,7 @@ fun ManagePostsPageView(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        val timeString = dateFormat.format(Date(post.timestamp))
+                                        val timeString = DateTimeUtils.formatTimestamp(post.timestamp, "dd MMM, hh:mm a")
                                         Text(
                                             text = "${post.categories.firstOrNull() ?: "General"} • ${post.reporter.name} • $timeString",
                                             style = MaterialTheme.typography.bodySmall,
@@ -299,14 +299,23 @@ fun ManagePostsPageView(
 
                                         // Status Badge
                                         val statusColor = if (post.approved) Color(0xFF4CAF50) else Color(0xFFFF9800)
-                                        val statusText = if (post.approved) "LIVE" else "PENDING"
+                                        val statusLabel = when (post.status?.uppercase()) {
+                                            "PENDING" -> "పరిశీలనలో ఉంది..."
+                                            "REVIEWING_CONTENT" -> "సిద్ధమవుతోంది..."
+                                            "PROCESSING_VIDEO" -> "వీడియో తయారవుతోంది..."
+                                            "PROCESSING_VIDEO_START" -> "ప్రచురించబడుతోంది..."
+                                            "PUBLISHED" -> "LIVE"
+                                            "FAILED" -> "విఫలమైంది"
+                                            "REJECTED" -> "తిరస్కరించబడింది"
+                                            else -> if (post.approved) "LIVE" else "PENDING"
+                                        }
                                         
                                         Surface(
                                             color = statusColor.copy(alpha = 0.15f),
                                             shape = RoundedCornerShape(6.dp)
                                         ) {
                                             Text(
-                                                text = statusText,
+                                                text = statusLabel,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.ExtraBold,
                                                 color = statusColor,

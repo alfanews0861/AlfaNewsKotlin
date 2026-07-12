@@ -7,8 +7,8 @@ export const REGION = "asia-south1";
 export const SCHEDULED_MODEL = "gemini-3.1-flash-lite";
 export const PRO_MODEL = "gemini-3.1-flash-lite";
 export const FLASH_MODEL = "gemini-3.1-flash-lite";
-export const IMAGEN_MODEL = "gemini-3.1-flash-image";
-export const IMAGEN_FAST_MODEL = "gemini-3.1-flash-image";
+export const IMAGEN_MODEL = "gemini-3.1-flash-image-preview";
+export const IMAGEN_FAST_MODEL = "gemini-3.1-flash-image-preview";
 
 /**
  * Converts any string into a safe FCM topic name.
@@ -252,21 +252,41 @@ export async function generateImageWithRetry(
     aspectRatio: '1:1' | '9:16' | '16:9' | '3:4' | '4:3' = '9:16',
     retriesUnused = 3
 ): Promise<Buffer | null> {
-    const modelsToTry = [IMAGEN_MODEL, "imagen-3.0-generate-002", "imagen-3.0-generate-001"];
+    const modelsToTry = [
+        "gemini-3.1-flash-image-preview",
+        "imagen-4.0-generate-001",
+        "gemini-2.5-flash-image",
+        "imagen-3.0-generate-002"
+    ];
 
     try {
         return await runWithAIFallback(async (ai, modelName) => {
+            const isImagen = modelName.includes("imagen");
+
+            // For Gemini models, we append aspect ratio to the prompt as they don't support the parameter yet
+            const finalPrompt = isImagen ? prompt : `${prompt} [Aspect Ratio: ${aspectRatio}]`;
+
+            const config: any = {
+                temperature: 0.9
+            };
+
+            // Gemini Native Image models MUST have these modalities
+            if (!isImagen) {
+                config.responseModalities = ["TEXT", "IMAGE"];
+            } else {
+                // Imagen supports explicit aspect ratio
+                config.aspectRatio = aspectRatio.replace(":", "x"); // converts 16:9 to 16x9
+            }
+
             const response = await ai.models.generateContent({
                 model: modelName,
-                contents: [{ role: "user", parts: [{ text: prompt }] }],
-                config: {
-                    // @ts-ignore - responseModalities is newer
-                    responseModalities: ["IMAGE"],
-                }
+                contents: [{ role: "user", parts: [{ text: finalPrompt }] }],
+                generationConfig: config
             });
 
             if (response.candidates && response.candidates.length > 0) {
                 const parts = response.candidates[0].content.parts;
+                // Look for inlineData in any part (Gemini returns TEXT and IMAGE interleaved)
                 const imagePart = parts.find((p: any) => p.inlineData);
                 if (imagePart && imagePart.inlineData) {
                     return Buffer.from(imagePart.inlineData.data, 'base64');

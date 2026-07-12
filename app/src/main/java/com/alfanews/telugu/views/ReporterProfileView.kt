@@ -38,7 +38,8 @@ import com.google.firebase.Timestamp
 import com.alfanews.telugu.services.FirebaseService
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import java.text.SimpleDateFormat
+import com.alfanews.telugu.utils.DateTimeUtils
+import java.util.*
 import java.util.*
 
 private fun getTimestampValue(data: Map<String, Any?>): Long {
@@ -52,40 +53,7 @@ private fun getTimestampValue(data: Map<String, Any?>): Long {
 }
 
 private fun mapDocumentToNewsPost(id: String, data: Map<String, Any?>): NewsPost {
-    return NewsPost(
-        id = id,
-        headline = com.alfanews.telugu.models.Headline(
-            telugu = (data["headline"] as? Map<*, *>)?.get("telugu") as? String ?: "",
-            english = (data["headline"] as? Map<*, *>)?.get("english") as? String ?: ""
-        ),
-        content = com.alfanews.telugu.models.Content(
-            telugu = (data["content"] as? Map<*, *>)?.get("telugu") as? String ?: "",
-            english = (data["content"] as? Map<*, *>)?.get("english") as? String ?: ""
-        ),
-        mediaUrl = data["mediaUrl"] as? String ?: "",
-        mediaType = when (data["mediaType"] as? String) {
-            "VIDEO" -> com.alfanews.telugu.models.MediaType.VIDEO
-            else -> com.alfanews.telugu.models.MediaType.IMAGE
-        },
-        youtubeUrl = data["youtubeUrl"] as? String,
-        postFormat = when (data["postFormat"] as? String) {
-            "16:9" -> com.alfanews.telugu.models.PostFormat.HORIZONTAL
-            else -> com.alfanews.telugu.models.PostFormat.VERTICAL
-        },
-        reporter = com.alfanews.telugu.models.Reporter(
-            id = (data["reporter"] as? Map<*, *>)?.get("id") as? String ?: "",
-            name = (data["reporter"] as? Map<*, *>)?.get("name") as? String ?: ""
-        ),
-        location = data["location"] as? String ?: "",
-        timestamp = getTimestampValue(data),
-        categories = data["categories"] as? List<String> ?: emptyList(),
-        likes = (data["likes"] as? Long)?.toInt() ?: 0,
-        comments = (data["comments"] as? Long)?.toInt() ?: 0,
-        shares = (data["shares"] as? Long)?.toInt() ?: 0,
-        originalUrl = data["originalUrl"] as? String,
-        district = data["district"] as? String,
-        verificationStatus = data["verificationStatus"] as? String ?: "UNVERIFIED"
-    )
+    return com.alfanews.telugu.models.mapMapToNewsPost(id, data)
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -421,7 +389,7 @@ fun PostThumbnailCard(
     post: NewsPost,
     onClick: () -> Unit
 ) {
-    val dateFormat = remember { SimpleDateFormat("dd MMM", Locale.getDefault()) }
+    val dateFormat = remember { DateTimeUtils.getSimpleDateFormat("dd MMM", Locale.getDefault()) }
     val formattedDate = remember(post.timestamp) {
         dateFormat.format(Date(post.timestamp))
     }

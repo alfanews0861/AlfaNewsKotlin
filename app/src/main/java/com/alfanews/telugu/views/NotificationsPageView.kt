@@ -31,7 +31,8 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import java.text.SimpleDateFormat
+import com.alfanews.telugu.utils.DateTimeUtils
+import java.util.*
 import java.util.*
 
 @Composable
@@ -234,7 +235,7 @@ fun NotificationItem(
     notification: AppNotification,
     onClick: () -> Unit
 ) {
-    val dateFormat = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
+    val dateFormat = remember { DateTimeUtils.getSimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
     val formattedDate = remember(notification.timestamp) {
         dateFormat.format(Date(notification.timestamp))
     }

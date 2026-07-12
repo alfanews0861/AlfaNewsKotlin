@@ -235,7 +235,7 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
                     // Send to Cloud Function for unified processing
                     val result = FirebaseFunctionsService.processNewsPost(postData = newsData).getOrThrow()
                     
-                    Toast.makeText(context, "ధన్యవాదాలు! మీ ప్రజా సమస్య విజయవంతంగా పంపబడింది. AI విశ్లేషణ తర్వాత ప్రచురించబడుతుంది.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "ధన్యవాదాలు! మీ ప్రజా సమస్య విజయవంతంగా పంపబడింది. పరిశీలన తర్వాత ప్రచురించబడుతుంది.", Toast.LENGTH_LONG).show()
                     onClose()
                 } catch (e: Exception) {
                     Toast.makeText(context, "పంపడంలో లోపం: ${e.message}", Toast.LENGTH_LONG).show()

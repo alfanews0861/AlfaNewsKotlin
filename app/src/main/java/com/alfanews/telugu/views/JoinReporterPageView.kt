@@ -12,6 +12,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -52,6 +54,8 @@ fun JoinReporterPageView(
     var occupiedMandals by remember { mutableStateOf<Set<String>>(emptySet()) }
     var isLoadingOccupied by remember { mutableStateOf(true) }
     
+    val scrollState = rememberScrollState()
+    
     // Dropdown expanded states
     var districtExpanded by remember { mutableStateOf(false) }
     var mandalExpanded by remember { mutableStateOf(false) }
@@ -78,6 +82,21 @@ fun JoinReporterPageView(
     val availableMandalsList = remember(selectedDistrict, mandalsList, occupiedMandals) {
         mandalsList.filter { !occupiedMandals.contains("$selectedDistrict|$it") }
     }
+
+    // Validation focus markers (Positions relative to scrollable content)
+    var fullNameY by remember { mutableFloatStateOf(0f) }
+    var fatherNameY by remember { mutableFloatStateOf(0f) }
+    var phoneY by remember { mutableFloatStateOf(0f) }
+    var addressY by remember { mutableFloatStateOf(0f) }
+    var districtY by remember { mutableFloatStateOf(0f) }
+    var positionY by remember { mutableFloatStateOf(0f) }
+    var areaY by remember { mutableFloatStateOf(0f) }
+    var educationY by remember { mutableFloatStateOf(0f) }
+    var orgY by remember { mutableFloatStateOf(0f) }
+    var messageY by remember { mutableFloatStateOf(0f) }
+
+    // Coordinates of the scrollable content for relative calculation
+    var contentCoordinates by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
 
     LaunchedEffect(Unit) {
         try {
@@ -111,40 +130,16 @@ fun JoinReporterPageView(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp)
         ) {
             Column(
                 modifier = Modifier.fillMaxSize()
             ) {
-                // Header Row
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onClose) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                    
-                    Text(
-                        text = stringResource(R.string.join_reporter),
-                        fontSize = 20.sp,
-                        fontFamily = Ramabhadra,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-                }
-
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState()),
+                        .padding(horizontal = 16.dp)
+                        .onGloballyPositioned { contentCoordinates = it }
+                        .verticalScroll(scrollState),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Spacer(modifier = Modifier.height(8.dp))
@@ -170,7 +165,9 @@ fun JoinReporterPageView(
                                 value = fullName,
                                 onValueChange = { fullName = it },
                                 label = { Text(stringResource(R.string.full_name), fontFamily = Mallanna) },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().onGloballyPositioned { 
+                                    contentCoordinates?.let { parent -> fullNameY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
+                                },
                                 singleLine = true,
                                 shape = MaterialTheme.shapes.medium,
                                 colors = OutlinedTextFieldDefaults.colors(
@@ -183,7 +180,9 @@ fun JoinReporterPageView(
                                 value = fatherName,
                                 onValueChange = { fatherName = it },
                                 label = { Text(stringResource(R.string.father_name), fontFamily = Mallanna) },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().onGloballyPositioned { 
+                                    contentCoordinates?.let { parent -> fatherNameY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
+                                },
                                 singleLine = true,
                                 shape = MaterialTheme.shapes.medium,
                                 colors = OutlinedTextFieldDefaults.colors(
@@ -196,11 +195,28 @@ fun JoinReporterPageView(
                                 value = phone,
                                 onValueChange = { phone = it },
                                 label = { Text(stringResource(R.string.phone_number_label), fontFamily = Mallanna) },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().onGloballyPositioned { 
+                                    contentCoordinates?.let { parent -> phoneY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
+                                },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(
                                     keyboardType = KeyboardType.Phone
                                 ),
+                                shape = MaterialTheme.shapes.medium,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                )
+                            )
+
+                            OutlinedTextField(
+                                value = address,
+                                onValueChange = { address = it },
+                                label = { Text("చిరునామా (Address)", fontFamily = Mallanna) },
+                                modifier = Modifier.fillMaxWidth().onGloballyPositioned { 
+                                    contentCoordinates?.let { parent -> addressY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
+                                },
+                                singleLine = true,
                                 shape = MaterialTheme.shapes.medium,
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -246,7 +262,10 @@ fun JoinReporterPageView(
                             
                             ExposedDropdownMenuBox(
                                 expanded = districtExpanded,
-                                onExpandedChange = { districtExpanded = !districtExpanded }
+                                onExpandedChange = { districtExpanded = !districtExpanded },
+                                modifier = Modifier.onGloballyPositioned { 
+                                    contentCoordinates?.let { parent -> districtY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
+                                }
                             ) {
                                 OutlinedTextField(
                                     value = selectedDistrict,
@@ -333,7 +352,10 @@ fun JoinReporterPageView(
                             var posExpanded by remember { mutableStateOf(false) }
                             ExposedDropdownMenuBox(
                                 expanded = posExpanded,
-                                onExpandedChange = { posExpanded = !posExpanded }
+                                onExpandedChange = { posExpanded = !posExpanded },
+                                modifier = Modifier.onGloballyPositioned { 
+                                    contentCoordinates?.let { parent -> positionY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
+                                }
                             ) {
                                 OutlinedTextField(
                                     value = position,
@@ -368,7 +390,9 @@ fun JoinReporterPageView(
                                 value = interestedArea,
                                 onValueChange = { interestedArea = it },
                                 label = { Text(stringResource(R.string.interested_category), fontFamily = Mallanna) },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().onGloballyPositioned { 
+                                    contentCoordinates?.let { parent -> areaY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
+                                },
                                 singleLine = true,
                                 shape = MaterialTheme.shapes.medium,
                                 colors = OutlinedTextFieldDefaults.colors(
@@ -381,7 +405,9 @@ fun JoinReporterPageView(
                                 value = education,
                                 onValueChange = { education = it },
                                 label = { Text(stringResource(R.string.education_qualification), fontFamily = Mallanna) },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().onGloballyPositioned { 
+                                    contentCoordinates?.let { parent -> educationY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
+                                },
                                 singleLine = true,
                                 shape = MaterialTheme.shapes.medium,
                                 colors = OutlinedTextFieldDefaults.colors(
@@ -394,7 +420,9 @@ fun JoinReporterPageView(
                                 value = currentOrg,
                                 onValueChange = { currentOrg = it },
                                 label = { Text(stringResource(R.string.current_organization), fontFamily = Mallanna) },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().onGloballyPositioned { 
+                                    contentCoordinates?.let { parent -> orgY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
+                                },
                                 singleLine = true,
                                 shape = MaterialTheme.shapes.medium,
                                 colors = OutlinedTextFieldDefaults.colors(
@@ -407,7 +435,9 @@ fun JoinReporterPageView(
                                 value = additionalMessage,
                                 onValueChange = { additionalMessage = it },
                                 label = { Text(stringResource(R.string.additional_message), fontFamily = Mallanna) },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().onGloballyPositioned { 
+                                    contentCoordinates?.let { parent -> messageY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
+                                },
                                 minLines = 3,
                                 placeholder = { Text(stringResource(R.string.message_placeholder)) },
                                 shape = MaterialTheme.shapes.medium,
@@ -423,11 +453,26 @@ fun JoinReporterPageView(
                     
                     Button(
                         onClick = {
-                            if (fullName.isBlank() || fatherName.isBlank() || phone.isBlank() || address.isBlank() || 
-                                position.isBlank() || interestedArea.isBlank() || education.isBlank() || 
-                                currentOrg.isBlank() || selectedDistrict.isBlank() || selectedMandal.isBlank() || 
-                                additionalMessage.isBlank()) {
-                                Toast.makeText(context, context.getString(R.string.fill_all_details), Toast.LENGTH_SHORT).show()
+                            val emptyField = when {
+                                fullName.isBlank() -> "పూర్తి పేరు" to fullNameY
+                                fatherName.isBlank() -> "తండ్రి పేరు" to fatherNameY
+                                phone.isBlank() -> "ఫోన్ నంబర్" to phoneY
+                                address.isBlank() -> "చిరునామా" to addressY
+                                selectedDistrict.isBlank() -> "జిల్లా" to districtY
+                                selectedMandal.isBlank() -> "మండలం" to districtY
+                                position.isBlank() -> "పదవి" to positionY
+                                interestedArea.isBlank() -> "ఆసక్తి ఉన్న కేటగిరీ" to areaY
+                                education.isBlank() -> "విద్యార్హత" to educationY
+                                currentOrg.isBlank() -> "ప్రస్తుత సంస్థ" to orgY
+                                additionalMessage.isBlank() -> "సందేశం" to messageY
+                                else -> null
+                            }
+
+                            if (emptyField != null) {
+                                Toast.makeText(context, "${emptyField.first} నింపండి", Toast.LENGTH_SHORT).show()
+                                scope.launch {
+                                    scrollState.animateScrollTo(maxOf(0, emptyField.second.toInt() - 50))
+                                }
                                 return@Button
                             }
                             

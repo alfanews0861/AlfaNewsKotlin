@@ -50,9 +50,10 @@ export const scheduleFestivalGreeting = onSchedule({ schedule: "0 5 * * *", time
             console.log(`[FESTIVAL] Found festival: ${data.festivalTe}. Generating greeting...`);
 
             let mediaUrl = "";
-            const buffer = await generateImageWithRetry(ai, `A stunning traditional Indian spiritual art illustration of ${data.imagePrompt || data.festivalTe}.
-            Style: Divine aesthetic, vibrant colors, oil painting on canvas, heavenly atmosphere, golden lighting.
-            Note: Focus on the spiritual and cultural essence of the festival, beautiful composition, no text.`, '9:16');
+            const buffer = await generateImageWithRetry(ai, `A stunning, high-quality traditional Indian spiritual art illustration for the festival of ${data.festivalTe}.
+            Details: ${data.imagePrompt}.
+            Style: Divine aesthetic, vibrant festival colors, rich textures, heavenly golden lighting, masterpiece quality.
+            Note: Focus on cultural symbols and joyous atmosphere. No text, no human faces looking directly at camera.`, '9:16');
             if (buffer) {
                 mediaUrl = await saveBufferToStorage(buffer, "GREETING") || "";
             }
@@ -107,9 +108,10 @@ export const scheduleQuoteOfTheDay = onSchedule({ schedule: "0 4 * * *", timeZon
             if (!data.quoteTe) return;
 
             let mediaUrl = "";
-            const buffer = await generateImageWithRetry(ai, `A very beautiful and artistic aesthetic background representing ${data.imagePrompt}.
-            Style: Concept art, soft bokeh, cinematic lighting, peaceful and inspirational atmosphere.
-            Quality: Masterpiece, 8k resolution, absolutely no text, no words, no letters.`, '9:16');
+            const buffer = await generateImageWithRetry(ai, `A breathtakingly beautiful and artistic aesthetic background.
+            Theme: ${data.imagePrompt}.
+            Style: Digital art, soft bokeh, cinematic atmospheric lighting, peaceful, minimalist and inspirational.
+            Quality: 8k resolution, harmonious colors. Absolutely no text, no words, no letters, no characters.`, '9:16');
             if (buffer) {
                 mediaUrl = await saveBufferToStorage(buffer, "QUOTE") || "";
             }
@@ -163,9 +165,9 @@ export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", time
             if (!data.headlineTe) return;
 
             let mediaUrl = "";
-            const buffer = await generateImageWithRetry(ai, `A grand cinematic historical reconstruction of: ${data.imagePrompt}.
-            Style: Epic movie scene, era-appropriate architecture and attire, dramatic atmospheric lighting, photorealistic digital art.
-            Note: Focus on the historical event's scale and importance, masterpiece, no text.`, '16:9');
+            const buffer = await generateImageWithRetry(ai, `A grand cinematic historical reconstruction of the following scene: ${data.imagePrompt}.
+            Style: Epic historical movie scene, highly detailed environment, era-appropriate architecture and attire, dramatic atmospheric lighting, photorealistic digital masterpiece.
+            Note: Capture the scale and gravity of the moment. No text, no modern objects.`, '16:9');
             if (buffer) {
                 mediaUrl = await saveBufferToStorage(buffer, "HISTORY") || "";
             }
@@ -221,10 +223,11 @@ export const generateDailyCartoon = onSchedule({ schedule: "0 6 * * *", timeZone
                 const teluguText = cartoonData.teluguCaption || "నేటి రాజకీయ కార్టూన్";
 
                 // Improved prompt for Cartoon generation to avoid safety triggers while maintaining humor
-                const cartoonPrompt = `A high-quality, professional hand-drawn editorial cartoon sketch. Scene: ${visual}.
-                The style should be clean line art with minimal shading.
+                const cartoonPrompt = `A professional, high-quality hand-drawn editorial cartoon.
+                Scene: ${visual}.
+                Style: Classic line art sketch, gentle political satire, expressive but non-offensive characters, clean composition.
                 Include a speech bubble with this specific text: "${bubbleText}".
-                Ensure the atmosphere is lighthearted and artistic. No realistic violence or sensitive content.`;
+                Note: Artistic and humorous, no realistic violence, no hate speech, lighthearted tone.`;
 
                 const buffer = await generateImageWithRetry(ai, cartoonPrompt, '9:16');
 

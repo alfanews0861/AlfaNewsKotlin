@@ -74,6 +74,7 @@ fun AdminPanelView(
         AppPageConfig("manageReporters", stringResource(R.string.manage_reporters), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
         AppPageConfig("manageUsers", stringResource(R.string.manage_users), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
         AppPageConfig("adminNotify", stringResource(R.string.push_notifications_title), listOf(UserRole.ADMIN)),
+        AppPageConfig("appConfig", "App Configuration", listOf(UserRole.ADMIN)),
         AppPageConfig("affiliate_settings", "Affiliate News API", listOf(UserRole.ADMIN))
     )
 
@@ -141,18 +142,6 @@ fun AdminPanelView(
 
     Box(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            if (activePage != "post") {
-                val pageTitle = allPages.find { it.id == activePage }?.label ?: ""
-                Text(
-                    text = pageTitle,
-                    fontSize = 24.sp,
-                    fontFamily = Ramabhadra,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-            
             Box(modifier = Modifier.weight(1f)) {
                 when (activePage) {
                     "profile" -> UserProfilePageView(
@@ -213,6 +202,7 @@ fun AdminPanelView(
                     "ads" -> AdsManagerPageView(currentUser = user, showTitle = false)
                     "manageUsers" -> UserManagementPageView(currentUser = user)
                     "adminNotify" -> AdminNotificationsPageView(showTitle = false)
+                    "appConfig" -> AppConfigPageView()
                     "affiliate_settings" -> AffiliateSettingsView(onBack = { activePage = "profile" }, showTitle = false)
                 }
             }

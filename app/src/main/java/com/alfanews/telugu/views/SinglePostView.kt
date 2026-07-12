@@ -33,39 +33,7 @@ private fun getTimestampValue(data: Map<String, Any?>): Long {
 
 @Suppress("UNCHECKED_CAST")
 private fun mapDocumentToNewsPost(id: String, data: Map<String, Any?>): NewsPost {
-    return NewsPost(
-        id = id,
-        headline = com.alfanews.telugu.models.Headline(
-            telugu = (data["headline"] as? Map<*, *>)?.get("telugu") as? String ?: "",
-            english = (data["headline"] as? Map<*, *>)?.get("english") as? String ?: ""
-        ),
-        content = com.alfanews.telugu.models.Content(
-            telugu = (data["content"] as? Map<*, *>)?.get("telugu") as? String ?: "",
-            english = (data["content"] as? Map<*, *>)?.get("english") as? String ?: ""
-        ),
-        mediaUrl = data["mediaUrl"] as? String ?: "",
-        mediaType = when (data["mediaType"] as? String) {
-            "VIDEO" -> com.alfanews.telugu.models.MediaType.VIDEO
-            else -> com.alfanews.telugu.models.MediaType.IMAGE
-        },
-        postFormat = when (data["postFormat"] as? String) {
-            "16:9" -> com.alfanews.telugu.models.PostFormat.HORIZONTAL
-            else -> com.alfanews.telugu.models.PostFormat.VERTICAL
-        },
-        reporter = com.alfanews.telugu.models.Reporter(
-            id = (data["reporter"] as? Map<*, *>)?.get("id") as? String ?: "",
-            name = (data["reporter"] as? Map<*, *>)?.get("name") as? String ?: ""
-        ),
-        location = data["location"] as? String ?: "",
-        timestamp = getTimestampValue(data),
-        categories = data["categories"] as? List<String> ?: emptyList(),
-        likes = (data["likes"] as? Long)?.toInt() ?: 0,
-        comments = (data["comments"] as? Long)?.toInt() ?: 0,
-        shares = (data["shares"] as? Long)?.toInt() ?: 0,
-        localAdUrl = data["localAdUrl"] as? String,
-        localAdContact = data["localAdContact"] as? String,
-        originalUrl = data["originalUrl"] as? String
-    )
+    return com.alfanews.telugu.models.mapMapToNewsPost(id, data)
 }
 
 @Composable

@@ -82,7 +82,8 @@ suspend fun uploadImageToStorage(
 
 suspend fun uploadVideoToStorage(
     uri: Uri,
-    folder: String = "uploads"
+    folder: String = "uploads",
+    onProgress: (Double) -> Unit = {}
 ): String {
     try {
         val storageRef = FirebaseService.storage.reference
@@ -90,7 +91,14 @@ suspend fun uploadVideoToStorage(
         val videoRef = storageRef.child(fileName)
         
         Log.d("StorageUtils", "Starting video upload to: $fileName")
-        val uploadTask = videoRef.putFile(uri).await()
+        val uploadTask = videoRef.putFile(uri)
+        
+        uploadTask.addOnProgressListener { snapshot ->
+            val progress = (100.0 * snapshot.bytesTransferred) / snapshot.totalByteCount
+            onProgress(progress)
+        }
+        
+        uploadTask.await()
         Log.d("StorageUtils", "Video upload successful: $fileName")
         return videoRef.downloadUrl.await().toString()
     } catch (e: Exception) {
@@ -109,10 +117,11 @@ suspend fun uploadMediaToStorage(
     context: Context,
     uri: Uri,
     folder: String = "uploads",
-    isVideo: Boolean = false
+    isVideo: Boolean = false,
+    onProgress: (Double) -> Unit = {}
 ): String {
     return if (isVideo) {
-        uploadVideoToStorage(uri, folder)
+        uploadVideoToStorage(uri, folder, onProgress)
     } else {
         uploadImageToStorage(context, uri, folder)
     }

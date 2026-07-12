@@ -90,12 +90,21 @@ async function performAIProcessing(headline: string, content: string, actualPost
         required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory", "isSafeForYouTube", "rejectionReason", "tags", "entities", "tone", "vocalContent"]
     };
 
-    console.log(`[AI_START] Processing: ${headline.substring(0, 30)}...`);
+    console.log(`[AI_START] Processing: ${headline.substring(0, 30)}... (Type: ${actualPostData?.isReporter ? 'Reporter' : 'Citizen'})`);
+
+    const metadataPrompt = `
+SUBMISSION METADATA:
+- type: ${actualPostData?.isReporter ? 'REPORTER_SUBMISSION' : 'CITIZEN_SUBMISSION'}
+- isReporter: ${actualPostData?.isReporter === true}
+- isCitizen: ${actualPostData?.isCitizen === true}
+- district: ${actualPostData?.district || 'Unknown'}
+- location: ${actualPostData?.location || 'Unknown'}
+`;
 
     return await runWithAIFallback(async (ai, modelName) => {
         const result = await ai.models.generateContent({
             model: modelName,
-            contents: [{ role: "user", parts: [{ text: `Headline: ${headline}\nContent: ${content}` }] }],
+            contents: [{ role: "user", parts: [{ text: `${metadataPrompt}\n\nHeadline: ${headline}\nContent: ${content}` }] }],
             config: {
                 systemInstruction: getCategorySystemInstruction(),
                 temperature: 0.4,
@@ -129,7 +138,9 @@ async function performAIProcessing(headline: string, content: string, actualPost
             aiRes.english_version?.headline || aiRes.english_version?.title ||
             aiRes.titleEn || aiRes.englishHeadline || "";
 
-        if (!finalContent || !finalHeadline) {
+        const isRejected = aiRes.rejectionReason && aiRes.rejectionReason.length > 0;
+
+        if (!isRejected && (!finalContent || !finalHeadline)) {
              console.error("[AI_SCHEMA_MISMATCH] AI response missing Telugu fields:", JSON.stringify(aiRes).substring(0, 500));
              throw new Error("AI response missing mandatory Telugu fields.");
         }
@@ -138,6 +149,15 @@ async function performAIProcessing(headline: string, content: string, actualPost
             aiRes.english?.content || aiRes.english?.contentEn || aiRes.english?.summary ||
             aiRes.english_version?.content || aiRes.english_version?.summary ||
             aiRes.summaryEn || aiRes.summarized_english_content || aiRes.englishContent || "";
+
+        // Normalize rejection reason - ignore common placeholders
+        let rejectionReason = aiRes.rejectionReason || "";
+        if (rejectionReason.toLowerCase() === "null" ||
+            rejectionReason.toLowerCase() === "none" ||
+            rejectionReason.toLowerCase() === "n/a" ||
+            rejectionReason.toLowerCase() === "false") {
+            rejectionReason = "";
+        }
 
         // Validate character count (Telugu)
         if (finalContent.length < 450) {
@@ -181,7 +201,7 @@ async function performAIProcessing(headline: string, content: string, actualPost
             tags: aiRes.tags || [],
             entities: normalizedEntities,
             isSafeForYouTube: aiRes.isSafeForYouTube ?? true,
-            rejectionReason: aiRes.rejectionReason || "",
+            rejectionReason: rejectionReason,
             tone: aiRes.tone || "NORMAL",
             vocalContent: aiRes.vocalContent || finalContent || "",
             qualitySignals: aiRes.qualitySignals || { biasScore: 0.5, publicInterestScore: 0.5, investigativeScore: 0, isPersonalPraise: false },
@@ -271,7 +291,7 @@ function calculateIncentivePoints(hasVideo: boolean, qs?: any): number {
 export const onNewsPostCreated = onDocumentWritten({
     document: "news/{postId}",
     region: REGION,
-    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "AZURE_SPEECH_KEY", "AZURE_SPEECH_REGION"],
+    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"],
     memory: "2GiB",
     timeoutSeconds: 540,
     maxInstances: 5
@@ -304,7 +324,19 @@ export const onNewsPostCreated = onDocumentWritten({
         return;
     }
 
-    // 2. AI PROCESSING PHASE
+    // 2. SURVEY BYPASS — skip Gemini AI for survey/poll/opinion posts
+    if (latestData.type === "survey") {
+        console.log(`[SURVEY_BYPASS] Auto-publishing survey post: ${postId}`);
+        await db.collection('news').doc(postId).update({
+            status: "PUBLISHED",
+            approved: true,
+            aiProcessed: true,
+            publishedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        return;
+    }
+
+    // 3. AI PROCESSING PHASE
     // Trigger if not processed and status is PENDING or missing
     if (!latestData.aiProcessed && (latestStatus === "PENDING" || latestStatus === "" || data.forceReprocess)) {
         console.log(`[ON_WRITE_PROCEED] AI Start: ${postId}`);
@@ -329,10 +361,10 @@ export const onNewsPostCreated = onDocumentWritten({
 
             // --- MANDALAM REPORTER ASSIGNMENT LOGIC ---
             // If there's an assigned reporter for this mandalam, override the reporter field
-            const mandalamDistrict = aiProcessedData.categories.find((c: string) => c.includes("జిల్లా")) ? data.district : aiProcessedData.location; // Fallback logic
+            const mandalamDistrict = (aiProcessedData.categories && aiProcessedData.categories.find((c: string) => c.includes("జిల్లా"))) ? data.district : aiProcessedData.location;
             // Actually, we should use data.district or aiProcessedData.district if we added it.
             // Let's use the location (mandalam) and the district from data or categories.
-            const targetDistrict = data.district || (aiProcessedData.categories.find((c: string) => !c.includes("వార్త") && c !== aiProcessedData.category));
+            const targetDistrict = data.district || (aiProcessedData.categories && aiProcessedData.categories.find((c: string) => !c.includes("వార్త") && c !== aiProcessedData.category));
             const targetMandalam = aiProcessedData.location;
 
             if (targetDistrict && targetMandalam) {
@@ -346,7 +378,7 @@ export const onNewsPostCreated = onDocumentWritten({
             // ------------------------------------------
 
             const finalIsReporter = isReporter || aiProcessedData.isReporter;
-            const isRejected = !finalIsReporter && aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
+            const isRejected = aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
 
             const mTypes = (data.mediaTypes || []).map((t: string) => t.toUpperCase());
             const hasVideo = mTypes.includes('VIDEO') || data.mediaType?.toUpperCase() === 'VIDEO';
@@ -354,10 +386,12 @@ export const onNewsPostCreated = onDocumentWritten({
             const updatePayload = {
                 ...aiProcessedData,
                 status: isRejected ? "REJECTED" : (hasVideo ? "PROCESSING_VIDEO" : "published"),
-                approved: finalIsReporter ? (hasVideo ? false : true) : (!isRejected && !hasVideo)
+                approved: isRejected ? false : (finalIsReporter ? (hasVideo ? false : true) : (!hasVideo))
             };
 
-            console.log(`[AI_DONE] ${postId}. Status: ${updatePayload.status}, Approved: ${updatePayload.approved}`);
+            console.log(`[AI_DONE] ${postId}. Type: ${finalIsReporter ? 'REPORTER' : 'CITIZEN'}, Status: ${updatePayload.status}, Approved: ${updatePayload.approved}`);
+            if (isRejected) console.log(`[AI_REJECTED] ${postId} Reason: ${aiProcessedData.rejectionReason}`);
+
             await db.collection('news').doc(postId).update(updatePayload);
 
             // Award points to the ORIGINAL submitter if published
@@ -460,10 +494,10 @@ export const onNewsPostCreated = onDocumentWritten({
             processedText = processedText.replace(/!/g, '! <break time="80ms"/>');
             processedText = processedText.replace(/\?/g, '? <break time="80ms"/>');
 
-            const selectedVoice = 'te-IN-Chirp3-HD-Alpha';
-            const ssml = `<speak><prosody rate="1.25" pitch="0st" volume="+6dB">${processedText.substring(0, 4900)}</prosody></speak>`;
+            let selectedVoice = 'te-IN-Chirp3-HD-Kore';
+            const ssml = `<speak><prosody rate="1.30" pitch="0st" volume="+10dB">${processedText.substring(0, 4900)}</prosody></speak>`;
 
-            const ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
+            let ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
                 body: JSON.stringify({
@@ -473,8 +507,25 @@ export const onNewsPostCreated = onDocumentWritten({
                 })
             });
 
-            const ttsData: any = await ttsRes.json();
-            if (!ttsData.audioContent) throw new Error(`TTS failed: ${ttsData.error?.message || 'No audio'}`);
+            let ttsData: any = await ttsRes.json();
+
+            // FALLBACK LOGIC: If Chirp 3 HD fails, try Standard voice to ensure video is generated
+            if (!ttsData.audioContent) {
+                console.warn(`[TTS_WARNING] Chirp voice ${selectedVoice} failed. Falling back to Standard-A.`);
+                selectedVoice = 'te-IN-Standard-A';
+                ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+                    body: JSON.stringify({
+                        input: { ssml: ssml },
+                        voice: { languageCode: 'te-IN', name: selectedVoice },
+                        audioConfig: { audioEncoding: 'MP3' }
+                    })
+                });
+                ttsData = await ttsRes.json();
+            }
+
+            if (!ttsData.audioContent) throw new Error(`TTS failed even after fallback: ${ttsData.error?.message || 'No audio'}`);
 
             fs.writeFileSync(audioPath, Buffer.from(ttsData.audioContent, 'base64'));
 
@@ -515,12 +566,13 @@ export const onNewsPostCreated = onDocumentWritten({
                     ttsDuration = parseFloat(ttsProbe) || 0;
                 } catch (e) {}
 
-                filters.push(`[0:a]volume='if(lt(t,${ttsDuration}),0.01,1)':eval=frame,volume=3.5[ducked]`);
-                filters.push("[1:a]volume=3.5,highpass=f=200[a1_mix]");
-                filters.push("[ducked][a1_mix]amix=inputs=2:duration=longest:normalize=0[outa]");
+                filters.push(`[0:a]volume='if(lt(t,${ttsDuration}),0.05,1)':eval=frame,volume=2.5[ducked]`);
+                // Enhance TTS: Mono to Stereo + Equalizer (boost clarity) + Subtle Studio Reverb
+                filters.push("[1:a]volume=4.5,pan=stereo|c0=c0|c1=c0,anequalizer=c0 f=3000 w=200 g=3|c1 f=3000 w=200 g=3,aecho=0.8:0.88:15:0.2[enhanced_tts]");
+                filters.push("[ducked][enhanced_tts]amix=inputs=2:duration=longest:normalize=0[outa]");
 
                 cmd.complexFilter(filters.join(';'))
-                    .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', '[outa]'])
+                    .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', '[outa]', '-ar', '44100', '-ac', '2'])
                     .save(outputPath)
                     .on('end', () => resolve(true))
                     .on('error', (err: any) => reject(err));

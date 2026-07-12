@@ -188,17 +188,21 @@ fun PostNewsPageView(
                     for (uri in sortedUris) {
                         val isVideo = context.contentResolver.getType(uri)?.startsWith("video/") == true
                         if (isVideo) {
-                            statusMessage = "వీడియో అప్‌లోడ్ అవుతోంది..."
+                            statusMessage = "వీడియో సర్వర్‌కు చేరుతోంది: 0%"
                         } else {
                             statusMessage = "ఫోటో అప్‌లోడ్ అవుతోంది..."
                         }
-                        val url = uploadMediaToStorage(context, uri, "news-media", isVideo)
+                        val url = uploadMediaToStorage(context, uri, "news-media", isVideo) { progress ->
+                            if (isVideo) {
+                                statusMessage = "వీడియో సర్వర్‌కు చేరుతోంది: ${progress.toInt()}%"
+                            }
+                        }
                         finalMediaUrls.add(url)
                         finalMediaTypes.add(if (isVideo) "VIDEO" else "IMAGE")
                     }
                 }
 
-                statusMessage = "వార్తను పంపిస్తున్నాము..."
+                statusMessage = "వార్త సర్వర్‌కు చేరుతోంది..."
                 
                 val finalCategories = listOf(category, if (isGlobalNews) "State" else district).filter { it.isNotBlank() }
 
@@ -242,17 +246,14 @@ fun PostNewsPageView(
                     val serverMessage = result["message"] as? String
                     val newPostId = result["postId"] as? String
                     
-                    // Redirection Logic: AI Processing is always background now
+                    // Improved Feedback: Clear message that upload is done and server is working
                     val isVideoPost = finalMediaTypes.contains("VIDEO")
                     if (isVideoPost) {
-                        Toast.makeText(context, "మీ వార్త పరిశీలించబడుతోంది, దయచేసి 10 నిమిషాల తర్వాత చూడండి.", Toast.LENGTH_LONG).show()
-                        delay(1200)
-                        onActionComplete("HOME_ONLY") // Custom marker for MainScreen
+                        Toast.makeText(context, "వార్త అప్‌లోడ్ విజయవంతమైంది! వీడియో తయారీ మరియు ఇతర పనులు నేపథ్యంలో జరుగుతున్నాయి. 10 నిమిషాల తర్వాత చూడండి.", Toast.LENGTH_LONG).show()
+                        onActionComplete("HOME_ONLY") 
                     } else {
-                        // Changed message to hide AI processing
-                        Toast.makeText(context, "మీ వార్త పరిశీలనలో ఉంది, కొద్దిసేపటి తర్వాత హోమ్ ఫీడ్ లో చూడవచ్చు.", Toast.LENGTH_LONG).show()
-                        delay(1500)
-                        onActionComplete("HOME_ONLY") // Go back to Home, don't show raw post
+                        Toast.makeText(context, "వార్త విజయవంతంగా పంపబడింది. త్వరలో హోమ్ ఫీడ్ లో చూడవచ్చు.", Toast.LENGTH_LONG).show()
+                        onActionComplete("HOME_ONLY")
                     }
                 } catch (e: Exception) {
                     statusMessage = context.getString(R.string.error)
@@ -271,31 +272,6 @@ fun PostNewsPageView(
         Column(
             modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
         ) {
-            // Header Row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = { onActionComplete("") }) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "Back",
-                        tint = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-                
-                Text(
-                    text = if (postToEdit != null) updateString else publishString,
-                    fontSize = 20.sp,
-                    fontFamily = Ramabhadra,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(start = 4.dp)
-                )
-            }
-
             Column(
                 modifier = Modifier
                     .fillMaxSize()

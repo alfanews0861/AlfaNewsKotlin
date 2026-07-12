@@ -37,7 +37,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import java.text.SimpleDateFormat
+import com.alfanews.telugu.utils.DateTimeUtils
+import java.util.*
 import java.util.*
 
 data class Comment(
@@ -253,8 +254,7 @@ fun CommentSectionView(
 
 @Composable
 fun CommentItem(comment: Comment) {
-    val dateFormat = SimpleDateFormat("hh:mm a • dd MMM", Locale("en", "IN"))
-    val formattedTime = dateFormat.format(Date(comment.timestamp))
+    val formattedTime = DateTimeUtils.formatTimestamp(comment.timestamp, "hh:mm a • dd MMM", Locale("en", "IN"))
 
     Row(
         modifier = Modifier.fillMaxWidth(),

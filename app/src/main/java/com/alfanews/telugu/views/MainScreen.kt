@@ -56,6 +56,7 @@ fun MainScreen(
     val news by newsFeedViewModel.news.collectAsStateWithLifecycle()
     
     var showPostNewsPage by remember { mutableStateOf(false) }
+    var showPostSurveyPage by remember { mutableStateOf(false) }
     var showJoinReporterPage by remember { mutableStateOf(false) }
     var showEditProfilePage by remember { mutableStateOf(false) }
     var editingNewsPost by remember { mutableStateOf<NewsPost?>(null) }
@@ -109,6 +110,7 @@ fun MainScreen(
                     
                     // Reset overlay states to ensure navigation works from any sub-page
                     showPostNewsPage = false
+                    showPostSurveyPage = false
                     showJoinReporterPage = false
                     showEditProfilePage = false
                     mainViewModel.setReporterIdToShow(null)
@@ -134,6 +136,7 @@ fun MainScreen(
                     scope.launch { drawerState.close() }
                     // Reset overlay states on logout
                     showPostNewsPage = false
+                    showPostSurveyPage = false
                     showJoinReporterPage = false
                     showEditProfilePage = false
                     mainViewModel.setReporterIdToShow(null)
@@ -177,20 +180,45 @@ fun MainScreen(
                     Column {
                         LogoHeader(
                             district = activeDistrict,
-                            showDistrictSelector = (activeTab == "home" || activeTab == "local") && !showPostNewsPage && !showJoinReporterPage && !showEditProfilePage && (reporterIdToShow == null),
+                            showDistrictSelector = (activeTab == "home" || activeTab == "local") && !showPostNewsPage && !showPostSurveyPage && !showJoinReporterPage && !showEditProfilePage && (reporterIdToShow == null),
                             onDistrictClick = { mainViewModel.setShowDistrictPicker(true) },
                             onMenuClick = { scope.launch { drawerState.open() } }
                         )
 
+                        // ✅ RED STRIP: Always immediately below Blue Header
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .background(Color(0xFFF44336))
+                        )
+
                         // Contextual Sub-Header Row
+                        val adminActivePage by mainViewModel.adminActivePage.collectAsStateWithLifecycle()
                         val subHeaderTitle = when {
                             reporterIdToShow != null -> if (language == Language.TELUGU) "రిపోర్టర్ ప్రొఫైల్" else "Reporter Profile"
-                            showPostNewsPage -> if (language == Language.TELUGU) "వార్తను ప్రచురించండి" else "Publish News"
+                            showPostNewsPage -> if (language == Language.TELUGU) "వార్తను పబ్లిష్ చేయండి" else "Publish News"
+                            showPostSurveyPage -> if (language == Language.TELUGU) "కొత్త సర్వే పోస్ట్ చేయండి" else "Publish Survey"
                             showJoinReporterPage -> stringResource(R.string.join_reporter)
                             showEditProfilePage -> stringResource(R.string.edit_profile)
                             activeTab == "reporters" -> stringResource(R.string.reporters)
                             activeTab == "leaderboard" -> if (language == Language.TELUGU) "మంత్లీ లీడర్ బోర్డ్" else "Monthly Leaderboard"
                             activeTab == "messages" -> if (language == Language.TELUGU) "సందేశాలు" else "Messages"
+                            activeTab == "profile" -> {
+                                when (adminActivePage) {
+                                    "edit-profile" -> stringResource(R.string.edit_profile)
+                                    "id-card" -> stringResource(R.string.id_card)
+                                    "messages" -> stringResource(R.string.messages)
+                                    "post" -> stringResource(R.string.post_news)
+                                    "ads" -> stringResource(R.string.ads_manager)
+                                    "manage" -> stringResource(R.string.manage_news)
+                                    "manageReporters" -> stringResource(R.string.manage_reporters)
+                                    "manageUsers" -> stringResource(R.string.manage_users)
+                                    "adminNotify" -> stringResource(R.string.push_notifications_title)
+                                    "affiliate_settings" -> "Affiliate News API"
+                                    else -> null
+                                }
+                            }
                             listOf("about", "contact", "privacy-policy", "terms", "content-policy", "disclaimer", "ad-policy", "data-collection").contains(activeTab) -> {
                                 when (activeTab) {
                                     "about" -> stringResource(R.string.about_us)
@@ -214,6 +242,9 @@ fun MainScreen(
                                     showPostNewsPage -> {
                                         showPostNewsPage = false
                                         editingNewsPost = null
+                                    }
+                                    showPostSurveyPage -> {
+                                        showPostSurveyPage = false
                                     }
                                     showJoinReporterPage -> showJoinReporterPage = false
                                     showEditProfilePage -> showEditProfilePage = false
@@ -244,19 +275,11 @@ fun MainScreen(
                                         fontFamily = Ramabhadra,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.padding(start = 4.dp)
+                                        modifier = Modifier.padding(start = 4.dp).weight(1f)
                                     )
                                 }
                             }
                         }
-
-                        // Red strip at the bottom of the entire topBar
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp)
-                                .background(Color(0xFFF44336))
-                        )
                     }
                 },
                 bottomBar = {
@@ -359,6 +382,14 @@ fun MainScreen(
                             currentUser = user,
                             onBack = { mainViewModel.setReporterIdToShow(null) }
                         )
+                    } else if (showPostSurveyPage && user != null) {
+                        PostSurveyPageView(
+                            user = user,
+                            onActionComplete = {
+                                showPostSurveyPage = false
+                                mainViewModel.setActiveTab("home")
+                            }
+                        )
                     } else if (showPostNewsPage && user != null) {
                         PostNewsPageView(
                             user = user,
@@ -442,6 +473,9 @@ fun MainScreen(
                                                 }
                                                 "news" -> {
                                                     showPostNewsPage = true
+                                                }
+                                                "survey" -> {
+                                                    showPostSurveyPage = true
                                                 }
                                                 "join_reporter" -> {
                                                     showJoinReporterPage = true

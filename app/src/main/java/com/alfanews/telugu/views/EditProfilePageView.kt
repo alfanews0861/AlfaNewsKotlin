@@ -64,42 +64,16 @@ fun EditProfilePageView(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
             .glassmorphism(cornerRadius = 24.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // Header Row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onClose) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "Back",
-                        tint = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-                
-                Text(
-                    text = stringResource(R.string.edit_profile),
-                    fontSize = 20.sp,
-                    fontFamily = Ramabhadra,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(start = 4.dp)
-                )
-            }
-
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                    .padding(horizontal = 24.dp, vertical = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 // Name Edit

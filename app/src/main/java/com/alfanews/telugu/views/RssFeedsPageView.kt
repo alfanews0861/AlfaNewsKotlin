@@ -25,7 +25,8 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import java.text.SimpleDateFormat
+import com.alfanews.telugu.utils.DateTimeUtils
+import java.util.*
 import java.util.*
 import com.alfanews.telugu.utils.Constants
 
@@ -77,7 +78,7 @@ fun RssFeedsPageView() {
 
     fun formatTime(timestamp: Long?): String {
         if (timestamp == null) return "Never"
-        return SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(Date(timestamp))
+        return DateTimeUtils.formatTimestamp(timestamp, "MMM dd, HH:mm", Locale.getDefault())
     }
 
     fun handleRssSubmit() {

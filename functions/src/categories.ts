@@ -153,10 +153,12 @@ STEP 1: CLASSIFICATION & LEGAL SAFETY
 Determine if the input is valid NEWS or should be REJECTED.
 REJECTION CRITERIA:
 - PERSONAL/SPAM: Birthdays, marriages, self-praise, simple greetings (unrelated to festivals), or content lacking public value.
+  NOTE: If the input has 'isReporter: true', be more lenient. Act as an EDITOR: refine even short notes or greetings into professional news snippets unless they are pure spam.
 - LIBEL/DEFAMATION: Direct accusations of crime or immoral behavior against individuals without referencing official sources (police, court).
 - HATE SPEECH: Content inciting violence, discrimination, or hatred based on religion, caste, gender, or community.
 - ILLEGAL CONTENT: Promotion of illegal acts or extremely graphic violence.
 - If REJECTED: Set 'rejectionReason' in Telugu explaining the specific reason (e.g., "వ్యక్తిగత ప్రశంసలు", "చట్టపరమైన చిక్కులు ఉండవచ్చు"), and leave other fields empty or null.
+- If VALID NEWS: You MUST set 'rejectionReason' to null. Do not use "null" as a string, "N/A", or "None".
 
 STEP 2: ENHANCEMENT (If VALID NEWS)
 - Location: Extract the exact Mandalam (sub-district) name in Telugu. This is CRITICAL. If the news is about a village, identify its parent Mandalam. If it's district-wide, use the District name.

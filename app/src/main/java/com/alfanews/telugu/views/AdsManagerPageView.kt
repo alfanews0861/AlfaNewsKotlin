@@ -51,7 +51,8 @@ import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.text.NumberFormat
-import java.text.SimpleDateFormat
+import com.alfanews.telugu.utils.DateTimeUtils
+import java.util.*
 import java.util.*
 import kotlin.math.max
 
@@ -373,7 +374,7 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
                     OutlinedButton(onClick = { showDateRangePicker = true }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.DateRange, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                        val sdf = DateTimeUtils.getSimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
                         Text("${sdf.format(Date(startDate))} - ${sdf.format(Date(endDate))}")
                     }
 
@@ -553,7 +554,7 @@ private fun AdListItem(ad: LocalAd) {
                 }
                 
                 if (ad.adType != AdType.VIEWS_BASED) {
-                    val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                    val sdf = DateTimeUtils.getSimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
                     Text("వ్యవధి: ${sdf.format(Date(ad.startDate ?: 0))} - ${sdf.format(Date(ad.endDate ?: 0))}", style = MaterialTheme.typography.labelSmall)
                 }
                 

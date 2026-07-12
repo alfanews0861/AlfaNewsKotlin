@@ -34,7 +34,14 @@ service cloud.firestore {
         (getUserData().role == 'REPORTER' && resource.data.reporter.id == request.auth.uid) ||
         (getUserData().role == 'REGIONAL_INCHARGE' && resource.data.district in getUserData().assignedDistricts)
       );
-      
+
+      // Survey Vote Update: any signed-in user may increment vote counts on a survey post.
+      // Only the 'votes.*' and 'realVotesCount' fields may be written (read-only check is enforced client-side).
+      allow update: if request.auth != null
+                    && resource.data.type == "survey"
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['votes', 'realVotesCount']);
+
       // Comments Sub-collection
       match /comments/{commentId} {
         allow read: if true;
@@ -42,6 +49,16 @@ service cloud.firestore {
         allow delete: if request.auth != null && (resource.data.userId == request.auth.uid ||
                        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
                         getUserData().role == 'ADMIN'));
+      }
+
+      // Survey Voted-Users Sub-collection
+      // Each user can only create their own receipt document (write-once, prevents double voting).
+      match /voted_users/{userId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow create: if request.auth != null
+                      && request.auth.uid == userId
+                      && !exists(/databases/$(database)/documents/news/$(postId)/voted_users/$(userId));
+        allow update, delete: if false; // Immutable once cast
       }
     }
     
