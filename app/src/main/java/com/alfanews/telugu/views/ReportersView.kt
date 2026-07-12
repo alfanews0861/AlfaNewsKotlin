@@ -76,14 +76,14 @@ fun ReportersView(
 
     // Initial fetch if we have a district from profile
     LaunchedEffect(Unit) {
-        if (selectedDistrict.isNotEmpty()) {
-            viewModel.fetchReporters(selectedDistrict, null)
+        if (currentUser != null) {
+            viewModel.fetchReporters(currentUser, selectedDistrict, selectedMandal.ifEmpty { null })
         }
     }
 
     LaunchedEffect(selectedDistrict, selectedMandal) {
-        if (selectedDistrict.isNotEmpty()) {
-            viewModel.fetchReporters(selectedDistrict, selectedMandal.ifEmpty { null })
+        if (currentUser != null) {
+            viewModel.fetchReporters(currentUser, selectedDistrict, selectedMandal.ifEmpty { null })
         }
     }
 

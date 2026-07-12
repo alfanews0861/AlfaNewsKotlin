@@ -50,19 +50,19 @@ fun PostSurveyPageView(
     var isGlobal by remember { mutableStateOf(user.role == com.alfanews.telugu.models.UserRole.ADMIN) }
     var district by remember { mutableStateOf(user.district ?: "") }
     
-    // Dynamic Questions List
-    // Initialized with one question having two options
     val questions = remember { 
-        mutableStateListOf(
-            MutableQuestionState(
-                id = UUID.randomUUID().toString(),
-                questionText = "",
-                options = mutableStateListOf(
-                    MutableOptionState(id = UUID.randomUUID().toString(), initialText = ""),
-                    MutableOptionState(id = UUID.randomUUID().toString(), initialText = "")
+        mutableStateListOf<MutableQuestionState>().apply {
+            add(
+                MutableQuestionState(
+                    id = UUID.randomUUID().toString(),
+                    questionText = "",
+                    options = mutableStateListOf<MutableOptionState>().apply {
+                        add(MutableOptionState(id = UUID.randomUUID().toString(), initialText = ""))
+                        add(MutableOptionState(id = UUID.randomUUID().toString(), initialText = ""))
+                    }
                 )
             )
-        )
+        }
     }
 
     var isSubmitting by remember { mutableStateOf(false) }
@@ -75,26 +75,32 @@ fun PostSurveyPageView(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Custom Top Bar
-        SmallTopAppBar(
-            title = { 
+        // Custom Top Bar (Simple implementation to avoid TopAppBar resolution issues)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shadowElevation = 4.dp,
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onActionComplete) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "కొత్త సర్వే పోస్ట్ చేయండి", 
                     fontFamily = Ramabhadra,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp
-                ) 
-            },
-            navigationIcon = {
-                IconButton(onClick = onActionComplete) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                }
-            },
-            colors = TopAppBarDefaults.smallTopAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                titleContentColor = MaterialTheme.colorScheme.onSurface
-            )
-        )
+                    fontSize = 20.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
 
         Column(
             modifier = Modifier
@@ -169,7 +175,6 @@ fun PostSurveyPageView(
                         fontSize = 16.sp
                     )
 
-                    // Single Page vs Multi Page Toggle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -183,10 +188,9 @@ fun PostSurveyPageView(
                             checked = isMultiPage,
                             onCheckedChange = { 
                                 isMultiPage = it
-                                // If turning off multi-page, keep only the first question
                                 if (!it && questions.size > 1) {
                                     while (questions.size > 1) {
-                                        questions.removeAt(questions.lastIndex)
+                                        questions.removeAt(questions.size - 1)
                                     }
                                 }
                             }
@@ -195,7 +199,6 @@ fun PostSurveyPageView(
 
                     Divider()
 
-                    // Global vs District Toggle (Admin only can select global, reporter is always district)
                     if (user.role == com.alfanews.telugu.models.UserRole.ADMIN) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -212,7 +215,6 @@ fun PostSurveyPageView(
                             )
                         }
                     } else {
-                        // Reporters are locked to their district
                         Text(
                             text = "ఈ సర్వే మీ జిల్లా (${user.district}) లో మాత్రమే కనిపిస్తుంది.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -239,7 +241,7 @@ fun PostSurveyPageView(
                                 onDismissRequest = { districtExpanded = false },
                                 modifier = Modifier.fillMaxWidth(0.9f)
                             ) {
-                                Constants.ALL_DISTRICTS.forEach { distName ->
+                                Constants.ALL_DISTRICTS.forEach { distName: String ->
                                     DropdownMenuItem(
                                         text = { Text(distName) },
                                         onClick = {
@@ -282,10 +284,10 @@ fun PostSurveyPageView(
                                         MutableQuestionState(
                                             id = UUID.randomUUID().toString(),
                                             questionText = "",
-                                            options = mutableStateListOf(
-                                                MutableOptionState(id = UUID.randomUUID().toString(), initialText = ""),
-                                                MutableOptionState(id = UUID.randomUUID().toString(), initialText = "")
-                                            )
+                                            options = mutableStateListOf<MutableOptionState>().apply {
+                                                add(MutableOptionState(id = UUID.randomUUID().toString(), initialText = ""))
+                                                add(MutableOptionState(id = UUID.randomUUID().toString(), initialText = ""))
+                                            }
                                         )
                                     )
                                 },
@@ -299,7 +301,7 @@ fun PostSurveyPageView(
                         }
                     }
 
-                    questions.forEachIndexed { qIndex, qState ->
+                    questions.forEachIndexed { qIndex: Int, qState: MutableQuestionState ->
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -343,7 +345,7 @@ fun PostSurveyPageView(
                                 modifier = Modifier.padding(top = 4.dp)
                             )
 
-                            qState.options.forEachIndexed { oIndex, oState ->
+                            qState.options.forEachIndexed { oIndex: Int, oState: MutableOptionState ->
                                 Column(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -452,7 +454,6 @@ fun PostSurveyPageView(
             // Submit Button
             Button(
                 onClick = {
-                    // Validations
                     if (headlineTe.isBlank() || contentTe.isBlank()) {
                         Toast.makeText(context, "శీర్షిక మరియు వివరాలు నింపండి.", Toast.LENGTH_SHORT).show()
                         return@Button
@@ -461,76 +462,72 @@ fun PostSurveyPageView(
                         Toast.makeText(context, "అన్ని ప్రశ్నల టెక్స్ట్ నింపండి.", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
-                    if (questions.any { q -> q.options.any { it.text.isBlank() } }) {
+                    if (questions.any { q: MutableQuestionState -> q.options.any { it.text.isBlank() } }) {
                         Toast.makeText(context, "అన్ని సమాధానాల (Options) టెక్స్ట్ నింపండి.", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
 
                     isSubmitting = true
-                    scope.launch {
-                        try {
-                            // Map Questions to Firestore Object format
-                            val surveyQuestionsList = questions.map { q ->
+                    val surveyQuestionsList = questions.map { q: MutableQuestionState ->
+                        mapOf(
+                            "id" to q.id,
+                            "questionText" to q.questionText,
+                            "options" to q.options.map { o: MutableOptionState ->
                                 mapOf(
-                                    "id" to q.id,
-                                    "questionText" to q.questionText,
-                                    "options" to q.options.map { o: MutableOptionState ->
-                                        mapOf(
-                                            "id" to o.id, 
-                                            "text" to o.text,
-                                            "nextQuestionId" to o.nextQuestionId
-                                        )
-                                    }
+                                    "id" to o.id, 
+                                    "text" to o.text,
+                                    "nextQuestionId" to o.nextQuestionId
                                 )
                             }
+                        )
+                    }
 
-                            val randomStartFakeVotes = 11000 + (100..900).random()
+                    val randomStartFakeVotes = 11000 + (100..900).random()
 
-                            val surveyData = mapOf(
-                                "headline" to mapOf(
-                                    "telugu" to headlineTe,
-                                    "english" to headlineEn
-                                ),
-                                "content" to mapOf(
-                                    "telugu" to contentTe,
-                                    "english" to contentEn
-                                ),
-                                "type" to "survey",
-                                "approved" to false, // cloud function will set true immediately
-                                "status" to "PENDING",
-                                "surveyQuestions" to surveyQuestionsList,
-                                "isMultiPage" to isMultiPage,
-                                "fakeVotesBase" to randomStartFakeVotes,
-                                "surveyCreatedAt" to System.currentTimeMillis(),
-                                "votes" to emptyMap<String, Int>(),
-                                "realVotesCount" to 0,
-                                "isGlobal" to isGlobal,
-                                "district" to (if (isGlobal) "State" else district),
-                                "location" to (user.assignedMandal ?: district),
-                                "isReporter" to (user.role == com.alfanews.telugu.models.UserRole.REPORTER),
-                                "reporter" to mapOf(
-                                    "id" to user.id,
-                                    "name" to user.name
-                                ),
-                                "timestamp" to FieldValue.serverTimestamp(),
-                                "likes" to 0,
-                                "comments" to 0,
-                                "shares" to 0,
-                                "categories" to listOf("సర్వే", if (isGlobal) "రాష్ట్రం" else district)
-                            )
+                    val surveyData = mapOf(
+                        "headline" to mapOf(
+                            "telugu" to headlineTe,
+                            "english" to headlineEn
+                        ),
+                        "content" to mapOf(
+                            "telugu" to contentTe,
+                            "english" to contentEn
+                        ),
+                        "type" to "survey",
+                        "approved" to false,
+                        "status" to "PENDING",
+                        "surveyQuestions" to surveyQuestionsList,
+                        "isMultiPage" to isMultiPage,
+                        "fakeVotesBase" to randomStartFakeVotes,
+                        "surveyCreatedAt" to System.currentTimeMillis(),
+                        "votes" to emptyMap<String, Int>(),
+                        "realVotesCount" to 0,
+                        "isGlobal" to isGlobal,
+                        "district" to (if (isGlobal) "State" else district),
+                        "location" to (user.assignedMandal ?: district),
+                        "isReporter" to (user.role == com.alfanews.telugu.models.UserRole.REPORTER),
+                        "reporter" to mapOf(
+                            "id" to user.id,
+                            "name" to user.name
+                        ),
+                        "timestamp" to FieldValue.serverTimestamp(),
+                        "likes" to 0,
+                        "comments" to 0,
+                        "shares" to 0,
+                        "categories" to listOf("సర్వే", if (isGlobal) "రాష్ట్రం" else district)
+                    )
 
-                            FirebaseService.db.collection("news")
-                                .add(surveyData)
-                                .await()
-
+                    FirebaseService.db.collection("news")
+                        .add(surveyData)
+                        .addOnSuccessListener {
                             Toast.makeText(context, "సర్వే విజయవంతంగా పోస్ట్ చేయబడింది!", Toast.LENGTH_LONG).show()
                             onActionComplete()
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "సర్వే పోస్ట్ చేయడంలో లోపం: ${e.message}", Toast.LENGTH_LONG).show()
-                        } finally {
                             isSubmitting = false
                         }
-                    }
+                        .addOnFailureListener { e ->
+                            Toast.makeText(context, "సర్వే పోస్ట్ చేయడంలో లోపం: ${e.message}", Toast.LENGTH_LONG).show()
+                            isSubmitting = false
+                        }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -556,7 +553,7 @@ class MutableQuestionState(
     questionText: String,
     val options: SnapshotStateList<MutableOptionState>
 ) {
-    var questionText by mutableStateOf(questionText)
+    var questionText: String by mutableStateOf(questionText)
 }
 
 class MutableOptionState(

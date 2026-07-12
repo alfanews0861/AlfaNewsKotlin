@@ -1,5 +1,9 @@
 package com.alfanews.telugu.models
 
+import java.util.Date
+import java.util.HashMap
+import com.google.firebase.firestore.FieldValue
+
 /**
  * పోస్ట్ యొక్క నిష్పత్తిని (Aspect Ratio) నిర్వచిస్తుంది.
  */
@@ -50,29 +54,6 @@ data class Entities(
 
 /**
  * ఒక వార్తా పోస్ట్ యొక్క పూర్తి వివరాలను కలిగి ఉన్న డేటా క్లాస్.
- * 
- * @property id వార్త యొక్క ప్రత్యేక ID.
- * @property headline వార్త ముఖ్యాంశాలు.
- * @property content వార్త కంటెంట్.
- * @property mediaUrl మీడియా ఫైల్ URL.
- * @property mediaType మీడియా రకం (IMAGE/VIDEO).
- * @property youtubeUrl యూట్యూబ్ వీడియో URL (ఉంటే).
- * @property postFormat పోస్ట్ ఫార్మాట్ (VERTICAL/HORIZONTAL).
- * @property reporter రిపోర్టర్ వివరాలు.
- * @property location వార్త జరిగిన ప్రాంతం.
- * @property timestamp వార్త పోస్ట్ చేయబడిన సమయం.
- * @property categories వార్త ఏ వర్గాలకు చెందుతుంది.
- * @property likes లైక్‌ల సంఖ్య.
- * @property comments కామెంట్‌ల సంఖ్య.
- * @property shares షేర్ల సంఖ్య.
- * @property tags వార్తకు సంబంధించిన కీవర్డ్స్ మరియు హాష్టగ్స్.
- * @property entities వార్తలో ప్రస్తావించిన వ్యక్తులు, సంస్థలు మరియు ప్రాంతాలు.
- * @property localAdUrl లోకల్ అడ్వర్టైజ్‌మెంట్ URL.
- * @property localAdContact అడ్వర్టైజ్‌మెంట్ కాంటాక్ట్ నంబర్.
- * @property originalUrl అసలు వార్త యొక్క లింక్ (ఉంటే).
- * @property verificationStatus వార్త ధృవీకరణ స్థితి (GENUINE, FAKE, etc.).
- * @property verificationReason ధృవీకరణకు గల కారణం.
- * @property type పోస్ట్ యొక్క రకం ('news', 'greeting', 'history', 'cartoon').
  */
 data class NewsPost(
     val id: String = "",
@@ -96,18 +77,16 @@ data class NewsPost(
     val localAdUrl: String? = null,
     val localAdContact: String? = null,
     val originalUrl: String? = null,
-    val affiliateUrl: String? = null, // ADDED: For Amazon/Flipkart links
+    val affiliateUrl: String? = null,
     val verificationStatus: String = "UNVERIFIED",
     val verificationReason: String? = null,
-    val type: String? = null, // ADDED: To store 'news', 'greeting', 'history', 'cartoon'
+    val type: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
     val approved: Boolean = false,
     val aiProcessed: Boolean = false,
-    val isReporter: Boolean = false, // ADDED: To differentiate reporter posts in the feed
-    val isGlobal: Boolean = false, // ADDED: For State/National level news
-
-    // పాత వెర్షన్ల కోసం కేటాయించబడిన ఫీల్డ్స్ (Deprecated)
+    val isReporter: Boolean = false,
+    val isGlobal: Boolean = false,
     val category: String? = null,
     val district: String? = null,
     val state: String? = null,
@@ -141,7 +120,6 @@ data class SurveyQuestion(
 
 /**
  * వినియోగదారు సర్వే పోస్ట్ చేయగలరో లేదో సరిచూస్తుంది.
- * అడ్మిన్ మరియు గోల్డ్ గ్రేడ్ ఆ పైన సాధించిన రిపోర్టర్లకు మాత్రమే అనుమతి ఉంటుంది.
  */
 fun User.canPostSurvey(): Boolean {
     if (this.role == UserRole.ADMIN) return true
@@ -155,11 +133,7 @@ fun User.canPostSurvey(): Boolean {
     return false
 }
 
-/**
- * Firestore Map ని NewsPost ఆబ్జెక్ట్‌గా మారుస్తుంది.
- */
 fun mapMapToNewsPost(id: String, data: Map<String, Any?>): NewsPost {
-    val type = data["type"]?.toString() ?: "news"
     val headlineMap = data["headline"] as? Map<*, *>
     val headline = Headline(
         telugu = headlineMap?.get("telugu")?.toString() ?: data["headline"]?.toString() ?: "",
@@ -198,26 +172,24 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>): NewsPost {
         rawTimestamp is java.util.Date -> rawTimestamp.time
         else -> System.currentTimeMillis()
     }
-    
-    val categoryValue = data["category"]?.toString() ?: "General News"
-    val categories = (data["categories"] as? List<*>)?.mapNotNull { it?.toString() } ?: listOf(categoryValue)
-    
+
+    val type = data["type"]?.toString()
+    val categories = (data["categories"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
     val likes = (data["likes"] as? Number)?.toInt() ?: 0
     val comments = (data["comments"] as? Number)?.toInt() ?: 0
     val shares = (data["shares"] as? Number)?.toInt() ?: 0
     val tags = (data["tags"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
-    
     val entitiesMap = data["entities"] as? Map<*, *>
     val entities = Entities(
         people = (entitiesMap?.get("people") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
         organizations = (entitiesMap?.get("organizations") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
         locations = (entitiesMap?.get("locations") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
     )
-    
     val localAdUrl = data["localAdUrl"]?.toString()
     val localAdContact = data["localAdContact"]?.toString()
     val originalUrl = data["originalUrl"]?.toString()
     val affiliateUrl = data["affiliateUrl"]?.toString()
+    
     val verificationStatus = data["verificationStatus"]?.toString() ?: "UNVERIFIED"
     val verificationReason = data["verificationReason"]?.toString()
     
@@ -264,7 +236,18 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>): NewsPost {
             }
         }
     }
-    val votes = (data["votes"] as? Map<*, *>)?.map { (k, v) -> k.toString() to (v as? Number)?.toInt() ?: 0 }?.toMap() ?: emptyMap()
+    
+    val votes = java.util.HashMap<String, Int>()
+    val votesRaw = data["votes"] as? Map<*, *>
+    if (votesRaw != null) {
+        val entries = votesRaw.entries
+        for (entry in entries) {
+            val k = entry.key?.toString() ?: ""
+            val v = (entry.value as? Number)?.toInt() ?: 0
+            votes.put(k, v)
+        }
+    }
+
     val realVotesCount = (data["realVotesCount"] as? Number)?.toInt() ?: 0
     val mediaUrls = (data["mediaUrls"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
     val mediaTypes = (data["mediaTypes"] as? List<*>)?.mapNotNull { typeStr ->
@@ -316,5 +299,3 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>): NewsPost {
         category = category
     )
 }
-
-

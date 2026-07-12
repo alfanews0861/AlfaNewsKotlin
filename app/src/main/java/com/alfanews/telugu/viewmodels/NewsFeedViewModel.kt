@@ -9,6 +9,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.NewsPost
+import com.alfanews.telugu.models.SurveyQuestion
+import com.alfanews.telugu.models.SurveyOption
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.services.WeatherService
 import com.alfanews.telugu.services.AnalyticsService
@@ -500,6 +502,14 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             }
 
             val allPosts = (filteredPref + filteredMain + filteredLocal).distinctBy { it.id }.filter { post ->
+                if (post.type == "survey") {
+                    if (post.isReporter) {
+                        val currentDist = _userDistrict.value
+                        val matchesUserDistrict = currentDist != null && 
+                            (post.district == currentDist || post.categories.contains(currentDist))
+                        if (!matchesUserDistrict) return@filter false
+                    }
+                }
                 if (post.type != "news") return@filter true
                 
                 val currentDist = _userDistrict.value
@@ -659,6 +669,39 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             val categoryValue = data["category"]?.toString() ?: "General News"
             val categoriesList = (data["categories"] as? List<*>)?.mapNotNull { it?.toString() } ?: listOf(categoryValue)
 
+            val rawQuestions = data["surveyQuestions"] as? List<*>
+            val surveyQuestionsList = rawQuestions?.mapNotNull { qObj ->
+                val qMap = qObj as? Map<*, *> ?: return@mapNotNull null
+                val qId = qMap["id"]?.toString() ?: ""
+                val qText = qMap["questionText"]?.toString() ?: ""
+                val rawOpts = qMap["options"] as? List<*>
+                val optionsList = rawOpts?.mapNotNull { oObj ->
+                    val oMap = oObj as? Map<*, *> ?: return@mapNotNull null
+                    val oId = oMap["id"]?.toString() ?: ""
+                    val oText = oMap["text"]?.toString() ?: ""
+                    SurveyOption(id = oId, text = oText)
+                } ?: emptyList()
+                SurveyQuestion(id = qId, questionText = qText, options = optionsList)
+            } ?: emptyList()
+
+            val isMultiPageVal = data["isMultiPage"] as? Boolean ?: false
+            val fakeVotesBaseVal = (data["fakeVotesBase"] as? Number)?.toInt() ?: 11000
+            val surveyCreatedAtVal = when (val sca = data["surveyCreatedAt"]) {
+                is com.google.firebase.Timestamp -> sca.toDate().time
+                is Number -> sca.toLong()
+                else -> postTimestamp
+            }
+            val votesMap = java.util.HashMap<String, Int>()
+            val vRaw = data["votes"] as? Map<*, *>
+            if (vRaw != null) {
+                for (vEntry in vRaw.entries) {
+                    val vk = vEntry.key?.toString() ?: ""
+                    val vv = (vEntry.value as? Number)?.toInt() ?: 0
+                    votesMap.put(vk, vv)
+                }
+            }
+            val realVotesCountVal = (data["realVotesCount"] as? Number)?.toInt() ?: 0
+
             NewsPost(
                 id = doc.id,
                 headline = com.alfanews.telugu.models.Headline(
@@ -699,7 +742,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 approved = data["approved"] as? Boolean ?: false,
                 aiProcessed = data["aiProcessed"] as? Boolean ?: false,
                 isGlobal = data["isGlobal"] as? Boolean ?: false,
-                isReporter = data["isReporter"] as? Boolean ?: (data["processingType"]?.toString() == "REPORTER_SUBMISSION")
+                isReporter = data["isReporter"] as? Boolean ?: (data["processingType"]?.toString() == "REPORTER_SUBMISSION"),
+                surveyQuestions = surveyQuestionsList,
+                isMultiPage = isMultiPageVal,
+                fakeVotesBase = fakeVotesBaseVal,
+                surveyCreatedAt = surveyCreatedAtVal,
+                votes = votesMap,
+                realVotesCount = realVotesCountVal
             )
         } catch (e: Exception) { null }
     }
