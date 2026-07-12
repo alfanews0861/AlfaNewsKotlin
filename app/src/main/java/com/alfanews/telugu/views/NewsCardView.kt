@@ -18,6 +18,7 @@ import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -78,6 +79,10 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
+import com.alfanews.telugu.utils.DateTimeUtils
+import com.alfanews.telugu.models.SurveyQuestion
+import com.alfanews.telugu.models.SurveyOption
+import kotlinx.coroutines.tasks.await
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -141,8 +146,9 @@ fun NewsCardView(
 
     var isSharing by remember { mutableStateOf(false) }
 
-    val dateFormat = remember { SimpleDateFormat("dd-MM-yy, hh:mm a", Locale.forLanguageTag("en-IN")) }
-    val formattedTimestamp = remember(post.timestamp) { dateFormat.format(Date(post.timestamp)) }
+    val formattedTimestamp = remember(post.timestamp) { 
+        DateTimeUtils.formatTimestamp(post.timestamp, "dd-MM-yy, hh:mm a", Locale.forLanguageTag("en-IN")) 
+    }
 
     val initialLikeCount = remember(post.id) {
         if (post.likes == 0) (40..180).random() else post.likes
@@ -190,11 +196,25 @@ fun NewsCardView(
     
     val isSpecialCard = post.type == "greeting" || post.type == "quote"
     val isCartoonCard = post.type == "cartoon"
+    val isSurveyCard = post.type == "survey"
 
     Box(
         modifier = modifier.fillMaxSize()
     ) {
-        if (isSpecialCard || isCartoonCard) {
+        if (isSurveyCard) {
+            SurveyCardContent(
+                post = post,
+                currentUser = currentUser,
+                language = language,
+                onProfileClick = onProfileClick,
+                isSharing = isSharing,
+                setSharing = { isSharing = it },
+                shareCount = shareCount,
+                setShareCount = { shareCount = it },
+                view = view,
+                isActive = isActive
+            )
+        } else if (isSpecialCard || isCartoonCard) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
                 val mediaList = remember(post) {
                     if (post.mediaUrls.isNotEmpty()) post.mediaUrls else if (post.mediaUrl.isNotEmpty()) listOf(post.mediaUrl) else emptyList<String>()
@@ -613,4 +633,550 @@ fun extractYoutubeVideoId(url: String?): String? {
     if (url.isNullOrEmpty()) return null
     val matcher = YOUTUBE_ID_PATTERN.matcher(url)
     return if (matcher.matches()) matcher.group(1) else null
+}
+
+/**
+ * సర్వే కార్డు కంటెంట్‌ను అందంగా డిస్‌ప్లే చేస్తుంది.
+ */
+@Composable
+fun SurveyCardContent(
+    post: NewsPost,
+    currentUser: User?,
+    language: Language,
+    onProfileClick: () -> Unit,
+    isSharing: Boolean,
+    setSharing: (Boolean) -> Unit,
+    shareCount: Int,
+    setShareCount: (Int) -> Unit,
+    view: View,
+    isActive: Boolean
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    
+    var hasVoted by remember(post.id, currentUser?.id) { mutableStateOf<Boolean?>(null) }
+    var isSubmittingVote by remember { mutableStateOf(false) }
+
+    var selectedAnswers by remember(post.id) { mutableStateOf(mapOf<String, String>()) }
+    var selectedAnswersTexts by remember(post.id) { mutableStateOf(mapOf<String, String>()) }
+    var currentPageIndex by remember(post.id) { mutableIntStateOf(0) }
+
+    LaunchedEffect(post.id, currentUser?.id) {
+        val userId = currentUser?.id
+        if (userId == null) {
+            hasVoted = false
+        } else {
+            try {
+                val doc = FirebaseService.db.collection("news").document(post.id)
+                    .collection("voted_users").document(userId).get().await()
+                hasVoted = doc.exists()
+            } catch (e: Exception) {
+                hasVoted = false
+            }
+        }
+    }
+
+    val isDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
+    val gradientBackground = if (isDarkTheme) {
+        Brush.verticalGradient(listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)))
+    } else {
+        Brush.verticalGradient(listOf(Color(0xFFECE9E6), Color(0xFFFFFFFF)))
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(gradientBackground)
+    ) {
+        if (hasVoted == null) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp, vertical = 24.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Header (Post info, reporter, district)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.AccountCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (post.reporter.name.isNotEmpty()) post.reporter.name else "Admin",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.LocationOn,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (post.isGlobal) "State" else post.district ?: "State",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
+
+                // Survey Main Title (Headline)
+                val headlineText = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
+                Text(
+                    text = headlineText,
+                    fontSize = 24.sp,
+                    fontFamily = Ramabhadra,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    lineHeight = 32.sp
+                )
+
+                // Survey Details (Content)
+                val contentText = if (language == Language.TELUGU) post.content.telugu else post.content.english
+                if (contentText.isNotEmpty()) {
+                    Text(
+                        text = contentText,
+                        fontSize = 15.sp,
+                        fontFamily = Mallanna,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 22.sp
+                    )
+                }
+
+                Divider(modifier = Modifier.padding(vertical = 4.dp))
+
+                if (hasVoted == false) {
+                    // Questionnaire Section
+                    if (post.surveyQuestions.isEmpty()) {
+                        Text(
+                            text = "ఈ సర్వేలో ప్రశ్నలు లేవు.",
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        val currentQuestion = post.surveyQuestions[currentPageIndex]
+                        
+                        // Resolve Dynamic Question Text
+                        val resolvedQuestionText = remember(currentQuestion.questionText, selectedAnswersTexts) {
+                            var text = currentQuestion.questionText
+                            // Replace by ID: {questionId_ans}
+                            selectedAnswersTexts.forEach { qId: String, ansText: String ->
+                                text = text.replace("{$qId" + "_ans}", ansText, ignoreCase = true)
+                            }
+                            // Replace by Index: {q1_ans}, {q2_ans} ...
+                            val questionsList = post.surveyQuestions
+                            var i = 0
+                            while (i < questionsList.size) {
+                                val question = questionsList[i]
+                                val ansText = selectedAnswersTexts[question.id]
+                                if (ansText != null) {
+                                    text = text.replace("{q${i + 1}_ans}", ansText, ignoreCase = true)
+                                }
+                                i++
+                            }
+                            text
+                        }
+
+                        // Progress Indicator
+                        if (post.isMultiPage && post.surveyQuestions.size > 1) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "ప్రశ్న ${currentPageIndex + 1} / ${post.surveyQuestions.size}",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                LinearProgressIndicator(
+                                    progress = (currentPageIndex + 1).toFloat() / post.surveyQuestions.size,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                )
+                            }
+                        }
+
+                        // Question Text
+                        Text(
+                            text = resolvedQuestionText,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        // Options List
+                        val selectedOptId = selectedAnswers[currentQuestion.id]
+                        currentQuestion.options.forEach { option ->
+                            val isSelected = selectedOptId == option.id
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .border(
+                                        width = 1.5.dp,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f) else Color.Transparent)
+                                    .clickable {
+                                        if (isSubmittingVote) return@clickable
+                                        selectedAnswers = selectedAnswers + (currentQuestion.id to option.id)
+                                        selectedAnswersTexts = selectedAnswersTexts + (currentQuestion.id to option.text)
+                                        if (!post.isMultiPage) {
+                                            submitSurveyVotes(
+                                                postId = post.id,
+                                                userId = currentUser?.id,
+                                                answers = mapOf(currentQuestion.id to option.id),
+                                                onSuccess = { hasVoted = true },
+                                                onLoginRequired = onProfileClick,
+                                                setIsSubmitting = { isSubmittingVote = it },
+                                                context = context,
+                                                scope = scope
+                                            )
+                                        }
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = {
+                                        if (isSubmittingVote) return@RadioButton
+                                        selectedAnswers = selectedAnswers + (currentQuestion.id to option.id)
+                                        selectedAnswersTexts = selectedAnswersTexts + (currentQuestion.id to option.text)
+                                        if (!post.isMultiPage) {
+                                            submitSurveyVotes(
+                                                postId = post.id,
+                                                userId = currentUser?.id,
+                                                answers = mapOf(currentQuestion.id to option.id),
+                                                onSuccess = { hasVoted = true },
+                                                onLoginRequired = onProfileClick,
+                                                setIsSubmitting = { isSubmittingVote = it },
+                                                context = context,
+                                                scope = scope
+                                            )
+                                        }
+                                    },
+                                    colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = option.text,
+                                    fontSize = 16.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+
+                        // Submit/Next Actions for MultiPage
+                        if (post.isMultiPage) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(
+                                onClick = {
+                                    if (selectedOptId == null) {
+                                        Toast.makeText(context, "దయచేసి ఒక ఆప్షన్ ఎంచుకోండి.", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
+                                    
+                                    var selectedOption: SurveyOption? = null
+                                    val opts = currentQuestion.options
+                                    var oIdx = 0
+                                    while (oIdx < opts.size) {
+                                        val opt = opts[oIdx]
+                                        if (opt.id == selectedOptId) {
+                                            selectedOption = opt
+                                            break
+                                        }
+                                        oIdx++
+                                    }
+                                    
+                                    val nextQId = selectedOption?.nextQuestionId
+                                    
+                                    if (nextQId == "END") {
+                                        submitSurveyVotes(
+                                            postId = post.id,
+                                            userId = currentUser?.id,
+                                            answers = selectedAnswers,
+                                            onSuccess = { hasVoted = true },
+                                            onLoginRequired = onProfileClick,
+                                            setIsSubmitting = { isSubmittingVote = it },
+                                            context = context,
+                                            scope = scope
+                                        )
+                                    } else if (nextQId != null) {
+                                        var targetIdx = -1
+                                        val qList = post.surveyQuestions
+                                        var idx = 0
+                                        while (idx < qList.size) {
+                                            if (qList[idx].id == nextQId) {
+                                                targetIdx = idx
+                                                break
+                                            }
+                                            idx++
+                                        }
+                                        
+                                        if (targetIdx != -1) {
+                                            currentPageIndex = targetIdx
+                                        } else {
+                                            if (currentPageIndex < post.surveyQuestions.size - 1) currentPageIndex++
+                                            else {
+                                                submitSurveyVotes(
+                                                    postId = post.id,
+                                                    userId = currentUser?.id,
+                                                    answers = selectedAnswers,
+                                                    onSuccess = { hasVoted = true },
+                                                    onLoginRequired = onProfileClick,
+                                                    setIsSubmitting = { isSubmittingVote = it },
+                                                    context = context,
+                                                    scope = scope
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        if (currentPageIndex < post.surveyQuestions.size - 1) {
+                                            currentPageIndex++
+                                        } else {
+                                            submitSurveyVotes(
+                                                postId = post.id,
+                                                userId = currentUser?.id,
+                                                answers = selectedAnswers,
+                                                onSuccess = { hasVoted = true },
+                                                onLoginRequired = onProfileClick,
+                                                setIsSubmitting = { isSubmittingVote = it },
+                                                context = context,
+                                                scope = scope
+                                            )
+                                        }
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                enabled = !isSubmittingVote
+                            ) {
+                                if (isSubmittingVote) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                                } else {
+                                    Text(
+                                        text = if (currentPageIndex < post.surveyQuestions.size - 1) "తదుపరి ప్రశ్న (Next Question)" else "అభిప్రాయాన్ని సమర్పించండి (Submit)",
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Results Display Section
+                    Text(
+                        text = "సర్వే ఫలితాలు (Survey Results)",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    post.surveyQuestions.forEach { question ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = question.questionText,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+
+                            var questionTotalRealVotes = 0
+                            val qOpts = question.options
+                            var oIdx2 = 0
+                            while (oIdx2 < qOpts.size) {
+                                val opt = qOpts[oIdx2]
+                                questionTotalRealVotes += post.votes["q_${question.id}_o_${opt.id}"] ?: 0
+                                oIdx2++
+                            }
+                            
+                            question.options.forEach { option ->
+                                val optionRealVotes = post.votes["q_${question.id}_o_${option.id}"] ?: 0
+                                val pct = if (questionTotalRealVotes > 0) (optionRealVotes * 100f / questionTotalRealVotes) else 0f
+                                val pctString = "${"%.1f".format(pct)}%"
+
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(44.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                                ) {
+                                    // Progress fraction background
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .fillMaxWidth(fraction = pct / 100f)
+                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                                    )
+                                    // Percentage Labels Row
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = option.text,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 14.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = pctString,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Fake Votes Counter (starts 11000+, never resets, daily increase, +1 per real vote)
+                    val daysSinceCreation = ((System.currentTimeMillis() - post.surveyCreatedAt) / (24 * 60 * 60 * 1000)).coerceAtLeast(0)
+                    val displayedVotesCount = post.fakeVotesBase + (daysSinceCreation * 527) + post.realVotesCount
+                    val formattedVotes = java.text.NumberFormat.getIntegerInstance().format(displayedVotesCount)
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "మొత్తం అభిప్రాయాలు: $formattedVotes+",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Share Button (Google Blue: Color(0xFF1A73E8), English label "Share")
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Button(
+                        onClick = {
+                            val bounds = Rect()
+                            view.getGlobalVisibleRect(bounds)
+                            // Use performShare defined in NewsCardView
+                            performShare(
+                                scope = scope,
+                                isSharing = isSharing,
+                                setSharing = setSharing,
+                                setShareCount = setShareCount,
+                                post = post,
+                                context = context,
+                                language = language,
+                                cardBounds = bounds,
+                                view = view
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A73E8)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Share", 
+                            color = Color.White, 
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun submitSurveyVotes(
+    postId: String,
+    userId: String?,
+    answers: Map<String, String>,
+    onSuccess: () -> Unit,
+    onLoginRequired: () -> Unit,
+    setIsSubmitting: (Boolean) -> Unit,
+    context: Context,
+    scope: CoroutineScope
+) {
+    if (userId == null) {
+        onLoginRequired()
+        return
+    }
+    
+    setIsSubmitting(true)
+    scope.launch {
+        try {
+            val db = FirebaseService.db
+            val batch = db.batch()
+            
+            // 1. Create voted_user receipt
+            val voteRecordRef = db.collection("news").document(postId)
+                .collection("voted_users").document(userId)
+            
+            val recordData = mapOf(
+                "userId" to userId,
+                "timestamp" to FieldValue.serverTimestamp(),
+                "answers" to answers
+            )
+            batch.set(voteRecordRef, recordData)
+            
+            // 2. Prepare vote aggregate counts
+            val updates = mutableMapOf<String, Any>()
+            answers.forEach { qId: String, oId: String ->
+                updates["votes.q_${qId}_o_${oId}"] = FieldValue.increment(1)
+            }
+            updates["realVotesCount"] = FieldValue.increment(1)
+            
+            val postRef = db.collection("news").document(postId)
+            batch.update(postRef, updates)
+            
+            batch.commit().await()
+            Toast.makeText(context, "మీ అభిప్రాయం సమర్పించబడింది!", Toast.LENGTH_SHORT).show()
+            onSuccess()
+        } catch (e: Exception) {
+            Toast.makeText(context, "ఓటు వేయడంలో లోపం: ${e.message}", Toast.LENGTH_LONG).show()
+        } finally {
+            setIsSubmitting(false)
+        }
+    }
 }
