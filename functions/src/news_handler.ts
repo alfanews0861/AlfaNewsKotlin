@@ -482,20 +482,56 @@ export const onNewsPostCreated = onDocumentWritten({
             const accessToken = (await authClient.getAccessToken()).token;
 
             let teluguVocal = data.vocalContent || teluguNews;
-            let processedText = teluguVocal.replace(/\s+/g, ' ').trim();
-            processedText = processedText.replace(/[<>&'"]/g, '');
-            processedText = processedText.replace(/\[\[STRESS\]\](.*?)\[\[\/STRESS\]\]/g, '<prosody volume="+2.5dB" rate="92%">$1</prosody>');
-            processedText = processedText.replace(/(\d+)/g, '<say-as interpret-as="cardinal">$1</say-as>');
-            processedText = processedText.replace(/అంటే\.\.\./g, 'అంటే... <break time="150ms"/>');
-            processedText = processedText.replace(/ఆ\.\.\./g, 'ఆ... <break time="100ms"/>');
-            processedText = processedText.replace(/\.\.\./g, '... <break time="300ms"/>');
-            processedText = processedText.replace(/,/g, ', <break time="40ms"/>');
-            processedText = processedText.replace(/\./g, '. <break time="100ms"/>');
-            processedText = processedText.replace(/!/g, '! <break time="80ms"/>');
-            processedText = processedText.replace(/\?/g, '? <break time="80ms"/>');
+
+            // 1. PROTECT STRESS TAGS and CLEAN OTHER BRACKETS
+            // First, hide the STRESS tags so they don't get destroyed by bracket cleanup
+            let vocal = teluguVocal.replace(/\[\[STRESS\]\]/g, '___STRESS_START___')
+                                   .replace(/\[\[\/STRESS\]\]/g, '___STRESS_END___');
+
+            // Now safely remove any other double brackets (AI emphasis like [[word]])
+            vocal = vocal.replace(/\[\[/g, '').replace(/\]\]/g, '');
+
+            // Restore protected tags to a safe internal format for processing
+            vocal = vocal.replace(/___STRESS_START___/g, '[[STRESS]]')
+                         .replace(/___STRESS_END___/g, '[[/STRESS]]');
+
+            // 2. SAFE TRUNCATION: Truncate base text first to avoid cutting SSML tags later
+            let baseText = vocal.substring(0, 4000).replace(/\s+/g, ' ').trim();
+
+            // 3. SANITIZE: Escape XML special characters properly
+            baseText = baseText.replace(/&/g, '&amp;')
+                              .replace(/</g, '&lt;')
+                              .replace(/>/g, '&gt;')
+                              .replace(/"/g, '&quot;')
+                              .replace(/'/g, '&apos;');
+
+            // 4. INJECT SSML: Simplified tags for Studio (Chirp) voices
+            // Use placeholders to avoid double-processing punctuation (like ... getting processed as 3 dots)
+            let processedText = baseText;
+            processedText = processedText.replace(/అంటే\.\.\./g, 'అంటే___ANTE___');
+            processedText = processedText.replace(/ఆ\.\.\./g, 'ఆ___AA___');
+            processedText = processedText.replace(/\.\.\./g, '___ELLIPSIS___');
+            processedText = processedText.replace(/,/g, '___COMMA___');
+            processedText = processedText.replace(/\./g, '___DOT___');
+            processedText = processedText.replace(/!/g, '___EXCLAMATION___');
+            processedText = processedText.replace(/\?/g, '___QUESTION___');
+
+            // Now replace placeholders with actual SSML tags
+            processedText = processedText.replace(/___ANTE___/g, '... <break time="150ms"/>');
+            processedText = processedText.replace(/___AA___/g, '... <break time="120ms"/>');
+            processedText = processedText.replace(/___ELLIPSIS___/g, '... <break time="200ms"/>');
+            processedText = processedText.replace(/___COMMA___/g, ', <break time="30ms"/>');
+            processedText = processedText.replace(/___DOT___/g, '. <break time="80ms"/>');
+            processedText = processedText.replace(/___EXCLAMATION___/g, '! <break time="80ms"/>');
+            processedText = processedText.replace(/___QUESTION___/g, '? <break time="80ms"/>');
+
+            // NOW INJECT THE PROSODY TAG (STRESS)
+            processedText = processedText.replace(/\[\[STRESS\]\](.*?)\[\[\/STRESS\]\]/g, '<prosody volume="+2.0dB">$1</prosody>');
 
             let selectedVoice = 'te-IN-Chirp3-HD-Kore';
-            const ssml = `<speak><prosody rate="1.30" pitch="0st" volume="+10dB">${processedText.substring(0, 4900)}</prosody></speak>`;
+            const ssml = `<speak><prosody rate="1.30" pitch="0st" volume="+10dB">${processedText}</prosody></speak>`;
+
+            console.log(`[TTS_REQUEST] postId: ${postId}, voice: ${selectedVoice}, ssml: ${ssml.substring(0, 500)}`);
 
             let ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
                 method: 'POST',
@@ -566,9 +602,12 @@ export const onNewsPostCreated = onDocumentWritten({
                     ttsDuration = parseFloat(ttsProbe) || 0;
                 } catch (e) {}
 
-                filters.push(`[0:a]volume='if(lt(t,${ttsDuration}),0.05,1)':eval=frame,volume=2.5[ducked]`);
-                // Enhance TTS: Mono to Stereo + Equalizer (boost clarity) + Subtle Studio Reverb
-                filters.push("[1:a]volume=4.5,pan=stereo|c0=c0|c1=c0,anequalizer=c0 f=3000 w=200 g=3|c1 f=3000 w=200 g=3,aecho=0.8:0.88:15:0.2[enhanced_tts]");
+                filters.push(`[0:a]volume='if(lt(t,${ttsDuration}),0.15,1)':eval=frame,volume=1.2[ducked]`);
+                // Enhance TTS: Pro Quality Stereo (Haas Effect) + Clarity EQ + Reverb
+                // 1. Split mono to 2 channels
+                // 2. Delay one side by 25ms to create space
+                // 3. Apply subtle reverb for "Studio Room" feel
+                filters.push("[1:a]volume=2.2,asplit[left][right];[right]adelay=25|25[delayed_right];[left][delayed_right]amerge=2,anequalizer=c0 f=3000 w=200 g=2|c1 f=3000 w=200 g=2,aecho=0.8:0.88:20:0.2[enhanced_tts]");
                 filters.push("[ducked][enhanced_tts]amix=inputs=2:duration=longest:normalize=0[outa]");
 
                 cmd.complexFilter(filters.join(';'))

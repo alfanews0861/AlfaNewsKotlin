@@ -1,0 +1,7 @@
+- [ ] Consolidate header logic in `MainScreen.kt`
+    - [ ] Hide `LogoHeader` when sub-header is shown
+    - [ ] Integrate `showCitizenJournalism` into sub-header state
+- [ ] Remove redundant header from `CitizenPostPageView.kt`
+- [ ] Remove redundant header from `PostSurveyPageView.kt`
+- [ ] Remove redundant header from `PostClassifiedAdView.kt`
+- [ ] Verify changes across all affected pages
