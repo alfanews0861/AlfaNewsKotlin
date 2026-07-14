@@ -57,6 +57,7 @@
     <string name="update_downloaded">New update downloaded. Install now?</string>
     <string name="update_now">Update Now</string>
     <string name="post_news">Post News</string>
+    <string name="post_survey">Post Survey</string>
     <string name="settings_onboarding">Here you can change your settings as you wish</string>
     <string name="rate_us_title">Rate Our App</string>
     <string name="rate_us_text">If you like our app, please rate us on Play Store. Your feedback is very valuable to us.</string>
@@ -82,6 +83,7 @@
     <string name="nav_post">Post</string>
     <string name="nav_classifieds">Classifieds</string>
     <string name="nav_profile">Profile</string>
+    <string name="nav_survey">Survey</string>
 
     <!-- News Feed Strings -->
     <string name="news_preparing">News is being prepared...</string>

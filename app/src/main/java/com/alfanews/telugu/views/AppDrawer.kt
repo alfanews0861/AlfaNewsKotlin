@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.sp
 import com.alfanews.telugu.R
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
+import com.alfanews.telugu.models.canPostSurvey
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.ui.theme.Poppins
 import com.alfanews.telugu.ui.theme.Ramabhadra
@@ -30,11 +31,11 @@ fun AppDrawerContent(
     val role = user?.role ?: UserRole.GUEST
 
     val allPages = listOf(
-        AppPageConfig("home", stringResource(R.string.home), listOf(UserRole.GUEST, UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        AppPageConfig("local", stringResource(R.string.local_news), listOf(UserRole.GUEST, UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("profile", stringResource(R.string.profile), listOf(UserRole.GUEST, UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
+        AppPageConfig("manageSurveys", "సర్వే నిర్వహణ", listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
         AppPageConfig("messages", stringResource(R.string.messages), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
         AppPageConfig("post", stringResource(R.string.post_news), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
+        AppPageConfig("survey", stringResource(R.string.nav_survey), listOf(UserRole.REPORTER, UserRole.ADMIN)),
         AppPageConfig("ads", stringResource(R.string.ads_manager), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("manage", stringResource(R.string.manage_news), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK)),
         AppPageConfig("manageReporters", stringResource(R.string.manage_reporters), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
@@ -43,14 +44,39 @@ fun AppDrawerContent(
         AppPageConfig("affiliate_settings", "Affiliate News API", listOf(UserRole.ADMIN))
     )
 
+    val canPostSurvey = user?.canPostSurvey() == true
     val accessiblePages = when (role) {
-        UserRole.GUEST, UserRole.SUBSCRIBER -> allPages.filter { listOf("home", "local", "profile").contains(it.id) }
-        UserRole.REPORTER -> allPages.filter { listOf("home", "local", "profile", "post", "ads", "manage", "messages").contains(it.id) }
-        UserRole.NEWS_DESK -> allPages.filter { listOf("home", "local", "profile", "post", "ads", "manage", "messages").contains(it.id) }
-        UserRole.REGIONAL_INCHARGE -> allPages.filter { listOf("home", "local", "profile", "post", "ads", "manage", "manageReporters", "manageUsers").contains(it.id) }
-        UserRole.EDITOR -> allPages.filter { listOf("home", "local", "profile", "post", "ads", "manage", "manageReporters", "manageUsers").contains(it.id) }
+        UserRole.GUEST, UserRole.SUBSCRIBER -> listOf(
+            AppPageConfig("home", stringResource(R.string.home), emptyList()),
+            AppPageConfig("local", stringResource(R.string.local_news), emptyList()),
+            AppPageConfig("profile", stringResource(R.string.profile), emptyList())
+        )
+        UserRole.REPORTER -> allPages.filter { 
+            val list = mutableListOf("profile", "manageSurveys", "post", "ads", "manage", "messages")
+            if (canPostSurvey) list.add("survey")
+            list.contains(it.id)
+        }
+        UserRole.NEWS_DESK -> allPages.filter { 
+            val list = mutableListOf("profile", "manageSurveys", "post", "ads", "manage", "messages")
+            if (canPostSurvey) list.add("survey")
+            list.contains(it.id)
+        }
+        UserRole.REGIONAL_INCHARGE -> allPages.filter { 
+            val list = mutableListOf("profile", "manageSurveys", "post", "ads", "manage", "manageReporters", "manageUsers")
+            if (canPostSurvey) list.add("survey")
+            list.contains(it.id)
+        }
+        UserRole.EDITOR -> allPages.filter { 
+            val list = mutableListOf("profile", "manageSurveys", "post", "ads", "manage", "manageReporters", "manageUsers")
+            if (canPostSurvey) list.add("survey")
+            list.contains(it.id)
+        }
         UserRole.ADMIN -> allPages
-        else -> allPages.filter { listOf("home", "local", "profile").contains(it.id) }
+        else -> listOf(
+            AppPageConfig("home", stringResource(R.string.home), emptyList()),
+            AppPageConfig("local", stringResource(R.string.local_news), emptyList()),
+            AppPageConfig("profile", stringResource(R.string.profile), emptyList())
+        )
     }
 
     ModalDrawerSheet(
@@ -105,7 +131,9 @@ fun AppDrawerContent(
                         "home" -> Icons.Default.Home
                         "local" -> Icons.Default.LocationOn
                         "profile" -> Icons.Default.Person
+                        "manageSurveys" -> Icons.Default.Poll
                         "post" -> Icons.Default.AddCircle
+                        "survey" -> Icons.Default.BarChart
                         "ads" -> Icons.Default.AdsClick
                         "manage" -> Icons.Default.Article
                         "messages" -> Icons.Default.Mail

@@ -24,6 +24,7 @@ import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.models.SurveyQuestion
 import com.alfanews.telugu.models.SurveyOption
 import com.alfanews.telugu.models.User
+import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.utils.Constants
@@ -75,33 +76,6 @@ fun PostSurveyPageView(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Custom Top Bar (Simple implementation to avoid TopAppBar resolution issues)
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shadowElevation = 4.dp,
-            color = MaterialTheme.colorScheme.surface
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onActionComplete) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "కొత్త సర్వే పోస్ట్ చేయండి", 
-                    fontFamily = Ramabhadra,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-        }
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -482,6 +456,7 @@ fun PostSurveyPageView(
                         )
                     }
 
+                    val isStaff = listOf(UserRole.ADMIN, UserRole.EDITOR, UserRole.NEWS_DESK).contains(user.role)
                     val randomStartFakeVotes = 11000 + (100..900).random()
 
                     val surveyData = mapOf(
@@ -494,8 +469,8 @@ fun PostSurveyPageView(
                             "english" to contentEn
                         ),
                         "type" to "survey",
-                        "approved" to false,
-                        "status" to "PENDING",
+                        "approved" to isStaff,
+                        "status" to if (isStaff) "PUBLISHED" else "PENDING",
                         "surveyQuestions" to surveyQuestionsList,
                         "isMultiPage" to isMultiPage,
                         "fakeVotesBase" to randomStartFakeVotes,

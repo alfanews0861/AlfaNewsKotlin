@@ -28,11 +28,16 @@ object AnalyticsService {
     private val organizationScores = ConcurrentHashMap<String, Int>()
     private val locationScores = ConcurrentHashMap<String, Int>()
 
+    // ✅ Pending Long Views (Batching)
+    private val pendingLongViews = ConcurrentHashMap<String, Int>()
+
     // ✅ Throttle: disk write max once per 30s, Firestore sync max once per 60s
     private var lastSaveToPrefsTime = 0L
     private var lastFirestoreSyncTime = 0L
+    private var lastLongViewSyncTime = 0L
     private const val PREFS_THROTTLE_MS = 30_000L
     private const val FIRESTORE_THROTTLE_MS = 60_000L
+    private const val LONG_VIEW_SYNC_MS = 300_000L // 5 minutes
 
     private const val PREFS_NAME = "analytics_prefs_v2"
     private const val KEY_CATEGORY_SCORES = "category_scores"
@@ -81,6 +86,7 @@ object AnalyticsService {
     }
 
     fun onUserLogout() {
+        syncPendingLongViews() // logout అయ్యే ముందు వ్యూస్‌ని సింక్ చేయడం
         currentUserId = null
         cachedPreferredCategories = null
         categoryScores.clear()
@@ -93,6 +99,7 @@ object AnalyticsService {
     }
 
     private fun syncToFirestore() {
+        syncPendingLongViews() // రెగ్యులర్ సింక్ సమయంలో కూడా పిలవడం
         val uid = currentUserId ?: return
         val now = System.currentTimeMillis()
         if (now - lastFirestoreSyncTime < FIRESTORE_THROTTLE_MS) return // throttled
@@ -237,17 +244,45 @@ object AnalyticsService {
 
     /**
      * యూజర్ వార్తను 4 సెకన్ల కంటే ఎక్కువ సేపు చదివితే దీన్ని పిలుస్తాం.
-     * ఇది నిజమైన యూజర్ ఇంట్రెస్ట్ ని తెలుపుతుంది.
+     * బిల్లింగ్ తగ్గించడానికి ఇప్పుడు ఇది వ్యూస్‌ను బ్యాచ్‌లుగా పంపుతుంది.
      */
     fun logLongView(postId: String) {
+        if (postId.isBlank()) return
+        
+        // 1. లోకల్ బఫర్‌లో యాడ్ చేయడం
+        pendingLongViews[postId] = (pendingLongViews[postId] ?: 0) + 1
+        
+        // 2. ఒకవేళ 5 నిమిషాలు దాటితే సింక్ చేయడం
+        val now = System.currentTimeMillis()
+        if (now - lastLongViewSyncTime > LONG_VIEW_SYNC_MS) {
+            syncPendingLongViews()
+        }
+    }
+
+    /**
+     * బఫర్‌లో ఉన్న వ్యూస్‌ను ఫైర్‌బేస్‌కు పంపి క్లియర్ చేస్తుంది.
+     */
+    fun syncPendingLongViews() {
+        if (pendingLongViews.isEmpty()) return
+        
+        val now = System.currentTimeMillis()
+        lastLongViewSyncTime = now
+        
+        // స్నాప్‌షాట్ తీసుకుని క్లియర్ చేయడం (కొత్త వ్యూస్ మిస్ కాకుండా)
+        val snapshot = HashMap(pendingLongViews)
+        pendingLongViews.clear()
+        
         scope.launch {
-            try {
-                FirebaseService.db.collection("news").document(postId)
-                    .update("longViews", com.google.firebase.firestore.FieldValue.increment(1))
-            } catch (e: Exception) {
-                // ఒకవేళ ఫీల్డ్ లేకపోతే క్రియేట్ చేయడానికి
-                FirebaseService.db.collection("news").document(postId)
-                    .set(mapOf("longViews" to 1), com.google.firebase.firestore.SetOptions.merge())
+            snapshot.forEach { (postId, count) ->
+                try {
+                    FirebaseService.db.collection("news").document(postId)
+                        .update("longViews", com.google.firebase.firestore.FieldValue.increment(count.toLong()))
+                } catch (e: Exception) {
+                    try {
+                        FirebaseService.db.collection("news").document(postId)
+                            .set(mapOf("longViews" to count), com.google.firebase.firestore.SetOptions.merge())
+                    } catch (e2: Exception) {}
+                }
             }
         }
     }

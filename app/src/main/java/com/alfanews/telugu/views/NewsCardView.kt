@@ -259,7 +259,7 @@ fun NewsCardView(
                     }
                 }
 
-                if (isSpecialCard || isCartoonCard) {
+                if ((isSpecialCard || isCartoonCard) && (post.youtubeUrl == null || post.youtubeUrl.isEmpty())) {
                     Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)), startY = 500f)))
                     Text(
                         text = contentText,
@@ -602,6 +602,8 @@ fun YouTubePlayerComponent(youtubeUrl: String) {
             factory = { ctx ->
                 YouTubePlayerView(ctx).apply {
                     enableAutomaticInitialization = false
+                    // 🚀 Hide all library UI elements (title, share, etc.) to keep it clean
+                    setCustomPlayerUi(View(ctx))
                     val options = IFramePlayerOptions.Builder(ctx).controls(0).modestBranding(1).rel(0).ivLoadPolicy(3).build()
                     initialize(object : AbstractYouTubePlayerListener() {
                         override fun onReady(youTubePlayer: YouTubePlayer) {
@@ -657,22 +659,53 @@ fun SurveyCardContent(
     var hasVoted by remember(post.id, currentUser?.id) { mutableStateOf<Boolean?>(null) }
     var isSubmittingVote by remember { mutableStateOf(false) }
 
+    // Real-time votes state
+    var liveVotes by remember(post.id) { mutableStateOf(post.votes) }
+    var liveRealVotesCount by remember(post.id) { mutableIntStateOf(post.realVotesCount) }
+
     var selectedAnswers by remember(post.id) { mutableStateOf(mapOf<String, String>()) }
     var selectedAnswersTexts by remember(post.id) { mutableStateOf(mapOf<String, String>()) }
     var currentPageIndex by remember(post.id) { mutableIntStateOf(0) }
 
-    LaunchedEffect(post.id, currentUser?.id) {
+    DisposableEffect(post.id, currentUser?.id) {
         val userId = currentUser?.id
-        if (userId == null) {
-            hasVoted = false
-        } else {
-            try {
-                val doc = FirebaseService.db.collection("news").document(post.id)
-                    .collection("voted_users").document(userId).get().await()
-                hasVoted = doc.exists()
-            } catch (e: Exception) {
-                hasVoted = false
+        
+        // 1. Check if user has voted
+        if (userId != null) {
+            scope.launch {
+                try {
+                    val doc = FirebaseService.db.collection("news").document(post.id)
+                        .collection("voted_users").document(userId).get().await()
+                    hasVoted = doc.exists()
+                } catch (e: Exception) {
+                    hasVoted = false
+                }
             }
+        } else {
+            hasVoted = false
+        }
+
+        // 2. Setup real-time listener for votes
+        val listenerRegistration = FirebaseService.db.collection("news").document(post.id)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                
+                val vRaw = snapshot.get("votes") as? Map<*, *>
+                if (vRaw != null) {
+                    val newVotes = mutableMapOf<String, Int>()
+                    vRaw.forEach { k, v ->
+                        val keyStr = k?.toString() ?: ""
+                        val valInt = if (v is Number) v.toInt() else 0
+                        newVotes[keyStr] = valInt
+                    }
+                    liveVotes = newVotes
+                }
+                val rvc = snapshot.get("realVotesCount")
+                liveRealVotesCount = if (rvc is Number) rvc.toInt() else 0
+            }
+
+        onDispose {
+            listenerRegistration.remove()
         }
     }
 
@@ -1020,12 +1053,12 @@ fun SurveyCardContent(
                             var oIdx2 = 0
                             while (oIdx2 < qOpts.size) {
                                 val opt = qOpts[oIdx2]
-                                questionTotalRealVotes += post.votes["q_${question.id}_o_${opt.id}"] ?: 0
+                                questionTotalRealVotes += liveVotes["q_${question.id}_o_${opt.id}"] ?: 0
                                 oIdx2++
                             }
                             
                             question.options.forEach { option ->
-                                val optionRealVotes = post.votes["q_${question.id}_o_${option.id}"] ?: 0
+                                val optionRealVotes = liveVotes["q_${question.id}_o_${option.id}"] ?: 0
                                 val pct = if (questionTotalRealVotes > 0) (optionRealVotes * 100f / questionTotalRealVotes) else 0f
                                 val pctString = "${"%.1f".format(pct)}%"
 
@@ -1072,8 +1105,8 @@ fun SurveyCardContent(
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     // Fake Votes Counter (starts 11000+, never resets, daily increase, +1 per real vote)
-                    val daysSinceCreation = ((System.currentTimeMillis() - post.surveyCreatedAt) / (24 * 60 * 60 * 1000)).coerceAtLeast(0)
-                    val displayedVotesCount = post.fakeVotesBase + (daysSinceCreation * 527) + post.realVotesCount
+                    val daysSinceCreation = (System.currentTimeMillis() - post.surveyCreatedAt) / 86400000L
+                    val displayedVotesCount = post.fakeVotesBase.toLong() + (daysSinceCreation.coerceAtLeast(0L) * 527L) + liveRealVotesCount.toLong()
                     val formattedVotes = java.text.NumberFormat.getIntegerInstance().format(displayedVotesCount)
                     
                     Row(
@@ -1171,6 +1204,11 @@ private fun submitSurveyVotes(
             batch.update(postRef, updates)
             
             batch.commit().await()
+            // Mark as answered locally to hide from feed in future loads
+            try {
+                com.alfanews.telugu.utils.PreferenceManager.getInstance(context).markSurveyAnswered(postId)
+            } catch (e: Exception) {}
+
             Toast.makeText(context, "మీ అభిప్రాయం సమర్పించబడింది!", Toast.LENGTH_SHORT).show()
             onSuccess()
         } catch (e: Exception) {

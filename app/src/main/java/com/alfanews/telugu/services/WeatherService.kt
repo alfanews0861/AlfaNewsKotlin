@@ -204,10 +204,17 @@ object WeatherService {
                 val parentDistrictTe = Constants.MANDAL_DATA.entries.find { it.value.contains(locationName) }?.key
                 val parentDistrictEn = locationMapping[parentDistrictTe]
                 
+                // Determine state for better geocoding accuracy
+                val stateContext = when {
+                    Constants.TS_DISTRICTS.contains(parentDistrictTe) || Constants.TS_DISTRICTS.contains(locationName) -> "Telangana, India"
+                    Constants.AP_DISTRICTS.contains(parentDistrictTe) || Constants.AP_DISTRICTS.contains(locationName) -> "Andhra Pradesh, India"
+                    else -> "India"
+                }
+                
                 val finalSearchName = if (parentDistrictEn != null && searchName != parentDistrictEn) {
-                    "$searchName, $parentDistrictEn, India"
+                    "$searchName, $parentDistrictEn, $stateContext"
                 } else {
-                    "$searchName, India"
+                    "$searchName, $stateContext"
                 }
                 
                 val geoResponse = api.getCoordinates(finalSearchName)
@@ -340,6 +347,31 @@ object WeatherService {
             96, 99 -> "వడగళ్ల వాన (Thunderstorm with Hail)"
             else -> "సాధారణ వాతావరణం"
         }
+    }
+
+    /**
+     * సామాన్య ప్రజలకు అర్థమయ్యేలా వాతావరణ వివరణను అందిస్తుంది.
+     */
+    fun getConversationalDescription(code: Int, temp: Double, location: String): String {
+        val baseDesc = when (code) {
+            0 -> "నేడు $location లో ఆకాశం చాలా నిర్మలంగా, ప్రకాశవంతంగా ఉంటుంది. ఎండ ప్రభావం ఎక్కువగా ఉండే అవకాశం ఉంది."
+            1, 2, 3 -> "నేడు $location లో అక్కడక్కడ మేఘాలు కనిపిస్తాయి. వాతావరణం చాలా ఆహ్లాదకరంగా ఉంటుంది."
+            45, 48 -> "నేడు $location లో పొగమంచు కురిసే అవకాశం ఉంది. వాహనదారులు, రోడ్డుపై ప్రయాణించే వారు జాగ్రత్తగా ఉండాలి."
+            51, 53, 55 -> "నేడు $location లో అప్పుడప్పుడు తేలికపాటి చినుకులు పడే అవకాశం ఉంది. వాతావరణం చల్లబడుతుంది."
+            61, 63, 65 -> "నేడు $location లో వర్షం కురిసే అవకాశం ఉంది. బయటకు వెళ్లేవారు గొడుగు లేదా రెయిన్ కోట్ వెంట ఉంచుకోవడం మంచిది."
+            80, 81, 82 -> "నేడు $location లో అడపాదడపా వర్షపు జల్లులు కురిసే అవకాశం ఉంది. వాతావరణం మేఘావృతమై ఉంటుంది."
+            95, 96, 99 -> "నేడు $location లో పిడుగులతో కూడిన భారీ వర్షం పడే ప్రమాదం ఉంది. ఉరుములు వస్తున్నప్పుడు ప్రజలు సురక్షితమైన భవనాల్లో ఉండాలి, చెట్ల కింద ఉండరాదు."
+            else -> "నేడు $location లో వాతావరణం సాధారణంగా ఉంటుంది."
+        }
+
+        val tempAdvice = when {
+            temp >= 40 -> " ప్రస్తుత ఉష్ణోగ్రత ${temp.toInt()}°C గా ఉంది. ఎండ తీవ్రత మరియు వేడి గాలులు చాలా ఎక్కువగా ఉన్నాయి, మధ్యాహ్నం 12 నుండి 4 గంటల వరకు అత్యవసరం అయితే తప్ప బయటకు రాకపోవడం ఉత్తమం."
+            temp >= 35 -> " ప్రస్తుత ఉష్ణోగ్రత ${temp.toInt()}°C గా ఉంది. ఎండ వేడి ఎక్కువగా ఉంటుంది, బయటకు వెళ్లేవారు తగినంత నీరు తాగుతూ ఉండండి."
+            temp <= 18 -> " ప్రస్తుత ఉష్ణోగ్రత ${temp.toInt()}°C గా ఉంది. చలి తీవ్రత కొంచెం ఎక్కువగా ఉంది, పిల్లలు మరియు వృద్ధులు తగిన జాగ్రత్తలు తీసుకోవాలి."
+            else -> " ప్రస్తుతం ఉష్ణోగ్రత ${temp.toInt()}°C గా ఉంది. వాతావరణం అనుకూలంగా ఉంది."
+        }
+
+        return "$baseDesc$tempAdvice"
     }
     
     fun getWeatherTypeLabel(code: Int): String {

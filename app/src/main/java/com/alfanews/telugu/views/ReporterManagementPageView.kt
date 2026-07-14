@@ -46,6 +46,7 @@ import kotlinx.coroutines.tasks.await
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReporterManagementPageView(currentUser: User) {
+    val context = LocalContext.current
     val reportersViewModel: ReportersViewModel = viewModel()
     val reporterStats by reportersViewModel.reporterStats.collectAsStateWithLifecycle()
     val reporters by reportersViewModel.filteredReporters.collectAsStateWithLifecycle()
@@ -81,6 +82,10 @@ fun ReporterManagementPageView(currentUser: User) {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                // Show toast if on applications tab where fetching might fail due to index/rules
+                if (selectedTab == 0) {
+                    Toast.makeText(context, "Error fetching applications: ${e.message}", Toast.LENGTH_LONG).show()
+                }
             } finally {
                 if (selectedTab == 0) loading = false
             }
@@ -336,24 +341,45 @@ fun ApplicationCard(
                     },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                    enabled = !isProcessing && (app["status"] as? String != "JOINED")
+                    enabled = !isProcessing && (app["status"] as? String == "PENDING")
                 ) {
                     if (isProcessing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
                     else Text("Approve")
                 }
 
-                if (currentUser.role == UserRole.ADMIN) {
-                    Button(
+                Button(
+                    onClick = {
+                        scope.launch {
+                            isProcessing = true
+                            try {
+                                processReject(app["id"] as String)
+                                Toast.makeText(context, "తిరస్కరించబడింది (Rejected)", Toast.LENGTH_SHORT).show()
+                                onRefresh()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            } finally {
+                                isProcessing = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
+                    enabled = !isProcessing && (app["status"] as? String == "PENDING")
+                ) {
+                    if (isProcessing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
+                    else Text("Reject")
+                }
+
+                if (currentUser.role == UserRole.ADMIN || currentUser.role == UserRole.EDITOR) {
+                    IconButton(
                         onClick = {
                             scope.launch {
                                 FirebaseService.db.collection("reporter_applications").document(app["id"] as String).delete().await()
                                 onRefresh()
                             }
-                        },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                        }
                     ) {
-                        Text("Remove")
+                        Icon(Icons.Default.Delete, contentDescription = "Remove", tint = Color.Gray)
                     }
                 }
             }
@@ -515,6 +541,7 @@ fun StatusBadge(status: String) {
         color = when(status) {
             "JOINED" -> Color(0xFFE8F5E9)
             "SUSPENDED" -> Color(0xFFFFEBEE)
+            "REJECTED" -> Color(0xFFFFEBEE)
             else -> Color(0xFFFFF3E0)
         },
         shape = RoundedCornerShape(4.dp)
@@ -522,6 +549,7 @@ fun StatusBadge(status: String) {
         Text(status, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = when(status){
             "JOINED" -> Color(0xFF2E7D32)
             "SUSPENDED" -> Color(0xFFC62828)
+            "REJECTED" -> Color(0xFFC62828)
             else -> Color(0xFFE65100)
         })
     }
@@ -612,4 +640,8 @@ private suspend fun processJoin(userId: String, appId: String, district: String,
     )
     FirebaseService.db.collection("users").document(userId).update(updates).await()
     FirebaseService.db.collection("reporter_applications").document(appId).update("status", "JOINED").await()
+}
+
+private suspend fun processReject(appId: String) {
+    FirebaseService.db.collection("reporter_applications").document(appId).update("status", "REJECTED").await()
 }

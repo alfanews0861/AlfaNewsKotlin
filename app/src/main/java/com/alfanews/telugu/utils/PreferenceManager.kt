@@ -262,6 +262,23 @@ class PreferenceManager(context: Context) {
         return prefs.getLong("$KEY_LOCAL_ADS_TS_PREFIX$district", 0L)
     }
 
+    /**
+     * యూజర్ ఒక సర్వేకు సమాధానం ఇచ్చినట్లుగా గుర్తు పెట్టుకుంటుంది.
+     */
+    fun markSurveyAnswered(surveyId: String) {
+        val answeredIds = getAnsweredSurveyIds().toMutableSet()
+        answeredIds.add(surveyId)
+        prefs.edit().putStringSet("key_answered_surveys", answeredIds).apply()
+    }
+
+    fun getAnsweredSurveyIds(): Set<String> {
+        return prefs.getStringSet("key_answered_surveys", emptySet()) ?: emptySet()
+    }
+
+    fun isSurveyAnswered(surveyId: String): Boolean {
+        return getAnsweredSurveyIds().contains(surveyId)
+    }
+
     /** 
      * పాత వ్యూ కౌంట్లను క్లియర్ చేయడానికి (ఐచ్ఛికం - మెమరీ మేనేజ్మెంట్ కోసం వాడవచ్చు)
      */

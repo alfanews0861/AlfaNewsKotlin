@@ -106,7 +106,7 @@ fun CreateMenuView(
 
                 if (currentUser != null && currentUser.canPostSurvey()) {
                     CreateMenuButton(
-                        title = "కొత్త సర్వే పోస్ట్ చేయండి",
+                        title = stringResource(R.string.post_survey),
                         subtitle = "సింగిల్ లేదా మల్టీ-పేజీ పోల్ / ఒపీనియన్",
                         icon = "📊",
                         gradientColors = listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.secondaryContainer),

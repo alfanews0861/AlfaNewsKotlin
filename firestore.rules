@@ -147,7 +147,7 @@ service cloud.firestore {
     match /reporter_applications/{appId} {
       allow create: if true;
       allow read, update, delete: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-                                  getUserData().role in ['ADMIN', 'REGIONAL_INCHARGE'];
+                                  getUserData().role in ['ADMIN', 'REGIONAL_INCHARGE', 'EDITOR'];
     }
 
     // Anonymous/Guest Devices for Notifications

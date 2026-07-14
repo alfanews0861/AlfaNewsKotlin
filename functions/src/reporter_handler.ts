@@ -268,6 +268,9 @@ export const onNewsViewCountUpdated = onDocumentWritten({
 
     const viewsBefore = before?.longViews || 0;
     const viewsAfter = after.longViews || 0;
+
+    // ✅ Quick guard: exit if longViews hasn't changed (saves execution time)
+    if (viewsBefore === viewsAfter) return;
     const reporterId = after.reporter?.id;
     if (!reporterId) return;
 
@@ -347,20 +350,35 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         throw new HttpsError('invalid-argument', 'జిల్లా మరియు మండలం తప్పనిసరి.');
     }
 
-    // Check if reporter already exists for this mandal
-    const existingReporters = await db.collection('users')
-        .where('role', '==', 'REPORTER')
-        .where('district', '==', district)
-        .where('assignedMandal', '==', mandal)
+    const trimmedDistrict = district.trim();
+    const trimmedMandal = mandal.trim();
+
+    // Check if reporter already exists for this mandal in users collection
+    const reporterQuery = db.collection('users')
+        .where('role', 'in', ['REPORTER', 2, 2.0])
+        .where('district', '==', trimmedDistrict)
+        .where('assignedMandal', '==', trimmedMandal)
         .limit(1)
         .get();
 
-    if (!existingReporters.empty) {
+    // Check if there is already a JOINED application for this mandal
+    const appQuery = db.collection('reporter_applications')
+        .where('status', '==', 'JOINED')
+        .where('district', '==', trimmedDistrict)
+        .where('mandal', '==', trimmedMandal)
+        .limit(1)
+        .get();
+
+    const [reporterSnap, appSnap] = await Promise.all([reporterQuery, appQuery]);
+
+    if (!reporterSnap.empty || !appSnap.empty) {
         throw new HttpsError('already-exists', 'ఈ మండలానికి ఇప్పటికే రిపోర్టర్ కేటాయించబడ్డారు.');
     }
 
     await db.collection('reporter_applications').add({
         ...data,
+        district: trimmedDistrict,
+        mandal: trimmedMandal,
         status: "PENDING",
         timestamp: admin.firestore.FieldValue.serverTimestamp()
     });

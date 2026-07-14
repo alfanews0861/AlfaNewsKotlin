@@ -56,6 +56,7 @@
     <string name="update_downloaded">కొత్త వెర్షన్ డౌన్‌లోడ్ చేయబడింది. ఇప్పుడే ఇన్‌స్టాల్ చేస్తారా?</string>
     <string name="update_now">ఇప్పుడే అప్‌డేట్ చేయండి</string>
     <string name="post_news">వార్తను పోస్ట్ చేయండి</string>
+    <string name="post_survey">కొత్త సర్వే పోస్ట్ చేయండి</string>
     <string name="settings_onboarding">ఇక్కడ మీరు మీకు కావలసిన విధంగా సెట్టింగ్స్ మార్చుకోవచ్చు</string>
     <string name="rate_us_title">మా యాప్‌ను రేట్ చేయండి</string>
     <string name="rate_us_text">మీకు మా యాప్ నచ్చితే, దయచేసి ప్లే స్టోర్‌లో రేటింగ్ ఇవ్వండి. మీ అభిప్రాయం మాకు ఎంతో విలువైనది.</string>
@@ -80,6 +81,7 @@
     <string name="nav_post">పోస్ట్</string>
     <string name="nav_classifieds">క్లాసిఫైడ్స్</string>
     <string name="nav_profile">ప్రొఫైల్</string>
+    <string name="nav_survey">సర్వే</string>
 
     <!-- News Feed Strings -->
     <string name="news_preparing">వార్తలు సిద్ధమవుతున్నాయి...</string>

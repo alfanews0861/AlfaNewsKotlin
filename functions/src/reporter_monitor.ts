@@ -127,19 +127,19 @@ async function handleReporterStatus(reporterId: string, reporter: any, daysInact
             inProbation: false,
             lastWarningDate: admin.firestore.FieldValue.serverTimestamp()
         });
-        await sendInternalMessage(reporterId, title, body, "CRITICAL");
+        await sendInternalMessage(reporterId, title, body, "CRITICAL", reporter);
         if (shouldNotifyAdmin) await notifyAdminsAboutReporter(reporter.name, "DOWNGRADED");
     } else if (nextLevel > currentLevel) {
         await db.collection('users').doc(reporterId).update({
             warningLevel: nextLevel,
             lastWarningDate: admin.firestore.FieldValue.serverTimestamp()
         });
-        await sendInternalMessage(reporterId, title, body, nextLevel === 3 ? "HIGH" : "NORMAL");
+        await sendInternalMessage(reporterId, title, body, nextLevel === 3 ? "HIGH" : "NORMAL", reporter);
         if (shouldNotifyAdmin && nextLevel === 3) await notifyAdminsAboutReporter(reporter.name, "FINAL_WARNING");
     }
 }
 
-async function sendInternalMessage(userId: string, title: string, body: string, importance: string) {
+async function sendInternalMessage(userId: string, title: string, body: string, importance: string, userData?: any) {
     const messageData = {
         title,
         body,
@@ -151,8 +151,8 @@ async function sendInternalMessage(userId: string, title: string, body: string, 
 
     await db.collection('users').doc(userId).collection('messages').add(messageData);
 
-    const userDoc = await db.collection('users').doc(userId).get();
-    const data = userDoc.data();
+    // ✅ Optimization: Use existing user data if provided to avoid redundant Firestore read
+    const data = userData || (await db.collection('users').doc(userId).get()).data();
     const tokens: string[] = data?.fcmTokens || [];
     if (data?.fcmToken) tokens.push(data.fcmToken);
 

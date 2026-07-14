@@ -23,6 +23,7 @@ import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
+import com.alfanews.telugu.models.canPostSurvey
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.models.ThemeMode
 import kotlinx.coroutines.launch
@@ -65,10 +66,12 @@ fun AdminPanelView(
 
     val allPages = listOf(
         AppPageConfig("profile", stringResource(R.string.profile), listOf(UserRole.GUEST, UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
+        AppPageConfig("manageSurveys", "సర్వే నిర్వహణ", listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
         AppPageConfig("edit-profile", stringResource(R.string.edit_profile), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("id-card", stringResource(R.string.id_card), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("messages", stringResource(R.string.messages), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
         AppPageConfig("post", stringResource(R.string.post_news), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
+        AppPageConfig("survey", stringResource(R.string.post_survey), listOf(UserRole.REPORTER, UserRole.ADMIN)),
         AppPageConfig("ads", stringResource(R.string.ads_manager), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("manage", stringResource(R.string.manage_news), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK)),
         AppPageConfig("manageReporters", stringResource(R.string.manage_reporters), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
@@ -78,12 +81,29 @@ fun AdminPanelView(
         AppPageConfig("affiliate_settings", "Affiliate News API", listOf(UserRole.ADMIN))
     )
 
+    val canPostSurvey = user.canPostSurvey()
     val accessiblePages = when (user.role) {
         UserRole.GUEST, UserRole.SUBSCRIBER -> allPages.filter { it.id == "profile" }
-        UserRole.REPORTER -> allPages.filter { listOf("profile", "post", "ads", "manage", "edit-profile", "id-card", "messages").contains(it.id) }
-        UserRole.NEWS_DESK -> allPages.filter { listOf("profile", "post", "ads", "manage", "edit-profile", "id-card", "messages").contains(it.id) }
-        UserRole.REGIONAL_INCHARGE -> allPages.filter { listOf("profile", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card").contains(it.id) }
-        UserRole.EDITOR -> allPages.filter { listOf("profile", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card").contains(it.id) }
+        UserRole.REPORTER -> allPages.filter { 
+            val list = mutableListOf("profile", "manageSurveys", "post", "ads", "manage", "edit-profile", "id-card", "messages")
+            if (canPostSurvey) list.add("survey")
+            list.contains(it.id)
+        }
+        UserRole.NEWS_DESK -> allPages.filter { 
+            val list = mutableListOf("profile", "manageSurveys", "post", "ads", "manage", "edit-profile", "id-card", "messages")
+            if (canPostSurvey) list.add("survey")
+            list.contains(it.id)
+        }
+        UserRole.REGIONAL_INCHARGE -> allPages.filter { 
+            val list = mutableListOf("profile", "manageSurveys", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card")
+            if (canPostSurvey) list.add("survey")
+            list.contains(it.id)
+        }
+        UserRole.EDITOR -> allPages.filter { 
+            val list = mutableListOf("profile", "manageSurveys", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card")
+            if (canPostSurvey) list.add("survey")
+            list.contains(it.id)
+        }
         UserRole.ADMIN -> allPages
         else -> allPages.filter { it.id == "profile" }
     }
@@ -171,6 +191,10 @@ fun AdminPanelView(
                         user = user,
                         onBack = { activePage = "profile" }
                     )
+                    "manageSurveys" -> ManageSurveysPageView(
+                        currentUser = user,
+                        showTitle = false
+                    )
                     "messages" -> MessagesPageView(
                         user = user,
                         onBack = { activePage = "profile" },
@@ -185,6 +209,12 @@ fun AdminPanelView(
                             if (postId.isNotBlank() && postId != "HOME_ONLY") {
                                 onPostPublished(postId)
                             }
+                        }
+                    )
+                    "survey" -> PostSurveyPageView(
+                        user = user,
+                        onActionComplete = {
+                            activePage = "manage"
                         }
                     )
                     "manage" -> ManagePostsPageView(

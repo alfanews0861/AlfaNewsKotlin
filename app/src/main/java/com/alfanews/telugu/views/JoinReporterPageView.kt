@@ -80,7 +80,10 @@ fun JoinReporterPageView(
     }
 
     val availableMandalsList = remember(selectedDistrict, mandalsList, occupiedMandals) {
-        mandalsList.filter { !occupiedMandals.contains("$selectedDistrict|$it") }
+        val trimmedDistrict = selectedDistrict.trim()
+        mandalsList.filter { mandal -> 
+            !occupiedMandals.contains("$trimmedDistrict|${mandal.trim()}") 
+        }
     }
 
     // Validation focus markers (Positions relative to scrollable content)
@@ -100,16 +103,33 @@ fun JoinReporterPageView(
 
     LaunchedEffect(Unit) {
         try {
-            val snapshot = FirebaseService.db.collection("users")
-                .whereEqualTo("role", "REPORTER")
+            // 1. Fetch from users collection (Active Reporters)
+            // Checking for "REPORTER" string, and common numeric equivalents (2, 2.0)
+            val usersSnapshot = FirebaseService.db.collection("users")
+                .whereIn("role", listOf("REPORTER", 2, 2.0, "2"))
                 .get()
                 .await()
-            val mandals = snapshot.documents.mapNotNull { doc ->
-                val dist = (doc.get("district") as? String) ?: ""
-                val mandal = (doc.get("assignedMandal") as? String) ?: ""
-                if (dist != "" && mandal != "") "$dist|$mandal" else null
-            }.toSet()
-            occupiedMandals = mandals
+            
+            val userMandals = usersSnapshot.documents.mapNotNull { doc ->
+                val dist = (doc.get("district") as? String)?.trim() ?: ""
+                val mandal = (doc.get("assignedMandal") as? String)?.trim() ?: 
+                             (doc.get("mandal") as? String)?.trim() ?: ""
+                if (dist.isNotEmpty() && mandal.isNotEmpty()) "$dist|$mandal" else null
+            }
+
+            // 2. Fetch from reporter_applications (Approved Applications)
+            val appsSnapshot = FirebaseService.db.collection("reporter_applications")
+                .whereEqualTo("status", "JOINED")
+                .get()
+                .await()
+            
+            val appMandals = appsSnapshot.documents.mapNotNull { doc ->
+                val dist = (doc.get("district") as? String)?.trim() ?: ""
+                val mandal = (doc.get("mandal") as? String)?.trim() ?: ""
+                if (dist.isNotEmpty() && mandal.isNotEmpty()) "$dist|$mandal" else null
+            }
+
+            occupiedMandals = (userMandals + appMandals).toSet()
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {

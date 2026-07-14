@@ -126,6 +126,9 @@ fun MainScreen(
                         "post" -> {
                             showPostNewsPage = true
                         }
+                        "survey" -> {
+                            showPostSurveyPage = true
+                        }
                         "manage", "manageReporters", "manageUsers", "adminNotify", "affiliate_settings", "ads" -> {
                             mainViewModel.setAdminActivePage(page)
                             mainViewModel.setActiveTab("profile")
@@ -198,7 +201,7 @@ fun MainScreen(
                         val subHeaderTitle = when {
                             reporterIdToShow != null -> if (language == Language.TELUGU) "రిపోర్టర్ ప్రొఫైల్" else "Reporter Profile"
                             showPostNewsPage -> if (language == Language.TELUGU) "వార్తను పబ్లిష్ చేయండి" else "Publish News"
-                            showPostSurveyPage -> if (language == Language.TELUGU) "కొత్త సర్వే పోస్ట్ చేయండి" else "Publish Survey"
+                            showPostSurveyPage -> stringResource(R.string.post_survey)
                             showJoinReporterPage -> stringResource(R.string.join_reporter)
                             showEditProfilePage -> stringResource(R.string.edit_profile)
                             activeTab == "reporters" -> stringResource(R.string.reporters)
@@ -207,9 +210,11 @@ fun MainScreen(
                             activeTab == "profile" -> {
                                 when (adminActivePage) {
                                     "edit-profile" -> stringResource(R.string.edit_profile)
+                                    "manageSurveys" -> "సర్వే నిర్వహణ"
                                     "id-card" -> stringResource(R.string.id_card)
                                     "messages" -> stringResource(R.string.messages)
                                     "post" -> stringResource(R.string.post_news)
+                                    "survey" -> stringResource(R.string.post_survey)
                                     "ads" -> stringResource(R.string.ads_manager)
                                     "manage" -> stringResource(R.string.manage_news)
                                     "manageReporters" -> stringResource(R.string.manage_reporters)
@@ -245,6 +250,7 @@ fun MainScreen(
                                     }
                                     showPostSurveyPage -> {
                                         showPostSurveyPage = false
+                                        mainViewModel.setActiveTab("home")
                                     }
                                     showJoinReporterPage -> showJoinReporterPage = false
                                     showEditProfilePage -> showEditProfilePage = false

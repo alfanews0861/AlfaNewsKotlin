@@ -7,7 +7,8 @@ import {
     parseAIJson,
     saveBufferToStorage,
     generateImageWithRetry,
-    SCHEDULED_MODEL
+    SCHEDULED_MODEL,
+    getTopicName
 } from "./utils";
 
 const db = admin.firestore();
@@ -276,7 +277,15 @@ const DISTRICT_COORDS: { [key: string]: { lat: number, lon: number } } = {
     "అనంతపురం": { lat: 14.6819, lon: 77.6006 },
     "కడప": { lat: 14.4673, lon: 78.8242 },
     "కాకినాడ": { lat: 16.9891, lon: 82.2475 },
-    "రాజమహేంద్రవరం": { lat: 17.0005, lon: 81.7774 }
+    "రాజమహేంద్రవరం": { lat: 17.0005, lon: 81.7774 },
+    "నల్గొండ": { lat: 17.0500, lon: 79.2667 },
+    "శ్రీకాకుళం": { lat: 18.3000, lon: 83.9000 },
+    "విజయనగరం": { lat: 18.1167, lon: 83.4167 },
+    "ఏలూరు": { lat: 16.7000, lon: 81.1000 },
+    "మహబూబ్ నగర్": { lat: 16.7333, lon: 77.9833 },
+    "సంగారెడ్డి": { lat: 17.6167, lon: 78.0833 },
+    "సిద్దిపేట": { lat: 18.1000, lon: 78.8500 },
+    "సూర్యాపేట": { lat: 17.1333, lon: 79.6167 }
 };
 
 export const checkSevereWeatherAlerts = onSchedule({
@@ -300,19 +309,19 @@ export const checkSevereWeatherAlerts = onSchedule({
 
             if (weatherCode === 95 || weatherCode === 96 || weatherCode === 99) {
                 alertTitle = `⚠️ పిడుగుల హెచ్చరిక - ${district}`;
-                alertBody = `ప్రస్తుతం ${district} ప్రాంతంలో పిడుగులతో కూడిన భారీ వర్షం పడే అవకాశం ఉంది. సురక్షితంగా ఉండండి.`;
+                alertBody = `ప్రస్తుతం ${district} ప్రాంతంలో ఉరుములు, మెరుపులతో కూడిన భారీ వర్షం పడే ప్రమాదం ఉంది. ప్రజలు సురక్షితమైన భవనాల్లో ఉండాలి, చెట్ల కింద నిలబడవద్దు.`;
                 isSevere = true;
             } else if (temp >= 42) {
-                alertTitle = `🔥 ఎండ తీవ్రత హెచ్చరిక - ${district}`;
-                alertBody = `జాగ్రత్త! ${district} లో ఉష్ణోగ్రత ${temp}°C కి చేరింది. వడగాల్పులు వీచే అవకాశం ఉంది.`;
+                alertTitle = `🔥 తీవ్ర ఎండ తీవ్రత హెచ్చరిక - ${district}`;
+                alertBody = `జాగ్రత్త! ${district} లో ఉష్ణోగ్రత ${temp}°C కి చేరింది. మధ్యాహ్నం వేళ బయటకు వెళ్లకండి, తగినంత నీరు తాగుతూ ఉండండి. వడదెబ్బ తగిలే ప్రమాదం ఉంది.`;
                 isSevere = true;
             } else if (weatherCode >= 51 && weatherCode <= 82) {
                 alertTitle = `🌧️ వర్ష సూచన - ${district}`;
-                alertBody = `రైతు సోదరులకు గమనిక: ${district} లో వర్షం పడే అవకాశం ఉంది.`;
+                alertBody = `${district} లో రాబోయే కొన్ని గంటల్లో వర్షం కురిసే అవకాశం ఉంది. రైతు సోదరులు తమ ధాన్యం నిల్వలను జాగ్రత్త పరుచుకోవాలి. బయటకు వెళ్లేవారు గొడుగు వెంట ఉంచుకోండి.`;
                 isSevere = true;
             } else if (weatherCode === 45 || weatherCode === 48) {
                 alertTitle = `🌫️ దట్టమైన మంచు హెచ్చరిక - ${district}`;
-                alertBody = `${district} లో దట్టమైన మంచు కురుస్తోంది. జాగ్రత్తగా ప్రయాణించండి.`;
+                alertBody = `${district} లో దట్టమైన మంచు కురుస్తోంది, ఎదురుగా వచ్చే వాహనాలు కనిపించకపోవచ్చు. వాహనదారులు ఫాగ్ లైట్లు వాడుతూ నెమ్మదిగా ప్రయాణించండి.`;
                 isSevere = true;
             }
 
@@ -334,66 +343,32 @@ export const checkSevereWeatherAlerts = onSchedule({
                 }
                 // -----------------------------------------------------------------
 
-                // --- NOTIFICATION BATCHING ---
-                const sendAlerts = async (collectionName: string) => {
-                    let lastDoc = null;
-                    let hasMoreUsers = true;
-                    while (hasMoreUsers) {
-                        let userQuery = db.collection(collectionName)
-                            .where('notificationsEnabled', '!=', false);
-
-                        if (collectionName === 'users') {
-                            userQuery = userQuery.where('district', '==', district);
+                // ✅ OPTIMIZED: Use FCM Topics for location-based alerts (Massive cost reduction)
+                const topicName = getTopicName("weather_alert", district);
+                const message: admin.messaging.TopicMessage = {
+                    notification: { title: alertTitle, body: alertBody },
+                    data: {
+                        type: "WEATHER_ALERT",
+                        district,
+                        title: alertTitle,
+                        body: alertBody,
+                        channelId: "weather_alerts"
+                    },
+                    android: {
+                        notification: {
+                            channelId: "weather_alerts",
+                            priority: "high"
                         }
-
-                        if (lastDoc) userQuery = userQuery.startAfter(lastDoc);
-                        const userSnap = await userQuery.limit(500).get();
-
-                        if (userSnap.empty) {
-                            hasMoreUsers = false;
-                            break;
-                        }
-
-                        const messages: admin.messaging.Message[] = [];
-                        userSnap.docs.forEach(doc => {
-                            const token = doc.data().fcmToken;
-                            if (token) {
-                                messages.push({
-                                    notification: { title: alertTitle, body: alertBody },
-                                    data: {
-                                        type: "WEATHER_ALERT",
-                                        district,
-                                        title: alertTitle,
-                                        body: alertBody,
-                                        channelId: "weather_alerts"
-                                    },
-                                    android: {
-                                        notification: {
-                                            channelId: "weather_alerts",
-                                            priority: "high"
-                                        }
-                                    },
-                                    token
-                                });
-                            }
-                        });
-
-                        if (messages.length > 0) {
-                            try {
-                                const response = await admin.messaging().sendEach(messages);
-                                console.log(`[WEATHER_ALERT] Sent ${response.successCount} alerts to ${collectionName}.`);
-                            } catch (e: any) {
-                                console.error(`[WEATHER_ALERT_SEND_ERR] ${collectionName}:`, e.message);
-                            }
-                        }
-
-                        lastDoc = userSnap.docs[userSnap.docs.length - 1];
-                        hasMoreUsers = userSnap.docs.length === 500;
-                    }
+                    },
+                    topic: topicName
                 };
 
-                await sendAlerts('users');
-                await sendAlerts('anonymous_devices');
+                try {
+                    const response = await admin.messaging().send(message);
+                    console.log(`[WEATHER_ALERT] Sent to topic ${topicName}: ${response}`);
+                } catch (e: any) {
+                    console.error(`[WEATHER_ALERT_SEND_ERR] ${topicName}:`, e.message);
+                }
 
                 // Update state after successful run
                 await alertStateRef.set({

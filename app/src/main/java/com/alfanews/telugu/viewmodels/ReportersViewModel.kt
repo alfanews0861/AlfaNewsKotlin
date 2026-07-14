@@ -48,7 +48,7 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
             _loading.value = true
             try {
                 var query = FirebaseService.db.collection("users")
-                    .whereEqualTo("role", UserRole.REPORTER.name)
+                    .whereIn("role", listOf("REPORTER", 2, 2.0))
                 
                 if (district != null && district.isNotEmpty()) {
                     query = query.whereEqualTo("district", district)
@@ -95,57 +95,62 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
             cal.add(Calendar.DAY_OF_YEAR, -7)
             val weekStart = cal.time
 
-            reporterIds.forEach { id ->
-                try {
-                    // 🚀 FETCH ALL RECENT POSTS for this reporter and filter in Kotlin
-                    // This handles mixed data types (Timestamp vs Long) in Firestore
-                    val snapshot = FirebaseService.db.collection("news")
-                        .whereEqualTo("reporter.id", id)
-                        .whereGreaterThanOrEqualTo("timestamp", com.google.firebase.Timestamp(weekStart))
-                        .get().await()
-                    
-                    val posts = snapshot.documents.map { doc ->
-                        val data = doc.data ?: return@map 0L
-                        when (val ts = data["timestamp"]) {
-                            is com.google.firebase.Timestamp -> ts.toDate().time
-                            is Number -> ts.toLong()
+            try {
+                // 🚀 OPTIMIZED: Fetch ALL recent reporter news in ONE query to save reads
+                // We'll perform two queries to handle mixed types (Timestamp vs Long)
+                
+                // 1. Query for Timestamp type
+                val timestampQuery = FirebaseService.db.collection("news")
+                    .whereEqualTo("isReporter", true)
+                    .whereEqualTo("approved", true)
+                    .whereGreaterThanOrEqualTo("timestamp", com.google.firebase.Timestamp(weekStart))
+                    .get()
+
+                // 2. Query for Long type
+                val longQuery = FirebaseService.db.collection("news")
+                    .whereEqualTo("isReporter", true)
+                    .whereEqualTo("approved", true)
+                    .whereGreaterThanOrEqualTo("timestamp", weekStart.time)
+                    .get()
+
+                val snapshots = listOf(timestampQuery.await(), longQuery.await())
+                
+                // Track post counts per reporter
+                val todayCounts = mutableMapOf<String, Int>()
+                val weekCounts = mutableMapOf<String, Int>()
+
+                snapshots.forEach { snapshot ->
+                    snapshot.documents.forEach { doc ->
+                        val reporterId = (doc.get("reporter") as? Map<*, *>)?.get("id") as? String ?: return@forEach
+                        val rawTs = doc.get("timestamp")
+                        
+                        val ts = when (rawTs) {
+                            is com.google.firebase.Timestamp -> rawTs.toDate().time
+                            is Number -> rawTs.toLong()
                             else -> 0L
                         }
-                    }
 
-                    val todayCount = posts.count { it >= todayStart.time }
-                    val weekCount = posts.count { it >= weekStart.time }
-                        
-                    statsMap[id] = ReporterStats(
-                        todayPosts = todayCount,
-                        weekPosts = weekCount
-                    )
-                } catch (e: Exception) {
-                    // Fallback for safety
-                    try {
-                        val snapshot = FirebaseService.db.collection("news")
-                            .whereEqualTo("reporter.id", id)
-                            .whereGreaterThanOrEqualTo("timestamp", weekStart.time)
-                            .get().await()
-
-                        val posts = snapshot.documents.map { doc ->
-                            val data = doc.data ?: return@map 0L
-                            when (val ts = data["timestamp"]) {
-                                is com.google.firebase.Timestamp -> ts.toDate().time
-                                is Number -> ts.toLong()
-                                else -> 0L
+                        if (ts >= weekStart.time) {
+                            weekCounts[reporterId] = (weekCounts[reporterId] ?: 0) + 1
+                            if (ts >= todayStart.time) {
+                                todayCounts[reporterId] = (todayCounts[reporterId] ?: 0) + 1
                             }
                         }
-                        statsMap[id] = ReporterStats(
-                            todayPosts = posts.count { it >= todayStart.time },
-                            weekPosts = posts.count { it >= weekStart.time }
-                        )
-                    } catch (innerE: Exception) {
-                        innerE.printStackTrace()
                     }
                 }
+
+                // Update the stats map for all requested reporters
+                reporterIds.forEach { id ->
+                    statsMap[id] = ReporterStats(
+                        todayPosts = todayCounts[id] ?: 0,
+                        weekPosts = weekCounts[id] ?: 0
+                    )
+                }
+                
+                _reporterStats.value = statsMap
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            _reporterStats.value = statsMap
         }
     }
 
