@@ -444,21 +444,23 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             try {
                 val snapshot = query.get().await()
                 if (snapshot.isEmpty) {
-                    if (excludeDistricts) {
-                        var fallbackQuery = baseQuery.whereEqualTo("approved", true)
-                            .orderBy("timestamp", Query.Direction.DESCENDING).limit(limit.toLong())
-                        if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
-                        val fallbackSnapshot = fallbackQuery.get().await()
-                        if (fallbackSnapshot.isEmpty) {
-                            return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
-                        }
-                        val batch = fallbackSnapshot.documents.mapNotNull { doc ->
-                            mapDocumentToNewsPost(doc)
-                        }
-                        currentCursor = fallbackSnapshot.documents.lastOrNull()
-                        return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(batch, currentCursor)
+                    // 🚀 FALLBACK: If a specific query (like district or global list) is empty,
+                    // fetch any latest approved news as a final safety net.
+                    var fallbackQuery = FirebaseService.db.collection("news")
+                        .whereEqualTo("approved", true)
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(limit.toLong())
+                    
+                    if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
+                    
+                    val fallbackSnapshot = fallbackQuery.get().await()
+                    if (fallbackSnapshot.isEmpty) {
+                        return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
                     }
-                    return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
+                    
+                    val batch = fallbackSnapshot.documents.mapNotNull { doc -> mapDocumentToNewsPost(doc) }
+                    currentCursor = fallbackSnapshot.documents.lastOrNull()
+                    return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(batch, currentCursor)
                 }
                 val batch = snapshot.documents.mapNotNull { doc ->
                     mapDocumentToNewsPost(doc)
@@ -516,12 +518,15 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 
                 // 1. 🛡️ REPORTER DISTRICT NEWS FILTER
                 // Only show 'District News' from reporters if it's the user's own district.
-                // Global topics like Cinema, Tech, and general state news should pass.
+                // 🚀 NEW USER FIX: If district is null (not yet detected), show all district news
+                // so the feed is never empty for new users.
                 val isDistrictNewsCategory = post.categories.contains("జిల్లా వార్త")
                 if (isDistrictNewsCategory && post.isReporter) {
-                    val matchesUserDistrict = currentDist != null && 
-                        (post.district == currentDist || post.categories.contains(currentDist))
-                    if (!matchesUserDistrict) return@filter false
+                    if (currentDist != null) {
+                        val matchesUserDistrict = (post.district == currentDist || post.categories.contains(currentDist))
+                        if (!matchesUserDistrict) return@filter false
+                    }
+                    // If currentDist is null, we allow the post through (Universal view for new users)
                 }
 
                 // 2. 🏛️ POLITICAL FILTER (State-Based)
@@ -551,7 +556,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            val quoteGreetings = allPosts.filter { it.type == "greeting" && it.likes == 1 }
            val historyPosts = allPosts.filter { it.type == "history" }
            val cartoonPosts = allPosts.filter { it.type == "cartoon" }
-           val normalNews = allPosts.filter { it.type != "greeting" && it.type != "history" && it.type != "cartoon" }
+           val normalNews = allPosts.filter { it.type != "greeting" && it.type != "history" && it.type != "cartoon" && it.type != "survey" }
 
            if (normalNews.isEmpty() && !isFirstPage) {
                return@withContext emptyList<NewsPost>() 
@@ -597,26 +602,32 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            val blendedNews = (top5Fresh + freshNewsRemaining + scoredNews + discoveryNews).toMutableList()
 
            if (isFirstPage) {
+               val activeSurvey = fetchActiveSurvey()
+
                fun insertSafely(list: MutableList<NewsPost>, post: NewsPost, targetIdx: Int) {
                    val actualIdx = if (targetIdx >= list.size) list.size else targetIdx
                    list.add(actualIdx, post)
                }
-               if (quoteGreetings.isNotEmpty()) { insertSafely(blendedNews, quoteGreetings.first(), 6) }
+               
+               // Inject active survey at 3rd card (index 2)
+               activeSurvey?.let { insertSafely(blendedNews, it, 2) }
+
+               if (quoteGreetings.isNotEmpty()) { insertSafely(blendedNews, quoteGreetings.first(), 7) }
                
                // ✅ WEATHER CARD FIX:
-               // Moved back to index 8 as per user request to ensure no delays at start.
+               // Moved to index 9 (was 8) due to survey at index 2
                if (blendedNews.size >= 5) {
                    val lat = prefs.lastLat.takeIf { it != 0.0 }
                    val lon = prefs.lastLon.takeIf { it != 0.0 }
-                   insertSafely(blendedNews, generateWeatherPost(prefs.localPlace, _userDistrict.value, lat, lon), 8)
+                   insertSafely(blendedNews, generateWeatherPost(prefs.localPlace, _userDistrict.value, lat, lon), 9)
                }
 
-               if (historyPosts.isNotEmpty()) { insertSafely(blendedNews, historyPosts.first(), 9) }
+               if (historyPosts.isNotEmpty()) { insertSafely(blendedNews, historyPosts.first(), 10) }
                if (cartoonPosts.isNotEmpty()) {
                    val userDist = _userDistrict.value
                    val userState = mapDistrictToState(userDist)
                    val relevantCartoon = cartoonPosts.find { it.district?.equals(userState, ignoreCase = true) == true } ?: cartoonPosts.firstOrNull()
-                   relevantCartoon?.let { insertSafely(blendedNews, it, 12) }
+                   relevantCartoon?.let { insertSafely(blendedNews, it, 13) }
                }
                if (festivalGreetings.isNotEmpty()) { blendedNews.add(0, festivalGreetings.first()) }
            }
@@ -629,6 +640,28 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             val doc = snapshot.documents.firstOrNull() ?: return null
             return mapDocumentToNewsPost(doc)
         } catch (e: Exception) { null }
+    }
+
+    private suspend fun fetchActiveSurvey(): NewsPost? {
+        return try {
+            val fiveDaysAgo = System.currentTimeMillis() - (5 * 24 * 60 * 60 * 1000L)
+            val snapshot = FirebaseService.db.collection("news")
+                .whereEqualTo("type", "survey")
+                .whereEqualTo("approved", true)
+                .whereGreaterThan("timestamp", fiveDaysAgo)
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+                .limit(1)
+                .get().await()
+            
+            val doc = snapshot.documents.firstOrNull() ?: return null
+            val survey = mapDocumentToNewsPost(doc)
+            
+            // Filter if already answered (tracked in PreferenceManager)
+            if (survey != null && prefs.isSurveyAnswered(survey.id)) null else survey
+        } catch (e: Exception) {
+            Log.e("NewsFeedVM", "Error fetching active survey: ${e.message}")
+            null
+        }
     }
 
     private fun mapDocumentToNewsPost(doc: DocumentSnapshot): NewsPost? {
@@ -882,11 +915,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
              }
          } catch (e: Exception) { null }
 
-         var temperatureStr = ""; var weatherHeadlineTe = "వాతావరణ తాజా సమాచారం"; var weatherContentTe = "ప్రస్తుతం $location లో వాతావరణ వివరాలు అందుబాటులో లేవు. మళ్ళీ ప్రయత్నించండి."
+         var temperatureStr = ""; var weatherHeadlineTe = "వాతావరణ తాజా సమాచారం"; var weatherContentTe = "ప్రస్తుతం $location లో వాతావరణ వివరాలు అందుబాటులో లేవు. నెట్‌వర్క్ చెక్ చేసుకుని మళ్ళీ ప్రయత్నించండి."
          if (weatherData != null) {
              temperatureStr = "${weatherData.temp.toInt()}°C "
              weatherHeadlineTe = WeatherService.getWeatherDescription(weatherData.code)
-             weatherContentTe = "నేడు $location లో వాతావరణం ${WeatherService.getWeatherDescription(weatherData.code)}. ప్రస్తుత ఉష్ణోగ్రత ${weatherData.temp.toInt()}°C గా ఉంది. గాలి వేగం గంటకు ${weatherData.wind.toInt()} కిలోమీటర్లు."
+             weatherContentTe = WeatherService.getConversationalDescription(weatherData.code, weatherData.temp, location)
          }
          return NewsPost(
              id = "weather_${System.currentTimeMillis() / (1000 * 60 * 10)}",

@@ -20,6 +20,7 @@ async function insertTrendingNews() {
             tags: ["AI", "Healthcare", "Andhra Pradesh", "Technology", "Rural Health"],
             reporter: { id: 'BOT_MANUAL_AP', name: 'సునీల్ వర్మ' },
             aiProcessed: true,
+            approved: true,
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         };
@@ -39,6 +40,7 @@ async function insertTrendingNews() {
             tags: ["Telangana", "Solar Energy", "Green Power", "Technology"],
             reporter: { id: 'BOT_MANUAL_TS', name: 'రవి కుమార్' },
             aiProcessed: true,
+            approved: true,
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         };
