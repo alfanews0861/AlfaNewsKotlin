@@ -294,6 +294,12 @@ export const checkSevereWeatherAlerts = onSchedule({
     memory: "512MiB"
 }, async (event) => {
     console.log("[WEATHER_ALERT] Checking for severe weather conditions...");
+
+    // OPTIMIZATION: Fetch alert state ONCE outside the loop to save Firestore reads
+    const alertStateRef = db.collection('settings').doc('weather_alerts');
+    const alertStateDoc = await alertStateRef.get();
+    const alertStateData = alertStateDoc.exists ? alertStateDoc.data() || {} : {};
+
     for (const [district, coords] of Object.entries(DISTRICT_COORDS)) {
         try {
             const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current_weather=true`;
@@ -326,10 +332,7 @@ export const checkSevereWeatherAlerts = onSchedule({
             }
 
             if (isSevere) {
-                // --- STATE TRACKING & COOLDOWN (Prevention of Spam/Billing Loop) ---
-                const alertStateRef = db.collection('settings').doc('weather_alerts');
-                const alertStateDoc = await alertStateRef.get();
-                const alertStateData = alertStateDoc.data() || {};
+                // --- STATE TRACKING & COOLDOWN ---
                 const districtState = alertStateData[district] || {};
 
                 const lastSentAt = districtState.lastAlertSentAt?.toDate()?.getTime() || 0;
@@ -444,7 +447,11 @@ export const cleanupOldNews = onSchedule({
                             totalDeletedFiles++;
                         } catch (e: any) {
                              // Ignore 404s (already deleted)
-                             if (!e.message?.includes("404")) {
+                             const is404 = e.code === 404 || String(e.code) === "404" ||
+                                           e.message?.includes("404") ||
+                                           e.message?.includes("No such object");
+
+                             if (!is404) {
                                  console.warn(`[CLEANUP_WARN] Failed to delete ${url}:`, e.message);
                              }
                         }

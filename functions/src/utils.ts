@@ -7,8 +7,8 @@ export const REGION = "asia-south1";
 export const SCHEDULED_MODEL = "gemini-3.1-flash-lite";
 export const PRO_MODEL = "gemini-3.1-flash-lite";
 export const FLASH_MODEL = "gemini-3.1-flash-lite";
-export const IMAGEN_MODEL = "gemini-3.1-flash-image-preview";
-export const IMAGEN_FAST_MODEL = "gemini-3.1-flash-image-preview";
+export const IMAGEN_MODEL = "gemini-3.1-flash-image";         // GA as of 2026
+export const IMAGEN_FAST_MODEL = "gemini-3.1-flash-image";    // imagen-4.0 deprecated Aug 17, 2026
 
 /**
  * Converts any string into a safe FCM topic name.
@@ -252,11 +252,12 @@ export async function generateImageWithRetry(
     aspectRatio: '1:1' | '9:16' | '16:9' | '3:4' | '4:3' = '9:16',
     retriesUnused = 3
 ): Promise<Buffer | null> {
+    // NOTE: imagen-4.0-generate-001 is DEPRECATED (shutdown Aug 17, 2026)
+    // Use gemini-3.1-flash-image (GA) as primary image model
     const modelsToTry = [
-        "gemini-3.1-flash-image-preview",
-        "imagen-4.0-generate-001",
-        "gemini-2.5-flash-image",
-        "imagen-3.0-generate-002"
+        "gemini-3.1-flash-image",          // ✅ GA - Primary
+        "gemini-3.1-flash-image-preview",  // Preview fallback
+        "imagen-3.0-generate-002"          // Legacy fallback (billing required)
     ];
 
     try {
@@ -266,22 +267,22 @@ export async function generateImageWithRetry(
             // For Gemini models, we append aspect ratio to the prompt as they don't support the parameter yet
             const finalPrompt = isImagen ? prompt : `${prompt} [Aspect Ratio: ${aspectRatio}]`;
 
-            const config: any = {
+            const genConfig: any = {
                 temperature: 0.9
             };
 
             // Gemini Native Image models MUST have these modalities
             if (!isImagen) {
-                config.responseModalities = ["TEXT", "IMAGE"];
+                genConfig.responseModalities = ["TEXT", "IMAGE"];
             } else {
                 // Imagen supports explicit aspect ratio
-                config.aspectRatio = aspectRatio.replace(":", "x"); // converts 16:9 to 16x9
+                genConfig.aspectRatio = aspectRatio.replace(":", "x"); // converts 16:9 to 16x9
             }
 
             const response = await ai.models.generateContent({
                 model: modelName,
                 contents: [{ role: "user", parts: [{ text: finalPrompt }] }],
-                generationConfig: config
+                config: genConfig  // ✅ Fixed: @google/genai SDK uses 'config', not 'generationConfig'
             });
 
             if (response.candidates && response.candidates.length > 0) {

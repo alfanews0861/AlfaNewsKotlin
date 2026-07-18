@@ -1,0 +1,3 @@
+- [x] Fix Gemini JSON Truncation in `news_handler.ts`
+- [x] Quiet false alarms in `cleanupoldnews` in `auto_content_handler.ts`
+- [x] Verify changes

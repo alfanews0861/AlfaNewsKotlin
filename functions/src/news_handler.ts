@@ -108,12 +108,14 @@ SUBMISSION METADATA:
             config: {
                 systemInstruction: getCategorySystemInstruction(),
                 temperature: 0.4,
+                maxOutputTokens: 4096,
                 responseMimeType: "application/json",
                 responseSchema: schema,
                 // Full compatibility aliases
                 system_instruction: getCategorySystemInstruction(),
                 response_mime_type: "application/json",
-                response_schema: schema
+                response_schema: schema,
+                max_output_tokens: 4096
             }
         } as any);
 
@@ -301,28 +303,45 @@ export const onNewsPostCreated = onDocumentWritten({
     const postId = event.params.postId;
     let data: any = snapshot.data();
 
-    // Capture the original submitter to ensure they get the points,
-    // even if display reporter is reassigned.
-    const originalReporterId = data.reporter?.id;
+    // 1. QUICK GUARD: Skip if this is a "passive" update (Views, Likes, etc.)
+    // These happen frequently and don't require AI or Video processing.
+    const beforeData = event.data?.before?.data() || {};
+    const status = (data.status || "").toUpperCase();
 
-    const currentStatus = (data.status || "").toUpperCase();
-    const isReporter = data.isReporter === true || data.processingType === "REPORTER_SUBMISSION";
+    // Fields that should NOT trigger re-processing
+    const passiveFields = ["longViews", "likes", "shares", "comments", "lastUpdated", "lastCleanupAt"];
+    const isPassiveUpdate = Object.keys(data).every(key =>
+        passiveFields.includes(key) || JSON.stringify(data[key]) === JSON.stringify(beforeData[key])
+    );
 
-    // 1. Guard against infinite loops or redundant processing
-    // We MUST re-fetch the document to ensure we aren't racing with another trigger instance
+    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED", "ARCHIVED"];
+
+    if (LOCKED_STATUSES.includes(status) && !data.forceReprocess) {
+        // If it's already locked and not a forced reprocess, skip immediately without reading DB again
+        return;
+    }
+
+    if (isPassiveUpdate && status !== "PENDING" && !data.forceReprocess) {
+        // console.log(`[TRIGGER_SKIPPED] Passive update for ${postId}`);
+        return;
+    }
+
+    const postId = event.params.postId;
+
+    // 2. FETCH LATEST: Only now we fetch to handle race conditions for actual content changes
     const latestDoc = await db.collection('news').doc(postId).get();
     const latestData = latestDoc.data();
     if (!latestData) return;
 
     const latestStatus = (latestData.status || "").toUpperCase();
 
-    // Statuses that mean we've already started or finished processing
-    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED"];
-
     if (LOCKED_STATUSES.includes(latestStatus) && !data.forceReprocess) {
         console.log(`[TRIGGER_SKIPPED] ${postId} is already in state: ${latestStatus}`);
         return;
     }
+
+    const originalReporterId = latestData.reporter?.id;
+    const isReporter = latestData.isReporter === true || latestData.processingType === "REPORTER_SUBMISSION";
 
     // 2. SURVEY BYPASS — skip Gemini AI for survey/poll/opinion posts
     if (latestData.type === "survey") {

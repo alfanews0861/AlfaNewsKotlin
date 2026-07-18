@@ -58,18 +58,18 @@ export const sendPersonalizedNotification = onSchedule({
             const headline = topNews.headline?.telugu || topNews.headline?.english || topNews.headline || "నేటి ముఖ్య వార్తలు";
             const imageUrl = topNews.mediaUrl || "";
 
+            // ✅ FIX: 'notification' payload తొలగించడం.
+            // notification payload ఉంటే Android OS background లో onMessageReceived() skip చేస్తుంది.
+            // data-only message పంపితే ఎల్లప్పుడూ onMessageReceived() trigger అవుతుంది.
             const message: admin.messaging.Message = {
-                notification: {
-                    title: '🌟 తాజా ముఖ్య వార్తలు (AlfaNews)',
-                    body: (headline + "").substring(0, 150)
-                },
                 android: {
-                    notification: {
-                        imageUrl: imageUrl,
-                        priority: 'high',
-                        channelId: 'general_news',
-                        clickAction: 'FLUTTER_NOTIFICATION_CLICK' // For consistency if needed, but we use actionUrl
-                    }
+                    priority: 'high',
+                    ...(imageUrl ? {
+                        notification: {
+                            imageUrl: imageUrl,
+                            channelId: 'general_news',
+                        }
+                    } : {})
                 },
                 data: {
                     actionUrl: `alfanews://news/${topNews.id}`,
@@ -107,17 +107,17 @@ export const sendPersonalizedNotification = onSchedule({
             const topicName = getTopicName("district", district);
 
             try {
+                // ✅ FIX: 'notification' payload తొలగించడం.
+                // data-only message పంపితే background లో కూడా onMessageReceived() trigger అవుతుంది.
                 const message: admin.messaging.Message = {
-                    notification: {
-                        title: `📍 ${district} తాజా వార్త`,
-                        body: (headline + "").substring(0, 150)
-                    },
                     android: {
-                        notification: {
-                            imageUrl: imageUrl,
-                            priority: 'high',
-                            channelId: 'local_news'
-                        }
+                        priority: 'high',
+                        ...(imageUrl ? {
+                            notification: {
+                                imageUrl: imageUrl,
+                                channelId: 'local_news',
+                            }
+                        } : {})
                     },
                     data: {
                         actionUrl: `alfanews://news/${districtNews.id}`,
