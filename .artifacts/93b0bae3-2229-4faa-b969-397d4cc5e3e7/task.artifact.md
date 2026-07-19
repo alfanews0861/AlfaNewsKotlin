@@ -1,6 +1,6 @@
-- [ ] Update `news_handler.ts` to fix TTS SSML issues
-    - [ ] Simplify text sanitization and SSML tag injection
-    - [ ] Fix truncation logic to avoid cutting tags
-    - [ ] Remove `<say-as>` for Studio (Chirp) voices
-- [ ] Verify build
-- [ ] Deploy and notify user
+- [x] Update `news_handler.ts` to fix TTS SSML issues
+    - [x] Simplify text sanitization and SSML tag injection
+    - [x] Fix truncation logic to avoid cutting tags
+    - [x] Remove `<say-as>` for Studio (Chirp) voices
+- [x] Verify build
+- [x] Deploy and notify user

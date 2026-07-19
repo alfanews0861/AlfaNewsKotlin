@@ -7,8 +7,8 @@ $success = $false
 Get-Process java -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 
-# Set Java 21 (from Android Studio JBR)
-$env:JAVA_HOME = "C:\Program Files\Android\Android Studio1\jbr"
+# Set Java 17 (from Eclipse Temurin JDK for compatibility)
+$env:JAVA_HOME = "C:\Eclipse\jdk-17.0.16.8-hotspot"
 # LOW MEMORY SETTINGS: 2GB Max Heap
 $env:GRADLE_OPTS = "-Xmx2048m -XX:MaxMetaspaceSize=512m -XX:+UseG1GC"
 

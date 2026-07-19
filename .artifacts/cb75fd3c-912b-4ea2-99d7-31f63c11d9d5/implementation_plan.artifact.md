@@ -1,71 +1,51 @@
-# Implementation Plan - AlfaNews Fixes & Improvements
+# Implementation Plan: Dynamic Branching Survey Support
 
-This plan addresses several UI issues, time formatting inconsistencies, and improvements to reporter management and application processes.
-
-## User Review Required
-
-> [!IMPORTANT]
-> - **IST Time**: All timestamps displayed in the app will now be forced to IST (Asia/Kolkata) to ensure consistency regardless of server or device settings.
-> - **Reporter Application**: The submission still triggers the same Cloud Function, preserving the email-sending behavior mentioned.
-> - **Header Changes**: Redundant headers in sub-pages will be removed to rely on the main scaffold's header, fixing the double-header issue.
+This plan details the implementation of a dynamic branching logic for surveys in AlfaNews. It allows questions to be displayed based on previous answers and supports placeholders in question text to show previous selections.
 
 ## Proposed Changes
 
-### 1. Core Utilities & Time Formatting
-Set all date displays to IST.
+### 1. Data Model Updates
 
-#### [NEW] [DateTimeUtils.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/utils/DateTimeUtils.kt)
-- Create utility functions to get `SimpleDateFormat` with `Asia/Kolkata` timezone.
+#### [MODIFY] [NewsPost.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/models/NewsPost.kt)
+- Add `nextQuestionId: String? = null` to `SurveyOption`.
+- Update `mapMapToNewsPost` to parse `nextQuestionId` from Firestore.
+
+### 2. Survey Creation UI Updates
+
+#### [MODIFY] [PostSurveyPageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/PostSurveyPageView.kt)
+- Update `MutableOptionState` to include `nextQuestionId`.
+- In the question creation card, add a dropdown for each option to select the "Next Question".
+    - Options will include "Next (Default)", "End Survey", and the IDs/Titles of all other defined questions.
+- Update the data mapping to save `nextQuestionId` to Firestore.
+- Add a tip/instruction about using `{q1_ans}` (or similar syntax) for dynamic placeholders.
+
+### 3. Survey Display & Interaction Updates
 
 #### [MODIFY] [NewsCardView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/NewsCardView.kt)
-- Use IST for post timestamp display.
-
-#### [MODIFY] [ManagePostsPageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/ManagePostsPageView.kt)
-- Use IST for post timestamp display.
-
----
-
-### 2. UI Layout & Scaffolding
-Fix double headers and strip ordering.
-
-#### [MODIFY] [MainScreen.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/MainScreen.kt)
-- Reorder `topBar` content: Move the Red strip immediately below the Blue `LogoHeader`.
-- Ensure sub-header appears below the red strip for better visual hierarchy.
-
-#### [MODIFY] [PostNewsPageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/PostNewsPageView.kt)
-- Remove redundant header `Row`.
-
-#### [MODIFY] [JoinReporterPageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/JoinReporterPageView.kt)
-- Remove redundant header `Row`.
-- Implement per-field validation with auto-scroll to error.
-
-#### [MODIFY] [EditProfilePageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/EditProfilePageView.kt)
-- Remove redundant header `Row`.
-
----
-
-### 3. Reporter Management Enhancements
-Fix stats, add search, and sorting.
-
-#### [MODIFY] [ReportersViewModel.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/viewmodels/ReportersViewModel.kt)
-- Update `fetchReportersForStats` to handle both `Long` and `Timestamp` field types for `timestamp`.
-- Centralize reporter fetching to support `REGIONAL_INCHARGE` (multiple districts) and `ADMIN` (all).
-- Add `searchQuery` and `sortOrder` logic.
-
-#### [MODIFY] [ReporterManagementPageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/ReporterManagementPageView.kt)
-- Integrate `ReportersViewModel` for data loading.
-- Add Search bar at the top of the "Reporters" tab.
-- Add Sort options (Recent, Points, Today Posts, Name).
+- Update the `SurveyCardContent` composable:
+    - Replace `currentPageIndex` logic with `currentQuestionId` logic for multi-page surveys.
+    - Maintain a map of `selectedOptionTexts: Map<String, String>` to store the actual text of chosen options.
+    - Implement a helper function `resolveQuestionText(text, answers)` to replace placeholders like `{qID_ans}` with the stored text.
+    - Update the "Next" button logic:
+        1. Check the selected option's `nextQuestionId`.
+        2. If it is `"END"`, proceed to submission.
+        3. If it is a valid question ID, jump to that question.
+        4. If it is null/default, proceed to the next question in the `surveyQuestions` list (maintaining backward compatibility).
+    - Adjust the progress bar or hide it if the path is non-linear.
 
 ## Verification Plan
 
-### Automated Tests
-- N/A (UI and data fetching focused changes).
-
 ### Manual Verification
-- **Time Check**: Verify news post times are in IST.
-- **UI Check**: Verify no double headers in Publish News, Join Reporter, and Edit Profile pages.
-- **UI Check**: Verify Red strip is below Blue header.
-- **Reporter Stats**: Verify "Today" and "Last Week" posts are correctly counted.
-- **Search & Sort**: Test searching by name/phone and sorting by points/posts.
-- **Validation**: Try submitting a reporter application with missing fields and verify it scrolls to the missing field.
+1.  **Creation**:
+    - Create a survey with 3 questions.
+    - Set Q1 Option 1 to go to Q2.
+    - Set Q1 Option 2 to go to Q3 directly.
+    - Set Q2 options to "End Survey".
+    - Use a placeholder in Q2 text: "మీరు {q1_ans} ను ఎందుకు ఎంచుకున్నారు?".
+2.  **Display**:
+    - Verify that picking Q1 Option 1 shows Q2 with the correct replaced text.
+    - Verify that picking Q1 Option 2 skips Q2 and shows Q3.
+    - Verify that the final submission includes all answers from the followed path.
+
+### Automated Tests
+- Update `SurveyFeatureTest.kt` to include tests for `nextQuestionId` parsing and logical jumps.

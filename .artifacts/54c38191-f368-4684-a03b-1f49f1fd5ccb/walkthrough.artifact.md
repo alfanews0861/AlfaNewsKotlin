@@ -1,32 +1,36 @@
-# Survey System Enhancements Walkthrough
+# Survey Management & Menu Cleanup Walkthrough
 
-I have improved the survey feature to be more dynamic and user-friendly.
+I have implemented a dedicated survey management system and streamlined the staff menu.
 
 ## Changes Made
 
-### Real-time Survey Results
-- **File**: [NewsCardView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/NewsCardView.kt)
-- **Implementation**: Replaced the static vote display with a real-time Firestore listener using `addSnapshotListener` within a `DisposableEffect`.
-- **Benefit**: Users will see the results update instantly as votes come in from other users, solving the issue where results initially showed zeros or were outdated.
+### Dedicated Survey Management Page
+- **File**: [ManageSurveysPageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/ManageSurveysPageView.kt)
+- **Features**:
+    - **Real-time Listener**: Automatically updates when any survey is approved or deleted.
+    - **Approval Workflow**: Admins and Staff can approve pending surveys from reporters.
+    - **Results Dashboard**: A dedicated BarChart icon on each survey opens a dialog showing real-time vote distribution, including hidden "Real Votes" vs. "Displayed Votes".
+    - **Clean Separation**: Surveys are no longer mixed with thousands of news posts in "Manage News".
 
-### Fixed Survey Positioning
-- **File**: [NewsFeedViewModel.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/viewmodels/NewsFeedViewModel.kt)
-- **Implementation**:
-    - Added `fetchActiveSurvey()` to retrieve the latest approved survey.
-    - Modified `rankAndBlendPosts` to inject this survey specifically at **index 2** (the 3rd position in the feed) on the first page.
-    - Shifted other injected items (Weather, History, etc.) accordingly to maintain the desired layout.
+### Admin/Staff Menu Cleanup
+- **File**: [AppDrawer.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/AppDrawer.kt)
+- **Changes**:
+    - Removed **"Home"** and **"Local News"** (Jilla Vaarthalu) from the drawer for staff roles. Since these are always visible in the bottom footer, they were redundant and cluttering the menu.
+    - Added **"సర్వే నిర్వహణ"** (Survey Management) link to the menu for easy access.
 
-### Smart Survey Visibility & Expiration
-- **Files**: [NewsFeedViewModel.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/viewmodels/NewsFeedViewModel.kt), [PreferenceManager.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/utils/PreferenceManager.kt), [NewsCardView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/NewsCardView.kt)
-- **Logic**:
-    - **5-Day Limit**: The fetching query now only considers surveys created within the last 5 days.
-    - **Single Active Survey**: Only the most recent survey is shown in the fixed position.
-    - **Filter Answered**: Once a user votes, the survey ID is saved locally in `PreferenceManager`. The ViewModel then filters out this survey from the feed, ensuring it doesn't reappear after being answered.
+### Survey Approval Logic
+- **File**: [PostSurveyPageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/PostSurveyPageView.kt)
+- **Changes**:
+    - Surveys posted by **Admin, Editor, or News Desk** are now `LIVE` immediately.
+    - Surveys posted by **Reporters** are set to `PENDING` and require approval via the new management page.
+
+### Global Navigation Integration
+- **Files**: [AdminPanelView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/AdminPanelView.kt), [MainScreen.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/MainScreen.kt)
+- **Changes**:
+    - Registered the `manageSurveys` page in the Admin Panel.
+    - Added proper header titles and back-button navigation for the new page.
 
 ## Verification
-- Code reviewed for correct Firestore query syntax and indexing.
-- Verified that shifted indices in `NewsFeedViewModel` correctly accommodate the new survey position.
-- Real-time listener correctly unregisters when the card is disposed to prevent memory leaks.
-
-> [!IMPORTANT]
-> Since I have modified the feed's mixing logic, please verify that the survey appears at the 3rd position as expected. If it doesn't appear, ensure there is an **approved** survey post in Firestore created within the last 5 days.
+- Verified staff menu cleanup: Drawer is now much cleaner for Reporters/Admins.
+- Verified Survey Management link visibility for staff roles.
+- Verified survey approval flow: Staff posts are immediate, Reporter posts are pending.

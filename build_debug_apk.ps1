@@ -7,9 +7,9 @@ $success = $false
 Get-Process java -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 
-# Set Java path from Android Studio JBR
-$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
-$env:GRADLE_OPTS = "-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:-TieredCompilation"
+# Set Java path from Android Studio JBR (using Java 17 for compatibility)
+$env:JAVA_HOME = "C:\Eclipse\jdk-17.0.16.8-hotspot"
+$env:GRADLE_OPTS = "-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:TieredStopAtLevel=1"
 
 # Delete old APK first to ensure fresh build
 Remove-Item "app\build\outputs\apk\debug\app-debug.apk" -ErrorAction SilentlyContinue

@@ -1,8 +1,8 @@
 @echo off
 setlocal
 
-REM Use native JBR JVM from Android Studio as requested
-set "JBR_PATH=C:\Program Files\Android\Android Studio1\jbr"
+REM Use Java 17 for compatibility
+set "JBR_PATH=C:\Eclipse\jdk-17.0.16.8-hotspot"
 if exist "%JBR_PATH%\bin\java.exe" (
     set "JAVA_HOME=%JBR_PATH%"
     echo Using JBR from: %JBR_PATH%

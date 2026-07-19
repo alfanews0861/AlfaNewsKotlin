@@ -1,3 +1,3 @@
-- `[/]` Update `functions/src/utils.ts` with latest model names and robust generation logic
-- `[ ]` Refine prompts in `functions/src/auto_content_handler.ts`
-- `[ ]` Verify changes for syntax errors
+- `[x]` Update `functions/src/utils.ts` with latest model names and robust generation logic
+- `[x]` Refine prompts in `functions/src/auto_content_handler.ts`
+- `[x]` Verify changes for syntax errors

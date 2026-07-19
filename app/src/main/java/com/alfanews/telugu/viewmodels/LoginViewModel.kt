@@ -170,4 +170,10 @@ class LoginViewModel : ViewModel() {
             .build()
         PhoneAuthProvider.verifyPhoneNumber(options)
     }
+
+    fun resetState() {
+        _uiState.value = LoginUiState()
+        verificationId = null
+        resendToken = null
+    }
 }

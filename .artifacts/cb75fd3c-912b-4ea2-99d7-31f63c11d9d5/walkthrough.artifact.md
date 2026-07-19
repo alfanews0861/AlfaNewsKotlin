@@ -1,32 +1,39 @@
-# Walkthrough - AlfaNews Fixes & Improvements
+# Walkthrough - Dynamic Branching Survey Support
 
-I have completed the requested improvements to the AlfaNews app. Below is a summary of the changes made.
+I have implemented the requested dynamic branching logic for surveys. This allows you to create complex surveys where questions change based on the user's previous answers.
 
-## Changes Made
+## Key Features Implemented
 
-### 1. IST Time Integration
-All date and time displays in the app are now forced to **IST (Asia/Kolkata)** to ensure consistency.
-- Created [DateTimeUtils.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/utils/DateTimeUtils.kt) to centralize timezone logic.
-- Updated [NewsCardView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/NewsCardView.kt) and [ManagePostsPageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/ManagePostsPageView.kt).
+### 1. Dynamic Flow (Skip Logic)
+You can now define which question should follow a specific answer.
+- **Next Question**: Each option in the survey creation screen now has a "Next" dropdown.
+- **End Survey**: You can mark an option to end the survey immediately when selected.
+- **Jumps**: You can skip questions or jump back to a previous question (use with caution to avoid loops!).
 
-### 2. UI Layout & Scaffolding
-- **Header Order**: Fixed the layout in [MainScreen.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/MainScreen.kt) so the **Red strip** is now correctly placed immediately below the **Blue logo header**.
-- **Double Headers Removed**: Cleaned up the sub-pages by removing redundant headers in [PostNewsPageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/PostNewsPageView.kt), [JoinReporterPageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/JoinReporterPageView.kt), and [EditProfilePageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/EditProfilePageView.kt).
+### 2. Answer Placeholders (Dynamic Text)
+You can use placeholders in your question text to display answers from previous questions.
+- Syntax: `{q1_ans}` displays the answer chosen for the first question.
+- Syntax: `{q2_ans}` for the second, and so on.
+- You can also use the internal question ID if you know it: `{question_id_ans}`.
 
-### 3. Reporter Application Form Improvements
-The "Join as Reporter" form now features intelligent validation:
-- **Field-Specific Alerts**: Instead of a generic "fill all fields" message, it now tells you exactly which field is missing (e.g., "పూర్తి పేరు నింపండి").
-- **Auto-Scroll**: The form automatically scrolls to the first invalid field to guide the user.
+Example question text: *"మీరు {q1_ans} ను ఎందుకు ఎంచుకున్నారు?"*
 
-### 4. Reporter Management & Stats
-- **Live Stats**: Improved the stats fetching logic in [ReportersViewModel.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/viewmodels/ReportersViewModel.kt) to ensure "Today" and "Last Week" post counts are accurate.
-- **Search & Search**: Added a search bar and sorting options to [ReporterManagementPageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/ReporterManagementPageView.kt) for easier management.
+### 3. Creation UI Updates
+The `PostSurveyPageView` has been updated:
+- Each option now shows a "తర్వాత: [Dropdown]" button.
+- The dropdown lists all other questions in the survey for easy selection.
+
+### 4. Display & Logic Updates
+The `NewsCardView` now handles:
+- **Non-linear navigation**: Instead of just going to the next index, it looks for the `nextQuestionId`.
+- **Real-time resolution**: Placeholders in text are replaced as soon as the relevant question is answered.
+- **Persistent Answers**: Even if you jump around, all your answers are collected for the final submission.
 
 ## Verification Results
 
-### Manual Verification
-- Verified timestamps display in IST (e.g., "10-07-26, 02:18 PM").
-- Verified Red strip is below Blue header on Home, Local, and Profile tabs.
-- Verified sub-pages (Publish News, etc.) no longer have double headers.
-- Tested reporter application validation by leaving fields blank and verifying the scroll behavior.
-- Verified reporter search and sorting by points and post counts.
+- **Data Integrity**: Verified that `nextQuestionId` is correctly saved to and loaded from Firestore.
+- **Logic**: Implemented robust looping logic in the rendering code to handle dynamic jumps safely.
+- **Placeholders**: Verified that placeholders like `{q1_ans}` are correctly resolved to the text of the selected option.
+
+> [!TIP]
+> When creating multi-page surveys with placeholders, make sure the referenced question (e.g., Q1) always appears before the question that uses the placeholder.

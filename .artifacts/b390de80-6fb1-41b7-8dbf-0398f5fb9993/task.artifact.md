@@ -1,10 +1,8 @@
-# Task: Fix Reporter Applications Management
+# Task: Fix Reporter Post Stats (Optimized)
 
-- [ ] Update Firestore Security Rules (allow EDITOR access)
-- [ ] Update Firestore Indexes (add district+status+timestamp index)
-- [ ] Update Android App: `ReporterManagementPageView.kt`
-    - [ ] Add error handling to `fetchData`
-    - [ ] Implement "Reject" functionality in `ApplicationCard`
-    - [ ] Add "Reject" button UI
-    - [ ] Improve "Remove" button logic
-- [ ] Verification
+- [x] Update Firestore Indexes (add `isReporter`+`approved`+`timestamp` index)
+- [x] Refactor `ReportersViewModel.kt`:
+    - [x] Update `fetchReportersForStats` to fetch all recent news in one batch.
+    - [x] Implement in-memory grouping and counting.
+    - [x] Ensure robust handling of mixed timestamp types (Long vs Timestamp).
+- [x] Verification

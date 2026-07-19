@@ -1,41 +1,45 @@
-# Survey System Enhancements Plan
+# Survey Management & Menu Cleanup Plan
 
-The goal is to improve the survey feature in the AlfaNews app by making results real-time, placing the survey at a fixed position in the feed, and ensuring it expires after 5 days or when a new survey is available. Additionally, answered surveys should not be shown to the user again.
+The goal is to create a dedicated page for managing surveys (Approval and Results) and clean up the Admin/Staff drawer menu by removing redundant links already available in the footer.
 
 ## Proposed Changes
 
 ### [Mobile App]
 
-#### [MODIFY] [NewsCardView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/NewsCardView.kt)
-- **Real-time Updates**: Implement a Firestore `addSnapshotListener` in `SurveyCardContent`.
-- This listener will watch the specific survey document and update a local state for `votes` and `realVotesCount` whenever a change occurs (e.g., another user votes).
-- This ensures that results are updated in real-time as requested.
+#### [NEW] [ManageSurveysPageView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/ManageSurveysPageView.kt)
+- Create a dedicated page for Admins/Staff to manage surveys.
+- **Features**:
+    - List of all surveys (most recent first).
+    - Status badges (Pending/Approved).
+    - **Approve Button**: To approve pending surveys from reporters.
+    - **Results Button**: To view real-time aggregate votes for any survey.
+    - **Delete Button**: To remove outdated surveys.
 
-#### [MODIFY] [NewsFeedViewModel.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/viewmodels/NewsFeedViewModel.kt)
-- **Active Survey Fetching**: Add a method to fetch the latest approved survey created within the last 5 days.
-- **Survey Injection**: Modify `loadNews` and `loadMore` to inject this active survey at index 40 (start of the 3rd page, assuming 20 items per page).
-- **Filtering Answered Surveys**:
-    - Maintain a local set of `answeredSurveyIds` in the ViewModel.
-    - Before injecting the active survey, check if the user has already answered it.
-    - If a user votes successfully, add the survey ID to the set and remove it from the active news list to make it disappear instantly.
-- **Natural Survey Removal**: Ensure that surveys appearing naturally in the regular news query are filtered out so that only the specifically injected survey remains in the fixed position.
+#### [MODIFY] [AppDrawer.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/AppDrawer.kt)
+- **Menu Cleanup**: Remove "Home" and "Local News" (Jilla Vaarthalu) from the drawer menu for all staff roles (Reporter, Editor, Admin, etc.) since they are always accessible via the footer.
+- **Add Survey Management**: Add a link to the new "Survey Management" page.
 
-#### [MODIFY] [NewsPost.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/models/NewsPost.kt)
-- No major changes expected, but ensure the model supports real-time updates from the listener.
+#### [MODIFY] [AdminPanelView.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/AdminPanelView.kt)
+- Register the new `manageSurveys` page.
+- Update the UI to render `ManageSurveysPageView` when the active page is `manageSurveys`.
+
+#### [MODIFY] [MainScreen.kt](file:///C:/AlfaKotlin/app/src/main/java/com/alfanews/telugu/views/MainScreen.kt)
+- Update the contextual header logic to include a title for "Survey Management".
+- Ensure the back button navigation works correctly for the new page.
 
 ## Verification Plan
 
 ### Manual Verification
-1. **Real-time Results**:
-   - Open a survey in the app.
-   - Vote on the same survey from another device or the Firebase Console.
-   - Observe that the results in the app update immediately without a refresh.
-2. **Fixed Position**:
-   - Scroll down to the 3rd page (around 40 items).
-   - Verify that the survey post appears at the expected location.
-3. **Persistence & Expiration**:
-   - Verify that a survey older than 5 days does not appear.
-   - Verify that if a new survey is posted, it replaces the old one.
-4. **Answered Filtering**:
-   - Answer the survey.
-   - Verify it disappears from the feed immediately and doesn't reappear on subsequent loads.
+1. **Menu Check**:
+   - Log in as an Admin/Reporter.
+   - Open the sidebar drawer.
+   - Verify that "Home" and "Local News" are GONE.
+   - Verify that "Survey Management" is PRESENT.
+2. **Survey Management Page**:
+   - Click "Survey Management".
+   - Verify all surveys (reporter & admin) are listed.
+   - Approve a pending reporter survey and verify it becomes LIVE.
+   - View results for a survey and verify the counts are accurate.
+3. **Navigation**:
+   - Verify that the footer still works to go Home/Local.
+   - Verify that the back button from Survey Management takes you back to the Profile menu.

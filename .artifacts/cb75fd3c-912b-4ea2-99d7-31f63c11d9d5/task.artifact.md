@@ -1,23 +1,16 @@
-# Tasks - AlfaNews Fixes & Improvements
+# Task: Implement Dynamic Branching Survey Support
 
-- [ ] Core Utilities & Time Formatting
-    - [ ] Create `DateTimeUtils.kt` for IST formatting
-    - [ ] Update `NewsCardView.kt` to use IST
-    - [ ] Update `ManagePostsPageView.kt` to use IST
-- [ ] UI Layout & Scaffolding
-    - [ ] Reorder header and red strip in `MainScreen.kt`
-    - [ ] Remove redundant header in `PostNewsPageView.kt`
-    - [ ] Remove redundant header in `JoinReporterPageView.kt`
-    - [ ] Remove redundant header in `EditProfilePageView.kt`
-- [ ] Reporter Application Form Improvements
-    - [ ] Implement field-specific validation in `JoinReporterPageView.kt`
-    - [ ] Add auto-scroll to error field logic
-- [ ] Reporter Management & Stats
-    - [ ] Update `ReportersViewModel.kt` for stats, search, and sorting
-    - [ ] Add search and sort UI to `ReporterManagementPageView.kt`
-    - [ ] Improve data loading logic to reduce manual sync need
-- [ ] Verification
-    - [ ] Verify IST time display
-    * [ ] Verify header and strip layout
-    * [ ] Verify reporter application validation and scrolling
-    * [ ] Verify reporter search and sorting
+- [x] Update Data Models (`NewsPost.kt`)
+    - [x] Add `nextQuestionId` to `SurveyOption`
+    - [x] Update `mapMapToNewsPost` parsing logic
+- [x] Update Survey Creation UI (`PostSurveyPageView.kt`)
+    - [x] Update `MutableOptionState` and `MutableQuestionState`
+    - [x] Add "Next Question" selection UI for each option
+    - [x] Update Firestore saving logic to include `nextQuestionId`
+- [x] Update Survey Rendering Logic (`NewsCardView.kt`)
+    - [x] Implement `currentQuestionId` based navigation
+    - [x] Add answer placeholder resolution (`{qX_ans}`)
+    - [x] Update "Next" button navigation logic
+- [x] Verification
+    - [x] Manual test patterns implemented
+    - [x] Tests updated in `SurveyFeatureTest.kt`

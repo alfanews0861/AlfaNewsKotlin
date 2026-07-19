@@ -5,3 +5,4 @@
 - [x] Investigate and fix "Reporter Board" in `LeaderboardViewModel.kt`
 - [x] Update `MainScreen.kt` to redirect to "Manage News" after posting
 - [x] Verify all changes
+- [x] Fix unresolved reference 'border' in `ReporterManagementPageView.kt` introduced during UI updates

@@ -1,4 +1,4 @@
-- [ ] Reorder TTS text processing in `news_handler.ts`
-- [ ] Fix `[[STRESS]]` replacement to use consistent speed (130%)
-- [ ] Verify SSML generation logic
-- [ ] Build Cloud Functions to check for errors
+- [x] Reorder TTS text processing in `news_handler.ts`
+- [x] Fix `[[STRESS]]` replacement to use consistent speed (130%)
+- [x] Verify SSML generation logic
+- [x] Build Cloud Functions to check for errors
