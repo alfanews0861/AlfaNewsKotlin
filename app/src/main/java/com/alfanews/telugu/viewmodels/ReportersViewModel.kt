@@ -101,14 +101,12 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
                 
                 // 1. Query for Timestamp type
                 val timestampQuery = FirebaseService.db.collection("news")
-                    .whereEqualTo("isReporter", true)
                     .whereEqualTo("approved", true)
                     .whereGreaterThanOrEqualTo("timestamp", com.google.firebase.Timestamp(weekStart))
                     .get()
 
                 // 2. Query for Long type
                 val longQuery = FirebaseService.db.collection("news")
-                    .whereEqualTo("isReporter", true)
                     .whereEqualTo("approved", true)
                     .whereGreaterThanOrEqualTo("timestamp", weekStart.time)
                     .get()
@@ -121,6 +119,11 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
 
                 snapshots.forEach { snapshot ->
                     snapshot.documents.forEach { doc ->
+                        // Client-side filter: only count reporter posts
+                        val isRep = doc.getBoolean("isReporter") ?: 
+                                    (doc.getString("processingType") == "REPORTER_SUBMISSION")
+                        if (!isRep) return@forEach
+
                         val reporterId = (doc.get("reporter") as? Map<*, *>)?.get("id") as? String ?: return@forEach
                         val rawTs = doc.get("timestamp")
                         

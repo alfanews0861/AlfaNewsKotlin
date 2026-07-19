@@ -121,140 +121,159 @@ fun LocalAdCardView(
         }
     }
 
-    Box(
+    Column(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        Box(modifier = Modifier.fillMaxSize().clickable { handleAdClick() }) {
-            when (ad.adMediaType) {
-                AdMediaType.IMAGE -> {
-                    AsyncImage(
-                        model = ad.bannerUrl,
-                        contentDescription = "Ad Image",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    )
-                }
-                AdMediaType.VIDEO -> {
-                    VideoPlayerView(
-                        videoUrl = ad.bannerUrl,
-                        modifier = Modifier.fillMaxSize(),
-                        autoPlay = isActive,
-                        muted = false // Audio should play if autoplaying
-                    )
-                }
-                AdMediaType.HTML -> {
-                    AndroidView(
-                        factory = { ctx ->
-                            WebView(ctx).apply {
-                                webViewClient = WebViewClient()
-                                settings.javaScriptEnabled = true
-                                loadData(ad.htmlContent, "text/html", "UTF-8")
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable { handleAdClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                when (ad.adMediaType) {
+                    AdMediaType.IMAGE -> {
+                        AsyncImage(
+                            model = ad.bannerUrl,
+                            contentDescription = "Ad Image",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit
+                        )
+                    }
+                    AdMediaType.VIDEO -> {
+                        VideoPlayerView(
+                            videoUrl = ad.bannerUrl,
+                            modifier = Modifier.fillMaxSize(),
+                            autoPlay = isActive,
+                            muted = false // Audio should play if autoplaying
+                        )
+                    }
+                    AdMediaType.HTML -> {
+                        AndroidView(
+                            factory = { ctx ->
+                                WebView(ctx).apply {
+                                    webViewClient = WebViewClient()
+                                    settings.javaScriptEnabled = true
+                                    loadData(ad.htmlContent, "text/html", "UTF-8")
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
-        }
-        
-        // Sponsored tag
-        Surface(
-            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
-            color = Color.Black.copy(alpha = 0.6f),
-            shape = RoundedCornerShape(4.dp)
-        ) {
-            Text(
-                text = "ప్రకటన (Sponsored)",
-                color = Color.White,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                fontWeight = FontWeight.Bold
-            )
-        }
+            
+            // Sponsored tag
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp),
+                color = Color.Black.copy(alpha = 0.6f),
+                shape = RoundedCornerShape(4.dp)
+            ) {
+                Text(
+                    text = "ప్రకటన (Sponsored)",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    fontWeight = FontWeight.Bold
+                )
+            }
 
-        // Social Action Buttons (Right side - exactly like NewsCard special cards)
-        Column(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            ActionButton(
-                icon = Icons.Default.Favorite,
-                count = likeCount.toString(),
-                isHighlighted = isLiked,
-                tint = Color.White,
-                onClick = {
-                    isLiked = !isLiked
-                    likeCount = if (isLiked) likeCount + 1 else likeCount - 1
-                    if (!isPreview) {
-                        scope.launch {
-                            FirebaseService.db.collection("local_ads").document(ad.id)
-                                .update("likes", FieldValue.increment(if (isLiked) 1 else -1))
-                            AnalyticsService.logAnalyticsEvent("ad_like", Bundle().apply { putString("ad_id", ad.id) })
+            // Social Action Buttons (Right side - exactly like NewsCard special cards)
+            Column(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                ActionButton(
+                    icon = Icons.Default.Favorite,
+                    count = likeCount.toString(),
+                    isHighlighted = isLiked,
+                    tint = Color.White,
+                    onClick = {
+                        isLiked = !isLiked
+                        likeCount = if (isLiked) likeCount + 1 else likeCount - 1
+                        if (!isPreview) {
+                            scope.launch {
+                                FirebaseService.db.collection("local_ads").document(ad.id)
+                                    .update("likes", FieldValue.increment(if (isLiked) 1 else -1))
+                                AnalyticsService.logAnalyticsEvent("ad_like", Bundle().apply { putString("ad_id", ad.id) })
+                            }
                         }
                     }
-                }
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-            ActionButton(
-                icon = Icons.Default.Share,
-                count = shareCount.toString(),
-                isLoading = isSharing,
-                tint = Color.White,
-                onClick = {
-                    if (!isSharing) {
-                        val bounds = Rect()
-                        view.getGlobalVisibleRect(bounds)
-                        performAdShare(scope, isSharing, { isSharing = it }, { 
-                            shareCount++ 
-                            if (!isPreview) {
-                                FirebaseService.db.collection("local_ads").document(ad.id).update("shares", FieldValue.increment(1))
-                            }
-                        }, ad, context, bounds, view)
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                ActionButton(
+                    icon = Icons.Default.Share,
+                    count = shareCount.toString(),
+                    isLoading = isSharing,
+                    tint = Color.White,
+                    onClick = {
+                        if (!isSharing) {
+                            val bounds = Rect()
+                            view.getGlobalVisibleRect(bounds)
+                            performAdShare(scope, isSharing, { isSharing = it }, { 
+                                shareCount++ 
+                                if (!isPreview) {
+                                    FirebaseService.db.collection("local_ads").document(ad.id).update("shares", FieldValue.increment(1))
+                                }
+                            }, ad, context, bounds, view)
+                        }
                     }
-                }
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-            ActionButton(
-                icon = Icons.AutoMirrored.Filled.Comment,
-                count = commentCount.toString(),
-                tint = Color.White,
-                onClick = { /* Comments for ads can be implemented here if needed */ }
-            )
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                ActionButton(
+                    icon = Icons.AutoMirrored.Filled.Comment,
+                    count = commentCount.toString(),
+                    tint = Color.White,
+                    onClick = { /* Comments for ads can be implemented here if needed */ }
+                )
+            }
         }
 
-        // Call to Action Button (కింద భాగంలో - Google Style prominent button)
+        // Call to Action Button (కింద భాగంలో - Google Style prominent button in a separate container)
         if (ad.phoneNumber.isNotEmpty() || ad.actionUrl.isNotEmpty()) {
-            ElevatedButton(
-                onClick = { handleAdClick() },
+            Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 32.dp)
-                    .height(54.dp)
-                    .fillMaxWidth(0.85f),
-                shape = RoundedCornerShape(12.dp), // Google style slightly rounded corners
-                elevation = ButtonDefaults.elevatedButtonElevation(defaultElevation = 6.dp),
-                colors = ButtonDefaults.elevatedButtonColors(
-                    containerColor = Color(0xFF1A73E8), // Google Blue
-                    contentColor = Color.White
-                )
+                    .fillMaxWidth()
+                    .background(Color.Black)
+                    .padding(top = 12.dp, bottom = 24.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = if (ad.phoneNumber.isNotEmpty()) Icons.Default.Call else Icons.Default.Launch,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    text = ad.actionText, 
-                    fontSize = 18.sp, 
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = Ramabhadra
-                )
+                ElevatedButton(
+                    onClick = { handleAdClick() },
+                    modifier = Modifier
+                        .height(54.dp)
+                        .fillMaxWidth(0.85f),
+                    shape = RoundedCornerShape(12.dp), // Google style slightly rounded corners
+                    elevation = ButtonDefaults.elevatedButtonElevation(defaultElevation = 6.dp),
+                    colors = ButtonDefaults.elevatedButtonColors(
+                        containerColor = Color(0xFF1A73E8), // Google Blue
+                        contentColor = Color.White
+                    )
+                ) {
+                    Icon(
+                        imageVector = if (ad.phoneNumber.isNotEmpty()) Icons.Default.Call else Icons.Default.Launch,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = ad.actionText, 
+                        fontSize = 18.sp, 
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = Ramabhadra
+                    )
+                }
             }
         }
     }

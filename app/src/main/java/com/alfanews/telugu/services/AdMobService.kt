@@ -2,6 +2,7 @@ package com.alfanews.telugu.services
 
 import android.app.Activity
 import android.util.Log
+import com.alfanews.telugu.BuildConfig
 import com.google.android.gms.ads.AdListener
 import com.google.android.gms.ads.AdLoader
 import com.google.android.gms.ads.AdRequest
@@ -14,6 +15,15 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.jvm.Synchronized
 
 /**
+ * యాడ్స్ లోడింగ్ స్థితులను సూచించే ఇంటర్‌ఫేస్.
+ */
+sealed interface AdState {
+    object Loading : AdState
+    data class Success(val nativeAd: NativeAd) : AdState
+    object Failed : AdState
+}
+
+/**
  * యాడ్ మాబ్ (AdMob) ప్రకటనలను నిర్వహించే సర్వీస్.
  * 
  * ఈ సర్వీస్ ద్వారా నేటివ్ యాడ్స్ (Native Ads) మరియు బ్యానర్ యాడ్స్ (Banner Ads) 
@@ -21,7 +31,16 @@ import kotlin.jvm.Synchronized
  */
 object AdMobService {
     private const val TAG = "AdMobService"
-    private const val NATIVE_AD_UNIT_ID = "ca-app-pub-5787901991150360/1972465675"
+    
+    // Debug builds get the official Google test ad unit ID, release builds get production ID.
+    private val NATIVE_AD_UNIT_ID: String
+        get() = if (BuildConfig.DEBUG) {
+            "ca-app-pub-3940256099942544/2247696110" // Test Native Ad Unit ID
+        } else {
+            "ca-app-pub-5787901991150360/1972465675" // Production Native Ad Unit ID
+        }
+
+    private const val BANNER_AD_UNIT_ID = "ca-app-pub-3940256099942544/6300978111" // Test Banner Ad Unit ID. Change to production banner ID when deploying.
     private const val MAX_NATIVE_ADS = 5
     private val nativeAds = ConcurrentLinkedQueue<NativeAd>()
     private val isPreloading = AtomicBoolean(false)
@@ -52,35 +71,39 @@ object AdMobService {
             return
         }
 
-        val numberOfAdsToLoad = MAX_NATIVE_ADS - nativeAds.size
-        Log.d(TAG, "Starting preload for $numberOfAdsToLoad native ads. Current cache size: ${nativeAds.size}")
+        Log.d(TAG, "Starting sequential preload. Current cache size: ${nativeAds.size}")
+        loadNextAd(activity)
+    }
 
+    /**
+     * క్యాచ్ పరిమితి పూర్తి అయ్యే వరకు ప్రకటనలను ఒక్కొక్కటిగా వరుసగా లోడ్ చేస్తుంది.
+     */
+    private fun loadNextAd(activity: Activity) {
+        if (nativeAds.size >= MAX_NATIVE_ADS) {
+            Log.d(TAG, "Preload complete. Cache size: ${nativeAds.size}")
+            isPreloading.set(false)
+            return
+        }
+
+        Log.d(TAG, "Loading next preloaded ad. Current size: ${nativeAds.size}")
         val adLoader = AdLoader.Builder(activity, NATIVE_AD_UNIT_ID)
             .forNativeAd { ad: NativeAd ->
                 nativeAds.add(ad)
                 Log.d(TAG, "Native ad preloaded successfully. New cache size: ${nativeAds.size}")
                 
-                // If we reached the target, we can allow more preloads later
-                if (nativeAds.size >= MAX_NATIVE_ADS) {
-                    isPreloading.set(false)
-                }
+                // Recursively load the next ad to fill the cache
+                loadNextAd(activity)
             }
             .withAdListener(object : AdListener() {
                 override fun onAdFailedToLoad(error: LoadAdError) {
                     Log.e(TAG, "Native ad failed to preload: ${error.message} (Code: ${error.code})")
-                    isPreloading.set(false)
-                }
-
-                override fun onAdLoaded() {
-                    super.onAdLoaded()
-                    Log.d(TAG, "Native ad batch load operation completed. Cache size: ${nativeAds.size}")
-                    // Reset flag anyway when batch completes to avoid getting stuck
+                    // Stop the current batch preloading on failure and release the flag
                     isPreloading.set(false)
                 }
             })
             .build()
 
-        adLoader.loadAds(AdRequest.Builder().build(), numberOfAdsToLoad)
+        adLoader.loadAd(AdRequest.Builder().build())
     }
 
     /**
@@ -137,4 +160,7 @@ object AdMobService {
 
     /** నేటివ్ యాడ్ యూనిట్ ID ని తిరిగి ఇస్తుంది. */
     fun getNativeAdUnitId(): String = NATIVE_AD_UNIT_ID
+
+    /** banner యాడ్ యూనిట్ ID ని తిరిగి ఇస్తుంది. */
+    fun getBannerAdUnitId(): String = BANNER_AD_UNIT_ID
 }

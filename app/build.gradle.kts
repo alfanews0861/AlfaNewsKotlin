@@ -148,6 +148,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-auth:21.3.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("com.google.android.play:app-update-ktx:2.1.0")
+    implementation("com.android.installreferrer:installreferrer:2.2")
 
     implementation("androidx.media3:media3-exoplayer:1.5.0")
     implementation("androidx.media3:media3-ui:1.5.0")

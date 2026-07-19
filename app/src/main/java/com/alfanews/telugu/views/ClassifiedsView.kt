@@ -38,6 +38,7 @@ import com.alfanews.telugu.models.ClassifiedAd
 import com.alfanews.telugu.models.ClassifiedCategories
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.services.AdMobService
+import com.alfanews.telugu.services.AdState
 import com.alfanews.telugu.viewmodels.ClassifiedsViewModel
 import com.google.android.gms.ads.nativead.NativeAd
 import kotlinx.coroutines.launch
@@ -67,35 +68,44 @@ fun ClassifiedsView(
     val scope = rememberCoroutineScope()
     
     // Ad Management
-    val gridAds = remember { mutableStateMapOf<Int, NativeAd?>() }
-    val detailAd = remember { mutableStateOf<NativeAd?>(null) }
-
+    val gridAds = remember { mutableStateMapOf<Int, AdState>() }
+    val detailAd = remember { mutableStateOf<AdState>(AdState.Loading) }
+ 
     fun loadAdForGrid(index: Int) {
         if (!gridAds.containsKey(index)) {
-            gridAds[index] = null
+            gridAds[index] = AdState.Loading
             (context as? android.app.Activity)?.let { activity ->
                 AdMobService.loadNativeAd(activity) { ad ->
-                    gridAds[index] = ad
+                    if (ad != null) {
+                        gridAds[index] = AdState.Success(ad)
+                    } else {
+                        gridAds[index] = AdState.Failed
+                    }
                 }
             }
         }
     }
-
+ 
     // Sync viewMode with initialMode when it changes externally
     LaunchedEffect(initialMode) {
         viewMode = initialMode
     }
-
+ 
     LaunchedEffect(Unit) {
         viewModel.loadAds(null)
     }
     
     // Load detail ad when switching to detail mode
     LaunchedEffect(viewMode) {
-        if (viewMode == ClassifiedsViewMode.DETAIL && detailAd.value == null) {
+        if (viewMode == ClassifiedsViewMode.DETAIL) {
+            detailAd.value = AdState.Loading
             (context as? android.app.Activity)?.let { activity ->
                 AdMobService.loadNativeAd(activity) { ad ->
-                    detailAd.value = ad
+                    if (ad != null) {
+                        detailAd.value = AdState.Success(ad)
+                    } else {
+                        detailAd.value = AdState.Failed
+                    }
                 }
             }
         }
@@ -140,13 +150,34 @@ fun ClassifiedsView(
         Box(modifier = Modifier.fillMaxSize()) {
             when (viewMode) {
                 ClassifiedsViewMode.CATEGORIES -> {
-                    CategoriesGrid(
-                        categoryCounts = categoryCounts,
-                        onCategoryClick = { category ->
-                            viewModel.setCategory(category)
-                            viewMode = ClassifiedsViewMode.CATEGORY_ADS
+                    Column(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                        ) {
+                            CategoriesGrid(
+                                categoryCounts = categoryCounts,
+                                onCategoryClick = { category ->
+                                    viewModel.setCategory(category)
+                                    viewMode = ClassifiedsViewMode.CATEGORY_ADS
+                                }
+                            )
                         }
-                    )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .padding(vertical = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AdMobBannerAd(
+                                adUnitId = AdMobService.getBannerAdUnitId()
+                            )
+                        }
+                    }
                 }
                 ClassifiedsViewMode.CATEGORY_ADS -> {
                     if (loading && ads.isEmpty()) {
@@ -171,7 +202,8 @@ fun ClassifiedsView(
                                         Toast.makeText(context, context.getString(R.string.ad_deleted), Toast.LENGTH_SHORT).show()
                                     }
                                 }
-                            }
+                            },
+                            onFallbackClick = { viewMode = ClassifiedsViewMode.POST }
                         )
                     }
                 }
@@ -193,15 +225,17 @@ fun ClassifiedsView(
                                     Toast.makeText(context, "ప్రకటన తొలగించబడింది", Toast.LENGTH_SHORT).show()
                                 }
                             }
-                        }
+                        },
+                        onFallbackClick = { viewMode = ClassifiedsViewMode.POST }
                     )
                 }
                 ClassifiedsViewMode.DETAIL -> {
                     selectedAd?.let { ad ->
                         ClassifiedAdDetailView(
                             ad = ad,
-                            nativeAd = detailAd.value,
-                            onBack = { viewMode = ClassifiedsViewMode.CATEGORY_ADS }
+                            adState = detailAd.value,
+                            onBack = { viewMode = ClassifiedsViewMode.CATEGORY_ADS },
+                            onFallbackClick = { viewMode = ClassifiedsViewMode.POST }
                         )
                     }
                 }
@@ -402,8 +436,9 @@ fun CategoryCard(
 @Composable
 fun ClassifiedAdDetailView(
     ad: ClassifiedAd,
-    nativeAd: NativeAd?,
-    onBack: () -> Unit
+    adState: AdState,
+    onBack: () -> Unit,
+    onFallbackClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val priceFormat = remember { NumberFormat.getCurrencyInstance(Locale("en", "IN")) }
@@ -510,9 +545,15 @@ fun ClassifiedAdDetailView(
             )
             
             // Native Ad after description
+            val nativeAd = (adState as? AdState.Success)?.nativeAd
+            val isLoading = adState is AdState.Loading
+            val isFailed = adState is AdState.Failed
             AdMobCardView(
                 modifier = Modifier.fillMaxWidth().height(250.dp),
-                nativeAd = nativeAd
+                nativeAd = nativeAd,
+                isLoading = isLoading,
+                isFailed = isFailed,
+                onFallbackClick = onFallbackClick
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -609,10 +650,11 @@ fun AdsGrid(
     ads: List<ClassifiedAd>,
     currentUser: User?,
     viewMode: ClassifiedsViewMode,
-    gridAds: Map<Int, NativeAd?>,
+    gridAds: Map<Int, AdState>,
     onLoadAd: (Int) -> Unit,
     onAdClick: (ClassifiedAd) -> Unit,
-    onDelete: (String) -> Unit
+    onDelete: (String) -> Unit,
+    onFallbackClick: (() -> Unit)? = null
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
@@ -636,13 +678,20 @@ fun AdsGrid(
             if ((index + 1) % 6 == 0) {
                 val adIndex = (index + 1) / 6
                 onLoadAd(adIndex)
+                val adState = gridAds[adIndex]
+                val nativeAd = (adState as? AdState.Success)?.nativeAd
+                val isLoading = adState is AdState.Loading
+                val isFailed = adState is AdState.Failed
                 item(key = "ad_$adIndex", span = { GridItemSpan(2) }) {
                     AdMobCardView(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(200.dp)
                             .padding(vertical = 8.dp),
-                        nativeAd = gridAds[adIndex]
+                        nativeAd = nativeAd,
+                        isLoading = isLoading,
+                        isFailed = isFailed,
+                        onFallbackClick = onFallbackClick
                     )
                 }
             }

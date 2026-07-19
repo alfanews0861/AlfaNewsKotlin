@@ -21,8 +21,18 @@ data class GeocodingResult(
 // --- Weather Models ---
 data class WeatherResponse(
     @SerializedName("current_weather") val currentWeather: CurrentWeather,
+    @SerializedName("current") val current: CurrentData?,
     @SerializedName("hourly") val hourly: HourlyData?,
     @SerializedName("daily") val daily: DailyData?
+)
+
+data class CurrentData(
+    @SerializedName("temperature_2m") val temperature: Double,
+    @SerializedName("relative_humidity_2m") val humidity: Int,
+    @SerializedName("apparent_temperature") val feelsLike: Double,
+    @SerializedName("weather_code") val weatherCode: Int,
+    @SerializedName("wind_speed_10m") val windSpeed: Double,
+    @SerializedName("is_day") val isDay: Int
 )
 
 data class CurrentWeather(
@@ -56,11 +66,13 @@ interface WeatherApiService {
         @Query("format") format: String = "json"
     ): GeocodingResponse
 
+    // ✅ FIX: Added 'current' param for real-time temperature (more accurate than current_weather which can lag 1hr)
     @GET("https://api.open-meteo.com/v1/forecast")
     suspend fun getWeather(
         @Query("latitude") lat: Double,
         @Query("longitude") lon: Double,
         @Query("current_weather") currentWeather: Boolean = true,
+        @Query("current") current: String = "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,is_day",
         @Query("hourly") hourly: String = "relative_humidity_2m,apparent_temperature",
         @Query("daily") daily: String = "weathercode,temperature_2m_max,temperature_2m_min,uv_index_max",
         @Query("timezone") timezone: String = "Asia/Kolkata",
@@ -78,7 +90,7 @@ object WeatherService {
 
     private val api = retrofit.create(WeatherApiService::class.java)
 
-    // ✅ In-memory cache: 10-min TTL per location to avoid repeated API calls (Reduced from 30m for real-time accuracy)
+    // ✅ In-memory cache: 5-min TTL per location (Reduced from 10m for real-time accuracy)
     private data class CachedWeather(val data: WeatherData, val fetchedAt: Long)
     private val weatherCache = mutableMapOf<String, CachedWeather>()
 
@@ -186,10 +198,10 @@ object WeatherService {
         val validLat = if (lat != null && lat != 0.0) lat else null
         val validLon = if (lon != null && lon != 0.0) lon else null
 
-        // ✅ Check cache first (10-min TTL for robustness)
+        // ✅ Check cache first (5-min TTL for real-time accuracy)
         val cacheKey = if (validLat != null && validLon != null) "coords_${validLat}_${validLon}" else locationName
         val cached = weatherCache[cacheKey]
-        if (cached != null && System.currentTimeMillis() - cached.fetchedAt < 10 * 60 * 1000L) {
+        if (cached != null && System.currentTimeMillis() - cached.fetchedAt < 5 * 60 * 1000L) {
             return cached.data
         }
         return try {
@@ -211,21 +223,25 @@ object WeatherService {
                     else -> "India"
                 }
                 
+                // ✅ FIX: Open-Meteo geocoding API does NOT support "City, State, Country" format.
+                // Sending "Nellore, Andhra Pradesh, India" returns EMPTY results!
+                // Must use plain city name only: "Nellore"
+                // For mandals: "MandalName, DistrictName" format works.
                 val finalSearchName = if (parentDistrictEn != null && searchName != parentDistrictEn) {
-                    "$searchName, $parentDistrictEn, $stateContext"
+                    "$searchName, $parentDistrictEn"
                 } else {
-                    "$searchName, $stateContext"
+                    searchName  // Just the city/district name — no state or country suffix
                 }
                 
                 val geoResponse = api.getCoordinates(finalSearchName)
                 val location = geoResponse.results?.firstOrNull() 
                 
                 if (location == null) {
-                    // Fallback: If mandal name is not found, try searching with district context in English
+                    // Fallback: If mandal name is not found, try plain district name
                     val contextualSearch = if (parentDistrictEn != null) {
-                        "$locationName, $parentDistrictEn, India"
+                        "$locationName, $parentDistrictEn"  // e.g. "Kovur, Nellore"
                     } else if (parentDistrictTe != null) {
-                        "$locationName, $parentDistrictTe, India"
+                        locationName  // Plain mandal name as last resort
                     } else null
                     
                     val fallbackGeoResponse = contextualSearch?.let { api.getCoordinates(it) }
@@ -238,7 +254,8 @@ object WeatherService {
                         // Final fallback: Use the district center if mandal is still not found
                         val districtEn = locationMapping[parentDistrictTe] ?: locationMapping[locationName]
                         if (districtEn != null) {
-                            val districtGeo = api.getCoordinates("$districtEn, India").results?.firstOrNull()
+                            // Plain district name (no country suffix)
+                            val districtGeo = api.getCoordinates(districtEn).results?.firstOrNull()
                             if (districtGeo != null) {
                                 latitude = districtGeo.latitude
                                 longitude = districtGeo.longitude
@@ -253,15 +270,29 @@ object WeatherService {
             
             val weatherResponse = api.getWeather(latitude, longitude)
 
-            // ✅ FIX: Match current hour index for accurate humidity
-            val currentTimeStr = weatherResponse.currentWeather.time // e.g. "2024-05-20T14:00"
+            // ✅ FIX: Prefer 'current' block for real-time accuracy; fallback to current_weather
+            val currentData = weatherResponse.current
+            val legacyWeather = weatherResponse.currentWeather
+
+            val realTemp = currentData?.temperature ?: legacyWeather.temperature
+            val realCode = currentData?.weatherCode ?: legacyWeather.weatherCode
+            val realWind = currentData?.windSpeed ?: legacyWeather.windSpeed
+            val realIsDay = (currentData?.isDay ?: legacyWeather.isDay) == 1
+            val realHumidity = currentData?.humidity
+            val realFeelsLike = currentData?.feelsLike
+
+            // ✅ FIX: Match current hour index for accurate hourly humidity (fallback only if current block unavailable)
+            val currentTimeStr = legacyWeather.time // e.g. "2024-05-20T14:00"
             val hourlyTimes = weatherResponse.hourly?.time
             val currentHourIndex = hourlyTimes?.indexOfFirst { it == currentTimeStr }
                 ?.takeIf { it >= 0 }
                 ?: hourlyTimes?.size?.let { minOf(it - 1, 0) }
                 ?: 0
-            val currentHumidity = weatherResponse.hourly?.humidity?.getOrNull(currentHourIndex)
-            val currentFeelsLike = weatherResponse.hourly?.feelsLike?.getOrNull(currentHourIndex)
+            val fallbackHumidity = weatherResponse.hourly?.humidity?.getOrNull(currentHourIndex)
+            val fallbackFeelsLike = weatherResponse.hourly?.feelsLike?.getOrNull(currentHourIndex)
+
+            val finalHumidity = realHumidity ?: fallbackHumidity
+            val finalFeelsLike = realFeelsLike ?: fallbackFeelsLike
 
             // ✅ FIX: Today's UV index (index 0 = today)
             val todayUV = weatherResponse.daily?.uvIndex?.getOrNull(0)
@@ -281,14 +312,15 @@ object WeatherService {
             }
 
             val isPrecise = validLat != null && validLon != null
+            // ✅ FIX: Use real-time 'current' block data; fallback to legacy current_weather
             val result = WeatherData(
-                temp = weatherResponse.currentWeather.temperature,
-                code = weatherResponse.currentWeather.weatherCode,
-                wind = weatherResponse.currentWeather.windSpeed,
-                time = weatherResponse.currentWeather.time,
-                humidity = currentHumidity,
-                feelsLike = currentFeelsLike,
-                isDay = weatherResponse.currentWeather.isDay == 1,
+                temp = realTemp,
+                code = realCode,
+                wind = realWind,
+                time = legacyWeather.time,
+                humidity = finalHumidity,
+                feelsLike = finalFeelsLike,
+                isDay = realIsDay,
                 uvIndex = todayUV,
                 isPrecise = isPrecise,
                 dailyForecast = forecastList

@@ -36,6 +36,7 @@ import java.util.Locale
 
 class NewsFeedViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = PreferenceManager.getInstance(application)
+    private var currentLanguage: Language = Language.TELUGU
 
     init {
         viewModelScope.launch {
@@ -146,7 +147,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private var prefCursor: DocumentSnapshot? = null
     private var mainCursor: DocumentSnapshot? = null
     private var localCursor: DocumentSnapshot? = null
-    private var isFetching = false
+    @Volatile private var isFetching = false
     private var lastRefreshTimeLong: Long = 0
     private var consecutiveEmptyLoads = 0
 
@@ -172,7 +173,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     private val FETCH_LIMIT = 20 
 
-     fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null) {
+      fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null) {
+          currentLanguage = language
           if (isFetching && initialPostId == null) return
           if (_news.value.isEmpty()) {
               _loading.value = true 
@@ -329,14 +331,21 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                        } catch (e: Exception) { }
                    }
 
-                   _news.value = finalPosts.distinctBy { it.id }
-                   
-                   if (finalPosts.isNotEmpty()) {
-                       try {
-                           AnalyticsService.logBulkCategoryViews(finalPosts.map { it.categories }, weight = 1)
-                       } catch (e: Exception) { }
-                   }
-                   
+                    _news.value = finalPosts.distinctBy { it.id }
+                    
+                    // ✅ FIX (Bug 6): Initial load లో కూడా post view count increment చేయాలి
+                    // (loadMore() లో ఇది ఉంది, కానీ loadNews() లో missing గా ఉంది)
+                    if (finalPosts.isNotEmpty()) {
+                        finalPosts.forEach { post ->
+                            if (post.type == "news" || post.type == "greeting") {
+                                prefs.incrementPostViewCount(post.id)
+                            }
+                        }
+                    }
+                    // ✅ FIX (Bug 1): logBulkCategoryViews ఇక్కడ నుండి తొలగించబడింది.
+                    // User చదవని posts categories కి score ఇవ్వడం wrong.
+                    // Actual engagement మాత్రమే track చేయాలి (logPostEngagement, logLongView).
+
                    if (initialPostId == null) {
                        _shouldScrollToTop.value = true
                    }
@@ -352,6 +361,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
       }
 
     fun loadMore(language: Language, currentUser: User?) {
+         currentLanguage = language
          if (isFetching || !_hasMore.value) return
          viewModelScope.launch {
              isFetching = true
@@ -397,10 +407,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                  localCursor = localBatch.second
                  mainCursor = mainBatch.second
 
-                   if (newPosts.isNotEmpty()) {
-                      try {
-                          AnalyticsService.logBulkCategoryViews(newPosts.map { it.categories }, weight = 1)
-                      } catch (e: Exception) { }
+                  if (newPosts.isNotEmpty()) {
+                       try {
+                           // ✅ FIX (Bug 1): logBulkCategoryViews loadMore నుండి తొలగించబడింది.
+                           // Scroll చేసి చూడటం engagement కాదు — actual read/long-view మాత్రమే track చేయాలి.
+                       } catch (e: Exception) { }
                       
                       val currentIds = _news.value.map { it.id }.toSet()
                       val uniqueNewPosts = newPosts.filter { !currentIds.contains(it.id) }
@@ -427,7 +438,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
          }
      }
 
-     private suspend fun fetchFilteredBatch(baseQuery: Query, cursor: DocumentSnapshot?, district: String?, excludeDistricts: Boolean, limit: Int = FETCH_LIMIT): Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?> {
+     private suspend fun fetchFilteredBatch(baseQuery: Query, cursor: DocumentSnapshot?, district: String?, excludeDistricts: Boolean, limit: Int = FETCH_LIMIT, userState: String? = null): Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?> {
             var currentCursor = cursor
             var query = baseQuery.whereEqualTo("approved", true)
             if (excludeDistricts) {
@@ -444,8 +455,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             try {
                 val snapshot = query.get().await()
                 if (snapshot.isEmpty) {
-                    // 🚀 FALLBACK: If a specific query (like district or global list) is empty,
-                    // fetch any latest approved news as a final safety net.
+                    // ✅ FIX (Bug 3): Fallback query కూడా userState filter apply చేయడం
+                    // పాత కోడ్: district filter లేకుండా any approved news fetch చేసేది
                     var fallbackQuery = FirebaseService.db.collection("news")
                         .whereEqualTo("approved", true)
                         .orderBy("timestamp", Query.Direction.DESCENDING)
@@ -458,7 +469,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
                     }
                     
+                    // userState filter apply చేసి fallback batch filter చేయడం
                     val batch = fallbackSnapshot.documents.mapNotNull { doc -> mapDocumentToNewsPost(doc) }
+                        .filter { post -> isPostAllowedForState(post, userState) }
                     currentCursor = fallbackSnapshot.documents.lastOrNull()
                     return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(batch, currentCursor)
                 }
@@ -488,6 +501,19 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 throw e
             }
         }
+
+    /**
+     * ✅ NEW (Bug 3 & 5): ఒక post వినియోగదారు రాష్ట్రం కి allow చేయాలా మో చెక్ చేస్తుంది.
+     * @param post The news post to check
+     * @param userState వినియోగద఺రు రాష్ట్రం: "Telangana", "Andhra Pradesh", "BOTH", లేదా null (new user)
+     */
+    private fun isPostAllowedForState(post: NewsPost, userState: String?): Boolean {
+        // New users (district detect కాలేదు) కి అన్నీ చూపించు
+        if (userState == null || userState == "BOTH") return true
+        val postState = inferStateFromPost(post) ?: return true // state కిగోణాలని రాని posts అందరికీ చూపించు
+        return postState == userState
+    }
+
 
        private suspend fun rankAndBlendPosts(pref: List<NewsPost>, main: List<NewsPost>, local: List<NewsPost>, isFirstPage: Boolean = false): List<NewsPost> = withContext(Dispatchers.Default) {
             val allRaw = (pref + main + local).distinctBy { it.id }
@@ -532,18 +558,38 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 // 2. 🏛️ POLITICAL FILTER (State-Based)
                 // Telangana users -> Only Telangana politics
                 // AP users -> Only AP politics
-                // Hyderabad users -> Both states politics
+                // Hyderabad users -> Based on engagement ratio (Bug 4 fix)
                 val isPolitics = post.categories.any { it.contains("రాజకీయం", true) || it.contains("Politics", true) } || 
                                  post.category?.contains("రాజకీయం", true) == true || post.category?.contains("Politics", true) == true
                 
-                if (isPolitics && currentDist != null && currentDist != "హైదరాబాద్") {
-                    val userState = mapDistrictToState(currentDist)
+                val userState: String? = when {
+                    currentDist == null -> null // New user — show everything
+                    currentDist == "హైదరాబాద్" -> AnalyticsService.getStateEngagementRatio() // ✅ Bug 4: Engagement-based
+                    else -> mapDistrictToState(currentDist)
+                }
+
+                // 3. 🏛️ POLITICS: State-based filter
+                if (isPolitics && userState != null && userState != "BOTH") {
                     val postState = inferStateFromPost(post)
-                    
                     // If user is from a state and post is from a different state, filter it out.
                     // National/General politics (postState == null) are kept for everyone.
-                    if (userState != null && postState != null && userState != postState) {
+                    if (postState != null && postState != userState) {
                         return@filter false
+                    }
+                }
+
+                // 4. ✅ NEW (Bug 5): STATE FILTER FOR ALL NEWS (not just politics)
+                // TS districts లో AP district news రాకూడదు, AP districts లో TS news రాకూడదు.
+                // కానీ: isGlobal posts, జిల్లా వార్త కాని news కి apply చేయం (cinema/sports/etc)
+                // New users (userState == null) కి filter apply చేయం
+                if (userState != null && userState != "BOTH") {
+                    val postState = inferStateFromPost(post)
+                    if (postState != null && postState != userState) {
+                        // TS/AP specific district-level post అయితే filter
+                        // కానీ isGlobal = true అయిన posts అందరికీ చూపించాలి
+                        if (!post.isGlobal) {
+                            return@filter false
+                        }
                     }
                 }
                 
@@ -634,16 +680,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
           blendedNews
       }
 
-    private suspend fun fetchGreetingPost(): NewsPost? {
-        return try {
+    private suspend fun fetchGreetingPost(): NewsPost? = withContext(Dispatchers.IO) {
+        try {
             val snapshot = FirebaseService.db.collection("news").whereEqualTo("type", "greeting").whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(1).get().await()
-            val doc = snapshot.documents.firstOrNull() ?: return null
-            return mapDocumentToNewsPost(doc)
+            val doc = snapshot.documents.firstOrNull() ?: return@withContext null
+            mapDocumentToNewsPost(doc)
         } catch (e: Exception) { null }
     }
 
-    private suspend fun fetchActiveSurvey(): NewsPost? {
-        return try {
+    private suspend fun fetchActiveSurvey(): NewsPost? = withContext(Dispatchers.IO) {
+        try {
             val fiveDaysAgo = System.currentTimeMillis() - (5 * 24 * 60 * 60 * 1000L)
             val snapshot = FirebaseService.db.collection("news")
                 .whereEqualTo("type", "survey")
@@ -653,7 +699,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 .limit(1)
                 .get().await()
             
-            val doc = snapshot.documents.firstOrNull() ?: return null
+            val doc = snapshot.documents.firstOrNull() ?: return@withContext null
             val survey = mapDocumentToNewsPost(doc)
             
             // Filter if already answered (tracked in PreferenceManager)
@@ -706,13 +752,36 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             val surveyQuestionsList = rawQuestions?.mapNotNull { qObj ->
                 val qMap = qObj as? Map<*, *> ?: return@mapNotNull null
                 val qId = qMap["id"]?.toString() ?: ""
-                val qText = qMap["questionText"]?.toString() ?: ""
+                
+                val qText = when (val qTextVal = qMap["questionText"]) {
+                    is Map<*, *> -> {
+                        if (currentLanguage == Language.ENGLISH) {
+                            qTextVal["english"]?.toString() ?: qTextVal["telugu"]?.toString() ?: ""
+                        } else {
+                            qTextVal["telugu"]?.toString() ?: qTextVal["english"]?.toString() ?: ""
+                        }
+                    }
+                    else -> qTextVal?.toString() ?: ""
+                }
+                
                 val rawOpts = qMap["options"] as? List<*>
                 val optionsList = rawOpts?.mapNotNull { oObj ->
                     val oMap = oObj as? Map<*, *> ?: return@mapNotNull null
                     val oId = oMap["id"]?.toString() ?: ""
-                    val oText = oMap["text"]?.toString() ?: ""
-                    SurveyOption(id = oId, text = oText)
+                    
+                    val oText = when (val oTextVal = oMap["text"]) {
+                        is Map<*, *> -> {
+                            if (currentLanguage == Language.ENGLISH) {
+                                oTextVal["english"]?.toString() ?: oTextVal["telugu"]?.toString() ?: ""
+                            } else {
+                                oTextVal["telugu"]?.toString() ?: oTextVal["english"]?.toString() ?: ""
+                            }
+                        }
+                        else -> oTextVal?.toString() ?: ""
+                    }
+                    
+                    val oNext = oMap["nextQuestionId"]?.toString()
+                    SurveyOption(id = oId, text = oText, nextQuestionId = oNext)
                 } ?: emptyList()
                 SurveyQuestion(id = qId, questionText = qText, options = optionsList)
             } ?: emptyList()
@@ -803,12 +872,17 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private suspend fun processLocationUpdate(context: Context, lat: Double, lon: Double, language: Language, currentUser: User?): Boolean {
         return withContext(Dispatchers.IO) {
             try {
+                // ✅ FIX: Always save GPS coordinates immediately, regardless of geocoder result.
+                // Old code only saved coords if locality was found → rural areas never got coord-based weather!
+                prefs.lastLat = lat
+                prefs.lastLon = lon
+
                 val geocoder = Geocoder(context, Locale("te"))
                 val addresses = geocoder.getFromLocation(lat, lon, 1)
                 if (!addresses.isNullOrEmpty()) {
                     val address = addresses[0]
                     val locality = address.locality ?: address.subLocality ?: address.subAdminArea
-                    if (locality != null) { prefs.localPlace = locality; prefs.lastLat = lat; prefs.lastLon = lon }
+                    if (locality != null) { prefs.localPlace = locality }
                     
                     val detectedName = address.subAdminArea ?: address.locality ?: address.adminArea ?: ""
                     
@@ -908,9 +982,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
      private suspend fun generateWeatherPost(place: String?, district: String?, lat: Double? = null, lon: Double? = null): NewsPost {
          val location = if (district == prefs.detectedDistrict) (place ?: district ?: "హైదరాబాద్") else (district ?: "హైదరాబాద్")
          
-         // 🚀 IMPROVED TIMEOUT: 1500ms for better API reliability on mobile networks.
+         // ✅ FIX: Increased timeout to 8000ms so mobile networks have enough time to fetch real weather.
+         // Previous 1500ms was too short, causing timeout → weatherData=null → wrong temp from headline.
          val weatherData = try {
-             kotlinx.coroutines.withTimeout(1500L) {
+             kotlinx.coroutines.withTimeout(8000L) {
                  WeatherService.fetchWeather(location, lat, lon)
              }
          } catch (e: Exception) { null }
@@ -921,8 +996,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
              weatherHeadlineTe = WeatherService.getWeatherDescription(weatherData.code)
              weatherContentTe = WeatherService.getConversationalDescription(weatherData.code, weatherData.temp, location)
          }
+         // ✅ FIX: Use 5-min bucket for ID so the card refreshes more frequently.
+         // Old 10-min bucket caused distinctBy{id} to skip re-fetch of stale weather cards.
          return NewsPost(
-             id = "weather_${System.currentTimeMillis() / (1000 * 60 * 10)}",
+             id = "weather_${System.currentTimeMillis() / (1000 * 60 * 5)}",
              headline = com.alfanews.telugu.models.Headline(
                  telugu = "$temperatureStr$location వాతావరణం: $weatherHeadlineTe", 
                  english = "$temperatureStr$location Weather"

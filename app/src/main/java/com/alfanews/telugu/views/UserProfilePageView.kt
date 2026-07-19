@@ -2,6 +2,7 @@ package com.alfanews.telugu.views
 
 import android.app.Activity
 import android.app.Application
+import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -286,6 +287,151 @@ fun UserProfilePageView(
                                 ) {
                                     Text(stringResource(R.string.id_card), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 🎁 యాప్ ప్రమోషన్ & పాయింట్లు (Referral Promotion Box)
+            if (!isGuest) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CardGiftcard,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = if (language == Language.TELUGU) "యాప్ ప్రమోషన్ & పాయింట్లు" else "App Promotion & Points",
+                                fontSize = 18.sp,
+                                fontFamily = Ramabhadra,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        Text(
+                            text = if (language == Language.TELUGU) 
+                                "ఈ క్రింది లింక్ ద్వారా ఇతరులు యాప్‌ను డౌన్‌లోడ్ చేసుకుంటే మీకు 50 పాయింట్లు లభిస్తాయి." 
+                            else 
+                                "Share the link below. You'll get 50 points when someone installs the app through your link.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        val referralLink = "https://play.google.com/store/apps/details?id=com.alfanews.telugu&referrer=ref_${user.id}"
+
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = referralLink,
+                                    modifier = Modifier.weight(1f),
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                                    fontFamily = Poppins
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "Copy",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .clickable {
+                                            clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(referralLink))
+                                            Toast.makeText(
+                                                context,
+                                                if (language == Language.TELUGU) "రిఫరల్ లింక్ కాపీ చేయబడింది!" else "Referral link copied!",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Total installs count display
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Download,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = if (language == Language.TELUGU) 
+                                        "మొత్తం ఇన్‌స్టాల్స్: ${user.referralCount}" 
+                                    else 
+                                        "Total Installs: ${user.referralCount}",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
+                            // Direct Share Button
+                            Button(
+                                onClick = {
+                                    val shareText = if (language == Language.TELUGU)
+                                        "ఆల్ఫా న్యూస్ యాప్‌ని డౌన్‌లోడ్ చేసుకోండి మరియు తాజా వార్తలను తెలుసుకోండి!\n\nడౌన్‌లోడ్ లింక్: $referralLink"
+                                    else
+                                        "Download Alfa News app to get the latest news updates!\n\nDownload Link: $referralLink"
+                                    val shareIntent = Intent().apply {
+                                        action = Intent.ACTION_SEND
+                                        putExtra(Intent.EXTRA_TEXT, shareText)
+                                        type = "text/plain"
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, if (language == Language.TELUGU) "యాప్ లింక్ షేర్ చేయండి" else "Share App Link"))
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (language == Language.TELUGU) "షేర్" else "Share",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
                             }
                         }
                     }

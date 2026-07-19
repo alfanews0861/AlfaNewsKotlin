@@ -22,6 +22,8 @@ import com.alfanews.telugu.services.NotificationActionReceiver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.tasks.await
 import java.net.HttpURLConnection
 import java.net.URL
@@ -31,6 +33,8 @@ import java.net.URL
  * ప్రదర్శించడానికి ఉపయోగించే సర్వీస్.
  */
 class MyFirebaseMessagingService : FirebaseMessagingService() {
+
+    private val serviceScope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
 
     /**
      * అప్లికేషన్‌లో ఉపయోగించే నోటిఫికేషన్ ఛానెల్‌ల రకాలు.
@@ -84,7 +88,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         
         if (uid != null) {
             // రిజిస్టర్డ్ యూజర్ కోసం
-            CoroutineScope(Dispatchers.IO).launch {
+            serviceScope.launch {
                 try {
                     db.collection("users").document(uid)
                         .update(
@@ -104,7 +108,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             }
         } else {
             // గెస్ట్ యూజర్ (Anonymous) కోసం - 'anonymous_devices' లో సేవ్ చేస్తాం
-            CoroutineScope(Dispatchers.IO).launch {
+            serviceScope.launch {
                 try {
                     val guestData = mapOf(
                         "fcmToken" to token,
@@ -128,7 +132,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         val prefs = PreferenceManager.getInstance(applicationContext)
         if (!prefs.isNotificationsEnabled) return
 
-        CoroutineScope(Dispatchers.IO).launch {
+        serviceScope.launch {
             try {
                 // అందరు యూజర్ల కోసం
                 FirebaseMessaging.getInstance().subscribeToTopic("all_users").await()
@@ -137,9 +141,16 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 // ✅ జిల్లా ఆధారిత టాపిక్ కి సబ్‌స్క్రయిబ్ చేయడం (సురక్షితమైన పేరుతో)
                 val userDistrict = prefs.userDistrict
                 if (!userDistrict.isNullOrBlank()) {
-                    val topicName = NotificationHelper.getTopicName("district", userDistrict)
-                    FirebaseMessaging.getInstance().subscribeToTopic(topicName).await()
-                    Log.d("MyFirebaseMsgService", "Subscribed to safe district topic: $topicName")
+                    val districtTopic = NotificationHelper.getTopicName("district", userDistrict)
+                    FirebaseMessaging.getInstance().subscribeToTopic(districtTopic).await()
+                    Log.d("MyFirebaseMsgService", "Subscribed to district topic: $districtTopic")
+
+                    // ✅ FIX: Subscribe to weather_alert topic.
+                    // Cloud Function sends to "weather_alert_{district}", NOT "district_{district}".
+                    // Without this, weather alert push notifications NEVER reach the user!
+                    val weatherAlertTopic = NotificationHelper.getTopicName("weather_alert", userDistrict)
+                    FirebaseMessaging.getInstance().subscribeToTopic(weatherAlertTopic).await()
+                    Log.d("MyFirebaseMsgService", "Subscribed to weather alert topic: $weatherAlertTopic")
                 }
 
                 Log.d("MyFirebaseMsgService", "Subscribed to default topics")
@@ -176,87 +187,109 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
      * @param imageUrl నోటిఫికేషన్‌లో చూపించాల్సిన చిత్రం URL.
      */
     private fun sendNotification(title: String, messageBody: String, channelId: String, actionUrl: String?, imageUrl: String?) {
-        val newsId = Uri.parse(actionUrl ?: "").lastPathSegment ?: ""
-        
-        // 1. ప్రధాన క్లిక్ యాక్షన్: వార్తను చదవడం
-        val intent = if (actionUrl != null && actionUrl.isNotEmpty()) {
-            Intent(Intent.ACTION_VIEW, Uri.parse(actionUrl))
-        } else {
-            Intent(this, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            }
-        }
+        // ✅ FIX: Image download తప్పనిసరిగా Background thread లో జరగాలి.
+        // NetworkOnMainThreadException వల్ల notification అస్సలు రాకపోవడం fix అవుతుంది.
+        serviceScope.launch {
+            val notificationId = (System.currentTimeMillis() and 0xfffffffL).toInt()
+            val newsId = Uri.parse(actionUrl ?: "").lastPathSegment ?: ""
 
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            intent,
-            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        // 2. షేర్ బటన్ యాక్షన్
-        val shareIntent = Intent(this, NotificationActionReceiver::class.java).apply {
-            action = "com.alfanews.telugu.ACTION_SHARE"
-            putExtra("title", title)
-            putExtra("body", messageBody)
-            putExtra("url", actionUrl ?: "https://play.google.com/store/apps/details?id=com.alfanews.telugu")
-            putExtra("newsId", newsId)
-        }
-        val sharePendingIntent = PendingIntent.getBroadcast(
-            this,
-            System.currentTimeMillis().toInt(),
-            shareIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notificationBuilder = NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(R.drawable.app_icon_new)
-            .setContentTitle(title)
-            .setContentText(messageBody)
-            .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
-            .addAction(R.drawable.ic_launcher_foreground, "చదవండి", pendingIntent)
-            .addAction(R.drawable.ic_launcher_foreground, "షేర్ చేయండి", sharePendingIntent)
-
-        // 🖼️ Rich Notification: ఫోటో ఉంటే దాన్ని డౌన్‌లోడ్ చేసి చూపిస్తాం
-        if (!imageUrl.isNullOrBlank()) {
-            try {
-                val url = URL(imageUrl)
-                val connection = url.openConnection() as HttpURLConnection
-                connection.doInput = true
-                connection.connect()
-                val input = connection.inputStream
-                val bitmap = BitmapFactory.decodeStream(input)
-                if (bitmap != null) {
-                    notificationBuilder.setLargeIcon(bitmap)
-                    notificationBuilder.setStyle(NotificationCompat.BigPictureStyle()
-                        .bigPicture(bitmap)
-                        .setBigContentTitle(title)
-                        .setSummaryText(messageBody)
-                        .bigLargeIcon(null as Bitmap?))
-                }
-            } catch (e: Exception) {
-                Log.e("MyFirebaseMsgService", "Error loading notification image", e)
-            }
-        } else {
-            // చిత్రం లేకపోతే BigTextStyle ఉపయోగిస్తాం
-            notificationBuilder.setStyle(NotificationCompat.BigTextStyle().bigText(messageBody))
-        }
-
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-        // పాత ఆండ్రాయిడ్ వెర్షన్ల కోసం ప్రయారిటీ సెట్ చేయడం
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            val priority = if (channelId == AppNotificationChannel.BREAKING.id) {
-                NotificationCompat.PRIORITY_HIGH
+            // 1. ప్రధాన క్లిక్ యాక్షన్: వార్తను చదవడం
+            val intent = if (!actionUrl.isNullOrEmpty()) {
+                Intent(Intent.ACTION_VIEW, Uri.parse(actionUrl))
             } else {
-                NotificationCompat.PRIORITY_DEFAULT
+                Intent(this@MyFirebaseMessagingService, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                }
             }
-            notificationBuilder.priority = priority
-        }
 
-        notificationManager.notify(System.currentTimeMillis().toInt(), notificationBuilder.build())
+            // ✅ FIX: requestCode unique గా ఉండాలి, లేకపోతే PendingIntent override అవుతుంది
+            val pendingIntent = PendingIntent.getActivity(
+                this@MyFirebaseMessagingService,
+                notificationId,
+                intent,
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            // 2. షేర్ బటన్ యాక్షన్
+            val shareIntent = Intent(this@MyFirebaseMessagingService, NotificationActionReceiver::class.java).apply {
+                action = "com.alfanews.telugu.ACTION_SHARE"
+                putExtra("title", title)
+                putExtra("body", messageBody)
+                putExtra("url", actionUrl ?: "https://play.google.com/store/apps/details?id=com.alfanews.telugu")
+                putExtra("newsId", newsId)
+            }
+            val sharePendingIntent = PendingIntent.getBroadcast(
+                this@MyFirebaseMessagingService,
+                notificationId + 1, // unique requestCode
+                shareIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notificationBuilder = NotificationCompat.Builder(this@MyFirebaseMessagingService, channelId)
+                .setSmallIcon(R.drawable.app_icon_new)
+                .setContentTitle(title)
+                .setContentText(messageBody)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .addAction(R.drawable.ic_launcher_foreground, "చదవండి", pendingIntent)
+                .addAction(R.drawable.ic_launcher_foreground, "షేర్ చేయండి", sharePendingIntent)
+
+            // 🖼️ Rich Notification: ఫోటో ఉంటే Background లో డౌన్‌లోడ్ చేసి చూపిస్తాం
+            if (!imageUrl.isNullOrBlank()) {
+                var bitmap: Bitmap? = null
+                try {
+                    val url = URL(imageUrl)
+                    val connection = url.openConnection() as HttpURLConnection
+                    connection.doInput = true
+                    connection.connectTimeout = 10_000  // ✅ FIX: timeout add చేయడం
+                    connection.readTimeout = 10_000
+                    connection.connect()
+                    bitmap = BitmapFactory.decodeStream(connection.inputStream)
+                } catch (e: Exception) {
+                    Log.e("MyFirebaseMsgService", "Image download failed, showing text-only notification", e)
+                }
+
+                if (bitmap != null) {
+                    notificationBuilder
+                        .setLargeIcon(bitmap)
+                        .setStyle(
+                            NotificationCompat.BigPictureStyle()
+                                .bigPicture(bitmap)
+                                .setBigContentTitle(title)
+                                .setSummaryText(messageBody)
+                                .bigLargeIcon(null as Bitmap?)
+                        )
+                } else {
+                    // Image load fail అయినా notification వస్తుంది
+                    notificationBuilder.setStyle(NotificationCompat.BigTextStyle().bigText(messageBody))
+                }
+            } else {
+                // చిత్రం లేకపోతే BigTextStyle ఉపయోగిస్తాం
+                notificationBuilder.setStyle(NotificationCompat.BigTextStyle().bigText(messageBody))
+            }
+
+            // పాత ఆండ్రాయిడ్ వెర్షన్ల కోసం ప్రయారిటీ సెట్ చేయడం
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                val priority = if (channelId == AppNotificationChannel.BREAKING.id) {
+                    NotificationCompat.PRIORITY_HIGH
+                } else {
+                    NotificationCompat.PRIORITY_DEFAULT
+                }
+                notificationBuilder.priority = priority
+            }
+
+            // ✅ Main thread లో notify చేయాలి
+            withContext(Dispatchers.Main) {
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.notify(notificationId, notificationBuilder.build())
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        serviceScope.cancel()
     }
 }

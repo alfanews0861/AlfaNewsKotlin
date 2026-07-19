@@ -32,8 +32,8 @@ private fun getTimestampValue(data: Map<String, Any?>): Long {
 }
 
 @Suppress("UNCHECKED_CAST")
-private fun mapDocumentToNewsPost(id: String, data: Map<String, Any?>): NewsPost {
-    return com.alfanews.telugu.models.mapMapToNewsPost(id, data)
+private fun mapDocumentToNewsPost(id: String, data: Map<String, Any?>, language: Language): NewsPost {
+    return com.alfanews.telugu.models.mapMapToNewsPost(id, data, language)
 }
 
 @Composable
@@ -59,7 +59,7 @@ fun SinglePostView(
 
             if (docSnap.exists()) {
                 val data = docSnap.data ?: throw Exception("No data")
-                post = mapDocumentToNewsPost(docSnap.id, data)
+                post = mapDocumentToNewsPost(docSnap.id, data, language)
             } else {
                 error = "వార్త అందుబాటులో లేదు."
             }
@@ -70,7 +70,7 @@ fun SinglePostView(
         }
     }
 
-    LaunchedEffect(post) {
+    LaunchedEffect(post?.id) {
         val currentPost = post
         if (currentPost != null) {
             AnalyticsService.logPostEngagement(currentPost)

@@ -6,10 +6,6 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.alfanews.telugu.models.Language
-import com.alfanews.telugu.models.ThemeMode
-import com.alfanews.telugu.models.User
-import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.models.*
 import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseService
@@ -35,6 +31,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = PreferenceManager.getInstance(application)
     private var userListener: ListenerRegistration? = null
     private var newsListener: ListenerRegistration? = null
+    private var appConfigListener: ListenerRegistration? = null
+    private var authStateListener: com.google.firebase.auth.FirebaseAuth.AuthStateListener? = null
     private val appStartTime = System.currentTimeMillis()
 
     private val _currentUser = MutableStateFlow<User?>(null)
@@ -130,15 +128,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        FirebaseService.auth.addAuthStateListener { auth ->
-            if (isTestLab && _currentUser.value?.id?.startsWith("ftl_") == true) return@addAuthStateListener
+        authStateListener = com.google.firebase.auth.FirebaseAuth.AuthStateListener { auth ->
+            if (isTestLab && _currentUser.value?.id?.startsWith("ftl_") == true) return@AuthStateListener
 
             userListener?.remove() 
             val firebaseUser = auth.currentUser
             if (firebaseUser == null) {
                 _currentUser.value = null
                 AnalyticsService.onUserLogout()
-                return@addAuthStateListener
+                return@AuthStateListener
             }
 
             userListener = FirebaseService.db.collection("users").document(firebaseUser.uid)
@@ -166,12 +164,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 constituency = snapshot.getString("constituency"),
                                 state = snapshot.getString("state"),
                                 promotedBy = snapshot.getString("promotedBy"),
+                                referredBy = snapshot.getString("referredBy"),
+                                referralCount = snapshot.getLong("referralCount")?.toInt() ?: 0,
                                 signatureUrl = snapshot.getString("signatureUrl"),
                                 idCardUrl = snapshot.getString("idCardUrl"),
                                 assignedMandal = snapshot.getString("assignedMandal"),
                                 assignedDistricts = (snapshot.get("assignedDistricts") as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
                                 fcmTokens = (snapshot.get("fcmTokens") as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
                                 lastTokenUpdate = snapshot.getLong("lastTokenUpdate"),
+                                points = snapshot.getLong("points")?.toInt() ?: 0,
+                                badges = (snapshot.get("badges") as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
                                 categoryScores = (snapshot.get("categoryScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
                                 reporterScores = (snapshot.get("reporterScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
                                 tagScores = (snapshot.get("tagScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
@@ -208,6 +210,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
         }
+        authStateListener?.let { FirebaseService.auth.addAuthStateListener(it) }
 
         if (!prefs.hasRated && prefs.ratingDialogShownCount < 5) {
             prefs.appOpenCount += 1
@@ -231,7 +234,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun startAppConfigListener() {
-        FirebaseService.db.collection("settings").document("android_config")
+        appConfigListener?.remove()
+        appConfigListener = FirebaseService.db.collection("settings").document("android_config")
             .addSnapshotListener { snapshot, e ->
                 if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
                 
@@ -295,8 +299,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     
                     val district = prefs.getEffectiveDistrict()
                     if (!district.isNullOrBlank()) {
-                        val topicName = NotificationHelper.getTopicName("district", district)
-                        messaging.subscribeToTopic(topicName).await()
+                        val districtTopic = NotificationHelper.getTopicName("district", district)
+                        messaging.subscribeToTopic(districtTopic).await()
+                        // ✅ FIX: Also subscribe to weather_alert topic.
+                        // Cloud Function sends weather alerts to "weather_alert_{district}" topic,
+                        // but app was only subscribing to "district_{district}" — mismatch! So alerts never arrived.
+                        val weatherAlertTopic = NotificationHelper.getTopicName("weather_alert", district)
+                        messaging.subscribeToTopic(weatherAlertTopic).await()
                     }
                     
                     // సబ్‌స్క్రయిబ్ అయినట్లు అనలిటిక్స్ లో లాగ్ చేయడం
@@ -343,7 +352,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun mapDocumentToNewsPost(doc: com.google.firebase.firestore.DocumentSnapshot): NewsPost? {
         return try {
             val data = doc.data ?: return null
-            com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
+            com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data, language.value)
         } catch (ex: Exception) { null }
     }
 
@@ -352,6 +361,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
         userListener?.remove()
         newsListener?.remove()
+        weatherAlertListener?.remove()
+        appConfigListener?.remove()
+        authStateListener?.let { FirebaseService.auth.removeAuthStateListener(it) }
     }
 
     fun setActiveTab(tab: String) {
@@ -406,12 +418,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setDistrict(district: String) {
+        val oldDistrict = prefs.selectedDistrict ?: prefs.detectedDistrict
         prefs.selectedDistrict = district
         _activeDistrict.value = district
-        // Trigger news refresh if needed, or rely on ViewModels observing prefs/activeDistrict
         viewModelScope.launch {
+            // Update Firestore user record
             _currentUser.value?.id?.let { uid ->
                 FirebaseService.db.collection("users").document(uid).update("district", district)
+            }
+            // ✅ FIX: Update FCM topic subscriptions when district changes
+            if (prefs.isNotificationsEnabled) {
+                try {
+                    val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
+                    // Unsubscribe from old district topics
+                    if (!oldDistrict.isNullOrBlank() && oldDistrict != district) {
+                        messaging.unsubscribeFromTopic(NotificationHelper.getTopicName("district", oldDistrict)).await()
+                        messaging.unsubscribeFromTopic(NotificationHelper.getTopicName("weather_alert", oldDistrict)).await()
+                    }
+                    // Subscribe to new district topics
+                    messaging.subscribeToTopic(NotificationHelper.getTopicName("district", district)).await()
+                    messaging.subscribeToTopic(NotificationHelper.getTopicName("weather_alert", district)).await()
+                } catch (e: Exception) { }
             }
         }
     }
@@ -508,6 +535,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     district?.let { d ->
                         val districtTopic = NotificationHelper.getTopicName("district", d)
                         messaging.subscribeToTopic(districtTopic).await()
+                        // ✅ FIX: Subscribe to weather alert topic too
+                        val weatherAlertTopic = NotificationHelper.getTopicName("weather_alert", d)
+                        messaging.subscribeToTopic(weatherAlertTopic).await()
                         interests.forEach { category ->
                             val interestTopic = NotificationHelper.getTopicName("interest_${NotificationHelper.slugify(d)}", category)
                             messaging.subscribeToTopic(interestTopic).await()
@@ -519,6 +549,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     district?.let { d ->
                         val districtTopic = NotificationHelper.getTopicName("district", d)
                         messaging.unsubscribeFromTopic(districtTopic).await()
+                        // ✅ FIX: Unsubscribe from weather alert topic too
+                        val weatherAlertTopic = NotificationHelper.getTopicName("weather_alert", d)
+                        messaging.unsubscribeFromTopic(weatherAlertTopic).await()
                         interests.forEach { category ->
                             val interestTopic = NotificationHelper.getTopicName("interest_${NotificationHelper.slugify(d)}", category)
                             messaging.unsubscribeFromTopic(interestTopic).await()

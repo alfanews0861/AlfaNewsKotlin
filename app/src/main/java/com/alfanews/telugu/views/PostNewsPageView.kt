@@ -46,6 +46,8 @@ import com.alfanews.telugu.utils.uploadMediaToStorage
 import com.google.firebase.Timestamp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 
 fun getVideoDuration(context: android.content.Context, uri: Uri): Long {
@@ -113,12 +115,16 @@ fun PostNewsPageView(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            val duration = getVideoDuration(context, uri)
-            if (duration > 10 * 60 * 1000) {
-                Toast.makeText(context, "వీడియో నిడివి 10 నిమిషాల కంటే తక్కువ ఉండాలి", Toast.LENGTH_LONG).show()
-            } else {
-                val images = mediaUris.filter { context.contentResolver.getType(it)?.startsWith("image/") == true }
-                mediaUris = (listOf(uri) + images).take(3)
+            scope.launch {
+                val duration = withContext(Dispatchers.IO) {
+                    getVideoDuration(context, uri)
+                }
+                if (duration > 10 * 60 * 1000) {
+                    Toast.makeText(context, "వీడియో నిడివి 10 నిమిషాల కంటే తక్కువ ఉండాలి", Toast.LENGTH_LONG).show()
+                } else {
+                    val images = mediaUris.filter { context.contentResolver.getType(it)?.startsWith("image/") == true }
+                    mediaUris = (listOf(uri) + images).take(3)
+                }
             }
         }
     }
@@ -381,8 +387,12 @@ fun PostNewsPageView(
                                     modifier = Modifier.fillMaxSize()
                                 ) { page ->
                                     val mediaItem = combinedMediaUrls[page]
-                                    val isVideo = mediaItem.contains("video", ignoreCase = true) || 
-                                                  context.contentResolver.getType(Uri.parse(mediaItem))?.startsWith("video/") == true
+                                    val isVideo = try {
+                                        mediaItem.contains("video", ignoreCase = true) || 
+                                        (mediaItem.startsWith("content://") && context.contentResolver.getType(Uri.parse(mediaItem))?.startsWith("video/") == true)
+                                    } catch (e: Exception) {
+                                        false
+                                    }
                                     
                                     if (isVideo) {
                                         VideoPlayerView(videoUrl = mediaItem)

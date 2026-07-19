@@ -134,7 +134,7 @@ fun User.canPostSurvey(): Boolean {
     return false
 }
 
-fun mapMapToNewsPost(id: String, data: Map<String, Any?>): NewsPost {
+fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = Language.TELUGU): NewsPost {
     val headlineMap = data["headline"] as? Map<*, *>
     val headline = Headline(
         telugu = headlineMap?.get("telugu")?.toString() ?: data["headline"]?.toString() ?: "",
@@ -204,12 +204,36 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>): NewsPost {
     val surveyQuestions = rawQuestions?.mapNotNull { qObj ->
         val qMap = qObj as? Map<*, *> ?: return@mapNotNull null
         val qId = qMap["id"]?.toString() ?: ""
-        val qText = qMap["questionText"]?.toString() ?: ""
+        
+        // Handle localized map or simple string for questionText
+        val qText = when (val qTextVal = qMap["questionText"]) {
+            is Map<*, *> -> {
+                if (language == Language.ENGLISH) {
+                    qTextVal["english"]?.toString() ?: qTextVal["telugu"]?.toString() ?: ""
+                } else {
+                    qTextVal["telugu"]?.toString() ?: qTextVal["english"]?.toString() ?: ""
+                }
+            }
+            else -> qTextVal?.toString() ?: ""
+        }
+        
         val rawOpts = qMap["options"] as? List<*>
         val optionsList = rawOpts?.mapNotNull { oObj ->
             val oMap = oObj as? Map<*, *> ?: return@mapNotNull null
             val oId = oMap["id"]?.toString() ?: ""
-            val oText = oMap["text"]?.toString() ?: ""
+            
+            // Handle localized map or simple string for option text
+            val oText = when (val oTextVal = oMap["text"]) {
+                is Map<*, *> -> {
+                    if (language == Language.ENGLISH) {
+                        oTextVal["english"]?.toString() ?: oTextVal["telugu"]?.toString() ?: ""
+                    } else {
+                        oTextVal["telugu"]?.toString() ?: oTextVal["english"]?.toString() ?: ""
+                    }
+                }
+                else -> oTextVal?.toString() ?: ""
+            }
+            
             val oNext = oMap["nextQuestionId"]?.toString()
             SurveyOption(id = oId, text = oText, nextQuestionId = oNext)
         } ?: emptyList()

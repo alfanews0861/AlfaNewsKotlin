@@ -98,6 +98,8 @@ data class User(
     // ఇన్సెంటివ్ సిస్టమ్ ఫీల్డ్స్
     val points: Int = 0,
     val badges: List<String> = emptyList(),
+    val referredBy: String? = null,
+    val referralCount: Int = 0,
     
     // రిపోర్టర్ మానిటరింగ్ ఫీల్డ్స్
     val warningLevel: Int = 0,

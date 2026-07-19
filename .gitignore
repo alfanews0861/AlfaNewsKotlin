@@ -98,3 +98,8 @@ Desktop.ini
 
 # Environment variables
 .env*
+
+# Node modules
+node_modules/
+functions/node_modules/
+functions/lib/

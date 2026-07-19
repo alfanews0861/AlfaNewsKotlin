@@ -34,6 +34,7 @@ import kotlinx.coroutines.tasks.await
 @Composable
 fun ManageSurveysPageView(
     currentUser: User?,
+    language: Language = Language.TELUGU,
     showTitle: Boolean = true
 ) {
     var surveys by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
@@ -59,7 +60,7 @@ fun ManageSurveysPageView(
             
             if (snapshot != null) {
                 surveys = snapshot.documents.mapNotNull { doc ->
-                    mapMapToNewsPost(doc.id, doc.data ?: emptyMap())
+                    mapMapToNewsPost(doc.id, doc.data ?: emptyMap(), language)
                 }
             }
         }

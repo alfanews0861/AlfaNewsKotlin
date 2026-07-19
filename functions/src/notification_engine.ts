@@ -56,7 +56,7 @@ export const sendPersonalizedNotification = onSchedule({
 
         if (topNews && lastSentMap['general'] !== topNews.id) {
             const headline = topNews.headline?.telugu || topNews.headline?.english || topNews.headline || "నేటి ముఖ్య వార్తలు";
-            const imageUrl = topNews.mediaUrl || "";
+            const imageUrl = topNews.thumbnailUrl || topNews.mediaUrl || "";
 
             // ✅ FIX: 'notification' payload తొలగించడం.
             // notification payload ఉంటే Android OS background లో onMessageReceived() skip చేస్తుంది.
@@ -101,7 +101,7 @@ export const sendPersonalizedNotification = onSchedule({
             if (!districtNews || lastSentMap[district] === districtNews.id) continue;
 
             const headline = districtNews.headline?.telugu || `${district} తాజా వార్త`;
-            const imageUrl = districtNews.mediaUrl || "";
+            const imageUrl = districtNews.thumbnailUrl || districtNews.mediaUrl || "";
 
             // ✅ TOPIC BASED: జిల్లా టాపిక్ కి పంపుతాం (సురక్షితమైన పేరుతో)
             const topicName = getTopicName("district", district);

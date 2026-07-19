@@ -43,6 +43,8 @@ fun DocumentSnapshot.toUserObject(): User? {
                 constituency = this.getString("constituency"),
                 state = this.getString("state"),
                 promotedBy = this.getString("promotedBy"),
+                referredBy = this.getString("referredBy"),
+                referralCount = this.getLong("referralCount")?.toInt() ?: 0,
                 signatureUrl = this.getString("signatureUrl"),
                 idCardUrl = this.getString("idCardUrl"),
                 assignedMandal = this.getString("assignedMandal"),

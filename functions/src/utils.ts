@@ -246,6 +246,51 @@ export async function saveImageLocally(externalUrl: string, prefix: string): Pro
     }
 }
 
+export async function createAndSaveThumbnail(imageUrl: string, postId: string): Promise<string | null> {
+    try {
+        if (!imageUrl || !imageUrl.includes('firebasestorage.googleapis.com')) return null;
+        
+        console.log(`[THUMBNAIL] Creating thumbnail for post ${postId} from URL: ${imageUrl.substring(0, 60)}...`);
+        const response = await fetch(imageUrl);
+        if (!response.ok) {
+            console.error(`[THUMBNAIL_ERR] Failed to download image: ${response.statusText}`);
+            return null;
+        }
+        
+        const contentType = response.headers.get('content-type') || "";
+        if (!contentType.startsWith('image/')) {
+            console.log(`[THUMBNAIL] URL is not an image (Content-Type: ${contentType}). Skipping thumbnail.`);
+            return null;
+        }
+        
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        
+        // Resize using sharp: max width 200px, quality 60
+        const thumbnailBuffer = await sharp(buffer)
+            .resize({ width: 200, withoutEnlargement: true })
+            .webp({ quality: 60 })
+            .toBuffer();
+            
+        const bucket = admin.storage().bucket();
+        const fileName = `news-media/thumbnails/${postId}_thumb.webp`;
+        
+        await bucket.file(fileName).save(thumbnailBuffer, {
+            metadata: {
+                contentType: 'image/webp',
+                cacheControl: 'public, max-age=31536000'
+            }
+        });
+        
+        const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(fileName)}?alt=media`;
+        console.log(`[THUMBNAIL] Created successfully: ${publicUrl}`);
+        return publicUrl;
+    } catch (e: any) {
+        console.error(`[THUMBNAIL_ERR] Failed to create thumbnail for ${postId}:`, e.message);
+        return null;
+    }
+}
+
 export async function generateImageWithRetry(
     aiUnused: any, // Keeping signature for compatibility
     prompt: string,

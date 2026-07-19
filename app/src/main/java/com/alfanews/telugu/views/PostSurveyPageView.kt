@@ -43,9 +43,7 @@ fun PostSurveyPageView(
     val scope = rememberCoroutineScope()
 
     var headlineTe by remember { mutableStateOf("") }
-    var headlineEn by remember { mutableStateOf("") }
     var contentTe by remember { mutableStateOf("") }
-    var contentEn by remember { mutableStateOf("") }
     
     var isMultiPage by remember { mutableStateOf(false) }
     var isGlobal by remember { mutableStateOf(user.role == com.alfanews.telugu.models.UserRole.ADMIN) }
@@ -102,15 +100,7 @@ fun PostSurveyPageView(
                     OutlinedTextField(
                         value = headlineTe,
                         onValueChange = { headlineTe = it },
-                        label = { Text("సర్వే శీర్షిక (Telugu Headline) *") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-
-                    OutlinedTextField(
-                        value = headlineEn,
-                        onValueChange = { headlineEn = it },
-                        label = { Text("Survey Title (English Headline)") },
+                        label = { Text("సర్వే శీర్షిక (Survey Title) *") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -118,15 +108,7 @@ fun PostSurveyPageView(
                     OutlinedTextField(
                         value = contentTe,
                         onValueChange = { contentTe = it },
-                        label = { Text("సర్వే వివరాలు (Telugu Description) *") },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 3
-                    )
-
-                    OutlinedTextField(
-                        value = contentEn,
-                        onValueChange = { contentEn = it },
-                        label = { Text("Survey Details (English Description)") },
+                        label = { Text("సర్వే వివరాలు (Survey Details) *") },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 3
                     )
@@ -462,15 +444,15 @@ fun PostSurveyPageView(
                     val surveyData = mapOf(
                         "headline" to mapOf(
                             "telugu" to headlineTe,
-                            "english" to headlineEn
+                            "english" to ""
                         ),
                         "content" to mapOf(
                             "telugu" to contentTe,
-                            "english" to contentEn
+                            "english" to ""
                         ),
                         "type" to "survey",
                         "approved" to isStaff,
-                        "status" to if (isStaff) "PUBLISHED" else "PENDING",
+                        "status" to "PENDING",
                         "surveyQuestions" to surveyQuestionsList,
                         "isMultiPage" to isMultiPage,
                         "fakeVotesBase" to randomStartFakeVotes,

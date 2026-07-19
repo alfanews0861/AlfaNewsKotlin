@@ -13,7 +13,8 @@ import {
     runWithAIFallback,
     parseAIJson,
     FLASH_MODEL,
-    REGION
+    REGION,
+    createAndSaveThumbnail
 } from "./utils";
 import { normalizeCategory, normalizeCategories, getCategorySystemInstruction } from './categories';
 import { notifyReporter, awardPointsToReporter, getAssignedReporter } from "./reporter_handler";
@@ -48,6 +49,152 @@ async function deleteOriginalFile(url: string) {
     } catch (e: any) {
         console.warn(`[CLEANUP_ERR] Failed to delete ${filePath}:`, e.message);
     }
+}
+
+/**
+ * Helper: Translate the entire survey (headline, content, questions, options)
+ */
+async function performSurveyAITranslation(surveyData: any): Promise<any> {
+    const rawHeadline = surveyData.headline?.telugu || surveyData.headline?.english || surveyData.headline || "";
+    const rawContent = surveyData.content?.telugu || surveyData.content?.english || surveyData.content || "";
+    
+    const inputQuestions = (surveyData.surveyQuestions || []).map((q: any) => {
+        return {
+            id: q.id,
+            questionText: q.questionText || "",
+            options: (q.options || []).map((o: any) => {
+                return {
+                    id: o.id,
+                    text: o.text || "",
+                    nextQuestionId: o.nextQuestionId || null
+                };
+            })
+        };
+    });
+
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            headline: {
+                type: Type.OBJECT,
+                properties: {
+                    telugu: { type: Type.STRING },
+                    english: { type: Type.STRING }
+                },
+                required: ["telugu", "english"]
+            },
+            content: {
+                type: Type.OBJECT,
+                properties: {
+                    telugu: { type: Type.STRING },
+                    english: { type: Type.STRING }
+                },
+                required: ["telugu", "english"]
+            },
+            surveyQuestions: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        id: { type: Type.STRING },
+                        questionText: {
+                            type: Type.OBJECT,
+                            properties: {
+                                telugu: { type: Type.STRING },
+                                english: { type: Type.STRING }
+                            },
+                            required: ["telugu", "english"]
+                        },
+                        options: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    id: { type: Type.STRING },
+                                    text: {
+                                        type: Type.OBJECT,
+                                        properties: {
+                                            telugu: { type: Type.STRING },
+                                            english: { type: Type.STRING }
+                                        },
+                                        required: ["telugu", "english"]
+                                    },
+                                    nextQuestionId: { type: Type.STRING, nullable: true }
+                                },
+                                required: ["id", "text"]
+                            }
+                        }
+                    },
+                    required: ["id", "questionText", "options"]
+                }
+            }
+        },
+        required: ["headline", "content", "surveyQuestions"]
+    };
+
+    const prompt = `
+Original Headline: ${rawHeadline}
+Original Content: ${rawContent}
+
+Original Questions & Options structure:
+${JSON.stringify(inputQuestions, null, 2)}
+`;
+
+    return await runWithAIFallback(async (ai, modelName) => {
+        const result = await ai.models.generateContent({
+            model: modelName,
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            config: {
+                systemInstruction: `You are an expert bilingual editor translating content between Telugu and English.
+Your task:
+1. Identify the input language (could be Telugu, English, or mixed).
+2. Translate the Headline and Content (description) into both Telugu and English.
+3. For each question in the list, translate the "questionText" into both Telugu and English.
+4. For each option within a question, translate the "text" into both Telugu and English.
+5. IMPORTANT: Keep the original "id" and "nextQuestionId" values for all questions and options exactly as given. Do not generate new IDs, do not change them, and do not drop them.
+Output JSON only.`,
+                temperature: 0.3,
+                maxOutputTokens: 4096,
+                responseMimeType: "application/json",
+                responseSchema: schema,
+                system_instruction: `You are an expert bilingual editor translating content between Telugu and English. ...`,
+                response_mime_type: "application/json",
+                response_schema: schema,
+                max_output_tokens: 4096
+            }
+        } as any);
+
+        const rawText = result.text || result.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+        console.log(`[SURVEY_AI_RES] Output:`, rawText.substring(0, 500));
+        const aiRes = parseAIJson(rawText);
+
+        if (!aiRes.headline || !aiRes.content || !aiRes.surveyQuestions) {
+            throw new Error("AI response missing mandatory survey fields.");
+        }
+
+        // Map back to guarantee nextQuestionId and structure are preserved exactly
+        const mappedQuestions = aiRes.surveyQuestions.map((q: any) => {
+            const originalQ = inputQuestions.find((oQ: any) => oQ.id === q.id) || {};
+            return {
+                id: q.id,
+                questionText: q.questionText,
+                options: (q.options || []).map((o: any) => {
+                    const originalO = (originalQ.options || []).find((oO: any) => oO.id === o.id) || {};
+                    return {
+                        id: o.id,
+                        text: o.text,
+                        nextQuestionId: originalO.nextQuestionId || o.nextQuestionId || null
+                    };
+                })
+            };
+        });
+
+        return {
+            headline: aiRes.headline,
+            content: aiRes.content,
+            surveyQuestions: mappedQuestions
+        };
+    });
 }
 
 /**
@@ -325,9 +472,6 @@ export const onNewsPostCreated = onDocumentWritten({
         // console.log(`[TRIGGER_SKIPPED] Passive update for ${postId}`);
         return;
     }
-
-    const postId = event.params.postId;
-
     // 2. FETCH LATEST: Only now we fetch to handle race conditions for actual content changes
     const latestDoc = await db.collection('news').doc(postId).get();
     const latestData = latestDoc.data();
@@ -343,16 +487,52 @@ export const onNewsPostCreated = onDocumentWritten({
     const originalReporterId = latestData.reporter?.id;
     const isReporter = latestData.isReporter === true || latestData.processingType === "REPORTER_SUBMISSION";
 
-    // 2. SURVEY BYPASS — skip Gemini AI for survey/poll/opinion posts
+    // 2. SURVEY PROCESS — Translate survey using Gemini AI
     if (latestData.type === "survey") {
-        console.log(`[SURVEY_BYPASS] Auto-publishing survey post: ${postId}`);
-        await db.collection('news').doc(postId).update({
-            status: "PUBLISHED",
-            approved: true,
-            aiProcessed: true,
-            publishedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        return;
+        if (latestData.aiProcessed) {
+            // Already processed by AI, skip
+            return;
+        }
+
+        console.log(`[SURVEY_AI_PROCESS] Starting translation for survey: ${postId}`);
+        try {
+            await db.collection('news').doc(postId).update({
+                status: "REVIEWING_CONTENT", // Lock it
+            });
+
+            // Perform translation
+            const translatedSurvey = await performSurveyAITranslation(latestData);
+
+            const updatePayloadSurvey: any = {
+                ...translatedSurvey,
+                status: latestData.approved ? "PUBLISHED" : "PENDING",
+                aiProcessed: true,
+                publishedAt: admin.firestore.FieldValue.serverTimestamp(),
+            };
+
+            const mediaUrl = latestData.mediaUrl || (latestData.mediaUrls && latestData.mediaUrls[0]) || "";
+            if (mediaUrl && !latestData.thumbnailUrl) {
+                try {
+                    const thumbUrl = await createAndSaveThumbnail(mediaUrl, postId);
+                    if (thumbUrl) {
+                        updatePayloadSurvey.thumbnailUrl = thumbUrl;
+                    }
+                } catch (e: any) {
+                    console.error(`[THUMBNAIL_ERR] Error creating thumbnail:`, e.message);
+                }
+            }
+
+            await db.collection('news').doc(postId).update(updatePayloadSurvey);
+            console.log(`[SURVEY_AI_DONE] Successfully processed survey: ${postId}`);
+            return;
+        } catch (err: any) {
+            console.error(`[SURVEY_AI_ERR] Failed to process survey ${postId}:`, err.message);
+            await db.collection('news').doc(postId).update({
+                status: "FAILED",
+                error: err.message
+            });
+            return;
+        }
     }
 
     // 3. AI PROCESSING PHASE
@@ -402,11 +582,23 @@ export const onNewsPostCreated = onDocumentWritten({
             const mTypes = (data.mediaTypes || []).map((t: string) => t.toUpperCase());
             const hasVideo = mTypes.includes('VIDEO') || data.mediaType?.toUpperCase() === 'VIDEO';
 
-            const updatePayload = {
+            const updatePayload: any = {
                 ...aiProcessedData,
                 status: isRejected ? "REJECTED" : (hasVideo ? "PROCESSING_VIDEO" : "published"),
                 approved: isRejected ? false : (finalIsReporter ? (hasVideo ? false : true) : (!hasVideo))
             };
+
+            const mediaUrl = latestData.mediaUrl || (latestData.mediaUrls && latestData.mediaUrls[0]) || "";
+            if (mediaUrl && !latestData.thumbnailUrl) {
+                try {
+                    const thumbUrl = await createAndSaveThumbnail(mediaUrl, postId);
+                    if (thumbUrl) {
+                        updatePayload.thumbnailUrl = thumbUrl;
+                    }
+                } catch (e: any) {
+                    console.error(`[THUMBNAIL_ERR] Error creating thumbnail:`, e.message);
+                }
+            }
 
             console.log(`[AI_DONE] ${postId}. Type: ${finalIsReporter ? 'REPORTER' : 'CITIZEN'}, Status: ${updatePayload.status}, Approved: ${updatePayload.approved}`);
             if (isRejected) console.log(`[AI_REJECTED] ${postId} Reason: ${aiProcessedData.rejectionReason}`);
@@ -432,7 +624,7 @@ export const onNewsPostCreated = onDocumentWritten({
     const videoIndex = mTypes.indexOf('VIDEO') !== -1 ? mTypes.indexOf('VIDEO') : (data.mediaType?.toUpperCase() === 'VIDEO' ? 0 : -1);
     const videoUrl = (videoIndex !== -1 && data.mediaUrls && data.mediaUrls[videoIndex]) || (videoIndex === 0 ? data.mediaUrl : null);
 
-    if (data.aiProcessed && currentStatus === "PROCESSING_VIDEO" && !data.videoProcessed && videoUrl) {
+    if (data.aiProcessed && status === "PROCESSING_VIDEO" && !data.videoProcessed && videoUrl) {
         // Double check against DB to avoid race conditions from onDocumentWritten
         const latestDoc = await db.collection('news').doc(postId).get();
         const latestData = latestDoc.data();

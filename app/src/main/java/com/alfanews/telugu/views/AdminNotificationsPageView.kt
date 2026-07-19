@@ -322,7 +322,7 @@ fun AdminNotificationsPageView(showTitle: Boolean = true) {
             Button(
                 onClick = { handleSend() },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                enabled = !isSending && selectedPostId.isNotEmpty(),
+                enabled = !isSending && (useCustomMessage || selectedPostId.isNotEmpty()),
                 shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isSilent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error

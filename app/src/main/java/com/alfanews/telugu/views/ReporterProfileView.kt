@@ -52,8 +52,8 @@ private fun getTimestampValue(data: Map<String, Any?>): Long {
     }
 }
 
-private fun mapDocumentToNewsPost(id: String, data: Map<String, Any?>): NewsPost {
-    return com.alfanews.telugu.models.mapMapToNewsPost(id, data)
+private fun mapDocumentToNewsPost(id: String, data: Map<String, Any?>, language: Language): NewsPost {
+    return com.alfanews.telugu.models.mapMapToNewsPost(id, data, language)
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -121,7 +121,7 @@ fun ReporterProfileView(
             val fetchedPosts = querySnapshot.documents.mapNotNull { doc ->
                 try {
                     val data = doc.data ?: return@mapNotNull null
-                    mapDocumentToNewsPost(doc.id, data)
+                    mapDocumentToNewsPost(doc.id, data, language)
                 } catch (e: Exception) {
                     null
                 }

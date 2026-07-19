@@ -22,6 +22,8 @@ object FirebaseService {
         // యూజర్ కోరిక మేరకు ఆఫ్‌లైన్ పర్సిస్టెన్స్‌ను నిలిపివేస్తున్నాము.
         // దీనివల్ల వార్తల డేటా ఫోన్ మెమరీని GBలలో ఆక్రమించదు.
         // కేవలం అవసరమైనప్పుడు మాత్రమే క్లౌడ్ నుండి డేటా వస్తుంది.
+        // ⚠️ గమనిక: ఆఫ్‌లైన్ పర్సిస్టెన్స్ నిలిపివేయబడినందున, ఆఫ్‌లైన్‌లో ఉన్నప్పుడు Firestore రీడ్స్ ఫెయిల్ అవుతాయి.
+        // కావున ViewModels అన్నింటిలోనూ Firestore కనెక్షన్ ఫెయిల్యూర్లను (Exceptions) తప్పకుండా హ్యాండిల్ చేయాలి.
         val settings = com.google.firebase.firestore.FirebaseFirestoreSettings.Builder()
             .setPersistenceEnabled(false) // పర్సిస్టెన్స్ నిలిపివేయబడింది
             .build()

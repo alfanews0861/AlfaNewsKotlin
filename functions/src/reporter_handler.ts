@@ -1,6 +1,6 @@
 import * as admin from "firebase-admin";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
-import { onDocumentWritten } from "firebase-functions/v2/firestore";
+import { onDocumentWritten, onDocumentCreated } from "firebase-functions/v2/firestore";
 import * as nodemailer from "nodemailer";
 import { REGION } from "./utils";
 
@@ -344,7 +344,21 @@ export const processReporterSubmission = onCall(async (request) => {
 
 export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL_PASS"] }, async (request) => {
     const data = request.data;
-    const { district, mandal } = data;
+    const {
+        fullName,
+        fatherName,
+        phone,
+        address,
+        position,
+        interestedArea,
+        education,
+        currentOrg,
+        state,
+        district,
+        mandal,
+        message,
+        userId
+    } = data;
 
     if (!district || !mandal) {
         throw new HttpsError('invalid-argument', 'జిల్లా మరియు మండలం తప్పనిసరి.');
@@ -375,6 +389,7 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         throw new HttpsError('already-exists', 'ఈ మండలానికి ఇప్పటికే రిపోర్టర్ కేటాయించబడ్డారు.');
     }
 
+    // Save application to Firestore with PENDING status
     await db.collection('reporter_applications').add({
         ...data,
         district: trimmedDistrict,
@@ -382,6 +397,46 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         status: "PENDING",
         timestamp: admin.firestore.FieldValue.serverTimestamp()
     });
+
+    // Send notification email
+    const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS
+        }
+    });
+
+    const emailContent = `
+        New Reporter Application:
+        -------------------------
+        Full Name: ${fullName || 'N/A'}
+        Father's Name: ${fatherName || 'N/A'}
+        Phone Number: ${phone || 'N/A'}
+        Address: ${address || 'N/A'}
+        Position: ${position || 'N/A'}
+        Interested Area: ${interestedArea || 'N/A'}
+        Educational Qualification: ${education || 'N/A'}
+        Currently Working Organization: ${currentOrg || 'N/A'}
+        State: ${state || 'N/A'}
+        District: ${trimmedDistrict}
+        Mandal: ${trimmedMandal}
+        Message: ${message || 'N/A'}
+        User ID: ${userId || 'N/A'}
+    `;
+
+    try {
+        await transporter.sendMail({
+            from: `"Alfa News Applications" <${process.env.EMAIL_USER}>`,
+            to: 'alfanews0861@gmail.com',
+            subject: `Reporter Application: ${fullName || 'N/A'} (${position || 'N/A'})`,
+            text: emailContent
+        });
+    } catch (error: any) {
+        console.error("Email send failed during application submission:", error.message);
+        // We still return success: true because the database write succeeded.
+    }
+
     return { success: true };
 });
 
@@ -538,7 +593,7 @@ export async function getAssignedReporter(district: string, mandalam: string): P
             .get();
 
         if (reporters.empty) return null;
-
+ 
         const data = reporters.docs[0].data();
         return {
             id: reporters.docs[0].id,
@@ -549,3 +604,85 @@ export async function getAssignedReporter(district: string, mandalam: string): P
         return null;
     }
 }
+
+/**
+ * Cloud Function to process new user referrals.
+ * Award 50 points to the referrer when a new user document is created.
+ */
+export const onUserCreated = onDocumentCreated({
+    document: "users/{userId}",
+    region: REGION
+}, async (event) => {
+    const data = event.data?.data();
+    if (!data) return;
+
+    const referredBy = data.referredBy;
+    const userId = event.params.userId;
+
+    if (referredBy && referredBy !== userId) {
+        console.log(`[REFERRAL] User ${userId} was referred by ${referredBy}. Awarding 50 points.`);
+
+        // Award 50 points to the referrer
+        await awardPointsToReporter(referredBy, 50);
+
+        // Increment referralCount on the referrer
+        const referrerRef = db.collection('users').doc(referredBy);
+        try {
+            await db.runTransaction(async (transaction) => {
+                const referrerDoc = await transaction.get(referrerRef);
+                if (referrerDoc.exists) {
+                    const currentCount = referrerDoc.data()?.referralCount || 0;
+                    transaction.update(referrerRef, {
+                        referralCount: currentCount + 1
+                    });
+                }
+            });
+            console.log(`[REFERRAL] Successfully incremented referralCount for ${referredBy}`);
+        } catch (e: any) {
+            console.error(`[REFERRAL_ERR] Error incrementing referralCount for ${referredBy}:`, e.message);
+        }
+
+        // Send Push Notification to referrer
+        try {
+            const referrerDoc = await referrerRef.get();
+            if (referrerDoc.exists) {
+                const referrerData = referrerDoc.data();
+                const tokens: string[] = [];
+                if (referrerData?.fcmToken) tokens.push(referrerData.fcmToken);
+                if (Array.isArray(referrerData?.fcmTokens)) {
+                    referrerData.fcmTokens.forEach((t: any) => {
+                        if (t && typeof t === 'string' && !tokens.includes(t)) tokens.push(t);
+                    });
+                }
+
+                if (tokens.length > 0) {
+                    const title = 'పాయింట్లు లభించాయి! 🎁';
+                    const body = 'మీ రిఫరల్ లింక్ ద్వారా ఒకరు యాప్‌ను డౌన్‌లోడ్ చేసుకున్నందుకు మీకు 50 పాయింట్లు లభించాయి.';
+                    
+                    const message = {
+                        notification: { title, body },
+                        android: {
+                            notification: {
+                                channelId: "general_news",
+                                priority: "high" as any,
+                                defaultSound: true
+                            }
+                        },
+                        data: {
+                            type: 'REFERRAL_SUCCESS',
+                            title,
+                            body
+                        }
+                    };
+
+                    await Promise.all(tokens.map(token =>
+                        admin.messaging().send({ ...message, token }).catch(() => {})
+                    ));
+                    console.log(`[REFERRAL] Sent notification to ${referredBy}`);
+                }
+            }
+        } catch (err: any) {
+            console.error(`[REFERRAL_NOTIFY_ERR] Error sending notification:`, err.message);
+        }
+    }
+});

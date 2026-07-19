@@ -193,6 +193,7 @@ fun AdminPanelView(
                     )
                     "manageSurveys" -> ManageSurveysPageView(
                         currentUser = user,
+                        language = language,
                         showTitle = false
                     )
                     "messages" -> MessagesPageView(

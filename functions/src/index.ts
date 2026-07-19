@@ -41,7 +41,8 @@ export {
     backfillReporterPoints,
     onNewsViewCountUpdated,
     onNewsPostApproved,
-    verifyReporter
+    verifyReporter,
+    onUserCreated
 } from "./reporter_handler";
 
 // 3. Export Main News Functions

@@ -34,6 +34,7 @@ import java.util.Locale
 
 class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = PreferenceManager.getInstance(application)
+    private var currentLanguage: Language = Language.TELUGU
     
     init {
         viewModelScope.launch {
@@ -241,6 +242,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun loadNews(language: Language, currentUser: User?) {
+        currentLanguage = language
         val district = _activeDistrict.value
         if (district == null) {
             _loading.value = false
@@ -344,6 +346,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
     
     fun loadMore(language: Language, currentUser: User?) {
+         currentLanguage = language
          val district = _activeDistrict.value ?: return
          val currentLastDoc = lastDocument
          if (!_hasMore.value || isFetching || currentLastDoc == null) return
@@ -426,7 +429,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
     private fun convertToNewsPost(id: String, data: Map<String, Any?>): NewsPost? {
         return try {
-            com.alfanews.telugu.models.mapMapToNewsPost(id, data)
+            com.alfanews.telugu.models.mapMapToNewsPost(id, data, currentLanguage)
         } catch (e: Exception) {
             null
         }

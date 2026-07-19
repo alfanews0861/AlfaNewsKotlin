@@ -22,6 +22,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.ui.PlayerView
 import com.alfanews.telugu.R
 
@@ -36,8 +37,19 @@ fun VideoPlayerView(
     val context = LocalContext.current
     var isPlaying by remember { mutableStateOf(false) }
 
-    val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
+    val exoPlayer = remember(videoUrl) {   // ✅ FIX #3: Recreate player when URL changes
+        // 🚀 Custom LoadControl: reduce min buffer for faster video start on swipe
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs */ 500,
+                /* maxBufferMs */ 10_000,
+                /* bufferForPlaybackMs */ 300,
+                /* bufferForPlaybackAfterRebufferMs */ 500
+            )
+            .build()
+        ExoPlayer.Builder(context)
+            .setLoadControl(loadControl)
+            .build().apply {
             val audioAttributes = AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)
                 .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
@@ -47,7 +59,7 @@ fun VideoPlayerView(
             setMediaItem(MediaItem.fromUri(videoUrl))
             // Removed prepare() from initial setup to save bandwidth.
             // It will be prepared only when autoPlay signal is received.
-            repeatMode = ExoPlayer.REPEAT_MODE_ALL
+            repeatMode = ExoPlayer.REPEAT_MODE_ONE // 🚀 ONE is sufficient; ALL wastes buffer memory
             addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(isPlayingParam: Boolean) {
                     isPlaying = isPlayingParam
@@ -73,14 +85,17 @@ fun VideoPlayerView(
         exoPlayer.volume = if (muted) 0f else 1f
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(videoUrl) {   // ✅ FIX #3: Also dispose when URL changes
         onDispose {
+            exoPlayer.pause() // 🚀 Pause first to prevent audio glitch on rapid swipe
             exoPlayer.release()
         }
     }
 
     Box(
         modifier = modifier.clickable {
+            // ✅ FIX #3: Prepare before play if still idle (prevents ExoPlaybackException)
+            if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
             if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
         },
         contentAlignment = Alignment.Center

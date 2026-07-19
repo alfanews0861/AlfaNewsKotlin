@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import com.alfanews.telugu.models.UserRole
+import com.alfanews.telugu.utils.PreferenceManager
 import com.google.firebase.Timestamp
 import java.util.concurrent.TimeUnit
 
@@ -35,9 +36,8 @@ class LoginViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(LoginUiState())
     val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
 
-    fun resetState() {
-        _uiState.value = LoginUiState()
-    }
+    private var verificationId: String? = null
+    private var resendToken: PhoneAuthProvider.ForceResendingToken? = null
 
     private suspend fun createNewUserProfile(
         user: FirebaseUser,
@@ -45,13 +45,19 @@ class LoginViewModel : ViewModel() {
         context: Context
     ) {
         val userRef = FirebaseService.db.collection("users").document(user.uid)
-        val userData = hashMapOf(
+        val prefs = PreferenceManager.getInstance(context)
+        val referredBy = prefs.referredBy
+
+        val userData = hashMapOf<String, Any?>(
             "name" to name.ifEmpty { context.getString(R.string.user_default_name) },
             "email" to user.email,
             "phone" to user.phoneNumber,
             "role" to "SUBSCRIBER", // Only new users get this
             "createdAt" to Timestamp.now()
         )
+        if (!referredBy.isNullOrEmpty() && referredBy != user.uid) {
+            userData["referredBy"] = referredBy
+        }
         userRef.set(userData).await()
     }
 

@@ -129,7 +129,7 @@ fun MainScreen(
                         "survey" -> {
                             showPostSurveyPage = true
                         }
-                        "manage", "manageReporters", "manageUsers", "adminNotify", "affiliate_settings", "ads" -> {
+                        "manage", "manageReporters", "manageUsers", "adminNotify", "affiliate_settings", "ads", "manageSurveys" -> {
                             mainViewModel.setAdminActivePage(page)
                             mainViewModel.setActiveTab("profile")
                         }
@@ -353,10 +353,32 @@ fun MainScreen(
                                     )
                                 }
                                 Column(horizontalAlignment = Alignment.End) {
-                                    TextButton(
-                                        onClick = { (context as? MainActivity)?.openNotificationSettings() },
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                                    ) {
+                                     TextButton(
+                                         onClick = {
+                                             val mainAct = context as? MainActivity
+                                             if (mainAct != null) {
+                                                 mainAct.openNotificationSettings()
+                                             } else {
+                                                 try {
+                                                     val intent = Intent().apply {
+                                                         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                                             action = android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS
+                                                             putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                                         } else {
+                                                             action = "android.settings.APP_NOTIFICATION_SETTINGS"
+                                                             putExtra("app_package", context.packageName)
+                                                             putExtra("app_uid", context.applicationInfo.uid)
+                                                         }
+                                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                     }
+                                                     context.startActivity(intent)
+                                                 } catch (e: Exception) {
+                                                     android.util.Log.e("MainScreen", "Could not open notifications setting fallback", e)
+                                                 }
+                                             }
+                                         },
+                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                     ) {
                                         Text(
                                             text = if (language == Language.TELUGU) "సెట్టింగ్స్" else "Settings",
                                             color = if (isDark) Color(0xFFFF8A80) else Color(0xFFD32F2F),
@@ -642,7 +664,7 @@ fun ProfileContainer(
     val adminActivePage by viewModel.adminActivePage.collectAsState()
     val user = currentUser
 
-    val isStaff = user != null && (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.REGIONAL_INCHARGE || user.role == UserRole.REPORTER)
+    val isStaff = user != null && (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.REGIONAL_INCHARGE || user.role == UserRole.REPORTER || user.role == UserRole.NEWS_DESK)
     
     if (isStaff && user != null) {
         AdminPanelView(

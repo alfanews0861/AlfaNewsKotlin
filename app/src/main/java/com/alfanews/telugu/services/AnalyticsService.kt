@@ -62,8 +62,11 @@ object AnalyticsService {
     fun onUserLogin(user: User) {
         currentUserId = user.id
         cachedPreferredCategories = null
-        // ఒకవేళ లోకల్ స్కోర్లు ఖాళీగా ఉంటే, డేటాబేస్ నుండి తీసుకోవాలి
-        if (categoryScores.isEmpty() && reporterScores.isEmpty() && tagScores.isEmpty() && peopleScores.isEmpty() && organizationScores.isEmpty() && locationScores.isEmpty()) {
+        // ✅ FIX (Bug 2): పాత కోడ్ local + DB scores కలిపేది (double counting).
+        // ఇప్పుడు maxOf(local, db) వాడుతున్నాం — same scores రెట్టింపు కావు.
+        if (categoryScores.isEmpty() && reporterScores.isEmpty() && tagScores.isEmpty()
+            && peopleScores.isEmpty() && organizationScores.isEmpty() && locationScores.isEmpty()) {
+            // లోకల్ స్కోర్లు ఖాళీగా ఉంటే డేటాబేస్ నుండి తీసుకోవాలి
             categoryScores.putAll(user.categoryScores)
             reporterScores.putAll(user.reporterScores)
             tagScores.putAll(user.tagScores)
@@ -72,14 +75,13 @@ object AnalyticsService {
             locationScores.putAll(user.locationScores)
             saveToPrefs()
         } else {
-            // లేదంటే రెండింటినీ కలపాలి (Merge)
-            user.categoryScores.forEach { (k, v) -> categoryScores[k] = (categoryScores[k] ?: 0) + v }
-            user.reporterScores.forEach { (k, v) -> reporterScores[k] = (reporterScores[k] ?: 0) + v }
-            user.tagScores.forEach { (k, v) -> tagScores[k] = (tagScores[k] ?: 0) + v }
-            user.peopleScores.forEach { (k, v) -> peopleScores[k] = (peopleScores[k] ?: 0) + v }
-            user.organizationScores.forEach { (k, v) -> organizationScores[k] = (organizationScores[k] ?: 0) + v }
-            user.locationScores.forEach { (k, v) -> locationScores[k] = (locationScores[k] ?: 0) + v }
-            
+            // లోకల్ డేటా ఉంటే: maxOf(local, db) — double count నివారించడం
+            user.categoryScores.forEach { (k, v) -> categoryScores[k] = maxOf(categoryScores[k] ?: 0, v) }
+            user.reporterScores.forEach { (k, v) -> reporterScores[k] = maxOf(reporterScores[k] ?: 0, v) }
+            user.tagScores.forEach { (k, v) -> tagScores[k] = maxOf(tagScores[k] ?: 0, v) }
+            user.peopleScores.forEach { (k, v) -> peopleScores[k] = maxOf(peopleScores[k] ?: 0, v) }
+            user.organizationScores.forEach { (k, v) -> organizationScores[k] = maxOf(organizationScores[k] ?: 0, v) }
+            user.locationScores.forEach { (k, v) -> locationScores[k] = maxOf(locationScores[k] ?: 0, v) }
             saveToPrefs()
             syncToFirestore()
         }
@@ -307,6 +309,57 @@ object AnalyticsService {
                     .map { it.key }
                     .also { cachedPreferredCategories = it }
             }
+        }
+    }
+
+    /**
+     * ✅ NEW (Bug 4): Hyderabad users కోసం — TS vs AP engagement ratio calculate చేస్తుంది.
+     * TS లేదా AP district/state related categories engagement track చేసి:
+     * - "Telangana"  → user ఎక్కువగా TS వార్తలు చూస్తే
+     * - "Andhra Pradesh" → user ఎక్కువగా AP వార్తలు చూస్తే
+     * - "BOTH"       → ratio 60/40 కంటే తక్కువ (balanced) అయితే
+     *
+     * Threshold: 60% engagement ఒక రాష్ట్రంలో ఉంటే దాన్ని prefer చేస్తాం.
+     */
+    fun getStateEngagementRatio(): String {
+        val tsKeywords = setOf(
+            "తెలంగాణ", "Telangana", "TS", "తెలంగాణ వార్తలు", "Telangana News",
+            "Telangana State", "హైదరాబాద్"
+        )
+        val apKeywords = setOf(
+            "ఆంధ్రప్రదేశ్", "Andhra Pradesh", "AP", "ఆంధ్ర వార్తలు", "AP News",
+            "AndhraPradesh", "Andhra"
+        )
+
+        var tsScore = 0
+        var apScore = 0
+
+        // Category scores లో TS/AP keywords వెతకడం
+        categoryScores.forEach { (cat, score) ->
+            when {
+                tsKeywords.any { cat.contains(it, ignoreCase = true) } -> tsScore += score
+                apKeywords.any { cat.contains(it, ignoreCase = true) } -> apScore += score
+            }
+        }
+
+        // Location scores లో TS/AP keywords వెతకడం
+        locationScores.forEach { (loc, score) ->
+            when {
+                tsKeywords.any { loc.contains(it, ignoreCase = true) } -> tsScore += score
+                apKeywords.any { loc.contains(it, ignoreCase = true) } -> apScore += score
+            }
+        }
+
+        val total = tsScore + apScore
+        if (total == 0) return "BOTH" // engagement data లేకుంటే రెండూ చూపించు
+
+        val tsRatio = tsScore.toDouble() / total
+        val apRatio = apScore.toDouble() / total
+
+        return when {
+            tsRatio >= 0.60 -> "Telangana"      // 60%+ TS engagement
+            apRatio >= 0.60 -> "Andhra Pradesh" // 60%+ AP engagement
+            else            -> "BOTH"           // Balanced — రెండూ చూపించు
         }
     }
 

@@ -38,6 +38,7 @@ import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.services.WeatherService
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.ui.theme.Ramabhadra
+import com.alfanews.telugu.utils.PreferenceManager
 import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.sin
@@ -58,6 +59,10 @@ fun WeatherCardView(
     val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
     val content = if (language == Language.TELUGU) post.content.telugu else post.content.english
 
+    // ✅ FIX: Read live GPS coords directly from prefs, not stale post.latitude/longitude.
+    // post coords were set at loadNews time — if user moved or GPS updated later, those are stale.
+    val prefs = remember { PreferenceManager.getInstance(context) }
+
     // State
     var weatherData by remember { mutableStateOf<WeatherService.WeatherData?>(null) }
     var isLoading by remember { mutableStateOf(true) }
@@ -72,8 +77,15 @@ fun WeatherCardView(
         )
     }
 
-    val isUsingGPS = weatherData?.isPrecise == true ||
-            (post.latitude != null && post.latitude != 0.0)
+    // ✅ FIX: Prefer live prefs coords over stale post coords
+    // Priority: prefs GPS coords > post coords (which may be from a previous session)
+    val liveLat = prefs.lastLat.takeIf { it != 0.0 }
+    val liveLon = prefs.lastLon.takeIf { it != 0.0 }
+    val effectiveLat = liveLat ?: post.latitude
+    val effectiveLon = liveLon ?: post.longitude
+    val effectiveLocation = if (liveLat != null) (prefs.localPlace ?: post.location) else post.location
+
+    val isUsingGPS = weatherData?.isPrecise == true || (liveLat != null)
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -85,12 +97,13 @@ fun WeatherCardView(
         }
     }
 
-    // Fetch weather
-    LaunchedEffect(post.location, post.latitude, post.longitude, retryTrigger) {
+    // ✅ FIX: Use effectiveLat/Lon (live prefs) instead of post.latitude/longitude
+    // This means weather re-fetches whenever GPS coords change in prefs
+    LaunchedEffect(effectiveLocation, effectiveLat, effectiveLon, retryTrigger) {
         isLoading = true
         hasError = false
         try {
-            val data = WeatherService.fetchWeather(post.location, post.latitude, post.longitude)
+            val data = WeatherService.fetchWeather(effectiveLocation, effectiveLat, effectiveLon)
             weatherData = data
             hasError = data == null
         } catch (e: Exception) {
@@ -240,7 +253,7 @@ fun WeatherCardView(
                 Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.size(14.dp), tint = weatherType.colorStart)
                 Spacer(modifier = Modifier.width(3.dp))
                 Text(
-                    text = post.location,
+                    text = effectiveLocation,
                     fontSize = 13.sp,
                     fontFamily = Ramabhadra,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
@@ -384,7 +397,7 @@ fun WeatherCardView(
                             )
                             Spacer(modifier = Modifier.width(3.dp))
                             Text(
-                                text = post.location,
+                                text = effectiveLocation,
                                 color = Color.White.copy(alpha = 0.9f),
                                 fontSize = 13.sp,
                                 fontFamily = Ramabhadra

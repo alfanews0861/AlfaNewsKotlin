@@ -23,6 +23,7 @@ fun SplashScreenView(
     onFinished: () -> Unit
 ) {
     val step = remember { mutableStateOf(0) }
+    val currentIsReady by rememberUpdatedState(isReady) // ✅ FIX #18: Prevent stale state check in LaunchedEffect
     val words = listOf("సూటిగా", " - ", "సుత్తి లేకుండా", " - ", "క్లుప్తంగా")
     val animationFinished = remember { mutableStateOf(false) }
 
@@ -55,7 +56,7 @@ fun SplashScreenView(
         
         // Wait until data is ready or max 2 seconds total
         var waitTime = 0
-        while (!isReady && waitTime < 2000) {
+        while (!currentIsReady && waitTime < 2000) {
             delay(100)
             waitTime += 100
         }

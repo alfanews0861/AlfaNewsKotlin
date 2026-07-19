@@ -35,6 +35,9 @@ class PreferenceManager(context: Context) {
         private const val KEY_LOCAL_PLACE = "key_local_place"
         private const val KEY_LAST_LAT = "key_last_lat"
         private const val KEY_LAST_LON = "key_last_lon"
+        // ✅ FIX: New Double-precision keys (old Float keys lost precision)
+        private const val KEY_LAST_LAT_D = "key_last_lat_double"
+        private const val KEY_LAST_LON_D = "key_last_lon_double"
         private const val KEY_USER_ID = "key_user_id"
         private const val KEY_USER_NAME = "key_user_name"
         private const val KEY_USER_ROLE = "key_user_role"
@@ -42,6 +45,8 @@ class PreferenceManager(context: Context) {
         private const val KEY_SEEN_LOCAL_ADS = "key_seen_local_ads"
         private const val KEY_LOCAL_ADS_CACHE_PREFIX = "key_local_ads_cache_"
         private const val KEY_LOCAL_ADS_TS_PREFIX = "key_local_ads_ts_"
+        private const val KEY_REFERRED_BY = "key_referred_by"
+        private const val KEY_REFERRER_PROCESSED = "key_referrer_processed"
 
         @Volatile
         private var INSTANCE: PreferenceManager? = null
@@ -165,16 +170,33 @@ class PreferenceManager(context: Context) {
             prefs.edit().putString(KEY_LOCAL_PLACE, value).apply()
         }
 
+    // ✅ FIX: Store as Long bits to preserve full Double precision.
+    // Old Float storage caused precision loss: 14.44992 → 14.4499197006226
+    // which means GPS coords pointed to wrong location for weather!
     var lastLat: Double
-        get() = prefs.getFloat(KEY_LAST_LAT, 0f).toDouble()
+        get() {
+            val bits = prefs.getLong(KEY_LAST_LAT_D, 0L)
+            return if (bits == 0L) prefs.getFloat(KEY_LAST_LAT, 0f).toDouble() // fallback for old installs
+            else Double.fromBits(bits)
+        }
         set(value) {
-            prefs.edit().putFloat(KEY_LAST_LAT, value.toFloat()).apply()
+            prefs.edit()
+                .putLong(KEY_LAST_LAT_D, value.toBits())
+                .putFloat(KEY_LAST_LAT, value.toFloat()) // keep old key for backward compat
+                .apply()
         }
 
     var lastLon: Double
-        get() = prefs.getFloat(KEY_LAST_LON, 0f).toDouble()
+        get() {
+            val bits = prefs.getLong(KEY_LAST_LON_D, 0L)
+            return if (bits == 0L) prefs.getFloat(KEY_LAST_LON, 0f).toDouble() // fallback for old installs
+            else Double.fromBits(bits)
+        }
         set(value) {
-            prefs.edit().putFloat(KEY_LAST_LON, value.toFloat()).apply()
+            prefs.edit()
+                .putLong(KEY_LAST_LON_D, value.toBits())
+                .putFloat(KEY_LAST_LON, value.toFloat()) // keep old key for backward compat
+                .apply()
         }
 
     /**
@@ -206,6 +228,14 @@ class PreferenceManager(context: Context) {
     var userDistrict: String?
         get() = prefs.getString(KEY_USER_DISTRICT, null)
         set(value) = prefs.edit().putString(KEY_USER_DISTRICT, value).apply()
+
+    var referredBy: String?
+        get() = prefs.getString(KEY_REFERRED_BY, null)
+        set(value) = prefs.edit().putString(KEY_REFERRED_BY, value).apply()
+
+    var isReferrerProcessed: Boolean
+        get() = prefs.getBoolean(KEY_REFERRER_PROCESSED, false)
+        set(value) = prefs.edit().putBoolean(KEY_REFERRER_PROCESSED, value).apply()
 
     fun clearUserData() {
         prefs.edit().remove(KEY_USER_ID).remove(KEY_USER_NAME).remove(KEY_USER_ROLE).remove(KEY_USER_DISTRICT).apply()

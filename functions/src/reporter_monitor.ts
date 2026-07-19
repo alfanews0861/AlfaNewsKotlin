@@ -8,66 +8,114 @@ const db = admin.firestore();
  * Scheduled function to monitor reporter activity.
  * Runs daily at 00:00 IST (18:30 UTC previous day).
  *
- * OPTIMIZED: Queries only reporters who haven't posted within the 3-day threshold.
+ * HIGHLY OPTIMIZED:
+ * 1. Reduced memory/CPU allocation to 256MiB to save ~75% of Cloud Run container bill.
+ * 2. Uses field projection (select) to fetch only required fields, saving bandwidth/memory.
+ * 3. Caches admin list query to execute exactly once per run instead of repeatedly querying in loops.
+ * 4. Passes cached doc data to avoid redundant Firestore document lookups in sendInternalMessage.
  */
 export const monitorReporterActivity = onSchedule({
     schedule: "0 0 * * *",
     timeZone: "Asia/Kolkata",
-    memory: "1GiB",
-    timeoutSeconds: 540
+    memory: "256MiB",
+    timeoutSeconds: 60
 }, async (event) => {
     console.log("[REPORTER_MONITOR] Starting optimized daily activity check...");
 
     const now = new Date();
-    const thresholdDate = new Date(now.getTime() - (3 * 24 * 60 * 60 * 1000)); // 3 days ago
 
-    // Find all reporters who haven't posted in at least 3 days
-    // or who have never posted (lastPostTimestamp is null)
-    const inactiveReportersSnapshot = await db.collection('users')
-        .where('role', '==', UserRole.REPORTER)
-        .where('lastPostTimestamp', '<', thresholdDate)
+    // Fetch all reporters - projecting only the fields we actually need
+    const reportersSnapshot = await db.collection('users')
+        .where('role', 'in', [UserRole.REPORTER, 2, 2.0, '2'])
+        .select('name', 'lastPostTimestamp', 'timestamp', 'warningLevel', 'inProbation', 'fcmTokens', 'fcmToken', 'role')
         .get();
 
-    // Also need to check those who have never posted (lastPostTimestamp is missing)
-    const neverPostedSnapshot = await db.collection('users')
-        .where('role', '==', UserRole.REPORTER)
-        .where('lastPostTimestamp', '==', null)
-        .get();
-
-    const allInactiveDocs = [...inactiveReportersSnapshot.docs, ...neverPostedSnapshot.docs];
-
-    if (allInactiveDocs.length === 0) {
-        console.log("[REPORTER_MONITOR] All reporters are active. No actions needed.");
+    if (reportersSnapshot.empty) {
+        console.log("[REPORTER_MONITOR] No reporters found in database.");
         return;
     }
 
-    console.log(`[REPORTER_MONITOR] Found ${allInactiveDocs.length} inactive reporters.`);
+    console.log(`[REPORTER_MONITOR] Scanning ${reportersSnapshot.size} reporters for inactivity...`);
+    let inactiveCount = 0;
 
-    for (const doc of allInactiveDocs) {
+    // Cache for admin list to avoid querying admins repeatedly inside loops
+    let cachedAdmins: admin.firestore.QueryDocumentSnapshot[] | null = null;
+    async function getAdmins() {
+        if (!cachedAdmins) {
+            const adminsSnapshot = await db.collection('users')
+                .where('role', '==', UserRole.ADMIN)
+                .select('name', 'fcmTokens', 'fcmToken', 'role')
+                .get();
+            cachedAdmins = adminsSnapshot.docs;
+        }
+        return cachedAdmins;
+    }
+
+    for (const doc of reportersSnapshot.docs) {
         const reporter = doc.data();
         const reporterId = doc.id;
 
         let daysInactive = 0;
-        if (reporter.lastPostTimestamp) {
-            const lastPostDate = reporter.lastPostTimestamp.toDate();
+        const lastPost = reporter.lastPostTimestamp;
+
+        if (lastPost) {
+            let lastPostDate: Date;
+            if (typeof lastPost.toDate === 'function') {
+                lastPostDate = lastPost.toDate();
+            } else if (lastPost instanceof Date) {
+                lastPostDate = lastPost;
+            } else if (typeof lastPost === 'number') {
+                lastPostDate = new Date(lastPost);
+            } else if (lastPost.seconds) {
+                lastPostDate = new Date(lastPost.seconds * 1000);
+            } else {
+                lastPostDate = new Date(lastPost);
+            }
+            
             const diffTime = Math.abs(now.getTime() - lastPostDate.getTime());
             daysInactive = Math.floor(diffTime / (1000 * 60 * 60 * 24));
         } else {
-            // No posts ever? Use account creation date or a default high value
-            const createdAt = reporter.timestamp?.toDate() || now;
-            const diffTime = Math.abs(now.getTime() - createdAt.getTime());
+            // No posts ever? Check account creation date or fallback to high value
+            const createdAt = reporter.timestamp;
+            let createdDate = now;
+            if (createdAt) {
+                if (typeof createdAt.toDate === 'function') {
+                    createdDate = createdAt.toDate();
+                } else if (createdAt instanceof Date) {
+                    createdDate = createdAt;
+                } else if (typeof createdAt === 'number') {
+                    createdDate = new Date(createdAt);
+                } else if (createdAt.seconds) {
+                    createdDate = new Date(createdAt.seconds * 1000);
+                } else {
+                    createdDate = new Date(createdAt);
+                }
+            }
+            const diffTime = Math.abs(now.getTime() - createdDate.getTime());
             daysInactive = Math.floor(diffTime / (1000 * 60 * 60 * 24));
         }
 
-        await handleReporterStatus(reporterId, reporter, daysInactive);
+        // Action needed if inactive for 3 or more days or warning needs reset
+        if (daysInactive >= 3 || (reporter.warningLevel || 0) > 0) {
+            const admins = await getAdmins();
+            await handleReporterStatus(reporterId, reporter, daysInactive, admins);
+            inactiveCount++;
+        }
     }
+
+    console.log(`[REPORTER_MONITOR] Daily activity check complete. Acted on ${inactiveCount} reporters.`);
 });
 
-async function handleReporterStatus(reporterId: string, reporter: any, daysInactive: number) {
+async function handleReporterStatus(
+    reporterId: string, 
+    reporter: any, 
+    daysInactive: number, 
+    admins: admin.firestore.QueryDocumentSnapshot[]
+) {
     const inProbation = reporter.inProbation || false;
     const currentLevel = reporter.warningLevel || 0;
 
-    // Reset logic: If reporter posted recently (handled by trigger, but double check here)
+    // Reset logic: If reporter posted recently
     if (daysInactive < 3) {
         if (currentLevel > 0) {
             await db.collection('users').doc(reporterId).update({
@@ -128,14 +176,14 @@ async function handleReporterStatus(reporterId: string, reporter: any, daysInact
             lastWarningDate: admin.firestore.FieldValue.serverTimestamp()
         });
         await sendInternalMessage(reporterId, title, body, "CRITICAL", reporter);
-        if (shouldNotifyAdmin) await notifyAdminsAboutReporter(reporter.name, "DOWNGRADED");
+        if (shouldNotifyAdmin) await notifyAdminsAboutReporter(reporter.name, "DOWNGRADED", admins);
     } else if (nextLevel > currentLevel) {
         await db.collection('users').doc(reporterId).update({
             warningLevel: nextLevel,
             lastWarningDate: admin.firestore.FieldValue.serverTimestamp()
         });
         await sendInternalMessage(reporterId, title, body, nextLevel === 3 ? "HIGH" : "NORMAL", reporter);
-        if (shouldNotifyAdmin && nextLevel === 3) await notifyAdminsAboutReporter(reporter.name, "FINAL_WARNING");
+        if (shouldNotifyAdmin && nextLevel === 3) await notifyAdminsAboutReporter(reporter.name, "FINAL_WARNING", admins);
     }
 }
 
@@ -151,7 +199,7 @@ async function sendInternalMessage(userId: string, title: string, body: string, 
 
     await db.collection('users').doc(userId).collection('messages').add(messageData);
 
-    // ✅ Optimization: Use existing user data if provided to avoid redundant Firestore read
+    // Use passed userData to avoid redundant Firestore reads
     const data = userData || (await db.collection('users').doc(userId).get()).data();
     const tokens: string[] = data?.fcmTokens || [];
     if (data?.fcmToken) tokens.push(data.fcmToken);
@@ -166,14 +214,18 @@ async function sendInternalMessage(userId: string, title: string, body: string, 
     }
 }
 
-async function notifyAdminsAboutReporter(reporterName: string, action: "FINAL_WARNING" | "DOWNGRADED") {
-    const adminsSnapshot = await db.collection('users').where('role', '==', UserRole.ADMIN).get();
+async function notifyAdminsAboutReporter(
+    reporterName: string, 
+    action: "FINAL_WARNING" | "DOWNGRADED", 
+    admins: admin.firestore.QueryDocumentSnapshot[]
+) {
     const title = action === "FINAL_WARNING" ? "రిపోర్టర్ తుది హెచ్చరిక" : "రిపోర్టర్ తొలగింపు";
     const body = action === "FINAL_WARNING"
         ? `రిపోర్టర్ ${reporterName} కి తుది హెచ్చరిక పంపబడింది.`
         : `రిపోర్టర్ ${reporterName} ని సబ్‌స్క్రైబర్‌గా మార్చడం జరిగింది.`;
 
-    for (const adminDoc of adminsSnapshot.docs) {
-        await sendInternalMessage(adminDoc.id, title, body, "HIGH");
+    for (const adminDoc of admins) {
+        // Pass adminDoc.data() directly to avoid redundant admin document reads
+        await sendInternalMessage(adminDoc.id, title, body, "HIGH", adminDoc.data());
     }
 }

@@ -108,7 +108,9 @@ fun NewsCardView(
     onEditClick: (NewsPost) -> Unit = {},
     isActive: Boolean = false
 ) {
-    if (autoShare) onAutoShareDone()
+    LaunchedEffect(autoShare) {
+        if (autoShare) onAutoShareDone()
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val view = LocalView.current
@@ -117,9 +119,10 @@ fun NewsCardView(
     var isLiked by remember(post.id) { mutableStateOf(false) }
     var showComments by remember(post.id) { mutableStateOf(false) }
     
-    val scrollState = rememberScrollState()
+    // 🚀 key(post.id) ensures scroll state properly resets for each different post
+    val scrollState = key(post.id) { rememberScrollState() }
     var hasReadFinished by remember(post.id) { mutableStateOf(false) }
-    var startTime by remember { mutableStateOf<Long?>(null) }
+    var startTime by remember(post.id) { mutableStateOf<Long?>(null) }
 
     val headlineText = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
     val contentText = if (language == Language.TELUGU) post.content.telugu else post.content.english
@@ -285,11 +288,19 @@ fun NewsCardView(
                             if (currentUser == null) {
                                 onProfileClick()
                             } else {
+                                // Only allow unlike if the user actually liked it this session
+                                val wasLiked = isLiked
                                 isLiked = !isLiked
-                                likeCount = if (isLiked) likeCount + 1 else likeCount - 1
+                                likeCount = if (isLiked) likeCount + 1 else maxOf(0, likeCount - 1)
                                 scope.launch {
-                                    FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(if (isLiked) 1 else -1))
-                                    AnalyticsService.logAnalyticsEvent("like", Bundle().apply { putString("post_id", post.id) })
+                                    if (!wasLiked) {
+                                        // Liking
+                                        FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(1))
+                                        AnalyticsService.logAnalyticsEvent("like", Bundle().apply { putString("post_id", post.id) })
+                                    } else {
+                                        // Unliking — only decrement if real likes > 0
+                                        FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(-1))
+                                    }
                                 }
                             }
                         }
@@ -456,11 +467,16 @@ fun NewsCardView(
                             tint = MaterialTheme.colorScheme.onSurface,
                             onClick = {
                                 if (currentUser == null) onProfileClick() else {
+                                    val wasLiked = isLiked
                                     isLiked = !isLiked
-                                    likeCount = if (isLiked) likeCount + 1 else likeCount - 1
+                                    likeCount = if (isLiked) likeCount + 1 else maxOf(0, likeCount - 1)
                                     scope.launch {
-                                        FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(if (isLiked) 1 else -1))
-                                        AnalyticsService.logAnalyticsEvent("like", Bundle().apply { putString("post_id", post.id) })
+                                        if (!wasLiked) {
+                                            FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(1))
+                                            AnalyticsService.logAnalyticsEvent("like", Bundle().apply { putString("post_id", post.id) })
+                                        } else {
+                                            FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(-1))
+                                        }
                                     }
                                 }
                             }
@@ -545,14 +561,29 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
         if (safeBounds.width() * safeBounds.height() * 4L > availableMemory * 0.5) { Log.w("NewsCardView", "Insufficient memory for screenshot"); continuation.resume(null); return@suspendCoroutine }
         val bitmap = try { Bitmap.createBitmap(safeBounds.width(), safeBounds.height(), Bitmap.Config.ARGB_8888) } catch (oom: OutOfMemoryError) { null }
         if (bitmap == null) { continuation.resume(null); return@suspendCoroutine }
-        PixelCopy.request(window, safeBounds, bitmap, { copyResult -> 
-            if (copyResult == PixelCopy.SUCCESS) {
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            // ✅ Use PixelCopy on API 26+ for accurate hardware-accelerated screenshot
+            PixelCopy.request(window, safeBounds, bitmap, { copyResult ->
+                if (copyResult == PixelCopy.SUCCESS) {
+                    continuation.resume(bitmap)
+                } else {
+                    bitmap.recycle() // ♻️ Recycle on failure
+                    continuation.resume(null)
+                }
+            }, Handler(Looper.getMainLooper()))
+        } else {
+            // ✅ Fallback for API < 26: Canvas-based draw (less accurate but no crash)
+            try {
+                val canvas = android.graphics.Canvas(bitmap)
+                canvas.translate(-safeBounds.left.toFloat(), -safeBounds.top.toFloat())
+                decorView.draw(canvas)
                 continuation.resume(bitmap)
-            } else {
-                bitmap.recycle() // ♻️ Recycle on failure
+            } catch (e: Exception) {
+                bitmap.recycle()
                 continuation.resume(null)
             }
-        }, Handler(Looper.getMainLooper()))
+        }
     } catch (e: Exception) { 
         continuation.resume(null) 
     }
@@ -667,29 +698,28 @@ fun SurveyCardContent(
     var selectedAnswersTexts by remember(post.id) { mutableStateOf(mapOf<String, String>()) }
     var currentPageIndex by remember(post.id) { mutableIntStateOf(0) }
 
-    DisposableEffect(post.id, currentUser?.id) {
+    // Check if user has voted (runs as a proper coroutine, not inside DisposableEffect)
+    LaunchedEffect(post.id, currentUser?.id) {
         val userId = currentUser?.id
-        
-        // 1. Check if user has voted
         if (userId != null) {
-            scope.launch {
-                try {
-                    val doc = FirebaseService.db.collection("news").document(post.id)
-                        .collection("voted_users").document(userId).get().await()
-                    hasVoted = doc.exists()
-                } catch (e: Exception) {
-                    hasVoted = false
-                }
+            try {
+                val doc = FirebaseService.db.collection("news").document(post.id)
+                    .collection("voted_users").document(userId).get().await()
+                hasVoted = doc.exists()
+            } catch (e: Exception) {
+                hasVoted = false
             }
         } else {
             hasVoted = false
         }
+    }
 
-        // 2. Setup real-time listener for votes
+    // Setup real-time listener for votes (DisposableEffect handles lifecycle properly)
+    DisposableEffect(post.id) {
         val listenerRegistration = FirebaseService.db.collection("news").document(post.id)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
-                
+
                 val vRaw = snapshot.get("votes") as? Map<*, *>
                 if (vRaw != null) {
                     val newVotes = mutableMapOf<String, Int>()

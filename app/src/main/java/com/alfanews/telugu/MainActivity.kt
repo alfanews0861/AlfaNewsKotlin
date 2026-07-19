@@ -48,6 +48,9 @@ import android.content.Context
 import com.alfanews.telugu.utils.LocaleHelper
 import com.alfanews.telugu.utils.PreferenceManager
 import com.alfanews.telugu.BuildConfig
+import com.android.installreferrer.api.InstallReferrerClient
+import com.android.installreferrer.api.InstallReferrerStateListener
+import com.android.installreferrer.api.ReferrerDetails
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -92,6 +95,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+
+        checkInstallReferrer(this)
 
         appUpdateManager = AppUpdateManagerFactory.create(this)
         appUpdateManager.registerListener(installStateUpdatedListener)
@@ -395,6 +400,93 @@ class MainActivity : ComponentActivity() {
             // Silent error handling - deeplink processing should never crash the app
             // In production, this could be logged to analytics
         }
+    }
+
+    private fun checkInstallReferrer(context: Context) {
+        val prefs = PreferenceManager.getInstance(context)
+        if (prefs.isReferrerProcessed) {
+            Log.d("InstallReferrer", "Install Referrer already processed")
+            return
+        }
+
+        try {
+            val referrerClient = InstallReferrerClient.newBuilder(context).build()
+            referrerClient.startConnection(object : InstallReferrerStateListener {
+                override fun onInstallReferrerSetupFinished(responseCode: Int) {
+                    when (responseCode) {
+                        InstallReferrerClient.InstallReferrerResponse.OK -> {
+                            try {
+                                val response: ReferrerDetails = referrerClient.installReferrer
+                                val referrerUrl: String = response.installReferrer
+                                Log.d("InstallReferrer", "Referrer URL: $referrerUrl")
+                                
+                                val referrerUid = parseReferrerUid(referrerUrl)
+                                if (!referrerUid.isNullOrEmpty()) {
+                                    prefs.referredBy = referrerUid
+                                    Log.d("InstallReferrer", "Saved referrer UID: $referrerUid")
+                                }
+                                prefs.isReferrerProcessed = true
+                            } catch (e: Exception) {
+                                Log.e("InstallReferrer", "Error getting referrer details: ${e.message}")
+                            } finally {
+                                try {
+                                    referrerClient.endConnection()
+                                } catch (e: Exception) {}
+                            }
+                        }
+                        InstallReferrerClient.InstallReferrerResponse.FEATURE_NOT_SUPPORTED -> {
+                            Log.d("InstallReferrer", "Install Referrer not supported")
+                        }
+                        InstallReferrerClient.InstallReferrerResponse.SERVICE_UNAVAILABLE -> {
+                            Log.d("InstallReferrer", "Install Referrer service unavailable")
+                        }
+                    }
+                }
+
+                override fun onInstallReferrerServiceDisconnected() {
+                    Log.d("InstallReferrer", "Install Referrer disconnected")
+                }
+            })
+        } catch (e: Exception) {
+            Log.e("InstallReferrer", "Error building/starting referrer client: ${e.message}")
+        }
+    }
+
+    private fun parseReferrerUid(referrer: String?): String? {
+        if (referrer.isNullOrEmpty()) return null
+        
+        try {
+            val decodedReferrer = Uri.decode(referrer)
+            Log.d("InstallReferrer", "Decoded: $decodedReferrer")
+            
+            val prefixMatch = Regex("(?:ref|referral)_([a-zA-Z0-9_-]+)").find(decodedReferrer)
+            if (prefixMatch != null) {
+                return prefixMatch.groupValues[1]
+            }
+            
+            val params = decodedReferrer.split("&")
+            for (param in params) {
+                val keyValue = param.split("=")
+                if (keyValue.size == 2) {
+                    val key = keyValue[0].trim()
+                    val value = keyValue[1].trim()
+                    if (key == "utm_campaign" || key == "referrer_uid" || key == "referrer") {
+                        if (value.isNotEmpty() && value.length >= 10) {
+                            return value
+                        }
+                    }
+                }
+            }
+            
+            val trimmed = decodedReferrer.trim()
+            if (trimmed.length in 20..40 && trimmed.matches(Regex("[a-zA-Z0-9]+"))) {
+                return trimmed
+            }
+        } catch (e: Exception) {
+            Log.e("InstallReferrer", "Error parsing referrer UID: ${e.message}")
+        }
+        
+        return null
     }
 }
 
