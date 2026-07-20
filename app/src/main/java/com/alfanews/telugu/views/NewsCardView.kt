@@ -15,7 +15,7 @@ import android.util.Log
 import android.view.PixelCopy
 import android.view.View
 import android.widget.Toast
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -516,14 +516,14 @@ fun DottedLine() {
     }
 }
 
-private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: (Boolean) -> Unit, setShareCount: (Int) -> Unit, post: NewsPost, context: Context, language: Language, cardBounds: Rect?, view: View) {
+private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: (Boolean) -> Unit, setShareCount: (Int) -> Unit, post: NewsPost, context: Context, language: Language, cardBounds: Rect?, view: View, customShareText: String? = null) {
     if (isSharing) return
     scope.launch {
         setSharing(true)
         try {
             delay(100)
             val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
-            val shareText = "$headline\nhttps://alfanews.app/news/${post.id}"
+            val shareText = customShareText ?: "$headline\nhttps://alfanews.app/news/${post.id}"
             val bitmap = takeScreenshot(view, cardBounds)
             if (bitmap != null) {
                 val uri = saveImageToCache(context, bitmap)
@@ -668,6 +668,19 @@ fun extractYoutubeVideoId(url: String?): String? {
     return if (matcher.matches()) matcher.group(1) else null
 }
 
+fun getRemainingTimeString(post: NewsPost, language: Language): String {
+    val expiry = post.expiryTimestamp ?: (post.surveyCreatedAt + 7L * 24L * 60L * 60L * 1000L)
+    val diff = expiry - System.currentTimeMillis()
+    if (diff <= 0) return if (language == Language.TELUGU) "సర్వే గడువు ముగిసింది" else "Survey Expired"
+    val diffHours = diff / (60 * 60 * 1000L)
+    if (diffHours < 24) {
+        val h = diffHours.coerceAtLeast(1)
+        return if (language == Language.TELUGU) "ఇంకా $h గంటలు ఉంది" else "Ends in $h hours"
+    }
+    val diffDays = diff / (24 * 60 * 60 * 1000L)
+    return if (language == Language.TELUGU) "ఇంకా $diffDays రోజులు ఉంది" else "Ends in $diffDays days"
+}
+
 /**
  * సర్వే కార్డు కంటెంట్‌ను అందంగా డిస్‌ప్లే చేస్తుంది.
  */
@@ -800,6 +813,25 @@ fun SurveyCardContent(
                             color = MaterialTheme.colorScheme.secondary
                         )
                     }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = null,
+                        tint = Color(0xFFF44336),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = getRemainingTimeString(post, language),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFF44336)
+                    )
                 }
 
                 // Survey Main Title (Headline)
@@ -1057,12 +1089,43 @@ fun SurveyCardContent(
                     }
                 } else {
                     // Results Display Section
-                    Text(
-                        text = "సర్వే ఫలితాలు (Survey Results)",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "సర్వే ఫలితాలు (Survey Results)",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        
+                        // ✓ Voted Badge
+                        Surface(
+                            color = Color(0xFF4CAF50).copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color(0xFF4CAF50),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (language == Language.TELUGU) "ఓటు వేయబడింది" else "Voted",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF4CAF50)
+                                )
+                            }
+                        }
+                    }
 
                     post.surveyQuestions.forEach { question ->
                         Column(
@@ -1090,6 +1153,11 @@ fun SurveyCardContent(
                             question.options.forEach { option ->
                                 val optionRealVotes = liveVotes["q_${question.id}_o_${option.id}"] ?: 0
                                 val pct = if (questionTotalRealVotes > 0) (optionRealVotes * 100f / questionTotalRealVotes) else 0f
+                                val animatedPct by animateFloatAsState(
+                                    targetValue = pct,
+                                    animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+                                    label = "progressAnimation"
+                                )
                                 val pctString = "${"%.1f".format(pct)}%"
 
                                 Box(
@@ -1099,11 +1167,11 @@ fun SurveyCardContent(
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                                 ) {
-                                    // Progress fraction background
+                                    // Progress fraction background with animation
                                     Box(
                                         modifier = Modifier
                                             .fillMaxHeight()
-                                            .fillMaxWidth(fraction = pct / 100f)
+                                            .fillMaxWidth(fraction = (animatedPct / 100f).coerceIn(0f, 1f))
                                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
                                     )
                                     // Percentage Labels Row
@@ -1151,6 +1219,40 @@ fun SurveyCardContent(
                         )
                     }
 
+                    // Format detailed survey results share text
+                    val customShareText = remember(post, liveVotes, language, displayedVotesCount) {
+                        val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
+                        val sb = java.lang.StringBuilder()
+                        sb.append(headline).append("\n\n")
+                        
+                        post.surveyQuestions.forEach { question ->
+                            sb.append(question.questionText).append("\n")
+                            
+                            var totalVotes = 0
+                            question.options.forEach { opt ->
+                                totalVotes += liveVotes["q_${question.id}_o_${opt.id}"] ?: 0
+                            }
+                            
+                            question.options.forEach { opt ->
+                                val optVotes = liveVotes["q_${question.id}_o_${opt.id}"] ?: 0
+                                val pct = if (totalVotes > 0) (optVotes * 100f / totalVotes) else 0f
+                                sb.append("- ${opt.text}: ${"%.1f".format(pct)}%\n")
+                            }
+                            sb.append("\n")
+                        }
+                        
+                        val fVotes = java.text.NumberFormat.getIntegerInstance().format(displayedVotesCount)
+                        if (language == Language.TELUGU) {
+                            sb.append("మొత్తం అభిప్రాయాలు: $fVotes+\n")
+                            sb.append("మీ ఓటు వేయడానికి లింక్ క్లిక్ చేయండి: ")
+                        } else {
+                            sb.append("Total Responses: $fVotes+\n")
+                            sb.append("Click to cast your vote: ")
+                        }
+                        sb.append("https://alfanews.app/news/${post.id}")
+                        sb.toString()
+                    }
+
                     // Share Button (Google Blue: Color(0xFF1A73E8), English label "Share")
                     Spacer(modifier = Modifier.height(4.dp))
                     Button(
@@ -1167,7 +1269,8 @@ fun SurveyCardContent(
                                 context = context,
                                 language = language,
                                 cardBounds = bounds,
-                                view = view
+                                view = view,
+                                customShareText = customShareText
                             )
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A73E8)),
@@ -1234,10 +1337,10 @@ private fun submitSurveyVotes(
             batch.update(postRef, updates)
             
             batch.commit().await()
-            // Mark as answered locally to hide from feed in future loads
-            try {
-                com.alfanews.telugu.utils.PreferenceManager.getInstance(context).markSurveyAnswered(postId)
-            } catch (e: Exception) {}
+            // Mark as answered locally is bypassed to keep survey in feed until expiry
+            // try {
+            //     com.alfanews.telugu.utils.PreferenceManager.getInstance(context).markSurveyAnswered(postId)
+            // } catch (e: Exception) {}
 
             Toast.makeText(context, "మీ అభిప్రాయం సమర్పించబడింది!", Toast.LENGTH_SHORT).show()
             onSuccess()

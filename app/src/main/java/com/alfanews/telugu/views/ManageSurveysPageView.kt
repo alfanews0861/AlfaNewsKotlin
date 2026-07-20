@@ -19,10 +19,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.alfanews.telugu.R
 import com.alfanews.telugu.models.*
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.DateTimeUtils
@@ -35,7 +37,8 @@ import kotlinx.coroutines.tasks.await
 fun ManageSurveysPageView(
     currentUser: User?,
     language: Language = Language.TELUGU,
-    showTitle: Boolean = true
+    showTitle: Boolean = true,
+    onNavigateToCreateSurvey: (() -> Unit)? = null
 ) {
     var surveys by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -49,7 +52,6 @@ fun ManageSurveysPageView(
     DisposableEffect(currentUser) {
         val query = FirebaseService.db.collection("news")
             .whereEqualTo("type", "survey")
-            .orderBy("timestamp", Query.Direction.DESCENDING)
 
         val listener = query.limit(50).addSnapshotListener { snapshot, e ->
             loading = false
@@ -61,7 +63,7 @@ fun ManageSurveysPageView(
             if (snapshot != null) {
                 surveys = snapshot.documents.mapNotNull { doc ->
                     mapMapToNewsPost(doc.id, doc.data ?: emptyMap(), language)
-                }
+                }.sortedByDescending { it.timestamp }
             }
         }
         
@@ -101,13 +103,45 @@ fun ManageSurveysPageView(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        if (showTitle) {
-            Text(
-                text = "సర్వే నిర్వహణ",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier.padding(bottom = 20.dp)
-            )
+        val canPost = currentUser?.canPostSurvey() == true && onNavigateToCreateSurvey != null
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (showTitle) {
+                Text(
+                    text = "సర్వే నిర్వహణ",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            } else {
+                Spacer(modifier = Modifier.weight(1f))
+            }
+
+            if (canPost) {
+                Button(
+                    onClick = onNavigateToCreateSurvey!!,
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(R.string.post_survey),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
 
         if (loading) {

@@ -84,11 +84,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val activeWeatherAlert: StateFlow<WeatherAlert?> = _activeWeatherAlert.asStateFlow()
 
     private var weatherAlertListener: ListenerRegistration? = null
+    private var cachedWeatherAlertsData: Map<String, Any>? = null
 
     init {
         viewModelScope.launch {
             prefs.districtChanges.collectLatest { district ->
                 _activeDistrict.value = district
+                updateActiveWeatherAlert()
             }
         }
 
@@ -244,44 +246,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
     }
 
+    private fun updateActiveWeatherAlert() {
+        val district = _activeDistrict.value
+        val data = cachedWeatherAlertsData
+        
+        if (district == null || data == null) {
+            _activeWeatherAlert.value = null
+            return
+        }
+
+        val weatherKey = NotificationHelper.getWeatherDistrictKey(district)
+        @Suppress("UNCHECKED_CAST")
+        val districtData = data[weatherKey] as? Map<String, Any>
+        
+        if (districtData != null) {
+            val lastSent = districtData["lastAlertSentAt"] as? Timestamp
+            val lastSentTime = lastSent?.toDate()?.time ?: 0L
+            val now = System.currentTimeMillis()
+            val diff = now - lastSentTime
+            val threshold = 6 * 60 * 60 * 1000L
+            
+            // Show alert if sent in the last 6 hours
+            if (lastSentTime > 0 && diff < threshold) {
+                _activeWeatherAlert.value = WeatherAlert(
+                    title = districtData["lastAlertTitle"]?.toString() ?: "Weather Alert",
+                    body = districtData["lastAlertBody"]?.toString() ?: "",
+                    district = district,
+                    timestamp = lastSentTime,
+                    severity = districtData["severity"]?.toString() ?: "WARNING"
+                )
+            } else {
+                _activeWeatherAlert.value = null
+            }
+        } else {
+            _activeWeatherAlert.value = null
+        }
+    }
+
     private fun startWeatherAlertListener() {
         weatherAlertListener?.remove()
         weatherAlertListener = FirebaseService.db.collection("settings").document("weather_alerts")
             .addSnapshotListener { snapshot, e ->
-                if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
-                
-                val district = _activeDistrict.value
-                if (district == null) {
-                    _activeWeatherAlert.value = null
+                if (e != null || snapshot == null || !snapshot.exists()) {
+                    cachedWeatherAlertsData = null
+                    updateActiveWeatherAlert()
                     return@addSnapshotListener
                 }
-
-                val data = snapshot.data ?: return@addSnapshotListener
-                @Suppress("UNCHECKED_CAST")
-                val districtData = data[district] as? Map<String, Any>
                 
-                if (districtData != null) {
-                    val lastSent = districtData["lastAlertSentAt"] as? Timestamp
-                    val lastSentTime = lastSent?.toDate()?.time ?: 0L
-                    val now = System.currentTimeMillis()
-                    val diff = now - lastSentTime
-                    val threshold = 6 * 60 * 60 * 1000L
-                    
-                    // Show alert if sent in the last 6 hours
-                    if (lastSentTime > 0 && diff < threshold) {
-                        _activeWeatherAlert.value = WeatherAlert(
-                            title = districtData["lastAlertTitle"]?.toString() ?: "Weather Alert",
-                            body = districtData["lastAlertBody"]?.toString() ?: "",
-                            district = district,
-                            timestamp = lastSentTime,
-                            severity = districtData["severity"]?.toString() ?: "WARNING"
-                        )
-                    } else {
-                        _activeWeatherAlert.value = null
-                    }
-                } else {
-                    _activeWeatherAlert.value = null
-                }
+                cachedWeatherAlertsData = snapshot.data
+                updateActiveWeatherAlert()
             }
     }
 
@@ -421,6 +434,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val oldDistrict = prefs.selectedDistrict ?: prefs.detectedDistrict
         prefs.selectedDistrict = district
         _activeDistrict.value = district
+        updateActiveWeatherAlert()
         viewModelScope.launch {
             // Update Firestore user record
             _currentUser.value?.id?.let { uid ->

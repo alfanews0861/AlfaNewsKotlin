@@ -35,7 +35,6 @@ fun AppDrawerContent(
         AppPageConfig("manageSurveys", "సర్వే నిర్వహణ", listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
         AppPageConfig("messages", stringResource(R.string.messages), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
         AppPageConfig("post", stringResource(R.string.post_news), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        AppPageConfig("survey", stringResource(R.string.nav_survey), listOf(UserRole.REPORTER, UserRole.ADMIN)),
         AppPageConfig("ads", stringResource(R.string.ads_manager), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("manage", stringResource(R.string.manage_news), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK)),
         AppPageConfig("manageReporters", stringResource(R.string.manage_reporters), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
@@ -44,7 +43,6 @@ fun AppDrawerContent(
         AppPageConfig("affiliate_settings", "Affiliate News API", listOf(UserRole.ADMIN))
     )
 
-    val canPostSurvey = user?.canPostSurvey() == true
     val accessiblePages = when (role) {
         UserRole.GUEST, UserRole.SUBSCRIBER -> listOf(
             AppPageConfig("home", stringResource(R.string.home), emptyList()),
@@ -52,26 +50,22 @@ fun AppDrawerContent(
             AppPageConfig("profile", stringResource(R.string.profile), emptyList())
         )
         UserRole.REPORTER -> allPages.filter { 
-            val list = mutableListOf("profile", "manageSurveys", "post", "ads", "manage", "messages")
-            if (canPostSurvey) list.add("survey")
+            val list = listOf("profile", "manageSurveys", "post", "ads", "manage", "messages")
             list.contains(it.id)
         }
         UserRole.NEWS_DESK -> allPages.filter { 
-            val list = mutableListOf("profile", "manageSurveys", "post", "ads", "manage", "messages")
-            if (canPostSurvey) list.add("survey")
+            val list = listOf("profile", "manageSurveys", "post", "ads", "manage", "messages")
             list.contains(it.id)
         }
         UserRole.REGIONAL_INCHARGE -> allPages.filter { 
-            val list = mutableListOf("profile", "manageSurveys", "post", "ads", "manage", "manageReporters", "manageUsers")
-            if (canPostSurvey) list.add("survey")
+            val list = listOf("profile", "manageSurveys", "post", "ads", "manage", "manageReporters", "manageUsers")
             list.contains(it.id)
         }
         UserRole.EDITOR -> allPages.filter { 
-            val list = mutableListOf("profile", "manageSurveys", "post", "ads", "manage", "manageReporters", "manageUsers")
-            if (canPostSurvey) list.add("survey")
+            val list = listOf("profile", "manageSurveys", "post", "ads", "manage", "manageReporters", "manageUsers")
             list.contains(it.id)
         }
-        UserRole.ADMIN -> allPages
+        UserRole.ADMIN -> allPages.filter { it.id != "survey" }
         else -> listOf(
             AppPageConfig("home", stringResource(R.string.home), emptyList()),
             AppPageConfig("local", stringResource(R.string.local_news), emptyList()),

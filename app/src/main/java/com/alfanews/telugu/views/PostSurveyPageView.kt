@@ -48,6 +48,8 @@ fun PostSurveyPageView(
     var isMultiPage by remember { mutableStateOf(false) }
     var isGlobal by remember { mutableStateOf(user.role == com.alfanews.telugu.models.UserRole.ADMIN) }
     var district by remember { mutableStateOf(user.district ?: "") }
+    var durationDays by remember { mutableStateOf(7) }
+    var targetState by remember { mutableStateOf("ALL") }
     
     val questions = remember { 
         mutableStateListOf<MutableQuestionState>().apply {
@@ -170,6 +172,32 @@ fun PostSurveyPageView(
                                 onCheckedChange = { isGlobal = it }
                             )
                         }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = "లక్ష్య రాష్ట్రం (Target State)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val statesList = listOf("ALL", "Andhra Pradesh", "Telangana")
+                            statesList.forEach { stateName ->
+                                val label = when (stateName) {
+                                    "Andhra Pradesh" -> "ఆంధ్రప్రదేశ్"
+                                    "Telangana" -> "తెలంగాణ"
+                                    else -> "రెండు రాష్ట్రాలు"
+                                }
+                                FilterChip(
+                                    selected = targetState == stateName,
+                                    onClick = { targetState = stateName },
+                                    label = { Text(label, fontSize = 12.sp) }
+                                )
+                            }
+                        }
                     } else {
                         Text(
                             text = "ఈ సర్వే మీ జిల్లా (${user.district}) లో మాత్రమే కనిపిస్తుంది.",
@@ -206,6 +234,33 @@ fun PostSurveyPageView(
                                         }
                                     )
                                 }
+                            }
+                        }
+
+                        Divider()
+
+                        Text(
+                            text = "సర్వే వ్యవధి (Survey Duration)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val durations = listOf(1, 3, 7, 15, 30)
+                            durations.forEach { days ->
+                                FilterChip(
+                                    selected = durationDays == days,
+                                    onClick = { durationDays = days },
+                                    label = {
+                                        Text(
+                                            text = if (days == 1) "1 రోజు" else "$days రోజులు",
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                )
                             }
                         }
                     }
@@ -457,9 +512,15 @@ fun PostSurveyPageView(
                         "isMultiPage" to isMultiPage,
                         "fakeVotesBase" to randomStartFakeVotes,
                         "surveyCreatedAt" to System.currentTimeMillis(),
+                        "expiryTimestamp" to System.currentTimeMillis() + (durationDays * 24L * 60L * 60L * 1000L),
                         "votes" to emptyMap<String, Int>(),
                         "realVotesCount" to 0,
                         "isGlobal" to isGlobal,
+                        "state" to (if (user.role == com.alfanews.telugu.models.UserRole.ADMIN) {
+                            if (targetState == "ALL") null else targetState
+                        } else {
+                            user.state
+                        }),
                         "district" to (if (isGlobal) "State" else district),
                         "location" to (user.assignedMandal ?: district),
                         "isReporter" to (user.role == com.alfanews.telugu.models.UserRole.REPORTER),

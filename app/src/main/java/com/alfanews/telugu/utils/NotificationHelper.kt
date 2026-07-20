@@ -31,7 +31,23 @@ object NotificationHelper {
         return if (result.length > 80) result.substring(0, 80) else result
     }
 
+    /**
+     * Maps full/official district names used in the app to the short district names 
+     * used by the weather alert system in Firestore / FCM topics.
+     */
+    fun getWeatherDistrictKey(district: String?): String {
+        if (district.isNullOrBlank()) return "default"
+        return when (district) {
+            "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" -> "నెల్లూరు"
+            "వైఎస్ఆర్ కడప" -> "కడప"
+            "తూర్పు గోదావరి" -> "రాజమహేంద్రవరం"
+            "ఎన్టీఆర్", "కృష్ణా" -> "విజయవాడ"
+            else -> district
+        }
+    }
+
     fun getTopicName(prefix: String, value: String): String {
-        return "${prefix}_${slugify(value)}"
+        val resolvedValue = if (prefix == "weather_alert") getWeatherDistrictKey(value) else value
+        return "${prefix}_${slugify(resolvedValue)}"
     }
 }

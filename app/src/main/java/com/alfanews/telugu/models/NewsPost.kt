@@ -98,8 +98,12 @@ data class NewsPost(
     val fakeVotesBase: Int = 11000,
     val surveyCreatedAt: Long = System.currentTimeMillis(),
     val votes: Map<String, Int> = emptyMap(),
-    val realVotesCount: Int = 0
-)
+    val realVotesCount: Int = 0,
+    val expiryTimestamp: Long? = null
+) {
+    val isExpired: Boolean
+        get() = System.currentTimeMillis() > (expiryTimestamp ?: (surveyCreatedAt + 7L * 24L * 60L * 60L * 1000L))
+}
 
 /**
  * సర్వే ఆప్షన్ వివరాలు.
@@ -274,6 +278,7 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
     }
 
     val realVotesCount = (data["realVotesCount"] as? Number)?.toInt() ?: 0
+    val expiryTimestamp = (data["expiryTimestamp"] as? Number)?.toLong()
     val mediaUrls = (data["mediaUrls"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
     val mediaTypes = (data["mediaTypes"] as? List<*>)?.mapNotNull { typeStr ->
         if (typeStr?.toString() == "VIDEO") MediaType.VIDEO else MediaType.IMAGE
@@ -317,6 +322,7 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
         surveyCreatedAt = surveyCreatedAt,
         votes = votes,
         realVotesCount = realVotesCount,
+        expiryTimestamp = expiryTimestamp,
         mediaUrls = mediaUrls,
         mediaTypes = mediaTypes,
         district = district,

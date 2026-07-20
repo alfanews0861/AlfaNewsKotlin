@@ -66,12 +66,11 @@ fun AdminPanelView(
 
     val allPages = listOf(
         AppPageConfig("profile", stringResource(R.string.profile), listOf(UserRole.GUEST, UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        AppPageConfig("manageSurveys", "సర్వే నిర్వహణ", listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
+        AppPageConfig("manageSurveys", "సర్വേ నిర్వహణ", listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
         AppPageConfig("edit-profile", stringResource(R.string.edit_profile), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("id-card", stringResource(R.string.id_card), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("messages", stringResource(R.string.messages), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
         AppPageConfig("post", stringResource(R.string.post_news), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        AppPageConfig("survey", stringResource(R.string.post_survey), listOf(UserRole.REPORTER, UserRole.ADMIN)),
         AppPageConfig("ads", stringResource(R.string.ads_manager), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("manage", stringResource(R.string.manage_news), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK)),
         AppPageConfig("manageReporters", stringResource(R.string.manage_reporters), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
@@ -81,30 +80,25 @@ fun AdminPanelView(
         AppPageConfig("affiliate_settings", "Affiliate News API", listOf(UserRole.ADMIN))
     )
 
-    val canPostSurvey = user.canPostSurvey()
     val accessiblePages = when (user.role) {
         UserRole.GUEST, UserRole.SUBSCRIBER -> allPages.filter { it.id == "profile" }
         UserRole.REPORTER -> allPages.filter { 
-            val list = mutableListOf("profile", "manageSurveys", "post", "ads", "manage", "edit-profile", "id-card", "messages")
-            if (canPostSurvey) list.add("survey")
+            val list = listOf("profile", "manageSurveys", "post", "ads", "manage", "edit-profile", "id-card", "messages")
             list.contains(it.id)
         }
         UserRole.NEWS_DESK -> allPages.filter { 
-            val list = mutableListOf("profile", "manageSurveys", "post", "ads", "manage", "edit-profile", "id-card", "messages")
-            if (canPostSurvey) list.add("survey")
+            val list = listOf("profile", "manageSurveys", "post", "ads", "manage", "edit-profile", "id-card", "messages")
             list.contains(it.id)
         }
         UserRole.REGIONAL_INCHARGE -> allPages.filter { 
-            val list = mutableListOf("profile", "manageSurveys", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card")
-            if (canPostSurvey) list.add("survey")
+            val list = listOf("profile", "manageSurveys", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card")
             list.contains(it.id)
         }
         UserRole.EDITOR -> allPages.filter { 
-            val list = mutableListOf("profile", "manageSurveys", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card")
-            if (canPostSurvey) list.add("survey")
+            val list = listOf("profile", "manageSurveys", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card")
             list.contains(it.id)
         }
-        UserRole.ADMIN -> allPages
+        UserRole.ADMIN -> allPages.filter { it.id != "survey" }
         else -> allPages.filter { it.id == "profile" }
     }
 
@@ -194,7 +188,11 @@ fun AdminPanelView(
                     "manageSurveys" -> ManageSurveysPageView(
                         currentUser = user,
                         language = language,
-                        showTitle = false
+                        showTitle = false,
+                        onNavigateToCreateSurvey = {
+                            activePage = "survey"
+                            onPageChange("survey")
+                        }
                     )
                     "messages" -> MessagesPageView(
                         user = user,
@@ -215,7 +213,8 @@ fun AdminPanelView(
                     "survey" -> PostSurveyPageView(
                         user = user,
                         onActionComplete = {
-                            activePage = "manage"
+                            activePage = "manageSurveys"
+                            onPageChange("manageSurveys")
                         }
                     )
                     "manage" -> ManagePostsPageView(

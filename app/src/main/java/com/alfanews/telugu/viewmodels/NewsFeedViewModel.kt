@@ -690,21 +690,45 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     private suspend fun fetchActiveSurvey(): NewsPost? = withContext(Dispatchers.IO) {
         try {
-            val fiveDaysAgo = System.currentTimeMillis() - (5 * 24 * 60 * 60 * 1000L)
+            val thirtyDaysAgo = System.currentTimeMillis() - (30L * 24L * 60L * 60L * 1000L)
             val snapshot = FirebaseService.db.collection("news")
                 .whereEqualTo("type", "survey")
                 .whereEqualTo("approved", true)
-                .whereGreaterThan("timestamp", fiveDaysAgo)
+                .whereGreaterThan("timestamp", thirtyDaysAgo)
                 .orderBy("timestamp", Query.Direction.DESCENDING)
-                .limit(1)
                 .get().await()
             
-            val doc = snapshot.documents.firstOrNull() ?: return@withContext null
-            val survey = mapDocumentToNewsPost(doc)
+            val surveys = snapshot.documents.mapNotNull { mapDocumentToNewsPost(it) }
             
-            // Filter if already answered (tracked in PreferenceManager)
-            if (survey != null && prefs.isSurveyAnswered(survey.id)) null else survey
-        } catch (e: Exception) {
+            val currentDist = _userDistrict.value
+            val userState: String? = when {
+                currentDist == null -> null
+                currentDist == "హైదరాబాద్" -> AnalyticsService.getStateEngagementRatio()
+                else -> mapDistrictToState(currentDist)
+            }
+
+            surveys.firstOrNull { survey ->
+                if (survey.isExpired) return@firstOrNull false
+
+                // 1. Filter by State
+                if (userState != null && userState != "BOTH") {
+                    val surveyState = survey.state
+                    if (surveyState != null && surveyState != userState) {
+                        return@firstOrNull false
+                    }
+                }
+
+                // 2. Filter by District (if not global/state-wide)
+                if (!survey.isGlobal) {
+                    if (currentDist != null) {
+                        val matchesUserDistrict = (survey.district == currentDist || survey.categories.contains(currentDist))
+                        if (!matchesUserDistrict) return@firstOrNull false
+                    }
+                }
+
+                true
+            }
+        } catch (e: java.lang.Exception) {
             Log.e("NewsFeedVM", "Error fetching active survey: ${e.message}")
             null
         }
@@ -803,6 +827,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 }
             }
             val realVotesCountVal = (data["realVotesCount"] as? Number)?.toInt() ?: 0
+            val expiryTimestampVal = (data["expiryTimestamp"] as? Number)?.toLong()
+            val stateVal = data["state"]?.toString()
 
             NewsPost(
                 id = doc.id,
@@ -850,7 +876,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 fakeVotesBase = fakeVotesBaseVal,
                 surveyCreatedAt = surveyCreatedAtVal,
                 votes = votesMap,
-                realVotesCount = realVotesCountVal
+                realVotesCount = realVotesCountVal,
+                expiryTimestamp = expiryTimestampVal,
+                state = stateVal
             )
         } catch (e: Exception) { null }
     }
