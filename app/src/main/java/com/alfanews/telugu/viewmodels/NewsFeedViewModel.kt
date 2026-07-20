@@ -663,9 +663,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                // ✅ WEATHER CARD FIX:
                // Moved to index 9 (was 8) due to survey at index 2
                if (blendedNews.size >= 5) {
-                   val lat = prefs.lastLat.takeIf { it != 0.0 }
-                   val lon = prefs.lastLon.takeIf { it != 0.0 }
-                   insertSafely(blendedNews, generateWeatherPost(prefs.localPlace, _userDistrict.value, lat, lon), 9)
+                   val isManualDistrict = prefs.selectedDistrict != null && prefs.selectedDistrict != prefs.detectedDistrict
+                   val lat = if (isManualDistrict) null else prefs.lastLat.takeIf { it != 0.0 }
+                   val lon = if (isManualDistrict) null else prefs.lastLon.takeIf { it != 0.0 }
+                   val place = if (isManualDistrict) null else prefs.localPlace
+                   insertSafely(blendedNews, generateWeatherPost(place, _userDistrict.value, lat, lon), 9)
                }
 
                if (historyPosts.isNotEmpty()) { insertSafely(blendedNews, historyPosts.first(), 10) }

@@ -25,8 +25,13 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.ui.PlayerView
 import com.alfanews.telugu.R
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.allowHardware
+import coil3.request.crossfade
 
-@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun VideoPlayerView(
     videoUrl: String,
@@ -34,44 +39,65 @@ fun VideoPlayerView(
     autoPlay: Boolean = false,
     muted: Boolean = false
 ) {
+    var isInitialized by remember { mutableStateOf(false) }
+
+    LaunchedEffect(autoPlay) {
+        if (autoPlay) {
+            isInitialized = true
+        }
+    }
+
+    if (isInitialized) {
+        ActiveVideoPlayer(
+            videoUrl = videoUrl,
+            modifier = modifier,
+            autoPlay = autoPlay,
+            muted = muted
+        )
+    } else {
+        VideoPlaceholder(
+            videoUrl = videoUrl,
+            modifier = modifier,
+            onPlayClick = { isInitialized = true }
+        )
+    }
+}
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+private fun ActiveVideoPlayer(
+    videoUrl: String,
+    modifier: Modifier,
+    autoPlay: Boolean,
+    muted: Boolean
+) {
     val context = LocalContext.current
     var isPlaying by remember { mutableStateOf(false) }
 
-    val exoPlayer = remember(videoUrl) {   // ✅ FIX #3: Recreate player when URL changes
-        // 🚀 Custom LoadControl: reduce min buffer for faster video start on swipe
+    val exoPlayer = remember(videoUrl) {
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                /* minBufferMs */ 500,
-                /* maxBufferMs */ 10_000,
-                /* bufferForPlaybackMs */ 300,
-                /* bufferForPlaybackAfterRebufferMs */ 500
-            )
+            .setBufferDurationsMs(500, 10_000, 300, 500)
             .build()
         ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
             .build().apply {
-            val audioAttributes = AudioAttributes.Builder()
-                .setUsage(C.USAGE_MEDIA)
-                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                .build()
-            setAudioAttributes(audioAttributes, true)
-
-            setMediaItem(MediaItem.fromUri(videoUrl))
-            // Removed prepare() from initial setup to save bandwidth.
-            // It will be prepared only when autoPlay signal is received.
-            repeatMode = ExoPlayer.REPEAT_MODE_ONE // 🚀 ONE is sufficient; ALL wastes buffer memory
-            addListener(object : Player.Listener {
-                override fun onIsPlayingChanged(isPlayingParam: Boolean) {
-                    isPlaying = isPlayingParam
-                }
-            })
-        }
+                val audioAttributes = AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build()
+                setAudioAttributes(audioAttributes, true)
+                setMediaItem(MediaItem.fromUri(videoUrl))
+                repeatMode = ExoPlayer.REPEAT_MODE_ONE
+                addListener(object : Player.Listener {
+                    override fun onIsPlayingChanged(isPlayingParam: Boolean) {
+                        isPlaying = isPlayingParam
+                    }
+                })
+            }
     }
 
-    // Reaction to state changes (needed for Pagers)
     LaunchedEffect(autoPlay) {
         if (autoPlay) {
-            // Only prepare and play when it's actually requested (e.g., card is visible)
             if (exoPlayer.playbackState == Player.STATE_IDLE) {
                 exoPlayer.prepare()
             }
@@ -85,16 +111,15 @@ fun VideoPlayerView(
         exoPlayer.volume = if (muted) 0f else 1f
     }
 
-    DisposableEffect(videoUrl) {   // ✅ FIX #3: Also dispose when URL changes
+    DisposableEffect(videoUrl) {
         onDispose {
-            exoPlayer.pause() // 🚀 Pause first to prevent audio glitch on rapid swipe
+            exoPlayer.pause()
             exoPlayer.release()
         }
     }
 
     Box(
         modifier = modifier.clickable {
-            // ✅ FIX #3: Prepare before play if still idle (prevents ExoPlaybackException)
             if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
             if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
         },
@@ -126,6 +151,51 @@ fun VideoPlayerView(
                     modifier = Modifier.size(40.dp)
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun VideoPlaceholder(
+    videoUrl: String,
+    modifier: Modifier,
+    onPlayClick: () -> Unit
+) {
+    val context = LocalContext.current
+    Box(
+        modifier = modifier
+            .background(Color.Black)
+            .clickable { onPlayClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        val request = remember(videoUrl) {
+            ImageRequest.Builder(context)
+                .data(videoUrl)
+                .crossfade(true)
+                .allowHardware(true)
+                .build()
+        }
+        AsyncImage(
+            model = request,
+            contentDescription = "Video Thumbnail",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            fallback = painterResource(id = R.drawable.fallback_news_image),
+            error = painterResource(id = R.drawable.fallback_news_image)
+        )
+
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .background(Color.Black.copy(alpha = 0.4f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = "Play",
+                tint = Color.White,
+                modifier = Modifier.size(40.dp)
+            )
         }
     }
 }

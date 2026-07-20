@@ -77,10 +77,10 @@ fun WeatherCardView(
         )
     }
 
-    // ✅ FIX: Prefer live prefs coords over stale post coords
-    // Priority: prefs GPS coords > post coords (which may be from a previous session)
-    val liveLat = prefs.lastLat.takeIf { it != 0.0 }
-    val liveLon = prefs.lastLon.takeIf { it != 0.0 }
+    // ✅ FIX: Prefer live prefs coords over stale post coords, unless user manually selected a different district
+    val isManualDistrict = prefs.selectedDistrict != null && prefs.selectedDistrict != prefs.detectedDistrict
+    val liveLat = if (isManualDistrict) null else prefs.lastLat.takeIf { it != 0.0 }
+    val liveLon = if (isManualDistrict) null else prefs.lastLon.takeIf { it != 0.0 }
     val effectiveLat = liveLat ?: post.latitude
     val effectiveLon = liveLon ?: post.longitude
     val effectiveLocation = if (liveLat != null) (prefs.localPlace ?: post.location) else post.location
