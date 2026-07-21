@@ -2,7 +2,6 @@ package com.alfanews.telugu.services
 
 import android.app.Activity
 import android.util.Log
-import com.alfanews.telugu.BuildConfig
 import com.google.android.gms.ads.AdListener
 import com.google.android.gms.ads.AdLoader
 import com.google.android.gms.ads.AdRequest
@@ -12,7 +11,6 @@ import com.google.android.gms.ads.MobileAds
 import com.google.android.gms.ads.nativead.NativeAd
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.jvm.Synchronized
 
 /**
  * యాడ్స్ లోడింగ్ స్థితులను సూచించే ఇంటర్‌ఫేస్.
@@ -32,15 +30,10 @@ sealed interface AdState {
 object AdMobService {
     private const val TAG = "AdMobService"
     
-    // Debug builds get the official Google test ad unit ID, release builds get production ID.
-    private val NATIVE_AD_UNIT_ID: String
-        get() = if (BuildConfig.DEBUG) {
-            "ca-app-pub-3940256099942544/2247696110" // Test Native Ad Unit ID
-        } else {
-            "ca-app-pub-5787901991150360/1972465675" // Production Native Ad Unit ID
-        }
-
-    private const val BANNER_AD_UNIT_ID = "ca-app-pub-3940256099942544/6300978111" // Test Banner Ad Unit ID. Change to production banner ID when deploying.
+    // Production Native Ad Unit ID (Always use production ID to match the original behavior)
+    private const val NATIVE_AD_UNIT_ID = "ca-app-pub-5787901991150360/1972465675"
+    private const val BANNER_AD_UNIT_ID = "ca-app-pub-3940256099942544/6300978111" // Test Banner Ad Unit ID.
+    
     private const val MAX_NATIVE_ADS = 5
     private val nativeAds = ConcurrentLinkedQueue<NativeAd>()
     private val isPreloading = AtomicBoolean(false)
@@ -58,6 +51,7 @@ object AdMobService {
 
     /**
      * నేటివ్ యాడ్స్ ను ముందుగానే లోడ్ చేసి మెమరీలో ఉంచుతుంది.
+     * Original standard loadAds parallel batch request.
      */
     @Synchronized
     private fun preloadNativeAds(activity: Activity) {
@@ -71,39 +65,29 @@ object AdMobService {
             return
         }
 
-        Log.d(TAG, "Starting sequential preload. Current cache size: ${nativeAds.size}")
-        loadNextAd(activity)
-    }
+        val numberOfAdsToLoad = MAX_NATIVE_ADS - nativeAds.size
+        Log.d(TAG, "Starting parallel batch preload for $numberOfAdsToLoad native ads. Current cache size: ${nativeAds.size}")
 
-    /**
-     * క్యాచ్ పరిమితి పూర్తి అయ్యే వరకు ప్రకటనలను ఒక్కొక్కటిగా వరుసగా లోడ్ చేస్తుంది.
-     */
-    private fun loadNextAd(activity: Activity) {
-        if (nativeAds.size >= MAX_NATIVE_ADS) {
-            Log.d(TAG, "Preload complete. Cache size: ${nativeAds.size}")
-            isPreloading.set(false)
-            return
-        }
-
-        Log.d(TAG, "Loading next preloaded ad. Current size: ${nativeAds.size}")
         val adLoader = AdLoader.Builder(activity, NATIVE_AD_UNIT_ID)
             .forNativeAd { ad: NativeAd ->
                 nativeAds.add(ad)
                 Log.d(TAG, "Native ad preloaded successfully. New cache size: ${nativeAds.size}")
-                
-                // Recursively load the next ad to fill the cache
-                loadNextAd(activity)
             }
             .withAdListener(object : AdListener() {
                 override fun onAdFailedToLoad(error: LoadAdError) {
                     Log.e(TAG, "Native ad failed to preload: ${error.message} (Code: ${error.code})")
-                    // Stop the current batch preloading on failure and release the flag
+                    isPreloading.set(false)
+                }
+
+                override fun onAdLoaded() {
+                    super.onAdLoaded()
+                    Log.d(TAG, "Native ad batch load completed. Cache size: ${nativeAds.size}")
                     isPreloading.set(false)
                 }
             })
             .build()
 
-        adLoader.loadAd(AdRequest.Builder().build())
+        adLoader.loadAds(AdRequest.Builder().build(), numberOfAdsToLoad)
     }
 
     /**
