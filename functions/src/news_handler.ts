@@ -461,7 +461,7 @@ export const onNewsPostCreated = onDocumentWritten({
         passiveFields.includes(key) || JSON.stringify(data[key]) === JSON.stringify(beforeData[key])
     );
 
-    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED", "ARCHIVED", "FAILED_YOUTUBE_UPLOAD", "PENDING_YOUTUBE_RETRY"];
+    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED", "ARCHIVED", "FAILED_YOUTUBE_UPLOAD", "PENDING_YOUTUBE_RETRY"];
 
     if (LOCKED_STATUSES.includes(status) && !data.forceReprocess) {
         // If it's already locked and not a forced reprocess, skip immediately without reading DB again
@@ -808,7 +808,7 @@ export const onNewsPostCreated = onDocumentWritten({
 
                 const filterGraph: any[] = [];
                 if (hasLogo) {
-                    filterGraph.push({ filter: 'scale', options: `${logoWidth}:-1`, inputs: '2:v', outputs: 'logo' });
+                    filterGraph.push({ filter: 'scale', options: `${logoWidth}:-2`, inputs: '2:v', outputs: 'logo' });
                     filterGraph.push({ filter: 'overlay', options: 'W-w-25:25', inputs: ['0:v', 'logo'], outputs: 'vlogo' });
                 } else {
                     filterGraph.push({ filter: 'null', inputs: '0:v', outputs: 'vlogo' });

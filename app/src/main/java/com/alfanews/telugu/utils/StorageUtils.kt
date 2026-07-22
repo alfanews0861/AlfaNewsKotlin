@@ -90,11 +90,16 @@ suspend fun uploadVideoToStorage(
         val fileName = "${folder}/${UUID.randomUUID()}_${System.currentTimeMillis()}.mp4"
         val videoRef = storageRef.child(fileName)
         
-        Log.d("StorageUtils", "Starting video upload to: $fileName")
+        Log.d("StorageUtils", "Starting video upload to: $fileName for URI: $uri")
         val uploadTask = videoRef.putFile(uri)
         
         uploadTask.addOnProgressListener { snapshot ->
-            val progress = (100.0 * snapshot.bytesTransferred) / snapshot.totalByteCount
+            val totalBytes = snapshot.totalByteCount
+            if (totalBytes > 150 * 1024 * 1024) {
+                // Log warning for large video uploads (>150MB)
+                Log.w("StorageUtils", "Uploading large video file (${totalBytes / (1024 * 1024)} MB). Consider compressing on client.")
+            }
+            val progress = if (totalBytes > 0) (100.0 * snapshot.bytesTransferred) / totalBytes else 0.0
             onProgress(progress)
         }
         
