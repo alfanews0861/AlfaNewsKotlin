@@ -10,13 +10,13 @@ plugins {
 
 android {
     namespace = "com.alfanews.telugu"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "27.1.12297006"
 
     defaultConfig {
         applicationId = "com.alfanews.telugu"
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 591
         versionName = "Sree_5.3.8"
         multiDexEnabled = true
