@@ -76,7 +76,7 @@ private fun ActiveVideoPlayer(
 
     val exoPlayer = remember(videoUrl) {
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(500, 10_000, 300, 500)
+            .setBufferDurationsMs(1000, 15_000, 500, 1000)
             .build()
         ExoPlayer.Builder(context)
             .setLoadControl(loadControl)

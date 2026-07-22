@@ -461,7 +461,7 @@ export const onNewsPostCreated = onDocumentWritten({
         passiveFields.includes(key) || JSON.stringify(data[key]) === JSON.stringify(beforeData[key])
     );
 
-    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED", "ARCHIVED"];
+    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED", "ARCHIVED", "FAILED_YOUTUBE_UPLOAD", "PENDING_YOUTUBE_RETRY"];
 
     if (LOCKED_STATUSES.includes(status) && !data.forceReprocess) {
         // If it's already locked and not a forced reprocess, skip immediately without reading DB again
@@ -641,6 +641,10 @@ export const onNewsPostCreated = onDocumentWritten({
         // LOCK immediately
         await db.collection('news').doc(postId).update({ status: "PROCESSING_VIDEO_START" });
 
+        let videoPath = "";
+        let audioPath = "";
+        let outputPath = "";
+
         try {
             const teluguNews = data.content?.telugu || data.headline?.telugu || "";
             const reporterName = data.reporter?.name || "";
@@ -669,9 +673,9 @@ export const onNewsPostCreated = onDocumentWritten({
             description += `https://play.google.com/store/apps/details?id=com.alfanews.telugu\n\n`;
 
             const tempDir = os.tmpdir();
-            const videoPath = path.join(tempDir, `input_${postId}.mp4`);
-            const audioPath = path.join(tempDir, `audio_${postId}.mp3`);
-            const outputPath = path.join(tempDir, `output_${postId}.mp4`);
+            videoPath = path.join(tempDir, `input_${postId}.mp4`);
+            audioPath = path.join(tempDir, `audio_${postId}.mp3`);
+            outputPath = path.join(tempDir, `output_${postId}.mp4`);
 
             // STREAMING DOWNLOAD to save memory and handle large files
             console.log(`[VIDEO_DOWNLOAD] Downloading ${videoUrl.substring(0, 50)}...`);
@@ -716,31 +720,20 @@ export const onNewsPostCreated = onDocumentWritten({
                               .replace(/"/g, '&quot;')
                               .replace(/'/g, '&apos;');
 
-            // 4. INJECT SSML: Simplified tags for Studio (Chirp) voices
-            // Use placeholders to avoid double-processing punctuation (like ... getting processed as 3 dots)
+            // 4. INJECT SSML: Clean markup for Studio (Chirp) voices
+            // Avoid adding explicit <break> tags after every dot/comma as Chirp HD handles punctuation naturally.
+            // Forced breaks after initials (e.g. టి., డి.ఎస్.పి.) or acronyms/decimals cause choppy stuttering in sentence 1.
             let processedText = baseText;
-            processedText = processedText.replace(/అంటే\.\.\./g, 'అంటే___ANTE___');
-            processedText = processedText.replace(/ఆ\.\.\./g, 'ఆ___AA___');
-            processedText = processedText.replace(/\.\.\./g, '___ELLIPSIS___');
-            processedText = processedText.replace(/,/g, '___COMMA___');
-            processedText = processedText.replace(/\./g, '___DOT___');
-            processedText = processedText.replace(/!/g, '___EXCLAMATION___');
-            processedText = processedText.replace(/\?/g, '___QUESTION___');
+            processedText = processedText.replace(/అంటే\.\.\./g, 'అంటే... <break time="120ms"/>');
+            processedText = processedText.replace(/ఆ\.\.\./g, 'ఆ... <break time="100ms"/>');
+            processedText = processedText.replace(/\.\.\./g, '... <break time="150ms"/>');
+            
+            // Clean STRESS tags to keep uniform prosody without volume boundary pops
+            processedText = processedText.replace(/\[\[STRESS\]\](.*?)\[\[\/STRESS\]\]/g, '$1');
 
-            // Now replace placeholders with actual SSML tags
-            processedText = processedText.replace(/___ANTE___/g, '... <break time="150ms"/>');
-            processedText = processedText.replace(/___AA___/g, '... <break time="120ms"/>');
-            processedText = processedText.replace(/___ELLIPSIS___/g, '... <break time="200ms"/>');
-            processedText = processedText.replace(/___COMMA___/g, ', <break time="30ms"/>');
-            processedText = processedText.replace(/___DOT___/g, '. <break time="80ms"/>');
-            processedText = processedText.replace(/___EXCLAMATION___/g, '! <break time="80ms"/>');
-            processedText = processedText.replace(/___QUESTION___/g, '? <break time="80ms"/>');
-
-            // NOW INJECT THE PROSODY TAG (STRESS)
-            processedText = processedText.replace(/\[\[STRESS\]\](.*?)\[\[\/STRESS\]\]/g, '<prosody volume="+2.0dB">$1</prosody>');
-
-            let selectedVoice = 'te-IN-Chirp3-HD-Kore';
-            const ssml = `<speak><prosody rate="1.30" pitch="0st" volume="+10dB">${processedText}</prosody></speak>`;
+            // Pitch shift (-1.8st) gives a deep, serious, authoritative news-anchor tone (గంభీరత్వం)
+            let selectedVoice = data.voiceModel || 'te-IN-Chirp3-HD-Kore';
+            const ssml = `<speak><prosody rate="1.30" pitch="-1.8st" volume="+6dB">${processedText}</prosody></speak>`;
 
             console.log(`[TTS_REQUEST] postId: ${postId}, voice: ${selectedVoice}, ssml: ${ssml.substring(0, 500)}`);
 
@@ -750,16 +743,31 @@ export const onNewsPostCreated = onDocumentWritten({
                 body: JSON.stringify({
                     input: { ssml: ssml },
                     voice: { languageCode: 'te-IN', name: selectedVoice },
-                    audioConfig: { audioEncoding: 'MP3' }
+                    audioConfig: { audioEncoding: 'MP3', sampleRateHertz: 48000 }
                 })
             });
 
             let ttsData: any = await ttsRes.json();
 
-            // FALLBACK LOGIC: If Chirp 3 HD fails, try Standard voice to ensure video is generated
+            // FALLBACK LOGIC: Try Neural2-B (Deep Male Voice) or Wavenet-B / Standard-A if primary fails
             if (!ttsData.audioContent) {
-                console.warn(`[TTS_WARNING] Chirp voice ${selectedVoice} failed. Falling back to Standard-A.`);
-                selectedVoice = 'te-IN-Standard-A';
+                console.warn(`[TTS_WARNING] Primary voice ${selectedVoice} failed. Trying Neural2 Male fallback.`);
+                selectedVoice = 'te-IN-Neural2-B';
+                ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+                    body: JSON.stringify({
+                        input: { ssml: ssml },
+                        voice: { languageCode: 'te-IN', name: selectedVoice },
+                        audioConfig: { audioEncoding: 'MP3', sampleRateHertz: 48000 }
+                    })
+                });
+                ttsData = await ttsRes.json();
+            }
+
+            if (!ttsData.audioContent) {
+                console.warn(`[TTS_WARNING] Neural2-B failed. Falling back to Standard-B.`);
+                selectedVoice = 'te-IN-Standard-B';
                 ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
@@ -781,6 +789,7 @@ export const onNewsPostCreated = onDocumentWritten({
 
             await new Promise((resolve, reject) => {
                 let logoWidth = 99;
+                let hasAudioStream = false;
                 try {
                     const { execSync } = require('child_process');
                     const ffprobeStatic = require('ffprobe-static');
@@ -789,43 +798,129 @@ export const onNewsPostCreated = onDocumentWritten({
                     if (videoWidth <= 450) logoWidth = 54;
                     else if (videoWidth <= 950) logoWidth = 99;
                     else logoWidth = 144;
+
+                    const audioProbe = execSync(`"${ffprobeStatic.path}" -v error -select_streams a:0 -show_entries stream=codec_name -of csv=s=x:p=0 "${videoPath}"`).toString().trim();
+                    hasAudioStream = audioProbe.length > 0;
                 } catch (e) {}
 
                 let cmd = ffmpeg(videoPath).input(audioPath);
                 if (hasLogo) cmd.input(logoPath);
 
-                const filters = [];
-                let vMap = '[0:v]';
+                const filterGraph: any[] = [];
                 if (hasLogo) {
-                    filters.push(`[2:v]scale=${logoWidth}:-1[logo]`);
-                    filters.push(`[0:v][logo]overlay=W-w-25:25[vlogo]`);
-                    vMap = '[vlogo]';
+                    filterGraph.push({ filter: 'scale', options: `${logoWidth}:-1`, inputs: '2:v', outputs: 'logo' });
+                    filterGraph.push({ filter: 'overlay', options: 'W-w-25:25', inputs: ['0:v', 'logo'], outputs: 'vlogo' });
                 } else {
-                    filters.push("[0:v]null[vlogo]");
+                    filterGraph.push({ filter: 'null', inputs: '0:v', outputs: 'vlogo' });
                 }
-                filters.push(`[vlogo]format=yuv420p[vf]`);
+                filterGraph.push({ filter: 'format', options: 'yuv420p', inputs: 'vlogo', outputs: 'vf' });
 
-                let ttsDuration = 0;
-                try {
-                    const { execSync } = require('child_process');
-                    const ffprobeStatic = require('ffprobe-static');
-                    const ttsProbe = execSync(`"${ffprobeStatic.path}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`).toString().trim();
-                    ttsDuration = parseFloat(ttsProbe) || 0;
-                } catch (e) {}
+                if (hasAudioStream) {
+                    let ttsDuration = 0;
+                    try {
+                        const { execSync } = require('child_process');
+                        const ffprobeStatic = require('ffprobe-static');
+                        const ttsProbe = execSync(`"${ffprobeStatic.path}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`).toString().trim();
+                        ttsDuration = parseFloat(ttsProbe) || 0;
+                    } catch (e) {}
 
-                filters.push(`[0:a]volume='if(lt(t,${ttsDuration}),0.15,1)':eval=frame,volume=1.2[ducked]`);
-                // Enhance TTS: Pro Quality Stereo (Haas Effect) + Clarity EQ + Reverb
-                // 1. Split mono to 2 channels
-                // 2. Delay one side by 25ms to create space
-                // 3. Apply subtle reverb for "Studio Room" feel
-                filters.push("[1:a]volume=2.2,asplit[left][right];[right]adelay=25|25[delayed_right];[left][delayed_right]amerge=2,anequalizer=c0 f=3000 w=200 g=2|c1 f=3000 w=200 g=2,aecho=0.8:0.88:20:0.2[enhanced_tts]");
-                filters.push("[ducked][enhanced_tts]amix=inputs=2:duration=longest:normalize=0[outa]");
+                    // Mute original video audio (volume 0) during voice-over (t < ttsDuration), restore 100% sound (volume 1) after voice-over
+                    filterGraph.push({
+                        filter: 'volume',
+                        options: {
+                            volume: `if(gte(t,${ttsDuration}),1,0)`,
+                            eval: 'frame'
+                        },
+                        inputs: '0:a',
+                        outputs: 'ducked_raw'
+                    });
+                    filterGraph.push({
+                        filter: 'aformat',
+                        options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' },
+                        inputs: 'ducked_raw',
+                        outputs: 'ducked'
+                    });
 
-                cmd.complexFilter(filters.join(';'))
-                    .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', '[outa]', '-ar', '44100', '-ac', '2'])
-                    .save(outputPath)
-                    .on('end', () => resolve(true))
-                    .on('error', (err: any) => reject(err));
+                    filterGraph.push({
+                        filter: 'volume',
+                        options: 2.0,
+                        inputs: '1:a',
+                        outputs: 'tts_vol'
+                    });
+                    filterGraph.push({
+                        filter: 'aformat',
+                        options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' },
+                        inputs: 'tts_vol',
+                        outputs: 'enhanced_tts'
+                    });
+
+                    filterGraph.push({
+                        filter: 'amix',
+                        options: { inputs: 2, duration: 'longest', dropout_transition: 0, normalize: 0 },
+                        inputs: ['ducked', 'enhanced_tts'],
+                        outputs: 'outa'
+                    });
+
+                    cmd.complexFilter(filterGraph)
+                        .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', '[outa]', '-ar', '44100', '-ac', '2'])
+                        .save(outputPath)
+                        .on('end', () => resolve(true))
+                        .on('error', (err: any) => {
+                            console.warn(`[FFMPEG_WARN] Complex filter failed for ${postId}, falling back to ducked merge: ${err.message}`);
+                            // Fallback: Mix muted original audio and TTS
+                            const fallbackFilters: any[] = [
+                                {
+                                    filter: 'volume',
+                                    options: {
+                                        volume: `if(gte(t,${ttsDuration}),1,0)`,
+                                        eval: 'frame'
+                                    },
+                                    inputs: '0:a',
+                                    outputs: 'ducked'
+                                },
+                                {
+                                    filter: 'amix',
+                                    options: { inputs: 2, duration: 'longest', normalize: 0 },
+                                    inputs: ['ducked', '1:a'],
+                                    outputs: 'aout'
+                                }
+                            ];
+                            ffmpeg(videoPath)
+                                .input(audioPath)
+                                .complexFilter(fallbackFilters)
+                                .outputOptions(['-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '[aout]'])
+                                .save(outputPath)
+                                .on('end', () => resolve(true))
+                                .on('error', (err2: any) => reject(err2));
+                        });
+                } else {
+                    // Silent Video: Directly map video and TTS audio without ducking
+                    filterGraph.push({
+                        filter: 'volume',
+                        options: 2.0,
+                        inputs: '1:a',
+                        outputs: 'tts_vol'
+                    });
+                    filterGraph.push({
+                        filter: 'aformat',
+                        options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' },
+                        inputs: 'tts_vol',
+                        outputs: 'enhanced_tts'
+                    });
+
+                    cmd.complexFilter(filterGraph)
+                        .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', '[enhanced_tts]', '-ar', '44100', '-ac', '2'])
+                        .save(outputPath)
+                        .on('end', () => resolve(true))
+                        .on('error', (err: any) => {
+                            ffmpeg(videoPath)
+                                .input(audioPath)
+                                .outputOptions(['-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0'])
+                                .save(outputPath)
+                                .on('end', () => resolve(true))
+                                .on('error', (err2: any) => reject(err2));
+                        });
+                }
             });
 
             const ytSettings = await db.collection('settings').doc('youtube').get();
@@ -850,7 +945,6 @@ export const onNewsPostCreated = onDocumentWritten({
 
             // Award points to ORIGINAL reporter for video publication
             if (isReporter && originalReporterId) {
-                // Re-fetch to get latest quality signals from AI phase
                 const freshDoc = await db.collection('news').doc(postId).get();
                 const freshData = freshDoc.data();
                 const points = calculateIncentivePoints(true, freshData?.qualitySignals);
@@ -858,11 +952,22 @@ export const onNewsPostCreated = onDocumentWritten({
                 await awardPointsToReporter(originalReporterId, points);
                 await notifyReporter(originalReporterId, postId, data.headline?.telugu || "", 'SUCCESS');
             }
-
-            [videoPath, audioPath, outputPath].forEach(p => { if (fs.existsSync(p)) fs.unlinkSync(p); });
         } catch (err: any) {
-            console.error(`[VIDEO_ERR] ${postId}:`, err.message);
-            await db.collection('news').doc(postId).update({ status: "FAILED", error: err.message });
+            console.error(`[VIDEO_ERR] ${postId}: ${err.message}. Locking post in FAILED_YOUTUBE_UPLOAD to prevent storage egress loop.`);
+            // Lock in FAILED_YOUTUBE_UPLOAD so it never retries automatically or streams raw video from Firebase Storage to users
+            await db.collection('news').doc(postId).update({
+                status: "FAILED_YOUTUBE_UPLOAD",
+                approved: false,
+                videoProcessed: false,
+                processingError: err.message,
+                failedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        } finally {
+            [videoPath, audioPath, outputPath].forEach(p => { 
+                if (p && fs.existsSync(p)) {
+                    try { fs.unlinkSync(p); } catch (e) {}
+                } 
+            });
         }
     }
 });

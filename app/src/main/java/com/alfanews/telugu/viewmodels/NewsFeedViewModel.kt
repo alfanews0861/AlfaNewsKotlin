@@ -639,11 +639,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
            val scoredNews = remainingNormal.filter { it.id !in freshIdsTotal }.map { post ->
                post to (try { AnalyticsService.calculateRelevanceScore(post) } catch (e: Exception) { 0.0 })
-           }.sortedByDescending { it.second }.take(personalizedCount).map { it.first }
+           }.sortedByDescending { it.second }.take(personalizedCount).map { it.first }.sortedByDescending { it.timestamp }
            val personalizedIds = scoredNews.map { it.id }.toSet()
 
            val discoveryNews = remainingNormal.filter { it.id !in freshIdsTotal && it.id !in personalizedIds }
-               .filter { post -> post.categories.none { it in preferredCategories } }.shuffled().take(discoveryCount)
+               .filter { post -> post.categories.none { it in preferredCategories } }.sortedByDescending { it.timestamp }.take(discoveryCount)
 
            val blendedNews = (top5Fresh + freshNewsRemaining + scoredNews + discoveryNews).toMutableList()
 
