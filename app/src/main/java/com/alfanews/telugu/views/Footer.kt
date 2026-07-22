@@ -31,53 +31,52 @@ fun Footer(
     activeTab: String,
     onTabChange: (String) -> Unit
 ) {
-    // Small change to trigger rebuild
-    val tab = activeTab
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.98f)) // Slightly grey background
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.98f),
+        tonalElevation = 3.dp
     ) {
-        Column {
-            NavigationBar(
-                modifier = Modifier.fillMaxWidth().height(64.dp),
-                containerColor = Color.Transparent,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                tonalElevation = 0.dp,
-                windowInsets = WindowInsets.navigationBars
-            ) {
-                FooterItem(
-                    icon = Icons.Default.Home,
-                    label = stringResource(R.string.nav_home),
-                    isActive = activeTab == "home",
-                    onClick = { onTabChange("home") }
-                )
-                FooterItem(
-                    icon = Icons.Default.LocationOn,
-                    label = stringResource(R.string.nav_local),
-                    isActive = activeTab == "local",
-                    onClick = { onTabChange("local") }
-                )
-                FooterItem(
-                    icon = Icons.Default.AddCircle,
-                    label = stringResource(R.string.nav_post),
-                    isActive = activeTab == "create",
-                    isSpecial = true,
-                    onClick = { onTabChange("create") }
-                )
-                FooterItem(
-                    icon = Icons.Default.List,
-                    label = stringResource(R.string.nav_classifieds),
-                    isActive = activeTab == "classifieds",
-                    onClick = { onTabChange("classifieds") }
-                )
-                FooterItem(
-                    icon = Icons.Default.Person,
-                    label = stringResource(R.string.nav_profile),
-                    isActive = activeTab == "profile",
-                    onClick = { onTabChange("profile") }
-                )
-            }
+        NavigationBar(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .height(64.dp), // Medium size footer height
+            containerColor = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            tonalElevation = 0.dp,
+            windowInsets = WindowInsets.navigationBars
+        ) {
+            FooterItem(
+                icon = Icons.Default.Home,
+                label = stringResource(R.string.nav_home),
+                isActive = activeTab == "home",
+                onClick = { onTabChange("home") }
+            )
+            FooterItem(
+                icon = Icons.Default.LocationOn,
+                label = stringResource(R.string.nav_local),
+                isActive = activeTab == "local",
+                onClick = { onTabChange("local") }
+            )
+            FooterItem(
+                icon = Icons.Default.AddCircle,
+                label = stringResource(R.string.nav_post),
+                isActive = activeTab == "create",
+                isSpecial = true,
+                onClick = { onTabChange("create") }
+            )
+            FooterItem(
+                icon = Icons.Default.List,
+                label = stringResource(R.string.nav_classifieds),
+                isActive = activeTab == "classifieds",
+                onClick = { onTabChange("classifieds") }
+            )
+            FooterItem(
+                icon = Icons.Default.Person,
+                label = stringResource(R.string.nav_profile),
+                isActive = activeTab == "profile",
+                onClick = { onTabChange("profile") }
+            )
         }
     }
 }
@@ -91,46 +90,36 @@ fun RowScope.FooterItem(
     onClick: () -> Unit
 ) {
     val selectedColor = MaterialTheme.colorScheme.primary
-    val unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+    val unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+    val specialBlueColor = Color(0xFF4285F4) // Special Blue color for middle + icon
     
+    val iconColor = when {
+        isSpecial -> specialBlueColor
+        isActive -> selectedColor
+        else -> unselectedColor
+    }
+
     NavigationBarItem(
         icon = {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                if (isSpecial) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .background(
-                                color = Color(0xFF4285F4), // Solid Google Blue
-                                shape = CircleShape
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = label,
-                            modifier = Modifier.size(18.dp),
-                            tint = Color.White
-                        )
-                    }
-                } else {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = label,
-                        modifier = Modifier.size(24.dp),
-                        tint = if (isActive) selectedColor else unselectedColor
-                    )
-                }
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    modifier = Modifier.size(26.dp), // Visually clear & balanced size
+                    tint = iconColor
+                )
+                
+                Spacer(modifier = Modifier.height(2.dp))
                 
                 Text(
                     text = label,
-                    fontSize = 10.sp,
+                    fontSize = 11.sp, // Clear & highly legible label
                     fontFamily = if (label.any { it.code > 127 }) Mallanna else Poppins,
-                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isActive) selectedColor else unselectedColor,
+                    fontWeight = if (isActive || isSpecial) FontWeight.Bold else FontWeight.Medium,
+                    color = iconColor,
                     maxLines = 1,
                     letterSpacing = 0.sp
                 )
