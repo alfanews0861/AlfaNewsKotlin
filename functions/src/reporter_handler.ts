@@ -9,6 +9,16 @@ const db = admin.firestore();
 const MILESTONE_SIZE = 500;
 const POINTS_PER_MILESTONE = 50;
 
+// ==========================================
+// WELCOME NOTIFICATION MESSAGES
+// App download చేసిన వెంటనే పంపాలి
+// ==========================================
+const WELCOME_MESSAGES = [
+    { title: 'అల్ఫా న్యూస్‌కు సుస్వాగతం! 🌟', body: 'తెలుగు వార్తలు చదవడానికి స్వాగతం! తాజా వార్తలు మీ వార్తలు — అన్నీ ఒకేచోట చదవండి.' },
+    { title: 'నమస్కారం! Alfa News లోకి క్రోస్ చేసినందుకు ధన్యవాదాలు 🙏', body: 'మీ జిల్లా వార్తలు, చుట్టుప్రక్కల వార్తలు — అన్నీ ఇక్కడే చదవండి!' },
+    { title: 'Alfa News లో స్వాగతం! 📰', body: 'తెలంగాణ, ఆంధ్రప్రదేశ్ వార్తలు వేగంగా, నిజాయితిగా — మీకు ందిస్తాం!' },
+];
+
 /**
  * Helper: Notify reporter with human-friendly messages
  */
@@ -121,7 +131,8 @@ export async function awardPointsToReporter(reporterId: string, points: number) 
 
             transaction.set(userRef, {
                 points: currentPoints,
-                badges: badges
+                badges: badges,
+                lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
 
             if (monthlyDoc.exists) {
@@ -329,6 +340,13 @@ export const processReporterSubmission = onCall(async (request) => {
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         };
 
+        const reporterId = request.auth?.uid || (typeof postData?.reporter === 'string' ? postData.reporter : postData?.reporter?.id);
+        if (reporterId && !reporterId.startsWith('BOT_') && !reporterId.startsWith('SYSTEM_')) {
+            await db.collection('users').doc(reporterId).set({
+                lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+        }
+
         if (postId) {
             await db.collection('news').doc(postId).update(finalData);
             return { success: true, postId: postId, message: "వార్త అప్‌డేట్ అవుతోంది (నేపథ్యంలో)..." };
@@ -364,10 +382,42 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         throw new HttpsError('invalid-argument', 'జిల్లా మరియు మండలం తప్పనిసరి.');
     }
 
-    const trimmedDistrict = district.trim();
-    const trimmedMandal = mandal.trim();
+    const rawDistrict = district || data.assignedDistrict || data.selectedDistrict || "";
+    const rawMandal = mandal || data.assignedMandal || data.selectedMandal || data.mandalam || "";
+    const trimmedDistrict = String(rawDistrict).trim();
+    const trimmedMandal = String(rawMandal).trim();
 
-    // Check if reporter already exists for this mandal in users collection
+    if (!trimmedDistrict || !trimmedMandal) {
+        throw new HttpsError('invalid-argument', 'జిల్లా మరియు మండలం తప్పనిసరి.');
+    }
+
+    // 1. Check if THIS USER (userId or phone) already has a PENDING application
+    if (userId) {
+        const userPendingSnap = await db.collection('reporter_applications')
+            .where('userId', '==', userId)
+            .where('status', '==', 'PENDING')
+            .limit(1)
+            .get();
+
+        if (!userPendingSnap.empty) {
+            throw new HttpsError('already-exists', 'మీ దరఖాస్తు ఇప్పటికే పరిశీలనలో (PENDING) ఉంది. దయచేసి అడ్మిన్ నిర్ణయం కోసం వేచి చూడండి.');
+        }
+    }
+
+    if (phone) {
+        const cleanPhone = phone.trim().replace(/\s+/g, '').replace(/^\+91/, '');
+        const phonePendingSnap = await db.collection('reporter_applications')
+            .where('status', '==', 'PENDING')
+            .where('phone', '==', cleanPhone)
+            .limit(1)
+            .get();
+
+        if (!phonePendingSnap.empty) {
+            throw new HttpsError('already-exists', 'ఈ ఫోన్ నంబర్‌తో దరఖాస్తు ఇప్పటికే పరిశీలనలో (PENDING) ఉంది.');
+        }
+    }
+
+    // 2. Check if reporter already exists for this mandal in users collection
     const reporterQuery = db.collection('users')
         .where('role', 'in', ['REPORTER', 2, 2.0])
         .where('district', '==', trimmedDistrict)
@@ -375,7 +425,7 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         .limit(1)
         .get();
 
-    // Check if there is already a JOINED application for this mandal
+    // 3. Check if there is already a JOINED application for this mandal
     const appQuery = db.collection('reporter_applications')
         .where('status', '==', 'JOINED')
         .where('district', '==', trimmedDistrict)
@@ -419,18 +469,44 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         Educational Qualification: ${education || 'N/A'}
         Currently Working Organization: ${currentOrg || 'N/A'}
         State: ${state || 'N/A'}
-        District: ${trimmedDistrict}
-        Mandal: ${trimmedMandal}
+        District: ${trimmedDistrict || 'N/A'}
+        Mandal: ${trimmedMandal || 'N/A'}
         Message: ${message || 'N/A'}
         User ID: ${userId || 'N/A'}
+    `;
+
+    const htmlEmail = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; margin: 0 auto;">
+            <div style="background-color: #d32f2f; color: white; padding: 16px; text-align: center; font-size: 20px; font-weight: bold;">
+                Alfa News - కొత్త రిపోర్టర్ దరఖాస్తు
+            </div>
+            <div style="padding: 20px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                    <tr><td style="padding: 8px; font-weight: bold; width: 180px;">పేరు (Full Name):</td><td style="padding: 8px;">${fullName || 'N/A'}</td></tr>
+                    <tr style="background-color: #f9f9f9;"><td style="padding: 8px; font-weight: bold;">తండ్రి పేరు (Father's Name):</td><td style="padding: 8px;">${fatherName || 'N/A'}</td></tr>
+                    <tr><td style="padding: 8px; font-weight: bold;">ఫోన్ నంబర్ (Phone):</td><td style="padding: 8px;">${phone || 'N/A'}</td></tr>
+                    <tr style="background-color: #f9f9f9;"><td style="padding: 8px; font-weight: bold;">చిరునామా (Address):</td><td style="padding: 8px;">${address || 'N/A'}</td></tr>
+                    <tr><td style="padding: 8px; font-weight: bold;">రాష్ట్రం (State):</td><td style="padding: 8px;">${state || 'N/A'}</td></tr>
+                    <tr style="background-color: #ffebee;"><td style="padding: 8px; font-weight: bold; color: #d32f2f;">జిల్లా (District):</td><td style="padding: 8px; font-weight: bold; color: #d32f2f; font-size: 16px;">${trimmedDistrict || 'N/A'}</td></tr>
+                    <tr style="background-color: #ffebee;"><td style="padding: 8px; font-weight: bold; color: #d32f2f;">మండలం (Mandal):</td><td style="padding: 8px; font-weight: bold; color: #d32f2f; font-size: 16px;">${trimmedMandal || 'N/A'}</td></tr>
+                    <tr><td style="padding: 8px; font-weight: bold;">కోరిన పదవి (Position):</td><td style="padding: 8px;">${position || 'N/A'}</td></tr>
+                    <tr style="background-color: #f9f9f9;"><td style="padding: 8px; font-weight: bold;">ఆసక్తి ఉన్న విభాగం:</td><td style="padding: 8px;">${interestedArea || 'N/A'}</td></tr>
+                    <tr><td style="padding: 8px; font-weight: bold;">విద్యార్హత (Education):</td><td style="padding: 8px;">${education || 'N/A'}</td></tr>
+                    <tr style="background-color: #f9f9f9;"><td style="padding: 8px; font-weight: bold;">ప్రస్తుత సంస్థ:</td><td style="padding: 8px;">${currentOrg || 'N/A'}</td></tr>
+                    <tr><td style="padding: 8px; font-weight: bold;">సందేశం (Message):</td><td style="padding: 8px;">${message || 'N/A'}</td></tr>
+                    <tr style="background-color: #f9f9f9;"><td style="padding: 8px; font-weight: bold;">User ID:</td><td style="padding: 8px;">${userId || 'N/A'}</td></tr>
+                </table>
+            </div>
+        </div>
     `;
 
     try {
         await transporter.sendMail({
             from: `"Alfa News Applications" <${process.env.EMAIL_USER}>`,
             to: 'alfanews0861@gmail.com',
-            subject: `Reporter Application: ${fullName || 'N/A'} (${position || 'N/A'})`,
-            text: emailContent
+            subject: `రిపోర్టర్ దరఖాస్తు: ${fullName || 'N/A'} (${trimmedDistrict} - ${trimmedMandal})`,
+            text: emailContent,
+            html: htmlEmail
         });
     } catch (error: any) {
         console.error("Email send failed during application submission:", error.message);
@@ -452,13 +528,48 @@ export const onNewsPostApproved = onDocumentWritten({
 
     // Trigger only if status changes to published or approved becomes true
     if (after && after.approved === true && before?.approved !== true) {
-        const reporterId = after.reporter?.id;
+        const reporterId = (typeof after.reporter === 'string' ? after.reporter : after.reporter?.id) || after.reporterId || after.originalReporterId;
         if (!reporterId || reporterId.startsWith('BOT_') || reporterId.startsWith('SYSTEM_')) return;
 
         console.log(`[POST_APPROVED] Updating lastPostTimestamp for reporter: ${reporterId}`);
         await db.collection('users').doc(reporterId).set({
             lastPostTimestamp: after.timestamp || admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
+    }
+});
+
+/**
+ * Automatically reset warning levels and set promotion timestamps when a user is assigned/upgraded to REPORTER
+ */
+export const onUserRoleChanged = onDocumentWritten({
+    document: "users/{userId}",
+    region: REGION,
+}, async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+
+    if (!after) return;
+
+    const beforeRole = String(before?.role || '').toUpperCase();
+    const afterRole = String(after.role || '').toUpperCase();
+
+    const isBeforeReporter = ['REPORTER', '2', '2.0'].includes(beforeRole) || before?.role === 2 || before?.role === 2.0;
+    const isAfterReporter = ['REPORTER', '2', '2.0'].includes(afterRole) || after.role === 2 || after.role === 2.0;
+
+    // Check if user was newly promoted / upgraded to REPORTER
+    if (!isBeforeReporter && isAfterReporter) {
+        console.log(`[ROLE_UPGRADED] User ${event.params.userId} upgraded to REPORTER. Setting grace period timestamps...`);
+        
+        // Prevent endless trigger loops by checking if timestamps are already zeroed/set
+        if (!after.promotedAt || after.warningLevel !== 0) {
+            await event.data?.after.ref.update({
+                warningLevel: 0,
+                inProbation: false,
+                lastWarningDate: null,
+                promotedAt: admin.firestore.FieldValue.serverTimestamp(),
+                lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
     }
 });
 
@@ -608,6 +719,7 @@ export async function getAssignedReporter(district: string, mandalam: string): P
 /**
  * Cloud Function to process new user referrals.
  * Award 50 points to the referrer when a new user document is created.
+ * ✅ ADDED: Welcome notification to the new user immediately on download.
  */
 export const onUserCreated = onDocumentCreated({
     document: "users/{userId}",
@@ -619,13 +731,71 @@ export const onUserCreated = onDocumentCreated({
     const referredBy = data.referredBy;
     const userId = event.params.userId;
 
+    // ==========================================
+    // WELCOME NOTIFICATION — App download చేసిన వెంటనే
+    // ==========================================
+    try {
+        // Token save అవ్వడానికి 5 సెకండ్లు వేచ్చు కొందాం (జాగ్రత్తగా)
+        await new Promise(resolve => setTimeout(resolve, 5000));
+
+        // Fresh token read చేస్తాం (ప్రారంభంలో token రాకపోవచ్చు)
+        const freshDoc = await db.collection('users').doc(userId).get();
+        const freshData = freshDoc.data();
+
+        const tokens: string[] = [];
+        if (freshData?.fcmToken) tokens.push(freshData.fcmToken);
+        if (Array.isArray(freshData?.fcmTokens)) {
+            freshData.fcmTokens.forEach((t: any) => {
+                if (t && typeof t === 'string' && !tokens.includes(t)) tokens.push(t);
+            });
+        }
+
+        if (tokens.length > 0) {
+            // Random welcome message select చేస్తాం
+            const welcome = WELCOME_MESSAGES[Math.floor(Math.random() * WELCOME_MESSAGES.length)];
+            const userName = freshData?.name || freshData?.displayName;
+            const title = userName
+                ? `నమస్కారం ${userName.split(' ')[0]}! Alfa News లో స్వాగతం 🌟`
+                : welcome.title;
+
+            const welcomeMessage: admin.messaging.Message = {
+                android: {
+                    priority: 'high',
+                    ttl: 86400000, // 24 hours — welcome ఒక్కరోజు valid
+                    directBootOk: true,
+                },
+                data: {
+                    type: 'WELCOME',
+                    channelId: 'general_news',
+                    title: title,
+                    body: welcome.body,
+                    click_action: 'OPEN_HOME',
+                    actionUrl: '',
+                    newsId: '',
+                    imageUrl: '',
+                },
+                token: tokens[0]  // మొదటి token కి పంపిస్తాం
+            };
+
+            await admin.messaging().send(welcomeMessage).catch(err => {
+                console.error(`[WELCOME_NOTIFY] Failed to send to ${userId}:`, err.message);
+            });
+            console.log(`[WELCOME_NOTIFY] ✅ Sent welcome notification to new user: ${userId}`);
+        } else {
+            console.log(`[WELCOME_NOTIFY] No token yet for user ${userId} — skipping welcome.`);
+        }
+    } catch (err: any) {
+        console.error(`[WELCOME_NOTIFY_ERR] ${userId}:`, err.message);
+    }
+
+    // ==========================================
+    // REFERRAL HANDLING (existing logic)
+    // ==========================================
     if (referredBy && referredBy !== userId) {
         console.log(`[REFERRAL] User ${userId} was referred by ${referredBy}. Awarding 50 points.`);
 
-        // Award 50 points to the referrer
         await awardPointsToReporter(referredBy, 50);
 
-        // Increment referralCount on the referrer
         const referrerRef = db.collection('users').doc(referredBy);
         try {
             await db.runTransaction(async (transaction) => {
@@ -642,7 +812,7 @@ export const onUserCreated = onDocumentCreated({
             console.error(`[REFERRAL_ERR] Error incrementing referralCount for ${referredBy}:`, e.message);
         }
 
-        // Send Push Notification to referrer
+        // ✅ FIX: Data-only message (yesterday's delivery fix consistent)
         try {
             const referrerDoc = await referrerRef.get();
             if (referrerDoc.exists) {
@@ -658,27 +828,27 @@ export const onUserCreated = onDocumentCreated({
                 if (tokens.length > 0) {
                     const title = 'పాయింట్లు లభించాయి! 🎁';
                     const body = 'మీ రిఫరల్ లింక్ ద్వారా ఒకరు యాప్‌ను డౌన్‌లోడ్ చేసుకున్నందుకు మీకు 50 పాయింట్లు లభించాయి.';
-                    
-                    const message = {
-                        notification: { title, body },
-                        android: {
-                            notification: {
-                                channelId: "general_news",
-                                priority: "high" as any,
-                                defaultSound: true
-                            }
-                        },
-                        data: {
-                            type: 'REFERRAL_SUCCESS',
-                            title,
-                            body
-                        }
-                    };
 
                     await Promise.all(tokens.map(token =>
-                        admin.messaging().send({ ...message, token }).catch(() => {})
+                        admin.messaging().send({
+                            android: {
+                                priority: 'high',
+                                ttl: 86400000,
+                                directBootOk: true,
+                            },
+                            data: {
+                                type: 'REFERRAL_SUCCESS',
+                                channelId: 'general_news',
+                                title,
+                                body,
+                                actionUrl: '',
+                                newsId: '',
+                                imageUrl: '',
+                            },
+                            token
+                        }).catch(() => {})
                     ));
-                    console.log(`[REFERRAL] Sent notification to ${referredBy}`);
+                    console.log(`[REFERRAL] Sent data-only notification to ${referredBy}`);
                 }
             }
         } catch (err: any) {
@@ -686,3 +856,59 @@ export const onUserCreated = onDocumentCreated({
         }
     }
 });
+
+/**
+ * ✅ NEW: Welcome notification for anonymous (guest) users.
+ * App install చేసి Sign-up చేయకుండా వున్న users కోసం.
+ * anonymous_devices collection లో కొత్త document సేవ్ అయినప్పుడు trigger అవుతుంది.
+ */
+export const onAnonymousDeviceCreated = onDocumentCreated({
+    document: "anonymous_devices/{deviceId}",
+    region: REGION
+}, async (event) => {
+    const data = event.data?.data();
+    if (!data) return;
+
+    const token = data.fcmToken;
+    if (!token || typeof token !== 'string') {
+        console.log(`[WELCOME_ANON] No token in anonymous_devices/${event.params.deviceId}`);
+        return;
+    }
+
+    try {
+        // Random welcome message
+        const welcome = WELCOME_MESSAGES[Math.floor(Math.random() * WELCOME_MESSAGES.length)];
+
+        const welcomeMessage: admin.messaging.Message = {
+            android: {
+                priority: 'high',
+                ttl: 86400000, // 24 hours
+                directBootOk: true,
+            },
+            data: {
+                type: 'WELCOME',
+                channelId: 'general_news',
+                title: welcome.title,
+                body: welcome.body,
+                click_action: 'OPEN_HOME',
+                actionUrl: '',
+                newsId: '',
+                imageUrl: '',
+            },
+            token
+        };
+
+        await admin.messaging().send(welcomeMessage);
+        console.log(`[WELCOME_ANON] ✅ Sent welcome to anonymous device: ${event.params.deviceId}`);
+    } catch (err: any) {
+        if (err.code === 'messaging/registration-token-not-registered' ||
+            err.code === 'messaging/invalid-registration-token') {
+            // Invalid token — delete the document
+            await event.data?.ref.delete().catch(() => {});
+            console.log(`[WELCOME_ANON] Deleted invalid anonymous device: ${event.params.deviceId}`);
+        } else {
+            console.error(`[WELCOME_ANON_ERR]:`, err.message);
+        }
+    }
+});
+

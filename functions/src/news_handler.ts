@@ -216,6 +216,10 @@ async function performAIProcessing(headline: string, content: string, actualPost
             tone: { type: Type.STRING },
             vocalContent: { type: Type.STRING },
             tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+            // ✅ NEW: AI స్వయంగా content చదివి breaking/notification decide చేస్తుంది
+            // notification time లో media/views recalculate అవసరం లేదు
+            isBreaking: { type: Type.BOOLEAN },          // Content-based breaking news flag
+            notificationWorthy: { type: Type.BOOLEAN },  // Worthy of push notification?
             qualitySignals: {
                 type: Type.OBJECT,
                 properties: {
@@ -234,7 +238,7 @@ async function performAIProcessing(headline: string, content: string, actualPost
                 }
             }
         },
-        required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory", "isSafeForYouTube", "rejectionReason", "tags", "entities", "tone", "vocalContent"]
+        required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory", "isSafeForYouTube", "rejectionReason", "tags", "entities", "tone", "vocalContent", "isBreaking", "notificationWorthy"]
     };
 
     console.log(`[AI_START] Processing: ${headline.substring(0, 30)}... (Type: ${actualPostData?.isReporter ? 'Reporter' : 'Citizen'})`);
@@ -246,6 +250,22 @@ SUBMISSION METADATA:
 - isCitizen: ${actualPostData?.isCitizen === true}
 - district: ${actualPostData?.district || 'Unknown'}
 - location: ${actualPostData?.location || 'Unknown'}
+
+NOTIFICATION INSTRUCTIONS (CRITICAL):
+- isBreaking: true ONLY if the news is genuinely urgent and time-sensitive
+  (accidents, deaths, natural disasters, major political decisions, crimes, emergency events).
+  Do NOT set true for routine news, press meets, events, or opinion pieces.
+- notificationWorthy: true if the news is relevant to a broad audience and worth sending as a push notification.
+  Set false for: personal praise, promotional content, routine government meetings,
+  repetitive news, or low-public-interest items.
+  Set true for: accidents, crimes, major policy changes, sports results, health alerts,
+  district-level events that affect common people.
+- tone options: BREAKING | URGENT | IMPORTANT | NORMAL | SOFT
+  Use BREAKING only for truly breaking news (disasters, sudden deaths, major crimes).
+  Use URGENT for time-sensitive but not breaking news.
+  Use IMPORTANT for significant but not urgent news.
+  Use NORMAL for general news.
+  Use SOFT for feel-good / inspirational stories.
 `;
 
     return await runWithAIFallback(async (ai, modelName) => {
@@ -355,6 +375,9 @@ SUBMISSION METADATA:
             vocalContent: aiRes.vocalContent || finalContent || "",
             qualitySignals: aiRes.qualitySignals || { biasScore: 0.5, publicInterestScore: 0.5, investigativeScore: 0, isPersonalPraise: false },
             storyFingerprint: aiRes.storyFingerprint || `gen_${Date.now()}`,
+            // ✅ AI-decided notification flags — set once, never recalculated
+            isBreaking: aiRes.isBreaking === true,
+            notificationWorthy: aiRes.notificationWorthy !== false, // default true unless AI says false
             aiProcessed: true,
             aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
@@ -461,7 +484,7 @@ export const onNewsPostCreated = onDocumentWritten({
         passiveFields.includes(key) || JSON.stringify(data[key]) === JSON.stringify(beforeData[key])
     );
 
-    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED", "ARCHIVED", "FAILED_YOUTUBE_UPLOAD", "PENDING_YOUTUBE_RETRY"];
+    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED", "ARCHIVED", "FAILED_YOUTUBE_UPLOAD", "PENDING_YOUTUBE_RETRY"];
 
     if (LOCKED_STATUSES.includes(status) && !data.forceReprocess) {
         // If it's already locked and not a forced reprocess, skip immediately without reading DB again
@@ -572,6 +595,9 @@ export const onNewsPostCreated = onDocumentWritten({
                     console.log(`[REPORTER_ASSIGN] Reassigning ${postId} to ${assignedReporter.name} for mandalam ${targetMandalam}`);
                     aiProcessedData.reporter = assignedReporter;
                     aiProcessedData.isReporter = true;
+                    if (originalReporterId) {
+                        aiProcessedData.originalReporterId = originalReporterId;
+                    }
                 }
             }
             // ------------------------------------------
@@ -624,7 +650,17 @@ export const onNewsPostCreated = onDocumentWritten({
     const videoIndex = mTypes.indexOf('VIDEO') !== -1 ? mTypes.indexOf('VIDEO') : (data.mediaType?.toUpperCase() === 'VIDEO' ? 0 : -1);
     const videoUrl = (videoIndex !== -1 && data.mediaUrls && data.mediaUrls[videoIndex]) || (videoIndex === 0 ? data.mediaUrl : null);
 
-    if (data.aiProcessed && status === "PROCESSING_VIDEO" && !data.videoProcessed && videoUrl) {
+    if (data.aiProcessed && status === "PROCESSING_VIDEO" && !data.videoProcessed) {
+        if (!videoUrl) {
+            console.error(`[VIDEO_ERR] ${postId}: Missing video URL for PROCESSING_VIDEO post.`);
+            await db.collection('news').doc(postId).update({
+                status: "published",
+                approved: true,
+                videoProcessed: false,
+                processingError: "Missing video URL"
+            });
+            return;
+        }
         // Double check against DB to avoid race conditions from onDocumentWritten
         const latestDoc = await db.collection('news').doc(postId).get();
         const latestData = latestDoc.data();
@@ -698,6 +734,9 @@ export const onNewsPostCreated = onDocumentWritten({
 
             let teluguVocal = data.vocalContent || teluguNews;
 
+            // Filter out intro greetings like "నమస్కారం" so they don't get read in voiceover
+            teluguVocal = teluguVocal.replace(/^(నమస్కారం|నమస్కారమండి|నమస్కారాలు|నమస్తే)[,\s!.]*/gi, '').trim();
+
             // 1. PROTECT STRESS TAGS and CLEAN OTHER BRACKETS
             // First, hide the STRESS tags so they don't get destroyed by bracket cleanup
             let vocal = teluguVocal.replace(/\[\[STRESS\]\]/g, '___STRESS_START___')
@@ -724,6 +763,7 @@ export const onNewsPostCreated = onDocumentWritten({
             // Avoid adding explicit <break> tags after every dot/comma as Chirp HD handles punctuation naturally.
             // Forced breaks after initials (e.g. టి., డి.ఎస్.పి.) or acronyms/decimals cause choppy stuttering in sentence 1.
             let processedText = baseText;
+            processedText = processedText.replace(/,\s*/g, ', ');
             processedText = processedText.replace(/అంటే\.\.\./g, 'అంటే... <break time="120ms"/>');
             processedText = processedText.replace(/ఆ\.\.\./g, 'ఆ... <break time="100ms"/>');
             processedText = processedText.replace(/\.\.\./g, '... <break time="150ms"/>');
@@ -790,31 +830,71 @@ export const onNewsPostCreated = onDocumentWritten({
             await new Promise((resolve, reject) => {
                 let logoWidth = 99;
                 let hasAudioStream = false;
+                let audioChannels = 2;
+                let videoWidth = 720;
+                let videoHeight = 1280;
+
                 try {
                     const { execSync } = require('child_process');
                     const ffprobeStatic = require('ffprobe-static');
-                    const probeOutput = execSync(`"${ffprobeStatic.path}" -v error -select_streams v:0 -show_entries stream=width -of csv=s=x:p=0 "${videoPath}"`).toString().trim();
-                    const videoWidth = parseInt(probeOutput) || 720;
+                    const probeOutput = execSync(`"${ffprobeStatic.path}" -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "${videoPath}"`).toString().trim();
+                    const parts = probeOutput.split('x');
+                    videoWidth = parseInt(parts[0]) || 720;
+                    videoHeight = parseInt(parts[1]) || 1280;
+
                     if (videoWidth <= 450) logoWidth = 54;
                     else if (videoWidth <= 950) logoWidth = 99;
                     else logoWidth = 144;
 
-                    const audioProbe = execSync(`"${ffprobeStatic.path}" -v error -select_streams a:0 -show_entries stream=codec_name -of csv=s=x:p=0 "${videoPath}"`).toString().trim();
+                    const audioProbe = execSync(`"${ffprobeStatic.path}" -v error -select_streams a:0 -show_entries stream=channels -of csv=s=x:p=0 "${videoPath}"`).toString().trim();
                     hasAudioStream = audioProbe.length > 0;
+                    if (hasAudioStream) {
+                        audioChannels = parseInt(audioProbe) || 2;
+                    }
                 } catch (e) {}
 
+                const isVertical = videoHeight > videoWidth;
+                const introFileName = isVertical ? 'YouTube_intro_BBC_style_9_16.mp4' : 'YouTube_channel_intro_16_9.mp4';
+                const outroFileName = isVertical ? 'alfanews_outro_like_share_9_16.mp4' : 'alfanews_outro_like_share_16_9.mp4';
+
+                const introPath = path.join(process.cwd(), 'assets', introFileName);
+                const outroPath = path.join(process.cwd(), 'assets', outroFileName);
+                const hasIntro = fs.existsSync(introPath);
+                const hasOutro = fs.existsSync(outroPath);
+
+                console.log(`[VIDEO_PROC] Res: ${videoWidth}x${videoHeight}, Vertical: ${isVertical}, HasIntro: ${hasIntro}, HasOutro: ${hasOutro}`);
+
                 let cmd = ffmpeg(videoPath).input(audioPath);
-                if (hasLogo) cmd.input(logoPath);
+                let logoInputIdx = -1;
+                let introInputIdx = -1;
+                let outroInputIdx = -1;
+                let currentIdx = 2;
+
+                if (hasLogo) {
+                    cmd.input(logoPath);
+                    logoInputIdx = currentIdx++;
+                }
+                if (hasIntro) {
+                    cmd.input(introPath);
+                    introInputIdx = currentIdx++;
+                }
+                if (hasOutro) {
+                    cmd.input(outroPath);
+                    outroInputIdx = currentIdx++;
+                }
 
                 const filterGraph: any[] = [];
-                if (hasLogo) {
-                    filterGraph.push({ filter: 'scale', options: `${logoWidth}:-2`, inputs: '2:v', outputs: 'logo' });
-                    filterGraph.push({ filter: 'overlay', options: 'W-w-25:25', inputs: ['0:v', 'logo'], outputs: 'vlogo' });
-                } else {
-                    filterGraph.push({ filter: 'null', inputs: '0:v', outputs: 'vlogo' });
-                }
-                filterGraph.push({ filter: 'format', options: 'yuv420p', inputs: 'vlogo', outputs: 'vf' });
 
+                // 1. Logo Watermark Overlay
+                if (hasLogo && logoInputIdx !== -1) {
+                    filterGraph.push({ filter: 'scale', options: `${logoWidth}:-2`, inputs: `${logoInputIdx}:v`, outputs: 'logo' });
+                    filterGraph.push({ filter: 'overlay', options: 'W-w-25:25', inputs: ['0:v', 'logo'], outputs: 'vlogo_raw' });
+                } else {
+                    filterGraph.push({ filter: 'null', inputs: '0:v', outputs: 'vlogo_raw' });
+                }
+
+                // 2. Audio Processing (Voiceover TTS + Muted/Ducked Original Video Audio)
+                let mainAudioLabel = 'outa';
                 if (hasAudioStream) {
                     let ttsDuration = 0;
                     try {
@@ -824,102 +904,62 @@ export const onNewsPostCreated = onDocumentWritten({
                         ttsDuration = parseFloat(ttsProbe) || 0;
                     } catch (e) {}
 
-                    // Mute original video audio (volume 0) during voice-over (t < ttsDuration), restore 100% sound (volume 1) after voice-over
                     filterGraph.push({
                         filter: 'volume',
-                        options: {
-                            volume: `if(gte(t,${ttsDuration}),1,0)`,
-                            eval: 'frame'
-                        },
+                        options: { volume: `if(gte(t,${ttsDuration}),1,0)`, eval: 'frame' },
                         inputs: '0:a',
                         outputs: 'ducked_raw'
                     });
-                    filterGraph.push({
-                        filter: 'aformat',
-                        options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' },
-                        inputs: 'ducked_raw',
-                        outputs: 'ducked'
-                    });
 
-                    filterGraph.push({
-                        filter: 'volume',
-                        options: 2.0,
-                        inputs: '1:a',
-                        outputs: 'tts_vol'
-                    });
-                    filterGraph.push({
-                        filter: 'aformat',
-                        options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' },
-                        inputs: 'tts_vol',
-                        outputs: 'enhanced_tts'
-                    });
+                    if (audioChannels === 1) {
+                        filterGraph.push({ filter: 'pan', options: 'stereo|c0=c0|c1=c0', inputs: 'ducked_raw', outputs: 'ducked_stereo' });
+                        filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: 'ducked_stereo', outputs: 'ducked' });
+                    } else {
+                        filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: 'ducked_raw', outputs: 'ducked' });
+                    }
 
-                    filterGraph.push({
-                        filter: 'amix',
-                        options: { inputs: 2, duration: 'longest', dropout_transition: 0, normalize: 0 },
-                        inputs: ['ducked', 'enhanced_tts'],
-                        outputs: 'outa'
-                    });
-
-                    cmd.complexFilter(filterGraph)
-                        .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', '[outa]', '-ar', '44100', '-ac', '2'])
-                        .save(outputPath)
-                        .on('end', () => resolve(true))
-                        .on('error', (err: any) => {
-                            console.warn(`[FFMPEG_WARN] Complex filter failed for ${postId}, falling back to ducked merge: ${err.message}`);
-                            // Fallback: Mix muted original audio and TTS
-                            const fallbackFilters: any[] = [
-                                {
-                                    filter: 'volume',
-                                    options: {
-                                        volume: `if(gte(t,${ttsDuration}),1,0)`,
-                                        eval: 'frame'
-                                    },
-                                    inputs: '0:a',
-                                    outputs: 'ducked'
-                                },
-                                {
-                                    filter: 'amix',
-                                    options: { inputs: 2, duration: 'longest', normalize: 0 },
-                                    inputs: ['ducked', '1:a'],
-                                    outputs: 'aout'
-                                }
-                            ];
-                            ffmpeg(videoPath)
-                                .input(audioPath)
-                                .complexFilter(fallbackFilters)
-                                .outputOptions(['-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '[aout]'])
-                                .save(outputPath)
-                                .on('end', () => resolve(true))
-                                .on('error', (err2: any) => reject(err2));
-                        });
+                    filterGraph.push({ filter: 'volume', options: 2.0, inputs: '1:a', outputs: 'tts_vol' });
+                    filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: 'tts_vol', outputs: 'enhanced_tts' });
+                    filterGraph.push({ filter: 'amix', options: { inputs: 2, duration: 'longest', dropout_transition: 0, normalize: 0 }, inputs: ['ducked', 'enhanced_tts'], outputs: 'outa' });
                 } else {
-                    // Silent Video: Directly map video and TTS audio without ducking
+                    filterGraph.push({ filter: 'volume', options: 2.0, inputs: '1:a', outputs: 'tts_vol' });
+                    filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: 'tts_vol', outputs: 'enhanced_tts' });
+                    mainAudioLabel = 'enhanced_tts';
+                }
+
+                // 3. Intro + Main Video + Outro Concatenation (Single Pass)
+                if (hasIntro && hasOutro && introInputIdx !== -1 && outroInputIdx !== -1) {
+                    const targetW = isVertical ? 1080 : 1920;
+                    const targetH = isVertical ? 1920 : 1080;
+                    const scalePadOpt = `${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p`;
+
+                    filterGraph.push({ filter: 'scale', options: scalePadOpt, inputs: `${introInputIdx}:v`, outputs: 'vintro' });
+                    filterGraph.push({ filter: 'scale', options: scalePadOpt, inputs: 'vlogo_raw', outputs: 'vmain' });
+                    filterGraph.push({ filter: 'scale', options: scalePadOpt, inputs: `${outroInputIdx}:v`, outputs: 'voutro' });
+
+                    filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: `${introInputIdx}:a`, outputs: 'aintro' });
+                    filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: mainAudioLabel, outputs: 'amain' });
+                    filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: `${outroInputIdx}:a`, outputs: 'aoutro' });
+
                     filterGraph.push({
-                        filter: 'volume',
-                        options: 2.0,
-                        inputs: '1:a',
-                        outputs: 'tts_vol'
-                    });
-                    filterGraph.push({
-                        filter: 'aformat',
-                        options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' },
-                        inputs: 'tts_vol',
-                        outputs: 'enhanced_tts'
+                        filter: 'concat',
+                        options: { n: 3, v: 1, a: 1 },
+                        inputs: ['vintro', 'aintro', 'vmain', 'amain', 'voutro', 'aoutro'],
+                        outputs: ['vf', 'outa_final']
                     });
 
                     cmd.complexFilter(filterGraph)
-                        .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', '[enhanced_tts]', '-ar', '44100', '-ac', '2'])
+                        .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', '[outa_final]', '-ar', '44100', '-ac', '2'])
                         .save(outputPath)
                         .on('end', () => resolve(true))
-                        .on('error', (err: any) => {
-                            ffmpeg(videoPath)
-                                .input(audioPath)
-                                .outputOptions(['-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0'])
-                                .save(outputPath)
-                                .on('end', () => resolve(true))
-                                .on('error', (err2: any) => reject(err2));
-                        });
+                        .on('error', (err: any) => reject(err));
+                } else {
+                    filterGraph.push({ filter: 'format', options: 'yuv420p', inputs: 'vlogo_raw', outputs: 'vf' });
+                    cmd.complexFilter(filterGraph)
+                        .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', `[${mainAudioLabel}]`, '-ar', '44100', '-ac', '2'])
+                        .save(outputPath)
+                        .on('end', () => resolve(true))
+                        .on('error', (err: any) => reject(err));
                 }
             });
 

@@ -41,8 +41,10 @@ export {
     backfillReporterPoints,
     onNewsViewCountUpdated,
     onNewsPostApproved,
+    onUserRoleChanged,
     verifyReporter,
-    onUserCreated
+    onUserCreated,
+    onAnonymousDeviceCreated  // ✅ NEW: Welcome notification for guest users
 } from "./reporter_handler";
 
 // 3. Export Main News Functions

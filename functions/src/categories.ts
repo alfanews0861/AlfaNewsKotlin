@@ -167,6 +167,9 @@ STEP 2: ENHANCEMENT (If VALID NEWS)
   LEGAL COMPLIANCE: Use objective, neutral language. For accusations, use terms like "reportedly" (సమాచారం అందుతోంది), "allegedly" (ఆరోపణలు వస్తున్నాయి), or "according to police" (పోలీసుల సమాచారం ప్రకారం). Avoid definitive judgments of guilt.
 - Headline: Strong punch style (balamgaa) single sentence in Telugu (max 10 words) AND in English (~12 words).
 - Vocal Content: A concise news anchor script in Telugu (approx 70 words). Sound natural and professional. Use [[STRESS]]term[[/STRESS]] for emphasis.
+  STRICT VOCAL CONTENT RULES:
+  1. DO NOT include any greetings or intro phrases like "నమస్కారం", "ఆల్ఫా న్యూస్", "స్వాగతం", "మిత్రులారా", or anchor intros. Start DIRECTLY with the news content.
+  2. PUNCTUATION & COMMAS: You MUST place proper commas (,) after every clause, phrase, and natural pause in Telugu. NEVER combine multiple words/clauses together without commas (,), so that Text-to-Speech (TTS) voiceover reads each phrase clearly with natural pauses instead of running words together.
 - Tone: SERIOUS, URGENT, NORMAL, INQUISITIVE, or SHOCKING.
 - Category: Pick ONE from this list:
 ${categoryList}

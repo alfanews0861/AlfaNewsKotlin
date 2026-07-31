@@ -4,9 +4,9 @@ import { Buffer } from 'buffer';
 const sharp = require('sharp');
 
 export const REGION = "asia-south1";
-export const SCHEDULED_MODEL = "gemini-3.1-flash-lite";
-export const PRO_MODEL = "gemini-3.1-flash-lite";
-export const FLASH_MODEL = "gemini-3.1-flash-lite";
+export const SCHEDULED_MODEL = "gemini-3.5-flash-lite";
+export const PRO_MODEL = "gemini-3.5-flash-lite";
+export const FLASH_MODEL = "gemini-3.5-flash-lite";
 export const IMAGEN_MODEL = "gemini-3.1-flash-image";         // GA as of 2026
 export const IMAGEN_FAST_MODEL = "gemini-3.1-flash-image";    // imagen-4.0 deprecated Aug 17, 2026
 
@@ -36,7 +36,7 @@ export function getTopicName(prefix: string, value: string): string {
 }
 
 const TEXT_MODELS = [
-    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash-lite",
     "gemini-2.5-flash-lite",
     "gemini-2.5-flash"
 ];

@@ -262,130 +262,288 @@ export const generateDailyCartoon = onSchedule({ schedule: "0 6 * * *", timeZone
     }
 });
 
-const DISTRICT_COORDS: { [key: string]: { lat: number, lon: number } } = {
-    "హైదరాబాద్": { lat: 17.3850, lon: 78.4867 },
-    "విశాఖపట్నం": { lat: 17.6868, lon: 83.2185 },
-    "విజయవాడ": { lat: 16.5062, lon: 80.6480 },
-    "గుంటూరు": { lat: 16.3067, lon: 80.4365 },
-    "నెల్లూరు": { lat: 14.4426, lon: 79.9865 },
-    "కర్నూలు": { lat: 15.8284, lon: 78.0331 },
-    "వరంగల్": { lat: 17.9689, lon: 79.5941 },
-    "ఖమ్మం": { lat: 17.2473, lon: 80.1514 },
-    "కరీంనగర్": { lat: 18.4386, lon: 79.1288 },
-    "నిజామాబాద్": { lat: 18.6725, lon: 78.0941 },
-    "తిరుపతి": { lat: 13.6288, lon: 79.4192 },
-    "అనంతపురం": { lat: 14.6819, lon: 77.6006 },
-    "కడప": { lat: 14.4673, lon: 78.8242 },
-    "కాకినాడ": { lat: 16.9891, lon: 82.2475 },
-    "రాజమహేంద్రవరం": { lat: 17.0005, lon: 81.7774 },
-    "నల్గొండ": { lat: 17.0500, lon: 79.2667 },
-    "శ్రీకాకుళం": { lat: 18.3000, lon: 83.9000 },
-    "విజయనగరం": { lat: 18.1167, lon: 83.4167 },
-    "ఏలూరు": { lat: 16.7000, lon: 81.1000 },
-    "మహబూబ్ నగర్": { lat: 16.7333, lon: 77.9833 },
-    "సంగారెడ్డి": { lat: 17.6167, lon: 78.0833 },
-    "సిద్దిపేట": { lat: 18.1000, lon: 78.8500 },
-    "సూర్యాపేట": { lat: 17.1333, lon: 79.6167 }
-};
+// ==========================================
+// HYPER-LOCAL WEATHER ALERT SYSTEM — User-Driven Dynamic Grid
+// ==========================================
+// Design:
+//   - No hardcoded seed points. Backend reads ONLY the grids where real users exist.
+//   - Android writes user's grid key to Firestore settings/active_weather_grids on subscribe.
+//   - Backend reads that doc once per run (1 Firestore read) → API call only for live grids.
+//   - Schedule: 6AM–8PM IST, every 2 hours (8 runs/day)
+//     → ~400 grids × 8 = 3,200 Open-Meteo calls/day (well within free tier)
+//   - Sleep hours (8PM–6AM) skipped → no midnight disturbances
+//   - Cooldown: 4h per grid key per alert type
+//   - FCM topic per grid: "weather_grid_{latKey}_{lonKey}" (0.1° ≈ 10km)
+// ==========================================
 
+/**
+ * ఒక grid cell కి unique FCM topic name తయారుచేస్తుంది.
+ * lat/lon ను 0.1° (≈10km) కి round చేసి safe topic name తయారుచేస్తుంది.
+ * Android లో getWeatherGridTopic() తో exactly match అవుతుంది.
+ * Example: lat=14.44, lon=79.98 → "weather_grid_144_800"
+ */
+function getWeatherGridTopic(lat: number, lon: number): string {
+    const latKey = Math.round(lat * 10);
+    const lonKey = Math.round(lon * 10);
+    return `weather_grid_${latKey}_${lonKey}`;
+}
+
+/**
+ * Weather code + forecast data బట్టి alert తయారుచేస్తుంది.
+ * hoursFromNow: రాబోయే ఎన్ని గంటల్లో (0 = ఇప్పుడే)
+ * precipitation: mm/hr
+ * Returns { title, body, severity } or null (alert అవసరం లేకపోతే)
+ */
+function buildWeatherAlert(
+    weatherCode: number,
+    temp: number,
+    windSpeed: number,
+    hoursFromNow: number,
+    precipitation: number
+): { title: string; body: string; severity: string } | null {
+
+    const timeStr = hoursFromNow === 0
+        ? "ఇప్పుడే"
+        : hoursFromNow === 1
+            ? "1 గంటలో"
+            : `${hoursFromNow} గంటల్లో`;
+
+    if (weatherCode === 95 || weatherCode === 96 || weatherCode === 99) {
+        return {
+            title: `⚡ పిడుగుల హెచ్చరిక — ${timeStr}`,
+            body: `మీ ప్రాంతంలో ${timeStr} ఉరుములు మెరుపులతో కూడిన భారీ వర్షం పడే ప్రమాదం ఉంది. చెట్ల కింద, తెరిచిన ప్రదేశాల్లో నిలబడవద్దు — సురక్షితమైన భవనంలో ఉండండి.`,
+            severity: "SEVERE"
+        };
+    }
+    if ((weatherCode === 65 || weatherCode === 82) || precipitation >= 10) {
+        return {
+            title: `⛈️ భారీ వర్ష హెచ్చరిక — ${timeStr}`,
+            body: `మీ ప్రాంతంలో ${timeStr} భారీ వర్షం పడే అవకాశం ఉంది. తక్కువ దృశ్యమానత వుంటుంది, వాహనచోదకులు జాగ్రత్తగా ఉండాలి. రైతు సోదరులు ధాన్యం నిల్వలు జాగ్రత్త పరుచుకోవాలి.`,
+            severity: "SEVERE"
+        };
+    }
+    if ((weatherCode >= 61 && weatherCode <= 82) || precipitation >= 2.5) {
+        return {
+            title: `🌧️ వర్ష సూచన — ${timeStr}`,
+            body: `మీ ప్రాంతంలో ${timeStr} వర్షం పడే అవకాశం ఉంది. బయటకు వెళ్లేవారు గొడుగు వెంట ఉంచుకోండి.`,
+            severity: "WARNING"
+        };
+    }
+    if (windSpeed >= 60) {
+        return {
+            title: `🌪️ తీవ్ర గాలుల హెచ్చరిక — ${timeStr}`,
+            body: `మీ ప్రాంతంలో ${timeStr} ${Math.round(windSpeed)} km/h వేగంతో తీవ్రమైన గాలులు వీచే అవకాశం ఉంది. బాహ్య నిర్మాణాలు, ఫ్లెక్సీలు జాగ్రత్తగా ఉంచుకోండి.`,
+            severity: "WARNING"
+        };
+    }
+    if (weatherCode === 45 || weatherCode === 48) {
+        return {
+            title: `🌫️ దట్టమైన పొగమంచు హెచ్చరిక — ${timeStr}`,
+            body: `మీ ప్రాంతంలో ${timeStr} దట్టమైన పొగమంచు ఉంటుంది. వాహనదారులు ఫాగ్ లైట్లు వాడుతూ నెమ్మదిగా ప్రయాణించండి.`,
+            severity: "WARNING"
+        };
+    }
+    if (temp >= 42) {
+        return {
+            title: `🔥 తీవ్ర ఎండ హెచ్చరిక`,
+            body: `మీ ప్రాంతంలో ఉష్ణోగ్రత ${Math.round(temp)}°C కి చేరింది. మధ్యాహ్నం బయటకు రాకండి, తగినంత నీరు తాగండి — వడదెబ్బ తగిలే ప్రమాదం ఉంది.`,
+            severity: "SEVERE"
+        };
+    }
+    if (weatherCode >= 51 && weatherCode <= 57) {
+        return {
+            title: `🌦️ చినుకుల సూచన — ${timeStr}`,
+            body: `మీ ప్రాంతంలో ${timeStr} తేలికపాటి చినుకులు పడే అవకాశం ఉంది.`,
+            severity: "INFO"
+        };
+    }
+    return null;
+}
+
+/**
+ * వాతావరణ హెచ్చరిక function.
+ *
+ * Schedule: ఉదయం 6 నుండి రాత్రి 8 వరకు, 2 గంటలకు ఒకసారి.
+ *   Cron: "0 6,8,10,12,14,16,18,20 * * *" IST
+ *   = రోజుకు 8 runs మాత్రమే (~3,200 API calls/day — free tier లో safe)
+ *   రాత్రి 8 తర్వాత run అవ్వదు → నిద్రపోయే వేళ notification రాదు.
+ *
+ * Active grids: Firestore settings/active_weather_grids చదివి
+ *   real users ఉన్న grid cells మాత్రమే check చేస్తాం.
+ *   (Android user subscribe అయినప్పుడు తన gridKey ని ఆ doc లో save చేస్తుంది)
+ */
 export const checkSevereWeatherAlerts = onSchedule({
-    schedule: "*/30 * * * *",
+    schedule: "0 6,8,10,12,14,16,18,20 * * *",
     timeZone: "Asia/Kolkata",
-    memory: "512MiB"
-}, async (event) => {
-    console.log("[WEATHER_ALERT] Checking for severe weather conditions...");
+    memory: "512MiB",
+    timeoutSeconds: 540,
+}, async (_event) => {
+    console.log("[WEATHER_GRID] Starting user-driven hyper-local weather check...");
 
-    // OPTIMIZATION: Fetch alert state ONCE outside the loop to save Firestore reads
-    const alertStateRef = db.collection('settings').doc('weather_alerts');
-    const alertStateDoc = await alertStateRef.get();
-    const alertStateData = alertStateDoc.exists ? alertStateDoc.data() || {} : {};
+    // ── Step 1: Active grid keys fetch (1 Firestore read per run) ──────────
+    // Structure: { "weather_grid_144_800": true, "weather_grid_174_785": true, ... }
+    const activeGridsRef = db.collection('settings').doc('active_weather_grids');
+    const activeGridsDoc = await activeGridsRef.get();
 
-    for (const [district, coords] of Object.entries(DISTRICT_COORDS)) {
+    if (!activeGridsDoc.exists) {
+        console.log("[WEATHER_GRID] No active grids registered yet. Skipping.");
+        return;
+    }
+
+    const activeGridsData = activeGridsDoc.data() || {};
+    // Filter: only keys that map to `true` (active subscribers)
+    const activeGridKeys = Object.keys(activeGridsData).filter(k => activeGridsData[k] === true);
+
+    if (activeGridKeys.length === 0) {
+        console.log("[WEATHER_GRID] active_weather_grids doc exists but no active keys.");
+        return;
+    }
+
+    console.log(`[WEATHER_GRID] Checking ${activeGridKeys.length} active grid cells...`);
+
+    // ── Step 2: Alert state fetch (1 Firestore read per run) ───────────────
+    const alertStateRef  = db.collection('settings').doc('weather_alerts_v2');
+    const alertStateDoc  = await alertStateRef.get();
+    const alertState: Record<string, any> = alertStateDoc.exists ? alertStateDoc.data() || {} : {};
+
+    const COOLDOWN_MS   = 4 * 60 * 60 * 1000; // 4 గంటలు — duplicate spam నివారణ
+    const FORECAST_HOURS = 10;                  // రాబోయే 10 గంటల forecast చూస్తాం
+    const updatedState: Record<string, any> = {};
+
+    // ── Step 3: Per-grid weather check ─────────────────────────────────────
+    // gridKey format: "weather_grid_{latKey}_{lonKey}"
+    // e.g. "weather_grid_144_800" → lat=14.4, lon=80.0
+    for (const gridKey of activeGridKeys) {
         try {
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current_weather=true`;
-            const response = await fetch(url);
-            if (!response.ok) continue;
-            const data: any = await response.json();
-            const weatherCode = data.current_weather.weathercode;
-            const temp = data.current_weather.temperature;
+            // gridKey → lat/lon decode
+            const parts = gridKey.split("_"); // ["weather","grid","144","800"]
+            if (parts.length < 4) continue;
+            const lat = parseInt(parts[2], 10) / 10;  // 144 → 14.4
+            const lon = parseInt(parts[3], 10) / 10;  // 800 → 80.0
+            if (isNaN(lat) || isNaN(lon)) continue;
 
-            let alertTitle = "";
-            let alertBody = "";
-            let isSevere = false;
+            // Open-Meteo hourly forecast — 1 API call per grid cell
+            const url = [
+                `https://api.open-meteo.com/v1/forecast`,
+                `?latitude=${lat}&longitude=${lon}`,
+                `&hourly=precipitation,weather_code,wind_speed_10m,temperature_2m`,
+                `&current_weather=true`,
+                `&timezone=Asia%2FKolkata`,
+                `&forecast_hours=${FORECAST_HOURS}`
+            ].join("");
 
-            if (weatherCode === 95 || weatherCode === 96 || weatherCode === 99) {
-                alertTitle = `⚠️ పిడుగుల హెచ్చరిక - ${district}`;
-                alertBody = `ప్రస్తుతం ${district} ప్రాంతంలో ఉరుములు, మెరుపులతో కూడిన భారీ వర్షం పడే ప్రమాదం ఉంది. ప్రజలు సురక్షితమైన భవనాల్లో ఉండాలి, చెట్ల కింద నిలబడవద్దు.`;
-                isSevere = true;
-            } else if (temp >= 42) {
-                alertTitle = `🔥 తీవ్ర ఎండ తీవ్రత హెచ్చరిక - ${district}`;
-                alertBody = `జాగ్రత్త! ${district} లో ఉష్ణోగ్రత ${temp}°C కి చేరింది. మధ్యాహ్నం వేళ బయటకు వెళ్లకండి, తగినంత నీరు తాగుతూ ఉండండి. వడదెబ్బ తగిలే ప్రమాదం ఉంది.`;
-                isSevere = true;
-            } else if (weatherCode >= 51 && weatherCode <= 82) {
-                alertTitle = `🌧️ వర్ష సూచన - ${district}`;
-                alertBody = `${district} లో రాబోయే కొన్ని గంటల్లో వర్షం కురిసే అవకాశం ఉంది. రైతు సోదరులు తమ ధాన్యం నిల్వలను జాగ్రత్త పరుచుకోవాలి. బయటకు వెళ్లేవారు గొడుగు వెంట ఉంచుకోండి.`;
-                isSevere = true;
-            } else if (weatherCode === 45 || weatherCode === 48) {
-                alertTitle = `🌫️ దట్టమైన మంచు హెచ్చరిక - ${district}`;
-                alertBody = `${district} లో దట్టమైన మంచు కురుస్తోంది, ఎదురుగా వచ్చే వాహనాలు కనిపించకపోవచ్చు. వాహనదారులు ఫాగ్ లైట్లు వాడుతూ నెమ్మదిగా ప్రయాణించండి.`;
-                isSevere = true;
+            const res = await fetch(url);
+            if (!res.ok) {
+                console.warn(`[WEATHER_GRID] API ${res.status} for ${gridKey}`);
+                continue;
             }
+            const data: any = await res.json();
 
-            if (isSevere) {
-                // --- STATE TRACKING & COOLDOWN ---
-                const districtState = alertStateData[district] || {};
+            const currentTemp: number  = data.current_weather?.temperature ?? 0;
+            const hourlyTimes: string[] = data.hourly?.time     ?? [];
+            const hourlyPrecip: number[] = data.hourly?.precipitation ?? [];
+            const hourlyCodes: number[]  = data.hourly?.weather_code  ?? [];
+            const hourlyWind: number[]   = data.hourly?.wind_speed_10m ?? [];
+            const hourlyTemp: number[]   = data.hourly?.temperature_2m ?? [];
 
-                const lastSentAt = districtState.lastAlertSentAt?.toDate()?.getTime() || 0;
-                const lastTitle = districtState.lastAlertTitle || "";
+            let alertSent = false;
+
+            // రాబోయే FORECAST_HOURS గంటల్లో first severe event detect చేస్తాం
+            for (let h = 0; h < Math.min(hourlyTimes.length, FORECAST_HOURS); h++) {
+                const code   = hourlyCodes[h]  ?? 0;
+                const precip = hourlyPrecip[h] ?? 0;
+                const wind   = hourlyWind[h]   ?? 0;
+                const temp   = hourlyTemp[h]   ?? currentTemp;
+
+                const alert = buildWeatherAlert(code, temp, wind, h, precip);
+                if (!alert) continue;
+
+                // Cooldown: same grid + same alert title → skip (4h window)
+                const cellState = alertState[gridKey] || {};
+                const lastSentAt: number = cellState.lastSentAt ?? 0;
+                const lastTitle: string  = cellState.lastTitle  ?? "";
                 const now = Date.now();
-                const COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
 
-                if (lastTitle === alertTitle && (now - lastSentAt) < COOLDOWN_MS) {
-                    console.log(`[WEATHER_ALERT] Skipping duplicate alert for ${district} (Cooldown active)`);
-                    continue;
+                if (lastTitle === alert.title && (now - lastSentAt) < COOLDOWN_MS) {
+                    console.log(`[WEATHER_GRID] Cooldown: ${gridKey} → ${alert.title.substring(0, 35)}`);
+                    break;
                 }
-                // -----------------------------------------------------------------
 
-                // ✅ OPTIMIZED: Use FCM Topics for location-based alerts (Massive cost reduction)
-                const topicName = getTopicName("weather_alert", district);
-                const message: admin.messaging.TopicMessage = {
-                    notification: { title: alertTitle, body: alertBody },
+                // ✅ 1 FCM topic send → all users in this 10km cell receive it (free)
+                const fcmMsg: admin.messaging.TopicMessage = {
+                    notification: { title: alert.title, body: alert.body },
                     data: {
                         type: "WEATHER_ALERT",
-                        district,
-                        title: alertTitle,
-                        body: alertBody,
-                        channelId: "weather_alerts"
+                        gridKey,
+                        title: alert.title,
+                        body: alert.body,
+                        channelId: "weather_alerts",
+                        severity: alert.severity,
+                        forecastHour: String(h),
                     },
                     android: {
                         notification: {
                             channelId: "weather_alerts",
-                            priority: "high"
-                        }
+                            priority: alert.severity === "SEVERE" ? "max" : "high",
+                            defaultSound: true,
+                        },
+                        priority: "high"
                     },
-                    topic: topicName
+                    topic: gridKey
                 };
 
                 try {
-                    const response = await admin.messaging().send(message);
-                    console.log(`[WEATHER_ALERT] Sent to topic ${topicName}: ${response}`);
+                    await admin.messaging().send(fcmMsg);
+                    console.log(`[WEATHER_GRID] ✅ ${gridKey} — ${alert.title.substring(0, 40)} [h+${h}]`);
+                    updatedState[gridKey] = {
+                        lastSentAt: Date.now(),
+                        lastTitle: alert.title,
+                        severity: alert.severity,
+                        forecastHour: h,
+                    };
+                    alertSent = true;
                 } catch (e: any) {
-                    console.error(`[WEATHER_ALERT_SEND_ERR] ${topicName}:`, e.message);
+                    console.error(`[WEATHER_GRID_ERR] ${gridKey}:`, e.message);
                 }
-
-                // Update state after successful run
-                await alertStateRef.set({
-                    [district]: {
-                        lastAlertSentAt: admin.firestore.FieldValue.serverTimestamp(),
-                        lastAlertTitle: alertTitle,
-                        lastAlertBody: alertBody,
-                        severity: (weatherCode === 95 || weatherCode === 96 || weatherCode === 99 || temp >= 42) ? "SEVERE" : "WARNING"
-                    }
-                }, { merge: true });
-                console.log(`[WEATHER_ALERT] Alert cycle completed for ${district}.`);
+                break; // ఒక grid కి ఒకే alert per run
             }
-        } catch (err: any) { console.error(`[WEATHER_ALERT] Error:`, err.message); }
+
+            // Current temp heat check (forecast-independent)
+            if (!alertSent && currentTemp >= 42) {
+                const alert = buildWeatherAlert(0, currentTemp, 0, 0, 0);
+                if (alert) {
+                    const cellState = alertState[gridKey] || {};
+                    const now = Date.now();
+                    if (!(cellState.lastTitle === alert.title && (now - (cellState.lastSentAt ?? 0)) < COOLDOWN_MS)) {
+                        const fcmMsg: admin.messaging.TopicMessage = {
+                            notification: { title: alert.title, body: alert.body },
+                            data: { type: "WEATHER_ALERT", gridKey, title: alert.title, body: alert.body, channelId: "weather_alerts", severity: alert.severity, forecastHour: "0" },
+                            android: { notification: { channelId: "weather_alerts", priority: "max", defaultSound: true }, priority: "high" },
+                            topic: gridKey
+                        };
+                        try {
+                            await admin.messaging().send(fcmMsg);
+                            console.log(`[WEATHER_GRID] 🔥 Heat ${gridKey} (${Math.round(currentTemp)}°C)`);
+                            updatedState[gridKey] = { lastSentAt: Date.now(), lastTitle: alert.title, severity: alert.severity };
+                        } catch (e: any) {
+                            console.error(`[WEATHER_GRID_ERR] heat ${gridKey}:`, e.message);
+                        }
+                    }
+                }
+            }
+
+        } catch (err: any) {
+            console.error(`[WEATHER_GRID] Error for ${gridKey}:`, err.message);
+        }
     }
+
+    // ── Step 4: Batch write changed states ─────────────────────────────────
+    if (Object.keys(updatedState).length > 0) {
+        await alertStateRef.set(updatedState, { merge: true });
+        console.log(`[WEATHER_GRID] State saved for ${Object.keys(updatedState).length} cells.`);
+    }
+
+    console.log(`[WEATHER_GRID] Done. ${activeGridKeys.length} grids checked.`);
 });
 
 /**

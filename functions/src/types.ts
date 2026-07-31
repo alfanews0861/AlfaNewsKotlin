@@ -29,6 +29,10 @@ export interface User {
   lastWarningDate?: any;
   inProbation?: boolean;
   lastPostTimestamp?: any;
+  // Hyper-local weather alert fields (optional, set by Android when GPS is available)
+  weatherLat?: number;      // User's precise GPS latitude
+  weatherLon?: number;      // User's precise GPS longitude
+  weatherGridKey?: string;  // FCM topic key e.g. "weather_grid_144_799" (0.1° ≈ 10km cell)
 }
 
 export enum PostFormat {
