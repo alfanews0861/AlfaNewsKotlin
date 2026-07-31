@@ -15,6 +15,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -45,7 +47,10 @@ import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReporterManagementPageView(currentUser: User) {
+fun ReporterManagementPageView(
+    currentUser: User,
+    onOpenProfile: ((String) -> Unit)? = null
+) {
     val context = LocalContext.current
     val reportersViewModel: ReportersViewModel = viewModel()
     val reporterStats by reportersViewModel.reporterStats.collectAsStateWithLifecycle()
@@ -53,9 +58,22 @@ fun ReporterManagementPageView(currentUser: User) {
     val searchQuery by reportersViewModel.searchQuery.collectAsStateWithLifecycle()
     val sortOrder by reportersViewModel.sortOrder.collectAsStateWithLifecycle()
 
+    var selectedReporterIdForProfile by remember { mutableStateOf<String?>(null) }
+
+    if (selectedReporterIdForProfile != null) {
+        ReporterProfileView(
+            reporterId = selectedReporterIdForProfile!!,
+            language = com.alfanews.telugu.models.Language.TELUGU,
+            currentUser = currentUser,
+            onBack = { selectedReporterIdForProfile = null }
+        )
+        return
+    }
+
     var selectedTab by remember { mutableStateOf(0) }
     val tabs = listOf("దరఖాస్తులు", "రిపోర్టర్లు")
 
+    var appFilterState by remember { mutableStateOf("PENDING") } // "PENDING", "ALL", "JOINED", "REJECTED"
     var applications by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
@@ -65,30 +83,63 @@ fun ReporterManagementPageView(currentUser: User) {
             loading = true
             try {
                 if (selectedTab == 0) {
-                    val baseQuery = FirebaseService.db.collection("reporter_applications")
-                        .orderBy("status", Query.Direction.ASCENDING)
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                    val rawSnapshot = FirebaseService.db.collection("reporter_applications")
+                        .get().await()
 
-                    val snapshot = if (currentUser.role == UserRole.REGIONAL_INCHARGE) {
-                        baseQuery.whereIn("district", currentUser.assignedDistricts).get().await()
-                    } else {
-                        baseQuery.get().await()
+                    var fetchedList = rawSnapshot.documents.mapNotNull { doc ->
+                        doc.data?.plus("id" to doc.id)
                     }
-                    applications = snapshot.documents.map { doc -> doc.data?.plus("id" to doc.id) ?: emptyMap() }
-                    loading = false
+
+                    if (currentUser.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {
+                        fetchedList = fetchedList.filter { app ->
+                            val appDist = (app["district"] as? String) 
+                                ?: (app["state_district"] as? String) 
+                                ?: ""
+                            currentUser.assignedDistricts.any { assigned ->
+                                assigned.equals(appDist, ignoreCase = true) || appDist.isEmpty()
+                            }
+                        }
+                    }
+
+                    // Keep ALL fetched applications in state (sort newest first)
+                    applications = fetchedList.sortedByDescending { doc ->
+                        val ts = doc["timestamp"]
+                        when (ts) {
+                            is com.google.firebase.Timestamp -> ts.toDate().time
+                            is Number -> ts.toLong()
+                            else -> 0L
+                        }
+                    }
                 } else {
                     reportersViewModel.fetchReporters(currentUser)
                     // ReportersViewModel updates the 'reporters' state flow, which we observe
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                // Show toast if on applications tab where fetching might fail due to index/rules
                 if (selectedTab == 0) {
                     Toast.makeText(context, "Error fetching applications: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             } finally {
                 if (selectedTab == 0) loading = false
             }
+        }
+    }
+
+    val filteredApplications = remember(applications, appFilterState) {
+        when (appFilterState) {
+            "PENDING" -> applications.filter { doc ->
+                val status = doc["status"]?.toString()?.uppercase() ?: ""
+                status != "JOINED" && status != "APPROVED" && status != "REJECTED"
+            }
+            "JOINED" -> applications.filter { doc ->
+                val status = doc["status"]?.toString()?.uppercase() ?: ""
+                status == "JOINED" || status == "APPROVED"
+            }
+            "REJECTED" -> applications.filter { doc ->
+                val status = doc["status"]?.toString()?.uppercase() ?: ""
+                status == "REJECTED"
+            }
+            else -> applications // "ALL"
         }
     }
 
@@ -100,15 +151,15 @@ fun ReporterManagementPageView(currentUser: User) {
     val vmLoading by reportersViewModel.loading.collectAsStateWithLifecycle()
     val effectiveLoading = if (selectedTab == 1) vmLoading else loading
 
-    Column(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         TabRow(
             selectedTabIndex = selectedTab,
-            containerColor = Color(0xFF121212),
-            contentColor = Color.White,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
             indicator = { tabPositions ->
                 TabRowDefaults.Indicator(
                     Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         ) {
@@ -116,8 +167,65 @@ fun ReporterManagementPageView(currentUser: User) {
                 Tab(
                     selected = selectedTab == index,
                     onClick = { selectedTab = index },
-                    text = { Text(title, fontFamily = Ramabhadra, color = if (selectedTab == index) Color.White else Color.Gray) }
+                    text = { Text(title, fontFamily = Ramabhadra, color = if (selectedTab == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
                 )
+            }
+        }
+
+        if (selectedTab == 0) {
+            val pendingCount = remember(applications) {
+                applications.count { (it["status"]?.toString()?.uppercase() ?: "") !in listOf("JOINED", "APPROVED", "REJECTED") }
+            }
+            val joinedCount = remember(applications) {
+                applications.count { (it["status"]?.toString()?.uppercase() ?: "") in listOf("JOINED", "APPROVED") }
+            }
+            val rejectedCount = remember(applications) {
+                applications.count { (it["status"]?.toString()?.uppercase() ?: "") == "REJECTED" }
+            }
+            val allCount = applications.size
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = appFilterState == "PENDING",
+                        onClick = { appFilterState = "PENDING" },
+                        label = { Text("పెండింగ్ ($pendingCount)", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = appFilterState == "ALL",
+                        onClick = { appFilterState = "ALL" },
+                        label = { Text("అన్ని ($allCount)", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = appFilterState == "JOINED",
+                        onClick = { appFilterState = "JOINED" },
+                        label = { Text("అప్రూవ్డ్ ($joinedCount)", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = appFilterState == "REJECTED",
+                        onClick = { appFilterState = "REJECTED" },
+                        label = { Text("రిజెక్టెడ్ ($rejectedCount)", fontSize = 12.sp) }
+                    )
+                }
+                
+                IconButton(onClick = { fetchData() }, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Refresh",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
 
@@ -133,16 +241,16 @@ fun ReporterManagementPageView(currentUser: User) {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { reportersViewModel.setSearchQuery(it) },
-                    placeholder = { Text("పేరు లేదా ఫోన్ నంబర్", fontSize = 12.sp, color = Color.Gray) },
+                    placeholder = { Text("పేరు లేదా ఫోన్ నంబర్", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(18.dp)) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = Color.White.copy(alpha = 0.5f),
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
-                        cursorColor = Color.White
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                        cursorColor = MaterialTheme.colorScheme.primary
                     ),
                     shape = RoundedCornerShape(24.dp)
                 )
@@ -152,15 +260,15 @@ fun ReporterManagementPageView(currentUser: User) {
                     IconButton(
                         onClick = { sortExpanded = true },
                         modifier = Modifier
-                            .background(Color.White.copy(alpha = 0.1f), CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
                             .size(40.dp)
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     DropdownMenu(
                         expanded = sortExpanded,
                         onDismissRequest = { sortExpanded = false },
-                        modifier = Modifier.background(Color(0xFF1E1E1E))
+                        modifier = Modifier.background(MaterialTheme.colorScheme.surface)
                     ) {
                         val options = listOf(
                             "Recent" to "ఇటీవలి",
@@ -171,7 +279,7 @@ fun ReporterManagementPageView(currentUser: User) {
                         )
                         options.forEach { (key, label) ->
                             DropdownMenuItem(
-                                text = { Text(label, color = if (sortOrder == key) Color.White else Color.Gray) },
+                                text = { Text(label, color = if (sortOrder == key) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) },
                                 onClick = {
                                     reportersViewModel.setSortOrder(key)
                                     sortExpanded = false
@@ -231,10 +339,46 @@ fun ReporterManagementPageView(currentUser: User) {
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 if (selectedTab == 0) {
-                    if (applications.isEmpty()) {
-                        item { Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) { Text("ఎటువంటి దరఖాస్తులు లేవు.") } }
+                    if (filteredApplications.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier.fillParentMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.padding(16.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Inbox,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(48.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                    Text(
+                                        text = when (appFilterState) {
+                                            "PENDING" -> "ఎటువంటి పెండింగ్ దరఖాస్తులు లేవు."
+                                            "JOINED" -> "అప్రూవ్ అయిన దరఖాస్తులు లేవు."
+                                            "REJECTED" -> "తిరస్కరించిన దరఖాస్తులు లేవు."
+                                            else -> "ఎటువంటి దరఖాస్తులు లభించలేదు."
+                                        },
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onBackground
+                                    )
+                                    if (applications.isNotEmpty()) {
+                                        Text(
+                                            text = "మొత్తం ${applications.size} దరఖాస్తులు లభించాయి ('అన్ని' ట్యాబ్ నొక్కండి).",
+                                            fontSize = 13.sp,
+                                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     } else {
-                        items(applications, key = { it["id"].toString() }) { app ->
+                        items(filteredApplications, key = { it["id"].toString() }) { app ->
                             ApplicationCard(
                                 app = app,
                                 currentUser = currentUser,
@@ -251,7 +395,14 @@ fun ReporterManagementPageView(currentUser: User) {
                                 reporter = reporter,
                                 currentUser = currentUser,
                                 stats = reporterStats[reporter.id],
-                                onRefresh = { fetchData() }
+                                onRefresh = { fetchData() },
+                                onCardClick = { reporterId ->
+                                    if (onOpenProfile != null) {
+                                        onOpenProfile(reporterId)
+                                    } else {
+                                        selectedReporterIdForProfile = reporterId
+                                    }
+                                }
                             )
                         }
                     }
@@ -272,9 +423,21 @@ fun ApplicationCard(
     val scope = rememberCoroutineScope()
     var isProcessing by remember { mutableStateOf(false) }
     
-    var editDistrict by remember { mutableStateOf(app["district"] as? String ?: "") }
-    var editMandal by remember { mutableStateOf(app["mandal"] as? String ?: "") }
+    val appDistrict = (app["district"] as? String)?.takeIf { it.isNotBlank() }
+        ?: (app["state_district"] as? String)?.takeIf { it.isNotBlank() }
+        ?: "N/A"
+
+    val appMandal = (app["mandal"] as? String)?.takeIf { it.isNotBlank() }
+        ?: (app["assignedMandal"] as? String)?.takeIf { it.isNotBlank() }
+        ?: (app["mandalam"] as? String)?.takeIf { it.isNotBlank() }
+        ?: "N/A"
+
+    var editDistrict by remember { mutableStateOf(if (appDistrict != "N/A") appDistrict else "") }
+    var editMandal by remember { mutableStateOf(if (appMandal != "N/A") appMandal else "") }
     var showLocationEdit by remember { mutableStateOf(false) }
+
+    val rawStatus = (app["status"] as? String)?.uppercase() ?: "PENDING"
+    val isPending = rawStatus != "JOINED" && rawStatus != "APPROVED" && rawStatus != "REJECTED"
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -282,18 +445,33 @@ fun ApplicationCard(
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(app["fullName"] as? String ?: "No Name", fontWeight = FontWeight.Bold, fontSize = 18.sp, fontFamily = Ramabhadra)
-                val status = app["status"] as? String ?: "PENDING"
-                StatusBadge(status)
+                val applicantName = (app["fullName"] as? String)?.takeIf { it.isNotBlank() }
+                    ?: (app["name"] as? String)?.takeIf { it.isNotBlank() }
+                    ?: "No Name"
+                Text(applicantName, fontWeight = FontWeight.Bold, fontSize = 18.sp, fontFamily = Ramabhadra)
+                StatusBadge(rawStatus)
             }
 
-            Text("Phone: ${app["phone"]}", fontSize = 14.sp)
-            Text("Education: ${app["education"]}", fontSize = 14.sp)
-            Text("Requested: ${app["district"]} - ${app["mandal"]}", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+            val phoneNum = (app["phone"] as? String)?.takeIf { it.isNotBlank() }
+                ?: (app["phoneNumber"] as? String)?.takeIf { it.isNotBlank() }
+                ?: "N/A"
+            Text("Phone: $phoneNum", fontSize = 14.sp)
+            
+            if ((app["education"] as? String)?.isNotBlank() == true) {
+                Text("Education: ${app["education"]}", fontSize = 14.sp)
+            }
+            if ((app["position"] as? String)?.isNotBlank() == true) {
+                Text("Position: ${app["position"]}", fontSize = 14.sp)
+            }
+            if ((app["interestedArea"] as? String)?.isNotBlank() == true) {
+                Text("Category: ${app["interestedArea"]}", fontSize = 14.sp)
+            }
+
+            Text("Requested: $appDistrict - $appMandal", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
             
             if ((app["message"] as? String)?.isNotEmpty() == true) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                Text("Message: ${app["message"]}", fontSize = 13.sp, color = Color.Gray)
+                Text("Message: ${app["message"]}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
@@ -319,14 +497,35 @@ fun ApplicationCard(
                         scope.launch {
                             isProcessing = true
                             try {
-                                val phone = app["phone"]?.toString() ?: ""
-                                val userQuery = FirebaseService.db.collection("users").whereEqualTo("phone", phone).get().await()
-                                val userDoc = if (userQuery.isEmpty) {
-                                    FirebaseService.db.collection("users").whereEqualTo("phone", "+91$phone").get().await().documents.firstOrNull()
-                                } else userQuery.documents.firstOrNull()
+                                val appUserId = app["userId"]?.toString()?.trim()
+                                val cleanPhone = phoneNum.replace("+91", "").replace(" ", "").trim()
+
+                                var userDoc: com.google.firebase.firestore.DocumentSnapshot? = null
+                                if (!appUserId.isNullOrEmpty()) {
+                                    val doc = FirebaseService.db.collection("users").document(appUserId).get().await()
+                                    if (doc.exists()) userDoc = doc
+                                }
+
+                                if (userDoc == null && cleanPhone.isNotEmpty() && cleanPhone != "N/A") {
+                                    val phoneQuery = FirebaseService.db.collection("users")
+                                        .whereEqualTo("phone", cleanPhone)
+                                        .limit(1)
+                                        .get().await()
+                                    if (!phoneQuery.isEmpty) {
+                                        userDoc = phoneQuery.documents.first()
+                                    } else {
+                                        val phoneWithPrefix = FirebaseService.db.collection("users")
+                                            .whereEqualTo("phone", "+91$cleanPhone")
+                                            .limit(1)
+                                            .get().await()
+                                        if (!phoneWithPrefix.isEmpty) {
+                                            userDoc = phoneWithPrefix.documents.first()
+                                        }
+                                    }
+                                }
 
                                 if (userDoc == null) {
-                                    Toast.makeText(context, "ఈ యూజర్ ఇంకా లాగిన్ అవ్వలేదు.", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, "యూజర్ అకౌంట్ లభించలేదు.", Toast.LENGTH_LONG).show()
                                 } else {
                                     processJoin(userDoc.id, app["id"] as String, editDistrict, editMandal, currentUser.id)
                                     Toast.makeText(context, "అప్రూవ్ చేయబడింది!", Toast.LENGTH_SHORT).show()
@@ -341,7 +540,7 @@ fun ApplicationCard(
                     },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                    enabled = !isProcessing && (app["status"] as? String == "PENDING")
+                    enabled = !isProcessing && isPending
                 ) {
                     if (isProcessing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
                     else Text("Approve")
@@ -364,7 +563,7 @@ fun ApplicationCard(
                     },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
-                    enabled = !isProcessing && (app["status"] as? String == "PENDING")
+                    enabled = !isProcessing && isPending
                 ) {
                     if (isProcessing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
                     else Text("Reject")
@@ -379,7 +578,7 @@ fun ApplicationCard(
                             }
                         }
                     ) {
-                        Icon(Icons.Default.Delete, contentDescription = "Remove", tint = Color.Gray)
+                        Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -393,7 +592,8 @@ fun ReporterListCard(
     reporter: User,
     currentUser: User,
     stats: com.alfanews.telugu.viewmodels.ReporterStats? = null,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onCardClick: (String) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -403,26 +603,28 @@ fun ReporterListCard(
     var isSaving by remember { mutableStateOf(false) }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCardClick(reporter.id) },
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFF1E1E1E), // Dark grey/black theme
-            contentColor = Color.White
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        border = BorderStroke(1.dp, Color.Gray.copy(alpha = 0.5f))
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AsyncImage(
                     model = reporter.photoUrl ?: "https://ui-avatars.com/api/?name=${reporter.name}&background=random",
                     contentDescription = null,
-                    modifier = Modifier.size(56.dp).clip(CircleShape).border(1.5.dp, Color.Gray, CircleShape),
+                    modifier = Modifier.size(56.dp).clip(CircleShape).border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
                     contentScale = ContentScale.Crop
                 )
                 
                 Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
-                    Text(reporter.name, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.White)
+                    Text(reporter.name, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurface)
                     
                     // Phone number with click-to-call
                     Row(
@@ -446,9 +648,9 @@ fun ReporterListCard(
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("${reporter.district} - ${reporter.assignedMandal}", fontSize = 12.sp, color = Color.LightGray)
+                        Text("${reporter.district} - ${reporter.assignedMandal}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         IconButton(onClick = { isEditingLocation = !isEditingLocation }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.EditLocation, contentDescription = "Edit Location", modifier = Modifier.size(16.dp), tint = Color.Gray)
+                            Icon(Icons.Default.EditLocation, contentDescription = "Edit Location", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -457,7 +659,14 @@ fun ReporterListCard(
                     scope.launch {
                         try {
                             val newRole = if (reporter.role == UserRole.REPORTER) UserRole.SUBSCRIBER else UserRole.REPORTER
-                            FirebaseService.db.collection("users").document(reporter.id).update("role", newRole.toString()).await()
+                            val updates = mutableMapOf<String, Any>("role" to newRole.toString())
+                            if (newRole == UserRole.REPORTER) {
+                                updates["warningLevel"] = 0
+                                updates["inProbation"] = false
+                                updates["promotedAt"] = com.google.firebase.Timestamp.now()
+                                updates["lastPostTimestamp"] = com.google.firebase.Timestamp.now()
+                            }
+                            FirebaseService.db.collection("users").document(reporter.id).update(updates).await()
                             Toast.makeText(context, if (newRole == UserRole.SUBSCRIBER) "Suspended" else "Restored", Toast.LENGTH_SHORT).show()
                             onRefresh()
                         } catch (e: Exception) {
@@ -478,20 +687,20 @@ fun ReporterListCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
                     .padding(12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("ఈ రోజు", fontSize = 10.sp, color = Color.Gray)
-                    Text("${stats?.todayPosts ?: 0}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Color.White)
+                    Text("ఈ రోజు", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${stats?.todayPosts ?: 0}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("గత వారం", fontSize = 10.sp, color = Color.Gray)
-                    Text("${stats?.weekPosts ?: 0}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Color.White)
+                    Text("గత వారం", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${stats?.weekPosts ?: 0}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("పాయింట్లు", fontSize = 10.sp, color = Color.Gray)
+                    Text("పాయింట్లు", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("${reporter.points}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = Color(0xFFFFA000))
                 }
             }
@@ -630,14 +839,23 @@ fun LocationSelector(
 }
 
 private suspend fun processJoin(userId: String, appId: String, district: String, mandal: String, promoterId: String) {
-    val updates = mapOf(
+    val userDoc = FirebaseService.db.collection("users").document(userId).get().await()
+    val existingPoints = userDoc.getLong("points")
+    val existingBadges = userDoc.get("badges")
+
+    val updates = mutableMapOf<String, Any>(
         "role" to "REPORTER",
         "district" to district,
         "assignedMandal" to mandal,
-        "promotedBy" to promoterId,
-        "points" to 0,
-        "badges" to emptyList<String>()
+        "promotedBy" to promoterId
     )
+    if (existingPoints == null) {
+        updates["points"] = 0
+    }
+    if (existingBadges == null) {
+        updates["badges"] = emptyList<String>()
+    }
+
     FirebaseService.db.collection("users").document(userId).update(updates).await()
     FirebaseService.db.collection("reporter_applications").document(appId).update("status", "JOINED").await()
 }

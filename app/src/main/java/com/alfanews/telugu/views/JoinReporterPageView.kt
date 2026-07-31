@@ -61,6 +61,7 @@ fun JoinReporterPageView(
     var mandalExpanded by remember { mutableStateOf(false) }
 
     var isSubmitting by remember { mutableStateOf(false) }
+    var hasPendingApplication by remember { mutableStateOf(false) }
     var showSuccessDialog by remember { mutableStateOf<String?>(null) }
     
     val context = LocalContext.current
@@ -103,6 +104,17 @@ fun JoinReporterPageView(
 
     LaunchedEffect(Unit) {
         try {
+            // Check if current logged in user already has a PENDING application
+            val currentUid = FirebaseService.auth.currentUser?.uid
+            if (!currentUid.isNullOrEmpty()) {
+                val pendingSnap = FirebaseService.db.collection("reporter_applications")
+                    .whereEqualTo("userId", currentUid)
+                    .whereEqualTo("status", "PENDING")
+                    .get()
+                    .await()
+                hasPendingApplication = !pendingSnap.isEmpty
+            }
+
             // 1. Fetch from users collection (Active Reporters)
             // Checking for "REPORTER" string, and common numeric equivalents (2, 2.0)
             val usersSnapshot = FirebaseService.db.collection("users")
@@ -163,6 +175,39 @@ fun JoinReporterPageView(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Spacer(modifier = Modifier.height(8.dp))
+
+                    if (hasPendingApplication) {
+                        ElevatedCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Text(
+                                        text = "పరిశీలనలో ఉంది (PENDING)",
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = Ramabhadra,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                                Text(
+                                    text = "మీరు ఇప్పటికే ఒక దరఖాస్తును సమర్పించారు. అది ప్రస్తుతం పరిశీలనలో ఉంది. మా ప్రతినిధులు త్వరలోనే మీ దరఖాస్తును పరిశీలిస్తారు.",
+                                    fontSize = 14.sp,
+                                    fontFamily = Mallanna,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                    }
 
                     ElevatedCard(
                         modifier = Modifier.fillMaxWidth(),
@@ -498,24 +543,61 @@ fun JoinReporterPageView(
                             
                             scope.launch {
                                 isSubmitting = true
-                                val result = FirebaseFunctionsService.submitReporterApplication(
-                                    fullName = fullName,
-                                    fatherName = fatherName,
-                                    phone = phone,
-                                    address = address,
-                                    position = position,
-                                    interestedArea = interestedArea,
-                                    education = education,
-                                    currentOrg = currentOrg,
-                                    state = selectedState,
-                                    district = selectedDistrict,
-                                    mandal = selectedMandal,
-                                    message = additionalMessage,
-                                    userId = FirebaseService.auth.currentUser?.uid
-                                )
+                                var submittedSuccessfully = false
+
+                                // 1. Try Cloud Function first (handles notifications & emails)
+                                try {
+                                    val result = FirebaseFunctionsService.submitReporterApplication(
+                                        fullName = fullName,
+                                        fatherName = fatherName,
+                                        phone = phone,
+                                        address = address,
+                                        position = position,
+                                        interestedArea = interestedArea,
+                                        education = education,
+                                        currentOrg = currentOrg,
+                                        state = selectedState,
+                                        district = selectedDistrict,
+                                        mandal = selectedMandal,
+                                        message = additionalMessage,
+                                        userId = FirebaseService.auth.currentUser?.uid
+                                    )
+                                    if (result.isSuccess) {
+                                        submittedSuccessfully = true
+                                    }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+
+                                // 2. Fallback: Save directly to Firestore if Cloud Function didn't confirm success
+                                if (!submittedSuccessfully) {
+                                    try {
+                                        val appData = mapOf(
+                                            "fullName" to fullName,
+                                            "fatherName" to fatherName,
+                                            "phone" to phone,
+                                            "address" to address,
+                                            "position" to position,
+                                            "interestedArea" to interestedArea,
+                                            "education" to education,
+                                            "currentOrg" to currentOrg,
+                                            "state" to selectedState,
+                                            "district" to selectedDistrict,
+                                            "mandal" to selectedMandal,
+                                            "message" to additionalMessage,
+                                            "status" to "PENDING",
+                                            "userId" to (FirebaseService.auth.currentUser?.uid ?: ""),
+                                            "timestamp" to com.google.firebase.Timestamp.now()
+                                        )
+                                        FirebaseService.db.collection("reporter_applications").add(appData).await()
+                                        submittedSuccessfully = true
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    }
+                                }
                                 
                                 isSubmitting = false
-                                if (result.isSuccess) {
+                                if (submittedSuccessfully) {
                                     val isLoggedIn = FirebaseService.auth.currentUser != null
                                     if (isLoggedIn) {
                                         showSuccessDialog = context.getString(R.string.app_success_logged_in)
@@ -523,11 +605,11 @@ fun JoinReporterPageView(
                                         showSuccessDialog = context.getString(R.string.app_success_guest)
                                     }
                                 } else {
-                                    Toast.makeText(context, context.getString(R.string.submission_failed, result.exceptionOrNull()?.message ?: ""), Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, context.getString(R.string.submission_failed, "సమర్పించడం విఫలమైంది."), Toast.LENGTH_LONG).show()
                                 }
                             }
                         },
-                        enabled = !isSubmitting,
+                        enabled = !isSubmitting && !hasPendingApplication,
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         shape = MaterialTheme.shapes.large,
                         colors = ButtonDefaults.buttonColors(

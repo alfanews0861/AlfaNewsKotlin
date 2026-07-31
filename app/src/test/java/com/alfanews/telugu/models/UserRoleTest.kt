@@ -12,7 +12,7 @@ class UserRoleTest {
         
         return when (role) {
             UserRole.GUEST, UserRole.SUBSCRIBER -> allPages.filter { it == "profile" }
-            UserRole.REPORTER -> allPages.filter { listOf("profile", "post", "ads", "edit-profile", "id-card").contains(it) }
+            UserRole.REPORTER, UserRole.NEWS_DESK -> allPages.filter { listOf("profile", "post", "ads", "edit-profile", "id-card").contains(it) }
             UserRole.REGIONAL_INCHARGE -> allPages.filter { listOf("profile", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card").contains(it) }
             UserRole.EDITOR -> allPages.filter { listOf("profile", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card").contains(it) }
             UserRole.ADMIN -> allPages
