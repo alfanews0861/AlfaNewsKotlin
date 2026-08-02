@@ -43,6 +43,7 @@ fun LogoHeader(
     ) {
         Row(
             modifier = Modifier
+                .statusBarsPadding()
                 .fillMaxWidth()
                 .height(56.dp)
                 .padding(horizontal = 4.dp),

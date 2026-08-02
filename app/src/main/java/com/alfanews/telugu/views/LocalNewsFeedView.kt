@@ -163,7 +163,7 @@ fun LocalNewsFeedView(
     }
 
     LaunchedEffect(news) {
-        val postsToPreload = news.take(10)
+        val postsToPreload = news.take(5)
         postsToPreload.forEach { post: NewsPost ->
             if (post.mediaUrl.isNotEmpty()) {
                 val request = ImageRequest.Builder(context)
@@ -184,8 +184,8 @@ fun LocalNewsFeedView(
                 viewModel.loadMore(language, currentUser)
             }
 
-            // 🚀 IMAGE PRELOADING: 8 pages ahead for smoother scroll
-            (1..8).forEach { offset ->
+            // 🚀 IMAGE PRELOADING: 5 pages ahead for ultra-smooth scrolling
+            (1..5).forEach { offset ->
                 val nextPageIndex = page + offset
                 val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
                 if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
@@ -203,8 +203,8 @@ fun LocalNewsFeedView(
                 }
             }
 
-            // 🚀 LOCAL AD PRELOADING: limit to 12 slots
-            (1..12).forEach { offset ->
+            // 🚀 LOCAL AD PRELOADING: limit to 2 slots ahead
+            (1..2).forEach { offset ->
                 val futurePage = page + offset
                 val isAdPage = (futurePage + 1) % 6 == 0
                 if (isAdPage && futurePage < totalCount) {
@@ -221,19 +221,18 @@ fun LocalNewsFeedView(
                         }
                     }
                     
-                    // Cache cleanup for out-of-viewport ads
-                    val keysToRemove = preloadedAds.keys.filter { it < page - 12 || it > page + 24 }
-                    keysToRemove.forEach { key: Int ->
-                        val adState = preloadedAds[key]
-                        if (adState is AdState.Success) {
-                            adState.nativeAd.destroy()
-                        }
-                        preloadedAds.remove(key)
-                    }
-
                     // AdMob preloading
                     loadAdForPage(futurePage)
                 }
+            }
+
+            val keysToRemove = preloadedAds.keys.filter { it < page - 12 || it > page + 24 }
+            keysToRemove.forEach { key: Int ->
+                val adState = preloadedAds[key]
+                if (adState is AdState.Success) {
+                    adState.nativeAd.destroy()
+                }
+                preloadedAds.remove(key)
             }
         }
     }

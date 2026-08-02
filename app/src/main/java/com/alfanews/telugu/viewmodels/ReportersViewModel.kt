@@ -57,15 +57,17 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
                 if (mandal != null && mandal.isNotEmpty()) {
                     query = query.whereEqualTo("assignedMandal", mandal)
                 }
-                
+
+                val snapshot = query.get().await()
+                var list = snapshot.documents.mapNotNull { it.toUserObject() }
+
+                // In-memory filter for REGIONAL_INCHARGE to avoid Firestore multiple 'whereIn' crash
                 if (currentUser.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {
                     if (district == null) {
-                        query = query.whereIn("district", currentUser.assignedDistricts)
+                        list = list.filter { user -> currentUser.assignedDistricts.contains(user.district) }
                     }
                 }
 
-                val snapshot = query.get().await()
-                val list = snapshot.documents.mapNotNull { it.toUserObject() }
                 _reporters.value = list
                 
                 // Fetch stats for these reporters
@@ -96,18 +98,16 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
             val weekStart = cal.time
 
             try {
-                // 🚀 OPTIMIZED: Fetch ALL recent reporter news in ONE query to save reads
-                // We'll perform two queries to handle mixed types (Timestamp vs Long)
-                
-                // 1. Query for Timestamp type
+                // 🚀 OPTIMIZED: Query ONLY reporter posts using isReporter filter to save reads
                 val timestampQuery = FirebaseService.db.collection("news")
                     .whereEqualTo("approved", true)
+                    .whereEqualTo("isReporter", true)
                     .whereGreaterThanOrEqualTo("timestamp", com.google.firebase.Timestamp(weekStart))
                     .get()
 
-                // 2. Query for Long type
                 val longQuery = FirebaseService.db.collection("news")
                     .whereEqualTo("approved", true)
+                    .whereEqualTo("isReporter", true)
                     .whereGreaterThanOrEqualTo("timestamp", weekStart.time)
                     .get()
 
@@ -119,7 +119,6 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
 
                 snapshots.forEach { snapshot ->
                     snapshot.documents.forEach { doc ->
-                        // Client-side filter: only count reporter posts
                         val isRep = doc.getBoolean("isReporter") ?: 
                                     (doc.getString("processingType") == "REPORTER_SUBMISSION")
                         if (!isRep) return@forEach
@@ -179,4 +178,25 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
             else -> list // Default Recent/Original
         }
     }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    fun triggerReporterActivityCheck(onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _loading.value = true
+            try {
+                val result = com.alfanews.telugu.services.FirebaseFunctionsService.triggerReporterActivityCheck()
+                if (result.isSuccess) {
+                    val data = result.getOrNull()
+                    val scanned = data?.get("reportersScanned") ?: 0
+                    val acted = data?.get("inactiveActedOn") ?: 0
+                    onResult(true, "పరిశీలన పూర్తయింది! ${scanned} రిపోర్టర్లను తనిఖీ చేసి, ${acted} మందిపై చర్యలు/హెచ్చరికలు అమలు చేసాము.")
+                } else {
+                    onResult(false, result.exceptionOrNull()?.message ?: "పరిశీలన ఫెయిల్ అయింది.")
+                }
+            } catch (e: Exception) {
+                onResult(false, e.message ?: "error")
+            } finally {
+                _loading.value = false
+            }
+        }
+    }
 }

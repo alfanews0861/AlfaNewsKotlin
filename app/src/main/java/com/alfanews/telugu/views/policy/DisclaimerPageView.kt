@@ -21,7 +21,7 @@ fun DisclaimerPageView() {
             .fillMaxSize()
             .padding(16.dp),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
             modifier = Modifier
@@ -34,22 +34,22 @@ fun DisclaimerPageView() {
                 text = stringResource(R.string.disclaimer_title),
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.Black
+                color = MaterialTheme.colorScheme.onSurface
             )
             
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(stringResource(R.string.aggregator_disclaimer), fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color(0xFF92400E))
+                    Text(stringResource(R.string.aggregator_disclaimer), fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.onTertiaryContainer)
                     Text(
                         text = stringResource(R.string.aggregator_disclaimer_desc),
                         fontSize = 14.sp,
-                        color = Color(0xFF92400E)
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
                     )
                 }
             }

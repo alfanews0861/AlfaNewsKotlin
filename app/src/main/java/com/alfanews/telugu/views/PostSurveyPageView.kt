@@ -37,32 +37,58 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 @Composable
 fun PostSurveyPageView(
     user: User,
+    surveyToEdit: NewsPost? = null,
     onActionComplete: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var headlineTe by remember { mutableStateOf("") }
-    var contentTe by remember { mutableStateOf("") }
+    var headlineTe by remember { mutableStateOf(surveyToEdit?.headline?.telugu ?: "") }
+    var contentTe by remember { mutableStateOf(surveyToEdit?.content?.telugu ?: "") }
     
-    var isMultiPage by remember { mutableStateOf(false) }
-    var isGlobal by remember { mutableStateOf(user.role == com.alfanews.telugu.models.UserRole.ADMIN) }
-    var district by remember { mutableStateOf(user.district ?: "") }
-    var durationDays by remember { mutableStateOf(7) }
-    var targetState by remember { mutableStateOf("ALL") }
+    var isMultiPage by remember { mutableStateOf(surveyToEdit?.isMultiPage ?: false) }
+    var isGlobal by remember { mutableStateOf(surveyToEdit?.isGlobal ?: (user.role == com.alfanews.telugu.models.UserRole.ADMIN)) }
+    var district by remember { mutableStateOf(surveyToEdit?.district ?: (user.district ?: "")) }
+    
+    val initialDurationDays = remember {
+        val expiry = surveyToEdit?.expiryTimestamp
+        if (expiry != null && expiry > 0) {
+            val remainingMs = expiry - System.currentTimeMillis()
+            val days = (remainingMs / (24L * 60L * 60L * 1000L)).toInt()
+            if (days in listOf(1, 3, 7, 15, 30)) days else 7
+        } else 7
+    }
+    var durationDays by remember { mutableStateOf(initialDurationDays) }
+    var targetState by remember { mutableStateOf(surveyToEdit?.state ?: "ALL") }
     
     val questions = remember { 
         mutableStateListOf<MutableQuestionState>().apply {
-            add(
-                MutableQuestionState(
-                    id = UUID.randomUUID().toString(),
-                    questionText = "",
-                    options = mutableStateListOf<MutableOptionState>().apply {
-                        add(MutableOptionState(id = UUID.randomUUID().toString(), initialText = ""))
-                        add(MutableOptionState(id = UUID.randomUUID().toString(), initialText = ""))
-                    }
+            if (surveyToEdit != null && surveyToEdit.surveyQuestions.isNotEmpty()) {
+                surveyToEdit.surveyQuestions.forEach { q ->
+                    add(
+                        MutableQuestionState(
+                            id = q.id,
+                            questionText = q.questionText,
+                            options = mutableStateListOf<MutableOptionState>().apply {
+                                q.options.forEach { opt ->
+                                    add(MutableOptionState(id = opt.id, initialText = opt.text, initialNextQuestionId = opt.nextQuestionId))
+                                }
+                            }
+                        )
+                    )
+                }
+            } else {
+                add(
+                    MutableQuestionState(
+                        id = UUID.randomUUID().toString(),
+                        questionText = "",
+                        options = mutableStateListOf<MutableOptionState>().apply {
+                            add(MutableOptionState(id = UUID.randomUUID().toString(), initialText = ""))
+                            add(MutableOptionState(id = UUID.randomUUID().toString(), initialText = ""))
+                        }
+                    )
                 )
-            )
+            }
         }
     }
 
@@ -93,7 +119,7 @@ fun PostSurveyPageView(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = "సర్వే సాధారణ వివరాలు (General Info)",
+                        text = if (surveyToEdit != null) "సర్వే ఎడిట్ చేయండి (Edit Survey)" else "సర్వే సాధారణ వివరాలు (General Info)",
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
                         fontSize = 16.sp
@@ -493,59 +519,99 @@ fun PostSurveyPageView(
                         )
                     }
 
-                    val isStaff = listOf(UserRole.ADMIN, UserRole.EDITOR, UserRole.NEWS_DESK).contains(user.role)
-                    val randomStartFakeVotes = 11000 + (100..900).random()
+                    val calculatedState: String? = if (user.role == com.alfanews.telugu.models.UserRole.ADMIN) {
+                        if (targetState == "ALL") null else targetState
+                    } else {
+                        user.state
+                    }
 
-                    val surveyData = mapOf(
-                        "headline" to mapOf(
-                            "telugu" to headlineTe,
-                            "english" to ""
-                        ),
-                        "content" to mapOf(
-                            "telugu" to contentTe,
-                            "english" to ""
-                        ),
-                        "type" to "survey",
-                        "approved" to isStaff,
-                        "status" to "PENDING",
-                        "surveyQuestions" to surveyQuestionsList,
-                        "isMultiPage" to isMultiPage,
-                        "fakeVotesBase" to randomStartFakeVotes,
-                        "surveyCreatedAt" to System.currentTimeMillis(),
-                        "expiryTimestamp" to System.currentTimeMillis() + (durationDays * 24L * 60L * 60L * 1000L),
-                        "votes" to emptyMap<String, Int>(),
-                        "realVotesCount" to 0,
-                        "isGlobal" to isGlobal,
-                        "state" to (if (user.role == com.alfanews.telugu.models.UserRole.ADMIN) {
-                            if (targetState == "ALL") null else targetState
-                        } else {
-                            user.state
-                        }),
-                        "district" to (if (isGlobal) "State" else district),
-                        "location" to (user.assignedMandal ?: district),
-                        "isReporter" to (user.role == com.alfanews.telugu.models.UserRole.REPORTER),
-                        "reporter" to mapOf(
-                            "id" to user.id,
-                            "name" to user.name
-                        ),
-                        "timestamp" to FieldValue.serverTimestamp(),
-                        "likes" to 0,
-                        "comments" to 0,
-                        "shares" to 0,
-                        "categories" to listOf("సర్వే", if (isGlobal) "రాష్ట్రం" else district)
-                    )
+                    if (surveyToEdit != null) {
+                        // EDIT MODE: Update existing document
+                        val updateData = mutableMapOf<String, Any>(
+                            "headline" to mapOf(
+                                "telugu" to headlineTe,
+                                "english" to ""
+                            ),
+                            "content" to mapOf(
+                                "telugu" to contentTe,
+                                "english" to ""
+                            ),
+                            "surveyQuestions" to surveyQuestionsList,
+                            "isMultiPage" to isMultiPage,
+                            "isGlobal" to isGlobal,
+                            "district" to (if (isGlobal) "State" else district),
+                            "expiryTimestamp" to System.currentTimeMillis() + (durationDays * 24L * 60L * 60L * 1000L),
+                            "categories" to listOf("సర్వే", if (isGlobal) "రాష్ట్రం" else district)
+                        )
+                        if (calculatedState != null) {
+                            updateData["state"] = calculatedState
+                        }
 
-                    FirebaseService.db.collection("news")
-                        .add(surveyData)
-                        .addOnSuccessListener {
-                            Toast.makeText(context, "సర్వే విజయవంతంగా పోస్ట్ చేయబడింది!", Toast.LENGTH_LONG).show()
-                            onActionComplete()
-                            isSubmitting = false
+                        FirebaseService.db.collection("news").document(surveyToEdit.id)
+                            .update(updateData)
+                            .addOnSuccessListener {
+                                Toast.makeText(context, "సర్వే విజ‌య‌వంతంగా నవీకరించబడింది (Updated)!", Toast.LENGTH_LONG).show()
+                                onActionComplete()
+                                isSubmitting = false
+                            }
+                            .addOnFailureListener { e ->
+                                Toast.makeText(context, "సర్వే ఎడిట్ చేయడంలో లోపం: ${e.message}", Toast.LENGTH_LONG).show()
+                                isSubmitting = false
+                            }
+                    } else {
+                        // CREATE MODE: Add new document
+                        val isStaff = listOf(UserRole.ADMIN, UserRole.EDITOR, UserRole.NEWS_DESK).contains(user.role)
+                        val randomStartFakeVotes = 11000 + (100..900).random()
+
+                        val surveyData = mutableMapOf<String, Any>(
+                            "headline" to mapOf(
+                                "telugu" to headlineTe,
+                                "english" to ""
+                            ),
+                            "content" to mapOf(
+                                "telugu" to contentTe,
+                                "english" to ""
+                            ),
+                            "type" to "survey",
+                            "approved" to isStaff,
+                            "status" to "PENDING",
+                            "surveyQuestions" to surveyQuestionsList,
+                            "isMultiPage" to isMultiPage,
+                            "fakeVotesBase" to randomStartFakeVotes,
+                            "surveyCreatedAt" to System.currentTimeMillis(),
+                            "expiryTimestamp" to System.currentTimeMillis() + (durationDays * 24L * 60L * 60L * 1000L),
+                            "votes" to emptyMap<String, Int>(),
+                            "realVotesCount" to 0,
+                            "isGlobal" to isGlobal,
+                            "district" to (if (isGlobal) "State" else district),
+                            "location" to (user.assignedMandal ?: district),
+                            "isReporter" to (user.role == com.alfanews.telugu.models.UserRole.REPORTER),
+                            "reporter" to mapOf(
+                                "id" to user.id,
+                                "name" to user.name
+                            ),
+                            "timestamp" to FieldValue.serverTimestamp(),
+                            "likes" to 0,
+                            "comments" to 0,
+                            "shares" to 0,
+                            "categories" to listOf("సర్వే", if (isGlobal) "రాష్ట్రం" else district)
+                        )
+                        if (calculatedState != null) {
+                            surveyData["state"] = calculatedState
                         }
-                        .addOnFailureListener { e ->
-                            Toast.makeText(context, "సర్వే పోస్ట్ చేయడంలో లోపం: ${e.message}", Toast.LENGTH_LONG).show()
-                            isSubmitting = false
-                        }
+
+                        FirebaseService.db.collection("news")
+                            .add(surveyData)
+                            .addOnSuccessListener {
+                                Toast.makeText(context, "సర్వే విజయవంతంగా పోస్ట్ చేయబడింది!", Toast.LENGTH_LONG).show()
+                                onActionComplete()
+                                isSubmitting = false
+                            }
+                            .addOnFailureListener { e ->
+                                Toast.makeText(context, "సర్వే పోస్ట్ చేయడంలో లోపం: ${e.message}", Toast.LENGTH_LONG).show()
+                                isSubmitting = false
+                            }
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -556,7 +622,11 @@ fun PostSurveyPageView(
                 if (isSubmitting) {
                     CircularProgressIndicator(color = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(24.dp))
                 } else {
-                    Text("పోస్ట్ చేయండి (Publish Survey)", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (surveyToEdit != null) "మార్పులను సేవ్ చేయండి (Save Changes)" else "పోస్ట్ చేయండి (Publish Survey)",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
 

@@ -30,9 +30,9 @@ sealed interface AdState {
 object AdMobService {
     private const val TAG = "AdMobService"
     
-    // Production Native Ad Unit ID (Always use production ID to match the original behavior)
+    // Production Native & Banner Ad Unit IDs
     private const val NATIVE_AD_UNIT_ID = "ca-app-pub-5787901991150360/1972465675"
-    private const val BANNER_AD_UNIT_ID = "ca-app-pub-3940256099942544/6300978111" // Test Banner Ad Unit ID.
+    private const val BANNER_AD_UNIT_ID = "ca-app-pub-5787901991150360/1972465675"
     
     private const val MAX_NATIVE_ADS = 5
     private val nativeAds = ConcurrentLinkedQueue<NativeAd>()
@@ -91,9 +91,9 @@ object AdMobService {
     }
 
     /**
-     * లోడ్ అయిన నేటివ్ యాడ్ ను అందిస్తుంది. ఒకవేళ ఏదీ అందుబాటులో లేకపోతే కొత్తది లోడ్ చేస్తుంది.
+     * లోడ్ అయిన నేటివ్ యాడ్ ను అందిస్తుంది. ఒకవేళ ఏదీ అందుబాటులో లేకపోతే కొత్తది లోడ్ చేస్తుంది (మరియు ఫెయిల్ అయితే ఆటో-రీట్రై చేస్తుంది).
      */
-    fun loadNativeAd(activity: Activity, onAdLoaded: (NativeAd?) -> Unit) {
+    fun loadNativeAd(activity: Activity, retriesLeft: Int = 2, onAdLoaded: (NativeAd?) -> Unit) {
         val ad = nativeAds.poll()
         if (ad != null) {
             Log.d(TAG, "Serving native ad from cache. Remaining: ${nativeAds.size}")
@@ -107,16 +107,24 @@ object AdMobService {
         }
 
         // కాష్ ఖాళీగా ఉంటే వెంటనే కొత్త యాడ్ లోడ్ చేయడం
-        Log.d(TAG, "Ad cache empty. Loading a new native ad on demand.")
+        Log.d(TAG, "Ad cache empty. Loading a new native ad on demand. Retries left: $retriesLeft")
         val adLoader = AdLoader.Builder(activity, NATIVE_AD_UNIT_ID)
             .forNativeAd { loadedAd -> 
-                Log.d(TAG, "On-demand native ad loaded.")
+                Log.d(TAG, "On-demand native ad loaded successfully.")
                 onAdLoaded(loadedAd) 
+                preloadNativeAds(activity)
             }
             .withAdListener(object : AdListener() {
                 override fun onAdFailedToLoad(error: LoadAdError) {
-                    Log.e(TAG, "On-demand native ad failed to load: ${error.message}")
-                    onAdLoaded(null)
+                    Log.e(TAG, "On-demand native ad failed to load: ${error.message} (Code: ${error.code})")
+                    if (retriesLeft > 0) {
+                        Log.d(TAG, "Retrying on-demand native ad load in 1.5 seconds...")
+                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                            loadNativeAd(activity, retriesLeft - 1, onAdLoaded)
+                        }, 1500)
+                    } else {
+                        onAdLoaded(null)
+                    }
                 }
             })
             .build()

@@ -115,18 +115,18 @@ fun MessagesPageView(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF9FAFB))
+            .background(MaterialTheme.colorScheme.background)
     ) {
         if (loading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color.Red)
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         } else if (messages.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("✉️", fontSize = 48.sp)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("సందేశాలు ఏవీ లేవు.", color = Color.Gray)
+                    Text("సందేశాలు ఏవీ లేవు.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         } else {
@@ -150,9 +150,9 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
     }
 
     val bgColor = when(msg.importance) {
-        "CRITICAL" -> Color(0xFFFEF2F2)
-        "HIGH" -> Color(0xFFFFFBEB)
-        else -> Color.White
+        "CRITICAL" -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+        "HIGH" -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)
+        else -> MaterialTheme.colorScheme.surface
     }
 
     val icon = when(msg.importance) {
@@ -161,9 +161,9 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
     }
     
     val iconColor = when(msg.importance) {
-        "CRITICAL" -> Color.Red
+        "CRITICAL" -> MaterialTheme.colorScheme.error
         "HIGH" -> Color(0xFFF59E0B)
-        else -> Color(0xFF3B82F6)
+        else -> MaterialTheme.colorScheme.primary
     }
 
     ElevatedCard(
@@ -196,14 +196,14 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
                         text = msg.title,
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,
-                        color = Color.Black
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     if (!msg.read) {
                         Box(
                             modifier = Modifier
                                 .size(8.dp)
                                 .clip(CircleShape)
-                                .background(Color.Red)
+                                .background(MaterialTheme.colorScheme.primary)
                         )
                     }
                 }
@@ -211,7 +211,7 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
                 Text(
                     text = msg.senderName,
                     fontSize = 12.sp,
-                    color = Color.Gray,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                     fontWeight = FontWeight.Medium
                 )
 
@@ -220,7 +220,7 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
                 Text(
                     text = msg.body,
                     fontSize = 14.sp,
-                    color = Color.DarkGray,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     lineHeight = 20.sp
                 )
 
@@ -229,7 +229,7 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
                 Text(
                     text = dateStr,
                     fontSize = 10.sp,
-                    color = Color.LightGray,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     fontWeight = FontWeight.Bold
                 )
             }

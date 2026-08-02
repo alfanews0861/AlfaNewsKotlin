@@ -80,8 +80,10 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.Abs
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
 import com.alfanews.telugu.utils.DateTimeUtils
+import com.alfanews.telugu.utils.PreferenceManager
 import com.alfanews.telugu.models.SurveyQuestion
 import com.alfanews.telugu.models.SurveyOption
+import com.alfanews.telugu.services.MyFirebaseMessagingService
 import kotlinx.coroutines.tasks.await
 import java.io.File
 import java.io.FileOutputStream
@@ -186,6 +188,25 @@ fun NewsCardView(
                     AnalyticsService.logNegativeSignal(post)
                 } else if (duration > 4) {
                     AnalyticsService.logPostEngagement(post)
+
+                    // ✅ PERSONALIZATION: User 4+ seconds చదివిన వార్త category track చేయాలి
+                    // ఇది real engagement — fake likes/shares కాదు
+                    val newsCategory = post.category
+                    if (!newsCategory.isNullOrBlank() && newsCategory != "జిల్లా వార్త") {
+                        try {
+                            val prefs = PreferenceManager.getInstance(context)
+                            prefs.trackCategoryRead(newsCategory)
+
+                            // ప్రతి 5 reads కి topic subscriptions update చేస్తాం
+                            val totalReads = prefs.getCategoryReadCounts().values.sum()
+                            if (totalReads % 5 == 0) {
+                                MyFirebaseMessagingService().updateCategorySubscriptions(prefs)
+                            }
+                        } catch (e: Exception) {
+                            Log.e("NewsCardView", "Category tracking failed", e)
+                        }
+                    }
+
                     val params = Bundle().apply {
                         putString("post_id", post.id)
                         putString("user_id", currentUser?.id)

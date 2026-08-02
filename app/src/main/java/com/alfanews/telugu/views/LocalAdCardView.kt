@@ -298,6 +298,7 @@ private fun performAdShare(
             val bitmap = takeScreenshot(view, cardBounds)
             if (bitmap != null) {
                 val uri = saveImageToCache(context, bitmap)
+                bitmap.recycle() // ♻️ Recycle bitmap after writing to file cache
                 if (uri != null) {
                     val intent = Intent(Intent.ACTION_SEND).apply {
                         type = "image/png"

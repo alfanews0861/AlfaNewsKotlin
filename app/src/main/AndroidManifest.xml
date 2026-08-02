@@ -21,6 +21,7 @@
     <application
         android:name=".AlfaNewsApplication"
         android:allowBackup="true"
+        android:largeHeap="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -116,9 +117,11 @@
             tools:replace="android:resource" />
 
         <!-- Firebase Messaging Service -->
+        <!-- directBootAware: phone lock screen state లో కూడా notifications deliver అవుతాయి -->
         <service
             android:name=".services.MyFirebaseMessagingService"
-            android:exported="false">
+            android:exported="false"
+            android:directBootAware="true">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>

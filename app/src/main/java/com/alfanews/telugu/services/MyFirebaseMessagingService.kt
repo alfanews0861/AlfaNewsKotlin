@@ -6,7 +6,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.util.Log
@@ -19,14 +18,17 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.alfanews.telugu.services.NotificationActionReceiver
+import coil3.SingletonImageLoader
+import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import coil3.request.allowHardware
+import coil3.toBitmap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.tasks.await
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * ఫైర్‌బేస్ క్లౌడ్ మెసేజింగ్ (FCM) ద్వారా నోటిఫికేషన్లను స్వీకరించడానికి మరియు 
@@ -74,7 +76,9 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
      */
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        subscribeToDefaultTopics()
+        // Token refresh అయినప్పుడు old topics lost అవుతాయి.
+        // reSubscribeToAllTopics() చేస్తే delivery continuity maintain అవుతుంది.
+        reSubscribeToAllTopics()
         saveTokenToFirestore(token)
     }
 
@@ -137,26 +141,180 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 // అందరు యూజర్ల కోసం
                 FirebaseMessaging.getInstance().subscribeToTopic("all_users").await()
                 FirebaseMessaging.getInstance().subscribeToTopic("breaking_news").await()
-                
+
                 // ✅ జిల్లా ఆధారిత టాపిక్ కి సబ్‌స్క్రయిబ్ చేయడం (సురక్షితమైన పేరుతో)
                 val userDistrict = prefs.userDistrict
                 if (!userDistrict.isNullOrBlank()) {
                     val districtTopic = NotificationHelper.getTopicName("district", userDistrict)
                     FirebaseMessaging.getInstance().subscribeToTopic(districtTopic).await()
                     Log.d("MyFirebaseMsgService", "Subscribed to district topic: $districtTopic")
+                }
 
-                    // ✅ FIX: Subscribe to weather_alert topic.
-                    // Cloud Function sends to "weather_alert_{district}", NOT "district_{district}".
-                    // Without this, weather alert push notifications NEVER reach the user!
+                // ✅ HYPER-LOCAL WEATHER: GPS grid topic (0.1° ≈ 10km cell)
+                // User GPS coordinates prefs లో save అయి ఉంటే grid topic subscribe చేస్తాం.
+                // ఇది district-wide alert కాదు — exact 10km area మాత్రమే.
+                val lat = prefs.lastLat
+                val lon = prefs.lastLon
+                if (lat != 0.0 && lon != 0.0) {
+                    val gridTopic = getWeatherGridTopic(lat, lon)
+                    FirebaseMessaging.getInstance().subscribeToTopic(gridTopic).await()
+                    // Save grid key to prefs for unsubscribe on token refresh
+                    prefs.weatherGridTopic = gridTopic
+                    Log.d("MyFirebaseMsgService", "Subscribed to weather grid topic: $gridTopic")
+
+                    // active_weather_grids doc లో gridKey: true నమోదు చేయడం (backend dynamic checking కోసం)
+                    try {
+                        val gridMap = mapOf(gridTopic to true)
+                        FirebaseService.db.collection("settings").document("active_weather_grids")
+                            .set(gridMap, com.google.firebase.firestore.SetOptions.merge()).await()
+                        Log.d("MyFirebaseMsgService", "Registered $gridTopic in active_weather_grids")
+                    } catch (e: Exception) {
+                        Log.w("MyFirebaseMsgService", "Failed to register active weather grid", e)
+                    }
+
+                    // Firestore users doc లో GPS save చేయడం (logged-in users కి)
+                    val uid = FirebaseService.auth.currentUser?.uid
+                    if (uid != null) {
+                        try {
+                            FirebaseService.db.collection("users").document(uid)
+                                .update(
+                                    "weatherLat", lat,
+                                    "weatherLon", lon,
+                                    "weatherGridKey", gridTopic
+                                ).await()
+                        } catch (e: Exception) {
+                            Log.w("MyFirebaseMsgService", "Could not save weather GPS to Firestore", e)
+                        }
+                    }
+                } else if (!userDistrict.isNullOrBlank()) {
+                    // GPS లేకపోతే old district weather topic fallback
                     val weatherAlertTopic = NotificationHelper.getTopicName("weather_alert", userDistrict)
                     FirebaseMessaging.getInstance().subscribeToTopic(weatherAlertTopic).await()
-                    Log.d("MyFirebaseMsgService", "Subscribed to weather alert topic: $weatherAlertTopic")
+                    Log.d("MyFirebaseMsgService", "Fallback: subscribed to district weather topic: $weatherAlertTopic")
                 }
 
                 Log.d("MyFirebaseMsgService", "Subscribed to default topics")
             } catch (e: Exception) {
                 Log.e("MyFirebaseMsgService", "Failed to subscribe to topics", e)
             }
+        }
+    }
+
+    /**
+     * Token refresh అయినప్పుడు అన్ని topics ను re-subscribe చేస్తుంది.
+     */
+    private fun reSubscribeToAllTopics() {
+        val prefs = PreferenceManager.getInstance(applicationContext)
+        serviceScope.launch {
+            try {
+                // Step 1: stale subscriptions unsubscribe
+                FirebaseMessaging.getInstance().unsubscribeFromTopic("all_users").await()
+                FirebaseMessaging.getInstance().unsubscribeFromTopic("breaking_news").await()
+
+                val userDistrict = prefs.userDistrict
+                if (!userDistrict.isNullOrBlank()) {
+                    val oldDistrictTopic = NotificationHelper.getTopicName("district", userDistrict)
+                    val oldWeatherTopic  = NotificationHelper.getTopicName("weather_alert", userDistrict)
+                    FirebaseMessaging.getInstance().unsubscribeFromTopic(oldDistrictTopic).await()
+                    FirebaseMessaging.getInstance().unsubscribeFromTopic(oldWeatherTopic).await()
+                }
+
+                // ✅ OLD grid topic unsubscribe (token refresh తర్వాత re-subscribe చేస్తాం)
+                val oldGridTopic = prefs.weatherGridTopic
+                if (!oldGridTopic.isNullOrBlank()) {
+                    FirebaseMessaging.getInstance().unsubscribeFromTopic(oldGridTopic).await()
+                    Log.d("MyFirebaseMsgService", "Unsubscribed from old grid topic: $oldGridTopic")
+                }
+
+                // Step 2: Old category topics unsubscribe
+                prefs.subscribedCategoryTopics.forEach { oldTopic ->
+                    FirebaseMessaging.getInstance().unsubscribeFromTopic(oldTopic).await()
+                }
+                prefs.subscribedCategoryTopics = emptySet()
+
+                // Step 3: Fresh subscribe
+                subscribeToDefaultTopics()
+                Log.d("MyFirebaseMsgService", "Re-subscribed to all topics after token refresh")
+            } catch (e: Exception) {
+                Log.e("MyFirebaseMsgService", "reSubscribeToAllTopics failed", e)
+                subscribeToDefaultTopics()
+            }
+        }
+    }
+
+    /**
+     * User చదివిన categories బట్టి FCM category topics subscribe/unsubscribe చేస్తుంది.
+     * Top 3 preferred categories కి subscribe చేస్తాం.
+     * ఈ method ను news detail screen లో కూడా call చేయవచ్చు.
+     */
+    fun updateCategorySubscriptions(prefs: PreferenceManager = PreferenceManager.getInstance(applicationContext)) {
+        serviceScope.launch {
+            try {
+                val topCategories = prefs.getTopCategories(3)
+                val newTopics = topCategories
+                    .mapNotNull { CATEGORY_TOPIC_MAP[it] }
+                    .toSet()
+
+                val currentTopics = prefs.subscribedCategoryTopics
+
+                // Unsubscribe తీసేసిన topics
+                (currentTopics - newTopics).forEach { oldTopic ->
+                    FirebaseMessaging.getInstance().unsubscribeFromTopic(oldTopic).await()
+                    Log.d("MyFirebaseMsgService", "Unsubscribed from category: $oldTopic")
+                }
+
+                // కొత్త topics subscribe
+                (newTopics - currentTopics).forEach { newTopic ->
+                    FirebaseMessaging.getInstance().subscribeToTopic(newTopic).await()
+                    Log.d("MyFirebaseMsgService", "Subscribed to category: $newTopic")
+                }
+
+                // Save updated set
+                prefs.subscribedCategoryTopics = newTopics
+                Log.d("MyFirebaseMsgService", "Category topics updated: $newTopics")
+            } catch (e: Exception) {
+                Log.e("MyFirebaseMsgService", "updateCategorySubscriptions failed", e)
+            }
+        }
+    }
+
+    companion object {
+        /**
+         * Telugu category → FCM topic name mapping.
+         * Backend notification_engine.ts లో getCategoryTopic() తో exactly match అవుతుంది.
+         */
+        val CATEGORY_TOPIC_MAP = mapOf(
+            "రాజకీయం"    to "cat_politics",
+            "వినోదం"     to "cat_cinema",
+            "క్రైమ్"     to "cat_crime",
+            "క్రీడలు"    to "cat_sports",
+            "వ్యాపారం"   to "cat_business",
+            "టెక్నాలజీ" to "cat_technology",
+            "ఆరోగ్యం"   to "cat_health",
+            "విద్య"      to "cat_education",
+            "భక్తి"      to "cat_spiritual",
+            "వ్యవసాయం"  to "cat_agriculture",
+            "జాతీయం"    to "cat_national",
+            "ప్రపంచం"   to "cat_international",
+            "జీవనశైలి"  to "cat_lifestyle"
+        )
+
+        /**
+         * GPS coordinates ను 0.1° grid cell కి round చేసి FCM topic name generate చేస్తుంది.
+         * Backend auto_content_handler.ts లో getWeatherGridTopic() తో exactly match అవుతుంది.
+         *
+         * Example: lat=14.44, lon=79.98
+         *   → latKey = round(14.44 × 10) = 144
+         *   → lonKey = round(79.98 × 10) = 800
+         *   → topic: "weather_grid_144_800"
+         *
+         * ఇది ≈10km × 10km area ను cover చేస్తుంది.
+         * ఆ area లో ఉన్న అందరు users కి ఒకే topic subscribe అవుతుంది.
+         */
+        fun getWeatherGridTopic(lat: Double, lon: Double): String {
+            val latKey = Math.round(lat * 10)  // 14.44 → 144
+            val lonKey = Math.round(lon * 10)  // 79.98 → 800
+            return "weather_grid_${latKey}_${lonKey}"
         }
     }
 
@@ -236,19 +394,21 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 .addAction(R.drawable.ic_launcher_foreground, "చదవండి", pendingIntent)
                 .addAction(R.drawable.ic_launcher_foreground, "షేర్ చేయండి", sharePendingIntent)
 
-            // 🖼️ Rich Notification: ఫోటో ఉంటే Background లో డౌన్‌లోడ్ చేసి చూపిస్తాం
+            // 🖼️ Rich Notification: ఫోటో ఉంటే Coil 3 ద్వారా Safe గా లోడ్ చేసి చూపిస్తాం
             if (!imageUrl.isNullOrBlank()) {
                 var bitmap: Bitmap? = null
                 try {
-                    val url = URL(imageUrl)
-                    val connection = url.openConnection() as HttpURLConnection
-                    connection.doInput = true
-                    connection.connectTimeout = 10_000  // ✅ FIX: timeout add చేయడం
-                    connection.readTimeout = 10_000
-                    connection.connect()
-                    bitmap = BitmapFactory.decodeStream(connection.inputStream)
+                    val request = ImageRequest.Builder(this@MyFirebaseMessagingService)
+                        .data(imageUrl)
+                        .size(1024, 512)
+                        .allowHardware(false) // Notification view support requires software Bitmaps
+                        .build()
+                    val result = SingletonImageLoader.get(this@MyFirebaseMessagingService).execute(request)
+                    if (result is SuccessResult) {
+                        bitmap = result.image.toBitmap()
+                    }
                 } catch (e: Exception) {
-                    Log.e("MyFirebaseMsgService", "Image download failed, showing text-only notification", e)
+                    Log.e("MyFirebaseMsgService", "Coil image load failed, showing text-only notification", e)
                 }
 
                 if (bitmap != null) {

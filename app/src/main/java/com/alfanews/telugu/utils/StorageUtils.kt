@@ -2,7 +2,6 @@ package com.alfanews.telugu.utils
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -10,6 +9,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import com.alfanews.telugu.services.FirebaseService
 import android.util.Log
+import coil3.SingletonImageLoader
+import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import coil3.request.allowHardware
+import coil3.toBitmap
 import kotlinx.coroutines.tasks.await
 import java.io.ByteArrayOutputStream
 import java.util.UUID
@@ -24,11 +28,19 @@ suspend fun uploadImageToStorage(
         val fileName = "${folder}/${UUID.randomUUID()}_${System.currentTimeMillis()}.webp"
         val imageRef = storageRef.child(fileName)
         
-        val inputStream = context.contentResolver.openInputStream(uri) 
-            ?: throw IllegalArgumentException("చిత్రం చదవలేకపోతున్నాము. దయచేసి మళ్ళీ ప్రయత్నించండి.")
-            
-        val bitmap = BitmapFactory.decodeStream(inputStream)
-            ?: throw IllegalArgumentException("చిత్రం సరిగ్గా లేదు. వేరే ఫోటో ప్రయత్నించండి.")
+        // 📏 SAFE DOWNSAMPLING: Load and downsample via Coil 3 ImageLoader
+        val imageRequest = ImageRequest.Builder(context)
+            .data(uri)
+            .size(1280, 1280)
+            .allowHardware(false)
+            .build()
+
+        val result = SingletonImageLoader.get(context).execute(imageRequest)
+        val bitmap = if (result is SuccessResult) {
+            result.image.toBitmap()
+        } else {
+            throw IllegalArgumentException("చిత్రం సరిగ్గా లేదు. వేరే ఫోటో ప్రయత్నించండి.")
+        }
             
         // 📏 RESIZE LOGIC: Max 1280px to save bandwidth
         val resizedBitmap = if (bitmap.width > 1280 || bitmap.height > 1280) {

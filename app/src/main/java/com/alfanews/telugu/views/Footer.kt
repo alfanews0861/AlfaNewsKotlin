@@ -39,12 +39,11 @@ fun Footer(
         NavigationBar(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .height(64.dp), // Medium size footer height
+                .height(64.dp), // Clean, uncompressed footer height inside safe area
             containerColor = Color.Transparent,
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
             tonalElevation = 0.dp,
-            windowInsets = WindowInsets.navigationBars
+            windowInsets = WindowInsets(0, 0, 0, 0)
         ) {
             FooterItem(
                 icon = Icons.Default.Home,

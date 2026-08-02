@@ -38,7 +38,8 @@ fun ManageSurveysPageView(
     currentUser: User?,
     language: Language = Language.TELUGU,
     showTitle: Boolean = true,
-    onNavigateToCreateSurvey: (() -> Unit)? = null
+    onNavigateToCreateSurvey: (() -> Unit)? = null,
+    onEditSurvey: ((NewsPost) -> Unit)? = null
 ) {
     var surveys by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -47,6 +48,7 @@ fun ManageSurveysPageView(
 
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
     var showResultsDialog by remember { mutableStateOf<NewsPost?>(null) }
+    var showDetailPreviewDialog by remember { mutableStateOf<NewsPost?>(null) }
 
     // ✅ REAL-TIME LISTENER for Surveys
     DisposableEffect(currentUser) {
@@ -79,6 +81,10 @@ fun ManageSurveysPageView(
                         "status" to "PUBLISHED"
                     )).await()
                 Toast.makeText(context, "సర్వే ఆమోదించబడింది (Approved)!", Toast.LENGTH_SHORT).show()
+                // Update local preview if open
+                if (showDetailPreviewDialog?.id == postId) {
+                    showDetailPreviewDialog = showDetailPreviewDialog?.copy(approved = true, status = "PUBLISHED")
+                }
             } catch (e: Exception) {
                 Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
             }
@@ -94,6 +100,9 @@ fun ManageSurveysPageView(
                 Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
                 showDeleteDialog = null
+                if (showDetailPreviewDialog?.id == postId) {
+                    showDetailPreviewDialog = null
+                }
             }
         }
     }
@@ -165,10 +174,21 @@ fun ManageSurveysPageView(
                     }
                 } else {
                     items(surveys, key = { it.id }) { survey ->
+                        val isStaff = currentUser?.role == UserRole.ADMIN || currentUser?.role == UserRole.EDITOR || currentUser?.role == UserRole.NEWS_DESK || currentUser?.role == UserRole.REGIONAL_INCHARGE
+                        val isOwner = currentUser?.id != null && survey.reporter.id == currentUser.id
+                        val canEdit = isStaff || isOwner
+                        val canDelete = isStaff || isOwner
+                        val canApprove = isStaff && !survey.approved
+
                         SurveyManagementCard(
                             survey = survey,
-                            isAdmin = currentUser?.role == UserRole.ADMIN || currentUser?.role == UserRole.EDITOR || currentUser?.role == UserRole.NEWS_DESK,
+                            isAdmin = isStaff,
+                            canEdit = canEdit,
+                            canDelete = canDelete,
+                            canApprove = canApprove,
+                            onClickCard = { showDetailPreviewDialog = survey },
                             onApprove = { approveSurvey(survey.id) },
+                            onEdit = { onEditSurvey?.invoke(survey) },
                             onDelete = { showDeleteDialog = survey.id },
                             onViewResults = { showResultsDialog = survey }
                         )
@@ -176,6 +196,39 @@ fun ManageSurveysPageView(
                 }
             }
         }
+    }
+
+    // Detail Preview Dialog
+    showDetailPreviewDialog?.let { survey ->
+        val isStaff = currentUser?.role == UserRole.ADMIN || currentUser?.role == UserRole.EDITOR || currentUser?.role == UserRole.NEWS_DESK || currentUser?.role == UserRole.REGIONAL_INCHARGE
+        val isOwner = currentUser?.id != null && survey.reporter.id == currentUser.id
+        val canEdit = isStaff || isOwner
+        val canDelete = isStaff || isOwner
+        val canApprove = isStaff && !survey.approved
+
+        SurveyDetailPreviewDialog(
+            survey = survey,
+            canApprove = canApprove,
+            canEdit = canEdit,
+            canDelete = canDelete,
+            onApprove = { approveSurvey(survey.id) },
+            onEdit = {
+                val sToEdit = survey
+                showDetailPreviewDialog = null
+                onEditSurvey?.invoke(sToEdit)
+            },
+            onDelete = {
+                val sId = survey.id
+                showDetailPreviewDialog = null
+                showDeleteDialog = sId
+            },
+            onViewResults = {
+                val sRes = survey
+                showDetailPreviewDialog = null
+                showResultsDialog = sRes
+            },
+            onClose = { showDetailPreviewDialog = null }
+        )
     }
 
     // Results Dialog
@@ -208,12 +261,19 @@ fun ManageSurveysPageView(
 fun SurveyManagementCard(
     survey: NewsPost,
     isAdmin: Boolean,
+    canEdit: Boolean,
+    canDelete: Boolean,
+    canApprove: Boolean,
+    onClickCard: () -> Unit,
     onApprove: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
     onViewResults: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClickCard),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
     ) {
@@ -227,7 +287,7 @@ fun SurveyManagementCard(
             Spacer(modifier = Modifier.height(4.dp))
             
             Text(
-                text = "By: ${survey.reporter.name} • ${DateTimeUtils.formatTimestamp(survey.timestamp, "dd MMM, hh:mm a")}",
+                text = "By: ${survey.reporter.name.ifBlank { "Admin" }} • ${DateTimeUtils.formatTimestamp(survey.timestamp, "dd MMM, hh:mm a")}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
@@ -255,18 +315,24 @@ fun SurveyManagementCard(
                 }
 
                 // Actions
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     IconButton(onClick = onViewResults) {
                         Icon(Icons.Default.BarChart, contentDescription = "Results", tint = MaterialTheme.colorScheme.primary)
                     }
-                    
-                    if (!survey.approved && isAdmin) {
+
+                    if (canEdit) {
+                        IconButton(onClick = onEdit) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+
+                    if (canApprove) {
                         IconButton(onClick = onApprove) {
                             Icon(Icons.Default.CheckCircle, contentDescription = "Approve", tint = Color(0xFF4CAF50))
                         }
                     }
 
-                    if (isAdmin) {
+                    if (canDelete) {
                         IconButton(onClick = onDelete) {
                             Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
                         }
@@ -275,6 +341,224 @@ fun SurveyManagementCard(
             }
         }
     }
+}
+
+@Composable
+fun SurveyDetailPreviewDialog(
+    survey: NewsPost,
+    canApprove: Boolean,
+    canEdit: Boolean,
+    canDelete: Boolean,
+    onApprove: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onViewResults: () -> Unit,
+    onClose: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "సర్వే వివరాలు",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    
+                    val statusColor = if (survey.approved) Color(0xFF4CAF50) else Color(0xFFFF9800)
+                    Surface(
+                        color = statusColor.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = if (survey.approved) "LIVE" else "PENDING",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = statusColor,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Headline
+                Text(
+                    text = survey.headline.telugu,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold
+                )
+
+                // Details/Content if present
+                if (survey.content.telugu.isNotBlank()) {
+                    Text(
+                        text = survey.content.telugu,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                    )
+                }
+
+                // Reporter & Metadata
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "రిపోర్టర్: ${survey.reporter.name.ifBlank { "Admin" }}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "తేదీ: ${DateTimeUtils.formatTimestamp(survey.timestamp, "dd MMM yyyy, hh:mm a")}",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                        Text(
+                            text = "ప్రాంతం: ${if (survey.isGlobal) "రాష్ట్రం (Global)" else survey.district}",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+
+                HorizontalDivider()
+
+                // Questions & Options section
+                Text(
+                    text = "ప్రశ్నలు & ఆప్షన్స్ (Questions & Options):",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                if (survey.surveyQuestions.isEmpty()) {
+                    Text(
+                        text = "ప్రశ్నల వివరాలు అందుబాటులో లేవు.",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                } else {
+                    survey.surveyQuestions.forEachIndexed { qIdx, question ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "${qIdx + 1}. ${question.questionText}",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            question.options.forEachIndexed { oIdx, option ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 12.dp, top = 2.dp, bottom = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "• ${option.text}",
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Actions row: Approve, Edit, Delete
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (canApprove) {
+                        Button(
+                            onClick = onApprove,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("ఆమోదించు", fontSize = 12.sp)
+                        }
+                    }
+
+                    if (canEdit) {
+                        Button(
+                            onClick = onEdit,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("ఎడిట్", fontSize = 12.sp)
+                        }
+                    }
+
+                    if (canDelete) {
+                        OutlinedButton(
+                            onClick = onDelete,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("తొలగించు", fontSize = 12.sp)
+                        }
+                    }
+                }
+
+                // Secondary row: View Results & Close
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onViewResults) {
+                        Icon(Icons.Default.BarChart, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("ఫలితాలు చూడు", fontSize = 13.sp)
+                    }
+
+                    TextButton(onClick = onClose) {
+                        Text("మూసివేయి", fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    )
 }
 
 @Composable
@@ -338,3 +622,4 @@ fun SurveyResultsAdminDialog(
         }
     )
 }
+

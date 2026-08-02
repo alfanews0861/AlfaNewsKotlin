@@ -36,6 +36,7 @@ import coil3.request.crossfade
 fun VideoPlayerView(
     videoUrl: String,
     modifier: Modifier = Modifier,
+    thumbnailUrl: String? = null,
     autoPlay: Boolean = false,
     muted: Boolean = false
 ) {
@@ -57,6 +58,7 @@ fun VideoPlayerView(
     } else {
         VideoPlaceholder(
             videoUrl = videoUrl,
+            thumbnailUrl = thumbnailUrl,
             modifier = modifier,
             onPlayClick = { isInitialized = true }
         )
@@ -158,31 +160,49 @@ private fun ActiveVideoPlayer(
 @Composable
 private fun VideoPlaceholder(
     videoUrl: String,
+    thumbnailUrl: String?,
     modifier: Modifier,
     onPlayClick: () -> Unit
 ) {
     val context = LocalContext.current
+    val imageTarget = remember(videoUrl, thumbnailUrl) {
+        when {
+            !thumbnailUrl.isNullOrEmpty() && !thumbnailUrl.contains(".mp4", ignoreCase = true) && !thumbnailUrl.contains(".mov", ignoreCase = true) -> thumbnailUrl
+            !videoUrl.contains(".mp4", ignoreCase = true) && !videoUrl.contains(".mov", ignoreCase = true) -> videoUrl
+            else -> null
+        }
+    }
+
     Box(
         modifier = modifier
             .background(Color.Black)
             .clickable { onPlayClick() },
         contentAlignment = Alignment.Center
     ) {
-        val request = remember(videoUrl) {
-            ImageRequest.Builder(context)
-                .data(videoUrl)
-                .crossfade(true)
-                .allowHardware(true)
-                .build()
+        if (imageTarget != null) {
+            val request = remember(imageTarget) {
+                ImageRequest.Builder(context)
+                    .data(imageTarget)
+                    .crossfade(true)
+                    .allowHardware(true)
+                    .build()
+            }
+            AsyncImage(
+                model = request,
+                contentDescription = "Video Thumbnail",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                fallback = painterResource(id = R.drawable.fallback_news_image),
+                error = painterResource(id = R.drawable.fallback_news_image)
+            )
+        } else {
+            androidx.compose.foundation.Image(
+                painter = painterResource(id = R.drawable.fallback_news_image),
+                contentDescription = "Video Thumbnail",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
         }
-        AsyncImage(
-            model = request,
-            contentDescription = "Video Thumbnail",
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop,
-            fallback = painterResource(id = R.drawable.fallback_news_image),
-            error = painterResource(id = R.drawable.fallback_news_image)
-        )
 
         Box(
             modifier = Modifier

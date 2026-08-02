@@ -96,7 +96,7 @@ fun CommentSectionView(
                     .fillMaxWidth()
                     .fillMaxHeight(0.8f)
                     .align(Alignment.BottomCenter)
-                    .background(Color(0xFF1A1A1A))
+                    .background(MaterialTheme.colorScheme.surface)
                     .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -116,58 +116,59 @@ fun CommentSectionView(
                         text = "వ్యాఖ్యలు",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     IconButton(onClick = onClose) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close",
-                            tint = Color.Gray
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
 
-                Divider(color = Color.Gray.copy(alpha = 0.3f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                 // Comments List
-                if (isLoading && comments.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-                } else if (comments.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "ఇంకా వ్యాఖ్యలు లేవు. మీరే మొదట స్పందించండి!",
-                            color = Color.Gray,
-                            fontSize = 16.sp
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        items(comments) { comment ->
-                            CommentItem(comment = comment)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    if (isLoading) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.error)
+                        }
+                    } else if (comments.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "ఇంకా వ్యాఖ్యలు ఏవీ లేవు. మొదటి వ్యాఖ్య చేయండి!",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 14.sp
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            contentPadding = PaddingValues(vertical = 16.dp)
+                        ) {
+                            items(comments) { comment ->
+                                CommentItem(comment = comment)
+                            }
                         }
                     }
                 }
 
-                Divider(color = Color.Gray.copy(alpha = 0.3f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                 // Input Form
                 Row(
@@ -199,15 +200,15 @@ fun CommentSectionView(
                         placeholder = {
                             Text(
                                 text = if (currentUser != null) "మీ అభిప్రాయాన్ని రాయండి..." else "వ్యాఖ్యానించడానికి లాగిన్ అవ్వండి...",
-                                color = Color.Gray
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         },
                         readOnly = currentUser == null,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                             focusedBorderColor = MaterialTheme.colorScheme.error,
-                            unfocusedBorderColor = Color.Gray.copy(alpha = 0.5f)
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
                         ),
                         shape = RoundedCornerShape(24.dp),
                         singleLine = true
@@ -242,7 +243,7 @@ fun CommentSectionView(
                                 imageVector = Icons.Default.Send,
                                 contentDescription = "Send",
                                 tint = if (newComment.trim().isNotEmpty() && currentUser != null)
-                                    MaterialTheme.colorScheme.error else Color.Gray
+                                    MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                             )
                         }
                     }
@@ -270,12 +271,11 @@ fun CommentItem(comment: Comment) {
         )
 
         Column(modifier = Modifier.weight(1f)) {
-            Box(
-                modifier = Modifier
-                    .background(Color(0xFF2A2A2A), RoundedCornerShape(16.dp))
-                    .padding(12.dp)
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Column {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Text(
                         text = comment.userName,
                         fontSize = 14.sp,
@@ -286,14 +286,14 @@ fun CommentItem(comment: Comment) {
                     Text(
                         text = comment.text,
                         fontSize = 15.sp,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
             }
             Text(
                 text = formattedTime,
                 fontSize = 10.sp,
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 8.dp, top = 4.dp)
             )
         }

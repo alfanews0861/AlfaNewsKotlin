@@ -47,6 +47,9 @@ class PreferenceManager(context: Context) {
         private const val KEY_LOCAL_ADS_TS_PREFIX = "key_local_ads_ts_"
         private const val KEY_REFERRED_BY = "key_referred_by"
         private const val KEY_REFERRER_PROCESSED = "key_referrer_processed"
+        private const val KEY_CATEGORY_READ_COUNTS = "key_category_read_counts"  // JSON map of category→count
+        private const val KEY_SUBSCRIBED_CATEGORIES = "key_subscribed_cat_topics" // Set of subscribed category topics
+        private const val KEY_WEATHER_GRID_TOPIC = "key_weather_grid_topic"        // Current weather grid FCM topic
 
         @Volatile
         private var INSTANCE: PreferenceManager? = null
@@ -315,5 +318,72 @@ class PreferenceManager(context: Context) {
     fun clearOldViewCounts() {
         // ఇక్కడ పాత కీలను తొలగించే లాజిక్ రాయవచ్చు, కానీ ప్రస్తుతానికి 
         // తక్కువ సైజులో ఉండేలా కీ పేరు 'vc_' అని చిన్నగా పెట్టాను.
+    }
+
+    // ==========================================
+    // CATEGORY PREFERENCE TRACKING
+    // User ఒక వార్త చదివినప్పుడు ఆ category count పెంచాలి.
+    // Top 3 categories detect చేసి topic subscribe చేస్తాం.
+    // ==========================================
+
+    /**
+     * User ఒక category వార్త చదివినప్పుడు call చేయాలి.
+     * Category read count track చేస్తుంది.
+     */
+    fun trackCategoryRead(category: String) {
+        if (category.isBlank()) return
+        val counts = getCategoryReadCounts().toMutableMap()
+        counts[category] = (counts[category] ?: 0) + 1
+        saveCategoryReadCounts(counts)
+    }
+
+    /**
+     * అన్ని category read counts return చేస్తుంది.
+     * Map<category, readCount>
+     */
+    fun getCategoryReadCounts(): Map<String, Int> {
+        val json = prefs.getString(KEY_CATEGORY_READ_COUNTS, null) ?: return emptyMap()
+        return try {
+            val result = mutableMapOf<String, Int>()
+            val obj = org.json.JSONObject(json)
+            obj.keys().forEach { key -> result[key] = obj.getInt(key) }
+            result
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    /**
+     * Top N categories (most read) return చేస్తుంది.
+     * Notification topic subscription కి use అవుతుంది.
+     */
+    fun getTopCategories(limit: Int = 3): List<String> {
+        return getCategoryReadCounts()
+            .entries
+            .sortedByDescending { it.value }
+            .take(limit)
+            .map { it.key }
+    }
+
+    /** Currently subscribed category topics */
+    var subscribedCategoryTopics: Set<String>
+        get() = prefs.getStringSet(KEY_SUBSCRIBED_CATEGORIES, emptySet()) ?: emptySet()
+        set(value) {
+            prefs.edit().putStringSet(KEY_SUBSCRIBED_CATEGORIES, value).apply()
+        }
+
+    /**
+     * User subscribe చేసిన weather grid FCM topic.
+     * Token refresh అయినపుడు old topic unsubscribe చేసి new topic subscribe చేయడానికి వాడతాం.
+     * Example: "weather_grid_144_799"
+     */
+    var weatherGridTopic: String?
+        get() = prefs.getString(KEY_WEATHER_GRID_TOPIC, null)
+        set(value) = prefs.edit().putString(KEY_WEATHER_GRID_TOPIC, value).apply()
+
+    private fun saveCategoryReadCounts(counts: Map<String, Int>) {
+        val obj = org.json.JSONObject()
+        counts.forEach { (k, v) -> obj.put(k, v) }
+        prefs.edit().putString(KEY_CATEGORY_READ_COUNTS, obj.toString()).apply()
     }
 }

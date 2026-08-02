@@ -58,7 +58,7 @@ fun ContactUsPageView() {
             .fillMaxSize()
             .padding(16.dp),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
             modifier = Modifier
@@ -71,7 +71,7 @@ fun ContactUsPageView() {
                 text = stringResource(R.string.contact_us_title),
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.Black
+                color = MaterialTheme.colorScheme.onSurface
             )
             
             Text(
@@ -80,7 +80,7 @@ fun ContactUsPageView() {
             )
             
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFF9FAFB)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -123,7 +123,7 @@ fun ContactUsPageView() {
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                     ) {
                         if (isSubmitting) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onError)
                             Spacer(modifier = Modifier.width(8.dp))
                         }
                         Text(if (isSubmitting) stringResource(R.string.sending) else stringResource(R.string.send_message))
@@ -137,7 +137,7 @@ fun ContactUsPageView() {
             
             Text(stringResource(R.string.our_office), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFF3F4F6)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(

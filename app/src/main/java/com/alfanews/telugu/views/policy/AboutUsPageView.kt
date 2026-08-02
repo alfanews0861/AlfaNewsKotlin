@@ -22,7 +22,7 @@ fun AboutUsPageView() {
             .fillMaxSize()
             .padding(16.dp),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
             modifier = Modifier
@@ -35,18 +35,18 @@ fun AboutUsPageView() {
                 text = stringResource(R.string.about_us_title),
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.Black
+                color = MaterialTheme.colorScheme.onSurface
             )
             
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFDBEAFE)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(stringResource(R.string.news_aggregator), fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color(0xFF1E3A8A))
+                    Text(stringResource(R.string.news_aggregator), fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     Text(
                         text = stringResource(R.string.about_us_description),
                         fontSize = 16.sp
@@ -83,7 +83,7 @@ fun AboutUsPageView() {
                 Text(stringResource(R.string.value_public_interest), fontSize = 16.sp)
             }
             
-            Divider()
+            HorizontalDivider()
             
             Text(
                 text = stringResource(R.string.dmca_policy),
@@ -91,7 +91,7 @@ fun AboutUsPageView() {
                 fontWeight = FontWeight.Bold
             )
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFF3F4F6)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -103,7 +103,7 @@ fun AboutUsPageView() {
                         fontSize = 14.sp
                     )
                     Text(stringResource(R.string.dmca_email), fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
-                    Text(stringResource(R.string.dmca_response), fontSize = 12.sp, color = Color.Gray)
+                    Text(stringResource(R.string.dmca_response), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             

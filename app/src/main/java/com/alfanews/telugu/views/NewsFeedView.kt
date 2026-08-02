@@ -178,8 +178,8 @@ fun NewsFeedView(
                 viewModel.loadMore(language, currentUser)
             }
 
-            // 🚀 IMAGE PRELOADING: next 8 pages ahead (from 5) for smoother scroll
-            (1..8).forEach { offset ->
+            // 🚀 IMAGE PRELOADING: next 5 pages ahead for ultra-smooth scrolling
+            (1..5).forEach { offset ->
                 val nextPageIndex = page + offset
                 val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
                 if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
@@ -195,8 +195,8 @@ fun NewsFeedView(
                 }
             }
 
-            // 🚀 LOCAL AD PRELOADING: limit to 12 to reduce coroutine overhead
-            (1..12).forEach { offset ->
+            // 🚀 LOCAL AD PRELOADING: limit to 2 slots ahead to minimize concurrent network streams
+            (1..2).forEach { offset ->
                 val futurePage = page + offset
                 val isAdPage = (futurePage + 1) % 6 == 0
                 if (isAdPage && futurePage < totalCount) {

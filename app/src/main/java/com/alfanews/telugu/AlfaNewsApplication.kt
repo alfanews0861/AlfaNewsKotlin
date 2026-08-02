@@ -15,6 +15,8 @@ import com.alfanews.telugu.utils.PreferenceManager
 import com.google.firebase.messaging.FirebaseMessaging
 import androidx.work.WorkManager
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Response
@@ -32,6 +34,10 @@ import coil3.util.DebugLogger
 
 class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    private val sharedOkHttpClient: OkHttpClient by lazy {
+        createSafeOkHttpClient()
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -74,6 +80,27 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
         }
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        try {
+            // 🧹 Release memory cache when system is under memory pressure or app enters background
+            if (level >= TRIM_MEMORY_UI_HIDDEN || level >= TRIM_MEMORY_RUNNING_MODERATE || level >= TRIM_MEMORY_BACKGROUND || level >= TRIM_MEMORY_RUNNING_LOW) {
+                SingletonImageLoader.get(this).memoryCache?.clear()
+            }
+        } catch (e: Exception) {
+            Log.e("AlfaNewsApp", "Error trimming Coil memory cache: ${e.message}")
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        try {
+            SingletonImageLoader.get(this).memoryCache?.clear()
+        } catch (e: Exception) {
+            Log.e("AlfaNewsApp", "Error clearing memory on low memory: ${e.message}")
+        }
+    }
+
     /**
      * ఆండ్రాయిడ్ 8.0+ కోసం నోటిఫికేషన్ ఛానెల్‌లను సృష్టిస్తుంది.
      * దీనివల్ల యాప్ సెట్టింగ్స్‌లో నోటిఫికేషన్ లిస్ట్ కనిపిస్తుంది.
@@ -104,11 +131,11 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
 
         return ImageLoader.Builder(context)
             .components {
-                add(OkHttpNetworkFetcherFactory(callFactory = { createSafeOkHttpClient() }))
+                add(OkHttpNetworkFetcherFactory(callFactory = { sharedOkHttpClient }))
             }
             .memoryCache {
                 MemoryCache.Builder()
-                    .maxSizePercent(context, 0.20) // మెమరీలో 20%
+                    .maxSizePercent(context, 0.10) // మెమరీలో 10% (Safe ceiling to prevent OOM)
                     .build()
             }
             .diskCache {
@@ -222,11 +249,17 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
      * 🛡️ చిత్రాల అభ్యర్థనల కోసం హెడర్‌లను (Headers) జోడించే OkHttpClientని సృష్టిస్తుంది.
      */
     private fun createSafeOkHttpClient(): OkHttpClient {
+        val dispatcher = Dispatcher().apply {
+            maxRequests = 8
+            maxRequestsPerHost = 3
+        }
         return OkHttpClient.Builder()
+            .dispatcher(dispatcher)
+            .connectionPool(ConnectionPool(5, 2, TimeUnit.MINUTES))
             .addInterceptor(SafeHeaderInterceptor())
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .writeTimeout(20, TimeUnit.SECONDS)
             .build()
     }
 

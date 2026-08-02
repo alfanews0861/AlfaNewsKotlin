@@ -22,7 +22,7 @@ fun ContentPolicyPageView() {
             .fillMaxSize()
             .padding(16.dp),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
             modifier = Modifier
@@ -35,7 +35,7 @@ fun ContentPolicyPageView() {
                 text = stringResource(R.string.content_policy_title),
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.Black
+                color = MaterialTheme.colorScheme.onSurface
             )
             
             Text(
@@ -44,17 +44,17 @@ fun ContentPolicyPageView() {
             )
             
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFEE2E2)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(stringResource(R.string.copyright_complaints), fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF991B1B))
+                    Text(stringResource(R.string.copyright_complaints), fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onErrorContainer)
                     Text(stringResource(R.string.copyright_objection), fontSize = 14.sp)
                     Text(stringResource(R.string.dmca_email), fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
-                    Text(stringResource(R.string.dmca_response), fontSize = 12.sp, color = Color.Gray)
+                    Text(stringResource(R.string.dmca_response), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             

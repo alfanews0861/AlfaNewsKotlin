@@ -117,11 +117,36 @@ fun AdMobCardView(
                     adView.callToActionView = adView.findViewById<Button>(R.id.ad_call_to_action)
                     adView.iconView = adView.findViewById<ImageView>(R.id.ad_app_icon)
 
-                    (adView.headlineView as? TextView)?.text = nativeAd.headline
-                    nativeAd.mediaContent?.let { adView.mediaView?.setMediaContent(it) }
-                    (adView.bodyView as? TextView)?.text = nativeAd.body
-                    (adView.callToActionView as? Button)?.text = nativeAd.callToAction
-                    nativeAd.icon?.drawable?.let { (adView.iconView as? ImageView)?.setImageDrawable(it) }
+                    (adView.headlineView as? TextView)?.apply {
+                        text = nativeAd.headline
+                        visibility = if (nativeAd.headline.isNullOrEmpty()) android.view.View.GONE else android.view.View.VISIBLE
+                    }
+                    
+                    (adView.bodyView as? TextView)?.apply {
+                        text = nativeAd.body
+                        visibility = if (nativeAd.body.isNullOrEmpty()) android.view.View.GONE else android.view.View.VISIBLE
+                    }
+
+                    (adView.callToActionView as? Button)?.apply {
+                        text = nativeAd.callToAction
+                        visibility = if (nativeAd.callToAction.isNullOrEmpty()) android.view.View.GONE else android.view.View.VISIBLE
+                    }
+
+                    (adView.iconView as? ImageView)?.apply {
+                        if (nativeAd.icon?.drawable != null) {
+                            setImageDrawable(nativeAd.icon?.drawable)
+                            visibility = android.view.View.VISIBLE
+                        } else {
+                            visibility = android.view.View.GONE
+                        }
+                    }
+
+                    nativeAd.mediaContent?.let { media ->
+                        adView.mediaView?.setMediaContent(media)
+                        adView.mediaView?.visibility = android.view.View.VISIBLE
+                    } ?: run {
+                        adView.mediaView?.visibility = android.view.View.GONE
+                    }
 
                     adView.setNativeAd(nativeAd)
                 },

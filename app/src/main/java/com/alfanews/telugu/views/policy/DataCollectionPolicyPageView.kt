@@ -21,7 +21,7 @@ fun DataCollectionPolicyPageView() {
             .fillMaxSize()
             .padding(16.dp),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
             modifier = Modifier
@@ -34,7 +34,7 @@ fun DataCollectionPolicyPageView() {
                 text = stringResource(R.string.data_collection_title),
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.Black
+                color = MaterialTheme.colorScheme.onSurface
             )
             
             Text(

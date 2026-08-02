@@ -45,7 +45,6 @@ import com.alfanews.telugu.utils.Constants
 import com.alfanews.telugu.utils.uploadMediaToStorage
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
-import com.google.firebase.Timestamp
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.io.File
@@ -211,11 +210,12 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
                     "headline" to mapOf("telugu" to (if (content.length > 50) content.take(50) + "..." else content), "english" to ""),
                     "content" to mapOf("telugu" to content, "english" to ""),
                     "mediaUrl" to mediaUrl,
+                    "mediaUrls" to listOf(mediaUrl).filter { it.isNotBlank() },
                     "mediaType" to if (mediaUrl.contains(".mp4") || mediaUrl.contains("video")) "VIDEO" else "IMAGE",
+                    "mediaTypes" to listOf(if (mediaUrl.contains(".mp4") || mediaUrl.contains("video")) "VIDEO" else "IMAGE"),
                     "location" to selectedMandal,
                     "categories" to finalCategories,
                     "reporter" to mapOf("id" to user.id, "name" to if (isAnonymous) "అజ్ఞాత పౌరుడు" else user.name),
-                    "timestamp" to Timestamp.now(),
                     "category" to "జనరల్",
                     "district" to selectedDistrict,
                     "state" to selectedState,
@@ -268,6 +268,7 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
                 TopAppBar(
                     title = { Text("సిటిజెన్ జర్నలిజం") },
                     navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.Default.Close, contentDescription = "Close") } },
+                    windowInsets = WindowInsets(0, 0, 0, 0),
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         titleContentColor = MaterialTheme.colorScheme.onPrimary,

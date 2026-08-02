@@ -150,13 +150,13 @@ fun NotificationsPageView(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(MaterialTheme.colorScheme.background)
     ) {
         // Header
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shadowElevation = 2.dp,
-            color = Color.White
+            color = MaterialTheme.colorScheme.surface
         ) {
             Row(
                 modifier = Modifier
@@ -168,7 +168,8 @@ fun NotificationsPageView(
                 Text(
                     text = "నోటిఫికేషన్లు",
                     fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
 
                 if (notifications.isNotEmpty()) {
@@ -211,7 +212,7 @@ fun NotificationsPageView(
                     Text(
                         text = "కొత్త నోటిఫికేషన్లు ఏవీ లేవు.",
                         fontSize = 20.sp,
-                        color = Color.Gray
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -244,7 +245,7 @@ fun NotificationItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        color = if (notification.read) Color.White else Color(0xFFEFF6FF)
+        color = if (notification.read) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
     ) {
         Row(
             modifier = Modifier
@@ -263,7 +264,7 @@ fun NotificationItem(
                     text = notification.title,
                     fontSize = 16.sp,
                     fontWeight = if (notification.read) FontWeight.Normal else FontWeight.Bold,
-                    color = if (notification.read) Color(0xFF374151) else Color.Black
+                    color = MaterialTheme.colorScheme.onSurface
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -271,7 +272,7 @@ fun NotificationItem(
                 Text(
                     text = notification.body,
                     fontSize = 14.sp,
-                    color = Color(0xFF4B5563),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -281,7 +282,7 @@ fun NotificationItem(
                 Text(
                     text = formattedDate.uppercase(),
                     fontSize = 10.sp,
-                    color = Color(0xFF9CA3AF),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     fontWeight = FontWeight.Bold
                 )
             }

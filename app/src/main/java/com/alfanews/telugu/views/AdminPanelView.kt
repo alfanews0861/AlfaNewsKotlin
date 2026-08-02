@@ -61,12 +61,13 @@ fun AdminPanelView(
     var activePage by remember(initialPage) { mutableStateOf(initialPage) }
     val scope = rememberCoroutineScope()
     var editingPost by remember { mutableStateOf<NewsPost?>(null) }
+    var editingSurvey by remember { mutableStateOf<NewsPost?>(null) }
     var savingProfile by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     val allPages = listOf(
         AppPageConfig("profile", stringResource(R.string.profile), listOf(UserRole.GUEST, UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        AppPageConfig("manageSurveys", "సర్വേ నిర్వహణ", listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
+        AppPageConfig("manageSurveys", "సర్వే నిర్వహణ", listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
         AppPageConfig("edit-profile", stringResource(R.string.edit_profile), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("id-card", stringResource(R.string.id_card), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("messages", stringResource(R.string.messages), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
@@ -190,6 +191,12 @@ fun AdminPanelView(
                         language = language,
                         showTitle = false,
                         onNavigateToCreateSurvey = {
+                            editingSurvey = null
+                            activePage = "survey"
+                            onPageChange("survey")
+                        },
+                        onEditSurvey = { survey ->
+                            editingSurvey = survey
                             activePage = "survey"
                             onPageChange("survey")
                         }
@@ -212,7 +219,9 @@ fun AdminPanelView(
                     )
                     "survey" -> PostSurveyPageView(
                         user = user,
+                        surveyToEdit = editingSurvey,
                         onActionComplete = {
+                            editingSurvey = null
                             activePage = "manageSurveys"
                             onPageChange("manageSurveys")
                         }

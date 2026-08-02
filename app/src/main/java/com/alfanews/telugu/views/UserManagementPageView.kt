@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -19,6 +20,7 @@ import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.ui.theme.AlfaNewsTheme
+import com.alfanews.telugu.utils.Constants
 import com.alfanews.telugu.utils.toUserObject
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
@@ -36,6 +38,16 @@ fun UserManagementPageView(currentUser: User) {
     
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    fun applyFilter(userList: List<User>, query: String): List<User> {
+        val lowercasedFilter = query.lowercase().trim()
+        if (lowercasedFilter.isBlank()) return userList
+        return userList.filter { u ->
+            u.name.lowercase().contains(lowercasedFilter) ||
+            (u.email?.lowercase()?.contains(lowercasedFilter) == true) ||
+            (u.phone?.lowercase()?.contains(lowercasedFilter) == true)
+        }
+    }
 
     fun refreshUsers() {
         scope.launch {
@@ -75,11 +87,7 @@ fun UserManagementPageView(currentUser: User) {
 
                 users = queries
                 editors = queries.filter { it.role == UserRole.EDITOR }
-
-                val lowercasedFilter = searchTerm.lowercase()
-                filteredUsers = if (lowercasedFilter.isBlank()) queries else queries.filter {
-                    it.name.lowercase().contains(lowercasedFilter) || (it.email?.lowercase()?.contains(lowercasedFilter) == true)
-                }
+                filteredUsers = applyFilter(queries, searchTerm)
 
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -94,11 +102,7 @@ fun UserManagementPageView(currentUser: User) {
     }
 
     LaunchedEffect(searchTerm, users) {
-        val lowercasedFilter = searchTerm.lowercase()
-        // ✅ Apply search filter to existing users without refetching
-        filteredUsers = if (lowercasedFilter.isBlank()) users else users.filter {
-            it.name.lowercase().contains(lowercasedFilter) || (it.email?.lowercase()?.contains(lowercasedFilter) == true)
-        }
+        filteredUsers = applyFilter(users, searchTerm)
     }
 
     fun handleUserUpdate(userId: String, data: Map<String, Any>) {
@@ -106,11 +110,11 @@ fun UserManagementPageView(currentUser: User) {
             updatingUsers = updatingUsers + userId
             try {
                 FirebaseService.db.collection("users").document(userId).update(data).await()
-                snackbarHostState.showSnackbar("User updated successfully.")
+                snackbarHostState.showSnackbar("వినియోగదారు వివరాలు విజయవంతంగా అప్‌డేట్ అయ్యాయి.")
                 refreshUsers()
             } catch (e: Exception) {
                 e.printStackTrace()
-                snackbarHostState.showSnackbar("Failed to update user: ${e.message?.take(50)}...")
+                snackbarHostState.showSnackbar("అప్‌డేట్ ఫెయిల్ అయింది: ${e.message?.take(50)}...")
             } finally {
                 updatingUsers = updatingUsers - userId
             }
@@ -118,15 +122,23 @@ fun UserManagementPageView(currentUser: User) {
     }
 
     AlfaNewsTheme {
-        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            OutlinedTextField(
-                value = searchTerm,
-                onValueChange = { searchTerm = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("పేరు లేదా ఈమెయిల్ ద్వారా శోధించండి...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                singleLine = true
-            )
+        Scaffold(
+            snackbarHost = { SnackbarHost(snackbarHostState) }
+        ) { paddingValues ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(16.dp)
+            ) {
+                OutlinedTextField(
+                    value = searchTerm,
+                    onValueChange = { searchTerm = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("పేరు, ఈమెయిల్ లేదా ఫోన్ నంబర్ ద్వారా శోధించండి...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                    singleLine = true
+                )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -162,6 +174,7 @@ fun UserManagementPageView(currentUser: User) {
             }
         }
     }
+}
 
 @Composable
 private fun UserManagementCard(
@@ -185,14 +198,19 @@ private fun UserManagementCard(
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(user.name, style = MaterialTheme.typography.titleLarge)
-                    Text(user.email ?: "No email provided", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        user.email ?: user.phone ?: "వివరాలు లేవు",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
             // Role Management Section
             if (currentUser.role == UserRole.ADMIN) {
                 AdminRoleManager(user, isUpdating, onUpdate, editors)
-            } else if ((currentUser.role == UserRole.EDITOR || currentUser.role == UserRole.REGIONAL_INCHARGE) && user.role == UserRole.SUBSCRIBER) {
+            } else if ((currentUser.role == UserRole.EDITOR || currentUser.role == UserRole.REGIONAL_INCHARGE) && 
+                (user.role == UserRole.SUBSCRIBER || user.role == UserRole.REPORTER)) {
                 EditorRoleManager(user, currentUser, isUpdating, onUpdate)
             }
         }
@@ -219,7 +237,14 @@ private fun AdminRoleManager(user: User, isUpdating: Boolean, onUpdate: (Map<Str
             ExposedDropdownMenu(expanded = roleExpanded, onDismissRequest = { roleExpanded = false }) {
                 availableRoles.forEach { role ->
                     DropdownMenuItem(text = { Text(role.name) }, onClick = { 
-                        onUpdate(mapOf("role" to role.name))
+                        val updates = mutableMapOf<String, Any>("role" to role.name)
+                        if (role == UserRole.REPORTER) {
+                            updates["warningLevel"] = 0
+                            updates["inProbation"] = false
+                            updates["promotedAt"] = com.google.firebase.Timestamp.now()
+                            updates["lastPostTimestamp"] = com.google.firebase.Timestamp.now()
+                        }
+                        onUpdate(updates)
                         roleExpanded = false 
                     })
                 }
@@ -227,30 +252,18 @@ private fun AdminRoleManager(user: User, isUpdating: Boolean, onUpdate: (Map<Str
         }
 
         if (user.role == UserRole.REGIONAL_INCHARGE) {
-            var districtText by remember { mutableStateOf(user.assignedDistricts.joinToString(", ")) }
-            OutlinedTextField(
-                value = districtText,
-                onValueChange = { 
-                    districtText = it
-                },
-                label = { Text("Assigned Districts (comma separated)") },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("e.g. Hyderabad, Rangareddy") },
-                enabled = !isUpdating,
-                trailingIcon = {
-                    IconButton(onClick = {
-                        val list = districtText.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                        onUpdate(mapOf("assignedDistricts" to list))
-                    }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Update Districts")
-                    }
+            MultiDistrictSelector(
+                selectedDistricts = user.assignedDistricts,
+                isUpdating = isUpdating,
+                onSave = { newList ->
+                    onUpdate(mapOf("assignedDistricts" to newList))
                 }
             )
         }
 
         if (user.role == UserRole.REPORTER) {
-            var district by remember { mutableStateOf(user.district ?: "") }
-            var mandal by remember { mutableStateOf(user.assignedMandal ?: "") }
+            var district by remember(user.id, user.district) { mutableStateOf(user.district ?: "") }
+            var mandal by remember(user.id, user.assignedMandal) { mutableStateOf(user.assignedMandal ?: "") }
 
             LocationSelector(
                 selectedDistrict = district,
@@ -262,11 +275,16 @@ private fun AdminRoleManager(user: User, isUpdating: Boolean, onUpdate: (Map<Str
             )
             
             Button(
-                onClick = { onUpdate(mapOf("district" to district, "assignedMandal" to mandal)) },
-                enabled = !isUpdating && (district != user.district || mandal != user.assignedMandal),
+                onClick = { 
+                    onUpdate(mapOf(
+                        "district" to district,
+                        "assignedMandal" to mandal
+                    ))
+                },
+                enabled = !isUpdating && (district != (user.district ?: "") || mandal != (user.assignedMandal ?: "")),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Update Location")
+                Text("Save Location")
             }
 
             var editorExpanded by remember { mutableStateOf(false) }
@@ -315,8 +333,8 @@ private fun EditorRoleManager(user: User, currentUser: User, isUpdating: Boolean
                 }
             }
         } else if (user.role == UserRole.REPORTER) {
-            var district by remember { mutableStateOf(user.district ?: "") }
-            var mandal by remember { mutableStateOf(user.assignedMandal ?: "") }
+            var district by remember(user.id, user.district) { mutableStateOf(user.district ?: "") }
+            var mandal by remember(user.id, user.assignedMandal) { mutableStateOf(user.assignedMandal ?: "") }
 
             LocationSelector(
                 selectedDistrict = district,
@@ -329,11 +347,137 @@ private fun EditorRoleManager(user: User, currentUser: User, isUpdating: Boolean
             
             Button(
                 onClick = { onUpdate(mapOf("district" to district, "assignedMandal" to mandal)) },
-                enabled = !isUpdating && (district != user.district || mandal != user.assignedMandal),
+                enabled = !isUpdating && (district != (user.district ?: "") || mandal != (user.assignedMandal ?: "")),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Update Location")
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun MultiDistrictSelector(
+    selectedDistricts: List<String>,
+    isUpdating: Boolean,
+    onSave: (List<String>) -> Unit
+) {
+    var currentList by remember(selectedDistricts) { mutableStateOf(selectedDistricts) }
+    var dropdownExpanded by remember { mutableStateOf(false) }
+    var filterText by remember { mutableStateOf("") }
+    
+    val allDistricts = Constants.ALL_DISTRICTS
+    val filteredDistricts = remember(filterText) {
+        if (filterText.isBlank()) allDistricts
+        else allDistricts.filter { it.contains(filterText.trim(), ignoreCase = true) }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "కేటాయించిన జిల్లాలు (Assigned Districts):",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        if (currentList.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                currentList.forEach { district ->
+                    InputChip(
+                        selected = true,
+                        onClick = {
+                            if (!isUpdating) {
+                                currentList = currentList - district
+                            }
+                        },
+                        label = { Text(district) },
+                        trailingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "తొలగించు",
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        enabled = !isUpdating
+                    )
+                }
+            }
+        } else {
+            Text(
+                text = "ఏ జిల్లా కేటాయించబడలేదు. కింద డ్రాప్‌డౌన్ నుండి ఎంచుకోండి.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+
+        ExposedDropdownMenuBox(
+            expanded = dropdownExpanded,
+            onExpandedChange = { if (!isUpdating) dropdownExpanded = it }
+        ) {
+            OutlinedTextField(
+                value = "",
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("జిల్లాను ఎంచుకోండి (Select District)") },
+                placeholder = { Text("జిల్లా ఎంచుకోవడానికి నొక్కండి...") },
+                modifier = Modifier.fillMaxWidth().menuAnchor(),
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
+                enabled = !isUpdating
+            )
+            ExposedDropdownMenu(
+                expanded = dropdownExpanded,
+                onDismissRequest = { 
+                    dropdownExpanded = false
+                    filterText = ""
+                }
+            ) {
+                OutlinedTextField(
+                    value = filterText,
+                    onValueChange = { filterText = it },
+                    placeholder = { Text("జిల్లా శోధించండి...") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    singleLine = true
+                )
+
+                filteredDistricts.forEach { district ->
+                    val isSelected = currentList.contains(district)
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(district)
+                                if (isSelected) {
+                                    Text("✓", color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        },
+                        onClick = {
+                            currentList = if (isSelected) {
+                                currentList - district
+                            } else {
+                                currentList + district
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        Button(
+            onClick = { onSave(currentList) },
+            enabled = !isUpdating && (currentList != selectedDistricts),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("జిల్లాల కేటాయింపు సేవ్ చేయి (Save Districts)")
         }
     }
 }

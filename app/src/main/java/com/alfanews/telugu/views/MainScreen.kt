@@ -1,5 +1,6 @@
 package com.alfanews.telugu.views
 
+import androidx.activity.compose.BackHandler
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -44,6 +45,7 @@ fun MainScreen(
     val currentUser: User? by mainViewModel.currentUser.collectAsStateWithLifecycle()
     val language: Language by mainViewModel.language.collectAsStateWithLifecycle()
     val activeTab: String by mainViewModel.activeTab.collectAsStateWithLifecycle()
+    val adminActivePage by mainViewModel.adminActivePage.collectAsStateWithLifecycle()
     val activeDistrict: String? by mainViewModel.activeDistrict.collectAsStateWithLifecycle()
     val showDistrictPicker by mainViewModel.showDistrictPicker.collectAsStateWithLifecycle()
     val themeMode: ThemeMode by mainViewModel.themeMode.collectAsStateWithLifecycle()
@@ -66,6 +68,40 @@ fun MainScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
+    val isBackHandlerEnabled = drawerState.isOpen ||
+            showDistrictPicker ||
+            reporterIdToShow != null ||
+            showPostNewsPage ||
+            showPostSurveyPage ||
+            showJoinReporterPage ||
+            showEditProfilePage ||
+            (activeTab == "profile" && adminActivePage != "profile") ||
+            activeTab != "home"
+
+    BackHandler(enabled = isBackHandlerEnabled) {
+        scope.launch {
+            when {
+                drawerState.isOpen -> drawerState.close()
+                showDistrictPicker -> mainViewModel.setShowDistrictPicker(false)
+                reporterIdToShow != null -> mainViewModel.setReporterIdToShow(null)
+                showPostNewsPage -> {
+                    showPostNewsPage = false
+                    editingNewsPost = null
+                }
+                showPostSurveyPage -> {
+                    showPostSurveyPage = false
+                    mainViewModel.setActiveTab("home")
+                }
+                showJoinReporterPage -> showJoinReporterPage = false
+                showEditProfilePage -> showEditProfilePage = false
+                activeTab == "profile" && adminActivePage != "profile" -> mainViewModel.setAdminActivePage("profile")
+                activeTab != "home" -> mainViewModel.setActiveTab("home")
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         checkForUpdate()
     }
@@ -75,8 +111,6 @@ fun MainScreen(
     
     val notificationsGranted by mainViewModel.notificationsGranted.collectAsStateWithLifecycle()
     var showNotifBannerSession by remember { mutableStateOf(true) }
-
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
     LaunchedEffect(isUpdateDownloaded) {
         if (isUpdateDownloaded) {
@@ -177,6 +211,7 @@ fun MainScreen(
             }
 
             Scaffold(
+                modifier = Modifier.fillMaxSize().safeDrawingPadding(),
                 containerColor = Color.Transparent,
                 snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
                 topBar = {
@@ -197,7 +232,6 @@ fun MainScreen(
                         )
 
                         // Contextual Sub-Header Row
-                        val adminActivePage by mainViewModel.adminActivePage.collectAsStateWithLifecycle()
                         val subHeaderTitle = when {
                             reporterIdToShow != null -> if (language == Language.TELUGU) "రిపోర్టర్ ప్రొఫైల్" else "Reporter Profile"
                             showPostNewsPage -> if (language == Language.TELUGU) "వార్తను పబ్లిష్ చేయండి" else "Publish News"
@@ -220,6 +254,7 @@ fun MainScreen(
                                     "manageReporters" -> stringResource(R.string.manage_reporters)
                                     "manageUsers" -> stringResource(R.string.manage_users)
                                     "adminNotify" -> stringResource(R.string.push_notifications_title)
+                                    "appConfig" -> "App Configuration"
                                     "affiliate_settings" -> "Affiliate News API"
                                     else -> null
                                 }
@@ -254,6 +289,7 @@ fun MainScreen(
                                     }
                                     showJoinReporterPage -> showJoinReporterPage = false
                                     showEditProfilePage -> showEditProfilePage = false
+                                    activeTab == "profile" && adminActivePage != "profile" -> mainViewModel.setAdminActivePage("profile")
                                     else -> mainViewModel.setActiveTab("profile")
                                 }
                             }

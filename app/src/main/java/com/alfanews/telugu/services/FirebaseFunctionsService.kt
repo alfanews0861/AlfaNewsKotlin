@@ -132,4 +132,8 @@ object FirebaseFunctionsService {
             "userId" to (userId ?: "")
         ))
     }
+
+    suspend fun triggerReporterActivityCheck(): Result<Map<String, Any>> {
+        return callFunction("triggerReporterActivityCheck")
+    }
 }

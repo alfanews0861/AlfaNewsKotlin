@@ -70,6 +70,7 @@ fun ClassifiedsView(
     // Ad Management
     val gridAds = remember { mutableStateMapOf<Int, AdState>() }
     val detailAd = remember { mutableStateOf<AdState>(AdState.Loading) }
+    val categoryAd = remember { mutableStateOf<AdState>(AdState.Loading) }
  
     fun loadAdForGrid(index: Int) {
         if (!gridAds.containsKey(index)) {
@@ -95,9 +96,9 @@ fun ClassifiedsView(
         viewModel.loadAds(null)
     }
     
-    // Load detail ad when switching to detail mode
-    LaunchedEffect(viewMode) {
-        if (viewMode == ClassifiedsViewMode.DETAIL) {
+    // Load detail ad when switching to detail mode or changing selected ad
+    LaunchedEffect(viewMode, selectedAd) {
+        if (viewMode == ClassifiedsViewMode.DETAIL && selectedAd != null) {
             detailAd.value = AdState.Loading
             (context as? android.app.Activity)?.let { activity ->
                 AdMobService.loadNativeAd(activity) { ad ->
@@ -105,6 +106,22 @@ fun ClassifiedsView(
                         detailAd.value = AdState.Success(ad)
                     } else {
                         detailAd.value = AdState.Failed
+                    }
+                }
+            }
+        }
+    }
+
+    // Load category banner native ad when in categories mode
+    LaunchedEffect(viewMode) {
+        if (viewMode == ClassifiedsViewMode.CATEGORIES) {
+            categoryAd.value = AdState.Loading
+            (context as? android.app.Activity)?.let { activity ->
+                AdMobService.loadNativeAd(activity) { ad ->
+                    if (ad != null) {
+                        categoryAd.value = AdState.Success(ad)
+                    } else {
+                        categoryAd.value = AdState.Failed
                     }
                 }
             }
@@ -127,10 +144,27 @@ fun ClassifiedsView(
             .background(MaterialTheme.colorScheme.background)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (viewMode != ClassifiedsViewMode.CATEGORIES) {
+                IconButton(onClick = {
+                    when (viewMode) {
+                        ClassifiedsViewMode.DETAIL -> viewMode = ClassifiedsViewMode.CATEGORY_ADS
+                        ClassifiedsViewMode.CATEGORY_ADS -> viewMode = ClassifiedsViewMode.CATEGORIES
+                        ClassifiedsViewMode.MY_ADS -> viewMode = ClassifiedsViewMode.CATEGORIES
+                        ClassifiedsViewMode.POST -> viewMode = ClassifiedsViewMode.CATEGORIES
+                        else -> viewMode = ClassifiedsViewMode.CATEGORIES
+                    }
+                }) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            }
             Text(
                 text = when (viewMode) {
                     ClassifiedsViewMode.CATEGORIES -> stringResource(R.string.title_classifieds)
@@ -143,7 +177,8 @@ fun ClassifiedsView(
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = com.alfanews.telugu.ui.theme.Ramabhadra,
-                color = MaterialTheme.colorScheme.onBackground
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(start = if (viewMode != ClassifiedsViewMode.CATEGORIES) 4.dp else 8.dp)
             )
         }
 
@@ -169,12 +204,19 @@ fun ClassifiedsView(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .height(120.dp)
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
                                 .padding(vertical = 4.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            AdMobBannerAd(
-                                adUnitId = AdMobService.getBannerAdUnitId()
+                            val nativeAd = (categoryAd.value as? AdState.Success)?.nativeAd
+                            val isLoading = categoryAd.value is AdState.Loading
+                            val isFailed = categoryAd.value is AdState.Failed
+                            AdMobCardView(
+                                modifier = Modifier.fillMaxWidth().fillMaxHeight(),
+                                nativeAd = nativeAd,
+                                isLoading = isLoading,
+                                isFailed = isFailed
                             )
                         }
                     }
@@ -202,8 +244,7 @@ fun ClassifiedsView(
                                         Toast.makeText(context, context.getString(R.string.ad_deleted), Toast.LENGTH_SHORT).show()
                                     }
                                 }
-                            },
-                            onFallbackClick = { viewMode = ClassifiedsViewMode.POST }
+                            }
                         )
                     }
                 }
@@ -225,8 +266,7 @@ fun ClassifiedsView(
                                     Toast.makeText(context, "ప్రకటన తొలగించబడింది", Toast.LENGTH_SHORT).show()
                                 }
                             }
-                        },
-                        onFallbackClick = { viewMode = ClassifiedsViewMode.POST }
+                        }
                     )
                 }
                 ClassifiedsViewMode.DETAIL -> {
@@ -234,8 +274,7 @@ fun ClassifiedsView(
                         ClassifiedAdDetailView(
                             ad = ad,
                             adState = detailAd.value,
-                            onBack = { viewMode = ClassifiedsViewMode.CATEGORY_ADS },
-                            onFallbackClick = { viewMode = ClassifiedsViewMode.POST }
+                            onBack = { viewMode = ClassifiedsViewMode.CATEGORY_ADS }
                         )
                     }
                 }
@@ -437,8 +476,7 @@ fun CategoryCard(
 fun ClassifiedAdDetailView(
     ad: ClassifiedAd,
     adState: AdState,
-    onBack: () -> Unit,
-    onFallbackClick: (() -> Unit)? = null
+    onBack: () -> Unit
 ) {
     val context = LocalContext.current
     val priceFormat = remember { NumberFormat.getCurrencyInstance(Locale("en", "IN")) }
@@ -552,8 +590,7 @@ fun ClassifiedAdDetailView(
                 modifier = Modifier.fillMaxWidth().height(250.dp),
                 nativeAd = nativeAd,
                 isLoading = isLoading,
-                isFailed = isFailed,
-                onFallbackClick = onFallbackClick
+                isFailed = isFailed
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -653,8 +690,7 @@ fun AdsGrid(
     gridAds: Map<Int, AdState>,
     onLoadAd: (Int) -> Unit,
     onAdClick: (ClassifiedAd) -> Unit,
-    onDelete: (String) -> Unit,
-    onFallbackClick: (() -> Unit)? = null
+    onDelete: (String) -> Unit
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
@@ -690,8 +726,7 @@ fun AdsGrid(
                             .padding(vertical = 8.dp),
                         nativeAd = nativeAd,
                         isLoading = isLoading,
-                        isFailed = isFailed,
-                        onFallbackClick = onFallbackClick
+                        isFailed = isFailed
                     )
                 }
             }
