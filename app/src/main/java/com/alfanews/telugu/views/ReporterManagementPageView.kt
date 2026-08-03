@@ -101,8 +101,45 @@ fun ReporterManagementPageView(
                         }
                     }
 
-                    // Keep ALL fetched applications in state (sort newest first)
-                    applications = fetchedList.sortedByDescending { doc ->
+                    // Auto-delete pending applications older than 10 days (10 days = 864,000,000 ms)
+                    val TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000L
+                    val now = System.currentTimeMillis()
+
+                    val (validApps, expiredPendingApps) = fetchedList.partition { app ->
+                        val status = app["status"]?.toString()?.uppercase() ?: "PENDING"
+                        val isPending = status != "JOINED" && status != "APPROVED" && status != "REJECTED"
+                        if (!isPending) return@partition true
+
+                        val ts = app["timestamp"]
+                        val timeMs = when (ts) {
+                            is com.google.firebase.Timestamp -> ts.toDate().time
+                            is Number -> ts.toLong()
+                            is java.util.Date -> ts.time
+                            else -> 0L
+                        }
+                        val isExpired = timeMs > 0L && (now - timeMs) > TEN_DAYS_MS
+                        !isExpired
+                    }
+
+                    if (expiredPendingApps.isNotEmpty()) {
+                        scope.launch {
+                            try {
+                                for (chunk in expiredPendingApps.chunked(400)) {
+                                    val batch = FirebaseService.db.batch()
+                                    for (app in chunk) {
+                                        val docId = app["id"] as? String ?: continue
+                                        batch.delete(FirebaseService.db.collection("reporter_applications").document(docId))
+                                    }
+                                    batch.commit().await()
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+
+                    // Keep ALL valid fetched applications in state (sort newest first)
+                    applications = validApps.sortedByDescending { doc ->
                         val ts = doc["timestamp"]
                         when (ts) {
                             is com.google.firebase.Timestamp -> ts.toDate().time
@@ -125,8 +162,10 @@ fun ReporterManagementPageView(
         }
     }
 
-    val filteredApplications = remember(applications, appFilterState) {
-        when (appFilterState) {
+    var hideDuplicates by remember { mutableStateOf(true) }
+
+    val filteredApplications = remember(applications, appFilterState, hideDuplicates) {
+        val baseList = when (appFilterState) {
             "PENDING" -> applications.filter { doc ->
                 val status = doc["status"]?.toString()?.uppercase() ?: ""
                 status != "JOINED" && status != "APPROVED" && status != "REJECTED"
@@ -140,6 +179,12 @@ fun ReporterManagementPageView(
                 status == "REJECTED"
             }
             else -> applications // "ALL"
+        }
+
+        if (hideDuplicates) {
+            deduplicateApplicationsList(baseList)
+        } else {
+            baseList
         }
     }
 
@@ -173,16 +218,19 @@ fun ReporterManagementPageView(
         }
 
         if (selectedTab == 0) {
-            val pendingCount = remember(applications) {
-                applications.count { (it["status"]?.toString()?.uppercase() ?: "") !in listOf("JOINED", "APPROVED", "REJECTED") }
+            val displayList = remember(applications, hideDuplicates) {
+                if (hideDuplicates) deduplicateApplicationsList(applications) else applications
             }
-            val joinedCount = remember(applications) {
-                applications.count { (it["status"]?.toString()?.uppercase() ?: "") in listOf("JOINED", "APPROVED") }
+            val pendingCount = remember(displayList) {
+                displayList.count { (it["status"]?.toString()?.uppercase() ?: "") !in listOf("JOINED", "APPROVED", "REJECTED") }
             }
-            val rejectedCount = remember(applications) {
-                applications.count { (it["status"]?.toString()?.uppercase() ?: "") == "REJECTED" }
+            val joinedCount = remember(displayList) {
+                displayList.count { (it["status"]?.toString()?.uppercase() ?: "") in listOf("JOINED", "APPROVED") }
             }
-            val allCount = applications.size
+            val rejectedCount = remember(displayList) {
+                displayList.count { (it["status"]?.toString()?.uppercase() ?: "") == "REJECTED" }
+            }
+            val allCount = displayList.size
 
             Row(
                 modifier = Modifier
@@ -225,6 +273,59 @@ fun ReporterManagementPageView(
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
                     )
+                }
+            }
+
+            // Deduplication controls for Admins and Editors
+            if (currentUser.role == UserRole.ADMIN || currentUser.role == UserRole.EDITOR) {
+                var isCleaningDuplicates by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(
+                        selected = hideDuplicates,
+                        onClick = { hideDuplicates = !hideDuplicates },
+                        label = { Text(if (hideDuplicates) "డూప్లికేట్స్ దాచు" else "అన్ని డూప్లికేట్స్ చూపు", fontSize = 11.sp) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (hideDuplicates) Icons.Default.FilterList else Icons.Default.Visibility,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    )
+
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                isCleaningDuplicates = true
+                                try {
+                                    val deletedCount = cleanDuplicateApplicationsFromDb()
+                                    Toast.makeText(context, "$deletedCount డూప్లికేట్ దరఖాస్తులు తొలగించబడ్డాయి!", Toast.LENGTH_LONG).show()
+                                    fetchData()
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                } finally {
+                                    isCleaningDuplicates = false
+                                }
+                            }
+                        },
+                        enabled = !isCleaningDuplicates,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        if (isCleaningDuplicates) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        Text("డూప్లికేట్లు క్లీన్ చేయి", fontSize = 11.sp)
+                    }
                 }
             }
         }
@@ -424,13 +525,30 @@ fun ApplicationCard(
     var isProcessing by remember { mutableStateOf(false) }
     
     val appDistrict = (app["district"] as? String)?.takeIf { it.isNotBlank() }
+        ?: (app["selectedDistrict"] as? String)?.takeIf { it.isNotBlank() }
         ?: (app["state_district"] as? String)?.takeIf { it.isNotBlank() }
+        ?: (app["dist"] as? String)?.takeIf { it.isNotBlank() }
         ?: "N/A"
 
     val appMandal = (app["mandal"] as? String)?.takeIf { it.isNotBlank() }
+        ?: (app["selectedMandal"] as? String)?.takeIf { it.isNotBlank() }
         ?: (app["assignedMandal"] as? String)?.takeIf { it.isNotBlank() }
         ?: (app["mandalam"] as? String)?.takeIf { it.isNotBlank() }
         ?: "N/A"
+
+    val appTimestamp = app["timestamp"]
+    val formattedDate = remember(appTimestamp) {
+        val timeMs = when (appTimestamp) {
+            is com.google.firebase.Timestamp -> appTimestamp.toDate().time
+            is Number -> appTimestamp.toLong()
+            is java.util.Date -> appTimestamp.time
+            else -> 0L
+        }
+        if (timeMs > 0L) {
+            val sdf = com.alfanews.telugu.utils.DateTimeUtils.getSimpleDateFormat("dd MMM yyyy, hh:mm a", java.util.Locale.getDefault())
+            sdf.format(java.util.Date(timeMs))
+        } else null
+    }
 
     var editDistrict by remember { mutableStateOf(if (appDistrict != "N/A") appDistrict else "") }
     var editMandal by remember { mutableStateOf(if (appMandal != "N/A") appMandal else "") }
@@ -452,6 +570,14 @@ fun ApplicationCard(
                 StatusBadge(rawStatus)
             }
 
+            if (!formattedDate.isNullOrEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(4.dp))
+                    Text("అప్లై చేసిన తేది: $formattedDate", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
             val phoneNum = (app["phone"] as? String)?.takeIf { it.isNotBlank() }
                 ?: (app["phoneNumber"] as? String)?.takeIf { it.isNotBlank() }
                 ?: "N/A"
@@ -467,7 +593,11 @@ fun ApplicationCard(
                 Text("Category: ${app["interestedArea"]}", fontSize = 14.sp)
             }
 
-            Text("Requested: $appDistrict - $appMandal", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(4.dp))
+                Text("కోరిన ప్రాంతం (Requested): $appDistrict - $appMandal", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+            }
             
             if ((app["message"] as? String)?.isNotEmpty() == true) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
@@ -498,7 +628,8 @@ fun ApplicationCard(
                             isProcessing = true
                             try {
                                 val appUserId = app["userId"]?.toString()?.trim()
-                                val cleanPhone = phoneNum.replace("+91", "").replace(" ", "").trim()
+                                val digitsOnly = phoneNum.filter { it.isDigit() }
+                                val clean10Digits = if (digitsOnly.length >= 10) digitsOnly.takeLast(10) else digitsOnly
 
                                 var userDoc: com.google.firebase.firestore.DocumentSnapshot? = null
                                 if (!appUserId.isNullOrEmpty()) {
@@ -506,28 +637,29 @@ fun ApplicationCard(
                                     if (doc.exists()) userDoc = doc
                                 }
 
-                                if (userDoc == null && cleanPhone.isNotEmpty() && cleanPhone != "N/A") {
-                                    val phoneQuery = FirebaseService.db.collection("users")
-                                        .whereEqualTo("phone", cleanPhone)
-                                        .limit(1)
-                                        .get().await()
-                                    if (!phoneQuery.isEmpty) {
-                                        userDoc = phoneQuery.documents.first()
-                                    } else {
-                                        val phoneWithPrefix = FirebaseService.db.collection("users")
-                                            .whereEqualTo("phone", "+91$cleanPhone")
+                                if (userDoc == null && clean10Digits.length == 10) {
+                                    val phoneFormats = listOf(
+                                        "+91$clean10Digits",
+                                        clean10Digits,
+                                        "0$clean10Digits",
+                                        "91$clean10Digits"
+                                    )
+                                    for (fmt in phoneFormats) {
+                                        val q = FirebaseService.db.collection("users")
+                                            .whereEqualTo("phone", fmt)
                                             .limit(1)
                                             .get().await()
-                                        if (!phoneWithPrefix.isEmpty) {
-                                            userDoc = phoneWithPrefix.documents.first()
+                                        if (!q.isEmpty) {
+                                            userDoc = q.documents.first()
+                                            break
                                         }
                                     }
                                 }
 
                                 if (userDoc == null) {
-                                    Toast.makeText(context, "యూజర్ అకౌంట్ లభించలేదు.", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, "యూజర్ అకౌంట్ లభించలేదు ($phoneNum).", Toast.LENGTH_LONG).show()
                                 } else {
-                                    processJoin(userDoc.id, app["id"] as String, editDistrict, editMandal, currentUser.id)
+                                    processJoin(userDoc.id, app["id"] as String, editDistrict, editMandal, currentUser.id, phoneNum)
                                     Toast.makeText(context, "అప్రూవ్ చేయబడింది!", Toast.LENGTH_SHORT).show()
                                     onRefresh()
                                 }
@@ -838,7 +970,14 @@ fun LocationSelector(
     }
 }
 
-private suspend fun processJoin(userId: String, appId: String, district: String, mandal: String, promoterId: String) {
+private suspend fun processJoin(
+    userId: String,
+    appId: String,
+    district: String,
+    mandal: String,
+    promoterId: String,
+    phoneNum: String = ""
+) {
     val userDoc = FirebaseService.db.collection("users").document(userId).get().await()
     val existingPoints = userDoc.getLong("points")
     val existingBadges = userDoc.get("badges")
@@ -858,8 +997,114 @@ private suspend fun processJoin(userId: String, appId: String, district: String,
 
     FirebaseService.db.collection("users").document(userId).update(updates).await()
     FirebaseService.db.collection("reporter_applications").document(appId).update("status", "JOINED").await()
+
+    // Also mark any other pending duplicate applications for this user or phone as JOINED
+    try {
+        val digitsOnly = phoneNum.filter { it.isDigit() }
+        val clean10 = if (digitsOnly.length >= 10) digitsOnly.takeLast(10) else ""
+
+        val allPendingSnap = FirebaseService.db.collection("reporter_applications")
+            .whereEqualTo("status", "PENDING")
+            .get().await()
+
+        for (doc in allPendingSnap.documents) {
+            if (doc.id == appId) continue
+            val docPhone = (doc.getString("phone") ?: doc.getString("phoneNumber") ?: "").filter { it.isDigit() }
+            val docClean10 = if (docPhone.length >= 10) docPhone.takeLast(10) else ""
+            val docUserId = doc.getString("userId") ?: ""
+
+            if ((clean10.isNotEmpty() && docClean10 == clean10) || (userId.isNotEmpty() && docUserId == userId)) {
+                FirebaseService.db.collection("reporter_applications").document(doc.id).update("status", "JOINED").await()
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
 }
 
 private suspend fun processReject(appId: String) {
     FirebaseService.db.collection("reporter_applications").document(appId).update("status", "REJECTED").await()
+}
+
+fun deduplicateApplicationsList(rawList: List<Map<String, Any>>): List<Map<String, Any>> {
+    val seenKeys = mutableSetOf<String>()
+    val result = mutableListOf<Map<String, Any>>()
+
+    for (app in rawList) {
+        val phone = (app["phone"] as? String) ?: (app["phoneNumber"] as? String) ?: ""
+        val digits = phone.filter { it.isDigit() }
+        val clean10 = if (digits.length >= 10) digits.takeLast(10) else ""
+
+        val email = (app["email"] as? String)?.trim()?.lowercase() ?: ""
+        val userId = (app["userId"] as? String)?.trim() ?: ""
+
+        val key = when {
+            clean10.isNotEmpty() -> "phone:$clean10"
+            email.isNotEmpty() -> "email:$email"
+            userId.isNotEmpty() -> "user:$userId"
+            else -> "doc:${app["id"]}"
+        }
+
+        if (seenKeys.add(key)) {
+            result.add(app)
+        }
+    }
+    return result
+}
+
+private suspend fun cleanDuplicateApplicationsFromDb(): Int {
+    val snapshot = FirebaseService.db.collection("reporter_applications").get().await()
+    val allDocs = snapshot.documents
+
+    val groups = mutableMapOf<String, MutableList<com.google.firebase.firestore.DocumentSnapshot>>()
+    for (doc in allDocs) {
+        val data = doc.data ?: continue
+        val phone = (data["phone"] as? String) ?: (data["phoneNumber"] as? String) ?: ""
+        val digits = phone.filter { it.isDigit() }
+        val clean10 = if (digits.length >= 10) digits.takeLast(10) else ""
+        val email = (data["email"] as? String)?.trim()?.lowercase() ?: ""
+        val userId = (data["userId"] as? String)?.trim() ?: ""
+
+        val key = when {
+            clean10.isNotEmpty() -> "phone:$clean10"
+            email.isNotEmpty() -> "email:$email"
+            userId.isNotEmpty() -> "user:$userId"
+            else -> null
+        }
+
+        if (key != null) {
+            groups.getOrPut(key) { mutableListOf() }.add(doc)
+        }
+    }
+
+    var deletedCount = 0
+    val docsToDelete = mutableListOf<com.google.firebase.firestore.DocumentReference>()
+
+    for ((_, docs) in groups) {
+        if (docs.size > 1) {
+            val sortedDocs = docs.sortedByDescending { doc ->
+                val ts = doc.get("timestamp")
+                when (ts) {
+                    is com.google.firebase.Timestamp -> ts.toDate().time
+                    is Number -> ts.toLong()
+                    else -> 0L
+                }
+            }
+            // Keep index 0 (newest), mark indices 1..N for deletion
+            for (i in 1 until sortedDocs.size) {
+                docsToDelete.add(sortedDocs[i].reference)
+            }
+        }
+    }
+
+    for (chunk in docsToDelete.chunked(400)) {
+        val batch = FirebaseService.db.batch()
+        for (ref in chunk) {
+            batch.delete(ref)
+        }
+        batch.commit().await()
+        deletedCount += chunk.size
+    }
+
+    return deletedCount
 }

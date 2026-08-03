@@ -110,11 +110,25 @@ class ReporterApplicationLogicTest {
 
     @Test
     fun testPhoneLookupFallbackNormalizing() {
-        val rawInputPhone = "+91 98765 43210"
-        val cleanPhone = rawInputPhone.replace("+91", "").replace(" ", "").trim()
+        val rawInputPhone = "+91 98765-43210"
+        val digitsOnly = rawInputPhone.filter { it.isDigit() }
+        val clean10Digits = if (digitsOnly.length >= 10) digitsOnly.takeLast(10) else digitsOnly
 
-        assertEquals("9876543210", cleanPhone)
-        val prefixedPhone = "+91$cleanPhone"
+        assertEquals("9876543210", clean10Digits)
+        val prefixedPhone = "+91$clean10Digits"
         assertEquals("+919876543210", prefixedPhone)
+    }
+
+    @Test
+    fun testDeduplicateApplicationsList() {
+        val apps = listOf(
+            mapOf("id" to "1", "phone" to "9876543210", "fullName" to "Latest App"),
+            mapOf("id" to "2", "phone" to "+91 98765 43210", "fullName" to "Old App Duplicate"),
+            mapOf("id" to "3", "phone" to "7799340087", "fullName" to "Another Person")
+        )
+        val deduplicated = com.alfanews.telugu.views.deduplicateApplicationsList(apps)
+        assertEquals(2, deduplicated.size)
+        assertEquals("1", deduplicated[0]["id"])
+        assertEquals("3", deduplicated[1]["id"])
     }
 }
