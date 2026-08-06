@@ -36,7 +36,7 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.sendContactEmail = exports.triggerPushBroadcast = exports.onNewsPostCreated = exports.processNewsPost = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
+exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.sendContactEmail = exports.triggerPushBroadcast = exports.onNewsPostCreated = exports.processNewsPost = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
 /**
  * Alfa News - Cloud Functions v18.0 (Refactored & Modular)
  */
@@ -73,6 +73,10 @@ Object.defineProperty(exports, "submitReporterApplication", { enumerable: true, 
 Object.defineProperty(exports, "backfillReporterPoints", { enumerable: true, get: function () { return reporter_handler_1.backfillReporterPoints; } });
 Object.defineProperty(exports, "onNewsViewCountUpdated", { enumerable: true, get: function () { return reporter_handler_1.onNewsViewCountUpdated; } });
 Object.defineProperty(exports, "onNewsPostApproved", { enumerable: true, get: function () { return reporter_handler_1.onNewsPostApproved; } });
+Object.defineProperty(exports, "onUserRoleChanged", { enumerable: true, get: function () { return reporter_handler_1.onUserRoleChanged; } });
+Object.defineProperty(exports, "verifyReporter", { enumerable: true, get: function () { return reporter_handler_1.verifyReporter; } });
+Object.defineProperty(exports, "onUserCreated", { enumerable: true, get: function () { return reporter_handler_1.onUserCreated; } });
+Object.defineProperty(exports, "onAnonymousDeviceCreated", { enumerable: true, get: function () { return reporter_handler_1.onAnonymousDeviceCreated; } }); // ✅ NEW: Welcome notification for guest users
 // 3. Export Main News Functions
 var news_handler_1 = require("./news_handler");
 Object.defineProperty(exports, "processNewsPost", { enumerable: true, get: function () { return news_handler_1.processNewsPost; } });
@@ -92,7 +96,6 @@ exports.triggerPushBroadcast = (0, https_1.onCall)(async (request) => {
         notification: { title, body },
         android: {
             notification: {
-                imageUrl: imageUrl || "",
                 channelId: channelId || "general_news",
                 priority: silent ? "low" : "high",
                 defaultSound: !silent
@@ -102,12 +105,16 @@ exports.triggerPushBroadcast = (0, https_1.onCall)(async (request) => {
             actionUrl: actionUrl || "",
             newsId: newsId || "",
             channelId: channelId || "general_news",
-            imageUrl: imageUrl || "",
             title: title,
             body: body
         },
         topic: topic || 'all_users'
     };
+    if (imageUrl && imageUrl.startsWith('http')) {
+        message.notification.imageUrl = imageUrl;
+        message.android.notification.imageUrl = imageUrl;
+        message.data.imageUrl = imageUrl;
+    }
     try {
         const response = await admin.messaging().send(message);
         return { success: true, messageId: response };

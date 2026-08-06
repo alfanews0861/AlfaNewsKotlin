@@ -143,39 +143,40 @@ export const sendPersonalizedNotification = onSchedule({
             return viewsB - viewsA;
         });
 
-    // --- 1. General Notification (even hours) ---
-    if (istHour % 2 === 0) {
-        const topNews = allNews[0];
+    // --- 1. General Notification — అన్ని 4 scheduled slots (8, 13, 18, 21) కి పంపు ---
+    // BUG FIX: ముందు `istHour % 2 === 0` వాడేవారు → 8 & 18 మాత్రమే వెళ్ళేవి, 13 & 21 skip అయ్యేవి
+    const topNews = allNews[0];
 
-        if (topNews && lastSentMap['general'] !== topNews.id) {
-            const headline = topNews.headline?.telugu || topNews.headline?.english || topNews.headline || "నేటి ముఖ్య వార్తలు";
-            let imageUrl = topNews.thumbnailUrl || "";
-            if (!imageUrl && topNews.mediaUrl) {
-                imageUrl = (await createAndSaveThumbnail(topNews.mediaUrl, topNews.id)) || topNews.mediaUrl;
-                if (imageUrl && imageUrl !== topNews.mediaUrl) {
-                    await db.collection('news').doc(topNews.id).update({ thumbnailUrl: imageUrl }).catch(() => {});
-                }
+    if (topNews && lastSentMap['general'] !== topNews.id) {
+        const headline = topNews.headline?.telugu || topNews.headline?.english || topNews.headline || "నేటి ముఖ్య వార్తలు";
+        let imageUrl = topNews.thumbnailUrl || "";
+        if (!imageUrl && topNews.mediaUrl) {
+            imageUrl = (await createAndSaveThumbnail(topNews.mediaUrl, topNews.id)) || topNews.mediaUrl;
+            if (imageUrl && imageUrl !== topNews.mediaUrl) {
+                await db.collection('news').doc(topNews.id).update({ thumbnailUrl: imageUrl }).catch(() => {});
             }
-
-            const message = buildNewsMessage(
-                topNews,
-                getTitleForHour(istHour, headline),
-                "general_news",
-                imageUrl,
-                3600000, // 1 hour TTL
-                { topic: 'all_users' }
-            );
-
-            await admin.messaging().send(message);
-            updatedMap['general'] = topNews.id;
-            await incrementDailySentCount(db);
-            logger.log(`[NOTIF] General sent: newsId=${topNews.id}, views=${topNews.longViews || 0}`);
         }
+
+        const message = buildNewsMessage(
+            topNews,
+            getTitleForHour(istHour, headline),
+            "general_news",
+            imageUrl,
+            3600000, // 1 hour TTL
+            { topic: 'all_users' }
+        );
+
+        await admin.messaging().send(message);
+        updatedMap['general'] = topNews.id;
+        await incrementDailySentCount(db);
+        logger.log(`[NOTIF] General sent: newsId=${topNews.id}, views=${topNews.longViews || 0}, hour=${istHour}`);
+    } else {
+        logger.log(`[NOTIF] General skipped — same news already sent or no news found. newsId=${topNews?.id}`);
     }
-    // --- 2. District Notification ---
-    else if ((istHour - 1) % 4 === 0) {
+
+    // --- 2. District Notification — 13 PM మరియు 21 PM slots కి extra district push ---
+    if (istHour === 13 || istHour === 21) {
         for (const district of DISTRICTS) {
-            // District news లో కూడా views ranking మాత్రమే
             const districtNews = allNews.find((n: any) =>
                 (Array.isArray(n.categories) && n.categories.includes(district)) ||
                 n.district === district
@@ -239,11 +240,16 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
     const isNowApproved = after.approved === true;
     if (wasApproved || !isNowApproved) return;
 
-    // ✅ isBreaking: AI processing లోనే decide అయింది — ఇక్కడ recalculate అవసరం లేదు
-    if (after.isBreaking !== true) {
-        logger.log(`[BREAKING] Not marked as breaking by AI: ${postId} (tone=${after.tone})`);
+    // ✅ Breaking trigger: isBreaking=true OR tone=BREAKING/URGENT అయినా notify చేయి
+    // BUG FIX: ముందు isBreaking=true మాత్రమే trigger అయ్యేది — AI చాలా rarely true set చేస్తోంది
+    // tone=URGENT వార్తలు కూడా important — users కి వెళ్ళాలి
+    const tone = (after.tone || "").toUpperCase();
+    const isBreakingOrUrgent = after.isBreaking === true || tone === 'BREAKING' || tone === 'URGENT';
+    if (!isBreakingOrUrgent) {
+        logger.log(`[BREAKING] Not breaking/urgent: ${postId} (tone=${after.tone}, isBreaking=${after.isBreaking})`);
         return;
     }
+    logger.log(`[BREAKING] Triggered: ${postId} (tone=${after.tone}, isBreaking=${after.isBreaking})`);
 
     // Age check — 6 గంటల కంటే పాత news కి breaking send వద్దు
     const ts = after.timestamp;
@@ -277,10 +283,9 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
 
     const headline = after.headline?.telugu || after.headline?.english || after.headline || "తాజా వార్త";
     const imageUrl = after.thumbnailUrl || after.mediaUrl || "";
-    const tone     = (after.tone || "").toUpperCase();
 
-    // Title: tone బట్టి
-    const breakingTitle = (tone === 'BREAKING' || tone === 'URGENT')
+    // Title: tone బట్టి (tone already computed above)
+    const breakingTitle = (tone === 'BREAKING' || after.isBreaking === true)
         ? `🔴 Breaking: ${headline.substring(0, 50)}...`
         : `⚡ ముఖ్య వార్త: ${headline.substring(0, 45)}...`;
 

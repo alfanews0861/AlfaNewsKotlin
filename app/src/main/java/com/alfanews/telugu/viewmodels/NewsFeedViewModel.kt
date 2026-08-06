@@ -692,12 +692,14 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     private suspend fun fetchActiveSurvey(): NewsPost? = withContext(Dispatchers.IO) {
         try {
-            val thirtyDaysAgo = System.currentTimeMillis() - (30L * 24L * 60L * 60L * 1000L)
+            // NOTE: whereGreaterThan("timestamp") range filter తో composite index అవసరం
+            // కానీ firestore.indexes.json లో లేదు కాబట్టి query fail అవుతుంది.
+            // isExpired client-side check ఇప్పటికే expiry handle చేస్తుంది — server-side range filter అవసరం లేదు.
             val snapshot = FirebaseService.db.collection("news")
                 .whereEqualTo("type", "survey")
                 .whereEqualTo("approved", true)
-                .whereGreaterThan("timestamp", thirtyDaysAgo)
                 .orderBy("timestamp", Query.Direction.DESCENDING)
+                .limit(20) // reasonable cap to avoid fetching too many
                 .get().await()
             
             val surveys = snapshot.documents.mapNotNull { mapDocumentToNewsPost(it) }
@@ -723,7 +725,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 // 2. Filter by District (if not global/state-wide)
                 if (!survey.isGlobal) {
                     if (currentDist != null) {
-                        val matchesUserDistrict = (survey.district == currentDist || survey.categories.contains(currentDist))
+                        val matchesUserDistrict = (survey.district.equals(currentDist, ignoreCase = true) ||
+                            survey.categories.any { it.equals(currentDist, ignoreCase = true) })
                         if (!matchesUserDistrict) return@firstOrNull false
                     }
                 }
@@ -829,7 +832,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 }
             }
             val realVotesCountVal = (data["realVotesCount"] as? Number)?.toInt() ?: 0
-            val expiryTimestampVal = (data["expiryTimestamp"] as? Number)?.toLong()
+            val expiryTimestampVal = when (val exp = data["expiryTimestamp"]) {
+                is com.google.firebase.Timestamp -> exp.toDate().time
+                is Number -> exp.toLong()
+                else -> null
+            }
             val stateVal = data["state"]?.toString()
 
             NewsPost(

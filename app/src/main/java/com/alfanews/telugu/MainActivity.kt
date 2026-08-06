@@ -124,6 +124,8 @@ class MainActivity : ComponentActivity() {
         // Hand over control to our custom Animated Splash Screen immediately
         splashScreen.setKeepOnScreenCondition { false }
 
+        // Edge-to-edge: app content extends behind system bars (Play Store required for targetSdk 35+)
+        // Status bar is transparent - phone default settings handle icon colors automatically
         WindowCompat.setDecorFitsSystemWindows(window, false)
         AdMobService.initialize(this)
 

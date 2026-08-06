@@ -133,8 +133,8 @@ export async function runReporterActivityScan() {
 export const monitorReporterActivity = onSchedule({
     schedule: "0 0 * * *",
     timeZone: "Asia/Kolkata",
-    memory: "256MiB",
-    timeoutSeconds: 60
+    memory: "512MiB",
+    timeoutSeconds: 540  // ✅ FIX #4: 100+ reporters scan కి 60s insufficient, 9min కి పెంచాం
 }, async (event) => {
     await runReporterActivityScan();
 });
@@ -163,10 +163,11 @@ async function handleReporterStatus(
 
     // Reset logic: If reporter posted recently
     if (daysInactive < 3) {
-        if (currentLevel > 0) {
+        if (currentLevel > 0 || inProbation) {
+            // ✅ FIX #1: Active reporter — inProbation: false (was true — backward logic!)
             await db.collection('users').doc(reporterId).update({
                 warningLevel: 0,
-                inProbation: true,
+                inProbation: false,
                 lastWarningDate: null
             });
             console.log(`[REPORTER_MONITOR] Reset warning for reporter ${reporter.name || reporterId}.`);
@@ -230,10 +231,16 @@ async function handleReporterStatus(
         return true;
     } else if (nextLevel > currentLevel) {
         const importance = nextLevel === 3 ? "HIGH" : "NORMAL";
-        await db.collection('users').doc(reporterId).update({
+        const levelUpdates: any = {
             warningLevel: nextLevel,
             lastWarningDate: admin.firestore.FieldValue.serverTimestamp()
-        });
+        };
+        // ✅ FIX #2: Level 3 (Final Warning) కి వెళ్తే inProbation: true set చేయాలి.
+        // దీనివల్ల "3 రోజుల్లో downgrade" promise match అవుతుంది (probation path: daysInactive >= 6).
+        if (nextLevel === 3) {
+            levelUpdates.inProbation = true;
+        }
+        await db.collection('users').doc(reporterId).update(levelUpdates);
         await sendInternalMessage(reporterId, title, body, importance, reporter);
 
         // Send copy of warning to all admins

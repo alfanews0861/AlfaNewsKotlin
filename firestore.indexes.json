@@ -97,6 +97,15 @@
       "collectionGroup": "news",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "approved", "order": "ASCENDING" },
+        { "fieldPath": "notificationWorthy", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "news",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "isReporter", "order": "ASCENDING" },
         { "fieldPath": "approved", "order": "ASCENDING" },
         { "fieldPath": "timestamp", "order": "DESCENDING" }

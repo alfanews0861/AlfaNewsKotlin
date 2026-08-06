@@ -30,7 +30,7 @@ fun Footer(
     onTabChange: (String) -> Unit
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().navigationBarsPadding(),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 8.dp,
         shadowElevation = 8.dp
@@ -132,7 +132,7 @@ fun RowScope.FooterItem(
         selected = isActive,
         onClick = onClick,
         colors = NavigationBarItemDefaults.colors(
-            indicatorColor = if (isActive) selectedColor.copy(alpha = 0.12f) else Color.Transparent,
+            indicatorColor = Color.Transparent,
             selectedIconColor = selectedColor,
             unselectedIconColor = unselectedColor
         )

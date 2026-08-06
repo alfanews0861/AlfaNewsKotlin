@@ -6,6 +6,7 @@ var UserRole;
     UserRole["GUEST"] = "GUEST";
     UserRole["SUBSCRIBER"] = "SUBSCRIBER";
     UserRole["REPORTER"] = "REPORTER";
+    UserRole["REGIONAL_INCHARGE"] = "REGIONAL_INCHARGE";
     UserRole["EDITOR"] = "EDITOR";
     UserRole["ADMIN"] = "ADMIN";
     UserRole["NEWS_DESK"] = "NEWS_DESK";

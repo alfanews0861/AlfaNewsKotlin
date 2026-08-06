@@ -605,8 +605,9 @@ export const onNewsPostCreated = onDocumentWritten({
             const finalIsReporter = isReporter || aiProcessedData.isReporter;
             const isRejected = aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
 
-            const mTypes = (data.mediaTypes || []).map((t: string) => t.toUpperCase());
-            const hasVideo = mTypes.includes('VIDEO') || data.mediaType?.toUpperCase() === 'VIDEO';
+            // ✅ FIX #3: latestData వాడాలి (fresh DB fetch), stale trigger snapshot (data) కాదు
+            const mTypes = (latestData.mediaTypes || []).map((t: string) => t.toUpperCase());
+            const hasVideo = mTypes.includes('VIDEO') || latestData.mediaType?.toUpperCase() === 'VIDEO';
 
             const updatePayload: any = {
                 ...aiProcessedData,
@@ -631,10 +632,29 @@ export const onNewsPostCreated = onDocumentWritten({
 
             await db.collection('news').doc(postId).update(updatePayload);
 
-            // Award points to the ORIGINAL submitter if published
+            // ✅ FIX #2: POLICY_VIOLATION notification — AI reject చేసినప్పుడు reporter కి తెలియజేయాలి
+            if (isRejected && finalIsReporter && originalReporterId) {
+                await notifyReporter(
+                    originalReporterId,
+                    postId,
+                    latestData.headline?.telugu || "",
+                    'POLICY_VIOLATION',
+                    latestData.mediaUrl || (latestData.mediaUrls && latestData.mediaUrls[0]) || ""
+                );
+            }
+
+            // Award points & SUCCESS notification to the ORIGINAL submitter if published (non-video)
             if (updatePayload.status === "published" && finalIsReporter && originalReporterId) {
                 const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
                 await awardPointsToReporter(originalReporterId, points);
+                // ✅ FIX #1: Non-video reporter posts కి SUCCESS notification పంపాలి
+                await notifyReporter(
+                    originalReporterId,
+                    postId,
+                    latestData.headline?.telugu || "",
+                    'SUCCESS',
+                    latestData.mediaUrl || (latestData.mediaUrls && latestData.mediaUrls[0]) || ""
+                );
             }
             return; // Exit and wait for the second trigger to handle video if needed
         } catch (err: any) {
@@ -760,15 +780,15 @@ export const onNewsPostCreated = onDocumentWritten({
                               .replace(/'/g, '&apos;');
 
             // 4. INJECT SSML: Clean markup for Studio (Chirp) voices
-            // Avoid adding explicit <break> tags after every dot/comma as Chirp HD handles punctuation naturally.
-            // Forced breaks after initials (e.g. టి., డి.ఎస్.పి.) or acronyms/decimals cause choppy stuttering in sentence 1.
+            // Chirp 3 HD handles punctuation (. , ...) naturally.
+            // Internal SSML tags (<break>, inner <prosody>) cause unnatural audio boundary gaps/pauses.
             let processedText = baseText;
+            processedText = processedText.replace(/,\s*,+/g, ','); // Clean double commas like ", ,"
+            processedText = processedText.replace(/,\s*\./g, '.'); // Clean comma before period ", ."
             processedText = processedText.replace(/,\s*/g, ', ');
-            processedText = processedText.replace(/అంటే\.\.\./g, 'అంటే... <break time="120ms"/>');
-            processedText = processedText.replace(/ఆ\.\.\./g, 'ఆ... <break time="100ms"/>');
-            processedText = processedText.replace(/\.\.\./g, '... <break time="150ms"/>');
+            processedText = processedText.replace(/\.\s*/g, '. ');
             
-            // Clean STRESS tags to keep uniform prosody without volume boundary pops
+            // Clean STRESS tags cleanly so no internal SSML tags create unnatural gaps in Chirp 3 HD
             processedText = processedText.replace(/\[\[STRESS\]\](.*?)\[\[\/STRESS\]\]/g, '$1');
 
             // Pitch shift (-1.8st) gives a deep, serious, authoritative news-anchor tone (గంభీరత్వం)

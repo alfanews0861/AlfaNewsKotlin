@@ -98,45 +98,36 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
             val weekStart = cal.time
 
             try {
-                // 🚀 OPTIMIZED: Query ONLY reporter posts using isReporter filter to save reads
-                val timestampQuery = FirebaseService.db.collection("news")
+                // ✅ FIX #5: Single Timestamp query మాత్రమే చేయాలి.
+                // వేరే Long-format query duplicate docs వస్తాయి, counts 2× అవుతాయి.
+                val snapshot = FirebaseService.db.collection("news")
                     .whereEqualTo("approved", true)
                     .whereEqualTo("isReporter", true)
                     .whereGreaterThanOrEqualTo("timestamp", com.google.firebase.Timestamp(weekStart))
-                    .get()
-
-                val longQuery = FirebaseService.db.collection("news")
-                    .whereEqualTo("approved", true)
-                    .whereEqualTo("isReporter", true)
-                    .whereGreaterThanOrEqualTo("timestamp", weekStart.time)
-                    .get()
-
-                val snapshots = listOf(timestampQuery.await(), longQuery.await())
+                    .get().await()
                 
                 // Track post counts per reporter
                 val todayCounts = mutableMapOf<String, Int>()
                 val weekCounts = mutableMapOf<String, Int>()
 
-                snapshots.forEach { snapshot ->
-                    snapshot.documents.forEach { doc ->
-                        val isRep = doc.getBoolean("isReporter") ?: 
-                                    (doc.getString("processingType") == "REPORTER_SUBMISSION")
-                        if (!isRep) return@forEach
+                snapshot.documents.forEach { doc ->
+                    val isRep = doc.getBoolean("isReporter") ?:
+                                (doc.getString("processingType") == "REPORTER_SUBMISSION")
+                    if (!isRep) return@forEach
 
-                        val reporterId = (doc.get("reporter") as? Map<*, *>)?.get("id") as? String ?: return@forEach
-                        val rawTs = doc.get("timestamp")
-                        
-                        val ts = when (rawTs) {
-                            is com.google.firebase.Timestamp -> rawTs.toDate().time
-                            is Number -> rawTs.toLong()
-                            else -> 0L
-                        }
+                    val reporterId = (doc.get("reporter") as? Map<*, *>)?.get("id") as? String ?: return@forEach
+                    val rawTs = doc.get("timestamp")
+                    
+                    val ts = when (rawTs) {
+                        is com.google.firebase.Timestamp -> rawTs.toDate().time
+                        is Number -> rawTs.toLong()
+                        else -> 0L
+                    }
 
-                        if (ts >= weekStart.time) {
-                            weekCounts[reporterId] = (weekCounts[reporterId] ?: 0) + 1
-                            if (ts >= todayStart.time) {
-                                todayCounts[reporterId] = (todayCounts[reporterId] ?: 0) + 1
-                            }
+                    if (ts >= weekStart.time) {
+                        weekCounts[reporterId] = (weekCounts[reporterId] ?: 0) + 1
+                        if (ts >= todayStart.time) {
+                            todayCounts[reporterId] = (todayCounts[reporterId] ?: 0) + 1
                         }
                     }
                 }

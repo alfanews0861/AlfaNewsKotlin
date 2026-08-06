@@ -51,7 +51,8 @@ export async function notifyReporter(
 
         if (type === 'SUCCESS') {
             title = 'వార్త ప్రచురించబడింది! ✅';
-            body = `మీ వార్త: "${headline.substring(0, 50)}..." విజయవంతంగా ప్రచురించబడింది.`;
+            const truncatedHeadline = headline.length > 50 ? headline.substring(0, 50) + "..." : headline;
+            body = `మీ వార్త: "${truncatedHeadline}" విజయవంతంగా ప్రచురించబడింది.`;
         } else if (type === 'POLICY_VIOLATION') {
             title = 'వార్త తిరస్కరించబడింది! ⚠️';
             body = `మీ వార్తలోని అంశాలు మా నిబంధనలకు విరుద్ధంగా ఉన్నందున ప్రచురించబడలేదు.`;
@@ -426,17 +427,30 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         .get();
 
     // 3. Check if there is already a JOINED application for this mandal
-    const appQuery = db.collection('reporter_applications')
+    const joinedAppQuery = db.collection('reporter_applications')
         .where('status', '==', 'JOINED')
         .where('district', '==', trimmedDistrict)
         .where('mandal', '==', trimmedMandal)
         .limit(1)
         .get();
 
-    const [reporterSnap, appSnap] = await Promise.all([reporterQuery, appQuery]);
+    // 4. Check if there is already a PENDING application for this mandal
+    // (first-come-first-served — ఒకరు apply చేసిన mandal కి మరొకరు apply చేయలేరు)
+    const pendingMandalQuery = db.collection('reporter_applications')
+        .where('status', '==', 'PENDING')
+        .where('district', '==', trimmedDistrict)
+        .where('mandal', '==', trimmedMandal)
+        .limit(1)
+        .get();
 
-    if (!reporterSnap.empty || !appSnap.empty) {
+    const [reporterSnap, joinedAppSnap, pendingMandalSnap] = await Promise.all([reporterQuery, joinedAppQuery, pendingMandalQuery]);
+
+    if (!reporterSnap.empty || !joinedAppSnap.empty) {
         throw new HttpsError('already-exists', 'ఈ మండలానికి ఇప్పటికే రిపోర్టర్ కేటాయించబడ్డారు.');
+    }
+
+    if (!pendingMandalSnap.empty) {
+        throw new HttpsError('already-exists', 'ఈ మండలానికి ఇప్పటికే మరొకరు దరఖాస్తు (PENDING) చేశారు. దయచేసి వేరే మండలం ఎంచుకోండి.');
     }
 
     // Save application to Firestore with PENDING status

@@ -129,19 +129,32 @@ fun JoinReporterPageView(
                 if (dist.isNotEmpty() && mandal.isNotEmpty()) "$dist|$mandal" else null
             }
 
-            // 2. Fetch from reporter_applications (Approved Applications)
-            val appsSnapshot = FirebaseService.db.collection("reporter_applications")
+            // 2. Fetch from reporter_applications (JOINED - Approved Applications)
+            val joinedAppsSnapshot = FirebaseService.db.collection("reporter_applications")
                 .whereEqualTo("status", "JOINED")
                 .get()
                 .await()
-            
-            val appMandals = appsSnapshot.documents.mapNotNull { doc ->
+
+            val joinedMandals = joinedAppsSnapshot.documents.mapNotNull { doc ->
                 val dist = (doc.get("district") as? String)?.trim() ?: ""
                 val mandal = (doc.get("mandal") as? String)?.trim() ?: ""
                 if (dist.isNotEmpty() && mandal.isNotEmpty()) "$dist|$mandal" else null
             }
 
-            occupiedMandals = (userMandals + appMandals).toSet()
+            // 3. Fetch from reporter_applications (PENDING - Already Applied)
+            // ఒకరు apply చేసిన mandal కి మరొకరు apply చేయలేరు (first-come-first-served)
+            val pendingAppsSnapshot = FirebaseService.db.collection("reporter_applications")
+                .whereEqualTo("status", "PENDING")
+                .get()
+                .await()
+
+            val pendingMandals = pendingAppsSnapshot.documents.mapNotNull { doc ->
+                val dist = (doc.get("district") as? String)?.trim() ?: ""
+                val mandal = (doc.get("mandal") as? String)?.trim() ?: ""
+                if (dist.isNotEmpty() && mandal.isNotEmpty()) "$dist|$mandal" else null
+            }
+
+            occupiedMandals = (userMandals + joinedMandals + pendingMandals).toSet()
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {

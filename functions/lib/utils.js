@@ -34,24 +34,50 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getAIInstance = exports.IMAGEN_FAST_MODEL = exports.IMAGEN_MODEL = exports.FLASH_MODEL = exports.PRO_MODEL = exports.SCHEDULED_MODEL = exports.REGION = void 0;
+exports.slugify = slugify;
+exports.getTopicName = getTopicName;
 exports.runWithAIFallback = runWithAIFallback;
 exports.getISTDateString = getISTDateString;
 exports.parseAIJson = parseAIJson;
 exports.saveBufferToStorage = saveBufferToStorage;
 exports.saveImageLocally = saveImageLocally;
+exports.createAndSaveThumbnail = createAndSaveThumbnail;
 exports.generateImageWithRetry = generateImageWithRetry;
 const admin = __importStar(require("firebase-admin"));
 const genai_1 = require("@google/genai");
 const buffer_1 = require("buffer");
 const sharp = require('sharp');
 exports.REGION = "asia-south1";
-exports.SCHEDULED_MODEL = "gemini-3.1-flash-lite";
-exports.PRO_MODEL = "gemini-3.1-flash-lite";
-exports.FLASH_MODEL = "gemini-3.1-flash-lite";
-exports.IMAGEN_MODEL = "gemini-3.1-flash-image";
-exports.IMAGEN_FAST_MODEL = "gemini-3.1-flash-image";
+exports.SCHEDULED_MODEL = "gemini-3.5-flash-lite";
+exports.PRO_MODEL = "gemini-3.5-flash-lite";
+exports.FLASH_MODEL = "gemini-3.5-flash-lite";
+exports.IMAGEN_MODEL = "gemini-3.1-flash-image"; // GA as of 2026
+exports.IMAGEN_FAST_MODEL = "gemini-3.1-flash-image"; // imagen-4.0 deprecated Aug 17, 2026
+/**
+ * Converts any string into a safe FCM topic name.
+ * FCM supports: [a-zA-Z0-9-_.~%]+
+ * We use hex encoding for non-alphanumeric characters to ensure uniqueness and compatibility.
+ */
+function slugify(text) {
+    if (!text)
+        return "default";
+    // Allow alphanumeric, dash, underscore, dot, tilde, and percent
+    // But for safety with Telugu, we hex-encode everything that isn't basic ASCII
+    return text.split('').map(char => {
+        const code = char.charCodeAt(0);
+        // Safe ASCII: a-z, A-Z, 0-9
+        if ((code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
+            return char;
+        }
+        // Encode everything else as hex
+        return code.toString(16).padStart(4, '0');
+    }).join('').substring(0, 80); // FCM Limit is 900, but let's keep it sane
+}
+function getTopicName(prefix, value) {
+    return `${prefix}_${slugify(value)}`;
+}
 const TEXT_MODELS = [
-    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash-lite",
     "gemini-2.5-flash-lite",
     "gemini-2.5-flash"
 ];
@@ -243,21 +269,78 @@ async function saveImageLocally(externalUrl, prefix) {
         return null;
     }
 }
+async function createAndSaveThumbnail(imageUrl, postId) {
+    try {
+        if (!imageUrl || !imageUrl.includes('firebasestorage.googleapis.com'))
+            return null;
+        console.log(`[THUMBNAIL] Creating thumbnail for post ${postId} from URL: ${imageUrl.substring(0, 60)}...`);
+        const response = await fetch(imageUrl);
+        if (!response.ok) {
+            console.error(`[THUMBNAIL_ERR] Failed to download image: ${response.statusText}`);
+            return null;
+        }
+        const contentType = response.headers.get('content-type') || "";
+        if (!contentType.startsWith('image/')) {
+            console.log(`[THUMBNAIL] URL is not an image (Content-Type: ${contentType}). Skipping thumbnail.`);
+            return null;
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = buffer_1.Buffer.from(arrayBuffer);
+        // Resize using sharp: max width 200px, quality 60
+        const thumbnailBuffer = await sharp(buffer)
+            .resize({ width: 200, withoutEnlargement: true })
+            .webp({ quality: 60 })
+            .toBuffer();
+        const bucket = admin.storage().bucket();
+        const fileName = `news-media/thumbnails/${postId}_thumb.webp`;
+        await bucket.file(fileName).save(thumbnailBuffer, {
+            metadata: {
+                contentType: 'image/webp',
+                cacheControl: 'public, max-age=31536000'
+            }
+        });
+        const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(fileName)}?alt=media`;
+        console.log(`[THUMBNAIL] Created successfully: ${publicUrl}`);
+        return publicUrl;
+    }
+    catch (e) {
+        console.error(`[THUMBNAIL_ERR] Failed to create thumbnail for ${postId}:`, e.message);
+        return null;
+    }
+}
 async function generateImageWithRetry(aiUnused, // Keeping signature for compatibility
 prompt, aspectRatio = '9:16', retriesUnused = 3) {
-    const modelsToTry = [exports.IMAGEN_MODEL, "imagen-3.0-generate-002", "imagen-3.0-generate-001"];
+    // NOTE: imagen-4.0-generate-001 is DEPRECATED (shutdown Aug 17, 2026)
+    // Use gemini-3.1-flash-image (GA) as primary image model
+    const modelsToTry = [
+        "gemini-3.1-flash-image", // ✅ GA - Primary
+        "gemini-3.1-flash-image-preview", // Preview fallback
+        "imagen-3.0-generate-002" // Legacy fallback (billing required)
+    ];
     try {
         return await runWithAIFallback(async (ai, modelName) => {
+            const isImagen = modelName.includes("imagen");
+            // For Gemini models, we append aspect ratio to the prompt as they don't support the parameter yet
+            const finalPrompt = isImagen ? prompt : `${prompt} [Aspect Ratio: ${aspectRatio}]`;
+            const genConfig = {
+                temperature: 0.9
+            };
+            // Gemini Native Image models MUST have these modalities
+            if (!isImagen) {
+                genConfig.responseModalities = ["TEXT", "IMAGE"];
+            }
+            else {
+                // Imagen supports explicit aspect ratio
+                genConfig.aspectRatio = aspectRatio.replace(":", "x"); // converts 16:9 to 16x9
+            }
             const response = await ai.models.generateContent({
                 model: modelName,
-                contents: [{ role: "user", parts: [{ text: prompt }] }],
-                config: {
-                    // @ts-ignore - responseModalities is newer
-                    responseModalities: ["IMAGE"],
-                }
+                contents: [{ role: "user", parts: [{ text: finalPrompt }] }],
+                config: genConfig // ✅ Fixed: @google/genai SDK uses 'config', not 'generationConfig'
             });
             if (response.candidates && response.candidates.length > 0) {
                 const parts = response.candidates[0].content.parts;
+                // Look for inlineData in any part (Gemini returns TEXT and IMAGE interleaved)
                 const imagePart = parts.find((p) => p.inlineData);
                 if (imagePart && imagePart.inlineData) {
                     return buffer_1.Buffer.from(imagePart.inlineData.data, 'base64');

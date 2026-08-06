@@ -83,6 +83,143 @@ async function deleteOriginalFile(url) {
     }
 }
 /**
+ * Helper: Translate the entire survey (headline, content, questions, options)
+ */
+async function performSurveyAITranslation(surveyData) {
+    const rawHeadline = surveyData.headline?.telugu || surveyData.headline?.english || surveyData.headline || "";
+    const rawContent = surveyData.content?.telugu || surveyData.content?.english || surveyData.content || "";
+    const inputQuestions = (surveyData.surveyQuestions || []).map((q) => {
+        return {
+            id: q.id,
+            questionText: q.questionText || "",
+            options: (q.options || []).map((o) => {
+                return {
+                    id: o.id,
+                    text: o.text || "",
+                    nextQuestionId: o.nextQuestionId || null
+                };
+            })
+        };
+    });
+    const schema = {
+        type: genai_1.Type.OBJECT,
+        properties: {
+            headline: {
+                type: genai_1.Type.OBJECT,
+                properties: {
+                    telugu: { type: genai_1.Type.STRING },
+                    english: { type: genai_1.Type.STRING }
+                },
+                required: ["telugu", "english"]
+            },
+            content: {
+                type: genai_1.Type.OBJECT,
+                properties: {
+                    telugu: { type: genai_1.Type.STRING },
+                    english: { type: genai_1.Type.STRING }
+                },
+                required: ["telugu", "english"]
+            },
+            surveyQuestions: {
+                type: genai_1.Type.ARRAY,
+                items: {
+                    type: genai_1.Type.OBJECT,
+                    properties: {
+                        id: { type: genai_1.Type.STRING },
+                        questionText: {
+                            type: genai_1.Type.OBJECT,
+                            properties: {
+                                telugu: { type: genai_1.Type.STRING },
+                                english: { type: genai_1.Type.STRING }
+                            },
+                            required: ["telugu", "english"]
+                        },
+                        options: {
+                            type: genai_1.Type.ARRAY,
+                            items: {
+                                type: genai_1.Type.OBJECT,
+                                properties: {
+                                    id: { type: genai_1.Type.STRING },
+                                    text: {
+                                        type: genai_1.Type.OBJECT,
+                                        properties: {
+                                            telugu: { type: genai_1.Type.STRING },
+                                            english: { type: genai_1.Type.STRING }
+                                        },
+                                        required: ["telugu", "english"]
+                                    },
+                                    nextQuestionId: { type: genai_1.Type.STRING, nullable: true }
+                                },
+                                required: ["id", "text"]
+                            }
+                        }
+                    },
+                    required: ["id", "questionText", "options"]
+                }
+            }
+        },
+        required: ["headline", "content", "surveyQuestions"]
+    };
+    const prompt = `
+Original Headline: ${rawHeadline}
+Original Content: ${rawContent}
+
+Original Questions & Options structure:
+${JSON.stringify(inputQuestions, null, 2)}
+`;
+    return await (0, utils_1.runWithAIFallback)(async (ai, modelName) => {
+        const result = await ai.models.generateContent({
+            model: modelName,
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            config: {
+                systemInstruction: `You are an expert bilingual editor translating content between Telugu and English.
+Your task:
+1. Identify the input language (could be Telugu, English, or mixed).
+2. Translate the Headline and Content (description) into both Telugu and English.
+3. For each question in the list, translate the "questionText" into both Telugu and English.
+4. For each option within a question, translate the "text" into both Telugu and English.
+5. IMPORTANT: Keep the original "id" and "nextQuestionId" values for all questions and options exactly as given. Do not generate new IDs, do not change them, and do not drop them.
+Output JSON only.`,
+                temperature: 0.3,
+                maxOutputTokens: 4096,
+                responseMimeType: "application/json",
+                responseSchema: schema,
+                system_instruction: `You are an expert bilingual editor translating content between Telugu and English. ...`,
+                response_mime_type: "application/json",
+                response_schema: schema,
+                max_output_tokens: 4096
+            }
+        });
+        const rawText = result.text || result.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+        console.log(`[SURVEY_AI_RES] Output:`, rawText.substring(0, 500));
+        const aiRes = (0, utils_1.parseAIJson)(rawText);
+        if (!aiRes.headline || !aiRes.content || !aiRes.surveyQuestions) {
+            throw new Error("AI response missing mandatory survey fields.");
+        }
+        // Map back to guarantee nextQuestionId and structure are preserved exactly
+        const mappedQuestions = aiRes.surveyQuestions.map((q) => {
+            const originalQ = inputQuestions.find((oQ) => oQ.id === q.id) || {};
+            return {
+                id: q.id,
+                questionText: q.questionText,
+                options: (q.options || []).map((o) => {
+                    const originalO = (originalQ.options || []).find((oO) => oO.id === o.id) || {};
+                    return {
+                        id: o.id,
+                        text: o.text,
+                        nextQuestionId: originalO.nextQuestionId || o.nextQuestionId || null
+                    };
+                })
+            };
+        });
+        return {
+            headline: aiRes.headline,
+            content: aiRes.content,
+            surveyQuestions: mappedQuestions
+        };
+    });
+}
+/**
  * Helper: Perform AI enhancement on news content
  */
 async function performAIProcessing(headline, content, actualPostData) {
@@ -101,6 +238,10 @@ async function performAIProcessing(headline, content, actualPostData) {
             tone: { type: genai_1.Type.STRING },
             vocalContent: { type: genai_1.Type.STRING },
             tags: { type: genai_1.Type.ARRAY, items: { type: genai_1.Type.STRING } },
+            // ✅ NEW: AI స్వయంగా content చదివి breaking/notification decide చేస్తుంది
+            // notification time లో media/views recalculate అవసరం లేదు
+            isBreaking: { type: genai_1.Type.BOOLEAN }, // Content-based breaking news flag
+            notificationWorthy: { type: genai_1.Type.BOOLEAN }, // Worthy of push notification?
             qualitySignals: {
                 type: genai_1.Type.OBJECT,
                 properties: {
@@ -119,22 +260,48 @@ async function performAIProcessing(headline, content, actualPostData) {
                 }
             }
         },
-        required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory", "isSafeForYouTube", "rejectionReason", "tags", "entities", "tone", "vocalContent"]
+        required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory", "isSafeForYouTube", "rejectionReason", "tags", "entities", "tone", "vocalContent", "isBreaking", "notificationWorthy"]
     };
-    console.log(`[AI_START] Processing: ${headline.substring(0, 30)}...`);
+    console.log(`[AI_START] Processing: ${headline.substring(0, 30)}... (Type: ${actualPostData?.isReporter ? 'Reporter' : 'Citizen'})`);
+    const metadataPrompt = `
+SUBMISSION METADATA:
+- type: ${actualPostData?.isReporter ? 'REPORTER_SUBMISSION' : 'CITIZEN_SUBMISSION'}
+- isReporter: ${actualPostData?.isReporter === true}
+- isCitizen: ${actualPostData?.isCitizen === true}
+- district: ${actualPostData?.district || 'Unknown'}
+- location: ${actualPostData?.location || 'Unknown'}
+
+NOTIFICATION INSTRUCTIONS (CRITICAL):
+- isBreaking: true ONLY if the news is genuinely urgent and time-sensitive
+  (accidents, deaths, natural disasters, major political decisions, crimes, emergency events).
+  Do NOT set true for routine news, press meets, events, or opinion pieces.
+- notificationWorthy: true if the news is relevant to a broad audience and worth sending as a push notification.
+  Set false for: personal praise, promotional content, routine government meetings,
+  repetitive news, or low-public-interest items.
+  Set true for: accidents, crimes, major policy changes, sports results, health alerts,
+  district-level events that affect common people.
+- tone options: BREAKING | URGENT | IMPORTANT | NORMAL | SOFT
+  Use BREAKING only for truly breaking news (disasters, sudden deaths, major crimes).
+  Use URGENT for time-sensitive but not breaking news.
+  Use IMPORTANT for significant but not urgent news.
+  Use NORMAL for general news.
+  Use SOFT for feel-good / inspirational stories.
+`;
     return await (0, utils_1.runWithAIFallback)(async (ai, modelName) => {
         const result = await ai.models.generateContent({
             model: modelName,
-            contents: [{ role: "user", parts: [{ text: `Headline: ${headline}\nContent: ${content}` }] }],
+            contents: [{ role: "user", parts: [{ text: `${metadataPrompt}\n\nHeadline: ${headline}\nContent: ${content}` }] }],
             config: {
                 systemInstruction: (0, categories_1.getCategorySystemInstruction)(),
                 temperature: 0.4,
+                maxOutputTokens: 4096,
                 responseMimeType: "application/json",
                 responseSchema: schema,
                 // Full compatibility aliases
                 system_instruction: (0, categories_1.getCategorySystemInstruction)(),
                 response_mime_type: "application/json",
-                response_schema: schema
+                response_schema: schema,
+                max_output_tokens: 4096
             }
         });
         const rawText = result.text || result.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
@@ -154,7 +321,8 @@ async function performAIProcessing(headline, content, actualPostData) {
             aiRes.english?.headline || aiRes.english?.headlineEn ||
             aiRes.english_version?.headline || aiRes.english_version?.title ||
             aiRes.titleEn || aiRes.englishHeadline || "";
-        if (!finalContent || !finalHeadline) {
+        const isRejected = aiRes.rejectionReason && aiRes.rejectionReason.length > 0;
+        if (!isRejected && (!finalContent || !finalHeadline)) {
             console.error("[AI_SCHEMA_MISMATCH] AI response missing Telugu fields:", JSON.stringify(aiRes).substring(0, 500));
             throw new Error("AI response missing mandatory Telugu fields.");
         }
@@ -162,6 +330,14 @@ async function performAIProcessing(headline, content, actualPostData) {
             aiRes.english?.content || aiRes.english?.contentEn || aiRes.english?.summary ||
             aiRes.english_version?.content || aiRes.english_version?.summary ||
             aiRes.summaryEn || aiRes.summarized_english_content || aiRes.englishContent || "";
+        // Normalize rejection reason - ignore common placeholders
+        let rejectionReason = aiRes.rejectionReason || "";
+        if (rejectionReason.toLowerCase() === "null" ||
+            rejectionReason.toLowerCase() === "none" ||
+            rejectionReason.toLowerCase() === "n/a" ||
+            rejectionReason.toLowerCase() === "false") {
+            rejectionReason = "";
+        }
         // Validate character count (Telugu)
         if (finalContent.length < 450) {
             console.warn(`[AI_LENGTH_WARNING] Content too short: ${finalContent.length} chars. Target is 450-600. Proceeding but logging.`);
@@ -201,11 +377,14 @@ async function performAIProcessing(headline, content, actualPostData) {
             tags: aiRes.tags || [],
             entities: normalizedEntities,
             isSafeForYouTube: aiRes.isSafeForYouTube ?? true,
-            rejectionReason: aiRes.rejectionReason || "",
+            rejectionReason: rejectionReason,
             tone: aiRes.tone || "NORMAL",
             vocalContent: aiRes.vocalContent || finalContent || "",
             qualitySignals: aiRes.qualitySignals || { biasScore: 0.5, publicInterestScore: 0.5, investigativeScore: 0, isPersonalPraise: false },
             storyFingerprint: aiRes.storyFingerprint || `gen_${Date.now()}`,
+            // ✅ AI-decided notification flags — set once, never recalculated
+            isBreaking: aiRes.isBreaking === true,
+            notificationWorthy: aiRes.notificationWorthy !== false, // default true unless AI says false
             aiProcessed: true,
             aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
@@ -289,7 +468,7 @@ function calculateIncentivePoints(hasVideo, qs) {
 exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
     document: "news/{postId}",
     region: utils_1.REGION,
-    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "AZURE_SPEECH_KEY", "AZURE_SPEECH_REGION"],
+    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"],
     memory: "2GiB",
     timeoutSeconds: 540,
     maxInstances: 5
@@ -299,25 +478,79 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
         return;
     const postId = event.params.postId;
     let data = snapshot.data();
-    // Capture the original submitter to ensure they get the points,
-    // even if display reporter is reassigned.
-    const originalReporterId = data.reporter?.id;
-    const currentStatus = (data.status || "").toUpperCase();
-    const isReporter = data.isReporter === true || data.processingType === "REPORTER_SUBMISSION";
-    // 1. Guard against infinite loops or redundant processing
-    // We MUST re-fetch the document to ensure we aren't racing with another trigger instance
+    // 1. QUICK GUARD: Skip if this is a "passive" update (Views, Likes, etc.)
+    // These happen frequently and don't require AI or Video processing.
+    const beforeData = event.data?.before?.data() || {};
+    const status = (data.status || "").toUpperCase();
+    // Fields that should NOT trigger re-processing
+    const passiveFields = ["longViews", "likes", "shares", "comments", "lastUpdated", "lastCleanupAt"];
+    const isPassiveUpdate = Object.keys(data).every(key => passiveFields.includes(key) || JSON.stringify(data[key]) === JSON.stringify(beforeData[key]));
+    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED", "ARCHIVED", "FAILED_YOUTUBE_UPLOAD", "PENDING_YOUTUBE_RETRY"];
+    if (LOCKED_STATUSES.includes(status) && !data.forceReprocess) {
+        // If it's already locked and not a forced reprocess, skip immediately without reading DB again
+        return;
+    }
+    if (isPassiveUpdate && status !== "PENDING" && !data.forceReprocess) {
+        // console.log(`[TRIGGER_SKIPPED] Passive update for ${postId}`);
+        return;
+    }
+    // 2. FETCH LATEST: Only now we fetch to handle race conditions for actual content changes
     const latestDoc = await db.collection('news').doc(postId).get();
     const latestData = latestDoc.data();
     if (!latestData)
         return;
     const latestStatus = (latestData.status || "").toUpperCase();
-    // Statuses that mean we've already started or finished processing
-    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED"];
     if (LOCKED_STATUSES.includes(latestStatus) && !data.forceReprocess) {
         console.log(`[TRIGGER_SKIPPED] ${postId} is already in state: ${latestStatus}`);
         return;
     }
-    // 2. AI PROCESSING PHASE
+    const originalReporterId = latestData.reporter?.id;
+    const isReporter = latestData.isReporter === true || latestData.processingType === "REPORTER_SUBMISSION";
+    // 2. SURVEY PROCESS — Translate survey using Gemini AI
+    if (latestData.type === "survey") {
+        if (latestData.aiProcessed) {
+            // Already processed by AI, skip
+            return;
+        }
+        console.log(`[SURVEY_AI_PROCESS] Starting translation for survey: ${postId}`);
+        try {
+            await db.collection('news').doc(postId).update({
+                status: "REVIEWING_CONTENT", // Lock it
+            });
+            // Perform translation
+            const translatedSurvey = await performSurveyAITranslation(latestData);
+            const updatePayloadSurvey = {
+                ...translatedSurvey,
+                status: latestData.approved ? "PUBLISHED" : "PENDING",
+                aiProcessed: true,
+                publishedAt: admin.firestore.FieldValue.serverTimestamp(),
+            };
+            const mediaUrl = latestData.mediaUrl || (latestData.mediaUrls && latestData.mediaUrls[0]) || "";
+            if (mediaUrl && !latestData.thumbnailUrl) {
+                try {
+                    const thumbUrl = await (0, utils_1.createAndSaveThumbnail)(mediaUrl, postId);
+                    if (thumbUrl) {
+                        updatePayloadSurvey.thumbnailUrl = thumbUrl;
+                    }
+                }
+                catch (e) {
+                    console.error(`[THUMBNAIL_ERR] Error creating thumbnail:`, e.message);
+                }
+            }
+            await db.collection('news').doc(postId).update(updatePayloadSurvey);
+            console.log(`[SURVEY_AI_DONE] Successfully processed survey: ${postId}`);
+            return;
+        }
+        catch (err) {
+            console.error(`[SURVEY_AI_ERR] Failed to process survey ${postId}:`, err.message);
+            await db.collection('news').doc(postId).update({
+                status: "FAILED",
+                error: err.message
+            });
+            return;
+        }
+    }
+    // 3. AI PROCESSING PHASE
     // Trigger if not processed and status is PENDING or missing
     if (!latestData.aiProcessed && (latestStatus === "PENDING" || latestStatus === "" || data.forceReprocess)) {
         console.log(`[ON_WRITE_PROCEED] AI Start: ${postId}`);
@@ -337,10 +570,10 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
             const aiProcessedData = await performAIProcessing(headline, content, latestData);
             // --- MANDALAM REPORTER ASSIGNMENT LOGIC ---
             // If there's an assigned reporter for this mandalam, override the reporter field
-            const mandalamDistrict = aiProcessedData.categories.find((c) => c.includes("జిల్లా")) ? data.district : aiProcessedData.location; // Fallback logic
+            const mandalamDistrict = (aiProcessedData.categories && aiProcessedData.categories.find((c) => c.includes("జిల్లా"))) ? data.district : aiProcessedData.location;
             // Actually, we should use data.district or aiProcessedData.district if we added it.
             // Let's use the location (mandalam) and the district from data or categories.
-            const targetDistrict = data.district || (aiProcessedData.categories.find((c) => !c.includes("వార్త") && c !== aiProcessedData.category));
+            const targetDistrict = data.district || (aiProcessedData.categories && aiProcessedData.categories.find((c) => !c.includes("వార్త") && c !== aiProcessedData.category));
             const targetMandalam = aiProcessedData.location;
             if (targetDistrict && targetMandalam) {
                 const assignedReporter = await (0, reporter_handler_1.getAssignedReporter)(targetDistrict, targetMandalam);
@@ -348,24 +581,48 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                     console.log(`[REPORTER_ASSIGN] Reassigning ${postId} to ${assignedReporter.name} for mandalam ${targetMandalam}`);
                     aiProcessedData.reporter = assignedReporter;
                     aiProcessedData.isReporter = true;
+                    if (originalReporterId) {
+                        aiProcessedData.originalReporterId = originalReporterId;
+                    }
                 }
             }
             // ------------------------------------------
             const finalIsReporter = isReporter || aiProcessedData.isReporter;
-            const isRejected = !finalIsReporter && aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
-            const mTypes = (data.mediaTypes || []).map((t) => t.toUpperCase());
-            const hasVideo = mTypes.includes('VIDEO') || data.mediaType?.toUpperCase() === 'VIDEO';
+            const isRejected = aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
+            // ✅ FIX #3: latestData వాడాలి (fresh DB fetch), stale trigger snapshot (data) కాదు
+            const mTypes = (latestData.mediaTypes || []).map((t) => t.toUpperCase());
+            const hasVideo = mTypes.includes('VIDEO') || latestData.mediaType?.toUpperCase() === 'VIDEO';
             const updatePayload = {
                 ...aiProcessedData,
                 status: isRejected ? "REJECTED" : (hasVideo ? "PROCESSING_VIDEO" : "published"),
-                approved: finalIsReporter ? (hasVideo ? false : true) : (!isRejected && !hasVideo)
+                approved: isRejected ? false : (finalIsReporter ? (hasVideo ? false : true) : (!hasVideo))
             };
-            console.log(`[AI_DONE] ${postId}. Status: ${updatePayload.status}, Approved: ${updatePayload.approved}`);
+            const mediaUrl = latestData.mediaUrl || (latestData.mediaUrls && latestData.mediaUrls[0]) || "";
+            if (mediaUrl && !latestData.thumbnailUrl) {
+                try {
+                    const thumbUrl = await (0, utils_1.createAndSaveThumbnail)(mediaUrl, postId);
+                    if (thumbUrl) {
+                        updatePayload.thumbnailUrl = thumbUrl;
+                    }
+                }
+                catch (e) {
+                    console.error(`[THUMBNAIL_ERR] Error creating thumbnail:`, e.message);
+                }
+            }
+            console.log(`[AI_DONE] ${postId}. Type: ${finalIsReporter ? 'REPORTER' : 'CITIZEN'}, Status: ${updatePayload.status}, Approved: ${updatePayload.approved}`);
+            if (isRejected)
+                console.log(`[AI_REJECTED] ${postId} Reason: ${aiProcessedData.rejectionReason}`);
             await db.collection('news').doc(postId).update(updatePayload);
-            // Award points to the ORIGINAL submitter if published
+            // ✅ FIX #2: POLICY_VIOLATION notification — AI reject చేసినప్పుడు reporter కి తెలియజేయాలి
+            if (isRejected && finalIsReporter && originalReporterId) {
+                await (0, reporter_handler_1.notifyReporter)(originalReporterId, postId, latestData.headline?.telugu || "", 'POLICY_VIOLATION', latestData.mediaUrl || (latestData.mediaUrls && latestData.mediaUrls[0]) || "");
+            }
+            // Award points & SUCCESS notification to the ORIGINAL submitter if published (non-video)
             if (updatePayload.status === "published" && finalIsReporter && originalReporterId) {
                 const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
                 await (0, reporter_handler_1.awardPointsToReporter)(originalReporterId, points);
+                // ✅ FIX #1: Non-video reporter posts కి SUCCESS notification పంపాలి
+                await (0, reporter_handler_1.notifyReporter)(originalReporterId, postId, latestData.headline?.telugu || "", 'SUCCESS', latestData.mediaUrl || (latestData.mediaUrls && latestData.mediaUrls[0]) || "");
             }
             return; // Exit and wait for the second trigger to handle video if needed
         }
@@ -380,7 +637,17 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
     const mTypes = (data.mediaTypes || []).map((t) => t.toUpperCase());
     const videoIndex = mTypes.indexOf('VIDEO') !== -1 ? mTypes.indexOf('VIDEO') : (data.mediaType?.toUpperCase() === 'VIDEO' ? 0 : -1);
     const videoUrl = (videoIndex !== -1 && data.mediaUrls && data.mediaUrls[videoIndex]) || (videoIndex === 0 ? data.mediaUrl : null);
-    if (data.aiProcessed && currentStatus === "PROCESSING_VIDEO" && !data.videoProcessed && videoUrl) {
+    if (data.aiProcessed && status === "PROCESSING_VIDEO" && !data.videoProcessed) {
+        if (!videoUrl) {
+            console.error(`[VIDEO_ERR] ${postId}: Missing video URL for PROCESSING_VIDEO post.`);
+            await db.collection('news').doc(postId).update({
+                status: "published",
+                approved: true,
+                videoProcessed: false,
+                processingError: "Missing video URL"
+            });
+            return;
+        }
         // Double check against DB to avoid race conditions from onDocumentWritten
         const latestDoc = await db.collection('news').doc(postId).get();
         const latestData = latestDoc.data();
@@ -394,6 +661,9 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
         console.log(`[VIDEO_START] ${postId}. URL: ${videoUrl.substring(0, 50)}...`);
         // LOCK immediately
         await db.collection('news').doc(postId).update({ status: "PROCESSING_VIDEO_START" });
+        let videoPath = "";
+        let audioPath = "";
+        let outputPath = "";
         try {
             const teluguNews = data.content?.telugu || data.headline?.telugu || "";
             const reporterName = data.reporter?.name || "";
@@ -421,9 +691,9 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
             description += `మరిన్ని తాజా వార్తల కోసం ఆల్ఫా న్యూస్ అప్ ని ఇప్పుడే డౌన్లోడ్ చేసుకోండి\n`;
             description += `https://play.google.com/store/apps/details?id=com.alfanews.telugu\n\n`;
             const tempDir = os.tmpdir();
-            const videoPath = path.join(tempDir, `input_${postId}.mp4`);
-            const audioPath = path.join(tempDir, `audio_${postId}.mp3`);
-            const outputPath = path.join(tempDir, `output_${postId}.mp4`);
+            videoPath = path.join(tempDir, `input_${postId}.mp4`);
+            audioPath = path.join(tempDir, `audio_${postId}.mp3`);
+            outputPath = path.join(tempDir, `output_${postId}.mp4`);
             // STREAMING DOWNLOAD to save memory and handle large files
             console.log(`[VIDEO_DOWNLOAD] Downloading ${videoUrl.substring(0, 50)}...`);
             const videoRes = await fetch(videoUrl);
@@ -443,79 +713,207 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
             const authClient = await ttsAuth.getClient();
             const accessToken = (await authClient.getAccessToken()).token;
             let teluguVocal = data.vocalContent || teluguNews;
-            let processedText = teluguVocal.replace(/\s+/g, ' ').trim();
-            processedText = processedText.replace(/[<>&'"]/g, '');
-            processedText = processedText.replace(/\[\[STRESS\]\](.*?)\[\[\/STRESS\]\]/g, '<prosody volume="+2.5dB" rate="92%">$1</prosody>');
-            processedText = processedText.replace(/(\d+)/g, '<say-as interpret-as="cardinal">$1</say-as>');
-            processedText = processedText.replace(/అంటే\.\.\./g, 'అంటే... <break time="150ms"/>');
-            processedText = processedText.replace(/ఆ\.\.\./g, 'ఆ... <break time="100ms"/>');
-            processedText = processedText.replace(/\.\.\./g, '... <break time="300ms"/>');
-            processedText = processedText.replace(/,/g, ', <break time="40ms"/>');
-            processedText = processedText.replace(/\./g, '. <break time="100ms"/>');
-            processedText = processedText.replace(/!/g, '! <break time="80ms"/>');
-            processedText = processedText.replace(/\?/g, '? <break time="80ms"/>');
-            const selectedVoice = 'te-IN-Chirp3-HD-Alpha';
-            const ssml = `<speak><prosody rate="1.25" pitch="0st" volume="+6dB">${processedText.substring(0, 4900)}</prosody></speak>`;
-            const ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
+            // Filter out intro greetings like "నమస్కారం" so they don't get read in voiceover
+            teluguVocal = teluguVocal.replace(/^(నమస్కారం|నమస్కారమండి|నమస్కారాలు|నమస్తే)[,\s!.]*/gi, '').trim();
+            // 1. PROTECT STRESS TAGS and CLEAN OTHER BRACKETS
+            // First, hide the STRESS tags so they don't get destroyed by bracket cleanup
+            let vocal = teluguVocal.replace(/\[\[STRESS\]\]/g, '___STRESS_START___')
+                .replace(/\[\[\/STRESS\]\]/g, '___STRESS_END___');
+            // Now safely remove any other double brackets (AI emphasis like [[word]])
+            vocal = vocal.replace(/\[\[/g, '').replace(/\]\]/g, '');
+            // Restore protected tags to a safe internal format for processing
+            vocal = vocal.replace(/___STRESS_START___/g, '[[STRESS]]')
+                .replace(/___STRESS_END___/g, '[[/STRESS]]');
+            // 2. SAFE TRUNCATION: Truncate base text first to avoid cutting SSML tags later
+            let baseText = vocal.substring(0, 4000).replace(/\s+/g, ' ').trim();
+            // 3. SANITIZE: Escape XML special characters properly
+            baseText = baseText.replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&apos;');
+            // 4. INJECT SSML: Clean markup for Studio (Chirp) voices
+            // Chirp 3 HD handles punctuation (. , ...) naturally.
+            // Internal SSML tags (<break>, inner <prosody>) cause unnatural audio boundary gaps/pauses.
+            let processedText = baseText;
+            processedText = processedText.replace(/,\s*,+/g, ','); // Clean double commas like ", ,"
+            processedText = processedText.replace(/,\s*\./g, '.'); // Clean comma before period ", ."
+            processedText = processedText.replace(/,\s*/g, ', ');
+            processedText = processedText.replace(/\.\s*/g, '. ');
+            // Clean STRESS tags cleanly so no internal SSML tags create unnatural gaps in Chirp 3 HD
+            processedText = processedText.replace(/\[\[STRESS\]\](.*?)\[\[\/STRESS\]\]/g, '$1');
+            // Pitch shift (-1.8st) gives a deep, serious, authoritative news-anchor tone (గంభీరత్వం)
+            let selectedVoice = data.voiceModel || 'te-IN-Chirp3-HD-Kore';
+            const ssml = `<speak><prosody rate="1.30" pitch="-1.8st" volume="+6dB">${processedText}</prosody></speak>`;
+            console.log(`[TTS_REQUEST] postId: ${postId}, voice: ${selectedVoice}, ssml: ${ssml.substring(0, 500)}`);
+            let ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
                 body: JSON.stringify({
                     input: { ssml: ssml },
                     voice: { languageCode: 'te-IN', name: selectedVoice },
-                    audioConfig: { audioEncoding: 'MP3' }
+                    audioConfig: { audioEncoding: 'MP3', sampleRateHertz: 48000 }
                 })
             });
-            const ttsData = await ttsRes.json();
+            let ttsData = await ttsRes.json();
+            // FALLBACK LOGIC: Try Neural2-B (Deep Male Voice) or Wavenet-B / Standard-A if primary fails
+            if (!ttsData.audioContent) {
+                console.warn(`[TTS_WARNING] Primary voice ${selectedVoice} failed. Trying Neural2 Male fallback.`);
+                selectedVoice = 'te-IN-Neural2-B';
+                ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+                    body: JSON.stringify({
+                        input: { ssml: ssml },
+                        voice: { languageCode: 'te-IN', name: selectedVoice },
+                        audioConfig: { audioEncoding: 'MP3', sampleRateHertz: 48000 }
+                    })
+                });
+                ttsData = await ttsRes.json();
+            }
+            if (!ttsData.audioContent) {
+                console.warn(`[TTS_WARNING] Neural2-B failed. Falling back to Standard-B.`);
+                selectedVoice = 'te-IN-Standard-B';
+                ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+                    body: JSON.stringify({
+                        input: { ssml: ssml },
+                        voice: { languageCode: 'te-IN', name: selectedVoice },
+                        audioConfig: { audioEncoding: 'MP3' }
+                    })
+                });
+                ttsData = await ttsRes.json();
+            }
             if (!ttsData.audioContent)
-                throw new Error(`TTS failed: ${ttsData.error?.message || 'No audio'}`);
+                throw new Error(`TTS failed even after fallback: ${ttsData.error?.message || 'No audio'}`);
             fs.writeFileSync(audioPath, Buffer.from(ttsData.audioContent, 'base64'));
             const logoPath = path.join(process.cwd(), 'assets', 'logo.png');
             const hasLogo = fs.existsSync(logoPath);
             await new Promise((resolve, reject) => {
                 let logoWidth = 99;
+                let hasAudioStream = false;
+                let audioChannels = 2;
+                let videoWidth = 720;
+                let videoHeight = 1280;
                 try {
                     const { execSync } = require('child_process');
                     const ffprobeStatic = require('ffprobe-static');
-                    const probeOutput = execSync(`"${ffprobeStatic.path}" -v error -select_streams v:0 -show_entries stream=width -of csv=s=x:p=0 "${videoPath}"`).toString().trim();
-                    const videoWidth = parseInt(probeOutput) || 720;
+                    const probeOutput = execSync(`"${ffprobeStatic.path}" -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "${videoPath}"`).toString().trim();
+                    const parts = probeOutput.split('x');
+                    videoWidth = parseInt(parts[0]) || 720;
+                    videoHeight = parseInt(parts[1]) || 1280;
                     if (videoWidth <= 450)
                         logoWidth = 54;
                     else if (videoWidth <= 950)
                         logoWidth = 99;
                     else
                         logoWidth = 144;
+                    const audioProbe = execSync(`"${ffprobeStatic.path}" -v error -select_streams a:0 -show_entries stream=channels -of csv=s=x:p=0 "${videoPath}"`).toString().trim();
+                    hasAudioStream = audioProbe.length > 0;
+                    if (hasAudioStream) {
+                        audioChannels = parseInt(audioProbe) || 2;
+                    }
                 }
                 catch (e) { }
+                const isVertical = videoHeight > videoWidth;
+                const introFileName = isVertical ? 'YouTube_intro_BBC_style_9_16.mp4' : 'YouTube_channel_intro_16_9.mp4';
+                const outroFileName = isVertical ? 'alfanews_outro_like_share_9_16.mp4' : 'alfanews_outro_like_share_16_9.mp4';
+                const introPath = path.join(process.cwd(), 'assets', introFileName);
+                const outroPath = path.join(process.cwd(), 'assets', outroFileName);
+                const hasIntro = fs.existsSync(introPath);
+                const hasOutro = fs.existsSync(outroPath);
+                console.log(`[VIDEO_PROC] Res: ${videoWidth}x${videoHeight}, Vertical: ${isVertical}, HasIntro: ${hasIntro}, HasOutro: ${hasOutro}`);
                 let cmd = ffmpeg(videoPath).input(audioPath);
-                if (hasLogo)
-                    cmd.input(logoPath);
-                const filters = [];
-                let vMap = '[0:v]';
+                let logoInputIdx = -1;
+                let introInputIdx = -1;
+                let outroInputIdx = -1;
+                let currentIdx = 2;
                 if (hasLogo) {
-                    filters.push(`[2:v]scale=${logoWidth}:-1[logo]`);
-                    filters.push(`[0:v][logo]overlay=W-w-25:25[vlogo]`);
-                    vMap = '[vlogo]';
+                    cmd.input(logoPath);
+                    logoInputIdx = currentIdx++;
+                }
+                if (hasIntro) {
+                    cmd.input(introPath);
+                    introInputIdx = currentIdx++;
+                }
+                if (hasOutro) {
+                    cmd.input(outroPath);
+                    outroInputIdx = currentIdx++;
+                }
+                const filterGraph = [];
+                // 1. Logo Watermark Overlay
+                if (hasLogo && logoInputIdx !== -1) {
+                    filterGraph.push({ filter: 'scale', options: `${logoWidth}:-2`, inputs: `${logoInputIdx}:v`, outputs: 'logo' });
+                    filterGraph.push({ filter: 'overlay', options: 'W-w-25:25', inputs: ['0:v', 'logo'], outputs: 'vlogo_raw' });
                 }
                 else {
-                    filters.push("[0:v]null[vlogo]");
+                    filterGraph.push({ filter: 'null', inputs: '0:v', outputs: 'vlogo_raw' });
                 }
-                filters.push(`[vlogo]format=yuv420p[vf]`);
-                let ttsDuration = 0;
-                try {
-                    const { execSync } = require('child_process');
-                    const ffprobeStatic = require('ffprobe-static');
-                    const ttsProbe = execSync(`"${ffprobeStatic.path}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`).toString().trim();
-                    ttsDuration = parseFloat(ttsProbe) || 0;
+                // 2. Audio Processing (Voiceover TTS + Muted/Ducked Original Video Audio)
+                let mainAudioLabel = 'outa';
+                if (hasAudioStream) {
+                    let ttsDuration = 0;
+                    try {
+                        const { execSync } = require('child_process');
+                        const ffprobeStatic = require('ffprobe-static');
+                        const ttsProbe = execSync(`"${ffprobeStatic.path}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`).toString().trim();
+                        ttsDuration = parseFloat(ttsProbe) || 0;
+                    }
+                    catch (e) { }
+                    filterGraph.push({
+                        filter: 'volume',
+                        options: { volume: `if(gte(t,${ttsDuration}),1,0)`, eval: 'frame' },
+                        inputs: '0:a',
+                        outputs: 'ducked_raw'
+                    });
+                    if (audioChannels === 1) {
+                        filterGraph.push({ filter: 'pan', options: 'stereo|c0=c0|c1=c0', inputs: 'ducked_raw', outputs: 'ducked_stereo' });
+                        filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: 'ducked_stereo', outputs: 'ducked' });
+                    }
+                    else {
+                        filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: 'ducked_raw', outputs: 'ducked' });
+                    }
+                    filterGraph.push({ filter: 'volume', options: 2.0, inputs: '1:a', outputs: 'tts_vol' });
+                    filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: 'tts_vol', outputs: 'enhanced_tts' });
+                    filterGraph.push({ filter: 'amix', options: { inputs: 2, duration: 'longest', dropout_transition: 0, normalize: 0 }, inputs: ['ducked', 'enhanced_tts'], outputs: 'outa' });
                 }
-                catch (e) { }
-                filters.push(`[0:a]volume='if(lt(t,${ttsDuration}),0.01,1)':eval=frame,volume=3.5[ducked]`);
-                filters.push("[1:a]volume=3.5,highpass=f=200[a1_mix]");
-                filters.push("[ducked][a1_mix]amix=inputs=2:duration=longest:normalize=0[outa]");
-                cmd.complexFilter(filters.join(';'))
-                    .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', '[outa]'])
-                    .save(outputPath)
-                    .on('end', () => resolve(true))
-                    .on('error', (err) => reject(err));
+                else {
+                    filterGraph.push({ filter: 'volume', options: 2.0, inputs: '1:a', outputs: 'tts_vol' });
+                    filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: 'tts_vol', outputs: 'enhanced_tts' });
+                    mainAudioLabel = 'enhanced_tts';
+                }
+                // 3. Intro + Main Video + Outro Concatenation (Single Pass)
+                if (hasIntro && hasOutro && introInputIdx !== -1 && outroInputIdx !== -1) {
+                    const targetW = isVertical ? 1080 : 1920;
+                    const targetH = isVertical ? 1920 : 1080;
+                    const scalePadOpt = `${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p`;
+                    filterGraph.push({ filter: 'scale', options: scalePadOpt, inputs: `${introInputIdx}:v`, outputs: 'vintro' });
+                    filterGraph.push({ filter: 'scale', options: scalePadOpt, inputs: 'vlogo_raw', outputs: 'vmain' });
+                    filterGraph.push({ filter: 'scale', options: scalePadOpt, inputs: `${outroInputIdx}:v`, outputs: 'voutro' });
+                    filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: `${introInputIdx}:a`, outputs: 'aintro' });
+                    filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: mainAudioLabel, outputs: 'amain' });
+                    filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: `${outroInputIdx}:a`, outputs: 'aoutro' });
+                    filterGraph.push({
+                        filter: 'concat',
+                        options: { n: 3, v: 1, a: 1 },
+                        inputs: ['vintro', 'aintro', 'vmain', 'amain', 'voutro', 'aoutro'],
+                        outputs: ['vf', 'outa_final']
+                    });
+                    cmd.complexFilter(filterGraph)
+                        .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', '[outa_final]', '-ar', '44100', '-ac', '2'])
+                        .save(outputPath)
+                        .on('end', () => resolve(true))
+                        .on('error', (err) => reject(err));
+                }
+                else {
+                    filterGraph.push({ filter: 'format', options: 'yuv420p', inputs: 'vlogo_raw', outputs: 'vf' });
+                    cmd.complexFilter(filterGraph)
+                        .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', `[${mainAudioLabel}]`, '-ar', '44100', '-ac', '2'])
+                        .save(outputPath)
+                        .on('end', () => resolve(true))
+                        .on('error', (err) => reject(err));
+                }
             });
             const ytSettings = await db.collection('settings').doc('youtube').get();
             const refreshToken = ytSettings.exists ? ytSettings.data()?.refreshToken : process.env.YOUTUBE_REFRESH_TOKEN;
@@ -537,19 +935,33 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
             });
             // Award points to ORIGINAL reporter for video publication
             if (isReporter && originalReporterId) {
-                // Re-fetch to get latest quality signals from AI phase
                 const freshDoc = await db.collection('news').doc(postId).get();
                 const freshData = freshDoc.data();
                 const points = calculateIncentivePoints(true, freshData?.qualitySignals);
                 await (0, reporter_handler_1.awardPointsToReporter)(originalReporterId, points);
                 await (0, reporter_handler_1.notifyReporter)(originalReporterId, postId, data.headline?.telugu || "", 'SUCCESS');
             }
-            [videoPath, audioPath, outputPath].forEach(p => { if (fs.existsSync(p))
-                fs.unlinkSync(p); });
         }
         catch (err) {
-            console.error(`[VIDEO_ERR] ${postId}:`, err.message);
-            await db.collection('news').doc(postId).update({ status: "FAILED", error: err.message });
+            console.error(`[VIDEO_ERR] ${postId}: ${err.message}. Locking post in FAILED_YOUTUBE_UPLOAD to prevent storage egress loop.`);
+            // Lock in FAILED_YOUTUBE_UPLOAD so it never retries automatically or streams raw video from Firebase Storage to users
+            await db.collection('news').doc(postId).update({
+                status: "FAILED_YOUTUBE_UPLOAD",
+                approved: false,
+                videoProcessed: false,
+                processingError: err.message,
+                failedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        finally {
+            [videoPath, audioPath, outputPath].forEach(p => {
+                if (p && fs.existsSync(p)) {
+                    try {
+                        fs.unlinkSync(p);
+                    }
+                    catch (e) { }
+                }
+            });
         }
     }
 });

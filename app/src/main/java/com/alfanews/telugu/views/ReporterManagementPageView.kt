@@ -163,8 +163,9 @@ fun ReporterManagementPageView(
     }
 
     var hideDuplicates by remember { mutableStateOf(true) }
+    var appSearchQuery by remember { mutableStateOf("") }
 
-    val filteredApplications = remember(applications, appFilterState, hideDuplicates) {
+    val filteredApplications = remember(applications, appFilterState, hideDuplicates, appSearchQuery) {
         val baseList = when (appFilterState) {
             "PENDING" -> applications.filter { doc ->
                 val status = doc["status"]?.toString()?.uppercase() ?: ""
@@ -181,10 +182,29 @@ fun ReporterManagementPageView(
             else -> applications // "ALL"
         }
 
-        if (hideDuplicates) {
+        val deduplicated = if (hideDuplicates) {
             deduplicateApplicationsList(baseList)
         } else {
             baseList
+        }
+
+        if (appSearchQuery.isBlank()) {
+            deduplicated
+        } else {
+            val q = appSearchQuery.trim()
+            deduplicated.filter { doc ->
+                val name = (doc["name"] as? String) ?: ""
+                val phone = (doc["phone"] as? String) ?: ""
+                val district = (doc["district"] as? String) ?: (doc["state_district"] as? String) ?: ""
+                val mandal = (doc["mandal"] as? String) ?: ""
+                val org = (doc["organization"] as? String) ?: ""
+                
+                name.contains(q, ignoreCase = true) ||
+                phone.contains(q, ignoreCase = true) ||
+                district.contains(q, ignoreCase = true) ||
+                mandal.contains(q, ignoreCase = true) ||
+                org.contains(q, ignoreCase = true)
+            }
         }
     }
 
@@ -218,6 +238,32 @@ fun ReporterManagementPageView(
         }
 
         if (selectedTab == 0) {
+            OutlinedTextField(
+                value = appSearchQuery,
+                onValueChange = { appSearchQuery = it },
+                placeholder = { Text("పేరు, ఫోన్, జిల్లా, మండలం వెతుకు...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) },
+                trailingIcon = {
+                    if (appSearchQuery.isNotEmpty()) {
+                        IconButton(onClick = { appSearchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                        }
+                    }
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    cursorColor = MaterialTheme.colorScheme.primary
+                ),
+                shape = RoundedCornerShape(24.dp)
+            )
+
             val displayList = remember(applications, hideDuplicates) {
                 if (hideDuplicates) deduplicateApplicationsList(applications) else applications
             }
@@ -342,10 +388,17 @@ fun ReporterManagementPageView(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { reportersViewModel.setSearchQuery(it) },
-                    placeholder = { Text("పేరు లేదా ఫోన్ నంబర్", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    placeholder = { Text("పేరు, ఫోన్, జిల్లా, మండలం వెతుకు...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { reportersViewModel.setSearchQuery("") }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = MaterialTheme.colorScheme.onSurface,
                         unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -790,16 +843,39 @@ fun ReporterListCard(
                 IconButton(onClick = {
                     scope.launch {
                         try {
-                            val newRole = if (reporter.role == UserRole.REPORTER) UserRole.SUBSCRIBER else UserRole.REPORTER
+                            val isSuspending = reporter.role == UserRole.REPORTER
+                            val newRole = if (isSuspending) UserRole.SUBSCRIBER else UserRole.REPORTER
                             val updates = mutableMapOf<String, Any>("role" to newRole.toString())
                             if (newRole == UserRole.REPORTER) {
                                 updates["warningLevel"] = 0
                                 updates["inProbation"] = false
                                 updates["promotedAt"] = com.google.firebase.Timestamp.now()
                                 updates["lastPostTimestamp"] = com.google.firebase.Timestamp.now()
+                            } else {
+                                // Suspend చేసినప్పుడు assignedMandal clear చేయాలి
+                                // — mandal free అవుతుంది, వేరే reporter apply చేయగలరు
+                                updates["assignedMandal"] = ""
                             }
                             FirebaseService.db.collection("users").document(reporter.id).update(updates).await()
-                            Toast.makeText(context, if (newRole == UserRole.SUBSCRIBER) "Suspended" else "Restored", Toast.LENGTH_SHORT).show()
+
+                            // reporter_applications లో కూడా status update చేయాలి
+                            // Suspend → SUSPENDED (mandal free అవుతుంది)
+                            // Restore → JOINED (mandal block అవుతుంది)
+                            val district = reporter.district?.trim() ?: ""
+                            val mandal = reporter.assignedMandal?.trim() ?: ""
+                            if (district.isNotEmpty() && mandal.isNotEmpty()) {
+                                val appSnap = FirebaseService.db.collection("reporter_applications")
+                                    .whereEqualTo("userId", reporter.id)
+                                    .whereIn("status", listOf("JOINED", "SUSPENDED"))
+                                    .get()
+                                    .await()
+                                val newAppStatus = if (isSuspending) "SUSPENDED" else "JOINED"
+                                for (doc in appSnap.documents) {
+                                    doc.reference.update("status", newAppStatus).await()
+                                }
+                            }
+
+                            Toast.makeText(context, if (isSuspending) "Suspended" else "Restored", Toast.LENGTH_SHORT).show()
                             onRefresh()
                         } catch (e: Exception) {
                             Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
