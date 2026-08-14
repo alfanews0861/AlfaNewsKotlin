@@ -83,8 +83,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _activeWeatherAlert = MutableStateFlow<WeatherAlert?>(null)
     val activeWeatherAlert: StateFlow<WeatherAlert?> = _activeWeatherAlert.asStateFlow()
 
+    private val _unreadMessagesCount = MutableStateFlow(0)
+    val unreadMessagesCount: StateFlow<Int> = _unreadMessagesCount.asStateFlow()
+
     private var weatherAlertListener: ListenerRegistration? = null
+    private var messagesUnreadListener: ListenerRegistration? = null
     private var cachedWeatherAlertsData: Map<String, Any>? = null
+
 
     init {
         viewModelScope.launch {
@@ -195,6 +200,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             prefs.userDistrict = snapshot.getString("district") ?: userObj.district
 
                             AnalyticsService.onUserLogin(userObj)
+                            startUnreadMessagesListener(userObj)
                             
                             if (prefs.isNotificationsEnabled) {
                                 val oldInterests = oldUser?.categoryScores?.keys ?: emptySet()
@@ -205,14 +211,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 if (oldInterests != newInterests || oldDistrict != newDistrict) {
                                     updateInterestSubscriptions(oldInterests, newInterests, newDistrict)
                                 }
+                                // ✅ NEW: cat_* topics కి auto-subscribe (backend scheduler వాడే topics)
+                                if (oldInterests != newInterests) {
+                                    updateCategoryTopicSubscriptions(oldInterests, newInterests)
+                                }
                             }
+                        } else {
+                            startUnreadMessagesListener(null)
                         }
                     } else {
                         _currentUser.value = null
+                        startUnreadMessagesListener(null)
                     }
                 }
         }
         authStateListener?.let { FirebaseService.auth.addAuthStateListener(it) }
+
 
         if (!prefs.hasRated && prefs.ratingDialogShownCount < 5) {
             prefs.appOpenCount += 1
@@ -370,14 +384,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
 
+    private fun startUnreadMessagesListener(user: User?) {
+        messagesUnreadListener?.remove()
+        if (user == null) {
+            _unreadMessagesCount.value = 0
+            return
+        }
+
+        val isAdmin = listOf(UserRole.ADMIN, UserRole.EDITOR, UserRole.NEWS_DESK).contains(user.role)
+        val isReporter = user.role == UserRole.REPORTER
+
+        if (isAdmin) {
+            messagesUnreadListener = FirebaseService.db.collection("reporter_conversations")
+                .whereGreaterThan("unreadCountForAdmin", 0)
+                .addSnapshotListener { snapshot, e ->
+                    if (e != null || snapshot == null) return@addSnapshotListener
+                    val count = snapshot.documents.sumOf { (it.getLong("unreadCountForAdmin") ?: 0L).toInt() }
+                    _unreadMessagesCount.value = count
+                }
+        } else if (isReporter) {
+            messagesUnreadListener = FirebaseService.db.collection("reporter_conversations")
+                .document(user.id)
+                .addSnapshotListener { snapshot, e ->
+                    if (e != null || snapshot == null || !snapshot.exists()) {
+                        _unreadMessagesCount.value = 0
+                        return@addSnapshotListener
+                    }
+                    val count = (snapshot.getLong("unreadCountForReporter") ?: 0L).toInt()
+                    _unreadMessagesCount.value = count
+                }
+        } else {
+            messagesUnreadListener = FirebaseService.db.collection("users")
+                .document(user.id)
+                .collection("messages")
+                .whereEqualTo("read", false)
+                .addSnapshotListener { snapshot, e ->
+                    if (e != null || snapshot == null) return@addSnapshotListener
+                    _unreadMessagesCount.value = snapshot.size()
+                }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         userListener?.remove()
         newsListener?.remove()
         weatherAlertListener?.remove()
+        messagesUnreadListener?.remove()
         appConfigListener?.remove()
         authStateListener?.let { FirebaseService.auth.removeAuthStateListener(it) }
     }
+
 
     fun setActiveTab(tab: String) {
         _activeTab.value = tab
@@ -532,6 +589,63 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     messaging.subscribeToTopic(topic).await()
                 }
             } catch (e: Exception) { }
+        }
+    }
+
+    /**
+     * ✅ NEW: User Firestore categoryScores బట్టి cat_* FCM topics కి auto-subscribe చేస్తుంది.
+     * Backend scheduler (notification_engine.ts) మరియు breaking news ఇవే topics వాడతాయి.
+     * 
+     * Example: user రాజకీయం articles చదివితే → cat_politics subscribe అవుతుంది
+     * → Backend రాజకీయం breaking news పంపినప్పుడు ఆ user కి వస్తుంది.
+     *
+     * Score > 0 అయిన top 5 categories కి subscribe చేస్తాం.
+     * Score ≤ 0 అయిన categories unsubscribe అవుతాయి.
+     */
+    private fun updateCategoryTopicSubscriptions(oldCategories: Set<String>, newCategories: Set<String>) {
+        val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
+        val categoryTopicMap = mapOf(
+            "రాజకీయం"    to "cat_politics",
+            "వినోదం"     to "cat_cinema",
+            "క్రైమ్"     to "cat_crime",
+            "క్రీడలు"    to "cat_sports",
+            "వ్యాపారం"   to "cat_business",
+            "టెక్నాలజీ" to "cat_technology",
+            "ఆరోగ్యం"   to "cat_health",
+            "విద్య"      to "cat_education",
+            "భక్తి"      to "cat_spiritual",
+            "వ్యవసాయం"  to "cat_agriculture",
+            "జాతీయం"    to "cat_national",
+            "ప్రపంచం"   to "cat_international",
+            "జీవనశైలి"  to "cat_lifestyle"
+        )
+
+        viewModelScope.launch {
+            try {
+                // Remove చేయబడిన categories → unsubscribe
+                (oldCategories - newCategories).forEach { category ->
+                    val topic = categoryTopicMap[category] ?: return@forEach
+                    messaging.unsubscribeFromTopic(topic).await()
+                    android.util.Log.d("MainViewModel", "Cat unsubscribed: $topic")
+                }
+                // కొత్తగా వచ్చిన categories → subscribe (top 5 మాత్రమే)
+                val user = _currentUser.value
+                val topCategories = user?.categoryScores
+                    ?.filter { it.value > 0 }
+                    ?.entries
+                    ?.sortedByDescending { it.value }
+                    ?.take(5)
+                    ?.map { it.key }
+                    ?.toSet() ?: newCategories.take(5).toSet()
+
+                topCategories.forEach { category ->
+                    val topic = categoryTopicMap[category] ?: return@forEach
+                    messaging.subscribeToTopic(topic).await()
+                    android.util.Log.d("MainViewModel", "Cat subscribed: $topic")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "updateCategoryTopicSubscriptions failed", e)
+            }
         }
     }
 

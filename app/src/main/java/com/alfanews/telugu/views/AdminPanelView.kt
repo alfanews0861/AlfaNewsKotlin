@@ -52,17 +52,20 @@ fun AdminPanelView(
     initialPage: String = "profile",
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     onThemeModeChange: (ThemeMode) -> Unit = {},
+    unreadMessagesCount: Int = 0,
     isModal: Boolean = false,
     onNavigate: (String) -> Unit = {},
     onPostPublished: (String) -> Unit = {},
     onMenuClick: (() -> Unit)? = null,
     onPageChange: (String) -> Unit = {}
 ) {
+
     var activePage by remember(initialPage) { mutableStateOf(initialPage) }
     val scope = rememberCoroutineScope()
     var editingPost by remember { mutableStateOf<NewsPost?>(null) }
     var editingSurvey by remember { mutableStateOf<NewsPost?>(null) }
     var savingProfile by remember { mutableStateOf(false) }
+    var chatTargetReporterId by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
     val allPages = listOf(
@@ -165,6 +168,7 @@ fun AdminPanelView(
                         setLanguage = setLanguage,
                         themeMode = themeMode,
                         onThemeModeChange = onThemeModeChange,
+                        unreadMessagesCount = unreadMessagesCount,
                         onNavigate = { page ->
                             if(listOf("edit-profile", "id-card", "messages").contains(page)) {
                                 activePage = page
@@ -175,6 +179,7 @@ fun AdminPanelView(
                         onLoginRequest = onLoginRequest,
                         onMenuClick = onMenuClick
                     )
+
                     "edit-profile" -> EditProfilePageView(
                         user = user,
                         onClose = { activePage = "profile" },
@@ -201,11 +206,29 @@ fun AdminPanelView(
                             onPageChange("survey")
                         }
                     )
-                    "messages" -> MessagesPageView(
-                        user = user,
-                        onBack = { activePage = "profile" },
-                        showTitle = false
-                    )
+                    "messages" -> {
+                        if (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.NEWS_DESK) {
+                            AdminReporterMessagingView(
+                                currentUser = user,
+                                initialReporterId = chatTargetReporterId,
+                                onBack = { 
+                                    chatTargetReporterId = null
+                                    activePage = "profile" 
+                                }
+                            )
+                        } else if (user.role == UserRole.REPORTER) {
+                            ReporterDeskChatView(
+                                user = user,
+                                onBack = { activePage = "profile" }
+                            )
+                        } else {
+                            MessagesPageView(
+                                user = user,
+                                onBack = { activePage = "profile" },
+                                showTitle = false
+                            )
+                        }
+                    }
                     "post" -> PostNewsPageView(
                         user = user,
                         postToEdit = editingPost,
@@ -237,7 +260,14 @@ fun AdminPanelView(
                         currentUser = user,
                         showTitle = false
                     )
-                    "manageReporters" -> ReporterManagementPageView(currentUser = user)
+                    "manageReporters" -> ReporterManagementPageView(
+                        currentUser = user,
+                        onOpenChat = { repId ->
+                            chatTargetReporterId = repId
+                            activePage = "messages"
+                            onPageChange("messages")
+                        }
+                    )
                     "ads" -> AdsManagerPageView(currentUser = user, showTitle = false)
                     "manageUsers" -> UserManagementPageView(currentUser = user)
                     "adminNotify" -> AdminNotificationsPageView(showTitle = false)
@@ -248,3 +278,4 @@ fun AdminPanelView(
         }
     }
 }
+

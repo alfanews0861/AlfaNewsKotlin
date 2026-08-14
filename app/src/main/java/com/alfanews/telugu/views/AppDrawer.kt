@@ -25,6 +25,7 @@ import com.alfanews.telugu.ui.theme.Ramabhadra
 fun AppDrawerContent(
     user: User?,
     activePage: String,
+    unreadMessagesCount: Int = 0,
     onPageSelected: (String) -> Unit,
     onLogout: () -> Unit
 ) {
@@ -139,6 +140,22 @@ fun AppDrawerContent(
                     }
                     Icon(icon, contentDescription = null)
                 },
+                badge = {
+                    if (page.id == "messages" && unreadMessagesCount > 0) {
+                        Surface(
+                            shape = androidx.compose.foundation.shape.CircleShape,
+                            color = androidx.compose.ui.graphics.Color(0xFFE53935)
+                        ) {
+                            Text(
+                                text = if (unreadMessagesCount > 99) "99+" else "$unreadMessagesCount",
+                                color = androidx.compose.ui.graphics.Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                },
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
                 shape = RoundedCornerShape(12.dp),
                 colors = NavigationDrawerItemDefaults.colors(
@@ -150,6 +167,7 @@ fun AppDrawerContent(
                 )
             )
         }
+
 
         Spacer(modifier = Modifier.weight(1f))
 

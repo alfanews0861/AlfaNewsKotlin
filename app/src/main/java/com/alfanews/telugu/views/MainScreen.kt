@@ -110,6 +110,7 @@ fun MainScreen(
     val isUpdateDownloaded by mainViewModel.isUpdateDownloaded.collectAsStateWithLifecycle()
     
     val notificationsGranted by mainViewModel.notificationsGranted.collectAsStateWithLifecycle()
+    val unreadMessagesCount by mainViewModel.unreadMessagesCount.collectAsStateWithLifecycle()
     var showNotifBannerSession by remember { mutableStateOf(true) }
 
     LaunchedEffect(isUpdateDownloaded) {
@@ -139,7 +140,9 @@ fun MainScreen(
             AppDrawerContent(
                 user = currentUser,
                 activePage = activeTab,
+                unreadMessagesCount = unreadMessagesCount,
                 onPageSelected = { page ->
+
                     scope.launch { drawerState.close() }
                     
                     // Reset overlay states to ensure navigation works from any sub-page
@@ -613,12 +616,25 @@ fun MainScreen(
                                 onMenuClick = { scope.launch { drawerState.open() } }
                             )
                             "messages" -> if (user != null) {
-                                MessagesPageView(
-                                    user = user,
-                                    onBack = { mainViewModel.setActiveTab("profile") },
-                                    onMenuClick = { scope.launch { drawerState.open() } }
-                                )
+                                if (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.NEWS_DESK) {
+                                    AdminReporterMessagingView(
+                                        currentUser = user,
+                                        onBack = { mainViewModel.setActiveTab("profile") }
+                                    )
+                                } else if (user.role == UserRole.REPORTER) {
+                                    ReporterDeskChatView(
+                                        user = user,
+                                        onBack = { mainViewModel.setActiveTab("profile") }
+                                    )
+                                } else {
+                                    MessagesPageView(
+                                        user = user,
+                                        onBack = { mainViewModel.setActiveTab("profile") },
+                                        onMenuClick = { scope.launch { drawerState.open() } }
+                                    )
+                                }
                             }
+
                             else -> NewsFeedView(
                                 language = language, 
                                 currentUser = user, 
@@ -699,6 +715,7 @@ fun ProfileContainer(
     var showLogin by remember { mutableStateOf(false) }
     val themeMode by viewModel.themeMode.collectAsState()
     val adminActivePage by viewModel.adminActivePage.collectAsState()
+    val unreadMessagesCount by viewModel.unreadMessagesCount.collectAsState()
     val user = currentUser
 
     val isStaff = user != null && (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.REGIONAL_INCHARGE || user.role == UserRole.REPORTER || user.role == UserRole.NEWS_DESK)
@@ -711,6 +728,7 @@ fun ProfileContainer(
             setLanguage = { newLanguage -> viewModel.setLanguage(newLanguage) },
             themeMode = themeMode,
             onThemeModeChange = { viewModel.setThemeMode(it) },
+            unreadMessagesCount = unreadMessagesCount,
             onLogout = { viewModel.signOut() },
             onLoginRequest = { showLogin = true },
             isModal = false,
@@ -727,12 +745,14 @@ fun ProfileContainer(
             setLanguage = { newLanguage -> viewModel.setLanguage(newLanguage) },
             themeMode = themeMode,
             onThemeModeChange = { viewModel.setThemeMode(it) },
+            unreadMessagesCount = unreadMessagesCount,
             onNavigate = onNavigate,
             onLoginRequest = { showLogin = true },
             onToggleNotifications = { viewModel.toggleNotifications(it) },
             onMenuClick = onMenuClick
         )
     }
+
 
     if (showLogin) {
         LoginScreenView(

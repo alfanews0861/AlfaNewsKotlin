@@ -58,11 +58,13 @@ fun UserProfilePageView(
     setLanguage: (Language) -> Unit,
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     onThemeModeChange: (ThemeMode) -> Unit = {},
+    unreadMessagesCount: Int = 0,
     onNavigate: (String) -> Unit = {},
     onLoginRequest: (() -> Unit)? = null,
     onToggleNotifications: (Boolean) -> Unit = {},
     onMenuClick: (() -> Unit)? = null
 ) {
+
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -463,11 +465,27 @@ fun UserProfilePageView(
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.Bold
                             )
+                            if (unreadMessagesCount > 0) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Surface(
+                                    shape = androidx.compose.foundation.shape.CircleShape,
+                                    color = androidx.compose.ui.graphics.Color(0xFFE53935)
+                                ) {
+                                    Text(
+                                        text = if (unreadMessagesCount > 99) "99+" else "$unreadMessagesCount",
+                                        color = androidx.compose.ui.graphics.Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
                         }
                         Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
                     }
                 }
             }
+
             
             // భాష ఎంపిక (Language Selector)
             SettingsGroup(

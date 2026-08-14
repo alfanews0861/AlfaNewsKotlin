@@ -59,6 +59,13 @@ export * from './notification_engine';
 // 5. Export Reporter Monitoring
 export * from './reporter_monitor';
 
+// 6. Export Reporter Messaging
+export {
+    sendAdminReporterMessage,
+    broadcastToAllReporters
+} from './reporter_messaging';
+
+
 /**
  * Push Broadcast Function (Manual Push)
  */

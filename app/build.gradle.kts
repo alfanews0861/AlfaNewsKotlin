@@ -17,8 +17,8 @@ android {
         applicationId = "com.alfanews.telugu"
         minSdk = 24
         targetSdk = 36
-        versionCode = 595
-        versionName = "Sree_5.4.2"
+        versionCode = 596
+        versionName = "Sree_5.4.3"
         multiDexEnabled = true
 
         val properties = Properties()
@@ -33,6 +33,18 @@ android {
         resourceConfigurations += listOf("te", "en")
         vectorDrawables {
             useSupportLibrary = true
+        }
+    }
+
+    bundle {
+        language {
+            enableSplit = true
+        }
+        density {
+            enableSplit = true
+        }
+        abi {
+            enableSplit = true
         }
     }
 
@@ -53,12 +65,21 @@ android {
             if (localPropertiesFile.exists()) {
                 properties.load(FileInputStream(localPropertiesFile))
             }
+            val keystorePropertiesFile = project.rootProject.file("keystore.properties")
+            if (keystorePropertiesFile.exists()) {
+                properties.load(FileInputStream(keystorePropertiesFile))
+            }
 
             val storeFilePath = properties.getProperty("ALFANEWS_KEYSTORE_FILE") ?: System.getenv("RELEASE_STORE_FILE")
             storeFile = storeFilePath?.let { file(it) }
             storePassword = properties.getProperty("ALFANEWS_KEYSTORE_PASSWORD") ?: System.getenv("RELEASE_STORE_PASSWORD")
             keyAlias = properties.getProperty("ALFANEWS_KEY_ALIAS") ?: System.getenv("RELEASE_KEY_ALIAS")
             keyPassword = properties.getProperty("ALFANEWS_KEY_PASSWORD") ?: System.getenv("RELEASE_KEY_PASSWORD")
+            
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+            enableV4Signing = true
         }
     }
 
@@ -72,6 +93,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            ndk {
+                debugSymbolLevel = "SYMBOL_TABLE"
+            }
         }
         debug {
             isDebuggable = true
@@ -79,16 +103,27 @@ android {
     }
 
     packaging {
-    jniLibs {
-        useLegacyPackaging = true // ఇది ఇప్పటికే ఉంది
+        jniLibs {
+            useLegacyPackaging = true
+        }
+        dex {
+            useLegacyPackaging = true
+        }
+        resources {
+            excludes += setOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "/META-INF/DEPENDENCIES",
+                "/META-INF/LICENSE",
+                "/META-INF/LICENSE.txt",
+                "/META-INF/license.txt",
+                "/META-INF/NOTICE",
+                "/META-INF/NOTICE.txt",
+                "/META-INF/notice.txt",
+                "/META-INF/ASL2.0",
+                "/META-INF/*.kotlin_module"
+            )
+        }
     }
-    dex {
-        useLegacyPackaging = true // దీన్ని కూడా యాడ్ చేయండి
-    }
-    resources {
-        excludes += "/META-INF/{AL2.0,LGPL2.1}"
-    }
-}
     
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

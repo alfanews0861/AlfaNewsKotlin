@@ -261,8 +261,9 @@ fun NewsCardView(
                                     autoPlay = isActive && pagerState.currentPage == page
                                 )
                             } else {
+                                val imageUrl = if (page == 0 && post.thumbnailUrl != null) post.thumbnailUrl else url
                                 AsyncImage(
-                                    model = ImageRequest.Builder(context).data(url).crossfade(true).allowHardware(true).build(),
+                                    model = ImageRequest.Builder(context).data(imageUrl).crossfade(true).allowHardware(true).build(),
                                     fallback = painterResource(id = R.drawable.fallback_news_image),
                                     error = painterResource(id = R.drawable.fallback_news_image),
                                     contentDescription = headlineText,
@@ -361,8 +362,9 @@ fun NewsCardView(
                                 if (type == MediaType.VIDEO) {
                                     VideoPlayerView(videoUrl = url, autoPlay = isActive && pagerState.currentPage == page)
                                 } else {
+                                    val imageUrl = if (page == 0 && post.thumbnailUrl != null) post.thumbnailUrl else url
                                     AsyncImage(
-                                        model = ImageRequest.Builder(context).data(url).crossfade(true).allowHardware(true).build(),
+                                        model = ImageRequest.Builder(context).data(imageUrl).crossfade(true).allowHardware(true).build(),
                                         fallback = painterResource(id = R.drawable.fallback_news_image),
                                         error = painterResource(id = R.drawable.fallback_news_image),
                                         contentDescription = headlineText,

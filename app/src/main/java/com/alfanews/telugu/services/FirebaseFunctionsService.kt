@@ -136,4 +136,27 @@ object FirebaseFunctionsService {
     suspend fun triggerReporterActivityCheck(): Result<Map<String, Any>> {
         return callFunction("triggerReporterActivityCheck")
     }
+
+    suspend fun sendAdminReporterMessage(
+        reporterId: String,
+        text: String,
+        type: String = "CHAT"
+    ): Result<Map<String, Any>> {
+        return callFunction("sendAdminReporterMessage", mapOf(
+            "reporterId" to reporterId,
+            "text" to text,
+            "type" to type
+        ))
+    }
+
+    suspend fun broadcastToAllReporters(
+        title: String,
+        body: String
+    ): Result<Map<String, Any>> {
+        return callFunction("broadcastToAllReporters", mapOf(
+            "title" to title,
+            "body" to body
+        ))
+    }
 }
+

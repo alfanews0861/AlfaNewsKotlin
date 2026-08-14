@@ -115,21 +115,56 @@ fun WeatherCardView(
     val isDay = weatherData?.isDay ?: true
     val realWeatherCode = weatherData?.code
 
+    // 🚀 Dynamic 100% synchronized Headline & Content
+    val liveHeadline = remember(weatherData, headline, language, effectiveLocation) {
+        val d = weatherData
+        if (d != null) {
+            val desc = WeatherService.getWeatherDescription(d.code, language)
+            if (language == Language.TELUGU) {
+                "${d.temp.toInt()}°C $effectiveLocation వాతావరణం: $desc"
+            } else {
+                "${d.temp.toInt()}°C $effectiveLocation Weather: $desc"
+            }
+        } else {
+            headline
+        }
+    }
+
+    val liveContent = remember(weatherData, content, language, effectiveLocation) {
+        val d = weatherData
+        if (d != null) {
+            WeatherService.getConversationalDescription(
+                code = d.code,
+                temp = d.temp,
+                location = effectiveLocation,
+                isDay = d.isDay,
+                humidity = d.humidity,
+                windSpeed = d.wind,
+                language = language
+            )
+        } else {
+            content
+        }
+    }
+
     // Weather type
     val weatherType = remember(realWeatherCode, headline, isDay) {
         val type = when {
             realWeatherCode != null -> when (realWeatherCode) {
                 0 -> WeatherType.SUNNY
-                1, 2, 3 -> WeatherType.PARTLY_CLOUDY
+                1, 2 -> WeatherType.PARTLY_CLOUDY
+                3 -> WeatherType.OVERCAST
                 45, 48 -> WeatherType.FOGGY
-                51, 53, 55 -> WeatherType.DRIZZLE
-                61, 63, 65, 80, 81, 82 -> WeatherType.RAINY
+                51, 53, 55, 56, 57 -> WeatherType.DRIZZLE
+                61, 63, 65, 66, 67, 80, 81, 82 -> WeatherType.RAINY
                 95, 96, 99 -> WeatherType.THUNDERSTORM
                 else -> WeatherType.PARTLY_CLOUDY
             }
             headline.contains("ఎండ", ignoreCase = true) ||
             headline.contains("Sunny", ignoreCase = true) ||
             headline.contains("Clear", ignoreCase = true) -> WeatherType.SUNNY
+            headline.contains("చినుకులు", ignoreCase = true) ||
+            headline.contains("Drizzle", ignoreCase = true) -> WeatherType.DRIZZLE
             headline.contains("వర్షం", ignoreCase = true) ||
             headline.contains("Rain", ignoreCase = true) -> WeatherType.RAINY
             headline.contains("పిడుగు", ignoreCase = true) ||
@@ -139,7 +174,7 @@ fun WeatherCardView(
             else -> WeatherType.PARTLY_CLOUDY
         }
         if (!isDay && type == WeatherType.SUNNY) WeatherType.CLEAR_NIGHT
-        else if (!isDay && type == WeatherType.PARTLY_CLOUDY) WeatherType.CLOUDY_NIGHT
+        else if (!isDay && (type == WeatherType.PARTLY_CLOUDY || type == WeatherType.OVERCAST)) WeatherType.CLOUDY_NIGHT
         else type
     }
 
@@ -162,7 +197,7 @@ fun WeatherCardView(
         }
         else -> "--"
     }
-    val weatherTime = weatherData?.time?.let { WeatherService.formatTime(it) } ?: ""
+    val weatherTime = weatherData?.time?.let { WeatherService.formatTime(it, language) } ?: ""
 
     // Animations
     val infiniteTransition = rememberInfiniteTransition(label = "weather_anim")
@@ -507,7 +542,7 @@ fun WeatherCardView(
             ) {
                 // Headline
                 Text(
-                    text = headline,
+                    text = liveHeadline,
                     fontSize = 21.sp,
                     fontFamily = Ramabhadra,
                     fontWeight = FontWeight.ExtraBold,
@@ -520,7 +555,7 @@ fun WeatherCardView(
 
                 // Content text
                 Text(
-                    text = content,
+                    text = liveContent,
                     fontSize = 17.sp,
                     fontFamily = Mallanna,
                     style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
@@ -701,10 +736,11 @@ fun PremiumForecastItem(
 fun getWeatherIconForCode(code: Int): ImageVector {
     return when (code) {
         0 -> Icons.Rounded.WbSunny
-        1, 2, 3 -> Icons.Rounded.WbCloudy
+        1, 2 -> Icons.Rounded.WbCloudy
+        3 -> Icons.Rounded.Cloud
         45, 48 -> Icons.Rounded.Cloud
-        51, 53, 55 -> Icons.Rounded.Grain
-        61, 63, 65, 80, 81, 82 -> Icons.Rounded.Umbrella
+        51, 53, 55, 56, 57 -> Icons.Rounded.Grain
+        61, 63, 65, 66, 67, 80, 81, 82 -> Icons.Rounded.Umbrella
         95, 96, 99 -> Icons.Rounded.Thunderstorm
         else -> Icons.Rounded.WbCloudy
     }
@@ -729,6 +765,11 @@ data class WeatherType(
             Icons.Rounded.WbCloudy,
             Color(0xFF26C6DA), Color(0xFF00838F),
             "అక్కడక్కడ మేఘాలు", "Partly Cloudy"
+        )
+        val OVERCAST = WeatherType(
+            Icons.Rounded.Cloud,
+            Color(0xFF546E7A), Color(0xFF263238),
+            "పూర్తిగా మేఘావృతం", "Overcast"
         )
         val RAINY = WeatherType(
             Icons.Rounded.Umbrella,

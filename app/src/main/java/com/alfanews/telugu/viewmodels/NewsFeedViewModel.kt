@@ -77,43 +77,72 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         _shouldScrollToTop.value = false
     }
 
-    private fun loadLocalAds(district: String) {
+    private fun loadLocalAds(district: String?) {
         viewModelScope.launch {
             try {
                 val now = System.currentTimeMillis()
                 val gson = Gson()
                 
                 // 1. Check Cache
-                val cachedJson = prefs.getLocalAdsCache(district)
-                val cacheTime = prefs.getLocalAdsTimestamp(district)
+                val cacheKey = district ?: "ALL"
+                val cachedJson = prefs.getLocalAdsCache(cacheKey)
+                val cacheTime = prefs.getLocalAdsTimestamp(cacheKey)
                 val isCacheValid = (now - cacheTime) < (30L * 60L * 1000L) // 30 minutes
                 
-                val allAds = if (isCacheValid && cachedJson != null) {
-                    Log.d("NewsFeedVM", "Loading local ads from cache for $district")
-                    val type = object : TypeToken<List<com.alfanews.telugu.models.LocalAd>>() {}.type
-                    gson.fromJson<List<com.alfanews.telugu.models.LocalAd>>(cachedJson, type)
+                // ✅ Cache valid + non-empty అయితే మాత్రమే use చేయి
+                // Empty list cache చేసినా Firestore నుండి refetch చేస్తాం
+                val cachedList: List<com.alfanews.telugu.models.LocalAd>? = if (isCacheValid && cachedJson != null && cachedJson != "[]") {
+                    try {
+                        val type = object : TypeToken<List<com.alfanews.telugu.models.LocalAd>>() {}.type
+                        val parsed = gson.fromJson<List<com.alfanews.telugu.models.LocalAd>>(cachedJson, type)
+                        if (parsed.isNullOrEmpty()) null else parsed // empty cache = refetch
+                    } catch (e: Exception) { null }
+                } else null
+                
+                val allAds = if (cachedList != null) {
+                    Log.d("NewsFeedVM", "Loading local ads from cache for $cacheKey (${cachedList.size} ads)")
+                    cachedList
                 } else {
-                    Log.d("NewsFeedVM", "Fetching local ads from Firestore for $district")
+                    Log.d("NewsFeedVM", "Fetching local ads from Firestore for $cacheKey")
                     val snapshot = FirebaseService.db.collection("local_ads")
                         .whereEqualTo("status", com.alfanews.telugu.models.AdStatus.ACTIVE.name)
                         .get().await()
                     
                     val ads = snapshot.documents.mapNotNull { com.alfanews.telugu.models.LocalAd.fromSnapshot(it) }
+                    Log.d("NewsFeedVM", "Firestore returned ${ads.size} active ads")
                     
-                    // Save to cache
-                    prefs.saveLocalAdsCache(district, gson.toJson(ads))
+                    // Empty అయినా cache చేయి కానీ timestamp set చేయొద్దు — తద్వారా తర్వాత retry చేస్తుంది
+                    if (ads.isNotEmpty()) {
+                        prefs.saveLocalAdsCache(cacheKey, gson.toJson(ads))
+                    }
                     ads
                 }
                 
                 val validAds = allAds.filter { ad ->
-                    val isForDistrict = ad.targetDistrict == "ALL" || ad.targetDistrict == district
+                    // district null అయితే (user location unknown) - targetDistrict == "ALL" ads మాత్రమే చూపించు
+                    val isForDistrict = if (district == null) {
+                        ad.targetDistrict == "ALL"
+                    } else {
+                        ad.targetDistrict == "ALL" || ad.targetDistrict == district
+                    }
+                    // targetState filter: "ALL" అయితే అందరికీ, లేదా user state కి match అయితే
+                    val userState = if (district != null) {
+                        val tsDistricts = com.alfanews.telugu.utils.Constants.TS_DISTRICTS
+                        val apDistricts = com.alfanews.telugu.utils.Constants.AP_DISTRICTS
+                        when {
+                            tsDistricts.contains(district) -> "TS"
+                            apDistricts.contains(district) -> "AP"
+                            else -> null
+                        }
+                    } else null
+                    val isForState = ad.targetState == "ALL" || userState == null || ad.targetState == userState
                     val isWithinDate = if (ad.adType == com.alfanews.telugu.models.AdType.TIME_BASED_FIXED) {
                         (ad.startDate ?: 0) <= now && (ad.endDate ?: Long.MAX_VALUE) >= now
                     } else true
                     val isNotFinished = if (ad.adType == com.alfanews.telugu.models.AdType.VIEWS_BASED) {
                         ad.viewsCurrent < ad.viewsOrdered
                     } else true
-                    isForDistrict && isWithinDate && isNotFinished
+                    isForDistrict && isForState && isWithinDate && isNotFinished
                 }
 
                 // 2. Queue Logic (Seen vs Unseen)
@@ -148,6 +177,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private var mainCursor: DocumentSnapshot? = null
     private var localCursor: DocumentSnapshot? = null
     @Volatile private var isFetching = false
+    private var currentFetchJob: kotlinx.coroutines.Job? = null
     private var lastRefreshTimeLong: Long = 0
     private var consecutiveEmptyLoads = 0
 
@@ -176,12 +206,15 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
       fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null) {
           currentLanguage = language
           if (isFetching && initialPostId == null) return
+          
+          currentFetchJob?.cancel()
+
           if (_news.value.isEmpty()) {
               _loading.value = true 
           }
           isFetching = true
 
-           viewModelScope.launch {
+           currentFetchJob = viewModelScope.launch {
               try {
                   if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
                       if (_news.value.isEmpty()) {
@@ -193,20 +226,18 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                   }
                   _isOnline.value = true
 
-                   if (initialPostId == null) {
-                       prefCursor = null
-                       mainCursor = null
-                       localCursor = null
-                       _hasMore.value = true
-                       consecutiveEmptyLoads = 0
-                   }
+                   // Always reset cursors on loadNews to avoid appending initialPostId to a subsequent page
+                   prefCursor = null
+                   mainCursor = null
+                   localCursor = null
+                   _hasMore.value = true
+                   consecutiveEmptyLoads = 0
 
                   val district = prefs.selectedDistrict ?: currentUser?.district ?: prefs.detectedDistrict
                   _userDistrict.value = district
                   
-                  if (district != null) {
-                      loadLocalAds(district)
-                  }
+                   // district null అయినా load చేయి — targetDistrict=="ALL" ads అందరికీ చూపించాలి
+                   loadLocalAds(district)
 
                    // 🚀 FAST PATH: Quick top 5 news to dismiss splash screen
                    val fastBatchJob = async {
@@ -649,11 +680,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
            if (isFirstPage) {
                val activeSurvey = fetchActiveSurvey()
-
-               fun insertSafely(list: MutableList<NewsPost>, post: NewsPost, targetIdx: Int) {
-                   val actualIdx = if (targetIdx >= list.size) list.size else targetIdx
-                   list.add(actualIdx, post)
-               }
                
                // Inject active survey at 3rd card (index 2)
                activeSurvey?.let { insertSafely(blendedNews, it, 2) }
@@ -681,6 +707,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            }
           blendedNews
       }
+
+    private fun insertSafely(list: MutableList<NewsPost>, post: NewsPost, targetIdx: Int) {
+        val actualIdx = if (targetIdx >= list.size) list.size else targetIdx
+        list.add(actualIdx, post)
+    }
 
     private suspend fun fetchGreetingPost(): NewsPost? = withContext(Dispatchers.IO) {
         try {
@@ -1020,7 +1051,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
          val location = if (district == prefs.detectedDistrict) (place ?: district ?: "హైదరాబాద్") else (district ?: "హైదరాబాద్")
          
          // ✅ FIX: Increased timeout to 8000ms so mobile networks have enough time to fetch real weather.
-         // Previous 1500ms was too short, causing timeout → weatherData=null → wrong temp from headline.
          val weatherData = try {
              kotlinx.coroutines.withTimeout(8000L) {
                  WeatherService.fetchWeather(location, lat, lon)
@@ -1028,20 +1058,37 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
          } catch (e: Exception) { null }
 
          var temperatureStr = ""; var weatherHeadlineTe = "వాతావరణ తాజా సమాచారం"; var weatherContentTe = "ప్రస్తుతం $location లో వాతావరణ వివరాలు అందుబాటులో లేవు. నెట్‌వర్క్ చెక్ చేసుకుని మళ్ళీ ప్రయత్నించండి."
+         var weatherContentEn = "Current weather update for $location."
          if (weatherData != null) {
              temperatureStr = "${weatherData.temp.toInt()}°C "
-             weatherHeadlineTe = WeatherService.getWeatherDescription(weatherData.code)
-             weatherContentTe = WeatherService.getConversationalDescription(weatherData.code, weatherData.temp, location)
+             weatherHeadlineTe = WeatherService.getWeatherDescription(weatherData.code, com.alfanews.telugu.models.Language.TELUGU)
+             weatherContentTe = WeatherService.getConversationalDescription(
+                 code = weatherData.code,
+                 temp = weatherData.temp,
+                 location = location,
+                 isDay = weatherData.isDay,
+                 humidity = weatherData.humidity,
+                 windSpeed = weatherData.wind,
+                 language = com.alfanews.telugu.models.Language.TELUGU
+             )
+             weatherContentEn = WeatherService.getConversationalDescription(
+                 code = weatherData.code,
+                 temp = weatherData.temp,
+                 location = location,
+                 isDay = weatherData.isDay,
+                 humidity = weatherData.humidity,
+                 windSpeed = weatherData.wind,
+                 language = com.alfanews.telugu.models.Language.ENGLISH
+             )
          }
          // ✅ FIX: Use 5-min bucket for ID so the card refreshes more frequently.
-         // Old 10-min bucket caused distinctBy{id} to skip re-fetch of stale weather cards.
          return NewsPost(
              id = "weather_${System.currentTimeMillis() / (1000 * 60 * 5)}",
              headline = com.alfanews.telugu.models.Headline(
                  telugu = "$temperatureStr$location వాతావరణం: $weatherHeadlineTe", 
                  english = "$temperatureStr$location Weather"
              ),
-             content = com.alfanews.telugu.models.Content(telugu = weatherContentTe, english = "Current weather update for $location."),
+             content = com.alfanews.telugu.models.Content(telugu = weatherContentTe, english = weatherContentEn),
              location = location, type = "weather", timestamp = System.currentTimeMillis(), latitude = lat, longitude = lon
          )
      }

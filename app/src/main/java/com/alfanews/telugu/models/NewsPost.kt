@@ -64,6 +64,7 @@ data class NewsPost(
     val mediaUrls: List<String> = emptyList(),
     val mediaTypes: List<MediaType> = emptyList(),
     val youtubeUrl: String? = null,
+    val thumbnailUrl: String? = null,
     val postFormat: PostFormat = PostFormat.VERTICAL,
     val reporter: Reporter = Reporter(),
     val location: String = "",
@@ -152,6 +153,7 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
     val mediaUrl = data["mediaUrl"]?.toString() ?: ""
     val mediaType = if (data["mediaType"]?.toString() == "VIDEO") MediaType.VIDEO else MediaType.IMAGE
     val youtubeUrl = data["youtubeUrl"]?.toString()
+    val thumbnailUrl = data["thumbnailUrl"]?.toString()
     val postFormat = if (data["postFormat"]?.toString() == "16:9") PostFormat.HORIZONTAL else PostFormat.VERTICAL
     
     val reporterMap = data["reporter"] as? Map<*, *>
@@ -296,6 +298,7 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
         mediaUrl = mediaUrl,
         mediaType = mediaType,
         youtubeUrl = youtubeUrl,
+        thumbnailUrl = thumbnailUrl,
         postFormat = postFormat,
         reporter = reporter,
         location = location,

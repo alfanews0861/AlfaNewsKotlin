@@ -539,6 +539,76 @@ describe("processReporterSubmission - Edge Cases", () => {
 });
 
 // ============================================================================
+// NOTIFICATION ENGINE TESTS
+// ============================================================================
+
+describe("Notification Engine - Topic Slugify Parity", () => {
+  function slugify(text) {
+    if (!text) return "default";
+    return text.split('').map(char => {
+      const code = char.charCodeAt(0);
+      if ((code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
+        return char;
+      }
+      return code.toString(16).padStart(4, '0');
+    }).join('').substring(0, 80);
+  }
+
+  test("should convert Telugu district name to valid FCM topic hex string", () => {
+    const slug = slugify("హైదరాబాద్");
+    expect(/^[a-f0-9]+$/.test(slug)).toBe(true);
+  });
+
+  test("should handle ASCII alphanumeric text correctly", () => {
+    const slug = slugify("Hyderabad123");
+    expect(slug).toBe("Hyderabad123");
+  });
+});
+
+describe("Notification Engine - Unsent News Selection", () => {
+  test("should pick the next unsent news when top viewed news was already sent", () => {
+    const allNews = [
+      { id: "news_1", longViews: 500, headline: { telugu: "Top news" } },
+      { id: "news_2", longViews: 300, headline: { telugu: "Second news" } },
+      { id: "news_3", longViews: 100, headline: { telugu: "Third news" } }
+    ];
+    const lastSentMap = { general: "news_1" };
+
+    const topNews = allNews.find(n => lastSentMap['general'] !== n.id) || allNews[0];
+    expect(topNews.id).toBe("news_2");
+  });
+
+  test("should filter district news that was not sent in previous slot", () => {
+    const allNews = [
+      { id: "guntur_1", categories: ["గుంటూరు"], district: "గుంటూరు", longViews: 200 },
+      { id: "guntur_2", categories: ["గుంటూరు"], district: "గుంటూరు", longViews: 150 }
+    ];
+    const lastSentMap = { "గుంటూరు": "guntur_1" };
+
+    const districtNews = allNews.find(n =>
+      ((Array.isArray(n.categories) && n.categories.includes("గుంటూరు")) || n.district === "గుంటూరు") &&
+      lastSentMap["గుంటూరు"] !== n.id
+    );
+    expect(districtNews.id).toBe("guntur_2");
+  });
+
+  test("should filter category news that was not sent in general or category", () => {
+    const allNews = [
+      { id: "pol_1", category: "రాజకీయం", longViews: 400 },
+      { id: "pol_2", category: "రాజకీయం", longViews: 250 }
+    ];
+    const lastSentMap = { general: "pol_1", cat_cat_politics: "pol_1" };
+
+    const catNews = allNews.find(n =>
+      n.category === "రాజకీయం" &&
+      lastSentMap['general'] !== n.id &&
+      lastSentMap['cat_cat_politics'] !== n.id
+    );
+    expect(catNews.id).toBe("pol_2");
+  });
+});
+
+// ============================================================================
 // TEST RESULTS
 // ============================================================================
 

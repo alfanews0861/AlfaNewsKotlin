@@ -89,7 +89,7 @@ private fun ActiveVideoPlayer(
                     .build()
                 setAudioAttributes(audioAttributes, true)
                 setMediaItem(MediaItem.fromUri(videoUrl))
-                repeatMode = ExoPlayer.REPEAT_MODE_ONE
+                repeatMode = ExoPlayer.REPEAT_MODE_OFF // Fix: Prevent infinite loop without cache
                 addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(isPlayingParam: Boolean) {
                         isPlaying = isPlayingParam
@@ -102,6 +102,9 @@ private fun ActiveVideoPlayer(
         if (autoPlay) {
             if (exoPlayer.playbackState == Player.STATE_IDLE) {
                 exoPlayer.prepare()
+            }
+            if (exoPlayer.playbackState == Player.STATE_ENDED) {
+                exoPlayer.seekTo(0)
             }
             exoPlayer.playWhenReady = true
         } else {
@@ -123,7 +126,14 @@ private fun ActiveVideoPlayer(
     Box(
         modifier = modifier.clickable {
             if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
-            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+            if (exoPlayer.playbackState == Player.STATE_ENDED) {
+                exoPlayer.seekTo(0)
+                exoPlayer.play()
+            } else if (exoPlayer.isPlaying) {
+                exoPlayer.pause()
+            } else {
+                exoPlayer.play()
+            }
         },
         contentAlignment = Alignment.Center
     ) {

@@ -49,7 +49,8 @@ import kotlinx.coroutines.tasks.await
 @Composable
 fun ReporterManagementPageView(
     currentUser: User,
-    onOpenProfile: ((String) -> Unit)? = null
+    onOpenProfile: ((String) -> Unit)? = null,
+    onOpenChat: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val reportersViewModel: ReportersViewModel = viewModel()
@@ -556,9 +557,13 @@ fun ReporterManagementPageView(
                                     } else {
                                         selectedReporterIdForProfile = reporterId
                                     }
+                                },
+                                onChatClick = { reporterId ->
+                                    onOpenChat?.invoke(reporterId)
                                 }
                             )
                         }
+
                     }
                 }
             }
@@ -778,7 +783,8 @@ fun ReporterListCard(
     currentUser: User,
     stats: com.alfanews.telugu.viewmodels.ReporterStats? = null,
     onRefresh: () -> Unit,
-    onCardClick: (String) -> Unit = {}
+    onCardClick: (String) -> Unit = {},
+    onChatClick: ((String) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -840,55 +846,68 @@ fun ReporterListCard(
                     }
                 }
 
-                IconButton(onClick = {
-                    scope.launch {
-                        try {
-                            val isSuspending = reporter.role == UserRole.REPORTER
-                            val newRole = if (isSuspending) UserRole.SUBSCRIBER else UserRole.REPORTER
-                            val updates = mutableMapOf<String, Any>("role" to newRole.toString())
-                            if (newRole == UserRole.REPORTER) {
-                                updates["warningLevel"] = 0
-                                updates["inProbation"] = false
-                                updates["promotedAt"] = com.google.firebase.Timestamp.now()
-                                updates["lastPostTimestamp"] = com.google.firebase.Timestamp.now()
-                            } else {
-                                // Suspend చేసినప్పుడు assignedMandal clear చేయాలి
-                                // — mandal free అవుతుంది, వేరే reporter apply చేయగలరు
-                                updates["assignedMandal"] = ""
-                            }
-                            FirebaseService.db.collection("users").document(reporter.id).update(updates).await()
-
-                            // reporter_applications లో కూడా status update చేయాలి
-                            // Suspend → SUSPENDED (mandal free అవుతుంది)
-                            // Restore → JOINED (mandal block అవుతుంది)
-                            val district = reporter.district?.trim() ?: ""
-                            val mandal = reporter.assignedMandal?.trim() ?: ""
-                            if (district.isNotEmpty() && mandal.isNotEmpty()) {
-                                val appSnap = FirebaseService.db.collection("reporter_applications")
-                                    .whereEqualTo("userId", reporter.id)
-                                    .whereIn("status", listOf("JOINED", "SUSPENDED"))
-                                    .get()
-                                    .await()
-                                val newAppStatus = if (isSuspending) "SUSPENDED" else "JOINED"
-                                for (doc in appSnap.documents) {
-                                    doc.reference.update("status", newAppStatus).await()
-                                }
-                            }
-
-                            Toast.makeText(context, if (isSuspending) "Suspended" else "Restored", Toast.LENGTH_SHORT).show()
-                            onRefresh()
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (onChatClick != null) {
+                        IconButton(onClick = { onChatClick(reporter.id) }) {
+                            Icon(
+                                Icons.Default.Chat,
+                                contentDescription = "Chat with Reporter",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
                         }
                     }
-                }) {
-                    Icon(
-                        if (reporter.role == UserRole.REPORTER) Icons.Default.Block else Icons.Default.CheckCircle,
-                        contentDescription = "Toggle Status",
-                        tint = if (reporter.role == UserRole.REPORTER) Color(0xFFEF5350) else Color(0xFF66BB6A)
-                    )
+
+                    IconButton(onClick = {
+                        scope.launch {
+                            try {
+                                val isSuspending = reporter.role == UserRole.REPORTER
+                                val newRole = if (isSuspending) UserRole.SUBSCRIBER else UserRole.REPORTER
+                                val updates = mutableMapOf<String, Any>("role" to newRole.toString())
+                                if (newRole == UserRole.REPORTER) {
+                                    updates["warningLevel"] = 0
+                                    updates["inProbation"] = false
+                                    updates["promotedAt"] = com.google.firebase.Timestamp.now()
+                                    updates["lastPostTimestamp"] = com.google.firebase.Timestamp.now()
+                                } else {
+                                    // Suspend చేసినప్పుడు assignedMandal clear చేయాలి
+                                    // — mandal free అవుతుంది, వేరే reporter apply చేయగలరు
+                                    updates["assignedMandal"] = ""
+                                }
+                                FirebaseService.db.collection("users").document(reporter.id).update(updates).await()
+
+                                // reporter_applications లో కూడా status update చేయాలి
+                                // Suspend → SUSPENDED (mandal free అవుతుంది)
+                                // Restore → JOINED (mandal block అవుతుంది)
+                                val district = reporter.district?.trim() ?: ""
+                                val mandal = reporter.assignedMandal?.trim() ?: ""
+                                if (district.isNotEmpty() && mandal.isNotEmpty()) {
+                                    val appSnap = FirebaseService.db.collection("reporter_applications")
+                                        .whereEqualTo("userId", reporter.id)
+                                        .whereIn("status", listOf("JOINED", "SUSPENDED"))
+                                        .get()
+                                        .await()
+                                    val newAppStatus = if (isSuspending) "SUSPENDED" else "JOINED"
+                                    for (doc in appSnap.documents) {
+                                        doc.reference.update("status", newAppStatus).await()
+                                    }
+                                }
+
+                                Toast.makeText(context, if (isSuspending) "Suspended" else "Restored", Toast.LENGTH_SHORT).show()
+                                onRefresh()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }) {
+                        Icon(
+                            if (reporter.role == UserRole.REPORTER) Icons.Default.Block else Icons.Default.CheckCircle,
+                            contentDescription = "Toggle Status",
+                            tint = if (reporter.role == UserRole.REPORTER) Color(0xFFEF5350) else Color(0xFF66BB6A)
+                        )
+                    }
                 }
             }
+
 
             // Statistics Row
             Spacer(modifier = Modifier.height(12.dp))

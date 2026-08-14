@@ -105,3 +105,17 @@
 -keep class kotlinx.coroutines.** { *; }
 
 -keep class com.alfanews.telugu.AlfaNewsApplication { *; }
+
+# Play Store Optimizations: Strip verbose and debug logs in release builds for performance, size, and security
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
+}
+
+# Remove Kotlin null/assertion checks in release build to reduce bytecode size
+-assumenosideeffects class kotlin.jvm.internal.Intrinsics {
+    public static void checkNotNull(...);
+    public static void checkParameterIsNotNull(...);
+}
+
