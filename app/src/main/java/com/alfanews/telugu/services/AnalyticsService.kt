@@ -54,6 +54,23 @@ object AnalyticsService {
         appContext = context.applicationContext
         firebaseAnalytics = FirebaseAnalytics.getInstance(appContext)
         loadFromPrefs()
+
+        try {
+            val prefs = com.alfanews.telugu.utils.PreferenceManager.getInstance(appContext)
+            val effectiveDist = prefs.getEffectiveDistrict()
+            if (!effectiveDist.isNullOrBlank()) {
+                setUserDistrict(effectiveDist)
+            }
+            setAppLanguage(prefs.language.name)
+            val savedUid = prefs.userId
+            if (!savedUid.isNullOrBlank() && savedUid != "guest") {
+                setUserId(savedUid)
+                val savedRole = prefs.userRole
+                if (!savedRole.isNullOrBlank()) {
+                    setUserRole(savedRole)
+                }
+            }
+        } catch (e: Exception) { }
     }
 
     /**
@@ -62,6 +79,18 @@ object AnalyticsService {
     fun onUserLogin(user: User) {
         currentUserId = user.id
         cachedPreferredCategories = null
+
+        try {
+            setUserId(user.id)
+            setUserRole(user.role.name)
+            if (!user.district.isNullOrBlank()) {
+                setUserDistrict(user.district)
+            }
+            firebaseAnalytics?.logEvent(FirebaseAnalytics.Event.LOGIN, Bundle().apply {
+                putString(FirebaseAnalytics.Param.METHOD, "firebase_auth")
+            })
+        } catch (e: Exception) { }
+
         // ✅ FIX (Bug 2): పాత కోడ్ local + DB scores కలిపేది (double counting).
         // ఇప్పుడు maxOf(local, db) వాడుతున్నాం — same scores రెట్టింపు కావు.
         if (categoryScores.isEmpty() && reporterScores.isEmpty() && tagScores.isEmpty()
@@ -89,6 +118,10 @@ object AnalyticsService {
 
     fun onUserLogout() {
         syncPendingLongViews() // logout అయ్యే ముందు వ్యూస్‌ని సింక్ చేయడం
+        try {
+            firebaseAnalytics?.logEvent("logout", null)
+            setUserId(null)
+        } catch (e: Exception) { }
         currentUserId = null
         cachedPreferredCategories = null
         categoryScores.clear()
@@ -124,6 +157,218 @@ object AnalyticsService {
 
     fun logAnalyticsEvent(eventName: String, params: Bundle? = null) {
         firebaseAnalytics?.logEvent(eventName, params)
+    }
+
+    // ==========================================
+    // 📊 GOOGLE ANALYTICS 4 (GA4) ENHANCEMENTS
+    // ==========================================
+
+    fun extractPrimaryCategory(post: NewsPost): String {
+        return post.categories.firstOrNull { 
+            it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" && it != "National"
+        } ?: post.category?.takeIf { 
+            it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" && it != "National"
+        } ?: post.categories.firstOrNull { it.isNotBlank() }
+        ?: post.category?.takeIf { it.isNotBlank() }
+        ?: "General"
+    }
+
+    fun extractDistrict(post: NewsPost): String {
+        return post.district?.takeIf { it.isNotBlank() }
+            ?: post.location.takeIf { it.isNotBlank() }
+            ?: "General"
+    }
+
+    fun extractState(districtOrState: String?): String {
+        if (districtOrState.isNullOrBlank()) return "General"
+        return when {
+            com.alfanews.telugu.utils.Constants.TS_DISTRICTS.any { it.equals(districtOrState, ignoreCase = true) } || districtOrState.contains("Telangana", ignoreCase = true) || districtOrState.contains("తెలంగాణ") -> "Telangana"
+            com.alfanews.telugu.utils.Constants.AP_DISTRICTS.any { it.equals(districtOrState, ignoreCase = true) } || districtOrState.contains("Andhra", ignoreCase = true) || districtOrState.contains("ఆంధ్రప్రదేశ్") -> "Andhra Pradesh"
+            else -> "General"
+        }
+    }
+
+    private fun safeTruncate(text: String?, maxLength: Int = 95): String {
+        if (text.isNullOrBlank()) return ""
+        return if (text.length > maxLength) text.substring(0, maxLength) else text
+    }
+
+    /**
+     * ✅ యూజర్ జిల్లా మరియు రాష్ట్రాన్ని GA4 User Property గా సెట్ చేస్తుంది.
+     */
+    fun setUserDistrict(district: String?) {
+        if (district.isNullOrBlank()) return
+        firebaseAnalytics?.setUserProperty("user_district", safeTruncate(district, 35))
+        val state = extractState(district)
+        firebaseAnalytics?.setUserProperty("user_state", state)
+    }
+
+    fun setUserRole(role: String?) {
+        if (role.isNullOrBlank()) return
+        firebaseAnalytics?.setUserProperty("user_role", safeTruncate(role, 35))
+    }
+
+    fun setAppLanguage(language: String?) {
+        if (language.isNullOrBlank()) return
+        firebaseAnalytics?.setUserProperty("app_language", safeTruncate(language, 35))
+    }
+
+    fun setUserId(userId: String?) {
+        firebaseAnalytics?.setUserId(userId)
+    }
+
+    /**
+     * ✅ వార్త చదివినప్పుడు కేటగిరీ, జిల్లా, మరియు రీడ్ వివరాలను GA4 కి పంపుతుంది.
+     */
+    fun logNewsRead(post: NewsPost, durationSeconds: Double = 0.0, readType: String = "card_view") {
+        val primaryCat = extractPrimaryCategory(post)
+        val district = extractDistrict(post)
+        val state = post.state?.takeIf { it.isNotBlank() } ?: extractState(district)
+        val headline = (if (post.headline.telugu.isNotBlank()) post.headline.telugu else post.headline.english).trim()
+
+        // 1. GA4 Standard SELECT_CONTENT Event
+        val standardBundle = Bundle().apply {
+            putString(FirebaseAnalytics.Param.ITEM_ID, safeTruncate(post.id, 95))
+            putString(FirebaseAnalytics.Param.ITEM_NAME, safeTruncate(headline, 95))
+            putString(FirebaseAnalytics.Param.ITEM_CATEGORY, safeTruncate(primaryCat, 95))
+            putString(FirebaseAnalytics.Param.CONTENT_TYPE, safeTruncate(post.type ?: "news_article", 95))
+        }
+        firebaseAnalytics?.logEvent(FirebaseAnalytics.Event.SELECT_CONTENT, standardBundle)
+
+        // 2. Custom news_read Event with rich dimensional parameters
+        val customBundle = Bundle().apply {
+            putString("post_id", safeTruncate(post.id, 95))
+            putString("item_category", safeTruncate(primaryCat, 95))
+            putString("news_category", safeTruncate(primaryCat, 95))
+            putString("news_district", safeTruncate(district, 95))
+            putString("news_state", safeTruncate(state, 95))
+            putString("headline", safeTruncate(headline, 95))
+            putDouble("duration_seconds", durationSeconds)
+            putString("read_type", readType)
+            if (post.categories.isNotEmpty()) {
+                putString("all_categories", safeTruncate(post.categories.joinToString(","), 95))
+            }
+            if (post.reporter.name.isNotBlank()) {
+                putString("reporter_name", safeTruncate(post.reporter.name, 95))
+            }
+            putString("user_id", currentUserId ?: "guest")
+        }
+        firebaseAnalytics?.logEvent("news_read", customBundle)
+    }
+
+    /**
+     * ✅ వార్తను పూర్తిగా (చివరి వరకు) స్క్రోల్ చేసి చదివినప్పుడు
+     */
+    fun logNewsFullRead(post: NewsPost) {
+        logPostEngagement(post, weight = 2)
+        val primaryCat = extractPrimaryCategory(post)
+        val district = extractDistrict(post)
+        val state = post.state?.takeIf { it.isNotBlank() } ?: extractState(district)
+        val headline = (if (post.headline.telugu.isNotBlank()) post.headline.telugu else post.headline.english).trim()
+
+        val bundle = Bundle().apply {
+            putString("post_id", safeTruncate(post.id, 95))
+            putString("item_category", safeTruncate(primaryCat, 95))
+            putString("news_category", safeTruncate(primaryCat, 95))
+            putString("news_district", safeTruncate(district, 95))
+            putString("news_state", safeTruncate(state, 95))
+            putString("headline", safeTruncate(headline, 95))
+        }
+        firebaseAnalytics?.logEvent("news_full_read", bundle)
+        logAnalyticsEvent("full_read_bonus")
+    }
+
+    /**
+     * ✅ వార్తను లైక్ చేసినప్పుడు
+     */
+    fun logNewsLike(post: NewsPost, liked: Boolean = true) {
+        val primaryCat = extractPrimaryCategory(post)
+        val district = extractDistrict(post)
+        val state = post.state?.takeIf { it.isNotBlank() } ?: extractState(district)
+        val headline = (if (post.headline.telugu.isNotBlank()) post.headline.telugu else post.headline.english).trim()
+
+        val bundle = Bundle().apply {
+            putString("post_id", safeTruncate(post.id, 95))
+            putString("item_category", safeTruncate(primaryCat, 95))
+            putString("news_district", safeTruncate(district, 95))
+            putString("news_state", safeTruncate(state, 95))
+            putString("headline", safeTruncate(headline, 95))
+        }
+        val eventName = if (liked) "news_like" else "news_unlike"
+        firebaseAnalytics?.logEvent(eventName, bundle)
+    }
+
+    /**
+     * ✅ వార్తను షేర్ చేసినప్పుడు
+     */
+    fun logNewsShare(post: NewsPost) {
+        val primaryCat = extractPrimaryCategory(post)
+        val district = extractDistrict(post)
+        val state = post.state?.takeIf { it.isNotBlank() } ?: extractState(district)
+        val headline = (if (post.headline.telugu.isNotBlank()) post.headline.telugu else post.headline.english).trim()
+
+        val standardBundle = Bundle().apply {
+            putString(FirebaseAnalytics.Param.ITEM_ID, safeTruncate(post.id, 95))
+            putString(FirebaseAnalytics.Param.ITEM_NAME, safeTruncate(headline, 95))
+            putString(FirebaseAnalytics.Param.ITEM_CATEGORY, safeTruncate(primaryCat, 95))
+            putString(FirebaseAnalytics.Param.CONTENT_TYPE, "news_post")
+        }
+        firebaseAnalytics?.logEvent(FirebaseAnalytics.Event.SHARE, standardBundle)
+
+        val customBundle = Bundle().apply {
+            putString("post_id", safeTruncate(post.id, 95))
+            putString("item_category", safeTruncate(primaryCat, 95))
+            putString("news_category", safeTruncate(primaryCat, 95))
+            putString("news_district", safeTruncate(district, 95))
+            putString("news_state", safeTruncate(state, 95))
+            putString("headline", safeTruncate(headline, 95))
+        }
+        firebaseAnalytics?.logEvent("news_share", customBundle)
+    }
+
+    /**
+     * ✅ కామెంట్ పోస్ట్ చేసినప్పుడు
+     */
+    fun logNewsComment(postId: String, post: NewsPost? = null) {
+        val bundle = Bundle().apply {
+            putString("post_id", safeTruncate(postId, 95))
+            if (post != null) {
+                val primaryCat = extractPrimaryCategory(post)
+                val district = extractDistrict(post)
+                putString("item_category", safeTruncate(primaryCat, 95))
+                putString("news_district", safeTruncate(district, 95))
+            }
+        }
+        firebaseAnalytics?.logEvent("news_comment", bundle)
+    }
+
+    /**
+     * ✅ జిల్లాను ఎంచుకున్నప్పుడు / మార్చినప్పుడు
+     */
+    fun logDistrictSelected(district: String, previousDistrict: String? = null) {
+        setUserDistrict(district)
+        val state = extractState(district)
+        val bundle = Bundle().apply {
+            putString("district", safeTruncate(district, 95))
+            putString("state", state)
+            if (!previousDistrict.isNullOrBlank()) {
+                putString("previous_district", safeTruncate(previousDistrict, 95))
+            }
+        }
+        firebaseAnalytics?.logEvent("district_selected", bundle)
+    }
+
+    /**
+     * ✅ ప్రధాన ట్యాబ్‌లు మారినప్పుడు
+     */
+    fun logTabSelected(tabName: String, district: String? = null) {
+        val bundle = Bundle().apply {
+            putString("tab_name", safeTruncate(tabName, 95))
+            if (!district.isNullOrBlank()) {
+                putString("active_district", safeTruncate(district, 95))
+            }
+        }
+        firebaseAnalytics?.logEvent("tab_selected", bundle)
     }
 
     fun logCategoryViews(categories: List<String>, weight: Int = 1) {
@@ -165,19 +410,36 @@ object AnalyticsService {
         syncToFirestore()
     }
     
-    fun logNewsScreenView(postId: String, title: String, categories: List<String>) {
+    fun logNewsScreenView(postId: String, title: String, categories: List<String>, district: String? = null) {
+        val primaryCat = categories.firstOrNull { 
+            it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" && it != "National" 
+        } ?: categories.firstOrNull { it.isNotBlank() } ?: "General"
+        val dist = district ?: "General"
+        val state = extractState(dist)
+
         val bundle = Bundle().apply {
-            putString(FirebaseAnalytics.Param.ITEM_ID, postId)
-            putString(FirebaseAnalytics.Param.ITEM_NAME, title)
-            putString("categories", categories.joinToString(","))
+            putString(FirebaseAnalytics.Param.ITEM_ID, safeTruncate(postId, 95))
+            putString(FirebaseAnalytics.Param.ITEM_NAME, safeTruncate(title, 95))
+            putString(FirebaseAnalytics.Param.ITEM_CATEGORY, safeTruncate(primaryCat, 95))
+            putString("news_category", safeTruncate(primaryCat, 95))
+            putString("news_district", safeTruncate(dist, 95))
+            putString("news_state", safeTruncate(state, 95))
+            putString("categories", safeTruncate(categories.joinToString(","), 95))
         }
         firebaseAnalytics?.logEvent("view_news_item", bundle)
     }
 
-    fun logNewsEngagement(postId: String, title: String) {
+    fun logNewsEngagement(postId: String, title: String, category: String? = null, district: String? = null) {
         val bundle = Bundle().apply {
-            putString(FirebaseAnalytics.Param.ITEM_ID, postId)
-            putString(FirebaseAnalytics.Param.ITEM_NAME, title)
+            putString(FirebaseAnalytics.Param.ITEM_ID, safeTruncate(postId, 95))
+            putString(FirebaseAnalytics.Param.ITEM_NAME, safeTruncate(title, 95))
+            if (!category.isNullOrBlank()) {
+                putString(FirebaseAnalytics.Param.ITEM_CATEGORY, safeTruncate(category, 95))
+                putString("news_category", safeTruncate(category, 95))
+            }
+            if (!district.isNullOrBlank()) {
+                putString("news_district", safeTruncate(district, 95))
+            }
         }
         firebaseAnalytics?.logEvent("news_engagement_10s", bundle)
     }

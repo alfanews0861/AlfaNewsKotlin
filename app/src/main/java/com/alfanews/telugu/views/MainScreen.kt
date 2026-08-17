@@ -331,6 +331,7 @@ fun MainScreen(
                 bottomBar = {
                     Footer(
                         activeTab = activeTab,
+                        unreadMessagesCount = unreadMessagesCount,
                         onTabChange = { tab: String -> 
                             // Reset overlay states when switching tabs via footer
                             showPostNewsPage = false
@@ -616,7 +617,7 @@ fun MainScreen(
                                 onMenuClick = { scope.launch { drawerState.open() } }
                             )
                             "messages" -> if (user != null) {
-                                if (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.NEWS_DESK) {
+                                if (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.NEWS_DESK || user.role == UserRole.REGIONAL_INCHARGE) {
                                     AdminReporterMessagingView(
                                         currentUser = user,
                                         onBack = { mainViewModel.setActiveTab("profile") }

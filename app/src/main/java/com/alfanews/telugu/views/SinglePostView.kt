@@ -74,16 +74,20 @@ fun SinglePostView(
         val currentPost = post
         if (currentPost != null) {
             AnalyticsService.logPostEngagement(currentPost)
+            AnalyticsService.logNewsRead(currentPost, 0.0, "single_post")
             AnalyticsService.logNewsScreenView(
                 postId = currentPost.id,
                 title = currentPost.headline.telugu,
-                categories = currentPost.categories
+                categories = currentPost.categories,
+                district = currentPost.district
             )
             
             kotlinx.coroutines.delay(10000)
             AnalyticsService.logNewsEngagement(
                 postId = currentPost.id,
-                title = currentPost.headline.telugu
+                title = currentPost.headline.telugu,
+                category = AnalyticsService.extractPrimaryCategory(currentPost),
+                district = currentPost.district
             )
         }
     }

@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.ui.text.style.TextAlign
 import com.alfanews.telugu.R
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.ui.theme.Poppins
@@ -27,6 +28,7 @@ import com.alfanews.telugu.ui.theme.Poppins
 @Composable
 fun Footer(
     activeTab: String,
+    unreadMessagesCount: Int = 0,
     onTabChange: (String) -> Unit
 ) {
     Surface(
@@ -78,6 +80,7 @@ fun Footer(
                     icon = Icons.Default.Person,
                     label = stringResource(R.string.nav_profile),
                     isActive = activeTab == "profile",
+                    badgeCount = unreadMessagesCount,
                     onClick = { onTabChange("profile") }
                 )
             }
@@ -91,6 +94,7 @@ fun RowScope.FooterItem(
     label: String,
     isActive: Boolean,
     isSpecial: Boolean = false,
+    badgeCount: Int = 0,
     onClick: () -> Unit
 ) {
     // Vibrant active colors vs muted unselected gray
@@ -108,12 +112,42 @@ fun RowScope.FooterItem(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = label,
-                    modifier = Modifier.size(24.dp),
-                    tint = iconColor
-                )
+                Box(
+                    contentAlignment = Alignment.TopEnd
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = label,
+                        modifier = Modifier.size(24.dp),
+                        tint = iconColor
+                    )
+
+                    if (badgeCount > 0) {
+                        Surface(
+                            modifier = Modifier
+                                .offset(x = 8.dp, y = (-4).dp)
+                                .sizeIn(minWidth = 16.dp, minHeight = 16.dp),
+                            shape = CircleShape,
+                            color = Color(0xFFE53935),
+                            shadowElevation = 2.dp
+                        ) {
+                            Box(
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = if (badgeCount > 99) "99+" else "$badgeCount",
+                                    color = Color.White,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontFamily = Poppins,
+                                    lineHeight = 10.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+                }
                 
                 Spacer(modifier = Modifier.height(2.dp))
                 

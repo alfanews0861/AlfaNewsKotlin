@@ -95,11 +95,11 @@ fun AdminPanelView(
             list.contains(it.id)
         }
         UserRole.REGIONAL_INCHARGE -> allPages.filter { 
-            val list = listOf("profile", "manageSurveys", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card")
+            val list = listOf("profile", "manageSurveys", "post", "ads", "manage", "messages", "manageReporters", "manageUsers", "edit-profile", "id-card")
             list.contains(it.id)
         }
         UserRole.EDITOR -> allPages.filter { 
-            val list = listOf("profile", "manageSurveys", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card")
+            val list = listOf("profile", "manageSurveys", "post", "ads", "manage", "messages", "manageReporters", "manageUsers", "edit-profile", "id-card")
             list.contains(it.id)
         }
         UserRole.ADMIN -> allPages.filter { it.id != "survey" }
@@ -207,7 +207,7 @@ fun AdminPanelView(
                         }
                     )
                     "messages" -> {
-                        if (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.NEWS_DESK) {
+                        if (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.NEWS_DESK || user.role == UserRole.REGIONAL_INCHARGE) {
                             AdminReporterMessagingView(
                                 currentUser = user,
                                 initialReporterId = chatTargetReporterId,

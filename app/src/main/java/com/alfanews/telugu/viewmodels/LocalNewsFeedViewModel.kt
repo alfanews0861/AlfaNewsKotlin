@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.models.User
+import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.PreferenceManager
 import com.alfanews.telugu.utils.Constants
@@ -87,11 +88,13 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     
     fun setDistrict(district: String) {
         if (prefs.selectedDistrict == district && _activeDistrict.value == district) return
+        val oldDistrict = prefs.selectedDistrict ?: prefs.detectedDistrict
         _news.value = emptyList() // 🔄 Clear old news to avoid confusion when switching districts
         _loading.value = true     // 🔄 Show preparation screen
         _hasMore.value = true
         prefs.selectedDistrict = district
         _activeDistrict.value = district
+        AnalyticsService.logDistrictSelected(district, oldDistrict)
         loadNews(Language.TELUGU, null) 
     }
     

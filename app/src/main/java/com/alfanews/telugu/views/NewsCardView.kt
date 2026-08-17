@@ -184,7 +184,7 @@ fun NewsCardView(
             .collect { value ->
                 if (!hasReadFinished && scrollState.maxValue > 0 && value >= scrollState.maxValue - 50) {
                     hasReadFinished = true
-                    AnalyticsService.logFullRead(post)
+                    AnalyticsService.logNewsFullRead(post)
                 }
             }
     }
@@ -197,6 +197,7 @@ fun NewsCardView(
                     AnalyticsService.logNegativeSignal(post)
                 } else if (duration > 4) {
                     AnalyticsService.logPostEngagement(post)
+                    AnalyticsService.logNewsRead(post, duration, "card_view")
 
                     // ✅ PERSONALIZATION: User 4+ seconds చదివిన వార్త category track చేయాలి
                     // ఇది real engagement — fake likes/shares కాదు
@@ -222,13 +223,6 @@ fun NewsCardView(
                             Log.e("NewsCardView", "Category tracking failed", e)
                         }
                     }
-
-                    val params = Bundle().apply {
-                        putString("post_id", post.id)
-                        putString("user_id", currentUser?.id)
-                        putDouble("duration", duration)
-                    }
-                    AnalyticsService.logAnalyticsEvent("view", params)
                 }
             }
         }
@@ -334,7 +328,7 @@ fun NewsCardView(
                                     if (!wasLiked) {
                                         // Liking: High positive signal (weight = 3)
                                         FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(1))
-                                        AnalyticsService.logAnalyticsEvent("like", Bundle().apply { putString("post_id", post.id) })
+                                        AnalyticsService.logNewsLike(post, liked = true)
                                         AnalyticsService.logPostEngagement(post, weight = 3)
                                         val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
                                             ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
@@ -344,6 +338,7 @@ fun NewsCardView(
                                     } else {
                                         // Unliking — only decrement if real likes > 0
                                         FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(-1))
+                                        AnalyticsService.logNewsLike(post, liked = false)
                                     }
                                 }
                             }
@@ -584,7 +579,7 @@ fun NewsCardView(
                                         if (!wasLiked) {
                                             // Liking: High positive signal (weight = 3)
                                             FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(1))
-                                            AnalyticsService.logAnalyticsEvent("like", Bundle().apply { putString("post_id", post.id) })
+                                            AnalyticsService.logNewsLike(post, liked = true)
                                             AnalyticsService.logPostEngagement(post, weight = 3)
                                             val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
                                                 ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
@@ -593,6 +588,7 @@ fun NewsCardView(
                                             }
                                         } else {
                                             FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(-1))
+                                            AnalyticsService.logNewsLike(post, liked = false)
                                         }
                                     }
                                 }
@@ -664,7 +660,7 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
                     chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     context.startActivity(chooser)
                     FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener { setShareCount(1) }
-                    AnalyticsService.logAnalyticsEvent("share", Bundle().apply { putString("post_id", post.id) })
+                    AnalyticsService.logNewsShare(post)
                     AnalyticsService.logPostEngagement(post, weight = 4)
                     val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
                         ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }

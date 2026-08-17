@@ -29,6 +29,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil3.compose.AsyncImage
 import com.alfanews.telugu.models.User
+import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseService
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.Query
@@ -224,6 +225,7 @@ fun CommentSectionView(
                                     userName = currentUser.name,
                                     userPhoto = currentUser.photoUrl
                                 ) {
+                                    AnalyticsService.logNewsComment(postId)
                                     newComment = ""
                                     isPosting = false
                                     onCommentPosted()

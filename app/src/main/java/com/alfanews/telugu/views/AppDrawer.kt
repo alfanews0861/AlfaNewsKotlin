@@ -34,7 +34,7 @@ fun AppDrawerContent(
     val allPages = listOf(
         AppPageConfig("profile", stringResource(R.string.profile), listOf(UserRole.GUEST, UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("manageSurveys", "సర్వే నిర్వహణ", listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
-        AppPageConfig("messages", stringResource(R.string.messages), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
+        AppPageConfig("messages", stringResource(R.string.messages), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK, UserRole.REGIONAL_INCHARGE, UserRole.SUBSCRIBER)),
         AppPageConfig("post", stringResource(R.string.post_news), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("ads", stringResource(R.string.ads_manager), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("manage", stringResource(R.string.manage_news), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK)),
@@ -45,9 +45,15 @@ fun AppDrawerContent(
     )
 
     val accessiblePages = when (role) {
-        UserRole.GUEST, UserRole.SUBSCRIBER -> listOf(
+        UserRole.GUEST -> listOf(
             AppPageConfig("home", stringResource(R.string.home), emptyList()),
             AppPageConfig("local", stringResource(R.string.local_news), emptyList()),
+            AppPageConfig("profile", stringResource(R.string.profile), emptyList())
+        )
+        UserRole.SUBSCRIBER -> listOf(
+            AppPageConfig("home", stringResource(R.string.home), emptyList()),
+            AppPageConfig("local", stringResource(R.string.local_news), emptyList()),
+            AppPageConfig("messages", stringResource(R.string.messages), emptyList()),
             AppPageConfig("profile", stringResource(R.string.profile), emptyList())
         )
         UserRole.REPORTER -> allPages.filter { 
@@ -59,11 +65,11 @@ fun AppDrawerContent(
             list.contains(it.id)
         }
         UserRole.REGIONAL_INCHARGE -> allPages.filter { 
-            val list = listOf("profile", "manageSurveys", "post", "ads", "manage", "manageReporters", "manageUsers")
+            val list = listOf("profile", "manageSurveys", "post", "ads", "manage", "messages", "manageReporters", "manageUsers")
             list.contains(it.id)
         }
         UserRole.EDITOR -> allPages.filter { 
-            val list = listOf("profile", "manageSurveys", "post", "ads", "manage", "manageReporters", "manageUsers")
+            val list = listOf("profile", "manageSurveys", "post", "ads", "manage", "messages", "manageReporters", "manageUsers")
             list.contains(it.id)
         }
         UserRole.ADMIN -> allPages.filter { it.id != "survey" }

@@ -87,7 +87,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val unreadMessagesCount: StateFlow<Int> = _unreadMessagesCount.asStateFlow()
 
     private var weatherAlertListener: ListenerRegistration? = null
-    private var messagesUnreadListener: ListenerRegistration? = null
+    private var reporterConvListener: ListenerRegistration? = null
+    private var userMessagesListener: ListenerRegistration? = null
+    private var unreadConvCount = 0
+    private var unreadUserMsgCount = 0
     private var cachedWeatherAlertsData: Map<String, Any>? = null
 
 
@@ -143,6 +146,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (firebaseUser == null) {
                 _currentUser.value = null
                 AnalyticsService.onUserLogout()
+                startUnreadMessagesListener(null)
                 return@AuthStateListener
             }
 
@@ -385,44 +389,63 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
 
     private fun startUnreadMessagesListener(user: User?) {
-        messagesUnreadListener?.remove()
-        if (user == null) {
+        reporterConvListener?.remove()
+        reporterConvListener = null
+        userMessagesListener?.remove()
+        userMessagesListener = null
+        unreadConvCount = 0
+        unreadUserMsgCount = 0
+
+        if (user == null || user.id.isBlank() || user.id == "guest") {
             _unreadMessagesCount.value = 0
             return
         }
 
-        val isAdmin = listOf(UserRole.ADMIN, UserRole.EDITOR, UserRole.NEWS_DESK).contains(user.role)
+        val isAdminStaff = listOf(
+            UserRole.ADMIN,
+            UserRole.EDITOR,
+            UserRole.NEWS_DESK,
+            UserRole.REGIONAL_INCHARGE
+        ).contains(user.role)
         val isReporter = user.role == UserRole.REPORTER
 
-        if (isAdmin) {
-            messagesUnreadListener = FirebaseService.db.collection("reporter_conversations")
+        fun updateTotal() {
+            _unreadMessagesCount.value = unreadConvCount + unreadUserMsgCount
+        }
+
+        // 1. Listen to reporter_conversations if Admin Staff or Reporter
+        if (isAdminStaff) {
+            reporterConvListener = FirebaseService.db.collection("reporter_conversations")
                 .whereGreaterThan("unreadCountForAdmin", 0)
                 .addSnapshotListener { snapshot, e ->
                     if (e != null || snapshot == null) return@addSnapshotListener
-                    val count = snapshot.documents.sumOf { (it.getLong("unreadCountForAdmin") ?: 0L).toInt() }
-                    _unreadMessagesCount.value = count
+                    unreadConvCount = snapshot.documents.sumOf { (it.getLong("unreadCountForAdmin") ?: 0L).toInt() }
+                    updateTotal()
                 }
         } else if (isReporter) {
-            messagesUnreadListener = FirebaseService.db.collection("reporter_conversations")
+            reporterConvListener = FirebaseService.db.collection("reporter_conversations")
                 .document(user.id)
                 .addSnapshotListener { snapshot, e ->
                     if (e != null || snapshot == null || !snapshot.exists()) {
-                        _unreadMessagesCount.value = 0
-                        return@addSnapshotListener
+                        unreadConvCount = 0
+                    } else {
+                        unreadConvCount = (snapshot.getLong("unreadCountForReporter") ?: 0L).toInt()
                     }
-                    val count = (snapshot.getLong("unreadCountForReporter") ?: 0L).toInt()
-                    _unreadMessagesCount.value = count
-                }
-        } else {
-            messagesUnreadListener = FirebaseService.db.collection("users")
-                .document(user.id)
-                .collection("messages")
-                .whereEqualTo("read", false)
-                .addSnapshotListener { snapshot, e ->
-                    if (e != null || snapshot == null) return@addSnapshotListener
-                    _unreadMessagesCount.value = snapshot.size()
+                    updateTotal()
                 }
         }
+
+        // 2. Also listen to users/{userId}/messages for personal messages/notices across all roles
+        userMessagesListener = FirebaseService.db.collection("users")
+            .document(user.id)
+            .collection("messages")
+            .addSnapshotListener { snapshot, e ->
+                if (e != null || snapshot == null) return@addSnapshotListener
+                unreadUserMsgCount = snapshot.documents.count { doc ->
+                    doc.getBoolean("read") != true
+                }
+                updateTotal()
+            }
     }
 
     override fun onCleared() {
@@ -430,7 +453,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         userListener?.remove()
         newsListener?.remove()
         weatherAlertListener?.remove()
-        messagesUnreadListener?.remove()
+        reporterConvListener?.remove()
+        userMessagesListener?.remove()
         appConfigListener?.remove()
         authStateListener?.let { FirebaseService.auth.removeAuthStateListener(it) }
     }
@@ -438,6 +462,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setActiveTab(tab: String) {
         _activeTab.value = tab
+        AnalyticsService.logTabSelected(tab, _activeDistrict.value)
     }
 
     fun setAdminActivePage(page: String) {
@@ -447,6 +472,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setLanguage(newLanguage: Language) {
         _language.value = newLanguage
         prefs.language = newLanguage
+        AnalyticsService.setAppLanguage(newLanguage.name)
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -492,6 +518,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.selectedDistrict = district
         _activeDistrict.value = district
         updateActiveWeatherAlert()
+        AnalyticsService.logDistrictSelected(district, oldDistrict)
         viewModelScope.launch {
             // Update Firestore user record
             _currentUser.value?.id?.let { uid ->
