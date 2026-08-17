@@ -53,6 +53,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -121,6 +122,7 @@ fun NewsCardView(
 
     var isLiked by remember(post.id) { mutableStateOf(false) }
     var showComments by remember(post.id) { mutableStateOf(false) }
+    var showReportDialog by remember(post.id) { mutableStateOf(false) }
     
     // 🚀 key(post.id) ensures scroll state properly resets for each different post
     val scrollState = key(post.id) { rememberScrollState() }
@@ -148,6 +150,12 @@ fun NewsCardView(
 
     val contentFontFamily = remember(language, contentText) {
         if (language == Language.ENGLISH || (contentText != "" && contentText.contains(englishRegex))) Poppins else Mallanna
+    }
+
+    val contentParagraphs = remember(contentText) {
+        contentText.split(Regex("(?:\r?\n\\s*)+"))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
     }
 
     var isSharing by remember { mutableStateOf(false) }
@@ -269,7 +277,7 @@ fun NewsCardView(
                                     autoPlay = isActive && pagerState.currentPage == page
                                 )
                             } else {
-                                val imageUrl = if (page == 0 && post.thumbnailUrl != null) post.thumbnailUrl else url
+                                val imageUrl = url
                                 AsyncImage(
                                     model = ImageRequest.Builder(context).data(imageUrl).crossfade(true).allowHardware(true).build(),
                                     fallback = painterResource(id = R.drawable.fallback_news_image),
@@ -376,7 +384,7 @@ fun NewsCardView(
                                 if (type == MediaType.VIDEO) {
                                     VideoPlayerView(videoUrl = url, autoPlay = isActive && pagerState.currentPage == page)
                                 } else {
-                                    val imageUrl = if (page == 0 && post.thumbnailUrl != null) post.thumbnailUrl else url
+                                    val imageUrl = url
                                     AsyncImage(
                                         model = ImageRequest.Builder(context).data(imageUrl).crossfade(true).allowHardware(true).build(),
                                         fallback = painterResource(id = R.drawable.fallback_news_image),
@@ -384,7 +392,7 @@ fun NewsCardView(
                                         contentDescription = headlineText,
                                         modifier = Modifier.fillMaxSize(),
                                         contentScale = ContentScale.Crop,
-                                        alignment = Alignment.Center
+                                        alignment = Alignment.TopCenter
                                     )
                                 }
                             }
@@ -416,25 +424,81 @@ fun NewsCardView(
                 }
                 
                 Row(modifier = Modifier.fillMaxWidth().weight(0.62f)) {
-                    Column(modifier = Modifier.weight(1f).padding(start = 16.dp, end = 0.dp, top = 6.dp, bottom = 12.dp)) {
+                    Column(modifier = Modifier.weight(1f).padding(start = 16.dp, end = 0.dp, top = 2.dp, bottom = 12.dp)) {
                         Text(text = headlineText, style = TextStyle(fontSize = headlineSize, lineHeight = headlineLineHeight, fontWeight = headlineFontWeight, fontFamily = headlineFontFamily, platformStyle = PlatformTextStyle(includeFontPadding = false)), color = MaterialTheme.colorScheme.onSurface)
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
                         DottedLine()
-                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Start) {
-                            if (post.reporter.name.isNotEmpty()) {
-                                Text(text = post.reporter.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = Mallanna, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).clickable { onReporterClick(post.reporter.id) })
-                                Text(text = " | ", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f, fill = false),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (post.reporter.name.isNotEmpty()) {
+                                    Text(
+                                        text = post.reporter.name,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = Mallanna,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false).clickable { onReporterClick(post.reporter.id) }
+                                    )
+                                    Text(text = " | ", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
+                                }
+                                Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.width(2.dp))
+                                Text(text = post.location, fontSize = 12.sp, fontFamily = Ramabhadra, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                Spacer(Modifier.width(6.dp))
+                                Text(text = formattedTimestamp, fontSize = 10.sp, fontFamily = Mallanna, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(2.dp))
-                            Text(text = post.location, fontSize = 12.sp, fontFamily = Ramabhadra, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                            Spacer(Modifier.width(8.dp))
-                            Text(text = formattedTimestamp, fontSize = 10.sp, fontFamily = Mallanna, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+
+                            // Report Action Button in Meta
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clickable { showReportDialog = true }
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Flag,
+                                    contentDescription = stringResource(R.string.report),
+                                    modifier = Modifier.size(11.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                                Spacer(Modifier.width(2.dp))
+                                Text(
+                                    text = stringResource(R.string.report),
+                                    fontSize = 10.sp,
+                                    fontFamily = Mallanna,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                                )
+                            }
                         }
                         DottedLine()
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(3.dp))
                         Column(modifier = Modifier.weight(1f).verticalScroll(scrollState)) {
-                            Text(text = contentText, style = TextStyle(fontSize = contentSize, lineHeight = contentLineHeight, fontFamily = contentFontFamily, platformStyle = PlatformTextStyle(includeFontPadding = false)), color = MaterialTheme.colorScheme.onSurface)
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                contentParagraphs.forEach { paragraph ->
+                                    Text(
+                                        text = paragraph,
+                                        style = TextStyle(
+                                            fontSize = contentSize,
+                                            lineHeight = contentLineHeight,
+                                            fontFamily = contentFontFamily,
+                                            platformStyle = PlatformTextStyle(includeFontPadding = false)
+                                        ),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
                             
                             if (post.surveyQuestions.isNotEmpty()) {
                                 InlineMicroPoll(
@@ -557,6 +621,14 @@ fun NewsCardView(
                     }
                 }
             }
+        }
+        
+        if (showReportDialog) {
+            ReportNewsDialog(
+                postId = post.id,
+                headlineText = headlineText,
+                onDismissRequest = { showReportDialog = false }
+            )
         }
     }
 }

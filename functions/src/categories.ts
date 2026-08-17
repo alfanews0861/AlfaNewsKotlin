@@ -180,11 +180,13 @@ STEP 1: CLASSIFICATION & LEGAL SHIELD
   For unconfirmed crimes, arrests, or political allegations, strictly use neutral attribution:
   "పోలీసుల ప్రాథమిక విచారణ ప్రకారం", "సమాచారం అందుతోంది", "బాధితుల ఫిర్యాదు మేరకు", "ఆరోపణలు వెల్లువెత్తుతున్నాయి".
 
-STEP 2: SHORT NEWS CONTENT CREATION (Strict 60 to 75 Telugu words total, exactly 2 micro-paragraphs)
+STEP 2: SHORT NEWS CONTENT CREATION (STRICT 60 TO 70 TELUGU WORDS MAXIMUM, EXACTLY 2 MICRO-PARAGRAPHS)
 Write straight-to-the-point, high-impact short news without any fluff or filler words.
-Structure the Telugu 'content' into exactly TWO crisp micro-paragraphs separated by a newline (\\n\\n) — strictly 60 to 75 words total:
+MANDATORY WORD LIMIT: Total Telugu 'content' MUST NEVER EXCEED 70 WORDS (strictly 60 to 70 Telugu words total).
+Structure the Telugu 'content' into exactly TWO crisp micro-paragraphs separated by a newline (\\n\\n) — strictly 60 to 70 words total:
 - Paragraph 1 (లీడ్ / Lead Story ~30-35 words): Must start with a complete opening sentence mentioning WHO (name/leader/spokesperson), WHERE (location), and WHAT (the core incident/statement). Zero fluff, straight to the point.
-- Paragraph 2 (వివరాలు & పంచ్ / Details & Outcome ~30-35 words): Specific details, punch quotes from the speaker, citizen impact, and current status.
+- Paragraph 2 (వివరాలు & పంచ్ / Details & Outcome ~25-35 words): Specific details, punch quotes from the speaker, citizen impact, and current status.
+CRITICAL CONSTRAINT: Be ultra-concise and punchy. Do NOT exceed 70 words under any circumstance.
 
 Telugu Journalistic Style & Tone Modulation:
 - Use natural Telugu journalistic flow ("వివరాల్లోకి వెళితే...", "సమాచారం అందుకున్న వెంటనే...", "ఘటనా స్థలానికి చేరుకున్న అధికారులు...", "కేసు నమోదు చేసి దర్యాప్తు ప్రారంభించారు").

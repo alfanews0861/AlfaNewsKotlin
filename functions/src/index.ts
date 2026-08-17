@@ -65,6 +65,11 @@ export {
     broadcastToAllReporters
 } from './reporter_messaging';
 
+// 7. Export News Reporting & Auto-Takedown
+export {
+    reportNewsPost
+} from './report_handler';
+
 
 /**
  * Push Broadcast Function (Manual Push)

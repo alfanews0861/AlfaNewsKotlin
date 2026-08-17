@@ -866,12 +866,16 @@ fun ReporterListCard(
                                 if (newRole == UserRole.REPORTER) {
                                     updates["warningLevel"] = 0
                                     updates["inProbation"] = false
+                                    updates["previouslyDowngraded"] = false
+                                    updates["suspended"] = false
                                     updates["promotedAt"] = com.google.firebase.Timestamp.now()
                                     updates["lastPostTimestamp"] = com.google.firebase.Timestamp.now()
                                 } else {
                                     // Suspend చేసినప్పుడు assignedMandal clear చేయాలి
                                     // — mandal free అవుతుంది, వేరే reporter apply చేయగలరు
                                     updates["assignedMandal"] = ""
+                                    updates["previouslyDowngraded"] = true
+                                    updates["suspended"] = true
                                 }
                                 FirebaseService.db.collection("users").document(reporter.id).update(updates).await()
 

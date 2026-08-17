@@ -203,9 +203,24 @@
     <string name="aggregator_disclaimer_desc">Alfa News Telugu ఒక వార్తా సేకరణ (Aggregator) వేదిక. ఇందులో ప్రచురించబడే వార్తలు మరియు కంటెంట్ వివిధ మూలాల నుండి సేకరించబడినవి మరియు సంక్షిప్తీకరించబడినవి. మూల వనరులలో ఉండే లోపాలకు మేము బాధ్యత వహించము.</string>
     <string name="general_info_disclaimer">Alfa News Telugu వెబ్‌సైట్/అప్లికేషన్‌లో అందించబడిన సమాచారం కేవలం సాధారణ సమాచార ప్రయోజనాల కోసం మాత్రమే. మేము సమాచారాన్ని వీలైనంత ఖచ్చితంగా మరియు తాజాగా ఉంచడానికి ప్రయత్నిస్తున్నప్పటికీ, వెబ్‌సైట్‌లోని సమాచారం యొక్క సంపూర్ణత, ఖచ్చితత్వం, విశ్వసనీయత గురించి మేము ఎలాంటి హామీలు ఇవ్వము.</string>
     <string name="takedown_policy">Takedown Policy (కంటెంట్ తొలగింపు)</string>
-    <string name="takedown_desc">ఎవరికైనా మా యాప్‌లోని ఏదైనా కంటెంట్ లేదా ఇమేజ్ పట్ల అభ్యంతరం ఉంటే మాకు మెయిల్ చేయండి. Email: contact@alfanews.app. మేము 24 గంటల్లో స్పందించి, అభ్యంతరకరమైన కంటెంట్‌ను తొలగిస్తాము.</string>
+    <string name="takedown_desc">ఎవరికైనా మా యాప్‌లోని ఏదైనా కంటెంట్ లేదా ఇమేజ్ పట్ల అభ్యంతరం ఉంటే మాకు మెయిల్ చేయండి. Email: alfanews0861@gmail.com. లేదా వార్త వద్ద గల \'Report\' బటన్ క్లిక్ చేసి ఫిర్యాదు చేయండి. మేము తక్షణమే పరిశీలించి తగిన చర్యలు తీసుకుంటాము.</string>
     <string name="reliance_disclaimer">సమాచారంపై ఆధారపడటం</string>
     <string name="reliance_desc">ఈ వెబ్‌సైట్‌లోని సమాచారంపై మీరు ఉంచే ఏదైనా నమ్మకం పూర్తిగా మీ స్వంత పూచీపై ఆధారపడి ఉంటుంది. ఈ వెబ్‌సైట్ వాడకం వలన కలిగే ఏదైనా నష్టం లేదా హానికి మేము బాధ్యత వహించము.</string>
+
+    <!-- News Reporting & Mini Disclaimer -->
+    <string name="article_disclaimer_note">ఈ వార్తా సమాచారం అధీకృత పబ్లిక్ సోర్స్‌లు, సిటిజన్ రిపోర్టర్లు మరియు AI సారాంశం ద్వారా అందించబడినది. ఏదైనా అభ్యంతరం ఉంటే \'Report\' చేయండి.</string>
+    <string name="report">రిపోర్ట్</string>
+    <string name="report_news">వార్తపై ఫిర్యాదు చేయండి</string>
+    <string name="report_reason_title">ఫిర్యాదు చేయడానికి కారణాన్ని ఎంచుకోండి:</string>
+    <string name="report_reason_fake">తప్పుడు సమాచారం / పుకారు</string>
+    <string name="report_reason_defamation">వ్యక్తిగత దూషణ / పరువు నష్టం</string>
+    <string name="report_reason_hate">విద్వేష ప్రసంగం / మతపరమైన ఘర్షణ</string>
+    <string name="report_reason_inappropriate">అభ్యంతరకర కంటెంట్ / అశ్లీలత</string>
+    <string name="report_reason_other">ఇతర సమస్య</string>
+    <string name="report_submit">ఫిర్యాదు పంపండి</string>
+    <string name="report_submitting">సమర్పిస్తున్నాము...</string>
+    <string name="report_success">ధన్యవాదాలు! మీ ఫిర్యాదు అందింది. మేము తక్షణమే పరిశీలిస్తాము.</string>
+    <string name="report_error">ఫిర్యాదు సమర్పించడంలో సమస్య ఎదురైంది. దయచేసి మళ్ళీ ప్రయత్నించండి.</string>
 
     <!-- Policy - Terms of Service -->
     <string name="tos_title">సేవా నిబంధనలు (Terms of Service)</string>
@@ -309,6 +324,22 @@
 
     <!-- Join Reporter Form -->
     <string name="reporter_app_form">రిపోర్టర్ అప్లికేషన్ ఫారం</string>
+    <string name="reporter_rules_title">విలేకరి నిబంధనలు (Reporter Guidelines)</string>
+    <string name="reporter_rules_subtitle">రిపోర్టర్‌గా చేరడానికి ముందు దయచేసి క్రింది నిబంధనలను శ్రద్ధగా చదవండి:</string>
+    <string name="reporter_rule_1_title">ప్రతిరోజూ కనీసం ఒక వార్త</string>
+    <string name="reporter_rule_1_desc">రెగ్యులర్‌గా వార్తలు పెట్టాలి. మీ మండలానికి సంబంధించిన వార్త ప్రతిరోజూ కనీసం ఒక్కటైనా తప్పనిసరిగా ఉండాలి.</string>
+    <string name="reporter_rule_2_title">త్వరితగతిన సమాచారం</string>
+    <string name="reporter_rule_2_desc">వార్తలను వీలైనంత త్వరగా తాజా సమాచారంతో అందించగలగాలి.</string>
+    <string name="reporter_rule_3_title">నాణ్యత &amp; యాజమాన్య హక్కు</string>
+    <string name="reporter_rule_3_desc">మీరు నాణ్యమైన వార్తలు అందించడంలో విఫలమైతే వెంటనే మిమ్మల్ని మార్చి వేరే విలేకరిని నియమించుకునే హక్కు యాజమాన్యానికి ఉంటుంది.</string>
+    <string name="reporter_rule_4_title">పారితోషికం</string>
+    <string name="reporter_rule_4_desc">వార్తలకు ఎటువంటి చెల్లింపు (Payment) ప్రస్తుతానికి లేదు.</string>
+    <string name="reporter_rules_agree_checkbox">నేను పై నిబంధనలన్నింటినీ చదివాను, వీటికి పూర్తిగా అంగీకరిస్తున్నాను.</string>
+    <string name="reporter_agree_and_continue">అంగీకరించి ముందుకు వెళ్లండి</string>
+    <string name="reporter_login_required_title">రిజిస్ట్రేషన్ / లాగిన్ అవసరం</string>
+    <string name="reporter_login_required_desc">ఆటోమేటిక్ అప్రూవల్ కోసం మీరు ముందుగా యాప్‌లో రిజిస్ట్రేషన్ (లాగిన్) పూర్తి చేసుకోవాలి. రిజిస్ట్రేషన్ పూర్తయిన తర్వాత తిరిగి వచ్చి అప్లై చేసుకోండి.</string>
+    <string name="reporter_login_button">లాగిన్ అవ్వండి</string>
+    <string name="app_auto_approved_success">అభినందనలు! మీ మండలానికి (%1$s) విలేకరిగా మీరు విజయవంతంగా చేరారు.\n\n• ఇప్పుడే ఒక వార్తను పోస్ట్ చేయండి.\n• మీకు ఏదైనా సాంకేతిక సహాయం కావాలంటే \'మెసేజెస్\' (Messages) ఆప్షన్ ద్వారా మాకు మెసేజ్ చేయండి.</string>
     <string name="full_name">పూర్తి పేరు</string>
     <string name="father_name">తండ్రిపేరు</string>
     <string name="phone_number_label">ఫోన్ నెంబర్</string>
@@ -327,6 +358,7 @@
     <string name="ok">సరే</string>
     <string name="fill_all_details">దయచేసి అన్ని వివరాలు నింపండి</string>
     <string name="app_success_logged_in">ధన్యవాదాలు, మీ అప్లికేషన్ పరిశీలించబడుతుంది.</string>
+    <string name="app_reapplication_review_pending">ధన్యవాదాలు. మీరు గతంలో విలేకరిగా ఉన్న రికార్డు ఉంది. నిబంధనల ప్రకారం మీ దరఖాస్తును అడ్మిన్ పరిశీలించిన తర్వాత మాత్రమే నిర్ణయం తీసుకోబడుతుంది.</string>
     <string name="app_success_guest">ధన్యవాదాలు, మీ అప్లికేషన్ పరిశీలించబడుతుంది. ఈ లోపు మీరు లాగిన్ అయి ప్రొఫైల్ అప్‌డేట్ చేసుకోండి.</string>
     <string name="submission_failed">సమర్పించడంలో విఫలమైంది: %1$s</string>
     <string name="district_staff_reporter">జిల్లా స్టాఫ్ రిపోర్టర్</string>

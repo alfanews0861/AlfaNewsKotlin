@@ -36,7 +36,7 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.sendContactEmail = exports.triggerPushBroadcast = exports.broadcastToAllReporters = exports.sendAdminReporterMessage = exports.onNewsPostCreated = exports.processNewsPost = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
+exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.sendContactEmail = exports.triggerPushBroadcast = exports.reportNewsPost = exports.broadcastToAllReporters = exports.sendAdminReporterMessage = exports.onNewsPostCreated = exports.processNewsPost = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
 /**
  * Alfa News - Cloud Functions v18.0 (Refactored & Modular)
  */
@@ -89,6 +89,9 @@ __exportStar(require("./reporter_monitor"), exports);
 var reporter_messaging_1 = require("./reporter_messaging");
 Object.defineProperty(exports, "sendAdminReporterMessage", { enumerable: true, get: function () { return reporter_messaging_1.sendAdminReporterMessage; } });
 Object.defineProperty(exports, "broadcastToAllReporters", { enumerable: true, get: function () { return reporter_messaging_1.broadcastToAllReporters; } });
+// 7. Export News Reporting & Auto-Takedown
+var report_handler_1 = require("./report_handler");
+Object.defineProperty(exports, "reportNewsPost", { enumerable: true, get: function () { return report_handler_1.reportNewsPost; } });
 /**
  * Push Broadcast Function (Manual Push)
  */

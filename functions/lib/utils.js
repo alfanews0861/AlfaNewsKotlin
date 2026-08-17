@@ -300,7 +300,7 @@ async function saveImageLocally(externalUrl, prefix) {
  */
 async function processAndOptimizeNewsImage(imageUrl, postId, isGraphicOrBloody = false, isSensitiveVictimOrMinor = false) {
     try {
-        if (!imageUrl || !imageUrl.includes('firebasestorage.googleapis.com'))
+        if (!imageUrl || (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')))
             return null;
         console.log(`[IMG_OPT] Processing image for post ${postId} (Bloody: ${isGraphicOrBloody}, Sensitive: ${isSensitiveVictimOrMinor})...`);
         const response = await fetch(imageUrl);
@@ -309,7 +309,7 @@ async function processAndOptimizeNewsImage(imageUrl, postId, isGraphicOrBloody =
             return null;
         }
         const contentType = response.headers.get('content-type') || "";
-        if (!contentType.startsWith('image/')) {
+        if (contentType && !contentType.startsWith('image/')) {
             console.log(`[IMG_OPT] URL is not an image (Content-Type: ${contentType}). Skipping.`);
             return null;
         }
@@ -320,48 +320,36 @@ async function processAndOptimizeNewsImage(imageUrl, postId, isGraphicOrBloody =
         const width = metadata.width || 1280;
         const height = metadata.height || 720;
         const aspectRatio = width / height;
-        // Base sharp pipeline
-        let pipeline = sharp(buffer);
-        // 1. Auto-enhance dynamic contrast & brightness for dark/night photos
-        pipeline = pipeline.normalize();
-        // 2. Convert to Black & White if graphic/bloody accident
+        const targetW = Math.min(Math.max(1280, width), 1920);
+        const targetH = Math.round(targetW * 9 / 16);
+        // Pure 16:9 Crop with Top-Anchored Head & Face Preservation (Zero Blurred Background)
+        // By anchoring position to sharp.position.top (North), cropping starts at the very top edge (y=0)
+        // This strictly preserves people's heads, hair, faces, and shoulders in the 16:9 frame.
+        let pipeline = sharp(buffer)
+            .resize({
+            width: targetW,
+            height: targetH,
+            fit: sharp.fit.cover,
+            position: sharp.position.top // Top-anchored crop: HEADS & FACES ARE ALWAYS PRESERVED
+        })
+            .normalize();
         if (isGraphicOrBloody) {
             console.log(`[IMG_OPT] Converting graphic/bloody image to Grayscale (B&W) for post ${postId}`);
             pipeline = pipeline.grayscale();
         }
-        // 3. Privacy protection for POCSO / Minors / Victims / Dead bodies
         if (isSensitiveVictimOrMinor) {
             console.log(`[IMG_OPT] Applying sensitive privacy protection blur for post ${postId}`);
             pipeline = pipeline.blur(18);
         }
         else {
-            // Apply subtle sharpening for crisp journalism output when not blurred
-            pipeline = pipeline.sharpen({ sigma: 1, m1: 0.5, m2: 0.5 });
+            pipeline = pipeline.sharpen({ sigma: 0.8, m1: 0.5, m2: 0.5 });
         }
-        // 4. Smart Crop to 16:9 if image is vertical, square, or 4:3 (aspectRatio < 1.6)
-        // Using sharp.strategy.attention to keep faces and heads in frame
-        if (aspectRatio < 1.6) {
-            console.log(`[IMG_OPT] Non-16:9 image detected (${width}x${height}, ratio: ${aspectRatio.toFixed(2)}). Smart-cropping to 16:9 with head/attention preservation...`);
-            pipeline = pipeline.resize({
-                width: 1280,
-                height: 720,
-                fit: sharp.fit.cover,
-                position: sharp.strategy.attention // Keeps faces and salient top-attention subjects
-            });
-        }
-        else {
-            // Already 16:9 or wide, normalize width to 1280 without cropping
-            pipeline = pipeline.resize({
-                width: 1280,
-                height: Math.round(1280 / aspectRatio),
-                withoutEnlargement: true
-            });
-        }
-        const optimizedBuffer = await pipeline.webp({ quality: 85 }).toBuffer();
-        // 5. Generate 16:9 Thumbnail (200px width)
+        // Save at ultra-crisp 92% WebP quality (lossless-grade crispness)
+        const optimizedBuffer = await pipeline.webp({ quality: 92 }).toBuffer();
+        // Generate 16:9 Thumbnail for push notifications (400px width at 80% quality)
         const thumbBuffer = await sharp(optimizedBuffer)
-            .resize({ width: 200, withoutEnlargement: true })
-            .webp({ quality: 65 })
+            .resize({ width: 400, withoutEnlargement: true })
+            .webp({ quality: 80 })
             .toBuffer();
         const bucket = admin.storage().bucket();
         const optFileName = `news-media/${postId}_opt_${Date.now()}.webp`;

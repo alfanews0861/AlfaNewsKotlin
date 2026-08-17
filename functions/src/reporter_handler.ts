@@ -453,14 +453,119 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         throw new HttpsError('already-exists', 'ఈ మండలానికి ఇప్పటికే మరొకరు దరఖాస్తు (PENDING) చేశారు. దయచేసి వేరే మండలం ఎంచుకోండి.');
     }
 
-    // Save application to Firestore with PENDING status
+    // Check if THIS APPLICANT was previously removed / downgraded for inactivity or suspended
+    let isPreviouslyDowngraded = false;
+    let existingUserData: any = {};
+    if (userId) {
+        const userDoc = await db.collection('users').doc(userId).get();
+        existingUserData = userDoc.data() || {};
+        if (
+            existingUserData.previouslyDowngraded === true || 
+            existingUserData.suspended === true || 
+            existingUserData.downgradedReason === "INACTIVITY"
+        ) {
+            isPreviouslyDowngraded = true;
+        }
+    }
+
+    if (!isPreviouslyDowngraded && phone) {
+        const cleanPhone = phone.trim().replace(/\s+/g, '').replace(/^\+91/, '');
+        const prevAppSnap = await db.collection('reporter_applications')
+            .where('phone', '==', cleanPhone)
+            .where('status', '==', 'SUSPENDED')
+            .limit(1)
+            .get();
+        if (!prevAppSnap.empty) {
+            isPreviouslyDowngraded = true;
+        }
+    }
+
+    // Auto-approve ONLY IF user is not previously downgraded and mandal is vacant
+    const shouldAutoApprove = Boolean(userId && !isPreviouslyDowngraded && reporterSnap.empty && joinedAppSnap.empty);
+    const finalStatus = shouldAutoApprove ? "JOINED" : "PENDING";
+
+    // Save application to Firestore
     await db.collection('reporter_applications').add({
         ...data,
         district: trimmedDistrict,
         mandal: trimmedMandal,
-        status: "PENDING",
+        status: finalStatus,
+        autoApproved: shouldAutoApprove,
+        isReapplication: isPreviouslyDowngraded,
+        previouslyDowngraded: isPreviouslyDowngraded,
+        agreedToRules: true,
         timestamp: admin.firestore.FieldValue.serverTimestamp()
     });
+
+    if (shouldAutoApprove && userId) {
+        // Promote user role to REPORTER immediately
+        const userRef = db.collection('users').doc(userId);
+        const existingData = existingUserData;
+
+        await userRef.set({
+            role: "REPORTER",
+            district: trimmedDistrict,
+            assignedMandal: trimmedMandal,
+            mandal: trimmedMandal,
+            promotedBy: "AUTO_APPROVAL_SYSTEM",
+            agreedToRules: true,
+            joinedAt: admin.firestore.FieldValue.serverTimestamp(),
+            name: fullName || existingData.name || "",
+            phone: phone || existingData.phone || "",
+            points: existingData.points ?? 0,
+            badges: existingData.badges ?? []
+        }, { merge: true });
+
+        // Send In-App Welcome Desk Message & Push to the newly joined reporter
+        try {
+            const welcomeText = `నమస్కారం ${fullName || 'మిత్రమా'}, ఆల్ఫా న్యూస్ విలేకరి బృందానికి మీకు హృదయపూర్వక స్వాగతం! 🎉\n\nమీరు ${trimmedMandal} మండల విలేకరిగా నియమించబడ్డారు. మీ మండల తాజా వార్తలను ప్రతిరోజూ కనీసం ఒకటైనా యాప్‌లో పోస్ట్ చేయండి. ఏదైనా సహాయం లేదా సందేహాలు ఉంటే ఇక్కడ నేరుగా మాకు మెసేజ్ చేయవచ్చు. శుభాకాంక్షలు!`;
+            
+            const msgTimestamp = admin.firestore.FieldValue.serverTimestamp();
+            await db.collection('reporter_conversations').doc(userId).collection('messages').add({
+                senderId: "SYSTEM_ADMIN",
+                senderName: "AlfaNews Editorial Desk",
+                senderRole: "ADMIN",
+                text: welcomeText,
+                type: "NOTICE",
+                read: false,
+                timestamp: msgTimestamp
+            });
+
+            await db.collection('reporter_conversations').doc(userId).set({
+                reporterId: userId,
+                reporterName: fullName || existingData.name || "Reporter",
+                reporterPhone: phone || existingData.phone || "",
+                reporterDistrict: trimmedDistrict,
+                reporterMandal: trimmedMandal,
+                lastMessage: welcomeText,
+                lastMessageTime: msgTimestamp,
+                lastSenderRole: "ADMIN",
+                lastSenderId: "SYSTEM_ADMIN",
+                unreadCountForReporter: 1,
+                updatedAt: msgTimestamp
+            }, { merge: true });
+
+            // Push Notification to new reporter
+            const userTokens = [...(existingData.fcmTokens || []), existingData.fcmToken].filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
+            if (userTokens.length > 0) {
+                const pushMessages = userTokens.map(token => ({
+                    token,
+                    notification: {
+                        title: "ఆల్ఫా న్యూస్ విలేకరి బృందానికి స్వాగతం! 🎉",
+                        body: `మీరు ${trimmedMandal} మండల విలేకరిగా ఆమోదించబడ్డారు. నేటి నుంచే వార్తలను పోస్ట్ చేయడం ప్రారంభించండి!`
+                    },
+                    data: {
+                        type: "REPORTER_WELCOME",
+                        mandal: trimmedMandal,
+                        district: trimmedDistrict
+                    }
+                }));
+                await admin.messaging().sendEach(pushMessages).catch(() => {});
+            }
+        } catch (msgErr: any) {
+            console.error("Failed to send welcome message/push to reporter:", msgErr.message);
+        }
+    }
 
     // Send notification email
     const transporter = nodemailer.createTransport({
@@ -472,8 +577,9 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
     });
 
     const emailContent = `
-        New Reporter Application:
+        ${shouldAutoApprove ? '[AUTO-APPROVED - ఆటోమేటిక్ అప్రూవ్ అయింది]' : 'New Reporter Application:'}
         -------------------------
+        Status: ${finalStatus}
         Full Name: ${fullName || 'N/A'}
         Father's Name: ${fatherName || 'N/A'}
         Phone Number: ${phone || 'N/A'}
@@ -492,15 +598,17 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
     const htmlEmail = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; margin: 0 auto;">
             <div style="background-color: #d32f2f; color: white; padding: 16px; text-align: center; font-size: 20px; font-weight: bold;">
-                Alfa News - కొత్త రిపోర్టర్ దరఖాస్తు
+                Alfa News - ${shouldAutoApprove ? 'కొత్త రిపోర్టర్ చేరారు (Auto-Approved)' : 'కొత్త రిపోర్టర్ దరఖాస్తు'}
             </div>
             <div style="padding: 20px;">
+                ${shouldAutoApprove ? '<div style="background-color: #e8f5e9; border: 1px solid #4caf50; color: #2e7d32; padding: 12px; border-radius: 6px; margin-bottom: 16px; font-weight: bold; text-align: center;">✅ ఈ విలేకరి మండలానికి ఎవరూ లేనందున ఆటోమేటిక్‌గా అప్రూవ్ చేయబడ్డారు (Auto-Approved).</div>' : ''}
                 <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-                    <tr><td style="padding: 8px; font-weight: bold; width: 180px;">పేరు (Full Name):</td><td style="padding: 8px;">${fullName || 'N/A'}</td></tr>
-                    <tr style="background-color: #f9f9f9;"><td style="padding: 8px; font-weight: bold;">తండ్రి పేరు (Father's Name):</td><td style="padding: 8px;">${fatherName || 'N/A'}</td></tr>
-                    <tr><td style="padding: 8px; font-weight: bold;">ఫోన్ నంబర్ (Phone):</td><td style="padding: 8px;">${phone || 'N/A'}</td></tr>
-                    <tr style="background-color: #f9f9f9;"><td style="padding: 8px; font-weight: bold;">చిరునామా (Address):</td><td style="padding: 8px;">${address || 'N/A'}</td></tr>
-                    <tr><td style="padding: 8px; font-weight: bold;">రాష్ట్రం (State):</td><td style="padding: 8px;">${state || 'N/A'}</td></tr>
+                    <tr><td style="padding: 8px; font-weight: bold; width: 180px;">స్టేటస్ (Status):</td><td style="padding: 8px; font-weight: bold; color: ${shouldAutoApprove ? '#2e7d32' : '#f57c00'};">${finalStatus}</td></tr>
+                    <tr style="background-color: #f9f9f9;"><td style="padding: 8px; font-weight: bold; width: 180px;">పేరు (Full Name):</td><td style="padding: 8px;">${fullName || 'N/A'}</td></tr>
+                    <tr><td style="padding: 8px; font-weight: bold;">తండ్రి పేరు (Father's Name):</td><td style="padding: 8px;">${fatherName || 'N/A'}</td></tr>
+                    <tr style="background-color: #f9f9f9;"><td style="padding: 8px; font-weight: bold;">ఫోన్ నంబర్ (Phone):</td><td style="padding: 8px;">${phone || 'N/A'}</td></tr>
+                    <tr><td style="padding: 8px; font-weight: bold;">చిరునామా (Address):</td><td style="padding: 8px;">${address || 'N/A'}</td></tr>
+                    <tr style="background-color: #f9f9f9;"><td style="padding: 8px; font-weight: bold;">రాష్ట్రం (State):</td><td style="padding: 8px;">${state || 'N/A'}</td></tr>
                     <tr style="background-color: #ffebee;"><td style="padding: 8px; font-weight: bold; color: #d32f2f;">జిల్లా (District):</td><td style="padding: 8px; font-weight: bold; color: #d32f2f; font-size: 16px;">${trimmedDistrict || 'N/A'}</td></tr>
                     <tr style="background-color: #ffebee;"><td style="padding: 8px; font-weight: bold; color: #d32f2f;">మండలం (Mandal):</td><td style="padding: 8px; font-weight: bold; color: #d32f2f; font-size: 16px;">${trimmedMandal || 'N/A'}</td></tr>
                     <tr><td style="padding: 8px; font-weight: bold;">కోరిన పదవి (Position):</td><td style="padding: 8px;">${position || 'N/A'}</td></tr>
@@ -514,11 +622,17 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         </div>
     `;
 
+    const emailSubject = isPreviouslyDowngraded
+        ? `[గతంలో తొలగించబడిన విలేకరి మళ్లీ దరఖాస్తు] ${fullName || 'N/A'} (${trimmedDistrict} - ${trimmedMandal})`
+        : shouldAutoApprove 
+            ? `[ఆటో-అప్రూవ్ అయింది] కొత్త రిపోర్టర్ చేరారు: ${fullName || 'N/A'} (${trimmedDistrict} - ${trimmedMandal})`
+            : `రిపోర్టర్ దరఖాస్తు: ${fullName || 'N/A'} (${trimmedDistrict} - ${trimmedMandal})`;
+
     try {
         await transporter.sendMail({
             from: `"Alfa News Applications" <${process.env.EMAIL_USER}>`,
             to: 'alfanews0861@gmail.com',
-            subject: `రిపోర్టర్ దరఖాస్తు: ${fullName || 'N/A'} (${trimmedDistrict} - ${trimmedMandal})`,
+            subject: emailSubject,
             text: emailContent,
             html: htmlEmail
         });
@@ -527,7 +641,12 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         // We still return success: true because the database write succeeded.
     }
 
-    return { success: true };
+    return { 
+        success: true, 
+        autoApproved: shouldAutoApprove, 
+        isPreviouslyDowngraded,
+        status: finalStatus 
+    };
 });
 
 /**

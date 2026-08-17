@@ -238,6 +238,9 @@ async function handleReporterStatus(reporterId, reporter, daysInactive, admins) 
             role: types_1.UserRole.SUBSCRIBER,
             warningLevel: 0,
             inProbation: false,
+            previouslyDowngraded: true,
+            downgradedReason: "INACTIVITY",
+            downgradedAt: admin.firestore.FieldValue.serverTimestamp(),
             lastWarningDate: admin.firestore.FieldValue.serverTimestamp()
         });
         await sendInternalMessage(reporterId, title, body, "CRITICAL", reporter, "WARNING");

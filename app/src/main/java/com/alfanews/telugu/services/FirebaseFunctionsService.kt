@@ -158,5 +158,18 @@ object FirebaseFunctionsService {
             "body" to body
         ))
     }
+
+    suspend fun reportNewsPost(
+        postId: String,
+        reason: String,
+        details: String? = null
+    ): Result<Map<String, Any>> {
+        val data = mutableMapOf<String, Any>(
+            "postId" to postId,
+            "reason" to reason
+        )
+        details?.let { data["details"] = it }
+        return callFunction("reportNewsPost", data)
+    }
 }
 

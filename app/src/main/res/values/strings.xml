@@ -205,9 +205,24 @@
     <string name="aggregator_disclaimer_desc">Alfa News Telugu is a news collection (Aggregator) platform. The news and content published here are collected and summarized from various sources. We are not responsible for errors in the original sources.</string>
     <string name="general_info_disclaimer">The information provided on the Alfa News Telugu website/application is for general information purposes only. While we try to keep the information as accurate and up-to-date as possible, we make no guarantees about the completeness, accuracy, or reliability of the information on the website.</string>
     <string name="takedown_policy">Takedown Policy (Content Removal)</string>
-    <string name="takedown_desc">If anyone has an objection to any content or image in our app, please email us. Email: contact@alfanews.app. We will respond within 24 hours and remove objectionable content.</string>
+    <string name="takedown_desc">If anyone has an objection to any content or image in our app, please email us. Email: alfanews0861@gmail.com, or tap \'Report\' on the article. We will review and take prompt action.</string>
     <string name="reliance_disclaimer">Reliance on Information</string>
     <string name="reliance_desc">Any reliance you place on the information on this website is strictly at your own risk. We will not be liable for any loss or damage arising from the use of this website.</string>
+
+    <!-- News Reporting & Mini Disclaimer -->
+    <string name="article_disclaimer_note">This news content is aggregated from verified public sources, citizen reporters, and AI summaries. If you have objections, please tap \'Report\'.</string>
+    <string name="report">Report</string>
+    <string name="report_news">Report this News</string>
+    <string name="report_reason_title">Select reason for reporting:</string>
+    <string name="report_reason_fake">False or Misleading Information</string>
+    <string name="report_reason_defamation">Defamation / Personal Attack</string>
+    <string name="report_reason_hate">Hate Speech / Communal Conflict</string>
+    <string name="report_reason_inappropriate">Inappropriate / Adult Content</string>
+    <string name="report_reason_other">Other Issue</string>
+    <string name="report_submit">Submit Report</string>
+    <string name="report_submitting">Submitting...</string>
+    <string name="report_success">Thank you! Your report has been submitted for review.</string>
+    <string name="report_error">Failed to submit report. Please try again.</string>
 
     <!-- Policy - Terms of Service -->
     <string name="tos_title">Terms of Service</string>
@@ -311,6 +326,22 @@
 
     <!-- Join Reporter Form -->
     <string name="reporter_app_form">Reporter Application Form</string>
+    <string name="reporter_rules_title">Reporter Guidelines &amp; Rules</string>
+    <string name="reporter_rules_subtitle">Please carefully read the following rules before applying:</string>
+    <string name="reporter_rule_1_title">Daily Mandatory News</string>
+    <string name="reporter_rule_1_desc">Must post news regularly. There must be at least one news post every day from your mandal.</string>
+    <string name="reporter_rule_2_title">Timely &amp; Fast Reporting</string>
+    <string name="reporter_rule_2_desc">News updates must be reported as quickly as possible with accurate information.</string>
+    <string name="reporter_rule_3_title">Quality &amp; Management Rights</string>
+    <string name="reporter_rule_3_desc">If you fail to provide quality and timely news, management reserves the right to replace you with another reporter.</string>
+    <string name="reporter_rule_4_title">Honorary / No Payment</string>
+    <string name="reporter_rule_4_desc">There is no remuneration/payment for news posts currently.</string>
+    <string name="reporter_rules_agree_checkbox">I have read and agree to all the above rules and guidelines.</string>
+    <string name="reporter_agree_and_continue">Agree &amp; Continue</string>
+    <string name="reporter_login_required_title">Registration Required</string>
+    <string name="reporter_login_required_desc">To get auto-approved as a reporter, your user registration (login) must be completed first. Please login and then apply.</string>
+    <string name="reporter_login_button">Login / Register</string>
+    <string name="app_auto_approved_success">Congratulations! You have been successfully appointed as the reporter for %1$s.\n\n• Start by posting your first news update now.\n• If you need any technical assistance, please message us directly via the \'Messages\' option.</string>
     <string name="full_name">Full Name</string>
     <string name="father_name">Father\'s Name</string>
     <string name="phone_number_label">Phone Number</string>
@@ -329,6 +360,7 @@
     <string name="ok">OK</string>
     <string name="fill_all_details">Please fill in all details</string>
     <string name="app_success_logged_in">Thank you, your application is being reviewed.</string>
+    <string name="app_reapplication_review_pending">Thank you. You have a previous record as a reporter. As per guidelines, your application will be reviewed by Admin before approval.</string>
     <string name="app_success_guest">Thank you, your application is being reviewed. In the meantime, please login and update your profile.</string>
     <string name="submission_failed">Submission failed: %1$s</string>
     <string name="district_staff_reporter">District Staff Reporter</string>
