@@ -50,6 +50,11 @@ class PreferenceManager(context: Context) {
         private const val KEY_CATEGORY_READ_COUNTS = "key_category_read_counts"  // JSON map of category→count
         private const val KEY_SUBSCRIBED_CATEGORIES = "key_subscribed_cat_topics" // Set of subscribed category topics
         private const val KEY_WEATHER_GRID_TOPIC = "key_weather_grid_topic"        // Current weather grid FCM topic
+        private const val KEY_STREAK_LAST_READ_DATE = "key_streak_last_read_date"
+        private const val KEY_STREAK_CURRENT_DAYS = "key_streak_current_days"
+        private const val KEY_STREAK_LONGEST_DAYS = "key_streak_longest_days"
+        private const val KEY_STREAK_TOTAL_DAYS = "key_streak_total_days"
+        private const val KEY_OPINION_VOTE_PREFIX = "key_opinion_vote_"
 
         @Volatile
         private var INSTANCE: PreferenceManager? = null
@@ -385,5 +390,79 @@ class PreferenceManager(context: Context) {
         val obj = org.json.JSONObject()
         counts.forEach { (k, v) -> obj.put(k, v) }
         prefs.edit().putString(KEY_CATEGORY_READ_COUNTS, obj.toString()).apply()
+    }
+    // ==========================================
+    // DAILY READING STREAK TRACKER (🔥) & OPINION VOTES
+    // ==========================================
+    data class StreakInfo(
+        val streakDays: Int,
+        val isNewDay: Boolean,
+        val isMilestone: Boolean,
+        val milestoneText: String? = null
+    )
+
+    /**
+     * యూజర్ ప్రతిరోజూ వార్త చదివినప్పుడు డైలీ స్ట్రీక్ అప్‌డేట్ చేస్తుంది (🔥 Streak).
+     */
+    fun recordDailyReading(): StreakInfo {
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        val lastDate = prefs.getString(KEY_STREAK_LAST_READ_DATE, null)
+        val currentStreak = prefs.getInt(KEY_STREAK_CURRENT_DAYS, 0)
+        val longestStreak = prefs.getInt(KEY_STREAK_LONGEST_DAYS, 0)
+        val totalDays = prefs.getInt(KEY_STREAK_TOTAL_DAYS, 0)
+
+        if (lastDate == today) {
+            return StreakInfo(streakDays = currentStreak, isNewDay = false, isMilestone = false)
+        }
+
+        val newStreak: Int
+        if (lastDate != null) {
+            try {
+                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                val lastTime = sdf.parse(lastDate)?.time ?: 0L
+                val todayTime = sdf.parse(today)?.time ?: 0L
+                val diffDays = (todayTime - lastTime) / (1000 * 60 * 60 * 24)
+
+                newStreak = if (diffDays == 1L) {
+                    currentStreak + 1
+                } else {
+                    1
+                }
+            } catch (e: Exception) {
+                newStreak = 1
+            }
+        } else {
+            newStreak = 1
+        }
+
+        val newLongest = maxOf(longestStreak, newStreak)
+        prefs.edit()
+            .putString(KEY_STREAK_LAST_READ_DATE, today)
+            .putInt(KEY_STREAK_CURRENT_DAYS, newStreak)
+            .putInt(KEY_STREAK_LONGEST_DAYS, newLongest)
+            .putInt(KEY_STREAK_TOTAL_DAYS, totalDays + 1)
+            .apply()
+
+        val isMilestone = newStreak in listOf(3, 7, 14, 30, 50, 100)
+        val milestoneText = when (newStreak) {
+            3 -> "🔥 3 రోజుల స్ట్రీక్! అద్భుతం!"
+            7 -> "🏆 1 వారం స్ట్రీక్! సూపర్ రీడర్!"
+            14 -> "🌟 2 వారాల స్ట్రీక్! శభాష్!"
+            30 -> "👑 1 నెల స్ట్రీక్! డైలీ న్యూస్ లెజెండ్!"
+            else -> null
+        }
+
+        return StreakInfo(streakDays = newStreak, isNewDay = true, isMilestone = isMilestone, milestoneText = milestoneText)
+    }
+
+    fun getStreakDays(): Int = prefs.getInt(KEY_STREAK_CURRENT_DAYS, 0)
+    fun getLongestStreak(): Int = prefs.getInt(KEY_STREAK_LONGEST_DAYS, 0)
+
+    fun hasVotedOpinion(postId: String): String? {
+        return prefs.getString(KEY_OPINION_VOTE_PREFIX + postId, null)
+    }
+
+    fun saveOpinionVote(postId: String, option: String) {
+        prefs.edit().putString(KEY_OPINION_VOTE_PREFIX + postId, option).apply()
     }
 }

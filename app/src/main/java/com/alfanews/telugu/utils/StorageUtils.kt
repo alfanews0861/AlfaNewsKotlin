@@ -73,7 +73,11 @@ suspend fun uploadImageToStorage(
         
         Log.d("StorageUtils", "Starting byte upload to: $fileName (${data.size} bytes)")
         try {
-            val uploadTask = imageRef.putBytes(data).await()
+            val metadata = com.google.firebase.storage.StorageMetadata.Builder()
+                .setContentType("image/webp")
+                .setCacheControl("public, max-age=31536000, immutable")
+                .build()
+            val uploadTask = imageRef.putBytes(data, metadata).await()
             Log.d("StorageUtils", "Byte upload successful: $fileName")
             return imageRef.downloadUrl.await().toString()
         } catch (e: Exception) {
@@ -93,11 +97,31 @@ suspend fun uploadImageToStorage(
 }
 
 suspend fun uploadVideoToStorage(
+    context: Context,
     uri: Uri,
     folder: String = "uploads",
     onProgress: (Double) -> Unit = {}
 ): String {
     try {
+        // 📏 VALIDATE VIDEO SIZE: Max 100 MB limit
+        val MAX_VIDEO_SIZE_BYTES = 100 * 1024 * 1024L // 100 MB
+        var fileSize = -1L
+        try {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val sizeIndex = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                if (sizeIndex != -1 && cursor.moveToFirst()) {
+                    fileSize = cursor.getLong(sizeIndex)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("StorageUtils", "Could not determine file size via cursor: ${e.message}")
+        }
+
+        if (fileSize > MAX_VIDEO_SIZE_BYTES) {
+            val sizeMB = (fileSize / (1024 * 1024)).toInt()
+            throw IllegalArgumentException("ఎంచుకున్న వీడియో సైజు (${sizeMB} MB) చాలా ఎక్కువగా ఉంది. వీడియో సైజు గరిష్టంగా 100 MB లోపు మాత్రమే ఉండాలి.")
+        }
+
         val storageRef = FirebaseService.storage.reference
         val fileName = "${folder}/${UUID.randomUUID()}_${System.currentTimeMillis()}.mp4"
         val videoRef = storageRef.child(fileName)
@@ -107,9 +131,8 @@ suspend fun uploadVideoToStorage(
         
         uploadTask.addOnProgressListener { snapshot ->
             val totalBytes = snapshot.totalByteCount
-            if (totalBytes > 150 * 1024 * 1024) {
-                // Log warning for large video uploads (>150MB)
-                Log.w("StorageUtils", "Uploading large video file (${totalBytes / (1024 * 1024)} MB). Consider compressing on client.")
+            if (totalBytes > MAX_VIDEO_SIZE_BYTES) {
+                uploadTask.cancel()
             }
             val progress = if (totalBytes > 0) (100.0 * snapshot.bytesTransferred) / totalBytes else 0.0
             onProgress(progress)
@@ -138,7 +161,7 @@ suspend fun uploadMediaToStorage(
     onProgress: (Double) -> Unit = {}
 ): String {
     return if (isVideo) {
-        uploadVideoToStorage(uri, folder, onProgress)
+        uploadVideoToStorage(context, uri, folder, onProgress)
     } else {
         uploadImageToStorage(context, uri, folder)
     }

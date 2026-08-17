@@ -92,6 +92,7 @@ data class NewsPost(
     val district: String? = null,
     val state: String? = null,
     val status: String? = null,
+    val notificationTitle: String? = null,
 
     // Survey & Poll fields
     val surveyQuestions: List<SurveyQuestion> = emptyList(),
@@ -290,6 +291,7 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
     val state = data["state"]?.toString()
     val category = data["category"]?.toString() ?: "General News"
     val status = data["status"]?.toString()
+    val notificationTitle = data["notificationTitle"]?.toString()
 
     return NewsPost(
         id = id,
@@ -331,6 +333,7 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
         district = district,
         state = state,
         category = category,
-        status = status
+        status = status,
+        notificationTitle = notificationTitle
     )
 }

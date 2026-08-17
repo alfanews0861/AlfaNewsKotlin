@@ -203,8 +203,47 @@ object AnalyticsService {
             if (loc.isNotBlank()) locationScores[loc] = (locationScores[loc] ?: 0) + weight
         }
         
+        normalizeScoresIfNeeded()
         saveToPrefs()
         syncToFirestore()
+    }
+
+    private const val MAX_SCORE_THRESHOLD = 60
+
+    /**
+     * స్కోర్లు 60 దాటినప్పుడు వాటిని సగానికి (50%) తగ్గిస్తుంది.
+     * దీనివల్ల పాత ఆసక్తులు శాశ్వతంగా ఉండిపోకుండా యూజర్ యొక్క తాజా ఆసక్తులకు తగిన ప్రాధాన్యత లభిస్తుంది.
+     */
+    private fun normalizeScoresIfNeeded() {
+        val maxCat = categoryScores.values.maxOrNull() ?: 0
+        val maxRep = reporterScores.values.maxOrNull() ?: 0
+        val maxTag = tagScores.values.maxOrNull() ?: 0
+        val maxPeople = peopleScores.values.maxOrNull() ?: 0
+        val maxOrg = organizationScores.values.maxOrNull() ?: 0
+        val maxLoc = locationScores.values.maxOrNull() ?: 0
+
+        val overallMax = maxOf(maxCat, maxRep, maxTag, maxPeople, maxOrg, maxLoc)
+        if (overallMax >= MAX_SCORE_THRESHOLD) {
+            cachedPreferredCategories = null
+            fun scaleMap(map: ConcurrentHashMap<String, Int>) {
+                val keys = ArrayList(map.keys)
+                for (k in keys) {
+                    val v = map[k] ?: continue
+                    val scaled = v / 2
+                    if (scaled == 0 && v <= 0) {
+                        map.remove(k)
+                    } else {
+                        map[k] = scaled
+                    }
+                }
+            }
+            scaleMap(categoryScores)
+            scaleMap(reporterScores)
+            scaleMap(tagScores)
+            scaleMap(peopleScores)
+            scaleMap(organizationScores)
+            scaleMap(locationScores)
+        }
     }
 
     fun logNegativeSignal(post: NewsPost) {
@@ -304,6 +343,7 @@ object AnalyticsService {
         return cachedPreferredCategories ?: synchronized(categoryScores) {
             cachedPreferredCategories ?: if (categoryScores.isEmpty()) emptyList<String>() else {
                 categoryScores.entries
+                    .filter { it.value > 0 }
                     .sortedByDescending { it.value }
                     .take(15)
                     .map { it.key }
@@ -364,6 +404,37 @@ object AnalyticsService {
     }
 
     /**
+     * ప్రస్తుత సమయాన్ని (Hour of Day) బట్టి వార్తలకు Time-of-Day Multiplier వర్తింపజేస్తుంది.
+     * ఉదయం (5-11 AM): భక్తి, రాశిఫలాలు, వ్యాపారం/మార్కెట్, తాజా బ్రేకింగ్ (1.5x)
+     * మధ్యాహ్నం (11 AM-5 PM): రాజకీయం, జిల్లా/స్థానిక సమస్యలు, క్రైమ్ (1.4x)
+     * సాయంత్రం/రాత్రి (5-11 PM): సినిమా, వినోదం, క్రీడలు, వైరల్, లైఫ్‌స్టైల్ (1.6x)
+     */
+    fun getTimeOfDayMultiplier(post: NewsPost): Double {
+        val calendar = java.util.Calendar.getInstance()
+        val hour = calendar.get(java.util.Calendar.HOUR_OF_DAY) // 0 - 23
+
+        val allCategoriesText = (post.categories + listOfNotNull(post.category) + post.tags).joinToString(" ")
+
+        return when (hour) {
+            in 5..10 -> { // ఉదయం: భక్తి, రాశిఫలాలు, బంగారం/వ్యాపారం, తాజా ముఖ్యాంశాలు
+                val morningKeywords = listOf("భక్తి", "ఆధ్యాత్మికం", "రాశిఫలాలు", "వ్యాపారం", "మార్కెట్", "బంగారం", "గోల్డ్", "జాతీయం", "బ్రేకింగ్", "తాజా")
+                if (morningKeywords.any { allCategoriesText.contains(it, ignoreCase = true) }) 1.5 else 1.0
+            }
+            in 11..16 -> { // మధ్యాహ్నం: రాజకీయం, స్థానిక జిల్లా, సమస్యలు, క్రైమ్
+                val afternoonKeywords = listOf("రాజకీయం", "రాజకీయాలు", "జిల్లా", "సమస్య", "క్రైమ్", "పోలీస్", "ప్రభుత్వం", "పథకాలు")
+                if (afternoonKeywords.any { allCategoriesText.contains(it, ignoreCase = true) }) 1.4 else 1.0
+            }
+            in 17..23 -> { // సాయంత్రం / రాత్రి: సినిమా, వినోదం, క్రీడలు, క్రికెట్, వైరల్, లైఫ్‌స్టైల్
+                val eveningKeywords = listOf("వినోదం", "సినిమా", "ఓటీటీ", "క్రీడలు", "క్రికెట్", "స్పోర్ట్స్", "వైరల్", "జీవనశైలి", "లైఫ్ స్టైల్", "సరదా")
+                if (eveningKeywords.any { allCategoriesText.contains(it, ignoreCase = true) }) 1.6 else 1.0
+            }
+            else -> { // అర్ధరాత్రి / తెల్లవారుజాము
+                1.1
+            }
+        }
+    }
+
+    /**
      * ఒక వార్తా పోస్ట్ యొక్క యూజర్ ఆసక్తిని (Relevance Score) లెక్కిస్తుంది.
      */
     fun calculateRelevanceScore(post: NewsPost): Double {
@@ -403,7 +474,10 @@ object AnalyticsService {
         val hoursOld = (System.currentTimeMillis() - post.timestamp) / (1000.0 * 60 * 60)
         val recencyMultiplier = Math.exp(-hoursOld / 48.0) // 48 గంటల తర్వాత ప్రాధాన్యత తగ్గుతుంది
 
-        return score * recencyMultiplier
+        // సమయ ఆధారిత ప్రాధాన్యత (Time of Day Multiplier)
+        val timeMultiplier = getTimeOfDayMultiplier(post)
+
+        return (score * recencyMultiplier) * timeMultiplier
     }
 
     private fun saveToPrefs() {

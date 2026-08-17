@@ -16,6 +16,7 @@ import android.view.PixelCopy
 import android.view.View
 import android.widget.Toast
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -191,8 +192,9 @@ fun NewsCardView(
 
                     // ✅ PERSONALIZATION: User 4+ seconds చదివిన వార్త category track చేయాలి
                     // ఇది real engagement — fake likes/shares కాదు
-                    val newsCategory = post.category
-                    if (!newsCategory.isNullOrBlank() && newsCategory != "జిల్లా వార్త") {
+                    val newsCategory = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                        ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                    if (newsCategory != null) {
                         try {
                             val prefs = PreferenceManager.getInstance(context)
                             prefs.trackCategoryRead(newsCategory)
@@ -201,6 +203,12 @@ fun NewsCardView(
                             val totalReads = prefs.getCategoryReadCounts().values.sum()
                             if (totalReads % 5 == 0) {
                                 MyFirebaseMessagingService().updateCategorySubscriptions(prefs)
+                            }
+
+                            // 🔥 DAILY READING STREAK TRACKER
+                            val streakInfo = prefs.recordDailyReading()
+                            if (streakInfo.isNewDay && streakInfo.isMilestone && streakInfo.milestoneText != null) {
+                                Toast.makeText(context, streakInfo.milestoneText, Toast.LENGTH_SHORT).show()
                             }
                         } catch (e: Exception) {
                             Log.e("NewsCardView", "Category tracking failed", e)
@@ -316,9 +324,15 @@ fun NewsCardView(
                                 likeCount = if (isLiked) likeCount + 1 else maxOf(0, likeCount - 1)
                                 scope.launch {
                                     if (!wasLiked) {
-                                        // Liking
+                                        // Liking: High positive signal (weight = 3)
                                         FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(1))
                                         AnalyticsService.logAnalyticsEvent("like", Bundle().apply { putString("post_id", post.id) })
+                                        AnalyticsService.logPostEngagement(post, weight = 3)
+                                        val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                                            ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                                        if (primaryCat != null) {
+                                            try { PreferenceManager.getInstance(context).trackCategoryRead(primaryCat) } catch (e: Exception) { }
+                                        }
                                     } else {
                                         // Unliking — only decrement if real likes > 0
                                         FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(-1))
@@ -422,6 +436,15 @@ fun NewsCardView(
                         Column(modifier = Modifier.weight(1f).verticalScroll(scrollState)) {
                             Text(text = contentText, style = TextStyle(fontSize = contentSize, lineHeight = contentLineHeight, fontFamily = contentFontFamily, platformStyle = PlatformTextStyle(includeFontPadding = false)), color = MaterialTheme.colorScheme.onSurface)
                             
+                            if (post.surveyQuestions.isNotEmpty()) {
+                                InlineMicroPoll(
+                                    post = post,
+                                    currentUser = currentUser,
+                                    language = language,
+                                    onProfileClick = onProfileClick
+                                )
+                            }
+                            
                             if (post.affiliateUrl != null && post.affiliateUrl.isNotEmpty()) {
                                 Spacer(modifier = Modifier.height(16.dp))
                                 if (post.type == "affiliate") {
@@ -495,8 +518,15 @@ fun NewsCardView(
                                     likeCount = if (isLiked) likeCount + 1 else maxOf(0, likeCount - 1)
                                     scope.launch {
                                         if (!wasLiked) {
+                                            // Liking: High positive signal (weight = 3)
                                             FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(1))
                                             AnalyticsService.logAnalyticsEvent("like", Bundle().apply { putString("post_id", post.id) })
+                                            AnalyticsService.logPostEngagement(post, weight = 3)
+                                            val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                                                ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                                            if (primaryCat != null) {
+                                                try { PreferenceManager.getInstance(context).trackCategoryRead(primaryCat) } catch (e: Exception) { }
+                                            }
                                         } else {
                                             FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(-1))
                                         }
@@ -562,6 +592,13 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
                     chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     context.startActivity(chooser)
                     FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener { setShareCount(1) }
+                    AnalyticsService.logAnalyticsEvent("share", Bundle().apply { putString("post_id", post.id) })
+                    AnalyticsService.logPostEngagement(post, weight = 4)
+                    val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                        ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                    if (primaryCat != null) {
+                        try { PreferenceManager.getInstance(context).trackCategoryRead(primaryCat) } catch (e: Exception) { }
+                    }
                 } else Toast.makeText(context, context.getString(R.string.share_failed), Toast.LENGTH_SHORT).show()
                 bitmap.recycle() // ♻️ Recycle bitmap after sharing
             } else Toast.makeText(context, context.getString(R.string.screenshot_failed), Toast.LENGTH_SHORT).show()
@@ -1371,6 +1408,202 @@ private fun submitSurveyVotes(
             Toast.makeText(context, "ఓటు వేయడంలో లోపం: ${e.message}", Toast.LENGTH_LONG).show()
         } finally {
             setIsSubmitting(false)
+        }
+    }
+}
+
+@Composable
+fun InlineMicroPoll(
+    post: NewsPost,
+    currentUser: User?,
+    language: Language,
+    onProfileClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val prefs = remember(post.id) { PreferenceManager.getInstance(context) }
+    
+    val question = post.surveyQuestions.firstOrNull() ?: return
+    var selectedOptionId by remember(post.id) { mutableStateOf(prefs.hasVotedOpinion(post.id)) }
+    var isSubmitting by remember { mutableStateOf(false) }
+    var liveVotes by remember(post.id) { mutableStateOf(post.votes) }
+    var liveRealCount by remember(post.id) { mutableIntStateOf(post.realVotesCount) }
+
+    val hasVoted = selectedOptionId != null
+
+    DisposableEffect(post.id) {
+        val reg = FirebaseService.db.collection("news").document(post.id)
+            .addSnapshotListener { snap, err ->
+                if (err != null || snap == null || !snap.exists()) return@addSnapshotListener
+                val vRaw = snap.get("votes") as? Map<*, *>
+                if (vRaw != null) {
+                    val map = mutableMapOf<String, Int>()
+                    vRaw.forEach { (k, v) ->
+                        val ks = k?.toString() ?: ""
+                        val vi = (v as? Number)?.toInt() ?: 0
+                        map[ks] = vi
+                    }
+                    liveVotes = map
+                }
+                val rvc = snap.get("realVotesCount")
+                if (rvc is Number) liveRealCount = rvc.toInt()
+            }
+        onDispose { reg.remove() }
+    }
+
+    val totalDisplayVotes = remember(liveVotes, liveRealCount, post.fakeVotesBase) {
+        val realSum = liveVotes.values.sum()
+        if (realSum == 0 && liveRealCount == 0) post.fakeVotesBase else (realSum + post.fakeVotesBase)
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "📊 పోల్ / మీ అభిప్రాయం",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                if (hasVoted) {
+                    Text(
+                        text = "✅ ఓటు నమోదైంది",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = question.questionText,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            question.options.forEach { option ->
+                val optionVotes = liveVotes[option.id] ?: 0
+                val percent = if (totalDisplayVotes > 0) {
+                    ((optionVotes.toDouble() + (post.fakeVotesBase / maxOf(1, question.options.size))) / totalDisplayVotes * 100).toInt().coerceIn(0, 100)
+                } else 0
+
+                val isThisSelected = selectedOptionId == option.id
+
+                if (hasVoted) {
+                    val animatedProgress by androidx.compose.animation.core.animateFloatAsState(
+                        targetValue = percent / 100f,
+                        animationSpec = androidx.compose.animation.core.tween(durationMillis = 600),
+                        label = "poll_progress"
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .height(42.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .border(
+                                width = if (isThisSelected) 1.5.dp else 0.5.dp,
+                                color = if (isThisSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(animatedProgress)
+                                .background(
+                                    if (isThisSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+                                    else MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f)
+                                )
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = (if (isThisSelected) "✓ " else "") + option.text,
+                                fontSize = 13.sp,
+                                fontWeight = if (isThisSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "$percent%",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isThisSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            if (currentUser == null) {
+                                onProfileClick()
+                                return@Button
+                            }
+                            if (isSubmitting) return@Button
+                            isSubmitting = true
+                            selectedOptionId = option.id
+                            prefs.saveOpinionVote(post.id, option.id)
+
+                            scope.launch {
+                                try {
+                                    FirebaseService.db.collection("news").document(post.id).update(
+                                        mapOf(
+                                            "votes.${option.id}" to com.google.firebase.firestore.FieldValue.increment(1),
+                                            "realVotesCount" to com.google.firebase.firestore.FieldValue.increment(1)
+                                        )
+                                    )
+                                    AnalyticsService.logPostEngagement(post, weight = 3)
+                                    AnalyticsService.logAnalyticsEvent("news_micro_poll_voted")
+                                } catch (e: Exception) { }
+                                finally { isSubmitting = false }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .height(40.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Start
+                        ) {
+                            Text(text = option.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            }
         }
     }
 }

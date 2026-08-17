@@ -253,10 +253,15 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
             maxRequests = 8
             maxRequestsPerHost = 3
         }
+        val httpCacheDir = File(cacheDir, "http_image_cache")
+        val cacheSize = 250 * 1024 * 1024L // 250 MB HTTP Cache
+        val httpCache = okhttp3.Cache(httpCacheDir, cacheSize)
+
         return OkHttpClient.Builder()
+            .cache(httpCache)
             .dispatcher(dispatcher)
             .connectionPool(ConnectionPool(5, 2, TimeUnit.MINUTES))
-            .addInterceptor(SafeHeaderInterceptor())
+            .addNetworkInterceptor(SafeHeaderInterceptor())
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .writeTimeout(20, TimeUnit.SECONDS)
@@ -265,37 +270,45 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
 
     /**
      * 🛡️ ఇమేజ్ అభ్యర్థనలకు Referer మరియు User-Agent హెడర్‌లను జోడించే ఇంటర్‌సెప్టర్.
-     * బాహ్య వార్తా సంస్థల చిత్రాలను లోడ్ చేయడానికి ఇది అవసరం.
+     * అలాగే నెట్‌వర్క్ ఎగ్రెస్‌ను నివారించడానికి రెస్పాన్స్‌లో లాంగ్-టర్మ్ కాషింగ్ హెడర్లను నిర్ధారిస్తుంది.
      */
     private class SafeHeaderInterceptor : Interceptor {
         override fun intercept(chain: Interceptor.Chain): Response {
             val originalRequest = chain.request()
             val url = originalRequest.url.toString()
 
-            // Firebase Storage కి హెడర్లు అవసరం లేదు
-            if (url.contains("firebasestorage.googleapis.com", ignoreCase = true)) {
-                return chain.proceed(originalRequest)
+            val requestToProceed = if (url.contains("firebasestorage.googleapis.com", ignoreCase = true)) {
+                originalRequest
+            } else {
+                val referer = when {
+                    url.contains("eenadu", ignoreCase = true) -> "https://www.eenadu.net/"
+                    url.contains("sakshi", ignoreCase = true) -> "https://www.sakshi.com/"
+                    url.contains("suryaa", ignoreCase = true) -> "https://www.suryaa.com/"
+                    url.contains("andhrajyothy", ignoreCase = true) -> "https://www.andhrajyothy.com/"
+                    url.contains("andhrabhoomi", ignoreCase = true) -> "https://www.andhrabhoomi.net/"
+                    url.contains("vaartha", ignoreCase = true) -> "https://www.vaartha.com/"
+                    url.contains("greatandhra", ignoreCase = true) -> "https://www.greatandhra.com/"
+                    url.contains("123telugu", ignoreCase = true) -> "https://www.123telugu.com/"
+                    else -> "https://www.google.com/"
+                }
+
+                originalRequest.newBuilder()
+                    .header("Referer", referer)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                    .build()
             }
 
-            // URL ఆధారంగా తగిన Refererని నిర్ణయించడం
-            val referer = when {
-                url.contains("eenadu", ignoreCase = true) -> "https://www.eenadu.net/"
-                url.contains("sakshi", ignoreCase = true) -> "https://www.sakshi.com/"
-                url.contains("suryaa", ignoreCase = true) -> "https://www.suryaa.com/"
-                url.contains("andhrajyothy", ignoreCase = true) -> "https://www.andhrajyothy.com/"
-                url.contains("andhrabhoomi", ignoreCase = true) -> "https://www.andhrabhoomi.net/"
-                url.contains("vaartha", ignoreCase = true) -> "https://www.vaartha.com/"
-                url.contains("greatandhra", ignoreCase = true) -> "https://www.greatandhra.com/"
-                url.contains("123telugu", ignoreCase = true) -> "https://www.123telugu.com/"
-                else -> "https://www.google.com/"
+            val response = chain.proceed(requestToProceed)
+
+            // Force immutable client-side caching to prevent repeated Cloud Storage downloads
+            return if (response.isSuccessful) {
+                response.newBuilder()
+                    .header("Cache-Control", "public, max-age=31536000, immutable")
+                    .removeHeader("Pragma")
+                    .build()
+            } else {
+                response
             }
-
-            val newRequest = originalRequest.newBuilder()
-                .header("Referer", referer)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                .build()
-
-            return chain.proceed(newRequest)
         }
     }
 

@@ -313,12 +313,6 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 
                 lastDocument = snapshot?.documents?.lastOrNull()
                 _hasMore.value = snapshot?.documents?.size == pageSize
-
-                if (posts.isNotEmpty()) {
-                    try {
-                        com.alfanews.telugu.services.AnalyticsService.logBulkCategoryViews(posts.map { it.categories }, weight = 1)
-                    } catch (e: Exception) { }
-                }
                 
                 val finalPosts = posts.toMutableList()
                 val lat = prefs.lastLat.takeIf { it != 0.0 }
@@ -394,12 +388,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                      val uniqueNewPosts = newPosts.filter { post: NewsPost -> !currentIds.contains(post.id) }
                      
                      if (uniqueNewPosts.isNotEmpty()) {
-                         try {
-                             com.alfanews.telugu.services.AnalyticsService.logBulkCategoryViews(uniqueNewPosts.map { it.categories }, weight = 1)
-                         } catch (e: Exception) { }
-                         _news.value = _news.value + uniqueNewPosts
-                         consecutiveEmptyLoads = 0
-                     } else {
+                        _news.value = _news.value + uniqueNewPosts
+                        consecutiveEmptyLoads = 0
+                    } else {
                          consecutiveEmptyLoads++
                          if (consecutiveEmptyLoads >= 3) {
                              _hasMore.value = false

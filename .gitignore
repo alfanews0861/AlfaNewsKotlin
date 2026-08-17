@@ -99,7 +99,12 @@ Desktop.ini
 # Environment variables
 .env*
 
-# Node modules
+# Node modules & build
 node_modules/
 functions/node_modules/
 functions/lib/
+.firebase/
+*.txt
+functions/scratch/
+functions/src/scratch/
+functions/*.txt

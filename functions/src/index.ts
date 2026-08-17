@@ -93,8 +93,11 @@ export const triggerPushBroadcast = onCall(async (request) => {
     };
 
     if (imageUrl && imageUrl.startsWith('http')) {
-        message.notification.imageUrl = imageUrl;
-        message.android.notification.imageUrl = imageUrl;
+        const isHeavyStorageUrl = imageUrl.includes('firebasestorage.googleapis.com') && !imageUrl.includes('thumbnails%2F') && !imageUrl.includes('_thumb');
+        if (!isHeavyStorageUrl) {
+            message.notification.imageUrl = imageUrl;
+            message.android.notification.imageUrl = imageUrl;
+        }
         message.data.imageUrl = imageUrl;
     }
 

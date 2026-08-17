@@ -12,6 +12,8 @@ const { google } = require('googleapis');
 import {
     runWithAIFallback,
     parseAIJson,
+    sanitizeTeluguText,
+    processAndOptimizeNewsImage,
     FLASH_MODEL,
     REGION,
     createAndSaveThumbnail
@@ -200,8 +202,116 @@ Output JSON only.`,
 /**
  * Helper: Perform AI enhancement on news content
  */
-async function performAIProcessing(headline: string, content: string, actualPostData: any): Promise<any> {
-    const schema = {
+/**
+ * Helper: Normalize a single AI-generated story object
+ */
+function normalizeSingleStory(aiRes: any, actualPostData: any): any {
+    let finalContent = aiRes.content || aiRes.contentTe || aiRes.content_te ||
+        aiRes.telugu?.content || aiRes.telugu?.contentTe || aiRes.telugu?.summary ||
+        aiRes.telugu_version?.content || aiRes.telugu_version?.summary ||
+        aiRes.summaryTe || aiRes.summarized_telugu_content || aiRes.summary ||
+        aiRes.description || aiRes.summarizedTeluguContent || "";
+    finalContent = sanitizeTeluguText(finalContent);
+
+    let finalHeadline = aiRes.headline || aiRes.headlineTe || aiRes.headline_te ||
+        aiRes.telugu?.headline || aiRes.telugu?.headlineTe ||
+        aiRes.telugu_version?.headline || aiRes.telugu_version?.title ||
+        aiRes.title || aiRes.generated_telugu_headline || aiRes.generatedTeluguHeadline || "";
+    finalHeadline = sanitizeTeluguText(finalHeadline);
+
+    const finalHeadlineEn = aiRes.headlineEn || aiRes.headline_en ||
+        aiRes.english?.headline || aiRes.english?.headlineEn ||
+        aiRes.english_version?.headline || aiRes.english_version?.title ||
+        aiRes.titleEn || aiRes.englishHeadline || "";
+
+    let finalNotificationTitle = aiRes.notificationTitle || aiRes.notification_title || aiRes.curiosityHeadline || "";
+    if (finalNotificationTitle.toLowerCase() === "null" ||
+        finalNotificationTitle.toLowerCase() === "none" ||
+        finalNotificationTitle.toLowerCase() === "n/a" ||
+        finalNotificationTitle.toLowerCase() === "false") {
+        finalNotificationTitle = "";
+    } else {
+        finalNotificationTitle = sanitizeTeluguText(finalNotificationTitle);
+    }
+
+    const isRejected = aiRes.rejectionReason && aiRes.rejectionReason.length > 0;
+
+    if (!isRejected && (!finalContent || !finalHeadline)) {
+         console.warn("[AI_FIELD_WARNING] AI story item missing Telugu fields:", JSON.stringify(aiRes).substring(0, 300));
+    }
+
+    const finalContentEn = aiRes.contentEn || aiRes.content_en ||
+        aiRes.english?.content || aiRes.english?.contentEn || aiRes.english?.summary ||
+        aiRes.english_version?.content || aiRes.english_version?.summary ||
+        aiRes.summaryEn || aiRes.summarized_english_content || aiRes.englishContent || "";
+
+    let rejectionReason = aiRes.rejectionReason || "";
+    if (rejectionReason.toLowerCase() === "null" ||
+        rejectionReason.toLowerCase() === "none" ||
+        rejectionReason.toLowerCase() === "n/a" ||
+        rejectionReason.toLowerCase() === "false") {
+        rejectionReason = "";
+    }
+
+    const normalizedEntities = {
+        people: Array.isArray(aiRes.entities?.people) ? aiRes.entities.people : [],
+        organizations: Array.isArray(aiRes.entities?.organizations) ? aiRes.entities.organizations : [],
+        locations: Array.isArray(aiRes.entities?.locations) ? aiRes.entities.locations : []
+    };
+
+    const aiCategoryDetected = aiRes.refinedCategory || actualPostData?.category || "OTHER";
+    const canonicalCategory = normalizeCategory(aiCategoryDetected);
+    const isReporterPost = actualPostData?.isReporter === true || actualPostData?.processingType === "REPORTER_SUBMISSION";
+    const isGlobal = actualPostData?.isGlobal === true;
+
+    let primaryCategory: string;
+    let finalCategories: string[];
+
+    if (isReporterPost && !isGlobal) {
+        primaryCategory = "జిల్లా వార్త";
+        finalCategories = ["జిల్లా వార్త"];
+        if (actualPostData?.district) finalCategories.push(actualPostData.district);
+    } else {
+        primaryCategory = canonicalCategory;
+        finalCategories = Array.from(new Set([
+            primaryCategory,
+            canonicalCategory,
+            ...normalizeCategories(actualPostData?.categories || []),
+            ...(actualPostData?.district ? [actualPostData.district] : [])
+        ])).filter(c => !!c && c !== "OTHER");
+    }
+
+    return {
+        headline: { telugu: finalHeadline || "", english: finalHeadlineEn || "" },
+        content: { telugu: finalContent || "", english: finalContentEn || "" },
+        notificationTitle: finalNotificationTitle,
+        location: aiRes.location || actualPostData?.location || "",
+        category: primaryCategory,
+        categories: finalCategories,
+        tags: aiRes.tags || [],
+        entities: normalizedEntities,
+        matchedImageIndex: typeof aiRes.matchedImageIndex === 'number' ? aiRes.matchedImageIndex : 0,
+        isSafeForYouTube: aiRes.isSafeForYouTube ?? true,
+        rejectionReason: rejectionReason,
+        tone: aiRes.tone || "NORMAL",
+        vocalContent: aiRes.vocalContent || finalContent || "",
+        qualitySignals: aiRes.qualitySignals || { biasScore: 0.5, publicInterestScore: 0.5, investigativeScore: 0, isPersonalPraise: false },
+        storyFingerprint: aiRes.storyFingerprint || `gen_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        isBreaking: aiRes.isBreaking === true,
+        notificationWorthy: aiRes.notificationWorthy !== false,
+        isGraphicOrBloody: aiRes.isGraphicOrBloody === true,
+        isSensitiveVictimOrMinor: aiRes.isSensitiveVictimOrMinor === true,
+        aiProcessed: true,
+        aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+    };
+}
+
+/**
+ * Helper: Perform AI enhancement on news content (returns Array of 1 to 3 stories)
+ */
+async function performAIProcessing(headline: string, content: string, actualPostData: any): Promise<any[]> {
+    const singleStorySchema = {
         type: Type.OBJECT,
         properties: {
             headline: { type: Type.STRING },
@@ -211,15 +321,17 @@ async function performAIProcessing(headline: string, content: string, actualPost
             location: { type: Type.STRING },
             storyFingerprint: { type: Type.STRING },
             refinedCategory: { type: Type.STRING },
+            matchedImageIndex: { type: Type.INTEGER },
             isSafeForYouTube: { type: Type.BOOLEAN },
             rejectionReason: { type: Type.STRING },
             tone: { type: Type.STRING },
             vocalContent: { type: Type.STRING },
+            notificationTitle: { type: Type.STRING },
+            isGraphicOrBloody: { type: Type.BOOLEAN },
+            isSensitiveVictimOrMinor: { type: Type.BOOLEAN },
             tags: { type: Type.ARRAY, items: { type: Type.STRING } },
-            // ✅ NEW: AI స్వయంగా content చదివి breaking/notification decide చేస్తుంది
-            // notification time లో media/views recalculate అవసరం లేదు
-            isBreaking: { type: Type.BOOLEAN },          // Content-based breaking news flag
-            notificationWorthy: { type: Type.BOOLEAN },  // Worthy of push notification?
+            isBreaking: { type: Type.BOOLEAN },
+            notificationWorthy: { type: Type.BOOLEAN },
             qualitySignals: {
                 type: Type.OBJECT,
                 properties: {
@@ -241,6 +353,17 @@ async function performAIProcessing(headline: string, content: string, actualPost
         required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory", "isSafeForYouTube", "rejectionReason", "tags", "entities", "tone", "vocalContent", "isBreaking", "notificationWorthy"]
     };
 
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            stories: {
+                type: Type.ARRAY,
+                items: singleStorySchema
+            }
+        },
+        required: ["stories"]
+    };
+
     console.log(`[AI_START] Processing: ${headline.substring(0, 30)}... (Type: ${actualPostData?.isReporter ? 'Reporter' : 'Citizen'})`);
 
     const metadataPrompt = `
@@ -251,21 +374,23 @@ SUBMISSION METADATA:
 - district: ${actualPostData?.district || 'Unknown'}
 - location: ${actualPostData?.location || 'Unknown'}
 
+PROACTIVE MULTI-STORY BUNDLE DETECTION (CRITICAL):
+- Proactively detect if the input text contains multiple distinct sub-stories or angles:
+  1. Political Attack + Development Works/Achievements (e.g. Leader attacks rival on corruption, AND explains party's own development works or welfare comparison) -> MUST SPLIT into 2 distinct stories (Story 1: The sharp political/corruption attack; Story 2: Development works, achievements & challenges).
+  2. Multiple distinct scandals/scams or allegations in the same press meet -> MUST SPLIT into 2 distinct stories.
+  3. Bundled press releases / tour notes (Press meet + Project inauguration + Condolence) -> MUST SPLIT into 2 to 3 standalone stories.
+- If multiple distinct events/topics exist, output 2 to 3 separate story objects in the 'stories' array.
+- If strictly one single topic, return 1 story in the 'stories' array.
+- Assign 'matchedImageIndex' (0, 1, 2) matching which attached photo corresponds to each story.
+
 NOTIFICATION INSTRUCTIONS (CRITICAL):
 - isBreaking: true ONLY if the news is genuinely urgent and time-sensitive
   (accidents, deaths, natural disasters, major political decisions, crimes, emergency events).
   Do NOT set true for routine news, press meets, events, or opinion pieces.
 - notificationWorthy: true if the news is relevant to a broad audience and worth sending as a push notification.
-  Set false for: personal praise, promotional content, routine government meetings,
-  repetitive news, or low-public-interest items.
-  Set true for: accidents, crimes, major policy changes, sports results, health alerts,
-  district-level events that affect common people.
+- notificationTitle: If isBreaking or notificationWorthy is true, generate an intriguing Telugu curiosity hook title (max 8-10 words).
+  If both are false, set notificationTitle to null.
 - tone options: BREAKING | URGENT | IMPORTANT | NORMAL | SOFT
-  Use BREAKING only for truly breaking news (disasters, sudden deaths, major crimes).
-  Use URGENT for time-sensitive but not breaking news.
-  Use IMPORTANT for significant but not urgent news.
-  Use NORMAL for general news.
-  Use SOFT for feel-good / inspirational stories.
 `;
 
     return await runWithAIFallback(async (ai, modelName) => {
@@ -290,98 +415,28 @@ NOTIFICATION INSTRUCTIONS (CRITICAL):
         console.log(`[AI_RES] ${actualPostData.id || 'new'}:`, rawText.substring(0, 500));
         const aiRes = parseAIJson(rawText);
 
-        // ROBUST FIELD EXTRACTION: Handle Flat AND Nested JSON
-        const finalContent = aiRes.content || aiRes.contentTe || aiRes.content_te ||
-            aiRes.telugu?.content || aiRes.telugu?.contentTe || aiRes.telugu?.summary ||
-            aiRes.telugu_version?.content || aiRes.telugu_version?.summary ||
-            aiRes.summaryTe || aiRes.summarized_telugu_content || aiRes.summary ||
-            aiRes.description || aiRes.summarizedTeluguContent;
-
-        const finalHeadline = aiRes.headline || aiRes.headlineTe || aiRes.headline_te ||
-            aiRes.telugu?.headline || aiRes.telugu?.headlineTe ||
-            aiRes.telugu_version?.headline || aiRes.telugu_version?.title ||
-            aiRes.title || aiRes.generated_telugu_headline || aiRes.generatedTeluguHeadline;
-
-        const finalHeadlineEn = aiRes.headlineEn || aiRes.headline_en ||
-            aiRes.english?.headline || aiRes.english?.headlineEn ||
-            aiRes.english_version?.headline || aiRes.english_version?.title ||
-            aiRes.titleEn || aiRes.englishHeadline || "";
-
-        const isRejected = aiRes.rejectionReason && aiRes.rejectionReason.length > 0;
-
-        if (!isRejected && (!finalContent || !finalHeadline)) {
-             console.error("[AI_SCHEMA_MISMATCH] AI response missing Telugu fields:", JSON.stringify(aiRes).substring(0, 500));
-             throw new Error("AI response missing mandatory Telugu fields.");
+        let rawStories: any[] = [];
+        if (Array.isArray(aiRes.stories) && aiRes.stories.length > 0) {
+            rawStories = aiRes.stories;
+        } else if (aiRes.headline || aiRes.content) {
+            rawStories = [aiRes];
+        } else if (Array.isArray(aiRes) && aiRes.length > 0) {
+            rawStories = aiRes;
         }
 
-        const finalContentEn = aiRes.contentEn || aiRes.content_en ||
-            aiRes.english?.content || aiRes.english?.contentEn || aiRes.english?.summary ||
-            aiRes.english_version?.content || aiRes.english_version?.summary ||
-            aiRes.summaryEn || aiRes.summarized_english_content || aiRes.englishContent || "";
-
-        // Normalize rejection reason - ignore common placeholders
-        let rejectionReason = aiRes.rejectionReason || "";
-        if (rejectionReason.toLowerCase() === "null" ||
-            rejectionReason.toLowerCase() === "none" ||
-            rejectionReason.toLowerCase() === "n/a" ||
-            rejectionReason.toLowerCase() === "false") {
-            rejectionReason = "";
+        if (rawStories.length === 0) {
+            throw new Error("AI response did not contain any valid stories.");
         }
 
-        // Validate character count (Telugu)
-        if (finalContent.length < 450) {
-             console.warn(`[AI_LENGTH_WARNING] Content too short: ${finalContent.length} chars. Target is 450-600. Proceeding but logging.`);
-        }
-
-        const normalizedEntities = {
-            people: Array.isArray(aiRes.entities?.people) ? aiRes.entities.people : [],
-            organizations: Array.isArray(aiRes.entities?.organizations) ? aiRes.entities.organizations : [],
-            locations: Array.isArray(aiRes.entities?.locations) ? aiRes.entities.locations : []
-        };
-
-        const aiCategoryDetected = aiRes.refinedCategory || actualPostData?.category || "OTHER";
-        const canonicalCategory = normalizeCategory(aiCategoryDetected);
-        const isReporterPost = actualPostData?.isReporter === true || actualPostData?.processingType === "REPORTER_SUBMISSION";
-        const isGlobal = actualPostData?.isGlobal === true;
-
-        let primaryCategory: string;
-        let finalCategories: string[];
-
-        if (isReporterPost && !isGlobal) {
-            primaryCategory = "జిల్లా వార్త";
-            finalCategories = ["జిల్లా వార్త"];
-            if (actualPostData?.district) finalCategories.push(actualPostData.district);
-        } else {
-            primaryCategory = canonicalCategory;
-            finalCategories = Array.from(new Set([
-                primaryCategory,
-                canonicalCategory,
-                ...normalizeCategories(actualPostData?.categories || []),
-                ...(actualPostData?.district ? [actualPostData.district] : [])
-            ])).filter(c => !!c && c !== "OTHER");
-        }
-
-        return {
-            headline: { telugu: finalHeadline || "", english: finalHeadlineEn || "" },
-            content: { telugu: finalContent || "", english: finalContentEn || "" },
-            location: aiRes.location || actualPostData?.location || "",
-            category: primaryCategory,
-            categories: finalCategories,
-            tags: aiRes.tags || [],
-            entities: normalizedEntities,
-            isSafeForYouTube: aiRes.isSafeForYouTube ?? true,
-            rejectionReason: rejectionReason,
-            tone: aiRes.tone || "NORMAL",
-            vocalContent: aiRes.vocalContent || finalContent || "",
-            qualitySignals: aiRes.qualitySignals || { biasScore: 0.5, publicInterestScore: 0.5, investigativeScore: 0, isPersonalPraise: false },
-            storyFingerprint: aiRes.storyFingerprint || `gen_${Date.now()}`,
-            // ✅ AI-decided notification flags — set once, never recalculated
-            isBreaking: aiRes.isBreaking === true,
-            notificationWorthy: aiRes.notificationWorthy !== false, // default true unless AI says false
-            aiProcessed: true,
-            aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
-            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-        };
+        return rawStories.slice(0, 3).map((item, idx) => {
+            const normalized = normalizeSingleStory(item, actualPostData);
+            if (typeof item.matchedImageIndex === 'number') {
+                normalized.matchedImageIndex = item.matchedImageIndex;
+            } else {
+                normalized.matchedImageIndex = idx;
+            }
+            return normalized;
+        });
     });
 }
 
@@ -579,87 +634,138 @@ export const onNewsPostCreated = onDocumentWritten({
                  return;
             }
 
-            const aiProcessedData = await performAIProcessing(headline, content, latestData);
+            const processedStories = await performAIProcessing(headline, content, latestData);
+            console.log(`[AI_SPLIT] Post ${postId} processed into ${processedStories.length} distinct stories.`);
 
-            // --- MANDALAM REPORTER ASSIGNMENT LOGIC ---
-            // If there's an assigned reporter for this mandalam, override the reporter field
-            const mandalamDistrict = (aiProcessedData.categories && aiProcessedData.categories.find((c: string) => c.includes("జిల్లా"))) ? data.district : aiProcessedData.location;
-            // Actually, we should use data.district or aiProcessedData.district if we added it.
-            // Let's use the location (mandalam) and the district from data or categories.
-            const targetDistrict = data.district || (aiProcessedData.categories && aiProcessedData.categories.find((c: string) => !c.includes("వార్త") && c !== aiProcessedData.category));
-            const targetMandalam = aiProcessedData.location;
+            const availableMediaUrls: string[] = latestData.mediaUrls && latestData.mediaUrls.length > 0
+                ? latestData.mediaUrls
+                : (latestData.mediaUrl ? [latestData.mediaUrl] : []);
 
-            if (targetDistrict && targetMandalam) {
-                const assignedReporter = await getAssignedReporter(targetDistrict, targetMandalam);
-                if (assignedReporter) {
-                    console.log(`[REPORTER_ASSIGN] Reassigning ${postId} to ${assignedReporter.name} for mandalam ${targetMandalam}`);
-                    aiProcessedData.reporter = assignedReporter;
-                    aiProcessedData.isReporter = true;
-                    if (originalReporterId) {
-                        aiProcessedData.originalReporterId = originalReporterId;
+            for (let i = 0; i < processedStories.length; i++) {
+                const aiProcessedData = processedStories[i];
+                const targetPostId = i === 0 ? postId : `${postId}_part${i + 1}`;
+
+                // --- MANDALAM REPORTER ASSIGNMENT LOGIC ---
+                const targetDistrict = data.district || (aiProcessedData.categories && aiProcessedData.categories.find((c: string) => !c.includes("వార్త") && c !== aiProcessedData.category));
+                const targetMandalam = aiProcessedData.location;
+
+                if (targetDistrict && targetMandalam) {
+                    const assignedReporter = await getAssignedReporter(targetDistrict, targetMandalam);
+                    if (assignedReporter) {
+                        console.log(`[REPORTER_ASSIGN] Reassigning ${targetPostId} to ${assignedReporter.name} for mandalam ${targetMandalam}`);
+                        aiProcessedData.reporter = assignedReporter;
+                        aiProcessedData.isReporter = true;
+                        if (originalReporterId) {
+                            aiProcessedData.originalReporterId = originalReporterId;
+                        }
                     }
                 }
-            }
-            // ------------------------------------------
 
-            const finalIsReporter = isReporter || aiProcessedData.isReporter;
-            const isRejected = aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
+                const finalIsReporter = isReporter || aiProcessedData.isReporter;
+                const isRejected = aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
 
-            // ✅ FIX #3: latestData వాడాలి (fresh DB fetch), stale trigger snapshot (data) కాదు
-            const mTypes = (latestData.mediaTypes || []).map((t: string) => t.toUpperCase());
-            const hasVideo = mTypes.includes('VIDEO') || latestData.mediaType?.toUpperCase() === 'VIDEO';
+                const mTypes = (latestData.mediaTypes || []).map((t: string) => t.toUpperCase());
+                const hasVideo = mTypes.includes('VIDEO') || latestData.mediaType?.toUpperCase() === 'VIDEO';
 
-            const updatePayload: any = {
-                ...aiProcessedData,
-                status: isRejected ? "REJECTED" : (hasVideo ? "PROCESSING_VIDEO" : "published"),
-                approved: isRejected ? false : (finalIsReporter ? (hasVideo ? false : true) : (!hasVideo))
-            };
+                const updatePayload: any = {
+                    ...aiProcessedData,
+                    status: isRejected ? "REJECTED" : (hasVideo ? "PROCESSING_VIDEO" : "published"),
+                    approved: isRejected ? false : (finalIsReporter ? (hasVideo ? false : true) : (!hasVideo))
+                };
 
-            const mediaUrl = latestData.mediaUrl || (latestData.mediaUrls && latestData.mediaUrls[0]) || "";
-            if (mediaUrl && !latestData.thumbnailUrl) {
-                try {
-                    const thumbUrl = await createAndSaveThumbnail(mediaUrl, postId);
-                    if (thumbUrl) {
-                        updatePayload.thumbnailUrl = thumbUrl;
+                // Smart Photo Matching:
+                // Use matchedImageIndex if valid, else match by index i or fallback to first image
+                const imgIdx = typeof aiProcessedData.matchedImageIndex === 'number' && aiProcessedData.matchedImageIndex >= 0 && aiProcessedData.matchedImageIndex < availableMediaUrls.length
+                    ? aiProcessedData.matchedImageIndex
+                    : (i < availableMediaUrls.length ? i : 0);
+                const storyMediaUrl = availableMediaUrls[imgIdx] || availableMediaUrls[0] || "";
+
+                if (storyMediaUrl && !hasVideo) {
+                    try {
+                        const optResult = await processAndOptimizeNewsImage(
+                            storyMediaUrl,
+                            targetPostId,
+                            aiProcessedData.isGraphicOrBloody === true,
+                            aiProcessedData.isSensitiveVictimOrMinor === true
+                        );
+                        if (optResult) {
+                            updatePayload.mediaUrl = optResult.optimizedUrl;
+                            updatePayload.mediaUrls = [optResult.optimizedUrl];
+                            updatePayload.thumbnailUrl = optResult.thumbnailUrl;
+                            if (aiProcessedData.isGraphicOrBloody) {
+                                updatePayload.isGrayscale = true;
+                            }
+                            if (aiProcessedData.isSensitiveVictimOrMinor) {
+                                updatePayload.isPrivacyBlurred = true;
+                            }
+                        }
+                    } catch (e: any) {
+                        console.error(`[IMG_OPT_ERR] Error optimizing news image for ${targetPostId}:`, e.message);
                     }
-                } catch (e: any) {
-                    console.error(`[THUMBNAIL_ERR] Error creating thumbnail:`, e.message);
+                }
+
+                console.log(`[AI_DONE] ${targetPostId} (Story ${i+1}/${processedStories.length}). Type: ${finalIsReporter ? 'REPORTER' : 'CITIZEN'}, Status: ${updatePayload.status}, Approved: ${updatePayload.approved}`);
+                if (isRejected) console.log(`[AI_REJECTED] ${targetPostId} Reason: ${aiProcessedData.rejectionReason}`);
+
+                if (i === 0) {
+                    await db.collection('news').doc(postId).update(updatePayload);
+                } else {
+                    const splitDocData = {
+                        ...latestData,
+                        ...updatePayload,
+                        id: targetPostId,
+                        parentPostId: postId,
+                        splitPart: i + 1,
+                        totalSplitParts: processedStories.length,
+                        timestamp: latestData.timestamp || admin.firestore.FieldValue.serverTimestamp(),
+                        createdAt: latestData.createdAt || admin.firestore.FieldValue.serverTimestamp()
+                    };
+                    await db.collection('news').doc(targetPostId).set(splitDocData);
+                }
+
+                // Notifications & Rewards
+                if (isRejected && finalIsReporter && originalReporterId && i === 0) {
+                    await notifyReporter(
+                        originalReporterId,
+                        targetPostId,
+                        aiProcessedData.headline?.telugu || latestData.headline?.telugu || "",
+                        'POLICY_VIOLATION',
+                        updatePayload.mediaUrl || storyMediaUrl
+                    );
+                }
+
+                if (updatePayload.status === "published" && finalIsReporter && originalReporterId) {
+                    const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
+                    await awardPointsToReporter(originalReporterId, points);
+                    await notifyReporter(
+                        originalReporterId,
+                        targetPostId,
+                        aiProcessedData.headline?.telugu || latestData.headline?.telugu || "",
+                        'SUCCESS',
+                        updatePayload.mediaUrl || storyMediaUrl
+                    );
                 }
             }
-
-            console.log(`[AI_DONE] ${postId}. Type: ${finalIsReporter ? 'REPORTER' : 'CITIZEN'}, Status: ${updatePayload.status}, Approved: ${updatePayload.approved}`);
-            if (isRejected) console.log(`[AI_REJECTED] ${postId} Reason: ${aiProcessedData.rejectionReason}`);
-
-            await db.collection('news').doc(postId).update(updatePayload);
-
-            // ✅ FIX #2: POLICY_VIOLATION notification — AI reject చేసినప్పుడు reporter కి తెలియజేయాలి
-            if (isRejected && finalIsReporter && originalReporterId) {
-                await notifyReporter(
-                    originalReporterId,
-                    postId,
-                    latestData.headline?.telugu || "",
-                    'POLICY_VIOLATION',
-                    latestData.mediaUrl || (latestData.mediaUrls && latestData.mediaUrls[0]) || ""
-                );
-            }
-
-            // Award points & SUCCESS notification to the ORIGINAL submitter if published (non-video)
-            if (updatePayload.status === "published" && finalIsReporter && originalReporterId) {
-                const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
-                await awardPointsToReporter(originalReporterId, points);
-                // ✅ FIX #1: Non-video reporter posts కి SUCCESS notification పంపాలి
-                await notifyReporter(
-                    originalReporterId,
-                    postId,
-                    latestData.headline?.telugu || "",
-                    'SUCCESS',
-                    latestData.mediaUrl || (latestData.mediaUrls && latestData.mediaUrls[0]) || ""
-                );
-            }
-            return; // Exit and wait for the second trigger to handle video if needed
+            return;
         } catch (err: any) {
             console.error(`[AI_ERR] ${postId}:`, err.message);
-            await db.collection('news').doc(postId).update({ status: "FAILED", error: err.message });
+            const currentRetries = (latestData.aiRetryCount || 0) + 1;
+            if (currentRetries <= 3) {
+                console.warn(`[AI_AUTO_RETRY] Automatically scheduling retry for ${postId} (Attempt ${currentRetries}/3)...`);
+                // Reset status to PENDING so Firestore trigger re-runs automatically
+                await db.collection('news').doc(postId).update({
+                    status: "PENDING",
+                    aiRetryCount: currentRetries,
+                    lastRetryError: err.message || "Temporary AI busy"
+                });
+            } else {
+                console.error(`[AI_FATAL_FAILED] ${postId} exhausted all ${currentRetries - 1} auto-retries.`);
+                await db.collection('news').doc(postId).update({
+                    status: "FAILED",
+                    error: err.message,
+                    aiRetryCount: currentRetries
+                });
+            }
             return;
         }
     }
@@ -996,8 +1102,29 @@ export const onNewsPostCreated = onDocumentWritten({
                 media: { body: fs.createReadStream(outputPath) },
             });
 
+            const ytVideoId = ytRes.data.id;
+            const ytThumbnail = `https://img.youtube.com/vi/${ytVideoId}/hqdefault.jpg`;
+
+            // ✅ CRITICAL COST OPTIMIZATION: Delete raw heavy MP4 from Firebase Storage
+            if (videoUrl && videoUrl.includes('firebasestorage.googleapis.com')) {
+                try {
+                    const decodedUrl = decodeURIComponent(videoUrl);
+                    const pathParts = decodedUrl.split('/o/');
+                    if (pathParts.length >= 2) {
+                        const rawStoragePath = pathParts[1].split('?')[0];
+                        console.log(`[STORAGE_CLEANUP] Deleting uploaded raw video from storage: ${rawStoragePath}`);
+                        await admin.storage().bucket().file(rawStoragePath).delete();
+                    }
+                } catch (delErr: any) {
+                    console.warn(`[STORAGE_CLEANUP_WARN] Could not delete raw video: ${delErr.message}`);
+                }
+            }
+
             await db.collection('news').doc(postId).update({
-                youtubeUrl: `https://www.youtube.com/watch?v=${ytRes.data.id}`,
+                youtubeUrl: `https://www.youtube.com/watch?v=${ytVideoId}`,
+                mediaUrl: ytThumbnail,
+                mediaUrls: [ytThumbnail],
+                thumbnailUrl: ytThumbnail,
                 videoProcessed: true,
                 status: "published",
                 approved: true
@@ -1014,6 +1141,19 @@ export const onNewsPostCreated = onDocumentWritten({
             }
         } catch (err: any) {
             console.error(`[VIDEO_ERR] ${postId}: ${err.message}. Locking post in FAILED_YOUTUBE_UPLOAD to prevent storage egress loop.`);
+            
+            // Clean up raw storage file on failure as well to prevent storage accumulation
+            if (videoUrl && videoUrl.includes('firebasestorage.googleapis.com')) {
+                try {
+                    const decodedUrl = decodeURIComponent(videoUrl);
+                    const pathParts = decodedUrl.split('/o/');
+                    if (pathParts.length >= 2) {
+                        const rawStoragePath = pathParts[1].split('?')[0];
+                        await admin.storage().bucket().file(rawStoragePath).delete();
+                    }
+                } catch (delErr: any) {}
+            }
+
             // Lock in FAILED_YOUTUBE_UPLOAD so it never retries automatically or streams raw video from Firebase Storage to users
             await db.collection('news').doc(postId).update({
                 status: "FAILED_YOUTUBE_UPLOAD",

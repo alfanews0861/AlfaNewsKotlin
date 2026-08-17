@@ -68,6 +68,7 @@ export interface NewsPost {
   originalUrl?: string; // To check for duplicates
   affiliateUrl?: string; // New field for ecommerce products
   productPrice?: string; // Optional price information
+  notificationTitle?: string; // High-engagement curiosity hook title for push notifications
 }
 
 export enum Language {

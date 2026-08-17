@@ -41,13 +41,14 @@ const CATEGORY_TOPICS: Record<string, string> = {
 // ==========================================
 // TIME-BASED ENGAGING TITLES
 // ==========================================
-function getTitleForHour(hour: number, headline: string): string {
-    const short = headline.substring(0, 45).trim();
-    if (hour === 8)  return `☀️ శుభోదయం! ${short}...`;
-    if (hour === 13) return `🔴 తాజా వార్త: ${short}...`;
-    if (hour === 18) return `🌆 సాయంత్రం అప్‌డేట్: ${short}...`;
-    if (hour === 21) return `🌙 రాత్రి వార్తలు: ${short}...`;
-    return `📰 ${headline.substring(0, 60)}`;
+function getTitleForHour(hour: number, headline: string, curiosityTitle?: string): string {
+    const raw = (curiosityTitle && curiosityTitle.trim()) ? curiosityTitle.trim() : headline.trim();
+    const short = raw.length > 50 ? raw.substring(0, 50).trim() + "..." : raw;
+    if (hour === 8)  return `☀️ శుభోదయం! ${short}`;
+    if (hour === 13) return `🔴 తాజా వార్త: ${short}`;
+    if (hour === 18) return `🌆 సాయంత్రం అప్‌డేట్: ${short}`;
+    if (hour === 21) return `🌙 రాత్రి వార్తలు: ${short}`;
+    return `📰 ${short}`;
 }
 
 // ==========================================
@@ -63,11 +64,16 @@ function buildNewsMessage(
 ): admin.messaging.Message {
     const headline = news.headline?.telugu || news.headline?.english || news.headline || "";
     const body = (headline + "").substring(0, 150);
+    // 🛡️ Cost & Egress Guard: Only attach image to system notification drawer if it is a lightweight CDN/YouTube thumbnail.
+    // NEVER attach heavy raw Firebase Storage downloads to FCM broadcast payloads to prevent massive background download spikes.
+    const isHeavyStorageUrl = imageUrl.includes('firebasestorage.googleapis.com') && !imageUrl.includes('thumbnails%2F') && !imageUrl.includes('_thumb');
+    const safeDrawerImageUrl = (!isHeavyStorageUrl && imageUrl) ? imageUrl : undefined;
+
     return {
         notification: {
             title,
             body,
-            ...(imageUrl ? { imageUrl } : {})
+            ...(safeDrawerImageUrl ? { imageUrl: safeDrawerImageUrl } : {})
         },
         android: {
             priority: 'high',
@@ -75,7 +81,7 @@ function buildNewsMessage(
             directBootOk: true,
             notification: {
                 channelId,
-                ...(imageUrl ? { imageUrl } : {}),
+                ...(safeDrawerImageUrl ? { imageUrl: safeDrawerImageUrl } : {}),
                 defaultSound: true,
                 priority: 'high'
             }
@@ -189,6 +195,7 @@ export const sendPersonalizedNotification = onSchedule({
 
     if (topNews && lastSentMap['general'] !== topNews.id) {
         const headline = topNews.headline?.telugu || topNews.headline?.english || topNews.headline || "నేటి ముఖ్య వార్తలు";
+        const curiosityTitle = topNews.notificationTitle || "";
         let imageUrl = topNews.thumbnailUrl || "";
         if (!imageUrl && topNews.mediaUrl) {
             imageUrl = (await createAndSaveThumbnail(topNews.mediaUrl, topNews.id)) || topNews.mediaUrl;
@@ -200,7 +207,7 @@ export const sendPersonalizedNotification = onSchedule({
         try {
             const message = buildNewsMessage(
                 topNews,
-                getTitleForHour(istHour, headline),
+                getTitleForHour(istHour, headline, curiosityTitle),
                 "general_news",
                 imageUrl,
                 3600000, // 1 hour TTL
@@ -228,7 +235,8 @@ export const sendPersonalizedNotification = onSchedule({
 
             if (!districtNews) continue;
 
-            const headline = districtNews.headline?.telugu || `${district} తాజా వార్త`;
+            const notifTitle = districtNews.notificationTitle || districtNews.headline?.telugu || `${district} తాజా వార్త`;
+            const shortTitle = notifTitle.length > 45 ? notifTitle.substring(0, 45).trim() + "..." : notifTitle;
             let imageUrl = districtNews.thumbnailUrl || "";
             if (!imageUrl && districtNews.mediaUrl) {
                 imageUrl = (await createAndSaveThumbnail(districtNews.mediaUrl, districtNews.id)) || districtNews.mediaUrl;
@@ -242,7 +250,7 @@ export const sendPersonalizedNotification = onSchedule({
             try {
                 const message = buildNewsMessage(
                     districtNews,
-                    `📍 ${district}: ${headline.substring(0, 40)}...`,
+                    `📍 ${district}: ${shortTitle}`,
                     "local_news",
                     imageUrl,
                     7200000, // 2 hour TTL
@@ -272,13 +280,14 @@ export const sendPersonalizedNotification = onSchedule({
 
             if (!catNews) continue;
 
-            const headline = catNews.headline?.telugu || catNews.headline?.english || "";
+            const notifTitle = catNews.notificationTitle || catNews.headline?.telugu || catNews.headline?.english || "";
+            const shortTitle = notifTitle.length > 45 ? notifTitle.substring(0, 45).trim() + "..." : notifTitle;
             const imageUrl = catNews.thumbnailUrl || catNews.mediaUrl || "";
 
             try {
                 const message = buildNewsMessage(
                     catNews,
-                    `📌 ${teluguCat}: ${headline.substring(0, 45)}...`,
+                    `📌 ${teluguCat}: ${shortTitle}`,
                     "general_news",
                     imageUrl,
                     3600000, // 1 hour TTL
@@ -365,12 +374,13 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
         return;
     }
 
-    const headline = after.headline?.telugu || after.headline?.english || after.headline || "తాజా వార్త";
+    const notifTitle = after.notificationTitle || after.headline?.telugu || after.headline?.english || after.headline || "తాజా వార్త";
+    const shortBreaking = notifTitle.length > 50 ? notifTitle.substring(0, 50).trim() + "..." : notifTitle;
     const imageUrl = after.thumbnailUrl || after.mediaUrl || "";
 
     const breakingTitle = (tone === 'BREAKING' || after.isBreaking === true)
-        ? `🔴 Breaking: ${headline.substring(0, 50)}...`
-        : `⚡ ముఖ్య వార్త: ${headline.substring(0, 45)}...`;
+        ? `🔴 Breaking: ${shortBreaking}`
+        : `⚡ ముఖ్య వార్త: ${shortBreaking}`;
 
     try {
         const news = { id: postId, ...after };
@@ -392,9 +402,10 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
             const categoryTopic = getCategoryTopic(category);
             if (categoryTopic) {
                 try {
+                    const catTitle = notifTitle.length > 45 ? notifTitle.substring(0, 45).trim() + "..." : notifTitle;
                     const catMessage = buildNewsMessage(
                         news,
-                        `📌 ${category}: ${headline.substring(0, 45)}...`,
+                        `📌 ${category}: ${catTitle}`,
                         "general_news",
                         imageUrl,
                         3600000, // 1 hour TTL for category
