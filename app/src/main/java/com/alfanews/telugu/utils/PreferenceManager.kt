@@ -415,24 +415,23 @@ class PreferenceManager(context: Context) {
             return StreakInfo(streakDays = currentStreak, isNewDay = false, isMilestone = false)
         }
 
-        val newStreak: Int
-        if (lastDate != null) {
+        val newStreak: Int = if (lastDate != null) {
             try {
                 val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
                 val lastTime = sdf.parse(lastDate)?.time ?: 0L
                 val todayTime = sdf.parse(today)?.time ?: 0L
                 val diffDays = (todayTime - lastTime) / (1000 * 60 * 60 * 24)
 
-                newStreak = if (diffDays == 1L) {
+                if (diffDays == 1L) {
                     currentStreak + 1
                 } else {
                     1
                 }
             } catch (e: Exception) {
-                newStreak = 1
+                1
             }
         } else {
-            newStreak = 1
+            1
         }
 
         val newLongest = maxOf(longestStreak, newStreak)
