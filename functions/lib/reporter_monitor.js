@@ -240,12 +240,12 @@ async function handleReporterStatus(reporterId, reporter, daysInactive, admins) 
             inProbation: false,
             lastWarningDate: admin.firestore.FieldValue.serverTimestamp()
         });
-        await sendInternalMessage(reporterId, title, body, "CRITICAL", reporter);
+        await sendInternalMessage(reporterId, title, body, "CRITICAL", reporter, "WARNING");
         // Send copy of downgrade notice to all admins
         const copyTitle = `[రిపోర్టర్ కాపీ] ${reporterName}: ${title}`;
         const copyBody = `రిపోర్టర్ వివరాలు:\nపేరు: ${reporterName}\nID: ${reporterId}\nపరిస్థితి: సబ్‌స్క్రైబర్‌గా మార్చబడింది\nఅచేతన రోజులు: ${daysInactive} రోజులు\n\nపంపిన సందేశం:\n${body}`;
         for (const adminDoc of admins) {
-            await sendInternalMessage(adminDoc.id, copyTitle, copyBody, "HIGH", adminDoc.data());
+            await sendInternalMessage(adminDoc.id, copyTitle, copyBody, "HIGH", adminDoc.data(), "ADMIN_COPY");
         }
         return true;
     }
@@ -256,43 +256,94 @@ async function handleReporterStatus(reporterId, reporter, daysInactive, admins) 
             lastWarningDate: admin.firestore.FieldValue.serverTimestamp()
         };
         // ✅ FIX #2: Level 3 (Final Warning) కి వెళ్తే inProbation: true set చేయాలి.
-        // దీనివల్ల "3 రోజుల్లో downgrade" promise match అవుతుంది (probation path: daysInactive >= 6).
         if (nextLevel === 3) {
             levelUpdates.inProbation = true;
         }
         await db.collection('users').doc(reporterId).update(levelUpdates);
-        await sendInternalMessage(reporterId, title, body, importance, reporter);
+        await sendInternalMessage(reporterId, title, body, importance, reporter, "WARNING");
         // Send copy of warning to all admins
         const copyTitle = `[రిపోర్టర్ కాపీ] ${reporterName}: ${title}`;
         const copyBody = `రిపోర్టర్ వివరాలు:\nపేరు: ${reporterName}\nID: ${reporterId}\nహెచ్చరిక స్థాయి: Level ${nextLevel}\nఅచేతన రోజులు: ${daysInactive} రోజులు\n\nపంపిన సందేశం:\n${body}`;
         for (const adminDoc of admins) {
-            await sendInternalMessage(adminDoc.id, copyTitle, copyBody, importance, adminDoc.data());
+            await sendInternalMessage(adminDoc.id, copyTitle, copyBody, importance, adminDoc.data(), "ADMIN_COPY");
         }
         return true;
     }
     return false;
 }
-async function sendInternalMessage(userId, title, body, importance, userData) {
+async function sendInternalMessage(userId, title, body, importance, userData, msgType = "INTERNAL_MESSAGE") {
     try {
+        const timestamp = admin.firestore.FieldValue.serverTimestamp();
         const messageData = {
             title,
             body,
             senderName: "AlfaNews Admin",
             read: false,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            importance
+            timestamp,
+            importance,
+            type: msgType
         };
+        // 1. Add to user's personal messages subcollection
         await db.collection('users').doc(userId).collection('messages').add(messageData);
-        // Use passed userData to avoid redundant Firestore reads
+        // 2. If this is a warning to a reporter, also add to their reporter_conversations thread
+        if (msgType === "WARNING") {
+            try {
+                await db.collection('reporter_conversations').doc(userId).collection('messages').add({
+                    senderId: "SYSTEM_ADMIN",
+                    senderName: "AlfaNews Admin",
+                    senderRole: "ADMIN",
+                    text: `⚠️ [${title}]\n${body}`,
+                    type: "WARNING",
+                    read: false,
+                    timestamp
+                });
+                await db.collection('reporter_conversations').doc(userId).set({
+                    reporterId: userId,
+                    reporterName: userData?.name || "Reporter",
+                    reporterPhone: userData?.phone || "",
+                    reporterDistrict: userData?.district || "",
+                    reporterMandal: userData?.assignedMandal || "",
+                    lastMessage: `⚠️ ${title}`,
+                    lastMessageTime: timestamp,
+                    lastSenderRole: "ADMIN",
+                    unreadCountForReporter: admin.firestore.FieldValue.increment(1),
+                    updatedAt: timestamp
+                }, { merge: true });
+            }
+            catch (err) {
+                console.error(`[CONV_WRITE_ERR] ${userId}:`, err.message);
+            }
+        }
+        // 3. Fetch tokens and send High-Priority FCM Push
         const data = userData || (await db.collection('users').doc(userId).get()).data();
+        if (data && data.notificationsEnabled === false)
+            return;
         const rawTokens = [...(data?.fcmTokens || []), data?.fcmToken];
         const tokens = Array.from(new Set(rawTokens.filter((t) => typeof t === 'string' && t.trim().length > 0)));
         if (tokens.length > 0) {
-            const payload = {
-                notification: { title, body },
-                data: { type: "INTERNAL_MESSAGE", title, body, importance }
-            };
-            const messages = tokens.map((token) => ({ ...payload, token }));
+            const messages = tokens.map(token => ({
+                token,
+                android: {
+                    priority: 'high',
+                    ttl: 86400000,
+                    directBootOk: true,
+                    notification: {
+                        channelId: 'general_news',
+                        sound: 'default'
+                    }
+                },
+                notification: {
+                    title,
+                    body
+                },
+                data: {
+                    type: "INTERNAL_MESSAGE",
+                    title,
+                    body,
+                    importance,
+                    channelId: 'general_news'
+                }
+            }));
             await admin.messaging().sendEach(messages).catch(err => console.error(`[FCM_ERROR] User ${userId}:`, err));
         }
     }

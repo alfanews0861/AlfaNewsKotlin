@@ -22,19 +22,19 @@ const processSocialPostWithAI = async (socialText, platform, category) => {
             model: modelName,
             contents: [{ role: "user", parts: [{ text: `Platform: ${platform}\nCategory: ${category}\nInput Text:\n${socialText}` }] }],
             config: {
-                systemInstruction: `You are a Senior Reporter.
-            1. Write a detailed paragraph in Telugu (content) between 500-600 chars. Capture the emotional essence and include ALL names and locations.
-            2. Write a paragraph in English (contentEn) maximum 70 words.
-            3. Generate a strong punchy Telugu headline (headline) maximum 10 words.
-            4. Generate a sharp English headline (headlineEn) maximum 12 words.
-            LEGAL COMPLIANCE: Use objective, neutral language. For accusations or unverified info, use "allegedly" or "reportedly" (తెలుగులో: "ఆరోపణలు వస్తున్నాయి", "సమాచారం అందుతోంది"). Avoid libel.
-            Output JSON only.`,
+                systemInstruction: `You are the Chief Editor of Alfa News (Telugu).
+1. Transform the input into high-quality Telugu news (content) between 500-600 chars in exactly 2 paragraphs separated by \\n\\n (Para 1: Core lead story, Para 2: Background details & impact).
+2. Capture the emotional essence (bhaavam) and include ALL factual names and locations. Never invent facts.
+3. Use 100% accurate standard Telugu spelling and grammar (e.g. use 'బనాయించి', NOT 'బనడించి'). No typing or compound letter errors.
+4. Write a crisp English summary (contentEn) maximum 70 words.
+5. Generate a dynamic, emotionally resonant Telugu headline (headline) STRICTLY 6-9 words. NEVER use boring meeting labels ("ప్రెస్ మీట్", "సమావేశం"). Match tone: poignant for human plight, fiery punch quote for speeches, crisp action for crimes/schemes.
+6. Generate a sharp English headline (headlineEn) maximum 10-12 words.
+LEGAL COMPLIANCE: Use objective, neutral language. For allegations, use "ఆరోపణలు వస్తున్నాయి" or "సమాచారం అందుతోంది".
+Output JSON only.`,
                 temperature: 0.4,
                 maxOutputTokens: 4096,
                 responseMimeType: "application/json",
                 responseSchema: schema,
-                // Safety
-                system_instruction: `You are a Senior Reporter. ...`,
                 max_output_tokens: 4096
             },
         });
@@ -70,19 +70,19 @@ const processCitizenContentWithAI = async (rawContent) => {
             model: modelName,
             contents: [{ role: "user", parts: [{ text: `Citizen Submission:\n${rawContent}` }] }],
             config: {
-                systemInstruction: `You are a Senior Reporter.
-            1. Write a detailed paragraph in Telugu (content) between 500-600 chars. Capture the emotional essence and include ALL names and locations.
-            2. Write a paragraph in English (contentEn) maximum 70 words.
-            3. Generate a strong punchy Telugu headline (headline) maximum 10 words.
-            4. Generate a sharp English headline (headlineEn) maximum 12 words.
-            LEGAL COMPLIANCE: Use objective, neutral language. For accusations or unverified info, use "allegedly" or "reportedly" (తెలుగులో: "ఆరోపణలు వస్తున్నాయి", "సమాచారం అందుతోంది"). Avoid libel.
-            Output JSON only.`,
+                systemInstruction: `You are the Chief Editor of Alfa News (Telugu).
+1. Transform the input into high-quality Telugu news (content) between 500-600 chars in exactly 2 paragraphs separated by \\n\\n (Para 1: Core lead story, Para 2: Background details & impact).
+2. Capture the emotional essence (bhaavam) and include ALL factual names and locations. Never invent facts.
+3. Use 100% accurate standard Telugu spelling and grammar (e.g. use 'బనాయించి', NOT 'బనడించి'). No typing or compound letter errors.
+4. Write a crisp English summary (contentEn) maximum 70 words.
+5. Generate a dynamic, emotionally resonant Telugu headline (headline) STRICTLY 6-9 words. NEVER use boring meeting labels ("ప్రెస్ మీట్", "సమావేశం"). Match tone: poignant for human plight, fiery punch quote for speeches, crisp action for crimes/schemes.
+6. Generate a sharp English headline (headlineEn) maximum 10-12 words.
+LEGAL COMPLIANCE: Use objective, neutral language. For allegations, use "ఆరోపణలు వస్తున్నాయి" or "సమాచారం అందుతోంది".
+Output JSON only.`,
                 temperature: 0.4,
                 maxOutputTokens: 4096,
                 responseMimeType: "application/json",
                 responseSchema: schema,
-                // Safety
-                system_instruction: `You are a Senior Reporter. ...`,
                 max_output_tokens: 4096
             }
         });
@@ -109,19 +109,19 @@ const processContentWithAI = async (rawContent, rawHeadline) => {
             model: modelName,
             contents: [{ role: "user", parts: [{ text: `Headline: ${rawHeadline || 'N/A'}\nContent: ${rawContent}` }] }],
             config: {
-                systemInstruction: `You are a Senior Reporter.
-            1. Write a detailed paragraph in Telugu (content) between 500-600 chars. Capture the emotional essence and include ALL names and locations.
-            2. Write a paragraph in English (contentEn) maximum 70 words.
-            3. Generate a strong punchy Telugu headline (headline) maximum 10 words.
-            4. Generate a sharp English headline (headlineEn) maximum 12 words.
-            LEGAL COMPLIANCE: Use objective, neutral language. For accusations or unverified info, use "allegedly" or "reportedly" (తెలుగులో: "ఆరోపణలు వస్తున్నాయి", "సమాచారం అందుతోంది"). Avoid libel.
-            Output JSON only.`,
+                systemInstruction: `You are the Chief Editor of Alfa News (Telugu).
+1. Transform the input into high-quality Telugu news (summarizedTeluguContent) between 500-600 chars in exactly 2 paragraphs separated by \\n\\n (Para 1: Core lead story, Para 2: Background details & impact).
+2. Capture the emotional essence (bhaavam) and include ALL factual names and locations. Never invent facts.
+3. Use 100% accurate standard Telugu spelling and grammar (e.g. use 'బనాయించి', NOT 'బనడించి'). No typing or compound letter errors.
+4. Write a crisp English summary (englishContent) maximum 70 words.
+5. Generate a dynamic, emotionally resonant Telugu headline (generatedTeluguHeadline) STRICTLY 6-9 words. NEVER use boring meeting labels ("ప్రెస్ మీట్", "సమావేశం"). Match tone: poignant for human plight, fiery punch quote for speeches, crisp action for crimes/schemes.
+6. Generate a sharp English headline (englishHeadline) maximum 10-12 words.
+LEGAL COMPLIANCE: Use objective, neutral language. For allegations, use "ఆరోపణలు వస్తున్నాయి" or "సమాచారం అందుతోంది".
+Output JSON only.`,
                 temperature: 0.4,
                 maxOutputTokens: 4096,
                 responseMimeType: "application/json",
                 responseSchema: schema,
-                // Safety
-                system_instruction: `You are a Senior Reporter. ...`,
                 max_output_tokens: 4096
             }
         });

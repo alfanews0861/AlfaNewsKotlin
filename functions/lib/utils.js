@@ -39,8 +39,10 @@ exports.getTopicName = getTopicName;
 exports.runWithAIFallback = runWithAIFallback;
 exports.getISTDateString = getISTDateString;
 exports.parseAIJson = parseAIJson;
+exports.sanitizeTeluguText = sanitizeTeluguText;
 exports.saveBufferToStorage = saveBufferToStorage;
 exports.saveImageLocally = saveImageLocally;
+exports.processAndOptimizeNewsImage = processAndOptimizeNewsImage;
 exports.createAndSaveThumbnail = createAndSaveThumbnail;
 exports.generateImageWithRetry = generateImageWithRetry;
 const admin = __importStar(require("firebase-admin"));
@@ -48,9 +50,9 @@ const genai_1 = require("@google/genai");
 const buffer_1 = require("buffer");
 const sharp = require('sharp');
 exports.REGION = "asia-south1";
-exports.SCHEDULED_MODEL = "gemini-3.5-flash-lite";
-exports.PRO_MODEL = "gemini-3.5-flash-lite";
-exports.FLASH_MODEL = "gemini-3.5-flash-lite";
+exports.SCHEDULED_MODEL = "gemini-2.5-flash";
+exports.PRO_MODEL = "gemini-2.5-flash";
+exports.FLASH_MODEL = "gemini-2.5-flash";
 exports.IMAGEN_MODEL = "gemini-3.1-flash-image"; // GA as of 2026
 exports.IMAGEN_FAST_MODEL = "gemini-3.1-flash-image"; // imagen-4.0 deprecated Aug 17, 2026
 /**
@@ -77,9 +79,10 @@ function getTopicName(prefix, value) {
     return `${prefix}_${slugify(value)}`;
 }
 const TEXT_MODELS = [
-    "gemini-3.5-flash-lite",
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-flash"
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-2.5-flash-lite"
 ];
 /**
  * Priority list of API keys: Free 1 -> Free 2 -> Paid -> Legacy fallback
@@ -156,7 +159,7 @@ async function runWithAIFallback(operation, customModels) {
         const ai = getAIInstanceInternal(currentKey);
         for (let m = 0; m < modelsToTry.length; m++) {
             const currentModelName = modelsToTry[m];
-            // INTERNAL RETRY LOOP for Exponential Backoff (Official Recommendation)
+            // INTERNAL RETRY LOOP for Exponential Backoff (3 attempts per model)
             const MAX_RETRIES = 3;
             for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
                 try {
@@ -170,41 +173,37 @@ async function runWithAIFallback(operation, customModels) {
                     lastError = err;
                     const status = extractErrorStatus(err);
                     const errMsg = String(err.message || "Unknown error");
-                    // 1. Transient Server Errors (503, 500, 504, 408) -> RETRY SAME MODEL
-                    const isRetryable = [503, 500, 504, 408].includes(status);
+                    // 1. If we can retry the same model (e.g. rate limit wait or server busy)
+                    const isRetryable = [503, 500, 504, 408, 429].includes(status) ||
+                        errMsg.includes("fetch") ||
+                        errMsg.includes("timeout") ||
+                        errMsg.includes("ECONNRESET") ||
+                        errMsg.includes("JSON") ||
+                        errMsg.includes("parsing");
                     if (isRetryable && attempt < MAX_RETRIES) {
                         const delay = Math.pow(2, attempt - 1) * 1000 + (Math.random() * 500); // 1s, 2s, 4s + Jitter
-                        console.warn(`[RETRY] ${currentModelName} failed (${status}). Attempt ${attempt}/${MAX_RETRIES}. Waiting ${Math.round(delay)}ms...`);
+                        console.warn(`[RETRY] ${currentModelName} (${keyLabel}) attempt ${attempt}/${MAX_RETRIES} failed (${status || errMsg.substring(0, 50)}). Retrying in ${Math.round(delay)}ms...`);
                         await new Promise(resolve => setTimeout(resolve, delay));
-                        continue; // Try same model again
+                        continue;
                     }
-                    // 2. Model Errors (404, or exhausted retries) -> FALLBACK TO NEXT MODEL
-                    const isModelError = status === 404 || isRetryable;
-                    if (isModelError && m < modelsToTry.length - 1) {
-                        console.warn(`[MODEL-FALLBACK] ${currentModelName} failed (${status}) after ${attempt} attempts. Trying ${modelsToTry[m + 1]}...`);
-                        break; // Breaks the retry loop to try next model in outer loop
-                    }
-                    // 3. Key/Account Errors (429, 403) -> FALLBACK TO NEXT KEY
-                    const isKeyError = status === 429 || status === 403;
-                    if (isKeyError && k < keysToTry.length - 1) {
-                        console.warn(`[KEY-FALLBACK] Key ${keyLabel} failed (${status}). Switching to next key.`);
-                        m = modelsToTry.length; // Force break outer model loop
-                        break; // Breaks retry loop
-                    }
-                    // 4. JSON/Truncation Errors (if operation throws for parsing) -> FALLBACK
-                    const isDataError = errMsg.includes("JSON") || errMsg.includes("parsing") || errMsg.includes("Unterminated");
-                    if (isDataError && m < modelsToTry.length - 1) {
-                        console.warn(`[DATA-FALLBACK] ${currentModelName} failed (${errMsg}). Trying ${modelsToTry[m + 1]}...`);
+                    // 2. Key error (403, permission, or exhausted 429) -> Switch to next key
+                    if ((status === 403 || status === 429) && k < keysToTry.length - 1) {
+                        console.warn(`[KEY-FALLBACK] Key ${keyLabel} exhausted (${status}). Switching to next API key.`);
+                        m = modelsToTry.length; // Move to next key
                         break;
                     }
-                    // 5. Fatal/Unknown Errors
-                    console.error(`[AI-FATAL-FINAL] Error with ${currentModelName} (${keyLabel}). Status: ${status}. Message: ${errMsg.substring(0, 100)}`);
-                    throw err;
+                    // 3. Fallback to next model if available
+                    if (m < modelsToTry.length - 1) {
+                        console.warn(`[MODEL-FALLBACK] ${currentModelName} failed (${errMsg.substring(0, 100)}). Falling back to ${modelsToTry[m + 1]}...`);
+                        break; // Try next model
+                    }
+                    // If last model of current key, log and let outer loop try next key
+                    console.warn(`[KEY-EXHAUSTED] Key ${keyLabel} and model ${currentModelName} exhausted: ${errMsg.substring(0, 100)}`);
                 }
             }
         }
     }
-    throw lastError || new Error("AI Fallback failed with no keys/models");
+    throw lastError || new Error("AI Fallback failed across all keys and models");
 }
 const getAIInstance = () => getAIInstanceInternal(API_KEYS[0] || process.env.GEMINI_API_KEY || process.env.API_KEY || "");
 exports.getAIInstance = getAIInstance;
@@ -238,6 +237,27 @@ function parseAIJson(text) {
         throw new Error(`Invalid AI JSON response: ${e.message}`);
     }
 }
+/**
+ * Sanitizes Telugu text by converting any bled Kannada Unicode characters (0x0C80-0x0CFF)
+ * back to Telugu, removing orphaned matras, broken placeholder glyphs, and zero-width spaces.
+ */
+function sanitizeTeluguText(text) {
+    if (!text)
+        return "";
+    return text
+        // 1. Map any bled Kannada Unicode characters (0x0C80-0x0CFF) to Telugu Unicode (0x0C00-0x0C7F)
+        .replace(/[\u0C80-\u0CFF]/g, (char) => {
+        const teluguCode = char.charCodeAt(0) - 0x0080;
+        return String.fromCharCode(teluguCode);
+    })
+        // 2. Remove dotted circle characters used as fallback for broken combining marks
+        .replace(/\u25CC/g, '')
+        // 3. Remove invisible zero-width spaces that break Telugu word joining
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        // 4. Fix spaces before Telugu combining vowel marks / virama
+        .replace(/\s+([\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63])/g, '$1')
+        .trim();
+}
 async function saveBufferToStorage(buffer, prefix) {
     try {
         const webpBuffer = await sharp(buffer).webp({ quality: 80 }).toBuffer();
@@ -269,44 +289,104 @@ async function saveImageLocally(externalUrl, prefix) {
         return null;
     }
 }
-async function createAndSaveThumbnail(imageUrl, postId) {
+/**
+ * Intelligently processes a news image:
+ * 1. Converts to Black & White (grayscale) if flagged as bloody/graphic accident.
+ * 2. Applies privacy protection blur if flagged as sensitive minor/POCSO/sexual assault victim or dead body.
+ * 3. Auto-enhances brightness & dynamic contrast for dark night photos (normalize).
+ * 4. Applies smart subtle sharpening to improve photo crispness.
+ * 5. Smart-crops non-16:9 (vertical/square/4:3) images into a clean 16:9 frame keeping heads and salient subjects in view.
+ * 6. Generates an optimized 16:9 image + fast thumbnail in WebP format.
+ */
+async function processAndOptimizeNewsImage(imageUrl, postId, isGraphicOrBloody = false, isSensitiveVictimOrMinor = false) {
     try {
         if (!imageUrl || !imageUrl.includes('firebasestorage.googleapis.com'))
             return null;
-        console.log(`[THUMBNAIL] Creating thumbnail for post ${postId} from URL: ${imageUrl.substring(0, 60)}...`);
+        console.log(`[IMG_OPT] Processing image for post ${postId} (Bloody: ${isGraphicOrBloody}, Sensitive: ${isSensitiveVictimOrMinor})...`);
         const response = await fetch(imageUrl);
         if (!response.ok) {
-            console.error(`[THUMBNAIL_ERR] Failed to download image: ${response.statusText}`);
+            console.error(`[IMG_OPT_ERR] Failed to download image: ${response.statusText}`);
             return null;
         }
         const contentType = response.headers.get('content-type') || "";
         if (!contentType.startsWith('image/')) {
-            console.log(`[THUMBNAIL] URL is not an image (Content-Type: ${contentType}). Skipping thumbnail.`);
+            console.log(`[IMG_OPT] URL is not an image (Content-Type: ${contentType}). Skipping.`);
             return null;
         }
         const arrayBuffer = await response.arrayBuffer();
         const buffer = buffer_1.Buffer.from(arrayBuffer);
-        // Resize using sharp: max width 200px, quality 60
-        const thumbnailBuffer = await sharp(buffer)
+        const img = sharp(buffer);
+        const metadata = await img.metadata();
+        const width = metadata.width || 1280;
+        const height = metadata.height || 720;
+        const aspectRatio = width / height;
+        // Base sharp pipeline
+        let pipeline = sharp(buffer);
+        // 1. Auto-enhance dynamic contrast & brightness for dark/night photos
+        pipeline = pipeline.normalize();
+        // 2. Convert to Black & White if graphic/bloody accident
+        if (isGraphicOrBloody) {
+            console.log(`[IMG_OPT] Converting graphic/bloody image to Grayscale (B&W) for post ${postId}`);
+            pipeline = pipeline.grayscale();
+        }
+        // 3. Privacy protection for POCSO / Minors / Victims / Dead bodies
+        if (isSensitiveVictimOrMinor) {
+            console.log(`[IMG_OPT] Applying sensitive privacy protection blur for post ${postId}`);
+            pipeline = pipeline.blur(18);
+        }
+        else {
+            // Apply subtle sharpening for crisp journalism output when not blurred
+            pipeline = pipeline.sharpen({ sigma: 1, m1: 0.5, m2: 0.5 });
+        }
+        // 4. Smart Crop to 16:9 if image is vertical, square, or 4:3 (aspectRatio < 1.6)
+        // Using sharp.strategy.attention to keep faces and heads in frame
+        if (aspectRatio < 1.6) {
+            console.log(`[IMG_OPT] Non-16:9 image detected (${width}x${height}, ratio: ${aspectRatio.toFixed(2)}). Smart-cropping to 16:9 with head/attention preservation...`);
+            pipeline = pipeline.resize({
+                width: 1280,
+                height: 720,
+                fit: sharp.fit.cover,
+                position: sharp.strategy.attention // Keeps faces and salient top-attention subjects
+            });
+        }
+        else {
+            // Already 16:9 or wide, normalize width to 1280 without cropping
+            pipeline = pipeline.resize({
+                width: 1280,
+                height: Math.round(1280 / aspectRatio),
+                withoutEnlargement: true
+            });
+        }
+        const optimizedBuffer = await pipeline.webp({ quality: 85 }).toBuffer();
+        // 5. Generate 16:9 Thumbnail (200px width)
+        const thumbBuffer = await sharp(optimizedBuffer)
             .resize({ width: 200, withoutEnlargement: true })
-            .webp({ quality: 60 })
+            .webp({ quality: 65 })
             .toBuffer();
         const bucket = admin.storage().bucket();
-        const fileName = `news-media/thumbnails/${postId}_thumb.webp`;
-        await bucket.file(fileName).save(thumbnailBuffer, {
-            metadata: {
-                contentType: 'image/webp',
-                cacheControl: 'public, max-age=31536000'
-            }
-        });
-        const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(fileName)}?alt=media`;
-        console.log(`[THUMBNAIL] Created successfully: ${publicUrl}`);
-        return publicUrl;
+        const optFileName = `news-media/${postId}_opt_${Date.now()}.webp`;
+        const thumbFileName = `news-media/thumbnails/${postId}_thumb.webp`;
+        await Promise.all([
+            bucket.file(optFileName).save(optimizedBuffer, {
+                metadata: { contentType: 'image/webp', cacheControl: 'public, max-age=31536000' }
+            }),
+            bucket.file(thumbFileName).save(thumbBuffer, {
+                metadata: { contentType: 'image/webp', cacheControl: 'public, max-age=31536000' }
+            })
+        ]);
+        const optimizedUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(optFileName)}?alt=media`;
+        const thumbnailUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(thumbFileName)}?alt=media`;
+        console.log(`[IMG_OPT] Optimized successfully -> Main: ${optimizedUrl.substring(0, 60)}..., Thumb: ${thumbnailUrl.substring(0, 60)}...`);
+        return { optimizedUrl, thumbnailUrl };
     }
     catch (e) {
-        console.error(`[THUMBNAIL_ERR] Failed to create thumbnail for ${postId}:`, e.message);
+        console.error(`[IMG_OPT_ERR] Error optimizing image for ${postId}:`, e.message);
         return null;
     }
+}
+async function createAndSaveThumbnail(imageUrl, postId) {
+    const result = await processAndOptimizeNewsImage(imageUrl, postId, false);
+    return result?.thumbnailUrl || null;
 }
 async function generateImageWithRetry(aiUnused, // Keeping signature for compatibility
 prompt, aspectRatio = '9:16', retriesUnused = 3) {

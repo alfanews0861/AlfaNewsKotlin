@@ -36,7 +36,7 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.sendContactEmail = exports.triggerPushBroadcast = exports.onNewsPostCreated = exports.processNewsPost = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
+exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.sendContactEmail = exports.triggerPushBroadcast = exports.broadcastToAllReporters = exports.sendAdminReporterMessage = exports.onNewsPostCreated = exports.processNewsPost = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
 /**
  * Alfa News - Cloud Functions v18.0 (Refactored & Modular)
  */
@@ -85,6 +85,10 @@ Object.defineProperty(exports, "onNewsPostCreated", { enumerable: true, get: fun
 __exportStar(require("./notification_engine"), exports);
 // 5. Export Reporter Monitoring
 __exportStar(require("./reporter_monitor"), exports);
+// 6. Export Reporter Messaging
+var reporter_messaging_1 = require("./reporter_messaging");
+Object.defineProperty(exports, "sendAdminReporterMessage", { enumerable: true, get: function () { return reporter_messaging_1.sendAdminReporterMessage; } });
+Object.defineProperty(exports, "broadcastToAllReporters", { enumerable: true, get: function () { return reporter_messaging_1.broadcastToAllReporters; } });
 /**
  * Push Broadcast Function (Manual Push)
  */
@@ -111,8 +115,11 @@ exports.triggerPushBroadcast = (0, https_1.onCall)(async (request) => {
         topic: topic || 'all_users'
     };
     if (imageUrl && imageUrl.startsWith('http')) {
-        message.notification.imageUrl = imageUrl;
-        message.android.notification.imageUrl = imageUrl;
+        const isHeavyStorageUrl = imageUrl.includes('firebasestorage.googleapis.com') && !imageUrl.includes('thumbnails%2F') && !imageUrl.includes('_thumb');
+        if (!isHeavyStorageUrl) {
+            message.notification.imageUrl = imageUrl;
+            message.android.notification.imageUrl = imageUrl;
+        }
         message.data.imageUrl = imageUrl;
     }
     try {

@@ -198,37 +198,89 @@ export const generateDailyCartoon = onSchedule({ schedule: "0 6 * * *", timeZone
     for (const state of states) {
         try {
             await runWithAIFallback(async (ai, modelName) => {
+                // 1. Fetch recent approved headlines for state context
+                let recentNewsSummary = "";
+                try {
+                    const snap = await db.collection('news')
+                        .where('approved', '==', true)
+                        .orderBy('timestamp', 'desc')
+                        .limit(20)
+                        .get();
+
+                    const headlines = snap.docs
+                        .map(d => {
+                            const data = d.data();
+                            const loc = ((data.location || "") + " " + (data.district || "") + " " + (data.state || "")).toLowerCase();
+                            const isAP = loc.includes("andhra") || loc.includes("ap") || loc.includes("ఆంధ్ర");
+                            const isTS = loc.includes("telangana") || loc.includes("ts") || loc.includes("తెలంగాణ") || loc.includes("hyderabad") || loc.includes("హైదరాబాద్");
+                            if ((state === "Andhra Pradesh" && (isAP || !isTS)) || (state === "Telangana" && (isTS || !isAP))) {
+                                return data.headline?.telugu || "";
+                            }
+                            return "";
+                        })
+                        .filter(Boolean)
+                        .slice(0, 5);
+
+                    if (headlines.length > 0) {
+                        recentNewsSummary = headlines.join("\n- ");
+                    }
+                } catch (e) {
+                    console.warn(`[CARTOON] Could not fetch recent headlines for ${state}:`, e);
+                }
+
+                const stateContext = state === 'Andhra Pradesh'
+                    ? `Government: NDA (TDP, Jana Sena, BJP). CM: Chandrababu Naidu, Deputy CM: Pawan Kalyan. Opposition: YSRCP (YS Jagan Mohan Reddy).
+Key Ongoing Topics: Super Six welfare schemes, Amaravati capital construction, Polavaram project, Deepam free gas cylinders, Sand policy, welfare pensions distribution, assembly debates, central assistance.`
+                    : `Government: Congress. CM: Revanth Reddy. Opposition: BRS (KCR, KTR, Harish Rao), BJP (Kishan Reddy, Bandi Sanjay).
+Key Ongoing Topics: HYDRAA demolitions & lake rejuvenation, Musi riverfront project, Rythu Bharosa / farmer loan waivers, free RTC bus travel for women, 200 units free power (Gruha Jyothi), job notifications.`;
+
                 const schema = {
                     type: Type.OBJECT,
-                    properties: { topic: { type: Type.STRING }, visualDescription: { type: Type.STRING }, teluguCaption: { type: Type.STRING }, speechBubbleText: { type: Type.STRING } },
-                    required: ["topic", "visualDescription", "teluguCaption", "speechBubbleText"]
+                    properties: {
+                        topic: { type: Type.STRING, description: "Short topic in Telugu" },
+                        visualPrompt: { type: Type.STRING, description: "Detailed visual caricature scene description without politician names, words, or speech bubbles" },
+                        teluguPunchline: { type: Type.STRING, description: "Sharp, witty 1-2 line Telugu dialogue with natural humor" },
+                        teluguHeadline: { type: Type.STRING, description: "Catchy Telugu headline (max 50 chars)" }
+                    },
+                    required: ["topic", "visualPrompt", "teluguPunchline", "teluguHeadline"]
                 };
 
                 const topicRes = await ai.models.generateContent({
                     model: modelName,
-                    contents: [{ role: "user", parts: [{ text: `Today's Date: ${todayStr}.
-    Current Political Landscape:
-    - Andhra Pradesh: NDA (TDP+JSP+BJP) in power. CM: Chandrababu Naidu, Deputy CM: Pawan Kalyan. Opposition: YSRCP (Jagan).
-    - Telangana: Congress in power. CM: Revanth Reddy. Opposition: BRS (KCR).
-    Task: 1. Identify a trending humor incident. 2. Create satire cartoon. 3. Detailed description without names. 4. Funny Telugu dialogue. Return JSON.` }] }],
+                    contents: [{ role: "user", parts: [{ text: `You are a renowned master Telugu political cartoonist (in the style of legendary cartoonists Sridhar and Shankar).
+State: ${state}
+Today's Date: ${todayStr}
+
+Political Context & Issues:
+${stateContext}
+${recentNewsSummary ? `\nRecent Trending News in ${state}:\n- ${recentNewsSummary}` : ''}
+
+Task:
+1. Identify a current hot topic or public mood in ${state} and create a clever, humorous satirical cartoon scenario.
+2. "visualPrompt": Describe a funny caricature visual scene using symbolic metaphors (e.g. weighing scales, promises umbrella, empty pockets, giant magnifying glass, race track, tug of war, bridge, files pile).
+   CRITICAL SAFETY & ART INSTRUCTION: DO NOT name specific real politicians. Describe figures by caricature traits and attire (e.g. 'a smiling politician in white kurta with yellow scarf', 'a leader wearing pink scarf looking puzzled', 'an expressive Indian common man in spectacles scratching his head while holding a grocery bag').
+   DO NOT include any text, dialogue, letters, signs, or speech bubbles in the visual description.
+3. "teluguPunchline": Write a sharp, witty, humorous Telugu punchline (1-2 lines) reflecting common people's perspective with authentic Telugu humor.
+4. "teluguHeadline": A short, catchy Telugu title.
+
+Output strict JSON.` }] }],
                     config: {
-                        temperature: 0.95,
+                        temperature: 0.85,
                         responseMimeType: "application/json",
                         responseJsonSchema: schema
                     }
                 } as any);
 
                 const cartoonData = parseAIJson(topicRes.text || "{}");
-                const visual = cartoonData.visualDescription || "characters in a humorous situation";
-                const bubbleText = cartoonData.speechBubbleText || "";
-                const teluguText = cartoonData.teluguCaption || "నేటి రాజకీయ కార్టూన్";
+                const visual = cartoonData.visualPrompt || "Indian common man observing humorous political promises";
+                const punchline = cartoonData.teluguPunchline || cartoonData.teluguHeadline || "నేటి రాజకీయ కార్టూన్";
 
-                // Improved prompt for Cartoon generation to avoid safety triggers while maintaining humor
-                const cartoonPrompt = `A professional, high-quality hand-drawn editorial cartoon.
-                Scene: ${visual}.
-                Style: Classic line art sketch, gentle political satire, expressive but non-offensive characters, clean composition.
-                Include a speech bubble with this specific text: "${bubbleText}".
-                Note: Artistic and humorous, no realistic violence, no hate speech, lighthearted tone.`;
+                // Pure caricature art prompt without text/speech bubbles to prevent garbled letters
+                const cartoonPrompt = `A masterpiece colorful 2D Indian political newspaper editorial cartoon illustration.
+Scene: ${visual}.
+Art Style: Hand-drawn classic Indian newspaper editorial cartoon caricature, vibrant watercolor and ink wash, bold expressive character expressions, clean linework, humorous satirical situation.
+Framing: Clean vertical 9:16 composition with focused characters in an Indian city or village backdrop.
+CRITICAL MANDATORY RULE: Pure visual illustration only. STRICTLY NO TEXT, NO WORDS, NO SPEECH BUBBLES, NO LETTERS, NO SIGNBOARDS, NO TYPOGRAPHY anywhere in the image.`;
 
                 const buffer = await generateImageWithRetry(ai, cartoonPrompt, '9:16');
 
@@ -245,18 +297,27 @@ export const generateDailyCartoon = onSchedule({ schedule: "0 6 * * *", timeZone
                     likes: 0,
                     comments: 0,
                     shares: 0,
-                    headline: { telugu: `${state === 'Andhra Pradesh' ? 'ఆంధ్రప్రదేశ్' : 'తెలంగాణ'} కార్టూన్`, english: `${state} Cartoon` },
-                    content: { telugu: teluguText, english: 'Daily Political Satire Cartoon' },
+                    headline: { 
+                        telugu: `${state === 'Andhra Pradesh' ? 'ఆంధ్రప్రదేశ్' : 'తెలంగాణ'} కార్టూన్: ${cartoonData.teluguHeadline || cartoonData.topic || 'నేటి వ్యంగ్యం'}`, 
+                        english: `${state} Daily Cartoon` 
+                    },
+                    content: { 
+                        telugu: punchline, 
+                        english: cartoonData.topic || 'Daily Political Satire' 
+                    },
                     mediaUrl, // Might be empty if buffer is null
                     category: 'కార్టూన్',
                     location: state,
                     district: state,
+                    state: state,
                     reporter: { id: 'BOT_Cartoonist', name: 'Alfa Cartoonist' },
                     timestamp: admin.firestore.FieldValue.serverTimestamp(),
                     status: "published",
                     approved: true,
                     aiProcessed: true
                 });
+
+                console.log(`[CARTOON] Successfully created cartoon post for ${state}.`);
             });
         } catch (e: any) { console.error(`[CARTOON] Error for ${state}:`, e.message); }
     }
