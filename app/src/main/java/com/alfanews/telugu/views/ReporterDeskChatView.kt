@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alfanews.telugu.models.ReporterMessage
 import com.alfanews.telugu.models.User
+import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseFunctionsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.ui.theme.Mallanna
@@ -132,6 +133,7 @@ fun ReporterDeskChatView(
                     type = "CHAT"
                 )
                 if (result.isSuccess) {
+                    AnalyticsService.logReporterMessageSent("CHAT")
                     inputText = ""
                 } else {
                     Toast.makeText(context, "సందేశం పంపడం విఫలమైంది: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()

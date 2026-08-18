@@ -27,6 +27,7 @@ import android.os.Build
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.alfanews.telugu.services.AdMobService
+import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.ui.theme.AlfaNewsTheme
 import com.alfanews.telugu.viewmodels.LocalNewsFeedViewModel
 import com.alfanews.telugu.models.ThemeMode
@@ -408,6 +409,7 @@ class MainActivity : ComponentActivity() {
 
                 if (postId != null) {
                     val id = postId!!
+                    AnalyticsService.logNotificationOpened(postId = id, actionUrl = fcmActionUrl)
                     // 🔗 CRITICAL: Set sharedPostId so UI knows to scroll to this post
                     newsFeedViewModel.setSharedPostId(id)
                     mainViewModel.setActiveTab("home")
@@ -415,6 +417,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (reporterId != null) {
+                    AnalyticsService.logNotificationOpened(actionUrl = fcmActionUrl)
                     mainViewModel.setReporterIdToShow(reporterId)
                 }
             }

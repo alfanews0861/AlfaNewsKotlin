@@ -371,6 +371,61 @@ object AnalyticsService {
         firebaseAnalytics?.logEvent("tab_selected", bundle)
     }
 
+    /**
+     * ✅ యూజర్ ఇన్‌బాక్స్ మెసేజ్ చదివినప్పుడు
+     */
+    fun logMessageRead(messageId: String, senderName: String? = null, importance: String? = null) {
+        val bundle = Bundle().apply {
+            putString("message_id", safeTruncate(messageId, 95))
+            if (!senderName.isNullOrBlank()) {
+                putString("sender_name", safeTruncate(senderName, 95))
+            }
+            if (!importance.isNullOrBlank()) {
+                putString("importance", safeTruncate(importance, 95))
+            }
+        }
+        firebaseAnalytics?.logEvent("message_read", bundle)
+    }
+
+    /**
+     * ✅ రిపోర్టర్ న్యూస్ డెస్క్ / అడ్మిన్ కు మెసేజ్ పంపినప్పుడు
+     */
+    fun logReporterMessageSent(messageType: String = "CHAT") {
+        val bundle = Bundle().apply {
+            putString("message_type", safeTruncate(messageType, 95))
+            putString("user_id", currentUserId ?: "unknown")
+        }
+        firebaseAnalytics?.logEvent("reporter_message_sent", bundle)
+    }
+
+    /**
+     * ✅ అడ్మిన్ లేదా న్యూస్ డెస్క్ మెసేజ్ / నోటీస్ పంపినప్పుడు
+     */
+    fun logAdminMessageSent(targetType: String) {
+        val bundle = Bundle().apply {
+            putString("target_type", safeTruncate(targetType, 95))
+        }
+        firebaseAnalytics?.logEvent("admin_message_sent", bundle)
+    }
+
+    /**
+     * ✅ పుష్ నోటిఫికేషన్ లేదా ఇన్-యాప్ లింక్ క్లిక్ చేసినప్పుడు
+     */
+    fun logNotificationOpened(postId: String? = null, actionUrl: String? = null, channelId: String? = null) {
+        val bundle = Bundle().apply {
+            if (!postId.isNullOrBlank()) {
+                putString("post_id", safeTruncate(postId, 95))
+            }
+            if (!actionUrl.isNullOrBlank()) {
+                putString("action_url", safeTruncate(actionUrl, 95))
+            }
+            if (!channelId.isNullOrBlank()) {
+                putString("channel_id", safeTruncate(channelId, 95))
+            }
+        }
+        firebaseAnalytics?.logEvent("notification_open", bundle)
+    }
+
     fun logCategoryViews(categories: List<String>, weight: Int = 1) {
         if (categories.isEmpty()) return
         cachedPreferredCategories = null

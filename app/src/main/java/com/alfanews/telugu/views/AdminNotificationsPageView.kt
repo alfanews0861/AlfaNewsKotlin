@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alfanews.telugu.models.NewsPost
+import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseFunctionsService
 import com.alfanews.telugu.services.FirebaseService
 import com.google.firebase.firestore.Query
@@ -142,6 +143,7 @@ fun AdminNotificationsPageView(showTitle: Boolean = true) {
                 )
 
                 if (result.isSuccess) {
+                    AnalyticsService.logAdminMessageSent("push_broadcast")
                     Toast.makeText(context, "నోటిఫికేషన్ విజయవంతంగా పంపబడింది!", Toast.LENGTH_SHORT).show()
                     if (!useCustomMessage) selectedPostId = "" else {
                         customTitle = ""

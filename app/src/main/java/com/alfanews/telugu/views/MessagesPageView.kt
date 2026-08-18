@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.alfanews.telugu.utils.DateTimeUtils
 import com.alfanews.telugu.models.AppMessage
 import com.alfanews.telugu.models.User
+import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.google.firebase.firestore.ListenerRegistration
@@ -96,6 +97,7 @@ fun MessagesPageView(
     }
 
     fun markAsRead(msg: AppMessage) {
+        AnalyticsService.logMessageRead(msg.id, msg.senderName, msg.importance)
         if (msg.read) return
         scope.launch {
             try {

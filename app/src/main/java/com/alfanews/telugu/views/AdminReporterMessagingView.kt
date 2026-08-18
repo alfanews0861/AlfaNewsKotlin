@@ -30,6 +30,7 @@ import coil3.compose.AsyncImage
 import com.alfanews.telugu.models.ReporterConversation
 import com.alfanews.telugu.models.ReporterMessage
 import com.alfanews.telugu.models.User
+import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseFunctionsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.ui.theme.Mallanna
@@ -756,6 +757,7 @@ fun AdminOneOnOneChatView(
                     type = customType
                 )
                 if (result.isSuccess) {
+                    AnalyticsService.logAdminMessageSent("reporter")
                     if (customText == null) inputText = ""
                 } else {
                     Toast.makeText(context, "సందేశం పంపడం విఫలమైంది: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
