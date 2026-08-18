@@ -67,6 +67,13 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         val channelId = remoteMessage.data["channelId"] ?: AppNotificationChannel.GENERAL.id
 
         if (title != null && body != null) {
+            try {
+                val bundle = android.os.Bundle().apply {
+                    putString("channel_id", channelId)
+                    if (!actionUrl.isNullOrBlank()) putString("action_url", actionUrl)
+                }
+                AnalyticsService.logAnalyticsEvent("notification_received", bundle)
+            } catch (e: Exception) { }
             sendNotification(title, body, channelId, actionUrl, imageUrl)
         }
     }
