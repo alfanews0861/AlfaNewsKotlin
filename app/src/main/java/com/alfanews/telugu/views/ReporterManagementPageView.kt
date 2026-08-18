@@ -76,6 +76,7 @@ fun ReporterManagementPageView(
 
     var appFilterState by remember { mutableStateOf("PENDING") } // "PENDING", "ALL", "JOINED", "REJECTED"
     var applications by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
+    var occupiedMandalsMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var loading by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
 
@@ -83,6 +84,26 @@ fun ReporterManagementPageView(
         scope.launch {
             loading = true
             try {
+                // Fetch occupied mandals map from users collection (active reporters)
+                try {
+                    val usersSnap = FirebaseService.db.collection("users")
+                        .whereIn("role", listOf("REPORTER", "reporter", 2, 2.0, "2"))
+                        .get().await()
+                    val occMap = mutableMapOf<String, String>()
+                    for (uDoc in usersSnap.documents) {
+                        val dist = (uDoc.getString("district") ?: "").trim()
+                        val mandal = (uDoc.getString("assignedMandal") ?: uDoc.getString("mandal") ?: "").trim()
+                        val name = uDoc.getString("name") ?: "Reporter"
+                        val phone = uDoc.getString("phone") ?: ""
+                        if (dist.isNotEmpty() && mandal.isNotEmpty()) {
+                            occMap["$dist|$mandal"] = if (phone.isNotEmpty()) "$name ($phone)" else name
+                        }
+                    }
+                    occupiedMandalsMap = occMap
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+
                 if (selectedTab == 0) {
                     val rawSnapshot = FirebaseService.db.collection("reporter_applications")
                         .get().await()
@@ -516,7 +537,7 @@ fun ReporterManagementPageView(
                                             "PENDING" -> "ఎటువంటి పెండింగ్ దరఖాస్తులు లేవు."
                                             "JOINED" -> "అప్రూవ్ అయిన దరఖాస్తులు లేవు."
                                             "REJECTED" -> "తిరస్కరించిన దరఖాస్తులు లేవు."
-                                            else -> "ఎటువంటి దరఖాస్తులు లభించలేదు."
+                                            else -> "ఎటువంటి దరఖాస్తులు లభించడం లేదు."
                                         },
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
@@ -537,6 +558,7 @@ fun ReporterManagementPageView(
                             ApplicationCard(
                                 app = app,
                                 currentUser = currentUser,
+                                occupiedMandalsMap = occupiedMandalsMap,
                                 onRefresh = { fetchData() }
                             )
                         }
@@ -576,6 +598,7 @@ fun ReporterManagementPageView(
 fun ApplicationCard(
     app: Map<String, Any>,
     currentUser: User,
+    occupiedMandalsMap: Map<String, String>,
     onRefresh: () -> Unit
 ) {
     val context = LocalContext.current
@@ -614,6 +637,9 @@ fun ApplicationCard(
 
     val rawStatus = (app["status"] as? String)?.uppercase() ?: "PENDING"
     val isPending = rawStatus != "JOINED" && rawStatus != "APPROVED" && rawStatus != "REJECTED"
+
+    val isOccupied = editDistrict.isNotBlank() && editMandal.isNotBlank() && occupiedMandalsMap.containsKey("$editDistrict|$editMandal")
+    val currentOccupant = if (isOccupied) occupiedMandalsMap["$editDistrict|$editMandal"] else null
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -675,8 +701,30 @@ fun ApplicationCard(
                 LocationSelector(
                     selectedDistrict = editDistrict,
                     selectedMandal = editMandal,
+                    occupiedMandalsMap = occupiedMandalsMap,
                     onLocationChange = { d, m -> editDistrict = d; editMandal = m }
                 )
+            }
+
+            if (isOccupied && currentOccupant != null) {
+                Surface(
+                    color = Color(0xFFFFF3E0),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color(0xFFFF9800)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFE65100), modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "ఈ మండలానికి ఇప్పటికే విలేకరి ఉన్నారు: $currentOccupant. ఆమోదిస్తే ఈయన 'ప్రొబేషన్ / పోటీదారు' గా చేరతారు.",
+                            fontSize = 12.sp,
+                            color = Color(0xFFE65100),
+                            fontFamily = Mallanna,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -717,8 +765,9 @@ fun ApplicationCard(
                                 if (userDoc == null) {
                                     Toast.makeText(context, "యూజర్ అకౌంట్ లభించలేదు ($phoneNum).", Toast.LENGTH_LONG).show()
                                 } else {
-                                    processJoin(userDoc.id, app["id"] as String, editDistrict, editMandal, currentUser.id, phoneNum)
-                                    Toast.makeText(context, "అప్రూవ్ చేయబడింది!", Toast.LENGTH_SHORT).show()
+                                    processJoin(userDoc.id, app["id"] as String, editDistrict, editMandal, currentUser.id, phoneNum, isOccupied)
+                                    val successMsg = if (isOccupied) "పోటీదారుగా (ప్రొబేషన్) ఆమోదించబడింది!" else "అప్రూవ్ చేయబడింది!"
+                                    Toast.makeText(context, successMsg, Toast.LENGTH_SHORT).show()
                                     onRefresh()
                                 }
                             } catch (e: Exception) {
@@ -729,11 +778,11 @@ fun ApplicationCard(
                         }
                     },
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (isOccupied) Color(0xFFE65100) else Color(0xFF2E7D32)),
                     enabled = !isProcessing && isPending
                 ) {
                     if (isProcessing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
-                    else Text("Approve")
+                    else Text(if (isOccupied) "పోటీదారుగా ఆమోదించు" else "Approve")
                 }
 
                 Button(
@@ -1011,6 +1060,7 @@ fun BadgeChip(text: String, color: Color) {
 fun LocationSelector(
     selectedDistrict: String,
     selectedMandal: String,
+    occupiedMandalsMap: Map<String, String> = emptyMap(),
     onLocationChange: (String, String) -> Unit
 ) {
     var distExpanded by remember { mutableStateOf(false) }
@@ -1055,8 +1105,18 @@ fun LocationSelector(
                 )
                 ExposedDropdownMenu(expanded = mandExpanded, onDismissRequest = { mandExpanded = false }) {
                     mandals.forEach { mandalName: String ->
+                        val key = "$selectedDistrict|$mandalName"
+                        val occupant = occupiedMandalsMap[key]
                         DropdownMenuItem(
-                            text = { Text(mandalName) }, 
+                            text = { 
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (occupant != null) {
+                                        Text("🟠 $mandalName (ఉన్నారు: $occupant)", color = Color(0xFFE65100), fontSize = 13.sp)
+                                    } else {
+                                        Text("🟢 $mandalName (ఖాళీగా ఉంది)", color = Color(0xFF2E7D32), fontSize = 13.sp)
+                                    }
+                                }
+                            }, 
                             onClick = { 
                                 onLocationChange(selectedDistrict, mandalName)
                                 mandExpanded = false 
@@ -1075,7 +1135,8 @@ private suspend fun processJoin(
     district: String,
     mandal: String,
     promoterId: String,
-    phoneNum: String = ""
+    phoneNum: String = "",
+    isOccupied: Boolean = false
 ) {
     val userDoc = FirebaseService.db.collection("users").document(userId).get().await()
     val existingPoints = userDoc.getLong("points")
@@ -1085,8 +1146,16 @@ private suspend fun processJoin(
         "role" to "REPORTER",
         "district" to district,
         "assignedMandal" to mandal,
-        "promotedBy" to promoterId
+        "mandal" to mandal,
+        "promotedBy" to promoterId,
+        "agreedToRules" to true,
+        "inProbation" to isOccupied,
+        "isChallenger" to isOccupied,
+        "promotedAt" to com.google.firebase.Timestamp.now()
     )
+    if (isOccupied) {
+        updates["probationStartDate"] = com.google.firebase.Timestamp.now()
+    }
     if (existingPoints == null) {
         updates["points"] = 0
     }
@@ -1095,7 +1164,15 @@ private suspend fun processJoin(
     }
 
     FirebaseService.db.collection("users").document(userId).update(updates).await()
-    FirebaseService.db.collection("reporter_applications").document(appId).update("status", "JOINED").await()
+    FirebaseService.db.collection("reporter_applications").document(appId).update(
+        mapOf(
+            "status" to "JOINED",
+            "isChallenger" to isOccupied,
+            "inProbation" to isOccupied,
+            "district" to district,
+            "mandal" to mandal
+        )
+    ).await()
 
     // Also mark any other pending duplicate applications for this user or phone as JOINED
     try {

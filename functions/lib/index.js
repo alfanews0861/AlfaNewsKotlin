@@ -36,7 +36,7 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.sendContactEmail = exports.triggerPushBroadcast = exports.reportNewsPost = exports.broadcastToAllReporters = exports.sendAdminReporterMessage = exports.onNewsPostCreated = exports.processNewsPost = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
+exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.sendContactEmail = exports.triggerPushBroadcast = exports.reportNewsPost = exports.broadcastToAllReporters = exports.sendAdminReporterMessage = exports.onNewsPostCreated = exports.processNewsPost = exports.runAutoApprovePendingBackfill = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
 /**
  * Alfa News - Cloud Functions v18.0 (Refactored & Modular)
  */
@@ -76,7 +76,10 @@ Object.defineProperty(exports, "onNewsPostApproved", { enumerable: true, get: fu
 Object.defineProperty(exports, "onUserRoleChanged", { enumerable: true, get: function () { return reporter_handler_1.onUserRoleChanged; } });
 Object.defineProperty(exports, "verifyReporter", { enumerable: true, get: function () { return reporter_handler_1.verifyReporter; } });
 Object.defineProperty(exports, "onUserCreated", { enumerable: true, get: function () { return reporter_handler_1.onUserCreated; } });
-Object.defineProperty(exports, "onAnonymousDeviceCreated", { enumerable: true, get: function () { return reporter_handler_1.onAnonymousDeviceCreated; } }); // ✅ NEW: Welcome notification for guest users
+Object.defineProperty(exports, "onAnonymousDeviceCreated", { enumerable: true, get: function () { return reporter_handler_1.onAnonymousDeviceCreated; } });
+Object.defineProperty(exports, "onReporterApplicationCreated", { enumerable: true, get: function () { return reporter_handler_1.onReporterApplicationCreated; } });
+Object.defineProperty(exports, "autoApproveAllPendingApplications", { enumerable: true, get: function () { return reporter_handler_1.autoApproveAllPendingApplications; } });
+Object.defineProperty(exports, "runAutoApprovePendingBackfill", { enumerable: true, get: function () { return reporter_handler_1.runAutoApprovePendingBackfill; } });
 // 3. Export Main News Functions
 var news_handler_1 = require("./news_handler");
 Object.defineProperty(exports, "processNewsPost", { enumerable: true, get: function () { return news_handler_1.processNewsPost; } });

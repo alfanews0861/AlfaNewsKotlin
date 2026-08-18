@@ -4,9 +4,9 @@ import { Buffer } from 'buffer';
 const sharp = require('sharp');
 
 export const REGION = "asia-south1";
-export const SCHEDULED_MODEL = "gemini-2.5-flash";
-export const PRO_MODEL = "gemini-2.5-flash";
-export const FLASH_MODEL = "gemini-2.5-flash";
+export const SCHEDULED_MODEL = "gemini-3.5-flash-lite";
+export const PRO_MODEL = "gemini-3.5-flash-lite";
+export const FLASH_MODEL = "gemini-3.5-flash-lite";
 export const IMAGEN_MODEL = "gemini-3.1-flash-image";         // GA as of 2026
 export const IMAGEN_FAST_MODEL = "gemini-3.1-flash-image";    // imagen-4.0 deprecated Aug 17, 2026
 
@@ -36,28 +36,29 @@ export function getTopicName(prefix: string, value: string): string {
 }
 
 const TEXT_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-2.5-flash-lite"
+    "gemini-3.5-flash-lite",  // 1. Primary: 1,500 RPD, 30 RPM, super fast & clean Telugu
+    "gemini-3.5-flash",       // 2. Secondary Fallback
+    "gemini-3.6-flash"        // 3. Tertiary Fallback
 ];
 
 /**
  * Priority list of API keys: Free 1 -> Free 2 -> Paid -> Legacy fallback
  */
-const API_KEYS = [
-    process.env.FREE_GEMINI_API_KEY_1,
-    process.env.FREE_GEMINI_API_KEY_2,
-    process.env.PAID_GEMINI_API_KEY,
-    process.env.GEMINI_API_KEY,
-    process.env.API_KEY
-].filter(key => !!key) as string[];
+function getApiKeys(): string[] {
+    return [
+        process.env.FREE_GEMINI_API_KEY_1,
+        process.env.FREE_GEMINI_API_KEY_2,
+        process.env.PAID_GEMINI_API_KEY,
+        process.env.GEMINI_API_KEY,
+        process.env.API_KEY
+    ].filter(key => !!key && key.trim().length > 0) as string[];
+}
 
 /**
  * Safety flag to prevent unexpected billing.
  * Set to true only if you want to allow falling back to the PAID_GEMINI_API_KEY.
  */
-const PAID_FALLBACK_ENABLED = process.env.PAID_FALLBACK_ENABLED === "true";
+const isPaidFallbackEnabled = () => process.env.PAID_FALLBACK_ENABLED === "true";
 
 /**
  * Internal helper to get a specific AI instance
@@ -97,85 +98,94 @@ function extractErrorStatus(err: any): number {
 }
 
 /**
- * Core wrapper to run AI operations with automatic fallback across multiple keys AND models.
- * Integrated with Exponential Backoff for 503/500 errors.
+ * Core wrapper to run AI operations with automatic fallback across models AND keys.
+ * Rules:
+ * - If a model fails or hits quota (429/404), immediately switch to the next model.
+ * - Total attempts capped at MAX_TOTAL_ATTEMPTS (3) to prevent loops and excess quota usage.
  */
 export async function runWithAIFallback<T>(
     operation: (ai: any, modelName: string) => Promise<T>,
     customModels?: string[]
 ): Promise<T> {
-    const keysToTry = API_KEYS.length > 0 ? API_KEYS : [process.env.GEMINI_API_KEY || process.env.API_KEY || ""];
+    const apiKeys = getApiKeys();
+    const keysToTry = apiKeys.length > 0 ? apiKeys : [process.env.GEMINI_API_KEY || process.env.API_KEY || ""];
     const modelsToTry = customModels || TEXT_MODELS;
 
+    const MAX_TOTAL_ATTEMPTS = 4;
+    let totalAttempts = 0;
     let lastError: any = null;
 
     for (let k = 0; k < keysToTry.length; k++) {
         const currentKey = keysToTry[k];
         const isPaidKey = currentKey === process.env.PAID_GEMINI_API_KEY;
 
-        if (isPaidKey && !PAID_FALLBACK_ENABLED) {
+        if (isPaidKey && !isPaidFallbackEnabled()) {
             console.warn(`[AI-SKIP] Paid key detected but PAID_FALLBACK_ENABLED is false. Skipping.`);
             continue;
         }
 
-        const keyLabel = k === 0 ? "FREE_1" : k === 1 ? "FREE_2" : k === 2 ? "PAID" : "FALLBACK";
+        const keyLabel = k === 0 ? "FREE_1" : k === 1 ? "FREE_2" : k === 2 ? "PAID" : `KEY_${k}`;
         const ai = getAIInstanceInternal(currentKey);
 
         for (let m = 0; m < modelsToTry.length; m++) {
+            if (totalAttempts >= MAX_TOTAL_ATTEMPTS) {
+                console.warn(`[AI-STOP] Reached maximum ${MAX_TOTAL_ATTEMPTS} total attempts. Stopping.`);
+                break;
+            }
+
             const currentModelName = modelsToTry[m];
+            totalAttempts++;
 
-            // INTERNAL RETRY LOOP for Exponential Backoff (3 attempts per model)
-            const MAX_RETRIES = 3;
-            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-                try {
-                    const result = await operation(ai, currentModelName);
-                    if (m > 0 || k > 0 || attempt > 1) {
-                        console.log(`[AI-SUCCESS] Model ${currentModelName} (${keyLabel}) succeeded on attempt ${attempt}.`);
-                    }
-                    return result;
-                } catch (err: any) {
-                    lastError = err;
-                    const status = extractErrorStatus(err);
-                    const errMsg = String(err.message || "Unknown error");
+            try {
+                const result = await operation(ai, currentModelName);
+                if (m > 0 || k > 0 || totalAttempts > 1) {
+                    console.log(`[AI-SUCCESS] Model ${currentModelName} (${keyLabel}) succeeded on attempt ${totalAttempts}.`);
+                }
+                return result;
+            } catch (err: any) {
+                lastError = err;
+                const status = extractErrorStatus(err);
+                const errMsg = String(err.message || "Unknown error");
 
-                    // 1. If we can retry the same model (e.g. rate limit wait or server busy)
-                    const isRetryable = [503, 500, 504, 408, 429].includes(status) || 
-                                        errMsg.includes("fetch") || 
-                                        errMsg.includes("timeout") || 
-                                        errMsg.includes("ECONNRESET") || 
-                                        errMsg.includes("JSON") || 
-                                        errMsg.includes("parsing");
+                console.warn(`[AI-FAIL] Model ${currentModelName} (${keyLabel}) failed (Status: ${status || 'N/A'}, Attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS}): ${errMsg.substring(0, 120)}`);
 
-                    if (isRetryable && attempt < MAX_RETRIES) {
-                        const delay = Math.pow(2, attempt - 1) * 1000 + (Math.random() * 500); // 1s, 2s, 4s + Jitter
-                        console.warn(`[RETRY] ${currentModelName} (${keyLabel}) attempt ${attempt}/${MAX_RETRIES} failed (${status || errMsg.substring(0, 50)}). Retrying in ${Math.round(delay)}ms...`);
-                        await new Promise(resolve => setTimeout(resolve, delay));
-                        continue;
-                    }
+                // If key is totally unauthorized (403), jump to next key immediately
+                if (status === 403) {
+                    console.warn(`[KEY-INVALID] Key ${keyLabel} unauthorized (403). Moving to next key.`);
+                    break;
+                }
 
-                    // 2. Key error (403, permission, or exhausted 429) -> Switch to next key
-                    if ((status === 403 || status === 429) && k < keysToTry.length - 1) {
-                        console.warn(`[KEY-FALLBACK] Key ${keyLabel} exhausted (${status}). Switching to next API key.`);
-                        m = modelsToTry.length; // Move to next key
-                        break;
-                    }
+                // If 429 (rate/quota limit) and another key is available, immediately switch to the other key
+                if (status === 429 && k < keysToTry.length - 1) {
+                    const nextKeyLabel = k === 0 ? "FREE_2" : (k === 1 ? "PAID" : `KEY_${k+1}`);
+                    console.warn(`[KEY-429-SWITCH] Key ${keyLabel} hit 429. Switching to ${nextKeyLabel}...`);
+                    break; // break model loop to switch key
+                }
 
-                    // 3. Fallback to next model if available
-                    if (m < modelsToTry.length - 1) {
-                        console.warn(`[MODEL-FALLBACK] ${currentModelName} failed (${errMsg.substring(0, 100)}). Falling back to ${modelsToTry[m+1]}...`);
-                        break; // Try next model
-                    }
+                // If on last available key or no other keys, continue trying next model
+                if (status === 429) {
+                    console.warn(`[MODEL-429-FALLBACK] Model ${currentModelName} hit rate limit. Trying next model...`);
+                }
 
-                    // If last model of current key, log and let outer loop try next key
-                    console.warn(`[KEY-EXHAUSTED] Key ${keyLabel} and model ${currentModelName} exhausted: ${errMsg.substring(0, 100)}`);
+                // If 503/504 transient server overload, wait briefly
+                if (status === 503 || status === 504) {
+                    await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 300));
                 }
             }
         }
+
+        if (totalAttempts >= MAX_TOTAL_ATTEMPTS) {
+            break;
+        }
     }
-    throw lastError || new Error("AI Fallback failed across all keys and models");
+
+    throw lastError || new Error(`AI processing failed after ${totalAttempts} attempts across available keys and models.`);
 }
 
-export const getAIInstance = () => getAIInstanceInternal(API_KEYS[0] || process.env.GEMINI_API_KEY || process.env.API_KEY || "");
+export const getAIInstance = () => {
+    const keys = getApiKeys();
+    return getAIInstanceInternal(keys[0] || process.env.GEMINI_API_KEY || process.env.API_KEY || "");
+};
 
 
 export function getISTDateString() {

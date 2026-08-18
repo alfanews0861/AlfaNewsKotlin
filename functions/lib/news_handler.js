@@ -708,25 +708,14 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
             return;
         }
         catch (err) {
-            console.error(`[AI_ERR] ${postId}:`, err.message);
-            const currentRetries = (latestData.aiRetryCount || 0) + 1;
-            if (currentRetries <= 3) {
-                console.warn(`[AI_AUTO_RETRY] Automatically scheduling retry for ${postId} (Attempt ${currentRetries}/3)...`);
-                // Reset status to PENDING so Firestore trigger re-runs automatically
-                await db.collection('news').doc(postId).update({
-                    status: "PENDING",
-                    aiRetryCount: currentRetries,
-                    lastRetryError: err.message || "Temporary AI busy"
-                });
-            }
-            else {
-                console.error(`[AI_FATAL_FAILED] ${postId} exhausted all ${currentRetries - 1} auto-retries.`);
-                await db.collection('news').doc(postId).update({
-                    status: "FAILED",
-                    error: err.message,
-                    aiRetryCount: currentRetries
-                });
-            }
+            console.error(`[AI_FATAL_FAILED] ${postId}:`, err.message);
+            await db.collection('news').doc(postId).update({
+                status: "FAILED",
+                error: err.message,
+                aiProcessed: false,
+                lastProcessingError: err.message,
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            });
             return;
         }
     }

@@ -68,10 +68,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
         if (result.resultCode != RESULT_OK) {
-            val minCode = mainViewModel.minVersionCode.value
-            if (BuildConfig.VERSION_CODE < minCode) {
-                Log.d("MainActivity", "Mandatory update flow failed or was cancelled.")
-            }
+            Log.d("MainActivity", "Update flow cancelled or failed: ${result.resultCode}")
         }
     }
     
@@ -111,16 +108,8 @@ class MainActivity : ComponentActivity() {
         appUpdateManager = AppUpdateManagerFactory.create(this)
         appUpdateManager.registerListener(installStateUpdatedListener)
         
-        // Observe minVersionCode for mandatory updates
-        lifecycleScope.launch {
-            mainViewModel.minVersionCode.collect { minCode ->
-                if (minCode > 0) {
-                    checkAppUpdate(minCode)
-                } else {
-                    checkAppUpdate()
-                }
-            }
-        }
+        // Silent / Flexible In-App Update check
+        checkAppUpdate()
 
         // Hand over control to our custom Animated Splash Screen immediately
         splashScreen.setKeepOnScreenCondition { false }
@@ -226,7 +215,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun checkAppUpdate(minRequiredVersion: Int = 0) {
+    private fun checkAppUpdate() {
         if (this@MainActivity.isFinishing || this@MainActivity.isDestroyed) return
         
         try {
@@ -234,20 +223,17 @@ class MainActivity : ComponentActivity() {
             appUpdateInfoTask.addOnSuccessListener { appUpdateInfo ->
                 if (this@MainActivity.isFinishing || this@MainActivity.isDestroyed) return@addOnSuccessListener
                 
-                val isMandatory = BuildConfig.VERSION_CODE < minRequiredVersion
-                val updateType = if (isMandatory) AppUpdateType.IMMEDIATE else AppUpdateType.FLEXIBLE
-
                 if (appUpdateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
-                    appUpdateInfo.isUpdateTypeAllowed(updateType)) {
+                    appUpdateInfo.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE)) {
                     
                     try {
                         appUpdateManager.startUpdateFlowForResult(
                             appUpdateInfo,
                             updateActivityResultLauncher,
-                            AppUpdateOptions.newBuilder(updateType).build()
+                            AppUpdateOptions.newBuilder(AppUpdateType.FLEXIBLE).build()
                         )
                     } catch (e: Throwable) {
-                        Log.e("MainActivity", "Failed to start update flow", e)
+                        Log.e("MainActivity", "Failed to start flexible update flow", e)
                     }
                 }
             }.addOnFailureListener { e ->
@@ -313,18 +299,8 @@ class MainActivity : ComponentActivity() {
             appUpdateManager.appUpdateInfo.addOnSuccessListener { appUpdateInfo ->
                 if (this@MainActivity.isFinishing || this@MainActivity.isDestroyed) return@addOnSuccessListener
                 
-                if (appUpdateInfo.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS) {
-                    try {
-                        appUpdateManager.startUpdateFlowForResult(
-                            appUpdateInfo,
-                            updateActivityResultLauncher,
-                            AppUpdateOptions.newBuilder(AppUpdateType.IMMEDIATE).build()
-                        )
-                    } catch (e: Throwable) {
-                        Log.e("MainActivity", "Failed to resume in-progress update", e)
-                    }
-                } else if (appUpdateInfo.installStatus() == InstallStatus.DOWNLOADED) {
-                    completeUpdate()
+                if (appUpdateInfo.installStatus() == InstallStatus.DOWNLOADED) {
+                    mainViewModel.setUpdateDownloaded(true)
                 }
             }.addOnFailureListener { e ->
                 Log.w("MainActivity", "Failed to check update info onResume", e)

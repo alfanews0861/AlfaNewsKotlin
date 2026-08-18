@@ -3,6 +3,7 @@ import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { onDocumentWritten, onDocumentCreated } from "firebase-functions/v2/firestore";
 import * as nodemailer from "nodemailer";
 import { REGION } from "./utils";
+import { extractDistrictAndMandal } from "./location_data";
 
 const db = admin.firestore();
 
@@ -361,8 +362,276 @@ export const processReporterSubmission = onCall(async (request) => {
     }
 });
 
-export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL_PASS"] }, async (request) => {
-    const data = request.data;
+export interface MandalVacancyResult {
+    vacant: boolean;
+    existingReporter?: {
+        id: string;
+        name: string;
+        phone: string;
+        district: string;
+        mandal: string;
+    };
+}
+
+/**
+ * Helper: Check if a mandal currently has an active REPORTER in the users collection.
+ */
+export async function checkMandalVacancy(district: string, mandal: string, excludeUserId?: string): Promise<MandalVacancyResult> {
+    const trimmedDistrict = district.trim();
+    const trimmedMandal = mandal.trim();
+    if (!trimmedDistrict || !trimmedMandal) return { vacant: false };
+
+    // Check users collection for active reporter
+    const reporterQuery = await db.collection('users')
+        .where('role', 'in', ['REPORTER', 2, 2.0, '2'])
+        .where('district', '==', trimmedDistrict)
+        .where('assignedMandal', '==', trimmedMandal)
+        .limit(2)
+        .get();
+
+    if (!reporterQuery.empty) {
+        const activeReporters = reporterQuery.docs.filter(doc => doc.id !== excludeUserId);
+        if (activeReporters.length > 0) {
+            const repData = activeReporters[0].data();
+            return {
+                vacant: false,
+                existingReporter: {
+                    id: activeReporters[0].id,
+                    name: repData.name || "Reporter",
+                    phone: repData.phone || "",
+                    district: repData.district || trimmedDistrict,
+                    mandal: repData.assignedMandal || repData.mandal || trimmedMandal
+                }
+            };
+        }
+    }
+
+    // Secondary check: in case assignedMandal wasn't set but mandal was set
+    const mandalQuery = await db.collection('users')
+        .where('role', 'in', ['REPORTER', 2, 2.0, '2'])
+        .where('district', '==', trimmedDistrict)
+        .where('mandal', '==', trimmedMandal)
+        .limit(2)
+        .get();
+
+    if (!mandalQuery.empty) {
+        const activeReporters = mandalQuery.docs.filter(doc => doc.id !== excludeUserId);
+        if (activeReporters.length > 0) {
+            const repData = activeReporters[0].data();
+            return {
+                vacant: false,
+                existingReporter: {
+                    id: activeReporters[0].id,
+                    name: repData.name || "Reporter",
+                    phone: repData.phone || "",
+                    district: repData.district || trimmedDistrict,
+                    mandal: repData.assignedMandal || repData.mandal || trimmedMandal
+                }
+            };
+        }
+    }
+
+    return { vacant: true };
+}
+
+export async function isMandalVacant(district: string, mandal: string, excludeUserId?: string): Promise<boolean> {
+    const res = await checkMandalVacancy(district, mandal, excludeUserId);
+    return res.vacant;
+}
+
+/**
+ * Helper: Notify an applicant when their desired mandal is occupied, letting them know
+ * their application is forwarded to Admin for competition / probation review.
+ */
+export async function notifyApplicantOfConflict(
+    userId: string,
+    applicantName: string,
+    district: string,
+    mandal: string,
+    existingReporterName: string
+) {
+    if (!userId) return;
+    try {
+        const conflictText = `నమస్కారం ${applicantName || 'మిత్రమా'}, మీరు కోరిన ${mandal} మండలానికి ఇప్పటికే క్రియాశీల విలేకరి (${existingReporterName || 'ఇతరులు'}) ఉన్నారు.\n\nఅందువల్ల మీ దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు (పోటీ / ప్రొబేషన్) పంపబడింది. మా అడ్మిన్ టీమ్ పరిశీలించి త్వరలోనే మిమ్మల్ని సంప్రదిస్తారు లేదా మీకు తగిన మండలాన్ని కేటాయిస్తారు. ధన్యవాదాలు!`;
+        const msgTimestamp = admin.firestore.FieldValue.serverTimestamp();
+        
+        await db.collection('reporter_conversations').doc(userId).collection('messages').add({
+            senderId: "SYSTEM_ADMIN",
+            senderName: "AlfaNews Editorial Desk",
+            senderRole: "ADMIN",
+            text: conflictText,
+            type: "NOTICE",
+            read: false,
+            timestamp: msgTimestamp
+        });
+
+        await db.collection('reporter_conversations').doc(userId).set({
+            reporterId: userId,
+            reporterName: applicantName || "Applicant",
+            reporterDistrict: district,
+            reporterMandal: mandal,
+            lastMessage: conflictText,
+            lastMessageTime: msgTimestamp,
+            lastSenderRole: "ADMIN",
+            lastSenderId: "SYSTEM_ADMIN",
+            unreadCountForReporter: 1,
+            updatedAt: msgTimestamp
+        }, { merge: true });
+
+        const userDoc = await db.collection('users').doc(userId).get();
+        const userData = userDoc.data() || {};
+        const tokens = [...(userData.fcmTokens || []), userData.fcmToken].filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
+        if (tokens.length > 0) {
+            const push = tokens.map(token => ({
+                token,
+                notification: {
+                    title: "మీ దరఖాస్తు పరిశీలనలో ఉంది ⏳",
+                    body: `${mandal} మండలానికి ఇప్పటికే విలేకరి ఉన్నందున మీ దరఖాస్తు అడ్మిన్ పరిశీలనకు పంపబడింది.`
+                },
+                data: {
+                    type: "REPORTER_APP_PENDING",
+                    district: district,
+                    mandal: mandal
+                }
+            }));
+            await admin.messaging().sendEach(push).catch(() => {});
+        }
+        console.log(`[CONFLICT_NOTIF] 📩 Sent conflict notice to applicant ${userId} for ${mandal}`);
+    } catch (e: any) {
+        console.error("[CONFLICT_NOTIF] Failed to send conflict notification:", e.message);
+    }
+}
+
+/**
+ * Helper: Promote user to REPORTER, initialize conversation, send welcome push and desk message.
+ */
+export async function promoteUserToReporter(
+    userId: string,
+    fullName: string,
+    phone: string,
+    district: string,
+    mandal: string,
+    promoter: string = "AUTO_APPROVAL_SYSTEM",
+    options?: { isChallenger?: boolean; inProbation?: boolean; existingReporterId?: string; existingReporterName?: string }
+) {
+    const userRef = db.collection('users').doc(userId);
+    const userDoc = await userRef.get();
+    const existingData = userDoc.exists ? (userDoc.data() || {}) : {};
+
+    const isChallenger = options?.isChallenger === true;
+    const inProbation = options?.inProbation === true || isChallenger;
+
+    await userRef.set({
+        role: "REPORTER",
+        district: district,
+        assignedMandal: mandal,
+        mandal: mandal,
+        promotedBy: promoter,
+        agreedToRules: true,
+        previouslyDowngraded: false,
+        suspended: false,
+        warningLevel: 0,
+        inProbation: inProbation,
+        isChallenger: isChallenger,
+        probationStartDate: inProbation ? admin.firestore.FieldValue.serverTimestamp() : null,
+        promotedAt: admin.firestore.FieldValue.serverTimestamp(),
+        joinedAt: existingData.joinedAt || admin.firestore.FieldValue.serverTimestamp(),
+        lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
+        name: fullName || existingData.name || "",
+        phone: phone || existingData.phone || "",
+        points: existingData.points ?? 0,
+        badges: existingData.badges ?? []
+    }, { merge: true });
+
+    console.log(`[REPORTER_PROMOTION] 👑 Promoted user ${userId} to REPORTER for ${district} - ${mandal} (Challenger: ${isChallenger})`);
+
+    // Send In-App Welcome Desk Message & Push to the newly joined reporter
+    try {
+        const welcomeText = isChallenger
+            ? `నమస్కారం ${fullName || 'మిత్రమా'}, ఆల్ఫా న్యూస్ విలేకరి బృందానికి స్వాగతం! 🎉\n\nమీరు ${mandal} మండలానికి ప్రొబేషనరీ (పోటీ) విలేకరిగా ఆమోదించబడ్డారు. నెల రోజుల పాటు మీ పనితీరు ఆధారంగా పర్మనెంట్ విలేకరిని నిర్ణయిస్తారు. మీ మండల తాజా వార్తలను ప్రతిరోజూ చురుగ్గా పోస్ట్ చేయండి. శుభాకాంక్షలు!`
+            : `నమస్కారం ${fullName || 'మిత్రమా'}, ఆల్ఫా న్యూస్ విలేకరి బృందానికి మీకు హృదయపూర్వక స్వాగతం! 🎉\n\nమీరు ${mandal} మండల విలేకరిగా నియమించబడ్డారు. మీ మండల తాజా వార్తలను ప్రతిరోజూ కనీసం ఒకటైనా యాప్‌లో పోస్ట్ చేయండి. ఏదైనా సహాయం లేదా సందేహాలు ఉంటే ఇక్కడ నేరుగా మాకు మెసేజ్ చేయవచ్చు. శుభాకాంక్షలు!`;
+        
+        const msgTimestamp = admin.firestore.FieldValue.serverTimestamp();
+        await db.collection('reporter_conversations').doc(userId).collection('messages').add({
+            senderId: "SYSTEM_ADMIN",
+            senderName: "AlfaNews Editorial Desk",
+            senderRole: "ADMIN",
+            text: welcomeText,
+            type: "NOTICE",
+            read: false,
+            timestamp: msgTimestamp
+        });
+
+        await db.collection('reporter_conversations').doc(userId).set({
+            reporterId: userId,
+            reporterName: fullName || existingData.name || "Reporter",
+            reporterPhone: phone || existingData.phone || "",
+            reporterDistrict: district,
+            reporterMandal: mandal,
+            lastMessage: welcomeText,
+            lastMessageTime: msgTimestamp,
+            lastSenderRole: "ADMIN",
+            lastSenderId: "SYSTEM_ADMIN",
+            unreadCountForReporter: 1,
+            updatedAt: msgTimestamp
+        }, { merge: true });
+
+        // Push Notification to new reporter
+        const userTokens = [...(existingData.fcmTokens || []), existingData.fcmToken].filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
+        if (userTokens.length > 0) {
+            const pushMessages = userTokens.map(token => ({
+                token,
+                notification: {
+                    title: isChallenger ? "ప్రొబేషనరీ విలేకరిగా ఆమోదించబడ్డారు! 🌟" : "ఆల్ఫా న్యూస్ విలేకరి బృందానికి స్వాగతం! 🎉",
+                    body: isChallenger
+                        ? `మీరు ${mandal} మండలానికి ప్రొబేషనరీ విలేకరిగా చేరారు. నేటి నుంచే వార్తలు పోస్ట్ చేయండి!`
+                        : `మీరు ${mandal} మండల విలేకరిగా ఆమోదించబడ్డారు. నేటి నుంచే వార్తలను పోస్ట్ చేయడం ప్రారంభించండి!`
+                },
+                data: {
+                    type: "REPORTER_WELCOME",
+                    mandal: mandal,
+                    district: district
+                }
+            }));
+            await admin.messaging().sendEach(pushMessages).catch(() => {});
+        }
+
+        // If challenger, also send notice to existing reporter
+        if (isChallenger && options?.existingReporterId) {
+            const existingRepDoc = await db.collection('users').doc(options.existingReporterId).get();
+            const existingRepData = existingRepDoc.data() || {};
+            const existingTokens = [...(existingRepData.fcmTokens || []), existingRepData.fcmToken].filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
+            if (existingTokens.length > 0) {
+                const repPush = existingTokens.map(token => ({
+                    token,
+                    notification: {
+                        title: `మీ మండలానికి మరొక విలేకరి తోడయ్యారు! 📰`,
+                        body: `${mandal} మండలానికి కొత్త విలేకరి చేరారు. ప్రతిరోజూ చురుగ్గా వార్తలు పోస్ట్ చేస్తూ మీ అగ్రస్థానాన్ని కాపాడుకోండి!`
+                    },
+                    data: {
+                        type: "CO_REPORTER_JOINED",
+                        mandal: mandal,
+                        district: district
+                    }
+                }));
+                await admin.messaging().sendEach(repPush).catch(() => {});
+            }
+        }
+    } catch (msgErr: any) {
+        console.error("[REPORTER_PROMOTION] Failed to send welcome message/push to reporter:", msgErr.message);
+    }
+}
+
+/**
+ * Helper: Send notification email to admin when a reporter application is submitted/approved.
+ */
+export async function sendReporterApplicationEmail(
+    data: any,
+    shouldAutoApprove: boolean,
+    isPreviouslyDowngraded: boolean,
+    finalStatus: string,
+    conflictInfo?: { isConflict: boolean; existingReporterName?: string; existingReporterPhone?: string }
+) {
     const {
         fullName,
         fatherName,
@@ -379,205 +648,27 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         userId
     } = data;
 
-    if (!district || !mandal) {
-        throw new HttpsError('invalid-argument', 'జిల్లా మరియు మండలం తప్పనిసరి.');
+    const emailUser = process.env.EMAIL_USER;
+    const emailPass = process.env.EMAIL_PASS;
+    if (!emailUser || !emailPass) {
+        console.log("[REPORTER_APP_EMAIL] ℹ️ EMAIL_USER or EMAIL_PASS not configured in environment. Skipping email dispatch.");
+        return;
     }
 
-    const rawDistrict = district || data.assignedDistrict || data.selectedDistrict || "";
-    const rawMandal = mandal || data.assignedMandal || data.selectedMandal || data.mandalam || "";
-    const trimmedDistrict = String(rawDistrict).trim();
-    const trimmedMandal = String(rawMandal).trim();
-
-    if (!trimmedDistrict || !trimmedMandal) {
-        throw new HttpsError('invalid-argument', 'జిల్లా మరియు మండలం తప్పనిసరి.');
-    }
-
-    // 1. Check if THIS USER (userId or phone) already has a PENDING application
-    if (userId) {
-        const userPendingSnap = await db.collection('reporter_applications')
-            .where('userId', '==', userId)
-            .where('status', '==', 'PENDING')
-            .limit(1)
-            .get();
-
-        if (!userPendingSnap.empty) {
-            throw new HttpsError('already-exists', 'మీ దరఖాస్తు ఇప్పటికే పరిశీలనలో (PENDING) ఉంది. దయచేసి అడ్మిన్ నిర్ణయం కోసం వేచి చూడండి.');
-        }
-    }
-
-    if (phone) {
-        const cleanPhone = phone.trim().replace(/\s+/g, '').replace(/^\+91/, '');
-        const phonePendingSnap = await db.collection('reporter_applications')
-            .where('status', '==', 'PENDING')
-            .where('phone', '==', cleanPhone)
-            .limit(1)
-            .get();
-
-        if (!phonePendingSnap.empty) {
-            throw new HttpsError('already-exists', 'ఈ ఫోన్ నంబర్‌తో దరఖాస్తు ఇప్పటికే పరిశీలనలో (PENDING) ఉంది.');
-        }
-    }
-
-    // 2. Check if reporter already exists for this mandal in users collection
-    const reporterQuery = db.collection('users')
-        .where('role', 'in', ['REPORTER', 2, 2.0])
-        .where('district', '==', trimmedDistrict)
-        .where('assignedMandal', '==', trimmedMandal)
-        .limit(1)
-        .get();
-
-    // 3. Check if there is already a JOINED application for this mandal
-    const joinedAppQuery = db.collection('reporter_applications')
-        .where('status', '==', 'JOINED')
-        .where('district', '==', trimmedDistrict)
-        .where('mandal', '==', trimmedMandal)
-        .limit(1)
-        .get();
-
-    // 4. Check if there is already a PENDING application for this mandal
-    // (first-come-first-served — ఒకరు apply చేసిన mandal కి మరొకరు apply చేయలేరు)
-    const pendingMandalQuery = db.collection('reporter_applications')
-        .where('status', '==', 'PENDING')
-        .where('district', '==', trimmedDistrict)
-        .where('mandal', '==', trimmedMandal)
-        .limit(1)
-        .get();
-
-    const [reporterSnap, joinedAppSnap, pendingMandalSnap] = await Promise.all([reporterQuery, joinedAppQuery, pendingMandalQuery]);
-
-    if (!reporterSnap.empty || !joinedAppSnap.empty) {
-        throw new HttpsError('already-exists', 'ఈ మండలానికి ఇప్పటికే రిపోర్టర్ కేటాయించబడ్డారు.');
-    }
-
-    if (!pendingMandalSnap.empty) {
-        throw new HttpsError('already-exists', 'ఈ మండలానికి ఇప్పటికే మరొకరు దరఖాస్తు (PENDING) చేశారు. దయచేసి వేరే మండలం ఎంచుకోండి.');
-    }
-
-    // Check if THIS APPLICANT was previously removed / downgraded for inactivity or suspended
-    let isPreviouslyDowngraded = false;
-    let existingUserData: any = {};
-    if (userId) {
-        const userDoc = await db.collection('users').doc(userId).get();
-        existingUserData = userDoc.data() || {};
-        if (
-            existingUserData.previouslyDowngraded === true || 
-            existingUserData.suspended === true || 
-            existingUserData.downgradedReason === "INACTIVITY"
-        ) {
-            isPreviouslyDowngraded = true;
-        }
-    }
-
-    if (!isPreviouslyDowngraded && phone) {
-        const cleanPhone = phone.trim().replace(/\s+/g, '').replace(/^\+91/, '');
-        const prevAppSnap = await db.collection('reporter_applications')
-            .where('phone', '==', cleanPhone)
-            .where('status', '==', 'SUSPENDED')
-            .limit(1)
-            .get();
-        if (!prevAppSnap.empty) {
-            isPreviouslyDowngraded = true;
-        }
-    }
-
-    // Auto-approve ONLY IF user is not previously downgraded and mandal is vacant
-    const shouldAutoApprove = Boolean(userId && !isPreviouslyDowngraded && reporterSnap.empty && joinedAppSnap.empty);
-    const finalStatus = shouldAutoApprove ? "JOINED" : "PENDING";
-
-    // Save application to Firestore
-    await db.collection('reporter_applications').add({
-        ...data,
-        district: trimmedDistrict,
-        mandal: trimmedMandal,
-        status: finalStatus,
-        autoApproved: shouldAutoApprove,
-        isReapplication: isPreviouslyDowngraded,
-        previouslyDowngraded: isPreviouslyDowngraded,
-        agreedToRules: true,
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    if (shouldAutoApprove && userId) {
-        // Promote user role to REPORTER immediately
-        const userRef = db.collection('users').doc(userId);
-        const existingData = existingUserData;
-
-        await userRef.set({
-            role: "REPORTER",
-            district: trimmedDistrict,
-            assignedMandal: trimmedMandal,
-            mandal: trimmedMandal,
-            promotedBy: "AUTO_APPROVAL_SYSTEM",
-            agreedToRules: true,
-            joinedAt: admin.firestore.FieldValue.serverTimestamp(),
-            name: fullName || existingData.name || "",
-            phone: phone || existingData.phone || "",
-            points: existingData.points ?? 0,
-            badges: existingData.badges ?? []
-        }, { merge: true });
-
-        // Send In-App Welcome Desk Message & Push to the newly joined reporter
-        try {
-            const welcomeText = `నమస్కారం ${fullName || 'మిత్రమా'}, ఆల్ఫా న్యూస్ విలేకరి బృందానికి మీకు హృదయపూర్వక స్వాగతం! 🎉\n\nమీరు ${trimmedMandal} మండల విలేకరిగా నియమించబడ్డారు. మీ మండల తాజా వార్తలను ప్రతిరోజూ కనీసం ఒకటైనా యాప్‌లో పోస్ట్ చేయండి. ఏదైనా సహాయం లేదా సందేహాలు ఉంటే ఇక్కడ నేరుగా మాకు మెసేజ్ చేయవచ్చు. శుభాకాంక్షలు!`;
-            
-            const msgTimestamp = admin.firestore.FieldValue.serverTimestamp();
-            await db.collection('reporter_conversations').doc(userId).collection('messages').add({
-                senderId: "SYSTEM_ADMIN",
-                senderName: "AlfaNews Editorial Desk",
-                senderRole: "ADMIN",
-                text: welcomeText,
-                type: "NOTICE",
-                read: false,
-                timestamp: msgTimestamp
-            });
-
-            await db.collection('reporter_conversations').doc(userId).set({
-                reporterId: userId,
-                reporterName: fullName || existingData.name || "Reporter",
-                reporterPhone: phone || existingData.phone || "",
-                reporterDistrict: trimmedDistrict,
-                reporterMandal: trimmedMandal,
-                lastMessage: welcomeText,
-                lastMessageTime: msgTimestamp,
-                lastSenderRole: "ADMIN",
-                lastSenderId: "SYSTEM_ADMIN",
-                unreadCountForReporter: 1,
-                updatedAt: msgTimestamp
-            }, { merge: true });
-
-            // Push Notification to new reporter
-            const userTokens = [...(existingData.fcmTokens || []), existingData.fcmToken].filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
-            if (userTokens.length > 0) {
-                const pushMessages = userTokens.map(token => ({
-                    token,
-                    notification: {
-                        title: "ఆల్ఫా న్యూస్ విలేకరి బృందానికి స్వాగతం! 🎉",
-                        body: `మీరు ${trimmedMandal} మండల విలేకరిగా ఆమోదించబడ్డారు. నేటి నుంచే వార్తలను పోస్ట్ చేయడం ప్రారంభించండి!`
-                    },
-                    data: {
-                        type: "REPORTER_WELCOME",
-                        mandal: trimmedMandal,
-                        district: trimmedDistrict
-                    }
-                }));
-                await admin.messaging().sendEach(pushMessages).catch(() => {});
-            }
-        } catch (msgErr: any) {
-            console.error("Failed to send welcome message/push to reporter:", msgErr.message);
-        }
-    }
-
-    // Send notification email
     const transporter = nodemailer.createTransport({
         service: 'gmail',
         auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS
+            user: emailUser,
+            pass: emailPass
         }
     });
 
+    const isConflict = conflictInfo?.isConflict === true;
+    const existingRepName = conflictInfo?.existingReporterName || "Active Reporter";
+    const existingRepPhone = conflictInfo?.existingReporterPhone || "";
+
     const emailContent = `
-        ${shouldAutoApprove ? '[AUTO-APPROVED - ఆటోమేటిక్ అప్రూవ్ అయింది]' : 'New Reporter Application:'}
+        ${shouldAutoApprove ? '[AUTO-APPROVED - ఆటోమేటిక్ అప్రూవ్ అయింది]' : isConflict ? '[పోటీ దరఖాస్తు / అడ్మిన్ పరిశీలన]' : 'New Reporter Application:'}
         -------------------------
         Status: ${finalStatus}
         Full Name: ${fullName || 'N/A'}
@@ -589,19 +680,26 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         Educational Qualification: ${education || 'N/A'}
         Currently Working Organization: ${currentOrg || 'N/A'}
         State: ${state || 'N/A'}
-        District: ${trimmedDistrict || 'N/A'}
-        Mandal: ${trimmedMandal || 'N/A'}
+        District: ${district || 'N/A'}
+        Mandal: ${mandal || 'N/A'}
         Message: ${message || 'N/A'}
         User ID: ${userId || 'N/A'}
+        ${isConflict ? `Existing Reporter: ${existingRepName} (${existingRepPhone})` : ''}
     `;
 
     const htmlEmail = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; margin: 0 auto;">
-            <div style="background-color: #d32f2f; color: white; padding: 16px; text-align: center; font-size: 20px; font-weight: bold;">
-                Alfa News - ${shouldAutoApprove ? 'కొత్త రిపోర్టర్ చేరారు (Auto-Approved)' : 'కొత్త రిపోర్టర్ దరఖాస్తు'}
+            <div style="background-color: ${shouldAutoApprove ? '#2e7d32' : isConflict ? '#e65100' : '#d32f2f'}; color: white; padding: 16px; text-align: center; font-size: 20px; font-weight: bold;">
+                Alfa News - ${shouldAutoApprove ? 'కొత్త రిపోర్టర్ చేరారు (Auto-Approved)' : isConflict ? 'పోటీ దరఖాస్తు (అడ్మిన్ పరిశీలన)' : 'కొత్త రిపోర్టర్ దరఖాస్తు'}
             </div>
             <div style="padding: 20px;">
-                ${shouldAutoApprove ? '<div style="background-color: #e8f5e9; border: 1px solid #4caf50; color: #2e7d32; padding: 12px; border-radius: 6px; margin-bottom: 16px; font-weight: bold; text-align: center;">✅ ఈ విలేకరి మండలానికి ఎవరూ లేనందున ఆటోమేటిక్‌గా అప్రూవ్ చేయబడ్డారు (Auto-Approved).</div>' : ''}
+                ${isPreviouslyDowngraded 
+                    ? '<div style="background-color: #fff3e0; border: 1px solid #ff9800; color: #e65100; padding: 12px; border-radius: 6px; margin-bottom: 16px; font-weight: bold; text-align: center;">⚠️ గమనిక: ఈ అభ్యర్థి గతంలో విలేకరిగా ఉండి నిష్క్రియాత్మకత వల్ల తొలగించబడిన రికార్డు ఉంది. అందువల్ల ఆటో-అప్రూవల్ చేయబడలేదు, మీ పరిశీలన (PENDING) కోసం ఉంచబడింది.</div>'
+                    : isConflict
+                        ? `<div style="background-color: #fff3e0; border: 1px solid #ff9800; color: #e65100; padding: 12px; border-radius: 6px; margin-bottom: 16px; font-weight: bold; text-align: center;">⚠️ గమనిక: ${mandal} మండలానికి ఇప్పటికే క్రియాశీల విలేకరి (${existingRepName} - ${existingRepPhone}) ఉన్నారు. ఈ అభ్యర్థిని ప్రొబేషన్ / పోటీదారుగా ఆమోదించవచ్చు లేదా వేరే మండలాన్ని కేటాయించవచ్చు.</div>`
+                        : shouldAutoApprove 
+                            ? '<div style="background-color: #e8f5e9; border: 1px solid #4caf50; color: #2e7d32; padding: 12px; border-radius: 6px; margin-bottom: 16px; font-weight: bold; text-align: center;">✅ ఈ విలేకరి మండలానికి ఎవరూ లేనందున ఆటోమేటిక్‌గా అప్రూవ్ చేయబడ్డారు (Auto-Approved).</div>'
+                            : ''}
                 <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
                     <tr><td style="padding: 8px; font-weight: bold; width: 180px;">స్టేటస్ (Status):</td><td style="padding: 8px; font-weight: bold; color: ${shouldAutoApprove ? '#2e7d32' : '#f57c00'};">${finalStatus}</td></tr>
                     <tr style="background-color: #f9f9f9;"><td style="padding: 8px; font-weight: bold; width: 180px;">పేరు (Full Name):</td><td style="padding: 8px;">${fullName || 'N/A'}</td></tr>
@@ -609,8 +707,8 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
                     <tr style="background-color: #f9f9f9;"><td style="padding: 8px; font-weight: bold;">ఫోన్ నంబర్ (Phone):</td><td style="padding: 8px;">${phone || 'N/A'}</td></tr>
                     <tr><td style="padding: 8px; font-weight: bold;">చిరునామా (Address):</td><td style="padding: 8px;">${address || 'N/A'}</td></tr>
                     <tr style="background-color: #f9f9f9;"><td style="padding: 8px; font-weight: bold;">రాష్ట్రం (State):</td><td style="padding: 8px;">${state || 'N/A'}</td></tr>
-                    <tr style="background-color: #ffebee;"><td style="padding: 8px; font-weight: bold; color: #d32f2f;">జిల్లా (District):</td><td style="padding: 8px; font-weight: bold; color: #d32f2f; font-size: 16px;">${trimmedDistrict || 'N/A'}</td></tr>
-                    <tr style="background-color: #ffebee;"><td style="padding: 8px; font-weight: bold; color: #d32f2f;">మండలం (Mandal):</td><td style="padding: 8px; font-weight: bold; color: #d32f2f; font-size: 16px;">${trimmedMandal || 'N/A'}</td></tr>
+                    <tr style="background-color: #ffebee;"><td style="padding: 8px; font-weight: bold; color: #d32f2f;">జిల్లా (District):</td><td style="padding: 8px; font-weight: bold; color: #d32f2f; font-size: 16px;">${district || 'N/A'}</td></tr>
+                    <tr style="background-color: #ffebee;"><td style="padding: 8px; font-weight: bold; color: #d32f2f;">మండలం (Mandal):</td><td style="padding: 8px; font-weight: bold; color: #d32f2f; font-size: 16px;">${mandal || 'N/A'}</td></tr>
                     <tr><td style="padding: 8px; font-weight: bold;">కోరిన పదవి (Position):</td><td style="padding: 8px;">${position || 'N/A'}</td></tr>
                     <tr style="background-color: #f9f9f9;"><td style="padding: 8px; font-weight: bold;">ఆసక్తి ఉన్న విభాగం:</td><td style="padding: 8px;">${interestedArea || 'N/A'}</td></tr>
                     <tr><td style="padding: 8px; font-weight: bold;">విద్యార్హత (Education):</td><td style="padding: 8px;">${education || 'N/A'}</td></tr>
@@ -623,31 +721,545 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
     `;
 
     const emailSubject = isPreviouslyDowngraded
-        ? `[గతంలో తొలగించబడిన విలేకరి మళ్లీ దరఖాస్తు] ${fullName || 'N/A'} (${trimmedDistrict} - ${trimmedMandal})`
-        : shouldAutoApprove 
-            ? `[ఆటో-అప్రూవ్ అయింది] కొత్త రిపోర్టర్ చేరారు: ${fullName || 'N/A'} (${trimmedDistrict} - ${trimmedMandal})`
-            : `రిపోర్టర్ దరఖాస్తు: ${fullName || 'N/A'} (${trimmedDistrict} - ${trimmedMandal})`;
+        ? `[గతంలో తొలగించబడిన విలేకరి మళ్లీ దరఖాస్తు] ${fullName || 'N/A'} (${district} - ${mandal})`
+        : isConflict
+            ? `[పోటీ దరఖాస్తు / అడ్మిన్ పరిశీలన] ${fullName || 'N/A'} (${district} - ${mandal})`
+            : shouldAutoApprove 
+                ? `[ఆటో-అప్రూవ్ అయింది] కొత్త రిపోర్టర్ చేరారు: ${fullName || 'N/A'} (${district} - ${mandal})`
+                : `రిపోర్టర్ దరఖాస్తు: ${fullName || 'N/A'} (${district} - ${mandal})`;
 
     try {
+        console.log(`[REPORTER_APP] 📧 Sending email to alfanews0861@gmail.com (Subject: ${emailSubject})`);
         await transporter.sendMail({
-            from: `"Alfa News Applications" <${process.env.EMAIL_USER}>`,
+            from: `"Alfa News Applications" <${emailUser}>`,
             to: 'alfanews0861@gmail.com',
             subject: emailSubject,
             text: emailContent,
             html: htmlEmail
         });
+        console.log(`[REPORTER_APP] ✉️ Email sent successfully to admin!`);
     } catch (error: any) {
-        console.error("Email send failed during application submission:", error.message);
-        // We still return success: true because the database write succeeded.
+        console.error("[REPORTER_APP] ❌ Email send failed during application submission:", error.message);
     }
+}
+
+export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL_PASS"] }, async (request) => {
+    const data = request.data;
+    let {
+        fullName,
+        fatherName,
+        phone,
+        address,
+        position,
+        interestedArea,
+        education,
+        currentOrg,
+        state,
+        district,
+        mandal,
+        message,
+        userId
+    } = data;
+
+    let rawDistrict = district || data.assignedDistrict || data.selectedDistrict || data.state_district || "";
+    let rawMandal = mandal || data.assignedMandal || data.selectedMandal || data.mandalam || "";
+    let trimmedDistrict = String(rawDistrict || "").trim();
+    let trimmedMandal = String(rawMandal || "").trim();
+
+    const rawPhone = String(phone || data.phoneNumber || "").trim();
+    const clean10 = rawPhone.replace(/\D/g, '').slice(-10);
+
+    // If userId or district/mandal is missing, look up user profile
+    let existingUserData: any = {};
+    if (userId) {
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (userDoc.exists) existingUserData = userDoc.data() || {};
+    } else if (clean10.length === 10) {
+        const phoneFormats = [`+91${clean10}`, clean10, `0${clean10}`, `91${clean10}`];
+        for (const fmt of phoneFormats) {
+            const uQuery = await db.collection('users').where('phone', '==', fmt).limit(1).get();
+            if (!uQuery.empty) {
+                const uDoc = uQuery.docs[0];
+                userId = uDoc.id;
+                existingUserData = uDoc.data() || {};
+                break;
+            }
+        }
+    }
+
+    if (!trimmedDistrict && existingUserData.district) {
+        trimmedDistrict = String(existingUserData.district).trim();
+    }
+    if (!trimmedMandal && (existingUserData.assignedMandal || existingUserData.mandal)) {
+        trimmedMandal = String(existingUserData.assignedMandal || existingUserData.mandal).trim();
+    }
+
+    // Smart text extraction from address/interestedArea/profile if still missing
+    if (!trimmedDistrict || !trimmedMandal) {
+        const extracted = extractDistrictAndMandal(address, interestedArea, existingUserData.district, existingUserData.address);
+        if (!trimmedDistrict) trimmedDistrict = extracted.district;
+        if (!trimmedMandal) trimmedMandal = extracted.mandal;
+    }
+
+    if (!trimmedDistrict || !trimmedMandal) {
+        throw new HttpsError('invalid-argument', 'జిల్లా మరియు మండలం తప్పనిసరి.');
+    }
+
+    console.log(`[REPORTER_APP] 📥 Processing application for ${fullName || 'N/A'} (District: ${trimmedDistrict}, Mandal: ${trimmedMandal}, UserId: ${userId || 'N/A'}, Phone: ${phone || 'N/A'})`);
+
+    // 1. Check vacancy for mandal in users collection
+    const vacancyResult = await checkMandalVacancy(trimmedDistrict, trimmedMandal, userId);
+    const vacant = vacancyResult.vacant;
+    const existingRep = vacancyResult.existingReporter;
+
+    // 2. Check if THIS APPLICANT was previously removed / downgraded for inactivity or suspended
+    let isPreviouslyDowngraded = false;
+    if (
+        existingUserData.previouslyDowngraded === true || 
+        existingUserData.suspended === true || 
+        existingUserData.downgradedReason === "INACTIVITY"
+    ) {
+        isPreviouslyDowngraded = true;
+    }
+
+    if (!isPreviouslyDowngraded && clean10.length === 10) {
+        const prevAppSnap = await db.collection('reporter_applications')
+            .where('phone', 'in', [`+91${clean10}`, clean10])
+            .where('status', '==', 'SUSPENDED')
+            .limit(1)
+            .get();
+        if (!prevAppSnap.empty) {
+            isPreviouslyDowngraded = true;
+        }
+    }
+
+    // Auto-approve IF user is not previously downgraded and mandal is vacant
+    const shouldAutoApprove = Boolean(userId && !isPreviouslyDowngraded && vacant);
+    const finalStatus = shouldAutoApprove ? "JOINED" : "PENDING";
+    const isConflict = !vacant;
+
+    console.log(`[REPORTER_APP] ⚖️ Decision: shouldAutoApprove=${shouldAutoApprove}, finalStatus=${finalStatus}, isPrevDowngraded=${isPreviouslyDowngraded}, isVacant=${vacant}, isConflict=${isConflict}`);
+
+    // Save application to Firestore
+    const newAppRef = await db.collection('reporter_applications').add({
+        ...data,
+        district: trimmedDistrict,
+        mandal: trimmedMandal,
+        userId: userId || data.userId || null,
+        status: finalStatus,
+        autoApproved: shouldAutoApprove,
+        isConflict: isConflict,
+        existingReporterName: existingRep?.name || null,
+        existingReporterPhone: existingRep?.phone || null,
+        existingReporterId: existingRep?.id || null,
+        isReapplication: isPreviouslyDowngraded,
+        previouslyDowngraded: isPreviouslyDowngraded,
+        agreedToRules: true,
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+    });
+    console.log(`[REPORTER_APP] 💾 Saved application document: ${newAppRef.id}`);
+
+    // If auto-approved, promote user immediately
+    if (shouldAutoApprove && userId) {
+        try {
+            const oldAppsQuery = await db.collection('reporter_applications')
+                .where('userId', '==', userId)
+                .where('status', '==', 'PENDING')
+                .get();
+            for (const doc of oldAppsQuery.docs) {
+                if (doc.id !== newAppRef.id) {
+                    await doc.ref.update({ status: 'JOINED', autoApproved: true, supersededBy: newAppRef.id });
+                }
+            }
+            if (clean10.length === 10) {
+                const oldPhoneQuery = await db.collection('reporter_applications')
+                    .where('phone', '==', clean10)
+                    .where('status', '==', 'PENDING')
+                    .get();
+                for (const doc of oldPhoneQuery.docs) {
+                    if (doc.id !== newAppRef.id) {
+                        await doc.ref.update({ status: 'JOINED', autoApproved: true, supersededBy: newAppRef.id });
+                    }
+                }
+            }
+        } catch (e: any) {
+            console.error("[REPORTER_APP] Non-critical error updating previous applications:", e.message);
+        }
+
+        // Promote user role to REPORTER immediately
+        await promoteUserToReporter(userId, fullName || existingUserData.name || "", phone || existingUserData.phone || "", trimmedDistrict, trimmedMandal, "AUTO_APPROVAL_SYSTEM");
+    } else if (isConflict && userId) {
+        // Notify applicant that mandal is occupied and application is forwarded for Admin competition review
+        await notifyApplicantOfConflict(userId, fullName || existingUserData.name || "", trimmedDistrict, trimmedMandal, existingRep?.name || "విలేకరి");
+    }
+
+    // Send notification email to admin
+    await sendReporterApplicationEmail(
+        { ...data, district: trimmedDistrict, mandal: trimmedMandal, userId },
+        shouldAutoApprove,
+        isPreviouslyDowngraded,
+        finalStatus,
+        { isConflict, existingReporterName: existingRep?.name, existingReporterPhone: existingRep?.phone }
+    );
 
     return { 
         success: true, 
         autoApproved: shouldAutoApprove, 
         isPreviouslyDowngraded,
+        isConflict,
+        existingReporterName: existingRep?.name || null,
         status: finalStatus 
     };
 });
+
+/**
+ * Background Trigger: Auto-approve newly created reporter applications
+ * Catches direct Firestore additions (from web, scripts, or client fallback)
+ */
+export const onReporterApplicationCreated = onDocumentCreated({
+    document: "reporter_applications/{appId}",
+    region: REGION,
+    secrets: ["EMAIL_USER", "EMAIL_PASS"]
+}, async (event) => {
+    const data = event.data?.data();
+    if (!data) return;
+
+    const rawStatus = String(data.status || "").trim().toUpperCase();
+    if (rawStatus === "JOINED" || rawStatus === "APPROVED" || rawStatus === "REJECTED") {
+        return;
+    }
+
+    const appId = event.params.appId;
+    const applicantName = data.fullName || data.name || "No Name";
+    const rawPhone = String(data.phone || data.phoneNumber || data.mobile || "").trim();
+    const clean10 = rawPhone.replace(/\D/g, '').slice(-10);
+
+    let district = String(data.district || data.selectedDistrict || data.assignedDistrict || data.state_district || data.stateDistrict || "").trim();
+    let mandal = String(data.mandal || data.selectedMandal || data.assignedMandal || data.mandalam || "").trim();
+    let userId = String(data.userId || data.uid || data.user_id || "").trim();
+
+    // 1. If userId is missing, search users collection by phone
+    let userDocData: any = null;
+    if (!userId && clean10.length === 10) {
+        const phoneFormats = [`+91${clean10}`, clean10, `0${clean10}`, `91${clean10}`];
+        for (const fmt of phoneFormats) {
+            const uQuery = await db.collection('users').where('phone', '==', fmt).limit(1).get();
+            if (!uQuery.empty) {
+                const uDoc = uQuery.docs[0];
+                userId = uDoc.id;
+                userDocData = uDoc.data();
+                break;
+            }
+        }
+    }
+
+    if (userId && !userDocData) {
+        const uDoc = await db.collection('users').doc(userId).get();
+        if (uDoc.exists) userDocData = uDoc.data();
+    }
+
+    // 2. If district or mandal is missing in application, try resolving from user document
+    if ((!district || !mandal) && userDocData) {
+        if (!district) district = String(userDocData.district || "").trim();
+        if (!mandal) mandal = String(userDocData.assignedMandal || userDocData.mandal || "").trim();
+    }
+
+    // 3. Smart extraction from address/interestedArea/profile if still missing
+    if (!district || !mandal) {
+        const extracted = extractDistrictAndMandal(data.address, data.interestedArea, userDocData?.district || district, userDocData?.address);
+        if (!district) district = extracted.district;
+        if (!mandal) mandal = extracted.mandal;
+    }
+
+    if (!district || !mandal || !userId) {
+        console.log(`[REPORTER_APP_TRIGGER] ⚠️ Missing info for app ${appId}: district='${district}', mandal='${mandal}', userId='${userId}'`);
+        return;
+    }
+
+    console.log(`[REPORTER_APP_TRIGGER] 🔍 Checking new application ${appId} for ${applicantName} (${district} - ${mandal}, userId: ${userId})`);
+
+    // 4. Check if user is previously downgraded/suspended
+    let isPreviouslyDowngraded = data.previouslyDowngraded === true || data.isReapplication === true;
+    if (!isPreviouslyDowngraded && userDocData) {
+        if (userDocData.previouslyDowngraded === true || userDocData.suspended === true || userDocData.downgradedReason === "INACTIVITY") {
+            isPreviouslyDowngraded = true;
+        }
+    }
+
+    if (isPreviouslyDowngraded) {
+        console.log(`[REPORTER_APP_TRIGGER] ⚠️ User ${userId} was previously downgraded/suspended. Keeping PENDING.`);
+        return;
+    }
+
+    // 5. Check vacancy for mandal in users collection
+    const vacancyResult = await checkMandalVacancy(district, mandal, userId);
+    const vacant = vacancyResult.vacant;
+    const existingRep = vacancyResult.existingReporter;
+
+    if (!vacant) {
+        console.log(`[REPORTER_APP_TRIGGER] ⚠️ Mandal ${mandal} in ${district} is already occupied by ${existingRep?.name}. Keeping PENDING for competition review.`);
+        
+        await event.data?.ref.update({
+            district,
+            mandal,
+            userId,
+            isConflict: true,
+            existingReporterName: existingRep?.name || null,
+            existingReporterPhone: existingRep?.phone || null,
+            existingReporterId: existingRep?.id || null
+        });
+
+        // Notify applicant that mandal is occupied and application is under admin review
+        await notifyApplicantOfConflict(userId, applicantName, district, mandal, existingRep?.name || "విలేకరి");
+
+        // Send email alert to admin
+        await sendReporterApplicationEmail(
+            { ...data, district, mandal, fullName: applicantName, phone: rawPhone, userId },
+            false,
+            false,
+            "PENDING",
+            { isConflict: true, existingReporterName: existingRep?.name, existingReporterPhone: existingRep?.phone }
+        );
+        return;
+    }
+
+    console.log(`[REPORTER_APP_TRIGGER] ✅ Mandal ${mandal} is VACANT. Auto-approving application ${appId}...`);
+
+    // 6. Auto-approve application
+    await event.data?.ref.update({
+        status: "JOINED",
+        autoApproved: true,
+        district,
+        mandal,
+        userId,
+        approvedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // 7. Promote user to REPORTER
+    await promoteUserToReporter(
+        userId,
+        applicantName,
+        rawPhone || userDocData?.phone || "",
+        district,
+        mandal,
+        "AUTO_APPROVAL_TRIGGER"
+    );
+
+    // 8. Send notification email to admin
+    await sendReporterApplicationEmail(
+        { ...data, district, mandal, fullName: applicantName, phone: rawPhone, userId },
+        true,
+        false,
+        "JOINED"
+    );
+});
+
+/**
+ * Callable function to scan and auto-approve existing pending reporter applications whose mandals are vacant.
+ */
+export const autoApproveAllPendingApplications = onCall({ secrets: ["EMAIL_USER", "EMAIL_PASS"] }, async (request) => {
+    return await executeAutoApprovePendingBackfill();
+});
+
+/**
+ * HTTP endpoint to trigger the backfill scan directly and return execution summary.
+ */
+export const runAutoApprovePendingBackfill = onRequest({ secrets: ["EMAIL_USER", "EMAIL_PASS"], region: REGION }, async (req, res) => {
+    try {
+        if (req.query.inspect) {
+            if (req.query.checkVacancy) {
+                const dist = String(req.query.dist || "");
+                const mandal = String(req.query.mandal || "");
+                const snap = await db.collection('users')
+                    .where('role', 'in', ['REPORTER', 2, 2.0, '2'])
+                    .where('district', '==', dist)
+                    .where('assignedMandal', '==', mandal)
+                    .get();
+                const reporters = snap.docs.map(d => ({ id: d.id, name: d.data().name, phone: d.data().phone, mandal: d.data().assignedMandal }));
+                res.status(200).json({ district: dist, mandal: mandal, count: reporters.length, reporters });
+                return;
+            }
+            const snap = await db.collection('reporter_applications')
+                .orderBy('timestamp', 'desc')
+                .limit(10)
+                .get();
+            const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            res.status(200).json({ count: docs.length, docs });
+            return;
+        }
+        const result = await executeAutoApprovePendingBackfill();
+        res.status(200).json(result);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+async function executeAutoApprovePendingBackfill() {
+    console.log("[AUTO_APPROVE_ALL] 🚀 Starting scan of all applications in reporter_applications...");
+    const allAppsSnap = await db.collection('reporter_applications').get();
+
+    let totalPending = 0;
+    let approvedCount = 0;
+    let skippedCount = 0;
+    const approvedList: any[] = [];
+    const skippedList: any[] = [];
+
+    for (const doc of allAppsSnap.docs) {
+        const data = doc.data();
+        const rawStatus = String(data.status || "").trim().toUpperCase();
+        
+        // Skip already finalized applications
+        if (rawStatus === "JOINED" || rawStatus === "APPROVED" || rawStatus === "REJECTED") {
+            continue;
+        }
+
+        totalPending++;
+        const applicantName = data.fullName || data.name || "No Name";
+        const rawPhone = String(data.phone || data.phoneNumber || data.mobile || "").trim();
+        const clean10 = rawPhone.replace(/\D/g, '').slice(-10);
+
+        let district = String(data.district || data.selectedDistrict || data.assignedDistrict || data.state_district || data.stateDistrict || "").trim();
+        let mandal = String(data.mandal || data.selectedMandal || data.assignedMandal || data.mandalam || "").trim();
+        let userId = String(data.userId || data.uid || data.user_id || "").trim();
+
+        // 1. If userId is missing, search users collection by phone number
+        let userDocData: any = null;
+        if (!userId && clean10.length === 10) {
+            const phoneFormats = [`+91${clean10}`, clean10, `0${clean10}`, `91${clean10}`];
+            for (const fmt of phoneFormats) {
+                const uQuery = await db.collection('users').where('phone', '==', fmt).limit(1).get();
+                if (!uQuery.empty) {
+                    const uDoc = uQuery.docs[0];
+                    userId = uDoc.id;
+                    userDocData = uDoc.data();
+                    break;
+                }
+            }
+        }
+
+        // If we have userId, fetch user profile if not already fetched
+        if (userId && !userDocData) {
+            const uDoc = await db.collection('users').doc(userId).get();
+            if (uDoc.exists) {
+                userDocData = uDoc.data();
+            }
+        }
+
+        // 2. If district or mandal is missing in application, try resolving from user document
+        if ((!district || !mandal) && userDocData) {
+            if (!district) district = String(userDocData.district || "").trim();
+            if (!mandal) mandal = String(userDocData.assignedMandal || userDocData.mandal || "").trim();
+        }
+
+        // 3. Smart extraction from address/interestedArea/profile if still missing
+        if (!district || !mandal) {
+            const extracted = extractDistrictAndMandal(data.address, data.interestedArea, userDocData?.district || district, userDocData?.address);
+            if (!district) district = extracted.district;
+            if (!mandal) mandal = extracted.mandal;
+        }
+
+        // If still missing district/mandal or userId, log reason
+        if (!district || !mandal) {
+            skippedCount++;
+            skippedList.push({ 
+                id: doc.id, 
+                name: applicantName, 
+                phone: rawPhone,
+                reason: `Missing district/mandal (Found: district='${district}', mandal='${mandal}')` 
+            });
+            continue;
+        }
+
+        if (!userId) {
+            skippedCount++;
+            skippedList.push({ 
+                id: doc.id, 
+                name: applicantName, 
+                phone: rawPhone,
+                district, 
+                mandal, 
+                reason: "No matching user account found in users collection" 
+            });
+            continue;
+        }
+
+        // 3. Check if user was previously downgraded or suspended
+        if (
+            userDocData?.previouslyDowngraded === true || 
+            userDocData?.suspended === true || 
+            userDocData?.downgradedReason === "INACTIVITY" ||
+            data.previouslyDowngraded === true ||
+            data.isReapplication === true
+        ) {
+            skippedCount++;
+            skippedList.push({ 
+                id: doc.id, 
+                name: applicantName, 
+                phone: rawPhone,
+                district, 
+                mandal, 
+                reason: "Applicant was previously downgraded/suspended (manual admin review required)" 
+            });
+            continue;
+        }
+
+        // 4. Check if mandal is vacant in users collection
+        const vacant = await isMandalVacant(district, mandal, userId);
+        if (!vacant) {
+            skippedCount++;
+            skippedList.push({ 
+                id: doc.id, 
+                name: applicantName, 
+                phone: rawPhone,
+                district, 
+                mandal, 
+                reason: `Mandal (${district} - ${mandal}) is already occupied by an active reporter` 
+            });
+            continue;
+        }
+
+        // 5. Auto approve!
+        await doc.ref.update({
+            status: "JOINED",
+            autoApproved: true,
+            district,
+            mandal,
+            userId,
+            approvedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        await promoteUserToReporter(
+            userId,
+            applicantName,
+            rawPhone || userDocData?.phone || "",
+            district,
+            mandal,
+            "AUTO_APPROVE_BACKFILL"
+        );
+
+        // Send notification email to admin
+        await sendReporterApplicationEmail(
+            { ...data, district, mandal, fullName: applicantName, phone: rawPhone, userId },
+            true,
+            false,
+            "JOINED"
+        );
+
+        approvedCount++;
+        approvedList.push({ id: doc.id, name: applicantName, phone: rawPhone, district, mandal, userId });
+    }
+
+    console.log(`[AUTO_APPROVE_ALL] 🏁 Finished: ${approvedCount} approved, ${skippedCount} skipped out of ${totalPending} pending applications.`);
+    return {
+        success: true,
+        totalApplicationsInDb: allAppsSnap.size,
+        totalPending,
+        approvedCount,
+        skippedCount,
+        approvedList,
+        skippedList
+    };
+}
 
 /**
  * Update reporter's last post timestamp when a post is approved

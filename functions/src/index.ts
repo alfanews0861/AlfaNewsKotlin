@@ -44,7 +44,10 @@ export {
     onUserRoleChanged,
     verifyReporter,
     onUserCreated,
-    onAnonymousDeviceCreated  // ✅ NEW: Welcome notification for guest users
+    onAnonymousDeviceCreated,
+    onReporterApplicationCreated,
+    autoApproveAllPendingApplications,
+    runAutoApprovePendingBackfill
 } from "./reporter_handler";
 
 // 3. Export Main News Functions

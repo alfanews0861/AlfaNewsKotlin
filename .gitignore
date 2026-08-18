@@ -108,3 +108,5 @@ functions/lib/
 functions/scratch/
 functions/src/scratch/
 functions/*.txt
+.kotlin/
+media/

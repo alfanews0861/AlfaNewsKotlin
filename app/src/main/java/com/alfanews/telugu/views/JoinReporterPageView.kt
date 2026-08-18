@@ -139,7 +139,7 @@ fun JoinReporterPageView(
                 }
             }
 
-            // 1. Fetch from users collection (Active Reporters)
+            // 1. Fetch from users collection (Active Reporters) - Single Source of Truth
             val usersSnapshot = FirebaseService.db.collection("users")
                 .whereIn("role", listOf("REPORTER", 2, 2.0, "2"))
                 .get()
@@ -152,31 +152,7 @@ fun JoinReporterPageView(
                 if (dist.isNotEmpty() && mandal.isNotEmpty()) "$dist|$mandal" else null
             }
 
-            // 2. Fetch from reporter_applications (JOINED - Approved Applications)
-            val joinedAppsSnapshot = FirebaseService.db.collection("reporter_applications")
-                .whereEqualTo("status", "JOINED")
-                .get()
-                .await()
-
-            val joinedMandals = joinedAppsSnapshot.documents.mapNotNull { doc ->
-                val dist = (doc.get("district") as? String)?.trim() ?: ""
-                val mandal = (doc.get("mandal") as? String)?.trim() ?: ""
-                if (dist.isNotEmpty() && mandal.isNotEmpty()) "$dist|$mandal" else null
-            }
-
-            // 3. Fetch from reporter_applications (PENDING - Already Applied)
-            val pendingAppsSnapshot = FirebaseService.db.collection("reporter_applications")
-                .whereEqualTo("status", "PENDING")
-                .get()
-                .await()
-
-            val pendingMandals = pendingAppsSnapshot.documents.mapNotNull { doc ->
-                val dist = (doc.get("district") as? String)?.trim() ?: ""
-                val mandal = (doc.get("mandal") as? String)?.trim() ?: ""
-                if (dist.isNotEmpty() && mandal.isNotEmpty()) "$dist|$mandal" else null
-            }
-
-            occupiedMandals = (userMandals + joinedMandals + pendingMandals).toSet()
+            occupiedMandals = userMandals.toSet()
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {
@@ -648,16 +624,49 @@ fun JoinReporterPageView(
                                         ) {
                                             if (isLoadingOccupied) {
                                                 DropdownMenuItem(text = { Text(stringResource(R.string.loading)) }, onClick = {})
-                                            } else if (availableMandalsList.isEmpty()) {
+                                            } else if (mandalsList.isEmpty()) {
                                                 DropdownMenuItem(text = { Text(stringResource(R.string.no_mandals_available)) }, onClick = {})
                                             } else {
-                                                availableMandalsList.forEach { mandalName: String ->
+                                                mandalsList.forEach { mandalName: String ->
+                                                    val isOccupied = occupiedMandals.contains("${selectedDistrict.trim()}|${mandalName.trim()}")
                                                     DropdownMenuItem(
-                                                        text = { Text(mandalName) },
+                                                        text = {
+                                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                if (isOccupied) {
+                                                                    Text("🟠 $mandalName (ఇప్పటికే ఉన్నారు - పోటీ/పరిశీలన)", color = Color(0xFFE65100), fontSize = 13.sp)
+                                                                } else {
+                                                                    Text("🟢 $mandalName", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                                                                }
+                                                            }
+                                                        },
                                                         onClick = {
                                                             selectedMandal = mandalName
                                                             mandalExpanded = false
                                                         }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (selectedMandal.isNotEmpty()) {
+                                        val isOccupiedSelected = occupiedMandals.contains("${selectedDistrict.trim()}|${selectedMandal.trim()}")
+                                        if (isOccupiedSelected) {
+                                            Surface(
+                                                color = Color(0xFFFFF3E0),
+                                                shape = RoundedCornerShape(8.dp),
+                                                border = BorderStroke(1.dp, Color(0xFFFF9800)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(Icons.Default.Info, contentDescription = null, tint = Color(0xFFE65100), modifier = Modifier.size(18.dp))
+                                                    Spacer(Modifier.width(8.dp))
+                                                    Text(
+                                                        text = "ఈ మండలానికి ఇప్పటికే విలేకరి ఉన్నారు. మీరు దరఖాస్తు చేసుకుంటే అడ్మిన్ ప్రత్యేక పరిశీలనకు (పోటీ / ప్రొబేషన్) పంపబడుతుంది.",
+                                                        fontSize = 12.sp,
+                                                        color = Color(0xFFE65100),
+                                                        fontFamily = Mallanna,
+                                                        lineHeight = 16.sp
                                                     )
                                                 }
                                             }
@@ -887,7 +896,7 @@ fun JoinReporterPageView(
                                     }
                                 }
                             },
-                            enabled = !isSubmitting && !hasPendingApplication,
+                            enabled = !isSubmitting,
                             modifier = Modifier.fillMaxWidth().height(56.dp),
                             shape = MaterialTheme.shapes.large,
                             colors = ButtonDefaults.buttonColors(
