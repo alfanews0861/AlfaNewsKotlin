@@ -642,10 +642,14 @@ fun ClassifiedAdDetailView(
             ) {
                 Button(
                     onClick = {
-                        val intent = Intent(Intent.ACTION_DIAL).apply {
-                            data = Uri.parse("tel:${ad.contactPhone}")
+                        try {
+                            val intent = Intent(Intent.ACTION_DIAL).apply {
+                                data = Uri.parse("tel:${ad.contactPhone}")
+                            }
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "కాల్ చేయలేకపోతున్నాము.", Toast.LENGTH_SHORT).show()
                         }
-                        context.startActivity(intent)
                     },
                     modifier = Modifier.weight(1f).height(56.dp),
                     shape = RoundedCornerShape(12.dp),
@@ -658,14 +662,18 @@ fun ClassifiedAdDetailView(
 
                 Button(
                     onClick = {
-                        val number = ad.whatsappNumber ?: ad.contactPhone
-                        val cleanNum = number.replace(Regex("\\D"), "")
-                        val finalNum = if (cleanNum.length == 10) "91$cleanNum" else cleanNum
-                        val message = context.getString(R.string.whatsapp_message, ad.title)
-                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                            data = Uri.parse("https://wa.me/$finalNum?text=${Uri.encode(message)}")
+                        try {
+                            val number = ad.whatsappNumber ?: ad.contactPhone
+                            val cleanNum = number.replace(Regex("\\D"), "")
+                            val finalNum = if (cleanNum.length == 10) "91$cleanNum" else cleanNum
+                            val message = context.getString(R.string.whatsapp_message, ad.title)
+                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                data = Uri.parse("https://wa.me/$finalNum?text=${Uri.encode(message)}")
+                            }
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "WhatsApp తెరవలేకపోతున్నాము.", Toast.LENGTH_SHORT).show()
                         }
-                        context.startActivity(intent)
                     },
                     modifier = Modifier.weight(1f).height(56.dp),
                     shape = RoundedCornerShape(12.dp),

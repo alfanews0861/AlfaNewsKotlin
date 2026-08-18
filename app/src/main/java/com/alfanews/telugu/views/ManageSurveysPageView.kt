@@ -133,7 +133,7 @@ fun ManageSurveysPageView(
 
             if (canPost) {
                 Button(
-                    onClick = onNavigateToCreateSurvey!!,
+                    onClick = { onNavigateToCreateSurvey?.invoke() },
                     shape = RoundedCornerShape(8.dp),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)

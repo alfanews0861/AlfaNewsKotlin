@@ -88,7 +88,13 @@ private fun ActiveVideoPlayer(
                     .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                     .build()
                 setAudioAttributes(audioAttributes, true)
-                setMediaItem(MediaItem.fromUri(videoUrl))
+                if (videoUrl.isNotBlank()) {
+                    try {
+                        setMediaItem(MediaItem.fromUri(videoUrl))
+                    } catch (e: Exception) {
+                        android.util.Log.e("VideoPlayerView", "Invalid video URL: $videoUrl", e)
+                    }
+                }
                 repeatMode = ExoPlayer.REPEAT_MODE_OFF // Fix: Prevent infinite loop without cache
                 addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(isPlayingParam: Boolean) {
@@ -99,27 +105,38 @@ private fun ActiveVideoPlayer(
     }
 
     LaunchedEffect(autoPlay) {
-        if (autoPlay) {
-            if (exoPlayer.playbackState == Player.STATE_IDLE) {
-                exoPlayer.prepare()
+        try {
+            if (autoPlay) {
+                if (exoPlayer.playbackState == Player.STATE_IDLE) {
+                    exoPlayer.prepare()
+                }
+                if (exoPlayer.playbackState == Player.STATE_ENDED) {
+                    exoPlayer.seekTo(0)
+                }
+                exoPlayer.playWhenReady = true
+            } else {
+                exoPlayer.playWhenReady = false
             }
-            if (exoPlayer.playbackState == Player.STATE_ENDED) {
-                exoPlayer.seekTo(0)
-            }
-            exoPlayer.playWhenReady = true
-        } else {
-            exoPlayer.playWhenReady = false
+        } catch (e: Exception) {
+            android.util.Log.e("VideoPlayerView", "Error updating playback state", e)
         }
     }
 
     LaunchedEffect(muted) {
-        exoPlayer.volume = if (muted) 0f else 1f
+        try {
+            exoPlayer.volume = if (muted) 0f else 1f
+        } catch (e: Exception) {}
     }
 
     DisposableEffect(videoUrl) {
         onDispose {
-            exoPlayer.pause()
-            exoPlayer.release()
+            try {
+                exoPlayer.pause()
+                exoPlayer.stop()
+                exoPlayer.release()
+            } catch (e: Exception) {
+                android.util.Log.e("VideoPlayerView", "Error releasing ExoPlayer", e)
+            }
         }
     }
 

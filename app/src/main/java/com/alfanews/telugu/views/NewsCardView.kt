@@ -62,9 +62,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import coil3.compose.AsyncImage
+import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
+import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.request.crossfade
+import coil3.toBitmap
 import com.alfanews.telugu.R
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.models.MediaType
@@ -645,63 +648,122 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
             delay(100)
             val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
             val shareText = customShareText ?: "$headline\nhttps://alfanews.app/news/${post.id}"
-            val bitmap = takeScreenshot(view, cardBounds)
-            if (bitmap != null) {
-                val uri = saveImageToCache(context, bitmap)
-                if (uri != null) {
-                    val intent = Intent(Intent.ACTION_SEND).apply {
-                        type = "image/png"
-                        putExtra(Intent.EXTRA_STREAM, uri)
-                        putExtra(Intent.EXTRA_TEXT, shareText)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    intent.clipData = ClipData.newRawUri(null, uri)
-                    val chooser = Intent.createChooser(intent, context.getString(R.string.share_news))
-                    chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    context.startActivity(chooser)
-                    FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener { setShareCount(1) }
-                    AnalyticsService.logNewsShare(post)
-                    AnalyticsService.logPostEngagement(post, weight = 4)
-                    val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
-                        ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
-                    if (primaryCat != null) {
-                        try { PreferenceManager.getInstance(context).trackCategoryRead(primaryCat) } catch (e: Exception) { }
-                    }
-                } else Toast.makeText(context, context.getString(R.string.share_failed), Toast.LENGTH_SHORT).show()
-                bitmap.recycle() // ♻️ Recycle bitmap after sharing
-            } else Toast.makeText(context, context.getString(R.string.screenshot_failed), Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) { Toast.makeText(context, "Share error", Toast.LENGTH_SHORT).show() } finally { setSharing(false) }
+            
+            // 📸 Tier 1 & 2: Try screenshot capture (ARGB_8888 -> RGB_565 -> Scaled RGB_565 -> Canvas)
+            val screenshotBitmap = takeScreenshot(view, cardBounds)
+            var imageUri = if (screenshotBitmap != null) {
+                val u = saveImageToCache(context, screenshotBitmap)
+                screenshotBitmap.recycle()
+                u
+            } else null
+
+            // 📸 Tier 3: If screenshot failed under extreme memory pressure, generate/fetch news image (GUARANTEED IMAGE)
+            if (imageUri == null) {
+                imageUri = fallbackGetNewsImageUri(context, post, language)
+            }
+
+            if (imageUri != null) {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "image/jpeg"
+                    putExtra(Intent.EXTRA_STREAM, imageUri)
+                    putExtra(Intent.EXTRA_TEXT, shareText)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                intent.clipData = ClipData.newRawUri(null, imageUri)
+                val chooser = Intent.createChooser(intent, context.getString(R.string.share_news)).apply {
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(chooser)
+                FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener { setShareCount(1) }
+                AnalyticsService.logNewsShare(post)
+                AnalyticsService.logPostEngagement(post, weight = 4)
+                val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                    ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                if (primaryCat != null) {
+                    try { PreferenceManager.getInstance(context).trackCategoryRead(primaryCat) } catch (e: Exception) { }
+                }
+            } else {
+                Toast.makeText(context, context.getString(R.string.share_failed), Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) { 
+            Toast.makeText(context, "Share error", Toast.LENGTH_SHORT).show() 
+        } finally { 
+            setSharing(false) 
+        }
     }
 }
 
 private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspendCoroutine { continuation ->
     val activity = findActivity(view.context)
     val window = activity?.window
-    if (window == null || bounds == null || bounds.isEmpty || bounds.width() <= 0 || bounds.height() <= 0) { continuation.resume(null); return@suspendCoroutine }
+    if (window == null || bounds == null || bounds.isEmpty || bounds.width() <= 0 || bounds.height() <= 0) { 
+        continuation.resume(null)
+        return@suspendCoroutine 
+    }
     try {
         val decorView = window.decorView
         val windowWidth = decorView.width
         val windowHeight = decorView.height
         val safeBounds = Rect(bounds.left.coerceIn(0, windowWidth), 0, bounds.right.coerceIn(0, windowWidth), bounds.bottom.coerceIn(0, windowHeight))
-        if (safeBounds.width() <= 0 || safeBounds.height() <= 0) { continuation.resume(null); return@suspendCoroutine }
-        val runtime = Runtime.getRuntime()
-        val availableMemory = runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory())
-        if (safeBounds.width() * safeBounds.height() * 4L > availableMemory * 0.5) { Log.w("NewsCardView", "Insufficient memory for screenshot"); continuation.resume(null); return@suspendCoroutine }
-        val bitmap = try { Bitmap.createBitmap(safeBounds.width(), safeBounds.height(), Bitmap.Config.ARGB_8888) } catch (oom: OutOfMemoryError) { null }
-        if (bitmap == null) { continuation.resume(null); return@suspendCoroutine }
+        if (safeBounds.width() <= 0 || safeBounds.height() <= 0) { 
+            continuation.resume(null)
+            return@suspendCoroutine 
+        }
+
+        val w = safeBounds.width()
+        val h = safeBounds.height()
+
+        // 🛡️ Progressive OOM-safe allocation:
+        // 1. Full ARGB_8888
+        // 2. Full RGB_565 (50% RAM savings)
+        // 3. 0.75x Scaled RGB_565 (70% RAM savings)
+        var bitmap: Bitmap? = try {
+            Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        } catch (oom: OutOfMemoryError) {
+            null
+        }
+
+        if (bitmap == null) {
+            bitmap = try {
+                Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565)
+            } catch (oom: OutOfMemoryError) {
+                null
+            }
+        }
+
+        if (bitmap == null) {
+            val scaleW = maxOf(1, (w * 0.75).toInt())
+            val scaleH = maxOf(1, (h * 0.75).toInt())
+            bitmap = try {
+                Bitmap.createBitmap(scaleW, scaleH, Bitmap.Config.RGB_565)
+            } catch (oom: OutOfMemoryError) {
+                null
+            }
+        }
+
+        if (bitmap == null) {
+            continuation.resume(null)
+            return@suspendCoroutine
+        }
 
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            // ✅ Use PixelCopy on API 26+ for accurate hardware-accelerated screenshot
             PixelCopy.request(window, safeBounds, bitmap, { copyResult ->
                 if (copyResult == PixelCopy.SUCCESS) {
                     continuation.resume(bitmap)
                 } else {
-                    bitmap.recycle() // ♻️ Recycle on failure
-                    continuation.resume(null)
+                    // Fallback to Canvas draw on PixelCopy failure
+                    try {
+                        val canvas = android.graphics.Canvas(bitmap)
+                        canvas.translate(-safeBounds.left.toFloat(), -safeBounds.top.toFloat())
+                        decorView.draw(canvas)
+                        continuation.resume(bitmap)
+                    } catch (e: Exception) {
+                        bitmap.recycle()
+                        continuation.resume(null)
+                    }
                 }
             }, Handler(Looper.getMainLooper()))
         } else {
-            // ✅ Fallback for API < 26: Canvas-based draw (less accurate but no crash)
             try {
                 val canvas = android.graphics.Canvas(bitmap)
                 canvas.translate(-safeBounds.left.toFloat(), -safeBounds.top.toFloat())
@@ -717,6 +779,101 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
     }
 }
 
+private suspend fun fallbackGetNewsImageUri(context: Context, post: NewsPost, language: Language): Uri? {
+    return kotlinx.coroutines.withContext(Dispatchers.IO) {
+        try {
+            // 1. If post has a media image, fetch via Coil
+            if (post.mediaUrl.isNotBlank()) {
+                try {
+                    val request = ImageRequest.Builder(context)
+                        .data(post.mediaUrl)
+                        .size(1080, 1080)
+                        .allowHardware(false)
+                        .build()
+                    val result = SingletonImageLoader.get(context).execute(request)
+                    if (result is SuccessResult) {
+                        val bmp = result.image.toBitmap()
+                        val uri = saveImageToCache(context, bmp)
+                        bmp.recycle()
+                        if (uri != null) return@withContext uri
+                    }
+                } catch (e: Exception) {
+                    Log.w("NewsCardView", "Failed to fetch mediaUrl for share fallback: ${e.message}")
+                }
+            }
+
+            // 2. Generate a clean branded news card image on canvas
+            val width = 720
+            val height = 720
+            val cardBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+            val canvas = android.graphics.Canvas(cardBitmap)
+
+            // Background
+            val bgPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.parseColor("#121212")
+                style = android.graphics.Paint.Style.FILL
+            }
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
+
+            // Header red bar
+            val headerPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.parseColor("#E53935")
+                style = android.graphics.Paint.Style.FILL
+            }
+            canvas.drawRect(0f, 0f, width.toFloat(), 90f, headerPaint)
+
+            // Header text "AlfaNews"
+            val titlePaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.WHITE
+                textSize = 38f
+                isFakeBoldText = true
+                isAntiAlias = true
+            }
+            canvas.drawText("AlfaNews", 40f, 60f, titlePaint)
+
+            // Headline text
+            val textPaint = android.text.TextPaint().apply {
+                color = android.graphics.Color.WHITE
+                textSize = 34f
+                isFakeBoldText = true
+                isAntiAlias = true
+            }
+
+            val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
+            val staticLayout = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                android.text.StaticLayout.Builder.obtain(headline, 0, headline.length, textPaint, width - 80)
+                    .setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL)
+                    .setMaxLines(6)
+                    .setEllipsize(android.text.TextUtils.TruncateAt.END)
+                    .build()
+            } else {
+                @Suppress("DEPRECATION")
+                android.text.StaticLayout(headline, textPaint, width - 80, android.text.Layout.Alignment.ALIGN_NORMAL, 1.2f, 0f, false)
+            }
+
+            canvas.save()
+            canvas.translate(40f, 150f)
+            staticLayout.draw(canvas)
+            canvas.restore()
+
+            // Footer watermark
+            val footerPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.LTGRAY
+                textSize = 24f
+                isAntiAlias = true
+            }
+            canvas.drawText("alfanews.app/news/${post.id}", 40f, height - 50f, footerPaint)
+
+            val uri = saveImageToCache(context, cardBitmap)
+            cardBitmap.recycle()
+            uri
+        } catch (e: Exception) {
+            Log.e("NewsCardView", "Error generating fallback news card image", e)
+            null
+        }
+    }
+}
+
 private fun findActivity(context: Context): Activity? {
     var currentContext = context
     while (currentContext is ContextWrapper) { if (currentContext is Activity) return currentContext; currentContext = currentContext.baseContext }
@@ -727,12 +884,20 @@ private fun saveImageToCache(context: Context, bitmap: Bitmap): Uri? {
     val imagesFolder = File(context.cacheDir, "images")
     try {
         imagesFolder.mkdirs()
-        val file = File(imagesFolder, "news_share_${System.currentTimeMillis()}.png")
+        // Clean old share images older than 1 hour to prevent disk bloat
+        imagesFolder.listFiles()?.forEach { file ->
+            if (file.name.startsWith("news_share_") && (System.currentTimeMillis() - file.lastModified() > 3600000)) {
+                file.delete()
+            }
+        }
+        val file = File(imagesFolder, "news_share_${System.currentTimeMillis()}.jpg")
         val stream = FileOutputStream(file)
-        bitmap.compress(Bitmap.CompressFormat.PNG, 90, stream)
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
         stream.close()
         return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-    } catch (e: Exception) { e.printStackTrace() }
+    } catch (e: Exception) { 
+        e.printStackTrace() 
+    }
     return null
 }
 

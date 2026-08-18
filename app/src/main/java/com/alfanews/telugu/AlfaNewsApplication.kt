@@ -162,15 +162,14 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
                     // 1. కాష్ ఫోల్డర్‌ను పూర్తిగా డిలీట్ చేయడం (Safe for non-essential data)
                     deleteDir(cacheDir)
                     
-                    // 2. 'files' ఫోల్డర్‌లో ఉండే అనవసర కాష్ ఫైల్స్
+                    // 2. 'files' ఫోల్డర్‌లో ఉండే అనవసర కాష్ ఫైల్స్ (avoiding active database files)
                     val filesDir = filesDir
                     if (filesDir.exists()) {
                         val children = filesDir.list()
                         if (children != null) {
                             for (child in children) {
-                                // Only delete non-essential files to avoid breaking active services
-                                if (child.contains("cache", ignoreCase = true) || 
-                                    child.contains("coil", ignoreCase = true) ||
+                                // Only delete non-essential image/coil cache files
+                                if (child.contains("coil", ignoreCase = true) ||
                                     child.contains("image", ignoreCase = true)) {
                                     deleteDir(File(filesDir, child))
                                 }
@@ -178,14 +177,7 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
                         }
                     }
 
-                    // 3. Firestore Cache ని క్లియర్ చేయడం (GBs లో ఉంటే తీసివేయడానికి)
-                    val firestoreDir = File(filesDir, "app_firestore")
-                    if (firestoreDir.exists()) {
-                        deleteDir(firestoreDir)
-                        Log.d("AlfaNewsApp", "Firestore cache folder deleted")
-                    }
-
-                    // 5. వెర్షన్ అప్‌డేట్ చేయడం
+                    // 3. వెర్షన్ అప్‌డేట్ చేయడం
                     prefs.cacheVersion = currentCacheVersion
                     prefs.isLegacyCacheCleared = true
                     Log.d("AlfaNewsApp", "Legacy cache cleared successfully (safe mode)")
@@ -218,7 +210,7 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
                     
                     // 2. Coil Cache ని క్లియర్ చేయడం
                     filesDir.listFiles()?.forEach { 
-                        if (it.name.contains("coil", true) || it.name.contains("cache", true)) {
+                        if (it.name.contains("coil", true) || it.name.contains("image", true)) {
                             deleteDir(it)
                         }
                     }
@@ -247,18 +239,16 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
 
     /**
      * 🛡️ చిత్రాల అభ్యర్థనల కోసం హెడర్‌లను (Headers) జోడించే OkHttpClientని సృష్టిస్తుంది.
+     * ✅ FIX: OkHttp లో duplicate httpCache తొలగించబడింది — Coil 3 DiskCache మాత్రమే Cache చేస్తుంది.
+     * దీనివల్ల okio.Segment OutOfMemoryError పూర్తిగా నివారించబడుతుంది.
      */
     private fun createSafeOkHttpClient(): OkHttpClient {
         val dispatcher = Dispatcher().apply {
             maxRequests = 8
             maxRequestsPerHost = 3
         }
-        val httpCacheDir = File(cacheDir, "http_image_cache")
-        val cacheSize = 250 * 1024 * 1024L // 250 MB HTTP Cache
-        val httpCache = okhttp3.Cache(httpCacheDir, cacheSize)
 
         return OkHttpClient.Builder()
-            .cache(httpCache)
             .dispatcher(dispatcher)
             .connectionPool(ConnectionPool(5, 2, TimeUnit.MINUTES))
             .addNetworkInterceptor(SafeHeaderInterceptor())

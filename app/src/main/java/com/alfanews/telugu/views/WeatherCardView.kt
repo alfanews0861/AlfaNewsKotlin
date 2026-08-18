@@ -187,15 +187,18 @@ fun WeatherCardView(
     val windSpeed = weatherData?.wind?.toInt()?.toString() ?: "--"
     val humidity = weatherData?.humidity?.let { "$it%" } ?: "--"
     val uvIndex = weatherData?.uvIndex?.let { String.format(Locale.getDefault(), "%.1f", it) } ?: "--"
-    val feelsLike = when {
-        weatherData?.feelsLike != null -> weatherData?.feelsLike?.toInt().toString()
-        weatherData?.temp != null -> {
-            val h = (weatherData?.humidity ?: 50)
-            val t = weatherData?.temp!!
-            val hi = t + (0.33 * (h / 100.0 * 6.105) - 0.7)
-            hi.toInt().toString()
+    val feelsLike = run {
+        val wd = weatherData
+        when {
+            wd?.feelsLike != null -> wd.feelsLike.toInt().toString()
+            wd?.temp != null -> {
+                val h = wd.humidity ?: 50
+                val t = wd.temp
+                val hi = t + (0.33 * (h / 100.0 * 6.105) - 0.7)
+                hi.toInt().toString()
+            }
+            else -> "--"
         }
-        else -> "--"
     }
     val weatherTime = weatherData?.time?.let { WeatherService.formatTime(it, language) } ?: ""
 

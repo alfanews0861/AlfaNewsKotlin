@@ -676,7 +676,11 @@ fun MainScreen(
                             try {
                                 context.startActivity(intent)
                             } catch (e: Exception) {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=com.alfanews.telugu")))
+                                try {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=com.alfanews.telugu")))
+                                } catch (ex: Exception) {
+                                    android.util.Log.e("MainScreen", "Could not open Play Store rating", ex)
+                                }
                             }
                         }
                     ) {

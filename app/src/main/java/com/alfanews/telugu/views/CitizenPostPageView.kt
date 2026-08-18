@@ -164,10 +164,16 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
     fun launchCamera() {
         when (PackageManager.PERMISSION_GRANTED) {
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) -> {
-                val photoFile = File(context.externalCacheDir, "photo.jpg")
-                val newPhotoUri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", photoFile)
-                mediaUri = newPhotoUri
-                cameraLauncher.launch(newPhotoUri)
+                try {
+                    val cacheBase = context.externalCacheDir ?: context.cacheDir
+                    val imagesDir = File(cacheBase, "images").apply { mkdirs() }
+                    val photoFile = File(imagesDir, "photo_${System.currentTimeMillis()}.jpg")
+                    val newPhotoUri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", photoFile)
+                    mediaUri = newPhotoUri
+                    cameraLauncher.launch(newPhotoUri)
+                } catch (e: Exception) {
+                    Toast.makeText(context, "కెమెరా తెరవడంలో లోపం.", Toast.LENGTH_SHORT).show()
+                }
             }
             else -> {
                 requestCameraPermission.launch(Manifest.permission.CAMERA)

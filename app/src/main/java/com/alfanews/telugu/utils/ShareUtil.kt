@@ -111,10 +111,17 @@ object ShareUtil {
                     action = Intent.ACTION_SEND
                     putExtra(Intent.EXTRA_TEXT, shareText)
                     type = "text/plain"
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
 
-                val chooser = Intent.createChooser(shareIntent, "Share News")
-                context.startActivity(chooser)
+                val chooser = Intent.createChooser(shareIntent, "Share News").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                try {
+                    context.startActivity(chooser)
+                } catch (e: Exception) {
+                    Log.e("ShareUtil", "Could not start share activity", e)
+                }
             },
             onError = { e ->
                 Log.e("ShareUtil", "Failed to share post", e)
@@ -122,6 +129,10 @@ object ShareUtil {
                 val fallbackText = buildString {
                     append("Check out this news: ")
                     append(postTitle)
+                    if (additionalText.isNotEmpty()) {
+                        append("\n")
+                        append(additionalText)
+                    }
                     append("\n\n")
                     append("https://alfanews.app/news/")
                     append(postId)
@@ -131,10 +142,17 @@ object ShareUtil {
                     action = Intent.ACTION_SEND
                     putExtra(Intent.EXTRA_TEXT, fallbackText)
                     type = "text/plain"
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
 
-                val chooser = Intent.createChooser(fallbackIntent, "Share News")
-                context.startActivity(chooser)
+                val chooser = Intent.createChooser(fallbackIntent, "Share News").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                try {
+                    context.startActivity(chooser)
+                } catch (ex: Exception) {
+                    Log.e("ShareUtil", "Could not start fallback share activity", ex)
+                }
             }
         )
     }

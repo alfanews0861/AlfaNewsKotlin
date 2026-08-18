@@ -55,6 +55,7 @@ object AdMobService {
      */
     @Synchronized
     private fun preloadNativeAds(activity: Activity) {
+        if (activity.isFinishing || activity.isDestroyed) return
         if (nativeAds.size >= MAX_NATIVE_ADS) {
             Log.d(TAG, "Native ad cache full (${nativeAds.size}). Skipping preload.")
             return
@@ -94,6 +95,10 @@ object AdMobService {
      * లోడ్ అయిన నేటివ్ యాడ్ ను అందిస్తుంది. ఒకవేళ ఏదీ అందుబాటులో లేకపోతే కొత్తది లోడ్ చేస్తుంది (మరియు ఫెయిల్ అయితే ఆటో-రీట్రై చేస్తుంది).
      */
     fun loadNativeAd(activity: Activity, retriesLeft: Int = 2, onAdLoaded: (NativeAd?) -> Unit) {
+        if (activity.isFinishing || activity.isDestroyed) {
+            onAdLoaded(null)
+            return
+        }
         val ad = nativeAds.poll()
         if (ad != null) {
             Log.d(TAG, "Serving native ad from cache. Remaining: ${nativeAds.size}")
@@ -117,10 +122,12 @@ object AdMobService {
             .withAdListener(object : AdListener() {
                 override fun onAdFailedToLoad(error: LoadAdError) {
                     Log.e(TAG, "On-demand native ad failed to load: ${error.message} (Code: ${error.code})")
-                    if (retriesLeft > 0) {
+                    if (retriesLeft > 0 && !activity.isFinishing && !activity.isDestroyed) {
                         Log.d(TAG, "Retrying on-demand native ad load in 1.5 seconds...")
                         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                            loadNativeAd(activity, retriesLeft - 1, onAdLoaded)
+                            if (!activity.isFinishing && !activity.isDestroyed) {
+                                loadNativeAd(activity, retriesLeft - 1, onAdLoaded)
+                            }
                         }, 1500)
                     } else {
                         onAdLoaded(null)
