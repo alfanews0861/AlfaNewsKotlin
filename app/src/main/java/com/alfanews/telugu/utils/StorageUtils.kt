@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import com.alfanews.telugu.services.FirebaseService
 import android.util.Log
 import coil3.SingletonImageLoader
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
@@ -28,11 +29,12 @@ suspend fun uploadImageToStorage(
         val fileName = "${folder}/${UUID.randomUUID()}_${System.currentTimeMillis()}.webp"
         val imageRef = storageRef.child(fileName)
         
-        // 📏 SAFE DOWNSAMPLING: Load and downsample via Coil 3 ImageLoader
+        // 📏 SAFE DOWNSAMPLING: Load and downsample via Coil 3 ImageLoader (disable memory cache to avoid mutating UI cache)
         val imageRequest = ImageRequest.Builder(context)
             .data(uri)
             .size(1280, 1280)
             .allowHardware(false)
+            .memoryCachePolicy(CachePolicy.DISABLED)
             .build()
 
         val result = SingletonImageLoader.get(context).execute(imageRequest)
@@ -62,12 +64,6 @@ suspend fun uploadImageToStorage(
             @Suppress("DEPRECATION")
             resizedBitmap.compress(Bitmap.CompressFormat.WEBP, 80, baos)
         }
-        
-        // Recycle if scaled
-        if (resizedBitmap != bitmap) {
-            resizedBitmap.recycle()
-        }
-        bitmap.recycle()
 
         val data = baos.toByteArray()
         

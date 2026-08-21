@@ -19,6 +19,7 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.alfanews.telugu.services.NotificationActionReceiver
 import coil3.SingletonImageLoader
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
@@ -415,6 +416,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                         .data(imageUrl)
                         .size(1024, 512)
                         .allowHardware(false) // Notification view support requires software Bitmaps
+                        .memoryCachePolicy(CachePolicy.DISABLED)
                         .build()
                     val result = SingletonImageLoader.get(this@MyFirebaseMessagingService).execute(request)
                     if (result is SuccessResult) {

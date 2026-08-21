@@ -63,6 +63,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import coil3.compose.AsyncImage
 import coil3.SingletonImageLoader
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
@@ -748,7 +749,6 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
                         decorView.draw(canvas)
                         continuation.resume(bitmap)
                     } catch (e: Exception) {
-                        bitmap.recycle()
                         continuation.resume(null)
                     }
                 }
@@ -760,7 +760,6 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
                 decorView.draw(canvas)
                 continuation.resume(bitmap)
             } catch (e: Exception) {
-                bitmap.recycle()
                 continuation.resume(null)
             }
         }
@@ -772,19 +771,19 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
 private suspend fun fallbackGetNewsImageUri(context: Context, post: NewsPost, language: Language): Uri? {
     return kotlinx.coroutines.withContext(Dispatchers.IO) {
         try {
-            // 1. If post has a media image, fetch via Coil
+            // 1. If post has a media image, fetch via Coil (disable memory cache to avoid mutating UI cache)
             if (post.mediaUrl.isNotBlank()) {
                 try {
                     val request = ImageRequest.Builder(context)
                         .data(post.mediaUrl)
                         .size(1080, 1080)
                         .allowHardware(false)
+                        .memoryCachePolicy(CachePolicy.DISABLED)
                         .build()
                     val result = SingletonImageLoader.get(context).execute(request)
                     if (result is SuccessResult) {
                         val bmp = result.image.toBitmap()
                         val uri = saveImageToCache(context, bmp)
-                        bmp.recycle()
                         if (uri != null) return@withContext uri
                     }
                 } catch (e: Exception) {
@@ -855,7 +854,6 @@ private suspend fun fallbackGetNewsImageUri(context: Context, post: NewsPost, la
             canvas.drawText("alfanews.app/news/${post.id}", 40f, height - 50f, footerPaint)
 
             val uri = saveImageToCache(context, cardBitmap)
-            cardBitmap.recycle()
             uri
         } catch (e: Exception) {
             Log.e("NewsCardView", "Error generating fallback news card image", e)
