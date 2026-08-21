@@ -5,11 +5,14 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -57,11 +60,17 @@ fun AdminReporterMessagingView(
     var loading by remember { mutableStateOf(true) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedTab by remember { mutableStateOf(0) } // 0: Conversations, 1: All Reporters, 2: Warnings
+    var conversationFilter by remember { mutableStateOf("ALL") } // "ALL", "UNREAD_ADMIN", "UNREAD_REPORTER", "READ", "WARNINGS"
 
     // Active 1-on-1 Chat with selected reporter
     var activeChatReporter by remember { mutableStateOf<ReporterConversation?>(null) }
     var showBroadcastDialog by remember { mutableStateOf(false) }
     var isRunningInactivityScan by remember { mutableStateOf(false) }
+
+    val unreadAdminCount = remember(conversations) { conversations.count { it.unreadCountForAdmin > 0 } }
+    val unreadReporterCount = remember(conversations) { conversations.count { it.lastSenderRole == "ADMIN" && it.unreadCountForReporter > 0 } }
+    val warningCount = remember(conversations) { conversations.count { it.lastMessage.contains("⚠️") || it.lastMessage.contains("హెచ్చరిక") } }
+    val readCount = remember(conversations) { conversations.count { it.unreadCountForAdmin == 0 && it.unreadCountForReporter == 0 } }
 
     // Real-time conversations list listener
     DisposableEffect(Unit) {
@@ -164,11 +173,17 @@ fun AdminReporterMessagingView(
     }
 
     // Filtered lists
-    val filteredConversations = remember(conversations, searchQuery, selectedTab) {
+    val filteredConversations = remember(conversations, searchQuery, selectedTab, conversationFilter) {
         val q = searchQuery.trim().lowercase()
         val base = when (selectedTab) {
             2 -> conversations.filter { it.lastMessage.contains("⚠️") || it.lastMessage.contains("హెచ్చరిక") }
-            else -> conversations
+            else -> when (conversationFilter) {
+                "UNREAD_ADMIN" -> conversations.filter { it.unreadCountForAdmin > 0 }
+                "UNREAD_REPORTER" -> conversations.filter { it.lastSenderRole == "ADMIN" && it.unreadCountForReporter > 0 }
+                "READ" -> conversations.filter { it.unreadCountForAdmin == 0 && it.unreadCountForReporter == 0 }
+                "WARNINGS" -> conversations.filter { it.lastMessage.contains("⚠️") || it.lastMessage.contains("హెచ్చరిక") }
+                else -> conversations
+            }
         }
         if (q.isBlank()) base else {
             base.filter {
@@ -312,7 +327,18 @@ fun AdminReporterMessagingView(
                         Tab(
                             selected = selectedTab == 0,
                             onClick = { selectedTab = 0 },
-                            text = { Text("సంభాషణలు (${conversations.size})", fontSize = 12.sp, fontFamily = Ramabhadra) }
+                            text = { 
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("సంభాషణలు (${conversations.size})", fontSize = 12.sp, fontFamily = Ramabhadra)
+                                    if (unreadAdminCount > 0) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = Color(0xFFE53935),
+                                            modifier = Modifier.size(8.dp)
+                                        ) {}
+                                    }
+                                }
+                            }
                         )
                         Tab(
                             selected = selectedTab == 1,
@@ -322,8 +348,59 @@ fun AdminReporterMessagingView(
                         Tab(
                             selected = selectedTab == 2,
                             onClick = { selectedTab = 2 },
-                            text = { Text("హెచ్చరికలు", fontSize = 12.sp, fontFamily = Ramabhadra) }
+                            text = { Text("హెచ్చరికలు ($warningCount)", fontSize = 12.sp, fontFamily = Ramabhadra) }
                         )
+                    }
+
+                    // Filter Chips (Only in Conversations Tab)
+                    if (selectedTab == 0) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            FilterChip(
+                                selected = conversationFilter == "ALL",
+                                onClick = { conversationFilter = "ALL" },
+                                label = { Text("అన్నీ (${conversations.size})", fontSize = 11.sp) }
+                            )
+                            FilterChip(
+                                selected = conversationFilter == "UNREAD_ADMIN",
+                                onClick = { conversationFilter = "UNREAD_ADMIN" },
+                                label = { 
+                                    Text(
+                                        text = "🔴 కొత్తవి / చదవనివి" + if (unreadAdminCount > 0) " ($unreadAdminCount)" else "", 
+                                        fontSize = 11.sp,
+                                        fontWeight = if (unreadAdminCount > 0) FontWeight.Bold else FontWeight.Normal
+                                    ) 
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer
+                                )
+                            )
+                            FilterChip(
+                                selected = conversationFilter == "UNREAD_REPORTER",
+                                onClick = { conversationFilter = "UNREAD_REPORTER" },
+                                label = { 
+                                    Text(
+                                        text = "⏳ రిపోర్టర్ చదవనివి" + if (unreadReporterCount > 0) " ($unreadReporterCount)" else "", 
+                                        fontSize = 11.sp
+                                    ) 
+                                }
+                            )
+                            FilterChip(
+                                selected = conversationFilter == "READ",
+                                onClick = { conversationFilter = "READ" },
+                                label = { Text("✓ చదివినవి ($readCount)", fontSize = 11.sp) }
+                            )
+                            FilterChip(
+                                selected = conversationFilter == "WARNINGS",
+                                onClick = { conversationFilter = "WARNINGS" },
+                                label = { Text("⚠️ హెచ్చరికలు ($warningCount)", fontSize = 11.sp) }
+                            )
+                        }
                     }
                 }
             }
@@ -500,30 +577,56 @@ fun ConversationCard(conv: ReporterConversation, onClick: () -> Unit) {
         if (conv.lastMessageTime > 0) DateTimeUtils.formatTimestamp(conv.lastMessageTime, "dd MMM, hh:mm a") else ""
     }
 
-    val hasUnread = conv.unreadCountForAdmin > 0
+    val hasUnreadByAdmin = conv.unreadCountForAdmin > 0
+    val isPendingReporterRead = conv.lastSenderRole == "ADMIN" && conv.unreadCountForReporter > 0
+    val isReadByReporter = conv.lastSenderRole == "ADMIN" && conv.unreadCountForReporter == 0
     val isWarning = conv.lastMessage.contains("⚠️") || conv.lastMessage.contains("హెచ్చరిక")
+
+    // Gmail-style contrast:
+    // UNREAD (చదవనివి): Elevated surface, Bold text, High Contrast, Primary border & Unread indicator dot
+    // READ (చదివినవి): Muted surface, Regular/Normal font weight, Soft gray text
+    val containerBg = when {
+        hasUnreadByAdmin -> MaterialTheme.colorScheme.surface
+        isWarning -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.12f)
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    }
+
+    val borderStroke = when {
+        hasUnreadByAdmin -> BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+        isWarning -> BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f))
+        else -> BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+    }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (hasUnread) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surface
-        ),
-        border = BorderStroke(1.dp, if (hasUnread) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant)
+        colors = CardDefaults.cardColors(containerColor = containerBg),
+        border = borderStroke,
+        elevation = CardDefaults.cardElevation(defaultElevation = if (hasUnreadByAdmin) 3.dp else 0.dp)
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            AsyncImage(
-                model = conv.reporterPhotoUrl.ifBlank { "https://ui-avatars.com/api/?name=${conv.reporterName}&background=random" },
-                contentDescription = conv.reporterName,
-                modifier = Modifier.size(50.dp).clip(CircleShape),
-                contentScale = ContentScale.Crop
-            )
+            Box(contentAlignment = Alignment.BottomEnd) {
+                AsyncImage(
+                    model = conv.reporterPhotoUrl.ifBlank { "https://ui-avatars.com/api/?name=${conv.reporterName}&background=random" },
+                    contentDescription = conv.reporterName,
+                    modifier = Modifier.size(50.dp).clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+                if (hasUnreadByAdmin) {
+                    Box(
+                        modifier = Modifier
+                            .size(13.dp)
+                            .background(MaterialTheme.colorScheme.primary, CircleShape)
+                            .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                    )
+                }
+            }
 
             Column(modifier = Modifier.weight(1f)) {
                 Row(
@@ -531,19 +634,21 @@ fun ConversationCard(conv: ReporterConversation, onClick: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Gmail style: Unread = ExtraBold & High-Contrast; Read = Normal & Muted
                     Text(
                         text = conv.reporterName,
-                        fontWeight = if (hasUnread) FontWeight.ExtraBold else FontWeight.Bold,
+                        fontWeight = if (hasUnreadByAdmin) FontWeight.ExtraBold else FontWeight.Normal,
                         fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = if (hasUnreadByAdmin) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                     Text(
                         text = dateStr,
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Medium
+                        fontSize = 11.sp,
+                        color = if (hasUnreadByAdmin) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        fontWeight = if (hasUnreadByAdmin) FontWeight.Bold else FontWeight.Normal
                     )
                 }
 
@@ -551,14 +656,15 @@ fun ConversationCard(conv: ReporterConversation, onClick: () -> Unit) {
                     Text(
                         text = "${conv.reporterDistrict} • ${conv.reporterMandal}",
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium
+                        color = if (hasUnreadByAdmin) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        fontWeight = if (hasUnreadByAdmin) FontWeight.SemiBold else FontWeight.Normal
                     )
                     if (conv.reporterPhone.isNotBlank()) {
                         Text(
                             text = " • ${conv.reporterPhone}",
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            fontWeight = FontWeight.Normal
                         )
                     }
                 }
@@ -570,27 +676,62 @@ fun ConversationCard(conv: ReporterConversation, onClick: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Gmail style: Unread snippet is BOLD and dark; Read snippet is NORMAL weight and gray
                     Text(
                         text = conv.lastMessage.ifBlank { "చాట్ ప్రారంభించండి..." },
                         fontSize = 13.sp,
-                        color = if (isWarning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = if (hasUnread) FontWeight.Bold else FontWeight.Normal,
+                        color = when {
+                            isWarning -> MaterialTheme.colorScheme.error
+                            hasUnreadByAdmin -> MaterialTheme.colorScheme.onSurface
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                        },
+                        fontWeight = if (hasUnreadByAdmin) FontWeight.Bold else FontWeight.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
 
-                    if (hasUnread) {
+                    // Read / Unread Badges
+                    if (hasUnreadByAdmin) {
                         Surface(
-                            shape = CircleShape,
+                            shape = RoundedCornerShape(10.dp),
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(start = 6.dp)
                         ) {
                             Text(
-                                text = "${conv.unreadCountForAdmin}",
+                                text = "${conv.unreadCountForAdmin} కొత్తవి",
                                 color = MaterialTheme.colorScheme.onPrimary,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                            )
+                        }
+                    } else if (isPendingReporterRead) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFFFF3E0),
+                            border = BorderStroke(0.5.dp, Color(0xFFFFB74D)),
+                            modifier = Modifier.padding(start = 6.dp)
+                        ) {
+                            Text(
+                                text = "⏳ చదవలేదు",
+                                color = Color(0xFFE65100),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    } else if (isReadByReporter) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFE8F5E9),
+                            modifier = Modifier.padding(start = 6.dp)
+                        ) {
+                            Text(
+                                text = "✓✓ చదివారు",
+                                color = Color(0xFF2E7D32),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
@@ -683,13 +824,29 @@ fun AdminOneOnOneChatView(
 
     // Real-time listener for messages
     DisposableEffect(reporterId) {
-        // Reset unread count for Admin on open
+        // Reset unread count for Admin on open and batch mark incoming unread messages as read
         scope.launch {
             try {
                 FirebaseService.db.collection("reporter_conversations")
                     .document(reporterId)
                     .update("unreadCountForAdmin", 0)
                     .await()
+
+                val unreadMsgs = FirebaseService.db.collection("reporter_conversations")
+                    .document(reporterId)
+                    .collection("messages")
+                    .whereEqualTo("read", false)
+                    .whereNotEqualTo("senderRole", "ADMIN")
+                    .get()
+                    .await()
+
+                if (!unreadMsgs.isEmpty) {
+                    val batch = FirebaseService.db.batch()
+                    for (doc in unreadMsgs.documents) {
+                        batch.update(doc.reference, "read", true)
+                    }
+                    batch.commit().await()
+                }
             } catch (_: Exception) {}
         }
 
@@ -1017,13 +1174,36 @@ fun AdminChatBubble(msg: ReporterMessage, isMe: Boolean) {
 
                     Spacer(Modifier.height(4.dp))
 
-                    Text(
-                        text = dateStr,
-                        fontSize = 9.sp,
-                        color = (if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = 0.7f),
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.align(Alignment.End)
-                    )
+                    Row(
+                        modifier = Modifier.align(Alignment.End),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(
+                            text = dateStr,
+                            fontSize = 9.sp,
+                            color = (if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = 0.7f),
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        if (isMe) {
+                            if (msg.read) {
+                                Icon(
+                                    Icons.Default.DoneAll,
+                                    contentDescription = "Read",
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = "Delivered",
+                                    tint = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(13.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

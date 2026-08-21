@@ -10,6 +10,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.tooling.preview.Preview
@@ -22,9 +23,10 @@ import com.alfanews.telugu.ui.theme.Poppins
 fun LogoHeaderPreview() {
     AlfaNewsTheme {
         LogoHeader(
-            district = "Hyderabad",
+            district = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
             showDistrictSelector = true,
-            onMenuClick = {}
+            onMenuClick = {},
+            onDistrictClick = {}
         )
     }
 }
@@ -50,9 +52,10 @@ fun LogoHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            // Left Group: Hamburger Menu + Brand Logo (Guaranteed single line, never wraps or squishes)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.wrapContentWidth()
             ) {
                 if (onMenuClick != null) {
                     IconButton(onClick = onMenuClick) {
@@ -66,43 +69,54 @@ fun LogoHeader(
                 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(start = if (onMenuClick == null) 12.dp else 4.dp)
+                    modifier = Modifier.padding(start = if (onMenuClick == null) 12.dp else 2.dp)
                 ) {
                     Text(
                         text = "alfa",
                         fontSize = 24.sp,
                         fontFamily = Poppins,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = Color.White,
+                        maxLines = 1,
+                        softWrap = false
                     )
                     Text(
                         text = "news",
                         fontSize = 24.sp,
                         fontFamily = Poppins,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color.White
+                        color = Color.White,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
             
+            // Right Group: District Selector Button (Takes only available space, truncates cleanly with ellipsis)
             if (showDistrictSelector && onDistrictClick != null) {
                 TextButton(
                     onClick = onDistrictClick,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .padding(start = 4.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.LocationOn,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(16.dp),
                         tint = Color.White
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
                         text = district ?: "Select District",
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontFamily = Poppins,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        softWrap = false
                     )
                 }
             }

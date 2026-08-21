@@ -211,7 +211,7 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
 
   return (
     <div className="relative h-full w-full bg-black overflow-hidden flex flex-col">
-      <div className="absolute top-2 left-2 p-2 z-30 flex items-center pointer-events-none drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">
+      <div className="absolute top-2 left-2 p-2 z-30 flex items-center pointer-events-none drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] whitespace-nowrap shrink-0">
           <span className="font-poppins font-bold text-3xl text-white">alfa</span>
           <span className="font-poppins font-semibold text-3xl text-red-600">news</span>
       </div>

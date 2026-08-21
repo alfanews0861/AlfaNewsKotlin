@@ -59,13 +59,29 @@ fun ReporterDeskChatView(
             return@DisposableEffect onDispose {}
         }
 
-        // Reset unread count for reporter on open
+        // Reset unread count for reporter on open and batch mark incoming admin messages as read
         scope.launch {
             try {
                 FirebaseService.db.collection("reporter_conversations")
                     .document(reporterId)
                     .update("unreadCountForReporter", 0)
                     .await()
+
+                val unreadMsgs = FirebaseService.db.collection("reporter_conversations")
+                    .document(reporterId)
+                    .collection("messages")
+                    .whereEqualTo("read", false)
+                    .whereEqualTo("senderRole", "ADMIN")
+                    .get()
+                    .await()
+
+                if (!unreadMsgs.isEmpty) {
+                    val batch = FirebaseService.db.batch()
+                    for (doc in unreadMsgs.documents) {
+                        batch.update(doc.reference, "read", true)
+                    }
+                    batch.commit().await()
+                }
             } catch (_: Exception) {}
         }
 
@@ -442,13 +458,36 @@ fun ReporterChatBubble(msg: ReporterMessage, isMe: Boolean) {
 
                     Spacer(Modifier.height(4.dp))
 
-                    Text(
-                        text = dateStr,
-                        fontSize = 9.sp,
-                        color = (if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = 0.7f),
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.align(Alignment.End)
-                    )
+                    Row(
+                        modifier = Modifier.align(Alignment.End),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Text(
+                            text = dateStr,
+                            fontSize = 9.sp,
+                            color = (if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = 0.7f),
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        if (isMe) {
+                            if (msg.read) {
+                                Icon(
+                                    Icons.Default.DoneAll,
+                                    contentDescription = "Read",
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = "Delivered",
+                                    tint = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(13.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

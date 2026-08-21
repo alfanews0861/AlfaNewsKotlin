@@ -58,7 +58,11 @@ fun DocumentSnapshot.toUserObject(): User? {
                 tagScores = (this.get("tagScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
                 peopleScores = (this.get("peopleScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
                 organizationScores = (this.get("organizationScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
-                locationScores = (this.get("locationScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap()
+                locationScores = (this.get("locationScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
+                warningLevel = this.getLong("warningLevel")?.toInt() ?: 0,
+                lastWarningDate = this.getLong("lastWarningDate"),
+                inProbation = this.getBoolean("inProbation") ?: false,
+                lastPostTimestamp = this.getLong("lastPostTimestamp")
             )
         } catch (fallbackError: Exception) {
             null

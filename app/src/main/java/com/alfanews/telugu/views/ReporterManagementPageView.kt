@@ -85,18 +85,25 @@ fun ReporterManagementPageView(
             loading = true
             try {
                 // Fetch occupied mandals map from users collection (active reporters)
+                val activeReporterUserIds = mutableSetOf<String>()
+                val activeReporterPhones = mutableSetOf<String>()
                 try {
                     val usersSnap = FirebaseService.db.collection("users")
                         .whereIn("role", listOf("REPORTER", "reporter", 2, 2.0, "2"))
                         .get().await()
                     val occMap = mutableMapOf<String, String>()
                     for (uDoc in usersSnap.documents) {
+                        activeReporterUserIds.add(uDoc.id)
+                        val phone = (uDoc.getString("phone") ?: "").filter { it.isDigit() }
+                        if (phone.length >= 10) {
+                            activeReporterPhones.add(phone.takeLast(10))
+                        }
                         val dist = (uDoc.getString("district") ?: "").trim()
                         val mandal = (uDoc.getString("assignedMandal") ?: uDoc.getString("mandal") ?: "").trim()
                         val name = uDoc.getString("name") ?: "Reporter"
-                        val phone = uDoc.getString("phone") ?: ""
+                        val phoneStr = uDoc.getString("phone") ?: ""
                         if (dist.isNotEmpty() && mandal.isNotEmpty()) {
-                            occMap["$dist|$mandal"] = if (phone.isNotEmpty()) "$name ($phone)" else name
+                            occMap["$dist|$mandal"] = if (phoneStr.isNotEmpty()) "$name ($phoneStr)" else name
                         }
                     }
                     occupiedMandalsMap = occMap
@@ -109,7 +116,31 @@ fun ReporterManagementPageView(
                         .get().await()
 
                     var fetchedList = rawSnapshot.documents.mapNotNull { doc ->
-                        doc.data?.plus("id" to doc.id)
+                        val data = doc.data ?: return@mapNotNull null
+                        val currentStatus = data["status"]?.toString()?.uppercase() ?: "PENDING"
+                        val appUserId = (data["userId"] as? String)?.trim() ?: ""
+                        val appPhone = ((data["phone"] as? String) ?: (data["phoneNumber"] as? String) ?: "").filter { it.isDigit() }
+                        val clean10 = if (appPhone.length >= 10) appPhone.takeLast(10) else ""
+
+                        val isAlreadyReporter = (appUserId.isNotEmpty() && activeReporterUserIds.contains(appUserId)) ||
+                                                (clean10.isNotEmpty() && activeReporterPhones.contains(clean10))
+
+                        val mappedData = if (isAlreadyReporter && currentStatus != "JOINED" && currentStatus != "APPROVED" && currentStatus != "REJECTED") {
+                            // Sync Firestore in background
+                            scope.launch {
+                                try {
+                                    FirebaseService.db.collection("reporter_applications").document(doc.id).update(
+                                        mapOf("status" to "JOINED", "autoApproved" to true)
+                                    )
+                                } catch (e: Exception) {
+                                    // ignore
+                                }
+                            }
+                            data.plus("status" to "JOINED")
+                        } else {
+                            data
+                        }
+                        mappedData.plus("id" to doc.id)
                     }
 
                     if (currentUser.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {

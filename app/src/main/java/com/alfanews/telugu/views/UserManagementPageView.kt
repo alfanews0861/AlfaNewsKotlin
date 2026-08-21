@@ -110,6 +110,25 @@ fun UserManagementPageView(currentUser: User) {
             updatingUsers = updatingUsers + userId
             try {
                 FirebaseService.db.collection("users").document(userId).update(data).await()
+
+                // Auto-sync reporter_applications if user promoted to reporter or given mandal
+                val newRole = data["role"]?.toString()?.uppercase()
+                if (newRole == "REPORTER" || data.containsKey("assignedMandal")) {
+                    try {
+                        val appSnap = FirebaseService.db.collection("reporter_applications")
+                            .whereEqualTo("userId", userId)
+                            .get().await()
+                        for (doc in appSnap.documents) {
+                            val status = doc.getString("status")?.uppercase()
+                            if (status != "JOINED" && status != "APPROVED" && status != "REJECTED") {
+                                doc.reference.update(mapOf("status" to "JOINED", "autoApproved" to true))
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // Non-critical background sync
+                    }
+                }
+
                 snackbarHostState.showSnackbar("వినియోగదారు వివరాలు విజయవంతంగా అప్‌డేట్ అయ్యాయి.")
                 refreshUsers()
             } catch (e: Exception) {

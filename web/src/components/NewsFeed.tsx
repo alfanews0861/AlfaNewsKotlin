@@ -256,7 +256,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
   return (
     <div className="relative h-full w-full bg-black overflow-hidden flex flex-col">
       <div className="absolute top-0 left-0 right-0 p-3 z-30 flex items-center justify-between drop-shadow-md bg-gradient-to-b from-black/60 to-transparent">
-          <div className="flex items-center pointer-events-none">
+          <div className="flex items-center pointer-events-none whitespace-nowrap shrink-0">
               <span className="font-poppins font-bold text-2xl text-white">alfa</span>
               <span className="font-poppins font-semibold text-2xl text-red-600">news</span>
           </div>

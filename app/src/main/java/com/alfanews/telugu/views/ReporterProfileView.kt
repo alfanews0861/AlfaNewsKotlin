@@ -39,7 +39,7 @@ import com.alfanews.telugu.services.FirebaseService
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import com.alfanews.telugu.utils.DateTimeUtils
-import java.util.*
+import com.alfanews.telugu.utils.toUserObject
 import java.util.*
 
 private fun getTimestampValue(data: Map<String, Any?>): Long {
@@ -92,23 +92,7 @@ fun ReporterProfileView(
                 val userSnap = userRef.get().await()
                 
                 if (userSnap.exists()) {
-                    val data = userSnap.data ?: return@LaunchedEffect
-                    reporter = User(
-                        id = userSnap.id,
-                        name = data["name"] as? String ?: "",
-                        email = data["email"] as? String,
-                        phone = data["phone"] as? String,
-                        photoUrl = data["photoUrl"] as? String,
-                        role = try {
-                            UserRole.valueOf(data["role"] as? String ?: "GUEST")
-                        } catch (e: Exception) {
-                            UserRole.GUEST
-                        },
-                        address = data["address"] as? String,
-                        district = data["district"] as? String,
-                        points = (data["points"] as? Number)?.toInt() ?: 0,
-                        badges = (data["badges"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
-                    )
+                    reporter = userSnap.toUserObject()
                 }
             }
             

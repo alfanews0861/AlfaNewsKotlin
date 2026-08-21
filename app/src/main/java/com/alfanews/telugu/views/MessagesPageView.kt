@@ -159,21 +159,21 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
         when (msg.importance) {
             "CRITICAL" -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
             "HIGH" -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f)
-            else -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+            else -> MaterialTheme.colorScheme.surface
         }
     } else {
-        MaterialTheme.colorScheme.surface
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
     }
 
-    val titleColor = MaterialTheme.colorScheme.onSurface
-    val bodyColor = if (isUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-    val senderColor = MaterialTheme.colorScheme.primary
-    val dateColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    val titleColor = if (isUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    val bodyColor = if (isUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+    val senderColor = if (isUnread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    val dateColor = if (isUnread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
 
     val iconColor = when (msg.importance) {
         "CRITICAL" -> MaterialTheme.colorScheme.error
         "HIGH" -> MaterialTheme.colorScheme.tertiary
-        else -> MaterialTheme.colorScheme.primary
+        else -> if (isUnread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     }
 
     val icon = when (msg.importance) {
@@ -182,8 +182,8 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
     }
 
     val borderStroke = BorderStroke(
-        1.dp,
-        MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isUnread) 0.8f else 0.4f)
+        if (isUnread) 1.5.dp else 1.dp,
+        if (isUnread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
     )
 
     Card(
@@ -195,7 +195,7 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
             containerColor = bgColor,
             contentColor = MaterialTheme.colorScheme.onSurface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isUnread) 3.dp else 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isUnread) 3.dp else 0.dp),
         border = borderStroke
     ) {
         Row(
@@ -207,7 +207,7 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
                 modifier = Modifier
                     .size(42.dp)
                     .clip(CircleShape)
-                    .background(iconColor.copy(alpha = 0.12f)),
+                    .background(iconColor.copy(alpha = if (isUnread) 0.15f else 0.08f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(22.dp))
@@ -221,7 +221,7 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
                 ) {
                     Text(
                         text = msg.title,
-                        fontWeight = if (isUnread) FontWeight.Bold else FontWeight.SemiBold,
+                        fontWeight = if (isUnread) FontWeight.ExtraBold else FontWeight.Normal,
                         fontSize = 15.sp,
                         color = titleColor,
                         modifier = Modifier.weight(1f, fill = false)
@@ -230,7 +230,7 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Box(
                             modifier = Modifier
-                                .size(9.dp)
+                                .size(10.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.primary)
                         )
@@ -243,7 +243,7 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
                     text = msg.senderName,
                     fontSize = 12.sp,
                     color = senderColor,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Normal
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -252,6 +252,7 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
                     text = msg.body,
                     fontSize = 14.sp,
                     color = bodyColor,
+                    fontWeight = if (isUnread) FontWeight.SemiBold else FontWeight.Normal,
                     lineHeight = 20.sp
                 )
 
@@ -261,7 +262,7 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
                     text = dateStr,
                     fontSize = 11.sp,
                     color = dateColor,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Normal
                 )
             }
         }
