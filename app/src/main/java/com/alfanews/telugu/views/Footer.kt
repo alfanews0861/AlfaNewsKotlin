@@ -12,12 +12,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.ui.text.style.TextAlign
-import com.alfanews.telugu.R
+import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.ui.theme.Poppins
 
@@ -29,6 +28,7 @@ import com.alfanews.telugu.ui.theme.Poppins
 fun Footer(
     activeTab: String,
     unreadMessagesCount: Int = 0,
+    language: Language = Language.TELUGU,
     onTabChange: (String) -> Unit
 ) {
     Surface(
@@ -53,32 +53,32 @@ fun Footer(
             ) {
                 FooterItem(
                     icon = Icons.Default.Home,
-                    label = stringResource(R.string.nav_home),
+                    label = if (language == Language.TELUGU) "హోమ్" else "Home",
                     isActive = activeTab == "home",
                     onClick = { onTabChange("home") }
                 )
                 FooterItem(
                     icon = Icons.Default.LocationOn,
-                    label = stringResource(R.string.nav_local),
+                    label = if (language == Language.TELUGU) "స్థానిక" else "Local",
                     isActive = activeTab == "local",
                     onClick = { onTabChange("local") }
                 )
                 FooterItem(
                     icon = Icons.Default.AddCircle,
-                    label = stringResource(R.string.nav_post),
+                    label = if (language == Language.TELUGU) "పోస్ట్" else "Post",
                     isActive = activeTab == "create",
                     isSpecial = true,
                     onClick = { onTabChange("create") }
                 )
                 FooterItem(
                     icon = Icons.Default.List,
-                    label = stringResource(R.string.nav_classifieds),
+                    label = if (language == Language.TELUGU) "ప్రకటనలు" else "Classifieds",
                     isActive = activeTab == "classifieds",
                     onClick = { onTabChange("classifieds") }
                 )
                 FooterItem(
                     icon = Icons.Default.Person,
-                    label = stringResource(R.string.nav_profile),
+                    label = if (language == Language.TELUGU) "ప్రొఫైల్" else "Profile",
                     isActive = activeTab == "profile",
                     badgeCount = unreadMessagesCount,
                     onClick = { onTabChange("profile") }

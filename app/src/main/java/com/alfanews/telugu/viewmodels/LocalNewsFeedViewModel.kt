@@ -183,6 +183,28 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    private fun getDistrictAliases(district: String?): List<String> {
+        if (district.isNullOrBlank()) return emptyList()
+        val list = mutableListOf(district)
+        when {
+            district.contains("నెల్లూరు") -> list.addAll(listOf("శ్రీ పొట్టి శ్రీరాములు నెల్లూరు", "నెల్లూరు", "Nellore", "SPSR Nellore"))
+            district.contains("కడప") -> list.addAll(listOf("వైఎస్ఆర్ కడప", "కడప", "YSR Kadapa", "Kadapa"))
+            district.contains("సత్యసాయి") -> list.addAll(listOf("శ్రీ సత్యసాయి", "సత్యసాయి", "Sri Sathya Sai"))
+            district.contains("అల్లూరి") -> list.addAll(listOf("అల్లూరి సీతారామరాజు", "అల్లూరి", "Alluri"))
+            district.contains("మన్యం") || district.contains("పార్వతీపురం") -> list.addAll(listOf("పార్వతీపురం మన్యం", "మన్యం", "పార్వతీపురం"))
+            district.contains("కొత్తగూడెం") -> list.addAll(listOf("భద్రాద్రి కొత్తగూడెం", "కొత్తగూడెం", "Bhadradri"))
+            district.contains("ఆసిఫాబాద్") -> list.addAll(listOf("కుమ్రం భీమ్ ఆసిఫాబాద్", "ఆసిఫాబాద్", "Asifabad"))
+            district.contains("భూపాలపల్లి") -> list.addAll(listOf("జయశంకర్ భూపాలపల్లి", "భూపాలపల్లి", "Bhupalpally"))
+            district.contains("గద్వాల") -> list.addAll(listOf("జోగులాంబ గద్వాల", "గద్వాల", "Gadwal"))
+            district.contains("సిరిసిల్ల") -> list.addAll(listOf("రాజన్న సిరిసిల్ల", "సిరిసిల్ల", "Sircilla"))
+            district.contains("భువనగిరి") -> list.addAll(listOf("యాదాద్రి భువనగిరి", "భువనగిరి", "Yadadri"))
+            district.contains("మేడ్చల్") -> list.addAll(listOf("మేడ్చల్ మల్కాజిగిరి", "మేడ్చల్", "Medchal"))
+            district.contains("హన్మకొండ") || district.contains("హనుమకొండ") -> list.addAll(listOf("హన్మకొండ", "హనుమకొండ", "వరంగల్ అర్బన్", "Hanamkonda"))
+            district.contains("వరంగల్") -> list.addAll(listOf("వరంగల్", "వరంగల్ రూరల్", "హన్మకొండ", "Warangal"))
+        }
+        return list.distinct()
+    }
+
 
     private fun loadLocalAds(district: String) {
         viewModelScope.launch {
@@ -281,24 +303,30 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
 
                 try {
-                    // 🚀 STEP 1: Search by 'district' field directly (Strict District Isolation)
-                    var query = newsRef
+                    val districtAliases = getDistrictAliases(district)
+                    
+                    // 🚀 STEP 1: Search by 'district' field directly with whereIn (Single Batch Query)
+                    val primaryAliases = districtAliases.take(30)
+                    val query = newsRef
                         .whereEqualTo("approved", true)
-                        .whereEqualTo("district", district)
+                        .whereIn("district", primaryAliases)
                         .orderBy("timestamp", Query.Direction.DESCENDING)
                         .limit(pageSize.toLong())
                     
-                    snapshot = query.get().await()
-                    val currentSnapshot = snapshot
-                    posts = withContext(Dispatchers.Default) {
-                        currentSnapshot?.documents?.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) } ?: emptyList()
+                    val snap = query.get().await()
+                    if (!snap.isEmpty) {
+                        snapshot = snap
+                        posts = withContext(Dispatchers.Default) {
+                            snap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                        }
                     }
 
-                    // 🚀 STEP 2: Fallback - Search by categories array if district field search is empty
+                    // 🚀 STEP 2: Fallback - Search by categories array with whereArrayContainsAny
                     if (posts.isEmpty()) {
+                        val categoryAliases = districtAliases.take(10)
                         val fallbackQuery = newsRef
                             .whereEqualTo("approved", true)
-                            .whereArrayContains("categories", district)
+                            .whereArrayContainsAny("categories", categoryAliases)
                             .orderBy("timestamp", Query.Direction.DESCENDING)
                             .limit(pageSize.toLong())
                         
@@ -307,6 +335,30 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             snapshot = fallbackSnapshot
                             posts = withContext(Dispatchers.Default) {
                                 fallbackSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                            }
+                        }
+                    }
+
+                    // 🚀 STEP 3: State-Level Fallback if district has zero local news right now
+                    if (posts.isEmpty()) {
+                        val isAP = Constants.AP_DISTRICTS.contains(district) || district.contains("నెల్లూరు") || district.contains("కడప")
+                        val stateTags = if (isAP) {
+                            listOf("Andhra Pradesh", "ఆంధ్రప్రదేశ్", "AP", "State", "రాష్ట్రం")
+                        } else {
+                            listOf("Telangana", "తెలంగాణ", "TS", "State", "రాష్ట్రం")
+                        }
+                        
+                        val stateQuery = newsRef
+                            .whereEqualTo("approved", true)
+                            .whereIn("district", stateTags)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(pageSize.toLong())
+                        
+                        val stateSnapshot = stateQuery.get().await()
+                        if (!stateSnapshot.isEmpty) {
+                            snapshot = stateSnapshot
+                            posts = withContext(Dispatchers.Default) {
+                                stateSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
                             }
                         }
                     }
@@ -353,30 +405,38 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
              try {
                  val newsRef = FirebaseService.db.collection("news")
                  var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
+                 val districtAliases = getDistrictAliases(district)
                  val newPosts = try {
-                     var query = newsRef
+                     var snap: com.google.firebase.firestore.QuerySnapshot? = null
+                     val primaryAliases = districtAliases.take(30)
+                     val query = newsRef
                          .whereEqualTo("approved", true)
-                         .whereEqualTo("district", district)
+                         .whereIn("district", primaryAliases)
                          .orderBy("timestamp", Query.Direction.DESCENDING)
                          .startAfter(currentLastDoc)
                          .limit(pageSize.toLong())
                      
-                     var snap = query.get().await()
-                     
-                     if (snap.isEmpty) {
-                         // 🔄 FALLBACK: Try categories array if district field search returns nothing
+                     val res = query.get().await()
+                     if (!res.isEmpty) {
+                         snap = res
+                     } else {
+                         // 🔄 FALLBACK: Try categories array with whereArrayContainsAny
+                         val categoryAliases = districtAliases.take(10)
                          val backupQuery = newsRef
                              .whereEqualTo("approved", true)
-                             .whereArrayContains("categories", district)
+                             .whereArrayContainsAny("categories", categoryAliases)
                              .orderBy("timestamp", Query.Direction.DESCENDING)
                              .startAfter(currentLastDoc)
                              .limit(pageSize.toLong())
-                         snap = backupQuery.get().await()
+                         val backupRes = backupQuery.get().await()
+                         if (!backupRes.isEmpty) {
+                             snap = backupRes
+                         }
                      }
                      snapshot = snap
 
                      withContext(Dispatchers.Default) {
-                         snap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                         snap?.documents?.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) } ?: emptyList()
                      }
                  } catch (e: Exception) {
                      android.util.Log.e("LocalNewsFeedViewModel", "LoadMore query failed: ${e.message}")

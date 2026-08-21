@@ -47,6 +47,7 @@ class PreferenceManager(context: Context) {
         private const val KEY_LOCAL_ADS_TS_PREFIX = "key_local_ads_ts_"
         private const val KEY_REFERRED_BY = "key_referred_by"
         private const val KEY_REFERRER_PROCESSED = "key_referrer_processed"
+        private const val KEY_INSTALL_ID = "key_app_install_id"
         private const val KEY_CATEGORY_READ_COUNTS = "key_category_read_counts"  // JSON map of category→count
         private const val KEY_SUBSCRIBED_CATEGORIES = "key_subscribed_cat_topics" // Set of subscribed category topics
         private const val KEY_WEATHER_GRID_TOPIC = "key_weather_grid_topic"        // Current weather grid FCM topic
@@ -244,6 +245,15 @@ class PreferenceManager(context: Context) {
     var isReferrerProcessed: Boolean
         get() = prefs.getBoolean(KEY_REFERRER_PROCESSED, false)
         set(value) = prefs.edit().putBoolean(KEY_REFERRER_PROCESSED, value).apply()
+
+    fun getOrCreateInstallId(): String {
+        var id = prefs.getString(KEY_INSTALL_ID, null)
+        if (id.isNullOrEmpty()) {
+            id = java.util.UUID.randomUUID().toString()
+            prefs.edit().putString(KEY_INSTALL_ID, id).apply()
+        }
+        return id
+    }
 
     fun clearUserData() {
         prefs.edit().remove(KEY_USER_ID).remove(KEY_USER_NAME).remove(KEY_USER_ROLE).remove(KEY_USER_DISTRICT).apply()

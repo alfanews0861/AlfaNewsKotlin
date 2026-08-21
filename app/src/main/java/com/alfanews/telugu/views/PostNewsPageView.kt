@@ -274,10 +274,9 @@ fun PostNewsPageView(
         }
     }
 
-    AlfaNewsTheme {
-        Column(
-            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
-        ) {
+    Column(
+        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+    ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -401,7 +400,8 @@ fun PostNewsPageView(
                                             model = mediaItem,
                                             contentDescription = "Selected Media",
                                             modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
+                                            contentScale = ContentScale.Crop,
+                                            alignment = Alignment.TopCenter
                                         )
                                     }
                                 }
@@ -486,7 +486,6 @@ fun PostNewsPageView(
             }
         }
     }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

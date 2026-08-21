@@ -193,7 +193,8 @@ fun ManagePostsPageView(
                     Text(
                         text = "వార్తల నిర్వహణ",
                         style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.ExtraBold
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                 }
             }
@@ -222,7 +223,7 @@ fun ManagePostsPageView(
                             Text(
                                 text = "వార్తలు ఏవీ లేవు.",
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -240,11 +241,12 @@ fun ManagePostsPageView(
                                 },
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                contentColor = MaterialTheme.colorScheme.onSurface
                             ),
                             border = androidx.compose.foundation.BorderStroke(
                                 1.dp, 
-                                MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                             )
                         ) {
                             Column(
@@ -264,13 +266,15 @@ fun ManagePostsPageView(
                                         modifier = Modifier
                                             .size(90.dp)
                                             .clip(RoundedCornerShape(8.dp)),
-                                        contentScale = ContentScale.Crop
+                                        contentScale = ContentScale.Crop,
+                                        alignment = Alignment.TopCenter
                                     )
 
                                     Text(
                                         text = post.headline.telugu,
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         maxLines = 3,
                                         modifier = Modifier.weight(1f),
                                         lineHeight = 22.sp
@@ -278,7 +282,7 @@ fun ManagePostsPageView(
                                 }
 
                                 Spacer(modifier = Modifier.height(14.dp))
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.08f))
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                                 Spacer(modifier = Modifier.height(10.dp))
 
                                 // Bottom Row: Meta and Actions
@@ -292,7 +296,7 @@ fun ManagePostsPageView(
                                         Text(
                                             text = "${post.categories.firstOrNull() ?: "General"} • ${post.reporter.name} • $timeString",
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         
                                         Spacer(modifier = Modifier.height(6.dp))

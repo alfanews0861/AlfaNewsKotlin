@@ -181,6 +181,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private var lastRefreshTimeLong: Long = 0
     private var consecutiveEmptyLoads = 0
 
+    // 🚀 IN-MEMORY CACHES TO SAVE FIRESTORE READS
+    private var cachedGreetingPost: NewsPost? = null
+    private var cachedGreetingFetchTime: Long = 0L
+    private val GREETING_CACHE_TTL = 30 * 60 * 1000L // 30 mins
+
+    private var cachedActiveSurvey: NewsPost? = null
+    private var cachedSurveyFetchTime: Long = 0L
+    private var cachedSurveyDistrict: String? = null
+    private val SURVEY_CACHE_TTL = 15 * 60 * 1000L // 15 mins
+
     private val globalDistricts = listOf(
         "State", "National", "International", "AndhraPradesh", "Telangana",
         "Andhra Pradesh", "Telangana State", "India", "World", "AP", "TS", 
@@ -197,8 +207,48 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         "ఆంధ్రప్రదేశ్", "తెలంగాణ", "భారతదేశం", "రాజకీయం", "సినిమా వార్తలు"
     )
 
-    private fun isGlobalCategory(category: String): Boolean {
+    private fun isGlobalCategory(category: String?): Boolean {
+        if (category.isNullOrBlank()) return false
         return strictlyGlobalKeywords.any { kw -> category.contains(kw, ignoreCase = true) }
+    }
+
+    private fun isGlobalPost(post: NewsPost): Boolean {
+        if (post.isGlobal) return true
+        if (isGlobalCategory(post.category)) return true
+        if (post.categories.any { isGlobalCategory(it) }) return true
+        if (globalDistricts.any { it.equals(post.district, ignoreCase = true) } && !post.categories.contains("జిల్లా వార్త")) {
+            return true
+        }
+        return false
+    }
+
+    private fun getDistrictAliases(district: String?): List<String> {
+        if (district.isNullOrBlank()) return emptyList()
+        val list = mutableListOf(district)
+        when {
+            district.contains("నెల్లూరు") -> list.addAll(listOf("శ్రీ పొట్టి శ్రీరాములు నెల్లూరు", "నెల్లూరు", "Nellore", "SPSR Nellore"))
+            district.contains("కడప") -> list.addAll(listOf("వైఎస్ఆర్ కడప", "కడప", "YSR Kadapa", "Kadapa"))
+            district.contains("సత్యసాయి") -> list.addAll(listOf("శ్రీ సత్యసాయి", "సత్యసాయి", "Sri Sathya Sai"))
+            district.contains("అల్లూరి") -> list.addAll(listOf("అల్లూరి సీతారామరాజు", "అల్లూరి", "Alluri"))
+            district.contains("మన్యం") || district.contains("పార్వతీపురం") -> list.addAll(listOf("పార్వతీపురం మన్యం", "మన్యం", "పార్వతీపురం"))
+            district.contains("కొత్తగూడెం") -> list.addAll(listOf("భద్రాద్రి కొత్తగూడెం", "కొత్తగూడెం", "Bhadradri"))
+            district.contains("ఆసిఫాబాద్") -> list.addAll(listOf("కుమ్రం భీమ్ ఆసిఫాబాద్", "ఆసిఫాబాద్", "Asifabad"))
+            district.contains("భూపాలపల్లి") -> list.addAll(listOf("జయశంకర్ భూపాలపల్లి", "భూపాలపల్లి", "Bhupalpally"))
+            district.contains("గద్వాల") -> list.addAll(listOf("జోగులాంబ గద్వాల", "గద్వాల", "Gadwal"))
+            district.contains("సిరిసిల్ల") -> list.addAll(listOf("రాజన్న సిరిసిల్ల", "సిరిసిల్ల", "Sircilla"))
+            district.contains("భువనగిరి") -> list.addAll(listOf("యాదాద్రి భువనగిరి", "భువనగిరి", "Yadadri"))
+            district.contains("మేడ్చల్") -> list.addAll(listOf("మేడ్చల్ మల్కాజిగిరి", "మేడ్చల్", "Medchal"))
+            district.contains("హన్మకొండ") || district.contains("హనుమకొండ") -> list.addAll(listOf("హన్మకొండ", "హనుమకొండ", "వరంగల్ అర్బన్", "Hanamkonda"))
+            district.contains("వరంగల్") -> list.addAll(listOf("వరంగల్", "వరంగల్ రూరల్", "హన్మకొండ", "Warangal"))
+        }
+        return list.distinct()
+    }
+
+    private fun isDistrictMatch(postDistrict: String?, targetDistrict: String?): Boolean {
+        if (postDistrict.isNullOrBlank() || targetDistrict.isNullOrBlank()) return false
+        if (postDistrict.equals(targetDistrict, ignoreCase = true)) return true
+        val aliases = getDistrictAliases(targetDistrict)
+        return aliases.any { it.equals(postDistrict, ignoreCase = true) || postDistrict.contains(it, ignoreCase = true) || it.contains(postDistrict, ignoreCase = true) }
     }
 
     private val FETCH_LIMIT = 20 
@@ -240,10 +290,15 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    loadLocalAds(district)
 
                    // 🚀 FAST PATH: Quick top 5 news to dismiss splash screen
+                   val isColdStart = _news.value.isEmpty()
                    val fastBatchJob = async {
-                       try {
-                           fetchFilteredBatch(FirebaseService.db.collection("news"), null, district, excludeDistricts = true, limit = 5)
-                       } catch (e: Exception) { Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null) }
+                       if (isColdStart) {
+                           try {
+                               fetchFilteredBatch(FirebaseService.db.collection("news"), null, district, excludeDistricts = true, limit = 5)
+                           } catch (e: Exception) { Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null) }
+                       } else {
+                           Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
+                       }
                    }
                    
                    val greetingBatchDeferred = async {
@@ -342,6 +397,29 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                        }
                        finalPosts = (finalPosts + extraPosts).distinctBy { it.id }
                    }
+
+                    // 🚨 ZERO EMPTY FEED GUARERANTEE: If finalPosts is still empty, fallback directly to latest approved news!
+                    if (finalPosts.isEmpty()) {
+                        val emergencyList = mutableListOf<NewsPost>()
+                        if (fastBatch.first.isNotEmpty()) {
+                            emergencyList.addAll(fastBatch.first)
+                        }
+                        if (emergencyList.isEmpty()) {
+                            try {
+                                val emergencySnapshot = FirebaseService.db.collection("news")
+                                    .whereEqualTo("approved", true)
+                                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                                    .limit(FETCH_LIMIT.toLong())
+                                    .get().await()
+                                emergencyList.addAll(emergencySnapshot.documents.mapNotNull { mapDocumentToNewsPost(it) })
+                            } catch (e: Exception) {
+                                Log.e("NewsFeedVM", "Emergency fetch failed: ${e.message}")
+                            }
+                        }
+                        if (emergencyList.isNotEmpty()) {
+                            finalPosts = emergencyList
+                        }
+                    }
 
                    if (finalPosts.isEmpty() && mainCursor == null && prefCursor == null && localCursor == null) {
                        _hasMore.value = false
@@ -552,75 +630,64 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             var filteredMain = main.filter { prefs.getPostViewCount(it.id) < 2 }
             var filteredLocal = local.filter { prefs.getPostViewCount(it.id) < 2 }
 
-            // 🚀 ROBUSTNESS: If everything is filtered out because it's "seen", 
-            // relax the filter to show recently seen news on the first page.
-            if (isFirstPage && filteredPref.isEmpty() && filteredMain.isEmpty() && filteredLocal.isEmpty() && allRaw.isNotEmpty()) {
+            // 🚀 ROBUSTNESS: If first page and unread count is low (< 5), take from raw posts so feed is rich and fresh
+            if (isFirstPage && (filteredPref.size + filteredMain.size + filteredLocal.size) < 5 && allRaw.isNotEmpty()) {
                 filteredPref = pref.take(5)
-                filteredMain = main.take(10)
+                filteredMain = main.take(15)
                 filteredLocal = local.take(10)
+            }
+
+            val currentDist = _userDistrict.value
+            val userState: String? = when {
+                currentDist == null -> null // New user — show everything
+                currentDist == "హైదరాబాద్" -> AnalyticsService.getStateEngagementRatio() // ✅ Bug 4: Engagement-based
+                else -> mapDistrictToState(currentDist)
             }
 
             val allPosts = (filteredPref + filteredMain + filteredLocal).distinctBy { it.id }.filter { post ->
                 if (post.type == "survey") {
                     if (post.isReporter) {
-                        val currentDist = _userDistrict.value
                         val matchesUserDistrict = currentDist != null && 
-                            (post.district == currentDist || post.categories.contains(currentDist))
+                            (post.district == currentDist || post.categories.contains(currentDist) || isDistrictMatch(post.district, currentDist))
                         if (!matchesUserDistrict) return@filter false
                     }
                 }
                 if (post.type != "news") return@filter true
                 
-                val currentDist = _userDistrict.value
+                val isGlobal = isGlobalPost(post)
+                // 🚀 UNIVERSAL NEWS: Global categories (Cinema, Sports, National, Devotional, Health, Tech, Business, etc.)
+                // are ALWAYS allowed for ALL users across AP & TS!
+                if (isGlobal) return@filter true
                 
                 // 1. 🛡️ REPORTER DISTRICT NEWS FILTER
                 // Only show 'District News' from reporters if it's the user's own district.
-                // 🚀 NEW USER FIX: If district is null (not yet detected), show all district news
-                // so the feed is never empty for new users.
                 val isDistrictNewsCategory = post.categories.contains("జిల్లా వార్త")
                 if (isDistrictNewsCategory && post.isReporter) {
                     if (currentDist != null) {
-                        val matchesUserDistrict = (post.district == currentDist || post.categories.contains(currentDist))
+                        val matchesUserDistrict = (post.district == currentDist || post.categories.contains(currentDist) || isDistrictMatch(post.district, currentDist))
                         if (!matchesUserDistrict) return@filter false
                     }
-                    // If currentDist is null, we allow the post through (Universal view for new users)
                 }
 
                 // 2. 🏛️ POLITICAL FILTER (State-Based)
                 // Telangana users -> Only Telangana politics
                 // AP users -> Only AP politics
-                // Hyderabad users -> Based on engagement ratio (Bug 4 fix)
                 val isPolitics = post.categories.any { it.contains("రాజకీయం", true) || it.contains("Politics", true) } || 
                                  post.category?.contains("రాజకీయం", true) == true || post.category?.contains("Politics", true) == true
-                
-                val userState: String? = when {
-                    currentDist == null -> null // New user — show everything
-                    currentDist == "హైదరాబాద్" -> AnalyticsService.getStateEngagementRatio() // ✅ Bug 4: Engagement-based
-                    else -> mapDistrictToState(currentDist)
-                }
 
-                // 3. 🏛️ POLITICS: State-based filter
                 if (isPolitics && userState != null && userState != "BOTH") {
                     val postState = inferStateFromPost(post)
-                    // If user is from a state and post is from a different state, filter it out.
-                    // National/General politics (postState == null) are kept for everyone.
                     if (postState != null && postState != userState) {
                         return@filter false
                     }
                 }
 
-                // 4. ✅ NEW (Bug 5): STATE FILTER FOR ALL NEWS (not just politics)
-                // TS districts లో AP district news రాకూడదు, AP districts లో TS news రాకూడదు.
-                // కానీ: isGlobal posts, జిల్లా వార్త కాని news కి apply చేయం (cinema/sports/etc)
-                // New users (userState == null) కి filter apply చేయం
+                // 3. 🛡️ STATE FILTER FOR SPECIFIC DISTRICT LOCAL NEWS
+                // TS districts local news shouldn't appear for AP districts and vice versa
                 if (userState != null && userState != "BOTH") {
                     val postState = inferStateFromPost(post)
-                    if (postState != null && postState != userState) {
-                        // TS/AP specific district-level post అయితే filter
-                        // కానీ isGlobal = true అయిన posts అందరికీ చూపించాలి
-                        if (!post.isGlobal) {
-                            return@filter false
-                        }
+                    if (postState != null && postState != userState && isDistrictNewsCategory) {
+                        return@filter false
                     }
                 }
                 
@@ -633,7 +700,12 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            val quoteGreetings = allPosts.filter { it.type == "greeting" && it.likes == 1 }
            val historyPosts = allPosts.filter { it.type == "history" }
            val cartoonPosts = allPosts.filter { it.type == "cartoon" }
-           val normalNews = allPosts.filter { it.type != "greeting" && it.type != "history" && it.type != "cartoon" && it.type != "survey" }
+           var normalNews = allPosts.filter { it.type != "greeting" && it.type != "history" && it.type != "cartoon" && it.type != "survey" }
+
+           // 🚀 FIRST PAGE SAFETY: If normalNews is empty on first page, fallback to allRaw normal news so feed is never blank
+           if (isFirstPage && normalNews.isEmpty() && allRaw.isNotEmpty()) {
+               normalNews = allRaw.filter { it.type != "greeting" && it.type != "history" && it.type != "cartoon" && it.type != "survey" }
+           }
 
            if (normalNews.isEmpty() && !isFirstPage) {
                return@withContext emptyList<NewsPost>() 
@@ -718,14 +790,30 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     }
 
     private suspend fun fetchGreetingPost(): NewsPost? = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        if (cachedGreetingPost != null && (now - cachedGreetingFetchTime) < GREETING_CACHE_TTL) {
+            return@withContext cachedGreetingPost
+        }
         try {
             val snapshot = FirebaseService.db.collection("news").whereEqualTo("type", "greeting").whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(1).get().await()
             val doc = snapshot.documents.firstOrNull() ?: return@withContext null
-            mapDocumentToNewsPost(doc)
+            val post = mapDocumentToNewsPost(doc)
+            if (post != null) {
+                cachedGreetingPost = post
+                cachedGreetingFetchTime = now
+            }
+            post
         } catch (e: Exception) { null }
     }
 
     private suspend fun fetchActiveSurvey(): NewsPost? = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        val currentDist = _userDistrict.value
+        if (cachedActiveSurvey != null && cachedSurveyDistrict == currentDist && (now - cachedSurveyFetchTime) < SURVEY_CACHE_TTL) {
+            if (!cachedActiveSurvey!!.isExpired) {
+                return@withContext cachedActiveSurvey
+            }
+        }
         try {
             // NOTE: whereGreaterThan("timestamp") range filter తో composite index అవసరం
             // కానీ firestore.indexes.json లో లేదు కాబట్టి query fail అవుతుంది.
@@ -734,19 +822,18 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 .whereEqualTo("type", "survey")
                 .whereEqualTo("approved", true)
                 .orderBy("timestamp", Query.Direction.DESCENDING)
-                .limit(20) // reasonable cap to avoid fetching too many
+                .limit(3) // 🚀 Optimized from limit(20) to limit(3) to save 17 reads per load
                 .get().await()
             
             val surveys = snapshot.documents.mapNotNull { mapDocumentToNewsPost(it) }
             
-            val currentDist = _userDistrict.value
             val userState: String? = when {
                 currentDist == null -> null
                 currentDist == "హైదరాబాద్" -> AnalyticsService.getStateEngagementRatio()
                 else -> mapDistrictToState(currentDist)
             }
 
-            surveys.firstOrNull { survey ->
+            val matchingSurvey = surveys.firstOrNull { survey ->
                 if (survey.isExpired) return@firstOrNull false
 
                 // 1. Filter by State
@@ -768,6 +855,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
                 true
             }
+
+            if (matchingSurvey != null) {
+                cachedActiveSurvey = matchingSurvey
+                cachedSurveyFetchTime = now
+                cachedSurveyDistrict = currentDist
+            }
+            matchingSurvey
         } catch (e: java.lang.Exception) {
             Log.e("NewsFeedVM", "Error fetching active survey: ${e.message}")
             null
@@ -1064,7 +1158,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
          var temperatureStr = ""; var weatherHeadlineTe = "వాతావరణ తాజా సమాచారం"; var weatherContentTe = "ప్రస్తుతం $location లో వాతావరణ వివరాలు అందుబాటులో లేవు. నెట్‌వర్క్ చెక్ చేసుకుని మళ్ళీ ప్రయత్నించండి."
          var weatherContentEn = "Current weather update for $location."
          if (weatherData != null) {
-             temperatureStr = "${weatherData.temp.toInt()}°C "
+             val rounded = kotlin.math.round(weatherData.temp).toInt()
+             temperatureStr = "${rounded}°C "
              weatherHeadlineTe = WeatherService.getWeatherDescription(weatherData.code, com.alfanews.telugu.models.Language.TELUGU)
              weatherContentTe = WeatherService.getConversationalDescription(
                  code = weatherData.code,

@@ -219,6 +219,7 @@ private fun VideoPlaceholder(
                 contentDescription = "Video Thumbnail",
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
+                alignment = Alignment.TopCenter,
                 fallback = painterResource(id = R.drawable.fallback_news_image),
                 error = painterResource(id = R.drawable.fallback_news_image)
             )
@@ -227,7 +228,8 @@ private fun VideoPlaceholder(
                 painter = painterResource(id = R.drawable.fallback_news_image),
                 contentDescription = "Video Thumbnail",
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopCenter
             )
         }
 

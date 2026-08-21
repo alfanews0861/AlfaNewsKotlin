@@ -284,19 +284,23 @@ fun ConnectedUI(
     Column(modifier = Modifier.fillMaxSize()) {
         Card(
             modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF2E7D32).copy(alpha = 0.15f),
+                contentColor = Color(0xFF2E7D32)
+            ),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E7D32).copy(alpha = 0.3f)),
             shape = RoundedCornerShape(12.dp)
         ) {
             Row(
                 modifier = Modifier.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32))
+                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50))
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
                     "వాట్సాప్ విజయవంతంగా కనెక్ట్ చేయబడింది", 
                     fontWeight = FontWeight.Bold, 
-                    color = Color(0xFF2E7D32),
+                    color = Color(0xFF4CAF50),
                     fontSize = 14.sp,
                     fontFamily = Poppins
                 )
@@ -307,13 +311,14 @@ fun ConnectedUI(
             "ఆటో-పోస్ట్ కోసం గ్రూపులను ఎంచుకోండి",
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(bottom = 4.dp),
             fontFamily = Poppins
         )
         Text(
             "గరిష్టంగా 15 గ్రూపులను మాత్రమే ఎంచుకోగలరు.",
             fontSize = 12.sp,
-            color = Color.Gray,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 12.dp),
             fontFamily = Poppins
         )

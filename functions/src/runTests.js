@@ -608,6 +608,43 @@ describe("Notification Engine - Unsent News Selection", () => {
   });
 });
 
+describe("Image Processing - Smart 16:9 Face & Saliency Crop", () => {
+  const { calculateSmartCrop16x9 } = require("../lib/utils");
+  const sharp = require("sharp");
+
+  test("should preserve full frame when image is already 16:9", async () => {
+    const buf = await sharp({
+      create: { width: 1280, height: 720, channels: 3, background: { r: 100, g: 100, b: 100 } }
+    }).jpeg().toBuffer();
+
+    const crop = await calculateSmartCrop16x9(buf, 1280, 720);
+    expect(crop.left).toBe(0);
+    expect(crop.top).toBe(0);
+    expect(crop.width).toBe(1280);
+    expect(crop.height).toBe(720);
+  });
+
+  test("should dynamically center on faces in vertical portrait images", async () => {
+    // 400x800 image with face cluster at y=400 to 500
+    const buf = await sharp({
+      create: { width: 400, height: 800, channels: 3, background: { r: 40, g: 40, b: 40 } }
+    }).composite([{
+      input: await sharp({
+        create: { width: 200, height: 100, channels: 3, background: { r: 210, g: 140, b: 100 } }
+      }).png().toBuffer(),
+      top: 400,
+      left: 100
+    }]).jpeg().toBuffer();
+
+    const crop = await calculateSmartCrop16x9(buf, 400, 800);
+    expect(crop.width).toBe(400);
+    expect(crop.height).toBe(225);
+    // Face is at y=400..500. Crop of height 225 should cover y=400..500 (top between 280 and 400)
+    expect(crop.top).toBeGreaterThan(250);
+    expect(crop.top).toBeLessThanOrEqual(400);
+  });
+});
+
 // ============================================================================
 // TEST RESULTS
 // ============================================================================

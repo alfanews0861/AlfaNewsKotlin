@@ -121,12 +121,18 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             // గెస్ట్ యూజర్ (Anonymous) కోసం - 'anonymous_devices' లో సేవ్ చేస్తాం
             serviceScope.launch {
                 try {
-                    val guestData = mapOf(
+                    val prefs = PreferenceManager.getInstance(applicationContext)
+                    val guestData = mutableMapOf<String, Any>(
                         "fcmToken" to token,
                         "isAnonymous" to true,
                         "notificationsEnabled" to true,
                         "lastActive" to com.google.firebase.firestore.FieldValue.serverTimestamp()
                     )
+                    prefs.referredBy?.let { ref ->
+                        if (ref.isNotEmpty()) {
+                            guestData["referredBy"] = ref
+                        }
+                    }
                     val tokenId = token.take(30).replace("/", "_") 
                     db.collection("anonymous_devices").document(tokenId).set(guestData, com.google.firebase.firestore.SetOptions.merge()).await()
                 } catch (e: Exception) {

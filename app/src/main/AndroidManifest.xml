@@ -13,6 +13,7 @@
         android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -56,41 +57,36 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- App Links: https://alfanews.app and https://www.alfanews.app (HTTPS only) -->
+            <!-- App Links: https://alfanews.app (HTTPS only) -->
             <!-- autoVerify="true" tells Android to verify this app is the handler via assetlinks.json -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="alfanews.app" android:pathPrefix="/news" />
-                <data android:scheme="https" android:host="www.alfanews.app" android:pathPrefix="/news" />
+                <data android:scheme="https" android:host="alfanews.app" android:pathPrefix="/ad" />
+                <data android:scheme="https" android:host="alfanews.app" android:pathPrefix="/verify" />
+                <data android:scheme="https" android:host="alfanews.app" android:pathPrefix="/reporter" />
             </intent-filter>
 
-            <!-- Custom Scheme Deep Link: alfanews://news/{postId} -->
-            <!-- This is a fallback for when App Links verification might fail -->
+            <!-- Secondary/Fallback Web Link (without autoVerify so SSL/domain issues never block primary App Links) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="www.alfanews.app" android:pathPrefix="/news" />
+                <data android:scheme="https" android:host="www.alfanews.app" android:pathPrefix="/ad" />
+                <data android:scheme="https" android:host="www.alfanews.app" android:pathPrefix="/verify" />
+                <data android:scheme="https" android:host="www.alfanews.app" android:pathPrefix="/reporter" />
+            </intent-filter>
+
+            <!-- Custom Scheme Deep Links: alfanews://news/{postId}, alfanews://ad/{adId}, alfanews://verify/{id} -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="alfanews" android:host="news" />
-            </intent-filter>
-
-            <!-- Reporter Deep Link: https://alfanews.app/verify/{reporterId} -->
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="alfanews.app" android:pathPrefix="/verify" />
-                <data android:scheme="https" android:host="www.alfanews.app" android:pathPrefix="/verify" />
-                <data android:scheme="https" android:host="alfanews.app" android:pathPrefix="/reporter" />
-                <data android:scheme="https" android:host="www.alfanews.app" android:pathPrefix="/reporter" />
-            </intent-filter>
-
-            <!-- Custom Scheme Reporter Deep Link: alfanews://verify/{reporterId} -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="alfanews" android:host="ad" />
                 <data android:scheme="alfanews" android:host="verify" />
                 <data android:scheme="alfanews" android:host="reporter" />
             </intent-filter>

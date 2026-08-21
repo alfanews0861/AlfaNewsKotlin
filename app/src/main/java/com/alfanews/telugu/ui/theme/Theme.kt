@@ -91,7 +91,7 @@ fun AlfaNewsTheme(
             window.navigationBarColor = colorScheme.surface.toArgb()
             
             val insetsController = WindowCompat.getInsetsController(window, view)
-            insetsController.isAppearanceLightStatusBars = false
+            insetsController.isAppearanceLightStatusBars = !darkTheme
             insetsController.isAppearanceLightNavigationBars = !darkTheme
         }
     }

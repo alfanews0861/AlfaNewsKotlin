@@ -199,9 +199,6 @@ export const sendPersonalizedNotification = onSchedule({
         let imageUrl = topNews.thumbnailUrl || "";
         if (!imageUrl && topNews.mediaUrl) {
             imageUrl = (await createAndSaveThumbnail(topNews.mediaUrl, topNews.id)) || topNews.mediaUrl;
-            if (imageUrl && imageUrl !== topNews.mediaUrl) {
-                await db.collection('news').doc(topNews.id).update({ thumbnailUrl: imageUrl }).catch(() => {});
-            }
         }
 
         try {
@@ -240,9 +237,6 @@ export const sendPersonalizedNotification = onSchedule({
             let imageUrl = districtNews.thumbnailUrl || "";
             if (!imageUrl && districtNews.mediaUrl) {
                 imageUrl = (await createAndSaveThumbnail(districtNews.mediaUrl, districtNews.id)) || districtNews.mediaUrl;
-                if (imageUrl && imageUrl !== districtNews.mediaUrl) {
-                    await db.collection('news').doc(districtNews.id).update({ thumbnailUrl: imageUrl }).catch(() => {});
-                }
             }
 
             const topicName = getTopicName("district", district);
@@ -385,7 +379,7 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
     try {
         const news = { id: postId, ...after };
 
-        // 1. Breaking news → all_users కి పంపు
+        // 1. Breaking news → all_users కి పంపు (ఒకేసారి పంపడం ద్వారా డూప్లికేట్ నోటిఫికేషన్లు రాకుండా రక్షణ)
         const message = buildNewsMessage(
             news,
             breakingTitle,
@@ -396,35 +390,23 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
         );
         await admin.messaging().send(message);
 
-        // 2. PERSONALIZATION: Category topic కి కూడా పంపు
         const category = after.category || after.categories?.[0] || "";
-        if (category && category !== "జిల్లా వార్త") {
-            const categoryTopic = getCategoryTopic(category);
-            if (categoryTopic) {
-                try {
-                    const catTitle = notifTitle.length > 45 ? notifTitle.substring(0, 45).trim() + "..." : notifTitle;
-                    const catMessage = buildNewsMessage(
-                        news,
-                        `📌 ${category}: ${catTitle}`,
-                        "general_news",
-                        imageUrl,
-                        3600000, // 1 hour TTL for category
-                        { topic: categoryTopic }
-                    );
-                    await admin.messaging().send(catMessage);
-                    logger.log(`[CAT_NOTIF] Sent to category topic: ${categoryTopic}`);
-                } catch (catErr: any) {
-                    logger.error(`[CAT_NOTIF_ERR] ${categoryTopic}:`, catErr.message);
-                }
-            }
+        const catKey = category ? `cat_${category}` : "";
+
+        const updatedHistory: any = {
+            ...lastSentMap,
+            general: postId
+        };
+        if (catKey) {
+            updatedHistory[catKey] = postId;
         }
 
         await settingsRef.set({
-            lastSentNewsIdMap: { ...lastSentMap, general: postId },
+            lastSentNewsIdMap: updatedHistory,
             lastBreakingAt: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
 
-        logger.log(`[BREAKING] ✅ Sent for ${postId} (tone=${after.tone}, age=${ageHours.toFixed(1)}h)`);
+        logger.log(`[BREAKING] ✅ Sent to all_users for ${postId} (tone=${after.tone}, age=${ageHours.toFixed(1)}h)`);
     } catch (err: any) {
         logger.error(`[BREAKING_ERR] ${postId}:`, err.message);
     }

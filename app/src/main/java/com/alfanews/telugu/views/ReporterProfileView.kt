@@ -413,7 +413,8 @@ fun PostThumbnailCard(
                         model = mediaUrl,
                         contentDescription = post.headline.telugu,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
+                        alignment = Alignment.TopCenter
                     )
                 }
             }

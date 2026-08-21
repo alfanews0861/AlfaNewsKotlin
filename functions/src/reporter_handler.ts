@@ -282,10 +282,10 @@ export const onNewsViewCountUpdated = onDocumentWritten({
     const viewsBefore = before?.longViews || 0;
     const viewsAfter = after.longViews || 0;
 
-    // ✅ Quick guard: exit if longViews hasn't changed (saves execution time)
-    if (viewsBefore === viewsAfter) return;
-    const reporterId = after.reporter?.id;
-    if (!reporterId) return;
+    // ✅ Quick guard: exit if longViews hasn't increased (saves execution time)
+    if (viewsAfter <= viewsBefore) return;
+    const reporterId = after.reporter?.id || (typeof after.reporter === 'string' ? after.reporter : null);
+    if (!reporterId || reporterId.startsWith('BOT_') || reporterId.startsWith('SYSTEM_')) return;
 
     // Award points for milestones
     const milestonesBefore = Math.floor(viewsBefore / MILESTONE_SIZE);
@@ -533,8 +533,12 @@ export async function promoteUserToReporter(
         warningLevel: 0,
         inProbation: inProbation,
         isChallenger: isChallenger,
+        downgradedReason: admin.firestore.FieldValue.delete(),
+        downgradedAt: admin.firestore.FieldValue.delete(),
+        lastWarningDate: admin.firestore.FieldValue.delete(),
         probationStartDate: inProbation ? admin.firestore.FieldValue.serverTimestamp() : null,
         promotedAt: admin.firestore.FieldValue.serverTimestamp(),
+        rejoinedAt: admin.firestore.FieldValue.serverTimestamp(),
         joinedAt: existingData.joinedAt || admin.firestore.FieldValue.serverTimestamp(),
         lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
         name: fullName || existingData.name || "",
@@ -924,11 +928,6 @@ export const onReporterApplicationCreated = onDocumentCreated({
     const data = event.data?.data();
     if (!data) return;
 
-    const rawStatus = String(data.status || "").trim().toUpperCase();
-    if (rawStatus === "JOINED" || rawStatus === "APPROVED" || rawStatus === "REJECTED") {
-        return;
-    }
-
     const appId = event.params.appId;
     const applicantName = data.fullName || data.name || "No Name";
     const rawPhone = String(data.phone || data.phoneNumber || data.mobile || "").trim();
@@ -937,6 +936,7 @@ export const onReporterApplicationCreated = onDocumentCreated({
     let district = String(data.district || data.selectedDistrict || data.assignedDistrict || data.state_district || data.stateDistrict || "").trim();
     let mandal = String(data.mandal || data.selectedMandal || data.assignedMandal || data.mandalam || "").trim();
     let userId = String(data.userId || data.uid || data.user_id || "").trim();
+    let rawStatus = String(data.status || "").trim().toUpperCase();
 
     // 1. If userId is missing, search users collection by phone
     let userDocData: any = null;
@@ -971,14 +971,7 @@ export const onReporterApplicationCreated = onDocumentCreated({
         if (!mandal) mandal = extracted.mandal;
     }
 
-    if (!district || !mandal || !userId) {
-        console.log(`[REPORTER_APP_TRIGGER] ⚠️ Missing info for app ${appId}: district='${district}', mandal='${mandal}', userId='${userId}'`);
-        return;
-    }
-
-    console.log(`[REPORTER_APP_TRIGGER] 🔍 Checking new application ${appId} for ${applicantName} (${district} - ${mandal}, userId: ${userId})`);
-
-    // 4. Check if user is previously downgraded/suspended
+    // Check if user was previously downgraded/suspended
     let isPreviouslyDowngraded = data.previouslyDowngraded === true || data.isReapplication === true;
     if (!isPreviouslyDowngraded && userDocData) {
         if (userDocData.previouslyDowngraded === true || userDocData.suspended === true || userDocData.downgradedReason === "INACTIVITY") {
@@ -986,87 +979,204 @@ export const onReporterApplicationCreated = onDocumentCreated({
         }
     }
 
-    if (isPreviouslyDowngraded) {
-        console.log(`[REPORTER_APP_TRIGGER] ⚠️ User ${userId} was previously downgraded/suspended. Keeping PENDING.`);
-        return;
+    // Check vacancy for mandal in users collection
+    let vacancyResult: MandalVacancyResult = { vacant: false };
+    if (district && mandal) {
+        vacancyResult = await checkMandalVacancy(district, mandal, userId);
     }
-
-    // 5. Check vacancy for mandal in users collection
-    const vacancyResult = await checkMandalVacancy(district, mandal, userId);
     const vacant = vacancyResult.vacant;
     const existingRep = vacancyResult.existingReporter;
 
-    if (!vacant) {
-        console.log(`[REPORTER_APP_TRIGGER] ⚠️ Mandal ${mandal} in ${district} is already occupied by ${existingRep?.name}. Keeping PENDING for competition review.`);
-        
+    // Determine auto-approval eligibility
+    const canAutoApprove = Boolean(district && mandal && userId && !isPreviouslyDowngraded && vacant);
+    const isConflict = Boolean(district && mandal && !vacant);
+
+    console.log(`[REPORTER_APP_TRIGGER] 📋 Processing ${appId} for ${applicantName} (dist: '${district}', mandal: '${mandal}', userId: '${userId}', canAutoApprove: ${canAutoApprove}, isConflict: ${isConflict})`);
+
+    if (canAutoApprove) {
+        console.log(`[REPORTER_APP_TRIGGER] ✅ Mandal ${mandal} is VACANT. Auto-approving application ${appId}...`);
+
+        // Update application document
         await event.data?.ref.update({
+            status: "JOINED",
+            autoApproved: true,
             district,
             mandal,
             userId,
+            emailSentToAdmin: true,
+            approvedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Promote user to REPORTER
+        await promoteUserToReporter(
+            userId,
+            applicantName,
+            rawPhone || userDocData?.phone || "",
+            district,
+            mandal,
+            "AUTO_APPROVAL_TRIGGER"
+        );
+
+        // Send notification email to admin
+        await sendReporterApplicationEmail(
+            { ...data, district, mandal, fullName: applicantName, phone: rawPhone, userId },
+            true,
+            false,
+            "JOINED"
+        );
+    } else if (isConflict) {
+        console.log(`[REPORTER_APP_TRIGGER] ⚠️ Mandal ${mandal} in ${district} is occupied by ${existingRep?.name}. Keeping PENDING for competition review.`);
+
+        await event.data?.ref.update({
+            district,
+            mandal,
+            userId: userId || null,
+            status: "PENDING",
             isConflict: true,
+            emailSentToAdmin: true,
             existingReporterName: existingRep?.name || null,
             existingReporterPhone: existingRep?.phone || null,
             existingReporterId: existingRep?.id || null
         });
 
-        // Notify applicant that mandal is occupied and application is under admin review
-        await notifyApplicantOfConflict(userId, applicantName, district, mandal, existingRep?.name || "విలేకరి");
+        if (userId) {
+            await notifyApplicantOfConflict(userId, applicantName, district, mandal, existingRep?.name || "విలేకరి");
+        }
 
         // Send email alert to admin
         await sendReporterApplicationEmail(
             { ...data, district, mandal, fullName: applicantName, phone: rawPhone, userId },
             false,
-            false,
+            isPreviouslyDowngraded,
             "PENDING",
             { isConflict: true, existingReporterName: existingRep?.name, existingReporterPhone: existingRep?.phone }
         );
-        return;
+    } else {
+        // Missing location details or user account
+        console.log(`[REPORTER_APP_TRIGGER] ℹ️ Application ${appId} kept PENDING for manual admin review (Missing dist/mandal/userId or prev downgraded).`);
+
+        if (district || mandal || userId) {
+            await event.data?.ref.update({
+                district: district || data.district || "",
+                mandal: mandal || data.mandal || "",
+                userId: userId || data.userId || null,
+                emailSentToAdmin: true
+            });
+        }
+
+        // ALWAYS SEND EMAIL TO ADMIN SO YOU NEVER MISS ANY APPLICANT!
+        await sendReporterApplicationEmail(
+            { ...data, district: district || "N/A", mandal: mandal || "N/A", fullName: applicantName, phone: rawPhone, userId },
+            false,
+            isPreviouslyDowngraded,
+            rawStatus === "JOINED" ? "JOINED" : "PENDING"
+        );
     }
-
-    console.log(`[REPORTER_APP_TRIGGER] ✅ Mandal ${mandal} is VACANT. Auto-approving application ${appId}...`);
-
-    // 6. Auto-approve application
-    await event.data?.ref.update({
-        status: "JOINED",
-        autoApproved: true,
-        district,
-        mandal,
-        userId,
-        approvedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    // 7. Promote user to REPORTER
-    await promoteUserToReporter(
-        userId,
-        applicantName,
-        rawPhone || userDocData?.phone || "",
-        district,
-        mandal,
-        "AUTO_APPROVAL_TRIGGER"
-    );
-
-    // 8. Send notification email to admin
-    await sendReporterApplicationEmail(
-        { ...data, district, mandal, fullName: applicantName, phone: rawPhone, userId },
-        true,
-        false,
-        "JOINED"
-    );
 });
+
+/**
+ * Helper to verify Admin Bearer token for HTTP endpoints
+ */
+async function verifyHttpAdminAuth(req: any): Promise<boolean> {
+    try {
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            const idToken = authHeader.split('Bearer ')[1].trim();
+            const decoded = await admin.auth().verifyIdToken(idToken);
+            const userDoc = await db.collection('users').doc(decoded.uid).get();
+            const role = String(userDoc.data()?.role || '').toUpperCase();
+            return ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'].includes(role);
+        }
+        return false;
+    } catch {
+        return false;
+    }
+}
 
 /**
  * Callable function to scan and auto-approve existing pending reporter applications whose mandals are vacant.
  */
 export const autoApproveAllPendingApplications = onCall({ secrets: ["EMAIL_USER", "EMAIL_PASS"] }, async (request) => {
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+        throw new HttpsError('unauthenticated', 'మీరు లాగిన్ అవ్వాలి.');
+    }
+    const adminDoc = await db.collection('users').doc(auth.uid).get();
+    const role = String(adminDoc.data()?.role || '').toUpperCase();
+    if (!['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'].includes(role)) {
+        throw new HttpsError('permission-denied', 'అడ్మిన్లకు మాత్రమే ఈ అనుమతి ఉంది.');
+    }
     return await executeAutoApprovePendingBackfill();
 });
 
 /**
- * HTTP endpoint to trigger the backfill scan directly and return execution summary.
+ * HTTP endpoint to trigger the backfill scan directly and return execution summary (Admin Token Required).
  */
 export const runAutoApprovePendingBackfill = onRequest({ secrets: ["EMAIL_USER", "EMAIL_PASS"], region: REGION }, async (req, res) => {
+    if (!(await verifyHttpAdminAuth(req))) {
+        res.status(403).json({ error: "Forbidden: Admin Bearer token required" });
+        return;
+    }
     try {
+        if (req.query.getAllActiveReporters) {
+            const snap = await db.collection('users')
+                .where('role', 'in', ['REPORTER', 2, 2.0, '2'])
+                .get();
+            const list = snap.docs.map(d => {
+                const u = d.data();
+                return {
+                    id: d.id,
+                    name: u.name || u.fullName || "N/A",
+                    phone: u.phone || u.phoneNumber || "N/A",
+                    district: u.district || "N/A",
+                    mandal: u.assignedMandal || u.mandal || "N/A",
+                    suspended: u.suspended === true,
+                    promotedAt: u.promotedAt || null,
+                    lastPostTimestamp: u.lastPostTimestamp || null
+                };
+            });
+            res.status(200).json({ count: list.length, reporters: list });
+            return;
+        }
+        if (req.query.scanUsersDuplicates) {
+            const snap = await db.collection('users').get();
+            const phoneMap: { [phone: string]: any[] } = {};
+            for (const doc of snap.docs) {
+                const u = doc.data();
+                const rawPhone = String(u.phone || u.phoneNumber || "").trim();
+                const clean10 = rawPhone.replace(/\D/g, '').slice(-10);
+                if (clean10.length === 10) {
+                    if (!phoneMap[clean10]) phoneMap[clean10] = [];
+                    phoneMap[clean10].push({ id: doc.id, phone: rawPhone, name: u.name, role: u.role, createdAt: u.createdAt || u.joinedAt || null });
+                }
+            }
+            const duplicates = Object.keys(phoneMap).filter(k => phoneMap[k].length > 1).map(k => ({ phone: k, count: phoneMap[k].length, accounts: phoneMap[k] }));
+            res.status(200).json({ totalUsers: snap.size, duplicateGroupsCount: duplicates.length, duplicates });
+            return;
+        }
+        if (req.query.july25Cleanup) {
+            const dryRun = req.query.dryRun === "true";
+            const result = await executeJuly25ApprovalAndCleanup(dryRun);
+            res.status(200).json({ mode: dryRun ? "DRY_RUN" : "LIVE_APPLIED", ...result });
+            return;
+        }
         if (req.query.inspect) {
+            if (req.query.phone) {
+                const clean10 = String(req.query.phone).replace(/\D/g, '').slice(-10);
+                const phoneFormats = [`+91${clean10}`, clean10, `0${clean10}`, `91${clean10}`];
+                const usersFound: any[] = [];
+                for (const fmt of phoneFormats) {
+                    const snap = await db.collection('users').where('phone', '==', fmt).get();
+                    snap.docs.forEach(d => usersFound.push({ id: d.id, ...d.data() }));
+                }
+                res.status(200).json({ count: usersFound.length, users: usersFound });
+                return;
+            }
+            if (req.query.docId) {
+                const docSnap = await db.collection('reporter_applications').doc(String(req.query.docId)).get();
+                res.status(200).json({ id: docSnap.id, ...docSnap.data() });
+                return;
+            }
             if (req.query.checkVacancy) {
                 const dist = String(req.query.dist || "");
                 const mandal = String(req.query.mandal || "");
@@ -1081,7 +1191,7 @@ export const runAutoApprovePendingBackfill = onRequest({ secrets: ["EMAIL_USER",
             }
             const snap = await db.collection('reporter_applications')
                 .orderBy('timestamp', 'desc')
-                .limit(10)
+                .limit(20)
                 .get();
             const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             res.status(200).json({ count: docs.length, docs });
@@ -1261,6 +1371,180 @@ async function executeAutoApprovePendingBackfill() {
     };
 }
 
+async function executeJuly25ApprovalAndCleanup(dryRun: boolean = false) {
+    console.log(`[JULY25_CLEANUP] 🚀 Starting July 25+ approval and cleanup (dryRun: ${dryRun})...`);
+    const allAppsSnap = await db.collection('reporter_applications').get();
+
+    const JULY_25_MS = new Date('2026-07-25T00:00:00+05:30').getTime(); // 1784917800000
+
+    // Filter applications submitted on or after July 25, 2026
+    const eligibleDocs: { id: string; data: any; timeMs: number; cleanPhone: string; key: string }[] = [];
+
+    for (const doc of allAppsSnap.docs) {
+        const data = doc.data();
+        const ts = data.timestamp;
+        let timeMs = 0;
+        if (ts && typeof ts.toDate === 'function') {
+            timeMs = ts.toDate().getTime();
+        } else if (typeof ts === 'number') {
+            timeMs = ts > 1e11 ? ts : ts * 1000;
+        } else if (ts && typeof ts._seconds === 'number') {
+            timeMs = ts._seconds * 1000;
+        }
+
+        if (timeMs >= JULY_25_MS) {
+            const rawPhone = String(data.phone || data.phoneNumber || data.mobile || "").trim();
+            const clean10 = rawPhone.replace(/\D/g, '').slice(-10);
+            const userId = String(data.userId || data.uid || "").trim();
+            const fullName = String(data.fullName || data.name || "").trim().toLowerCase();
+            const groupKey = clean10.length === 10 ? clean10 : (userId || fullName || doc.id);
+
+            eligibleDocs.push({
+                id: doc.id,
+                data: data,
+                timeMs: timeMs,
+                cleanPhone: clean10,
+                key: groupKey
+            });
+        }
+    }
+
+    console.log(`[JULY25_CLEANUP] Found ${eligibleDocs.length} total applications submitted on or after July 25, 2026.`);
+
+    // Group by unique applicant key
+    const groups: { [key: string]: typeof eligibleDocs } = {};
+    for (const item of eligibleDocs) {
+        if (!groups[item.key]) groups[item.key] = [];
+        groups[item.key].push(item);
+    }
+
+    const report: {
+        uniqueApplicants: number;
+        totalApplications: number;
+        approved: any[];
+        deletedDuplicates: any[];
+    } = {
+        uniqueApplicants: Object.keys(groups).length,
+        totalApplications: eligibleDocs.length,
+        approved: [],
+        deletedDuplicates: []
+    };
+
+    for (const key of Object.keys(groups)) {
+        const list = groups[key];
+        // Sort newest first
+        list.sort((a, b) => b.timeMs - a.timeMs);
+
+        const canonical = list[0];
+        const duplicates = list.slice(1);
+
+        const appData = canonical.data;
+        const applicantName = appData.fullName || appData.name || "Reporter";
+        const rawPhone = String(appData.phone || appData.phoneNumber || appData.mobile || "").trim();
+        const clean10 = canonical.cleanPhone;
+        let userId = String(appData.userId || appData.uid || "").trim();
+
+        // 1. Find all matching user records by phone and userId
+        const matchingUsers: any[] = [];
+        if (clean10.length === 10) {
+            const phoneFormats = [`+91${clean10}`, clean10, `0${clean10}`, `91${clean10}`];
+            for (const fmt of phoneFormats) {
+                const uSnap = await db.collection('users').where('phone', '==', fmt).get();
+                uSnap.docs.forEach(d => {
+                    if (!matchingUsers.some(u => u.id === d.id)) {
+                        matchingUsers.push({ id: d.id, ...d.data() });
+                    }
+                });
+            }
+        }
+        if (userId && !matchingUsers.some(u => u.id === userId)) {
+            const uDoc = await db.collection('users').doc(userId).get();
+            if (uDoc.exists) matchingUsers.push({ id: uDoc.id, ...uDoc.data() });
+        }
+
+        // 2. Resolve District and Mandal
+        let district = String(appData.district || appData.selectedDistrict || appData.assignedDistrict || "").trim();
+        let mandal = String(appData.mandal || appData.selectedMandal || appData.assignedMandal || appData.mandalam || "").trim();
+
+        if ((!district || !mandal) && matchingUsers.length > 0) {
+            const firstU = matchingUsers[0];
+            if (!district) district = String(firstU.district || "").trim();
+            if (!mandal) mandal = String(firstU.assignedMandal || firstU.mandal || "").trim();
+        }
+
+        if (!district || !mandal) {
+            const userDist = matchingUsers[0]?.district;
+            const userAddr = matchingUsers[0]?.address;
+            const extracted = extractDistrictAndMandal(appData.address, appData.interestedArea, userDist || district, userAddr);
+            if (!district) district = extracted.district;
+            if (!mandal) mandal = extracted.mandal;
+        }
+
+        if (!district) district = "తెలంగాణ / ఆంధ్రప్రదేశ్";
+        if (!mandal) mandal = "జిల్లా విలేకరి";
+
+        const targetUserId = userId || (matchingUsers.length > 0 ? matchingUsers[0].id : null);
+
+        if (!dryRun) {
+            // Update all matching user records to role: REPORTER
+            for (const u of matchingUsers) {
+                await db.collection('users').doc(u.id).set({
+                    role: "REPORTER",
+                    district: district,
+                    assignedMandal: mandal,
+                    mandal: mandal,
+                    promotedBy: "ADMIN_BULK_APPROVE_JULY25",
+                    agreedToRules: true,
+                    suspended: false,
+                    warningLevel: 0,
+                    promotedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    name: applicantName || u.name || "Reporter",
+                    phone: rawPhone || u.phone || ""
+                }, { merge: true });
+            }
+
+            // Update canonical application to JOINED
+            await db.collection('reporter_applications').doc(canonical.id).update({
+                status: "JOINED",
+                autoApproved: true,
+                district: district,
+                mandal: mandal,
+                userId: targetUserId,
+                approvedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // Delete older duplicate applications
+            for (const dup of duplicates) {
+                await db.collection('reporter_applications').doc(dup.id).delete();
+            }
+        }
+
+        report.approved.push({
+            id: canonical.id,
+            name: applicantName,
+            phone: rawPhone,
+            district: district,
+            mandal: mandal,
+            userId: targetUserId,
+            matchedUsersCount: matchingUsers.length
+        });
+
+        if (duplicates.length > 0) {
+            report.deletedDuplicates.push({
+                canonicalId: canonical.id,
+                name: applicantName,
+                phone: rawPhone,
+                deletedCount: duplicates.length,
+                deletedIds: duplicates.map(d => d.id)
+            });
+        }
+    }
+
+    console.log(`[JULY25_CLEANUP] 🏁 Finished July 25+ cleanup: Approved ${report.approved.length} unique reporters, Deleted ${report.deletedDuplicates.reduce((acc, d) => acc + d.deletedCount, 0)} duplicate applications.`);
+    return report;
+}
+
 /**
  * Update reporter's last post timestamp when a post is approved
  */
@@ -1273,18 +1557,28 @@ export const onNewsPostApproved = onDocumentWritten({
 
     // Trigger only if status changes to published or approved becomes true
     if (after && after.approved === true && before?.approved !== true) {
-        const reporterId = (typeof after.reporter === 'string' ? after.reporter : after.reporter?.id) || after.reporterId || after.originalReporterId;
-        if (!reporterId || reporterId.startsWith('BOT_') || reporterId.startsWith('SYSTEM_')) return;
+        const assignedReporterId = (typeof after.reporter === 'string' ? after.reporter : after.reporter?.id) || after.reporterId;
+        const originalReporterId = after.originalReporterId;
 
-        console.log(`[POST_APPROVED] Updating lastPostTimestamp for reporter: ${reporterId}`);
-        await db.collection('users').doc(reporterId).set({
-            lastPostTimestamp: after.timestamp || admin.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+        const reporterIdsToUpdate = new Set<string>();
+        if (assignedReporterId && !assignedReporterId.startsWith('BOT_') && !assignedReporterId.startsWith('SYSTEM_')) {
+            reporterIdsToUpdate.add(assignedReporterId);
+        }
+        if (originalReporterId && !originalReporterId.startsWith('BOT_') && !originalReporterId.startsWith('SYSTEM_')) {
+            reporterIdsToUpdate.add(originalReporterId);
+        }
+
+        for (const rId of reporterIdsToUpdate) {
+            console.log(`[POST_APPROVED] Updating lastPostTimestamp for reporter: ${rId}`);
+            await db.collection('users').doc(rId).set({
+                lastPostTimestamp: after.timestamp || admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+        }
     }
 });
 
 /**
- * Automatically reset warning levels and set promotion timestamps when a user is assigned/upgraded to REPORTER
+ * Automatically reset warning levels and set promotion timestamps when a user is assigned/upgraded/re-joined to REPORTER
  */
 export const onUserRoleChanged = onDocumentWritten({
     document: "users/{userId}",
@@ -1298,23 +1592,288 @@ export const onUserRoleChanged = onDocumentWritten({
     const beforeRole = String(before?.role || '').toUpperCase();
     const afterRole = String(after.role || '').toUpperCase();
 
-    const isBeforeReporter = ['REPORTER', '2', '2.0'].includes(beforeRole) || before?.role === 2 || before?.role === 2.0;
+    const isBeforeReporter = ['REPORTER', '2', '2.0', 'STAFF_REPORTER', 'REGIONAL_INCHARGE'].includes(beforeRole) || before?.role === 2 || before?.role === 2.0;
     const isAfterReporter = ['REPORTER', '2', '2.0'].includes(afterRole) || after.role === 2 || after.role === 2.0;
 
-    // Check if user was newly promoted / upgraded to REPORTER
+    // Check if user was newly promoted / upgraded / re-joined to REPORTER
     if (!isBeforeReporter && isAfterReporter) {
-        console.log(`[ROLE_UPGRADED] User ${event.params.userId} upgraded to REPORTER. Setting grace period timestamps...`);
+        console.log(`[ROLE_UPGRADED] User ${event.params.userId} upgraded to REPORTER. Setting full grace period timestamps and resetting flags...`);
         
-        // Prevent endless trigger loops by checking if timestamps are already zeroed/set
-        if (!after.promotedAt || after.warningLevel !== 0) {
-            await event.data?.after.ref.update({
+        await event.data?.after.ref.update({
+            warningLevel: 0,
+            inProbation: false,
+            lastWarningDate: admin.firestore.FieldValue.delete(),
+            previouslyDowngraded: false,
+            suspended: false,
+            downgradedReason: admin.firestore.FieldValue.delete(),
+            downgradedAt: admin.firestore.FieldValue.delete(),
+            promotedAt: admin.firestore.FieldValue.serverTimestamp(),
+            lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
+            rejoinedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Also sync any SUSPENDED applications back to JOINED
+        try {
+            const appSnap = await db.collection('reporter_applications')
+                .where('userId', '==', event.params.userId)
+                .where('status', '==', 'SUSPENDED')
+                .get();
+            for (const doc of appSnap.docs) {
+                await doc.ref.update({
+                    status: 'JOINED',
+                    rejoinedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        } catch (err: any) {
+            console.error(`[ROLE_UPGRADE_APP_SYNC_ERR] ${event.params.userId}:`, err.message);
+        }
+    }
+});
+
+/**
+ * Mass re-activation of all reporters who were mistakenly demoted to subscribers.
+ * Restores role: "REPORTER", sets 10-day fresh grace period, resets warning levels,
+ * updates application records, and sends Telugu notification message + FCM push.
+ */
+export async function executeReactivateFalselyDemotedReporters(dryRun: boolean = false) {
+    console.log(`[REACTIVATE_REPORTERS] 🚀 Starting scan of falsely demoted reporters (dryRun: ${dryRun})...`);
+
+    const usersSnap = await db.collection('users').get();
+    const appsSnap = await db.collection('reporter_applications').get();
+
+    // Map applications by clean phone and by userId
+    const appsByUser: { [userId: string]: any[] } = {};
+    const appsByPhone: { [phone: string]: any[] } = {};
+
+    for (const doc of appsSnap.docs) {
+        const data = { id: doc.id, ...doc.data() } as any;
+        const uId = String(data.userId || data.uid || "").trim();
+        if (uId) {
+            if (!appsByUser[uId]) appsByUser[uId] = [];
+            appsByUser[uId].push(data);
+        }
+        const rawPhone = String(data.phone || data.phoneNumber || data.mobile || "").trim();
+        const clean10 = rawPhone.replace(/\D/g, '').slice(-10);
+        if (clean10.length === 10) {
+            if (!appsByPhone[clean10]) appsByPhone[clean10] = [];
+            appsByPhone[clean10].push(data);
+        }
+    }
+
+    const reactivatedList: any[] = [];
+    const seniorRoles = ['ADMIN', 'EDITOR', 'REGIONAL_INCHARGE', 'STAFF_REPORTER', '5', '7', 5, 7];
+
+    for (const doc of usersSnap.docs) {
+        const u = doc.data();
+        const userId = doc.id;
+        const currentRole = String(u.role || '').toUpperCase();
+
+        // Skip senior roles (Admin, Editor, Staff Reporter, etc.)
+        if (seniorRoles.includes(currentRole) || seniorRoles.includes(u.role)) {
+            continue;
+        }
+
+        // Check if user is currently active as reporter
+        const isActiveReporter = ['REPORTER', '2', '2.0'].includes(currentRole) || u.role === 2 || u.role === 2.0;
+
+        // Check if user has demoted / suspended / inactive marker
+        const isMarkedDemoted = u.previouslyDowngraded === true || 
+            u.downgradedReason === "INACTIVITY" || 
+            u.suspended === true || 
+            u.downgradedAt != null;
+
+        // Check matching applications
+        const clean10 = String(u.phone || '').replace(/\D/g, '').slice(-10);
+        const userApps = appsByUser[userId] || (clean10.length === 10 ? appsByPhone[clean10] : []) || [];
+        const hasJoinedOrSuspendedApp = userApps.some((a: any) => 
+            a.status === 'JOINED' || a.status === 'SUSPENDED' || a.autoApproved === true
+        );
+
+        const shouldReactivate = (!isActiveReporter && (isMarkedDemoted || hasJoinedOrSuspendedApp)) || 
+            (isActiveReporter && isMarkedDemoted);
+
+        if (!shouldReactivate) {
+            continue;
+        }
+
+        // Resolve District and Mandal
+        let district = String(u.district || "").trim();
+        let mandal = String(u.assignedMandal || u.mandal || "").trim();
+
+        if ((!district || !mandal) && userApps.length > 0) {
+            const firstApp = userApps[0];
+            if (!district) district = String(firstApp.district || firstApp.selectedDistrict || "").trim();
+            if (!mandal) mandal = String(firstApp.mandal || firstApp.assignedMandal || firstApp.selectedMandal || "").trim();
+        }
+
+        if (!district || !mandal) {
+            const extracted = extractDistrictAndMandal(u.address, "", district, u.address);
+            if (!district) district = extracted.district || "తెలంగాణ / ఆంధ్రప్రదేశ్";
+            if (!mandal) mandal = extracted.mandal || "జిల్లా విలేకరి";
+        }
+
+        const name = u.name || userApps[0]?.fullName || userApps[0]?.name || "విలేకరి";
+        const phone = u.phone || userApps[0]?.phone || "";
+
+        if (!dryRun) {
+            // 1. Update user document to active REPORTER with fresh grace period
+            await db.collection('users').doc(userId).set({
+                role: "REPORTER",
+                district: district,
+                assignedMandal: mandal,
+                mandal: mandal,
                 warningLevel: 0,
                 inProbation: false,
-                lastWarningDate: null,
+                previouslyDowngraded: false,
+                suspended: false,
+                downgradedReason: admin.firestore.FieldValue.delete(),
+                downgradedAt: admin.firestore.FieldValue.delete(),
+                lastWarningDate: admin.firestore.FieldValue.delete(),
                 promotedAt: admin.firestore.FieldValue.serverTimestamp(),
-                lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp()
+                lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
+                rejoinedAt: admin.firestore.FieldValue.serverTimestamp(),
+                promotedBy: u.promotedBy || "SYSTEM_RESTORE"
+            }, { merge: true });
+
+            // 2. Update matching reporter_applications
+            for (const app of userApps) {
+                await db.collection('reporter_applications').doc(app.id).update({
+                    status: "JOINED",
+                    rejoinedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    district: district,
+                    mandal: mandal,
+                    userId: userId
+                });
+            }
+
+            // 3. Send Encouraging Telugu Restoration Message & Push Notification
+            const title = "అల్ఫా న్యూస్ రిపోర్టర్ హోదా తిరిగి ప్రారంభించబడింది! 🌟";
+            const body = `నమస్కారం ${name}! సాంకేతిక కారణాల వల్ల నిలిచిపోయిన మీ రిపోర్టర్ హోదా తిరిగి విజయవంతంగా ప్రారంభించబడింది. శుభాకాంక్షలు! నేటి నుంచే మీ మండల తాజా వార్తలను ఉత్సాహంగా Alfa News లో పోస్ట్ చేయండి.`;
+            
+            const msgTimestamp = admin.firestore.FieldValue.serverTimestamp();
+            
+            // Inbox message
+            await db.collection('users').doc(userId).collection('messages').add({
+                title,
+                body,
+                senderName: "AlfaNews Editorial Desk",
+                read: false,
+                timestamp: msgTimestamp,
+                importance: "HIGH",
+                type: "RESTORATION"
             });
+
+            // Reporter conversation thread
+            try {
+                await db.collection('reporter_conversations').doc(userId).collection('messages').add({
+                    senderId: "SYSTEM_ADMIN",
+                    senderName: "AlfaNews Editorial Desk",
+                    senderRole: "ADMIN",
+                    text: `🎉 [${title}]\n\n${body}`,
+                    type: "NOTICE",
+                    read: false,
+                    timestamp: msgTimestamp
+                });
+
+                await db.collection('reporter_conversations').doc(userId).set({
+                    reporterId: userId,
+                    reporterName: name,
+                    reporterPhone: phone,
+                    reporterDistrict: district,
+                    reporterMandal: mandal,
+                    lastMessage: `🎉 ${title}`,
+                    lastMessageTime: msgTimestamp,
+                    lastSenderRole: "ADMIN",
+                    lastSenderId: "SYSTEM_ADMIN",
+                    unreadCountForReporter: admin.firestore.FieldValue.increment(1),
+                    updatedAt: msgTimestamp
+                }, { merge: true });
+            } catch (convErr: any) {
+                console.error(`[CONV_ERR] ${userId}:`, convErr.message);
+            }
+
+            // High priority FCM push
+            const rawTokens: any[] = [...(u.fcmTokens || []), u.fcmToken];
+            const tokens = Array.from(new Set(rawTokens.filter((t): t is string => typeof t === 'string' && t.trim().length > 0)));
+
+            if (tokens.length > 0) {
+                const pushList = tokens.map(token => ({
+                    token,
+                    android: {
+                        priority: 'high' as const,
+                        ttl: 86400000,
+                        directBootOk: true,
+                        notification: {
+                            channelId: 'general_news',
+                            sound: 'default'
+                        }
+                    },
+                    notification: {
+                        title,
+                        body
+                    },
+                    data: {
+                        type: "REPORTER_RESTORED",
+                        title,
+                        body,
+                        channelId: 'general_news'
+                    }
+                }));
+                await admin.messaging().sendEach(pushList).catch(() => {});
+            }
         }
+
+        reactivatedList.push({
+            id: userId,
+            name,
+            phone,
+            district,
+            mandal,
+            previousRole: currentRole || 'SUBSCRIBER',
+            reason: isMarkedDemoted ? "Previously Downgraded/Suspended" : "Joined Application Found"
+        });
+    }
+
+    console.log(`[REACTIVATE_REPORTERS] 🏁 Completed. Reactivated ${reactivatedList.length} reporters.`);
+    return {
+        success: true,
+        mode: dryRun ? "DRY_RUN" : "LIVE_APPLIED",
+        totalUsersScanned: usersSnap.size,
+        reactivatedCount: reactivatedList.length,
+        reactivated: reactivatedList
+    };
+}
+
+/**
+ * Callable function to reactivate all demoted reporters on demand (Admin Only).
+ */
+export const reactivateFalselyDemotedReporters = onCall(async (request) => {
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+        throw new HttpsError('unauthenticated', 'మీరు లాగిన్ అవ్వాలి.');
+    }
+    const adminDoc = await db.collection('users').doc(auth.uid).get();
+    const role = String(adminDoc.data()?.role || '').toUpperCase();
+    if (!['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'].includes(role)) {
+        throw new HttpsError('permission-denied', 'అడ్మిన్లకు మాత్రమే ఈ అనుమతి ఉంది.');
+    }
+    return await executeReactivateFalselyDemotedReporters(false);
+});
+
+/**
+ * HTTP endpoint to trigger reactivation and view detailed report (Admin Token Required).
+ */
+export const runReactivateDemotedReportersHttp = onRequest({ region: REGION }, async (req, res) => {
+    if (!(await verifyHttpAdminAuth(req))) {
+        res.status(403).json({ error: "Forbidden: Admin Bearer token required" });
+        return;
+    }
+    try {
+        const dryRun = req.query.dryRun === "true";
+        const result = await executeReactivateFalselyDemotedReporters(dryRun);
+        res.status(200).json(result);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
     }
 });
 
@@ -1656,4 +2215,114 @@ export const onAnonymousDeviceCreated = onDocumentCreated({
         }
     }
 });
+
+/**
+ * ✅ NEW: Record App Install Referral immediately when app is opened after install.
+ * Works for BOTH guest (anonymous) users and logged-in users.
+ * Anti-fraud: Ensures each installId only rewards points once.
+ */
+export const recordAppInstallReferral = onCall(async (request) => {
+    const { referrerUid, installId, platform, appVersion } = request.data || {};
+    
+    if (!referrerUid || typeof referrerUid !== 'string' || !installId || typeof installId !== 'string') {
+        throw new HttpsError('invalid-argument', 'referrerUid and installId are required.');
+    }
+
+    const cleanReferrer = referrerUid.trim();
+    const cleanInstallId = installId.trim();
+
+    if (!cleanReferrer || !cleanInstallId) {
+        throw new HttpsError('invalid-argument', 'Invalid referrer or installId');
+    }
+
+    if (cleanReferrer.startsWith('BOT_') || cleanReferrer.startsWith('SYSTEM_')) {
+        console.log(`[INSTALL_REFERRAL_SKIP] Skipping points for system account: ${cleanReferrer}`);
+        return { success: false, message: 'System accounts cannot receive referrals' };
+    }
+
+    try {
+        const installRef = db.collection('app_installs').doc(cleanInstallId);
+        const referrerRef = db.collection('users').doc(cleanReferrer);
+
+        // Check if this installation was already processed (anti-fraud check)
+        const installDoc = await installRef.get();
+        if (installDoc.exists) {
+            console.log(`[INSTALL_REFERRAL_DUP] Install ${cleanInstallId} already rewarded to ${installDoc.data()?.referrerUid}`);
+            return { success: true, message: 'Already processed', duplicate: true };
+        }
+
+        // Verify that the referrer user document exists
+        const referrerDoc = await referrerRef.get();
+        if (!referrerDoc.exists) {
+            console.warn(`[INSTALL_REFERRAL_WARN] Referrer doc ${cleanReferrer} does not exist.`);
+            return { success: false, message: 'Referrer not found' };
+        }
+
+        // Save install receipt
+        await installRef.set({
+            referrerUid: cleanReferrer,
+            installId: cleanInstallId,
+            platform: platform || 'android',
+            appVersion: appVersion || '',
+            pointsAwarded: 50,
+            installedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // 1. Award 50 points to reporter (and monthly leaderboard)
+        await awardPointsToReporter(cleanReferrer, 50);
+
+        // 2. Atomically increment referralCount
+        await referrerRef.update({
+            referralCount: admin.firestore.FieldValue.increment(1)
+        });
+
+        console.log(`[INSTALL_REFERRAL_SUCCESS] Awarded 50 points and +1 install to ${cleanReferrer} for install ${cleanInstallId}`);
+
+        // 3. Send high-priority notification to the reporter
+        try {
+            const referrerData = referrerDoc.data();
+            const tokens: string[] = [];
+            if (referrerData?.fcmToken) tokens.push(referrerData.fcmToken);
+            if (Array.isArray(referrerData?.fcmTokens)) {
+                referrerData.fcmTokens.forEach((t: any) => {
+                    if (t && typeof t === 'string' && !tokens.includes(t)) tokens.push(t);
+                });
+            }
+
+            if (tokens.length > 0) {
+                const title = 'పాయింట్లు లభించాయి! 🎁';
+                const body = 'మీ ప్రమోషన్ లింక్ ద్వారా ఒకరు Alfa News యాప్‌ను ఇన్‌స్టాల్ చేసుకున్నందుకు మీకు 50 పాయింట్లు లభించాయి.';
+
+                await Promise.all(tokens.map(token =>
+                    admin.messaging().send({
+                        android: {
+                            priority: 'high',
+                            ttl: 86400000,
+                            directBootOk: true,
+                        },
+                        data: {
+                            type: 'REFERRAL_SUCCESS',
+                            channelId: 'general_news',
+                            title,
+                            body,
+                            actionUrl: '',
+                            newsId: '',
+                            imageUrl: '',
+                        },
+                        token
+                    }).catch(() => {})
+                ));
+                console.log(`[INSTALL_REFERRAL] Sent referral notification to ${cleanReferrer}`);
+            }
+        } catch (err: any) {
+            console.error(`[INSTALL_REFERRAL_NOTIFY_ERR] Error sending notification:`, err.message);
+        }
+
+        return { success: true, message: 'Referral processed successfully' };
+    } catch (e: any) {
+        console.error(`[INSTALL_REFERRAL_ERR] Error processing install referral:`, e.message);
+        throw new HttpsError('internal', e.message);
+    }
+});
+
 

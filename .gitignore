@@ -103,6 +103,9 @@ Desktop.ini
 node_modules/
 functions/node_modules/
 functions/lib/
+web/node_modules/
+web/dist/
+vps-scraper/node_modules/
 .firebase/
 *.txt
 functions/scratch/
@@ -110,3 +113,7 @@ functions/src/scratch/
 functions/*.txt
 .kotlin/
 media/
+*firebase-adminsdk*.json
+*-adminsdk-*.json
+serviceAccountKey.json
+

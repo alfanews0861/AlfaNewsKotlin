@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -151,41 +153,64 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
         DateTimeUtils.formatTimestamp(msg.timestamp, "dd MMM yyyy, hh:mm a") 
     }
 
-    val bgColor = when(msg.importance) {
-        "CRITICAL" -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-        "HIGH" -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)
-        else -> MaterialTheme.colorScheme.surface
+    val isUnread = !msg.read
+
+    val bgColor = if (isUnread) {
+        when (msg.importance) {
+            "CRITICAL" -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f)
+            "HIGH" -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f)
+            else -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+        }
+    } else {
+        MaterialTheme.colorScheme.surface
     }
 
-    val icon = when(msg.importance) {
-        "CRITICAL", "HIGH" -> Icons.Default.Warning
-        else -> Icons.Default.Mail
-    }
-    
-    val iconColor = when(msg.importance) {
+    val titleColor = MaterialTheme.colorScheme.onSurface
+    val bodyColor = if (isUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    val senderColor = MaterialTheme.colorScheme.primary
+    val dateColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+
+    val iconColor = when (msg.importance) {
         "CRITICAL" -> MaterialTheme.colorScheme.error
-        "HIGH" -> Color(0xFFF59E0B)
+        "HIGH" -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.primary
     }
 
-    ElevatedCard(
+    val icon = when (msg.importance) {
+        "CRITICAL", "HIGH" -> Icons.Default.Warning
+        else -> Icons.Default.Mail
+    }
+
+    val borderStroke = BorderStroke(
+        1.dp,
+        MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isUnread) 0.8f else 0.4f)
+    )
+
+    Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        colors = CardDefaults.elevatedCardColors(containerColor = bgColor)
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = bgColor,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isUnread) 3.dp else 1.dp),
+        border = borderStroke
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.Top
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(42.dp)
                     .clip(CircleShape)
-                    .background(iconColor.copy(alpha = 0.1f)),
+                    .background(iconColor.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(24.dp))
+                Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(22.dp))
             }
 
             Column(modifier = Modifier.weight(1f)) {
@@ -196,33 +221,37 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
                 ) {
                     Text(
                         text = msg.title,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.onSurface
+                        fontWeight = if (isUnread) FontWeight.Bold else FontWeight.SemiBold,
+                        fontSize = 15.sp,
+                        color = titleColor,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
-                    if (!msg.read) {
+                    if (isUnread) {
+                        Spacer(modifier = Modifier.width(8.dp))
                         Box(
                             modifier = Modifier
-                                .size(8.dp)
+                                .size(9.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.primary)
                         )
                     }
                 }
                 
+                Spacer(modifier = Modifier.height(2.dp))
+
                 Text(
                     text = msg.senderName,
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    color = senderColor,
                     fontWeight = FontWeight.Medium
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
                     text = msg.body,
                     fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = bodyColor,
                     lineHeight = 20.sp
                 )
 
@@ -230,9 +259,9 @@ fun MessageCard(msg: AppMessage, onClick: () -> Unit) {
 
                 Text(
                     text = dateStr,
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    fontWeight = FontWeight.Bold
+                    fontSize = 11.sp,
+                    color = dateColor,
+                    fontWeight = FontWeight.Medium
                 )
             }
         }

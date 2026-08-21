@@ -46,9 +46,11 @@ object AnalyticsService {
     private const val KEY_PEOPLE_SCORES = "people_scores"
     private const val KEY_ORGANIZATION_SCORES = "organization_scores"
     private const val KEY_LOCATION_SCORES = "location_scores"
+    private const val KEY_LAST_NOTIF_PERMISSION = "last_notif_permission"
 
     private var currentUserId: String? = null
     private var cachedPreferredCategories: List<String>? = null
+    private var lastNotifPermissionStatus: Boolean? = null
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -648,8 +650,28 @@ object AnalyticsService {
     /**
      * నోటిఫికేషన్ పర్మిషన్ స్టేటస్ ని లాగ్ చేస్తుంది.
      * దీనివల్ల ఎంతమంది వద్దన్నారో మనం రిపోర్ట్ చూడవచ్చు.
+     *
+     * ✅ OPTIMIZED: ప్రతి onResume() లో డూప్లికేట్ ఈవెంట్లు ఫైర్ కాకుండా,
+     * కేవలం స్టేటస్ మారినప్పుడు లేదా మొదటిసారి మాత్రమే ఈవెంట్ లాగ్ అవుతుంది.
      */
     fun logNotificationPermissionStatus(granted: Boolean) {
+        try {
+            firebaseAnalytics?.setUserProperty("notification_permission", if (granted) "granted" else "denied")
+        } catch (e: Exception) { }
+
+        // గతంలో లాగ్ చేసిన స్టేటస్ తో సమానంగా ఉంటే మళ్లీ ఈవెంట్ పంపవద్దు (డూప్లికేట్ నివారణ)
+        if (lastNotifPermissionStatus == granted) {
+            return
+        }
+
+        lastNotifPermissionStatus = granted
+        if (::appContext.isInitialized) {
+            try {
+                val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                prefs.edit().putBoolean(KEY_LAST_NOTIF_PERMISSION, granted).apply()
+            } catch (e: Exception) { }
+        }
+
         val bundle = android.os.Bundle().apply {
             putString("status", if (granted) "granted" else "denied")
         }
@@ -843,5 +865,9 @@ object AnalyticsService {
         loadMap(KEY_PEOPLE_SCORES, peopleScores)
         loadMap(KEY_ORGANIZATION_SCORES, organizationScores)
         loadMap(KEY_LOCATION_SCORES, locationScores)
+
+        if (prefs.contains(KEY_LAST_NOTIF_PERMISSION)) {
+            lastNotifPermissionStatus = prefs.getBoolean(KEY_LAST_NOTIF_PERMISSION, false)
+        }
     }
 }

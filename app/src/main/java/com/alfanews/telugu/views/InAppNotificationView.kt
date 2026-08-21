@@ -75,7 +75,8 @@ fun InAppNotificationView(
                         modifier = Modifier
                             .size(50.dp)
                             .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
+                        alignment = Alignment.TopCenter
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                 }

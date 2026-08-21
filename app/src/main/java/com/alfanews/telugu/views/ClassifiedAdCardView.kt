@@ -68,7 +68,8 @@ fun ClassifiedAdCardView(
                     model = imageUrl.ifEmpty { "https://via.placeholder.com/300x200?text=No+Image" },
                     contentDescription = title,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopCenter
                 )
 
                 // Date badge

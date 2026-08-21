@@ -152,21 +152,28 @@ fun GNewsPageView() {
         // Header
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFE0E7FF))
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            )
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("GNews API Integration", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("GNews API ద్వారా ప్రపంచవ్యాప్తంగా ఉన్న తాజా వార్తలను పొందండి.", fontSize = 14.sp)
+                Text("GNews API Integration", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text("GNews API ద్వారా ప్రపంచవ్యాప్తంగా ఉన్న తాజా వార్తలను పొందండి.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f))
             }
         }
 
         // Settings Card
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7))
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface
+            ),
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -176,8 +183,8 @@ fun GNewsPageView() {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Settings, contentDescription = null)
-                    Text("ఆటోమేటిక్ న్యూస్ సెట్టింగ్స్ (Scheduled Fetch)", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Text("ఆటోమేటిక్ న్యూస్ సెట్టింగ్స్ (Scheduled Fetch)", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 }
 
                 Row(
@@ -230,19 +237,19 @@ fun GNewsPageView() {
                                 checked = isAutoFetchEnabled,
                                 onCheckedChange = { isAutoFetchEnabled = it }
                             )
-                            Text("Enable Auto Fetch (Every 30 Mins)", fontSize = 14.sp)
+                            Text("Enable Auto Fetch (Every 30 Mins)", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
                         }
-                        Text("ఎనేబుల్ చేస్తే, సిస్టమ్ ప్రతి 30 నిమిషాలకు ఆటోమేటిక్‌గా వార్తలను చెక్ చేసి, కొత్తవి ఉంటే పబ్లిష్ చేస్తుంది.", fontSize = 12.sp, color = Color.Gray)
+                        Text("ఎనేబుల్ చేస్తే, సిస్టమ్ ప్రతి 30 నిమిషాలకు ఆటోమేటిక్‌గా వార్తలను చెక్ చేసి, కొత్తవి ఉంటే పబ్లిష్ చేస్తుంది.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Button(
                             onClick = { handleSaveSettings() },
                             enabled = !isSavingSettings,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
                             if (isSavingSettings) {
-                                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
                                 Spacer(modifier = Modifier.width(8.dp))
                             }
-                            Text(if (isSavingSettings) "Saving..." else "Save Configuration")
+                            Text(if (isSavingSettings) "Saving..." else "Save Configuration", color = MaterialTheme.colorScheme.onPrimary)
                         }
                     }
                 }
@@ -256,13 +263,17 @@ fun GNewsPageView() {
             // Manual Controls
             Card(
                 modifier = Modifier.weight(1f),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("Manual Trigger", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("Manual Trigger", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     OutlinedTextField(
                         value = apiKey,
                         onValueChange = { apiKey = it },
@@ -303,13 +314,13 @@ fun GNewsPageView() {
                         onClick = { handleFetch() },
                         enabled = !loading,
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
                         if (loading) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
                             Spacer(modifier = Modifier.width(8.dp))
                         }
-                        Text(if (loading) "Fetching & Processing..." else "Fetch News Now")
+                        Text(if (loading) "Fetching & Processing..." else "Fetch News Now", color = MaterialTheme.colorScheme.onPrimary)
                     }
                 }
             }
@@ -319,7 +330,11 @@ fun GNewsPageView() {
                 modifier = Modifier
                     .weight(1f)
                     .height(500.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF111827))
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                ),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             ) {
                 Column {
                     Row(
@@ -329,12 +344,12 @@ fun GNewsPageView() {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Operation Logs", fontSize = 12.sp, color = Color(0xFFD1D5DB), fontFamily = FontFamily.Monospace)
+                        Text("Operation Logs", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontFamily = FontFamily.Monospace)
                         TextButton(onClick = { logs = emptyList() }) {
-                            Text("Clear", fontSize = 10.sp, color = Color(0xFF9CA3AF))
+                            Text("Clear", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
                         }
                     }
-                    Divider(color = Color(0xFF374151))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxSize()

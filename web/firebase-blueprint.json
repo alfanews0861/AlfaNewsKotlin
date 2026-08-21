@@ -1,0 +1,51 @@
+{
+  "entities": {
+    "ReporterWhatsapp": {
+      "title": "Reporter Whatsapp Settings",
+      "description": "Stores WhatsApp automation settings for each reporter",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the reporter" },
+        "phoneNumber": { "type": "string", "description": "The connected WhatsApp phone number" },
+        "status": { "type": "string", "enum": ["disconnected", "connecting", "connected"], "description": "Connection status" },
+        "pairingCode": { "type": "string", "description": "The 8-character pairing code for WhatsApp linking" },
+        "selectedGroups": {
+          "type": "array",
+          "maxItems": 15,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" }
+            }
+          }
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "status"]
+    },
+    "WhatsappQueue": {
+      "title": "Whatsapp Message Queue",
+      "description": "Messages waiting to be sent via WhatsApp VPS",
+      "type": "object",
+      "properties": {
+        "newsId": { "type": "string" },
+        "reporterId": { "type": "string" },
+        "groupId": { "type": "string" },
+        "content": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "sent", "failed"] },
+        "scheduledAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/reporters_whatsapp/{userId}": {
+      "schema": "ReporterWhatsapp",
+      "description": "Settings for each reporter's WhatsApp connection"
+    },
+    "/whatsapp_queue/{queueId}": {
+      "schema": "WhatsappQueue",
+      "description": "Outbox for WhatsApp messages"
+    }
+  }
+}

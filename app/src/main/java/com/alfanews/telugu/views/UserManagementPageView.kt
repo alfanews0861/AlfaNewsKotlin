@@ -121,8 +121,7 @@ fun UserManagementPageView(currentUser: User) {
         }
     }
 
-    AlfaNewsTheme {
-        Scaffold(
+    Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) }
         ) { paddingValues ->
             Column(
@@ -173,7 +172,6 @@ fun UserManagementPageView(currentUser: User) {
                 }
             }
         }
-    }
 }
 
 @Composable
@@ -241,8 +239,14 @@ private fun AdminRoleManager(user: User, isUpdating: Boolean, onUpdate: (Map<Str
                         if (role == UserRole.REPORTER) {
                             updates["warningLevel"] = 0
                             updates["inProbation"] = false
+                            updates["previouslyDowngraded"] = false
+                            updates["suspended"] = false
+                            updates["downgradedReason"] = com.google.firebase.firestore.FieldValue.delete()
+                            updates["downgradedAt"] = com.google.firebase.firestore.FieldValue.delete()
+                            updates["lastWarningDate"] = com.google.firebase.firestore.FieldValue.delete()
                             updates["promotedAt"] = com.google.firebase.Timestamp.now()
                             updates["lastPostTimestamp"] = com.google.firebase.Timestamp.now()
+                            updates["rejoinedAt"] = com.google.firebase.Timestamp.now()
                         }
                         onUpdate(updates)
                         roleExpanded = false 

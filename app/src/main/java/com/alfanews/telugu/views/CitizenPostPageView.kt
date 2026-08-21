@@ -269,8 +269,7 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
         )
     }
 
-    AlfaNewsTheme {
-        Scaffold(
+    Scaffold(
             topBar = {
                 TopAppBar(
                     title = { Text("సిటిజెన్ జర్నలిజం") },
@@ -343,7 +342,8 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
                                     model = mediaUri,
                                     contentDescription = "Selected Media",
                                     modifier = Modifier.fillMaxWidth().height(200.dp).clip(MaterialTheme.shapes.medium),
-                                    contentScale = ContentScale.Crop
+                                    contentScale = ContentScale.Crop,
+                                    alignment = Alignment.TopCenter
                                 )
                             }
                             Button(onClick = { showMediaSourceDialog = true }) {
@@ -383,7 +383,6 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
             }
         )
     }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

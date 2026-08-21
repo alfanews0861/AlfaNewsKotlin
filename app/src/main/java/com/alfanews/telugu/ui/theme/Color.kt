@@ -37,12 +37,12 @@ val BrandDarkBlue = Color(0xFF0D204C)
 // Grayscale base colors
 val Background = Color(0xFFFFFFFF) // White background
 val OnBackground = Color(0xFF000000)
-val Surface = Color(0xCCFFFFFF) // 80% opacity white for glass effect
+val Surface = Color(0xFFFFFFFF) // Solid white surface for clean layering
 val OnSurface = Color(0xFF000000)
 
 val SurfaceVariant = Color(0xFFEEEEEE)
 val OnSurfaceVariant = Color(0xFF424242)
-val Outline = Color(0xFF000000) // Black outline
+val Outline = Color(0xFF757575) // Refined medium outline
 
 // Dark Theme - Black & White
 val DarkPrimary = Color(0xFFFFFFFF) // White for dark mode primary
@@ -72,4 +72,4 @@ val DarkOnSurface = Color(0xFFFFFFFF)
 
 val DarkSurfaceVariant = Color(0xFF212121)
 val DarkOnSurfaceVariant = Color(0xFFBDBDBD)
-val DarkOutline = Color(0xFFFFFFFF)
+val DarkOutline = Color(0xFF757575)

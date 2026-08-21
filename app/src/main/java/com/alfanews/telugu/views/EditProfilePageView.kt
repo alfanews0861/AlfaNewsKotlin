@@ -210,7 +210,7 @@ fun EditProfilePageView(
                 // Signature Upload (Admin Only)
                 if (isAdmin) {
                     Surface(
-                        color = Color(0xFFFEE2E2),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -221,13 +221,13 @@ fun EditProfilePageView(
                                 text = stringResource(R.string.auth_signature_admin),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF991B1B),
+                                color = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.padding(bottom = 4.dp)
                             )
                             Text(
                                 text = stringResource(R.string.auth_signature_desc),
                                 fontSize = 10.sp,
-                                color = Color(0xFFDC2626),
+                                color = MaterialTheme.colorScheme.onErrorContainer,
                                 modifier = Modifier.padding(bottom = 8.dp)
                             )
 
@@ -239,10 +239,10 @@ fun EditProfilePageView(
                                     modifier = Modifier
                                         .width(128.dp)
                                         .height(48.dp),
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.surface,
                                     border = androidx.compose.foundation.BorderStroke(
                                         1.dp,
-                                        Color(0xFFFCA5A5)
+                                        MaterialTheme.colorScheme.outlineVariant
                                     ),
                                     shape = RoundedCornerShape(4.dp)
                                 ) {

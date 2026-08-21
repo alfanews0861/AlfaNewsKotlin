@@ -241,11 +241,17 @@ fun NotificationItem(
         dateFormat.format(Date(notification.timestamp))
     }
 
+    val isUnread = !notification.read
+    val bgColor = if (isUnread) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surface
+    val titleColor = MaterialTheme.colorScheme.onSurface
+    val bodyColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val dateColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        color = if (notification.read) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
+        color = bgColor
     ) {
         Row(
             modifier = Modifier
@@ -254,25 +260,43 @@ fun NotificationItem(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Icon
-            NotificationIcon(type = notification.type)
+            NotificationIcon(type = notification.type, isDark = isUnread)
 
             // Content
             Column(
                 modifier = Modifier.weight(1f)
             ) {
-                Text(
-                    text = notification.title,
-                    fontSize = 16.sp,
-                    fontWeight = if (notification.read) FontWeight.Normal else FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = notification.title,
+                        fontSize = 16.sp,
+                        fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Normal,
+                        color = titleColor,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+
+                    // Unread indicator
+                    if (isUnread) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(9.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
                     text = notification.body,
                     fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = bodyColor,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -282,40 +306,29 @@ fun NotificationItem(
                 Text(
                     text = formattedDate.uppercase(),
                     fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    color = dateColor,
                     fontWeight = FontWeight.Bold
-                )
-            }
-
-            // Unread indicator
-            if (!notification.read) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
-                        .align(Alignment.Top)
                 )
             }
         }
     }
 
-    Divider()
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 }
 
 @Composable
-fun NotificationIcon(type: NotificationType) {
+fun NotificationIcon(type: NotificationType, isDark: Boolean = false) {
     val (icon, color) = when (type) {
-        NotificationType.NEWS -> Icons.Default.Article to Color(0xFF2563EB)
+        NotificationType.NEWS -> Icons.Default.Article to Color(0xFF3B82F6)
         NotificationType.ENGAGEMENT -> Icons.Default.Favorite to MaterialTheme.colorScheme.error
         NotificationType.PROMOTION -> Icons.Default.Star to Color(0xFF10B981)
-        NotificationType.SYSTEM -> Icons.Default.Notifications to Color(0xFF6B7280)
+        NotificationType.SYSTEM -> Icons.Default.Notifications to Color(0xFFF59E0B)
     }
 
     Surface(
         modifier = Modifier.size(40.dp),
         shape = CircleShape,
-        color = color.copy(alpha = 0.1f)
+        color = color.copy(alpha = 0.12f)
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),

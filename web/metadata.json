@@ -1,0 +1,11 @@
+{
+  "name": "Alfa News Telugu",
+  "description": "అల్ఫా న్యూస్ (Alfa News) - మీ ప్రాంతపు తాజా వార్తలు, ఎప్పటికప్పుడు మీ వేలిముద్రల వద్ద! ఆంధ్రప్రదేశ్ మరియు తెలంగాణలోని ప్రతి జిల్లా వార్తలను, స్థానిక విశేషాలను వేగంగా మరియు ఖచ్చితంగా అందించే ఏకైక వేదిక.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,15 @@
+
+{
+  "projects": {
+    "default": "alfa-news-31bf7"
+  },
+  "targets": {
+    "alfa-news-31bf7": {
+      "hosting": {
+        "alfa-news": [
+          "alfa-news-31bf7"
+        ]
+      }
+    }
+  }
+}

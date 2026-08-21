@@ -1,7 +1,7 @@
 {
   "name": "functions",
   "scripts": {
-    "build": "node ./node_modules/typescript/bin/tsc",
+    "build": "tsc",
     "serve": "npm run build && firebase emulators:start --only functions",
     "shell": "npm run build && firebase functions:shell",
     "start": "npm run shell",
@@ -34,7 +34,7 @@
     "firebase-functions-test": "^3.1.0",
     "jest": "^29.7.0",
     "ts-jest": "^29.1.2",
-    "typescript": "^6.0.3"
+    "typescript": "^5.4.5"
   },
   "private": true
 }

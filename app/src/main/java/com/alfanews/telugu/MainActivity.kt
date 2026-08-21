@@ -28,6 +28,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.alfanews.telugu.services.AdMobService
 import com.alfanews.telugu.services.AnalyticsService
+import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.ui.theme.AlfaNewsTheme
 import com.alfanews.telugu.viewmodels.LocalNewsFeedViewModel
 import com.alfanews.telugu.models.ThemeMode
@@ -362,9 +363,9 @@ class MainActivity : ComponentActivity() {
 
                 when (u.scheme) {
                     "alfanews" -> {
-                        // alfanews://news/POST_ID or alfanews://reporter/REPORTER_ID
+                        // alfanews://news/POST_ID or alfanews://share/POST_ID or alfanews://reporter/REPORTER_ID
                         when (u.host) {
-                            "news" -> postId = u.lastPathSegment
+                            "news", "share" -> postId = u.lastPathSegment
                             "reporter", "verify" -> reporterId = u.lastPathSegment
                         }
                     }
@@ -375,7 +376,7 @@ class MainActivity : ComponentActivity() {
                             val pathSegments = u.pathSegments
                             if (pathSegments.size >= 2) {
                                 when (pathSegments[0]) {
-                                    "news" -> postId = pathSegments[1]
+                                    "news", "share" -> postId = pathSegments[1]
                                     "reporter", "verify" -> reporterId = pathSegments[1]
                                 }
                             }
@@ -421,12 +422,49 @@ class MainActivity : ComponentActivity() {
                                 val referrerUrl: String = response.installReferrer
                                 Log.d("InstallReferrer", "Referrer URL: $referrerUrl")
                                 
+                                // 1. User Referral Tracking
                                 val referrerUid = parseReferrerUid(referrerUrl)
                                 if (!referrerUid.isNullOrEmpty()) {
                                     prefs.referredBy = referrerUid
                                     Log.d("InstallReferrer", "Saved referrer UID: $referrerUid")
+
+                                    // Immediately trigger backend Cloud Function to record install & credit points
+                                    val installId = prefs.getOrCreateInstallId()
+                                    val referralPayload = hashMapOf(
+                                        "referrerUid" to referrerUid,
+                                        "installId" to installId,
+                                        "platform" to "android",
+                                        "appVersion" to BuildConfig.VERSION_NAME
+                                    )
+                                    FirebaseService.functions
+                                        .getHttpsCallable("recordAppInstallReferral")
+                                        .call(referralPayload)
+                                        .addOnSuccessListener { result ->
+                                            Log.d("InstallReferrer", "Backend install referral recorded: ${result.getData()}")
+                                            prefs.isReferrerProcessed = true
+                                        }
+                                        .addOnFailureListener { err ->
+                                            Log.e("InstallReferrer", "Failed to record install referral on backend: ${err.message}")
+                                            prefs.isReferrerProcessed = true
+                                        }
+                                } else {
+                                    prefs.isReferrerProcessed = true
                                 }
-                                prefs.isReferrerProcessed = true
+
+                                // 2. Deferred Deep Link Processing (Auto-open shared news after installation)
+                                val deferredPostId = parseReferrerPostId(referrerUrl)
+                                if (!deferredPostId.isNullOrEmpty()) {
+                                    Log.d("InstallReferrer", "Deferred post ID found: $deferredPostId")
+                                    runOnUiThread {
+                                        newsFeedViewModel.setSharedPostId(deferredPostId)
+                                        mainViewModel.setActiveTab("home")
+                                        newsFeedViewModel.loadNews(
+                                            mainViewModel.language.value,
+                                            mainViewModel.currentUser.value,
+                                            initialPostId = deferredPostId
+                                        )
+                                    }
+                                }
                             } catch (e: Exception) {
                                 Log.e("InstallReferrer", "Error getting referrer details: ${e.message}")
                             } finally {
@@ -453,26 +491,74 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun parseReferrerPostId(referrer: String?): String? {
+        if (referrer.isNullOrEmpty()) return null
+        
+        try {
+            var decoded = Uri.decode(referrer)
+            if (decoded.contains("%3D", ignoreCase = true) || decoded.contains("%26", ignoreCase = true)) {
+                decoded = Uri.decode(decoded)
+            }
+            Log.d("InstallReferrer", "Decoded for PostId: $decoded")
+            
+            // Match news_id, post_id, postId, article_id
+            val postRegex = Regex("(?:news_id|post_id|postId|newsId|article_id)=([a-zA-Z0-9_-]+)", RegexOption.IGNORE_CASE)
+            val match = postRegex.find(decoded)
+            if (match != null) {
+                val candidate = match.groupValues[1].trim()
+                if (candidate.isNotEmpty() && candidate != "news") {
+                    return candidate
+                }
+            }
+            
+            val params = decoded.split("&")
+            for (param in params) {
+                val keyValue = param.split("=")
+                if (keyValue.size == 2) {
+                    val key = keyValue[0].trim().lowercase()
+                    val value = keyValue[1].trim()
+                    if (key in listOf("news_id", "post_id", "postid", "newsid", "article_id") && value.isNotEmpty() && value != "news") {
+                        return value
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("InstallReferrer", "Error parsing referrer PostId: ${e.message}")
+        }
+        
+        return null
+    }
+
     private fun parseReferrerUid(referrer: String?): String? {
         if (referrer.isNullOrEmpty()) return null
         
         try {
-            val decodedReferrer = Uri.decode(referrer)
-            Log.d("InstallReferrer", "Decoded: $decodedReferrer")
+            var decodedReferrer = Uri.decode(referrer)
+            if (decodedReferrer.contains("%3D", ignoreCase = true) || 
+                decodedReferrer.contains("%26", ignoreCase = true) || 
+                decodedReferrer.contains("%5F", ignoreCase = true)) {
+                decodedReferrer = Uri.decode(decodedReferrer)
+            }
+            Log.d("InstallReferrer", "Decoded Referrer: $decodedReferrer")
             
-            val prefixMatch = Regex("(?:ref|referral)_([a-zA-Z0-9_-]+)").find(decodedReferrer)
+            val prefixMatch = Regex("(?:ref|referral)_([a-zA-Z0-9_-]+)", RegexOption.IGNORE_CASE).find(decodedReferrer)
             if (prefixMatch != null) {
-                return prefixMatch.groupValues[1]
+                val candidate = prefixMatch.groupValues[1].trim()
+                if (candidate.isNotEmpty()) return candidate
             }
             
             val params = decodedReferrer.split("&")
             for (param in params) {
                 val keyValue = param.split("=")
                 if (keyValue.size == 2) {
-                    val key = keyValue[0].trim()
+                    val key = keyValue[0].trim().lowercase()
                     val value = keyValue[1].trim()
-                    if (key == "utm_campaign" || key == "referrer_uid" || key == "referrer") {
-                        if (value.isNotEmpty() && value.length >= 10) {
+                    if (key in listOf("utm_campaign", "referrer_uid", "referrer", "ref", "referral")) {
+                        val subMatch = Regex("(?:ref|referral)_([a-zA-Z0-9_-]+)", RegexOption.IGNORE_CASE).find(value)
+                        if (subMatch != null) {
+                            return subMatch.groupValues[1].trim()
+                        }
+                        if (value.isNotEmpty() && value.length >= 10 && !value.contains("google", ignoreCase = true)) {
                             return value
                         }
                     }
@@ -480,7 +566,7 @@ class MainActivity : ComponentActivity() {
             }
             
             val trimmed = decodedReferrer.trim()
-            if (trimmed.length in 20..40 && trimmed.matches(Regex("[a-zA-Z0-9]+"))) {
+            if (trimmed.length in 20..40 && trimmed.matches(Regex("[a-zA-Z0-9_-]+"))) {
                 return trimmed
             }
         } catch (e: Exception) {

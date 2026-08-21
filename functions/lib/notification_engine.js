@@ -15,23 +15,13 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.onNewsPostApprovedNotify = exports.sendPersonalizedNotification = void 0;
 const admin = __importStar(require("firebase-admin"));
@@ -209,9 +199,6 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
         let imageUrl = topNews.thumbnailUrl || "";
         if (!imageUrl && topNews.mediaUrl) {
             imageUrl = (await (0, utils_1.createAndSaveThumbnail)(topNews.mediaUrl, topNews.id)) || topNews.mediaUrl;
-            if (imageUrl && imageUrl !== topNews.mediaUrl) {
-                await db.collection('news').doc(topNews.id).update({ thumbnailUrl: imageUrl }).catch(() => { });
-            }
         }
         try {
             const message = buildNewsMessage(topNews, getTitleForHour(istHour, headline, curiosityTitle), "general_news", imageUrl, 3600000, // 1 hour TTL
@@ -240,9 +227,6 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
             let imageUrl = districtNews.thumbnailUrl || "";
             if (!imageUrl && districtNews.mediaUrl) {
                 imageUrl = (await (0, utils_1.createAndSaveThumbnail)(districtNews.mediaUrl, districtNews.id)) || districtNews.mediaUrl;
-                if (imageUrl && imageUrl !== districtNews.mediaUrl) {
-                    await db.collection('news').doc(districtNews.id).update({ thumbnailUrl: imageUrl }).catch(() => { });
-                }
             }
             const topicName = (0, utils_1.getTopicName)("district", district);
             try {
@@ -356,32 +340,24 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
         : `⚡ ముఖ్య వార్త: ${shortBreaking}`;
     try {
         const news = { id: postId, ...after };
-        // 1. Breaking news → all_users కి పంపు
+        // 1. Breaking news → all_users కి పంపు (ఒకేసారి పంపడం ద్వారా డూప్లికేట్ నోటిఫికేషన్లు రాకుండా రక్షణ)
         const message = buildNewsMessage(news, breakingTitle, "breaking_news", imageUrl, 1800000, // 30 min TTL
         { topic: 'all_users' });
         await admin.messaging().send(message);
-        // 2. PERSONALIZATION: Category topic కి కూడా పంపు
         const category = after.category || after.categories?.[0] || "";
-        if (category && category !== "జిల్లా వార్త") {
-            const categoryTopic = getCategoryTopic(category);
-            if (categoryTopic) {
-                try {
-                    const catTitle = notifTitle.length > 45 ? notifTitle.substring(0, 45).trim() + "..." : notifTitle;
-                    const catMessage = buildNewsMessage(news, `📌 ${category}: ${catTitle}`, "general_news", imageUrl, 3600000, // 1 hour TTL for category
-                    { topic: categoryTopic });
-                    await admin.messaging().send(catMessage);
-                    v2_1.logger.log(`[CAT_NOTIF] Sent to category topic: ${categoryTopic}`);
-                }
-                catch (catErr) {
-                    v2_1.logger.error(`[CAT_NOTIF_ERR] ${categoryTopic}:`, catErr.message);
-                }
-            }
+        const catKey = category ? `cat_${category}` : "";
+        const updatedHistory = {
+            ...lastSentMap,
+            general: postId
+        };
+        if (catKey) {
+            updatedHistory[catKey] = postId;
         }
         await settingsRef.set({
-            lastSentNewsIdMap: { ...lastSentMap, general: postId },
+            lastSentNewsIdMap: updatedHistory,
             lastBreakingAt: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
-        v2_1.logger.log(`[BREAKING] ✅ Sent for ${postId} (tone=${after.tone}, age=${ageHours.toFixed(1)}h)`);
+        v2_1.logger.log(`[BREAKING] ✅ Sent to all_users for ${postId} (tone=${after.tone}, age=${ageHours.toFixed(1)}h)`);
     }
     catch (err) {
         v2_1.logger.error(`[BREAKING_ERR] ${postId}:`, err.message);

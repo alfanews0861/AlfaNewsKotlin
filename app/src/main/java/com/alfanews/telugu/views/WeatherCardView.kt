@@ -120,10 +120,11 @@ fun WeatherCardView(
         val d = weatherData
         if (d != null) {
             val desc = WeatherService.getWeatherDescription(d.code, language)
+            val roundedTemp = kotlin.math.round(d.temp).toInt()
             if (language == Language.TELUGU) {
-                "${d.temp.toInt()}°C $effectiveLocation వాతావరణం: $desc"
+                "$roundedTemp°C $effectiveLocation వాతావరణం: $desc"
             } else {
-                "${d.temp.toInt()}°C $effectiveLocation Weather: $desc"
+                "$roundedTemp°C $effectiveLocation Weather: $desc"
             }
         } else {
             headline
@@ -149,53 +150,56 @@ fun WeatherCardView(
 
     // Weather type
     val weatherType = remember(realWeatherCode, headline, isDay) {
-        val type = when {
-            realWeatherCode != null -> when (realWeatherCode) {
-                0 -> WeatherType.SUNNY
-                1, 2 -> WeatherType.PARTLY_CLOUDY
-                3 -> WeatherType.OVERCAST
+        if (realWeatherCode != null) {
+            when (realWeatherCode) {
+                0 -> if (isDay) WeatherType.SUNNY else WeatherType.CLEAR_NIGHT
+                1 -> if (isDay) WeatherType.MAINLY_CLEAR_DAY else WeatherType.MAINLY_CLEAR_NIGHT
+                2 -> if (isDay) WeatherType.PARTLY_CLOUDY_DAY else WeatherType.PARTLY_CLOUDY_NIGHT
+                3 -> if (isDay) WeatherType.OVERCAST else WeatherType.CLOUDY_NIGHT
                 45, 48 -> WeatherType.FOGGY
                 51, 53, 55, 56, 57 -> WeatherType.DRIZZLE
                 61, 63, 65, 66, 67, 80, 81, 82 -> WeatherType.RAINY
                 95, 96, 99 -> WeatherType.THUNDERSTORM
-                else -> WeatherType.PARTLY_CLOUDY
+                else -> if (isDay) WeatherType.PARTLY_CLOUDY_DAY else WeatherType.PARTLY_CLOUDY_NIGHT
             }
-            headline.contains("ఎండ", ignoreCase = true) ||
-            headline.contains("Sunny", ignoreCase = true) ||
-            headline.contains("Clear", ignoreCase = true) -> WeatherType.SUNNY
-            headline.contains("చినుకులు", ignoreCase = true) ||
-            headline.contains("Drizzle", ignoreCase = true) -> WeatherType.DRIZZLE
-            headline.contains("వర్షం", ignoreCase = true) ||
-            headline.contains("Rain", ignoreCase = true) -> WeatherType.RAINY
-            headline.contains("పిడుగు", ignoreCase = true) ||
-            headline.contains("Thunder", ignoreCase = true) -> WeatherType.THUNDERSTORM
-            headline.contains("మేఘావృతం", ignoreCase = true) ||
-            headline.contains("Cloudy", ignoreCase = true) -> WeatherType.PARTLY_CLOUDY
-            else -> WeatherType.PARTLY_CLOUDY
+        } else {
+            val isThunder = headline.contains("పిడుగు", ignoreCase = true) || headline.contains("Thunder", ignoreCase = true)
+            val isRain = headline.contains("వర్షం", ignoreCase = true) || headline.contains("Rain", ignoreCase = true)
+            val isDrizzle = headline.contains("చినుకులు", ignoreCase = true) || headline.contains("Drizzle", ignoreCase = true)
+            val isFog = headline.contains("మంచు", ignoreCase = true) || headline.contains("Fog", ignoreCase = true)
+            val isCloud = headline.contains("మేఘా", ignoreCase = true) || headline.contains("మబ్బు", ignoreCase = true) || headline.contains("Cloud", ignoreCase = true)
+            val isClear = headline.contains("నిర్మల", ignoreCase = true) || headline.contains("Clear", ignoreCase = true) || headline.contains("ఎండ", ignoreCase = true) || headline.contains("Sunny", ignoreCase = true)
+
+            when {
+                isThunder -> WeatherType.THUNDERSTORM
+                isRain -> WeatherType.RAINY
+                isDrizzle -> WeatherType.DRIZZLE
+                isFog -> WeatherType.FOGGY
+                isCloud -> if (isDay) WeatherType.OVERCAST else WeatherType.CLOUDY_NIGHT
+                isClear -> if (isDay) WeatherType.SUNNY else WeatherType.CLEAR_NIGHT
+                else -> if (isDay) WeatherType.SUNNY else WeatherType.CLEAR_NIGHT
+            }
         }
-        if (!isDay && type == WeatherType.SUNNY) WeatherType.CLEAR_NIGHT
-        else if (!isDay && (type == WeatherType.PARTLY_CLOUDY || type == WeatherType.OVERCAST)) WeatherType.CLOUDY_NIGHT
-        else type
     }
 
     // Temperature
     val temperature = remember(weatherData, headline) {
         val d = weatherData
-        if (d != null) d.temp.toInt().toString()
+        if (d != null) kotlin.math.round(d.temp).toInt().toString()
         else Regex("(\\d+)°C").find(headline)?.groupValues?.get(1) ?: "--"
     }
-    val windSpeed = weatherData?.wind?.toInt()?.toString() ?: "--"
+    val windSpeed = weatherData?.wind?.let { kotlin.math.round(it).toInt().toString() } ?: "--"
     val humidity = weatherData?.humidity?.let { "$it%" } ?: "--"
     val uvIndex = weatherData?.uvIndex?.let { String.format(Locale.getDefault(), "%.1f", it) } ?: "--"
     val feelsLike = run {
         val wd = weatherData
         when {
-            wd?.feelsLike != null -> wd.feelsLike.toInt().toString()
+            wd?.feelsLike != null -> kotlin.math.round(wd.feelsLike).toInt().toString()
             wd?.temp != null -> {
                 val h = wd.humidity ?: 50
                 val t = wd.temp
                 val hi = t + (0.33 * (h / 100.0 * 6.105) - 0.7)
-                hi.toInt().toString()
+                kotlin.math.round(hi).toInt().toString()
             }
             else -> "--"
         }
@@ -509,6 +513,11 @@ fun WeatherCardView(
                     }
 
                     // Bottom: Stats row with glassmorphism
+                    val humidityLabel = if (language == Language.TELUGU) "తేమ" else "Humidity"
+                    val windLabel = if (language == Language.TELUGU) "గాలి" else "Wind"
+                    val uvLabel = "UV"
+                    val feelsLikeLabel = if (language == Language.TELUGU) "అనిపిస్తుంది" else "Feels like"
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -517,13 +526,13 @@ fun WeatherCardView(
                             .padding(vertical = 10.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        WeatherStatItem(Icons.Rounded.WaterDrop, stringResource(R.string.weather_humidity), humidity)
+                        WeatherStatItem(Icons.Rounded.WaterDrop, humidityLabel, humidity)
                         WeatherStatDivider()
-                        WeatherStatItem(Icons.Rounded.Air, stringResource(R.string.weather_wind), "$windSpeed km/h")
+                        WeatherStatItem(Icons.Rounded.Air, windLabel, "$windSpeed km/h")
                         WeatherStatDivider()
-                        WeatherStatItem(Icons.Rounded.WbSunny, "UV", uvIndex)
+                        WeatherStatItem(Icons.Rounded.WbSunny, uvLabel, uvIndex)
                         WeatherStatDivider()
-                        WeatherStatItem(Icons.Rounded.Thermostat, stringResource(R.string.weather_feels_like), "$feelsLike°")
+                        WeatherStatItem(Icons.Rounded.Thermostat, feelsLikeLabel, "$feelsLike°")
                     }
                 }
             }
@@ -587,7 +596,7 @@ fun WeatherCardView(
                                 .background(weatherType.colorStart)
                         )
                         Text(
-                            text = stringResource(R.string.weather_upcoming),
+                            text = if (language == Language.TELUGU) "రాబోయే 3 రోజులు" else "Next 3 Days",
                             fontSize = 13.sp,
                             fontFamily = Ramabhadra,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -611,31 +620,31 @@ fun WeatherCardView(
                     if (forecasts != null && forecasts.size >= 3) {
                         forecasts.take(3).forEachIndexed { index, forecast ->
                             val dayLabel = when (index) {
-                                0 -> stringResource(R.string.weather_today)
-                                1 -> stringResource(R.string.weather_tomorrow)
+                                0 -> if (language == Language.TELUGU) "ఈ రోజు" else "Today"
+                                1 -> if (language == Language.TELUGU) "రేపు" else "Tomorrow"
                                 else -> if (language == Language.TELUGU) "ఎల్లుండి" else "Day After"
                             }
                             PremiumForecastItem(
                                 day = dayLabel,
                                 icon = getWeatherIconForCode(forecast.code),
-                                max = "${forecast.maxTemp.toInt()}°",
-                                min = "${forecast.minTemp.toInt()}°",
+                                max = "${kotlin.math.round(forecast.maxTemp).toInt()}°",
+                                min = "${kotlin.math.round(forecast.minTemp).toInt()}°",
                                 accentColor = weatherType.colorStart,
                                 isToday = index == 0,
                                 modifier = Modifier.weight(1f)
                             )
                         }
                     } else {
-                        val tempInt = weatherData?.temp?.toInt() ?: 32
+                        val tempInt = weatherData?.temp?.let { kotlin.math.round(it).toInt() } ?: 32
                         PremiumForecastItem(
-                            day = stringResource(R.string.weather_today),
+                            day = if (language == Language.TELUGU) "ఈ రోజు" else "Today",
                             icon = weatherType.icon,
                             max = "$tempInt°", min = "${tempInt - 5}°",
                             accentColor = weatherType.colorStart, isToday = true,
                             modifier = Modifier.weight(1f)
                         )
                         PremiumForecastItem(
-                            day = stringResource(R.string.weather_tomorrow),
+                            day = if (language == Language.TELUGU) "రేపు" else "Tomorrow",
                             icon = Icons.Rounded.WbCloudy,
                             max = "${tempInt + 1}°", min = "${tempInt - 4}°",
                             accentColor = weatherType.colorStart, isToday = false,
@@ -742,7 +751,7 @@ fun getWeatherIconForCode(code: Int): ImageVector {
         1, 2 -> Icons.Rounded.WbCloudy
         3 -> Icons.Rounded.Cloud
         45, 48 -> Icons.Rounded.Cloud
-        51, 53, 55, 56, 57 -> Icons.Rounded.Grain
+        51, 53, 55, 56, 57 -> Icons.Rounded.WaterDrop
         61, 63, 65, 66, 67, 80, 81, 82 -> Icons.Rounded.Umbrella
         95, 96, 99 -> Icons.Rounded.Thunderstorm
         else -> Icons.Rounded.WbCloudy
@@ -764,19 +773,44 @@ data class WeatherType(
             Color(0xFFFFB300), Color(0xFFE65100),
             "ఎండగా ఉంది", "Sunny"
         )
-        val PARTLY_CLOUDY = WeatherType(
+        val CLEAR_NIGHT = WeatherType(
+            Icons.Rounded.NightsStay,
+            Color(0xFF1A237E), Color(0xFF0D1B2A),
+            "నిర్మలమైన రాత్రి", "Clear Night"
+        )
+        val MAINLY_CLEAR_DAY = WeatherType(
+            Icons.Rounded.WbSunny,
+            Color(0xFF0288D1), Color(0xFF01579B),
+            "ప్రధానంగా నిర్మలం", "Mainly Clear"
+        )
+        val MAINLY_CLEAR_NIGHT = WeatherType(
+            Icons.Rounded.NightsStay,
+            Color(0xFF1565C0), Color(0xFF0D1B2A),
+            "ప్రధానంగా నిర్మలమైన రాత్రి", "Mainly Clear Night"
+        )
+        val PARTLY_CLOUDY_DAY = WeatherType(
             Icons.Rounded.WbCloudy,
-            Color(0xFF26C6DA), Color(0xFF00838F),
-            "అక్కడక్కడ మేఘాలు", "Partly Cloudy"
+            Color(0xFF0097A7), Color(0xFF006064),
+            "పాక్షికంగా మేఘావృతం", "Partly Cloudy"
+        )
+        val PARTLY_CLOUDY_NIGHT = WeatherType(
+            Icons.Rounded.NightsStay,
+            Color(0xFF283593), Color(0xFF1A237E),
+            "పాక్షికంగా మేఘావృతం", "Partly Cloudy Night"
         )
         val OVERCAST = WeatherType(
             Icons.Rounded.Cloud,
             Color(0xFF546E7A), Color(0xFF263238),
             "పూర్తిగా మేఘావృతం", "Overcast"
         )
+        val CLOUDY_NIGHT = WeatherType(
+            Icons.Rounded.Cloud,
+            Color(0xFF37474F), Color(0xFF1C2833),
+            "మేఘావృత రాత్రి", "Cloudy Night"
+        )
         val RAINY = WeatherType(
             Icons.Rounded.Umbrella,
-            Color(0xFF1E88E5), Color(0xFF0D47A1),
+            Color(0xFF1565C0), Color(0xFF0A2463),
             "వర్షం పడే అవకాశం", "Rainy"
         )
         val THUNDERSTORM = WeatherType(
@@ -790,19 +824,9 @@ data class WeatherType(
             "పొగమంచు", "Foggy"
         )
         val DRIZZLE = WeatherType(
-            Icons.Rounded.Grain,
-            Color(0xFF42A5F5), Color(0xFF1565C0),
-            "చినుకులు పడుతున్నాయి", "Drizzle"
-        )
-        val CLEAR_NIGHT = WeatherType(
-            Icons.Rounded.NightsStay,
-            Color(0xFF1A237E), Color(0xFF000051),
-            "నిర్మలమైన రాత్రి", "Clear Night"
-        )
-        val CLOUDY_NIGHT = WeatherType(
-            Icons.Rounded.NightsStay,
-            Color(0xFF37474F), Color(0xFF102027),
-            "మేఘావృత రాత్రి", "Cloudy Night"
+            Icons.Rounded.WaterDrop,
+            Color(0xFF1976D2), Color(0xFF0D47A1),
+            "తేలికపాటి చినుకులు", "Drizzle"
         )
     }
 }

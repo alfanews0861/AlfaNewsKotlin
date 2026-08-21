@@ -282,7 +282,7 @@ fun NewsCardView(
                                     contentDescription = headlineText,
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop,
-                                    alignment = Alignment.Center
+                                    alignment = Alignment.TopCenter
                                 )
                             }
                         }
@@ -645,45 +645,35 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
     scope.launch {
         setSharing(true)
         try {
-            delay(100)
             val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
-            val shareText = customShareText ?: "$headline\nhttps://alfanews.app/news/${post.id}"
-            
-            // 📸 Tier 1 & 2: Try screenshot capture (ARGB_8888 -> RGB_565 -> Scaled RGB_565 -> Canvas)
-            val screenshotBitmap = takeScreenshot(view, cardBounds)
-            var imageUri = if (screenshotBitmap != null) {
-                val u = saveImageToCache(context, screenshotBitmap)
-                screenshotBitmap.recycle()
-                u
-            } else null
-
-            // 📸 Tier 3: If screenshot failed under extreme memory pressure, generate/fetch news image (GUARANTEED IMAGE)
-            if (imageUri == null) {
-                imageUri = fallbackGetNewsImageUri(context, post, language)
+            val shareUrl = "https://alfanews.app/news/${post.id}"
+            val shareText = customShareText ?: buildString {
+                append("🔴 ")
+                append(headline)
+                append("\n\n👇 పూర్తి వార్త & వీడియో కోసం క్రింది లింక్ క్లిక్ చేయండి:\n")
+                append(shareUrl)
+                append("\n\n📲 తాజా తెలుగు వార్తల కోసం Alfa News యాప్ ఇన్‌స్టాల్ చేసుకోండి!")
             }
 
-            if (imageUri != null) {
-                val intent = Intent(Intent.ACTION_SEND).apply {
-                    type = "image/jpeg"
-                    putExtra(Intent.EXTRA_STREAM, imageUri)
-                    putExtra(Intent.EXTRA_TEXT, shareText)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                intent.clipData = ClipData.newRawUri(null, imageUri)
-                val chooser = Intent.createChooser(intent, context.getString(R.string.share_news)).apply {
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(chooser)
-                FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener { setShareCount(1) }
-                AnalyticsService.logNewsShare(post)
-                AnalyticsService.logPostEngagement(post, weight = 4)
-                val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
-                    ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
-                if (primaryCat != null) {
-                    try { PreferenceManager.getInstance(context).trackCategoryRead(primaryCat) } catch (e: Exception) { }
-                }
-            } else {
-                Toast.makeText(context, context.getString(R.string.share_failed), Toast.LENGTH_SHORT).show()
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                action = Intent.ACTION_SEND
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, shareText)
+                putExtra(Intent.EXTRA_SUBJECT, headline)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val chooser = Intent.createChooser(intent, context.getString(R.string.share_news)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(chooser)
+
+            FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener { setShareCount(1) }
+            AnalyticsService.logNewsShare(post)
+            AnalyticsService.logPostEngagement(post, weight = 4)
+            val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+            if (primaryCat != null) {
+                try { PreferenceManager.getInstance(context).trackCategoryRead(primaryCat) } catch (e: Exception) { }
             }
         } catch (e: Exception) { 
             Toast.makeText(context, "Share error", Toast.LENGTH_SHORT).show() 
@@ -907,7 +897,7 @@ fun ActionButton(icon: androidx.compose.ui.graphics.vector.ImageVector, count: S
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(if (isPressed) 0.9f else 1.0f)
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale).clickable(interactionSource = interactionSource, indication = null, onClick = onClick)) {
-        Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(if (isHighlighted) Color.Red.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.15f)).padding(8.dp), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(if (isHighlighted) Color.Red.copy(alpha = 0.2f) else tint.copy(alpha = 0.12f)).padding(8.dp), contentAlignment = Alignment.Center) {
             if (isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = tint)
             else Icon(imageVector = icon, contentDescription = description, tint = if (isHighlighted) Color.Red else tint, modifier = Modifier.size(28.dp))
         }

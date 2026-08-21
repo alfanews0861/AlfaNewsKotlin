@@ -169,8 +169,7 @@ fun JoinReporterPageView(
         mandalExpanded = false
     }
 
-    AlfaNewsTheme {
-        Scaffold(
+    Scaffold(
             topBar = {
                 TopAppBar(
                     title = {
@@ -935,7 +934,6 @@ fun JoinReporterPageView(
             )
         }
     }
-}
 
 @Composable
 private fun RuleItem(

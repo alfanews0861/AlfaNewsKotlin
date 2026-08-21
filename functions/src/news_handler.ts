@@ -479,6 +479,13 @@ export const processNewsPost = onCall(async (request) => {
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         };
 
+        const reporterId = request.auth?.uid || (typeof postData?.reporter === 'string' ? postData.reporter : postData?.reporter?.id);
+        if (reporterId && !reporterId.startsWith('BOT_') && !reporterId.startsWith('SYSTEM_')) {
+            await db.collection('users').doc(reporterId).set({
+                lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+        }
+
         if (postId) {
             await db.collection('news').doc(postId).update(finalData);
             return { success: true, postId: postId, message: "వార్త అప్‌డేట్ అవుతోంది..." };
@@ -528,13 +535,25 @@ export const onNewsPostCreated = onDocumentWritten({
     const postId = event.params.postId;
     let data: any = snapshot.data();
 
-    // 1. QUICK GUARD: Skip if this is a "passive" update (Views, Likes, etc.)
-    // These happen frequently and don't require AI or Video processing.
+    // 1. QUICK GUARD: Skip if document is already processed, approved, or published unless forceReprocess is set
+    if (!data.forceReprocess) {
+        if (data.approved === true || data.status === "PUBLISHED" || data.status === "REJECTED" || data.status === "FAILED") {
+            return;
+        }
+        if (data.aiProcessed === true && (data.mediaType !== 'VIDEO' || data.videoProcessed === true)) {
+            return;
+        }
+    }
+
     const beforeData = event.data?.before?.data() || {};
     const status = (data.status || "").toUpperCase();
 
-    // Fields that should NOT trigger re-processing
-    const passiveFields = ["longViews", "likes", "shares", "comments", "lastUpdated", "lastCleanupAt"];
+    // Fields that should NOT trigger re-processing (views, likes, maintenance, reports)
+    const passiveFields = [
+        "longViews", "views", "likes", "shares", "comments", 
+        "lastUpdated", "lastCleanupAt", "rawVideoCleaned", 
+        "thumbnailUrl", "reportCount", "lastReportedAt", "hiddenReason"
+    ];
     const isPassiveUpdate = Object.keys(data).every(key =>
         passiveFields.includes(key) || JSON.stringify(data[key]) === JSON.stringify(beforeData[key])
     );
@@ -646,19 +665,23 @@ export const onNewsPostCreated = onDocumentWritten({
                 const targetPostId = i === 0 ? postId : `${postId}_part${i + 1}`;
 
                 // --- MANDALAM REPORTER ASSIGNMENT LOGIC ---
-                const targetDistrict = data.district || (aiProcessedData.categories && aiProcessedData.categories.find((c: string) => !c.includes("వార్త") && c !== aiProcessedData.category));
-                const targetMandalam = aiProcessedData.location;
+                // Only auto-assign for citizen/auto posts; NEVER overwrite an official reporter's submission!
+                if (!isReporter && !originalReporterId) {
+                    const targetDistrict = data.district || (aiProcessedData.categories && aiProcessedData.categories.find((c: string) => !c.includes("వార్త") && c !== aiProcessedData.category));
+                    const targetMandalam = aiProcessedData.location;
 
-                if (targetDistrict && targetMandalam) {
-                    const assignedReporter = await getAssignedReporter(targetDistrict, targetMandalam);
-                    if (assignedReporter) {
-                        console.log(`[REPORTER_ASSIGN] Reassigning ${targetPostId} to ${assignedReporter.name} for mandalam ${targetMandalam}`);
-                        aiProcessedData.reporter = assignedReporter;
-                        aiProcessedData.isReporter = true;
-                        if (originalReporterId) {
-                            aiProcessedData.originalReporterId = originalReporterId;
+                    if (targetDistrict && targetMandalam) {
+                        const assignedReporter = await getAssignedReporter(targetDistrict, targetMandalam);
+                        if (assignedReporter) {
+                            console.log(`[REPORTER_ASSIGN] Assigning citizen/auto post ${targetPostId} to ${assignedReporter.name} for mandalam ${targetMandalam}`);
+                            aiProcessedData.reporter = assignedReporter;
+                            aiProcessedData.isReporter = true;
                         }
                     }
+                } else if (latestData.reporter) {
+                    // Retain original submitting reporter
+                    aiProcessedData.reporter = latestData.reporter;
+                    aiProcessedData.isReporter = true;
                 }
 
                 const finalIsReporter = isReporter || aiProcessedData.isReporter;
@@ -679,6 +702,7 @@ export const onNewsPostCreated = onDocumentWritten({
                     ? aiProcessedData.matchedImageIndex
                     : (i < availableMediaUrls.length ? i : 0);
                 const storyMediaUrl = availableMediaUrls[imgIdx] || availableMediaUrls[0] || "";
+                let isPostRejected = isRejected;
 
                 if (storyMediaUrl && !hasVideo) {
                     try {
@@ -689,14 +713,25 @@ export const onNewsPostCreated = onDocumentWritten({
                             aiProcessedData.isSensitiveVictimOrMinor === true
                         );
                         if (optResult) {
-                            updatePayload.mediaUrl = optResult.optimizedUrl;
-                            updatePayload.mediaUrls = [optResult.optimizedUrl];
-                            updatePayload.thumbnailUrl = optResult.thumbnailUrl;
-                            if (aiProcessedData.isGraphicOrBloody) {
-                                updatePayload.isGrayscale = true;
-                            }
-                            if (aiProcessedData.isSensitiveVictimOrMinor) {
-                                updatePayload.isPrivacyBlurred = true;
+                            if (!optResult.isSafe) {
+                                console.warn(`[SAFETY_BLOCKED_POST] Post ${targetPostId} rejected due to unsafe/obscene image: ${optResult.rejectionReason}`);
+                                isPostRejected = true;
+                                updatePayload.status = "REJECTED";
+                                updatePayload.approved = false;
+                                updatePayload.rejectionReason = optResult.rejectionReason || "అసభ్యకరమైన లేదా చట్టవ్యతిరేక చిత్రం గుర్తించబడింది";
+                                updatePayload.mediaUrl = "";
+                                updatePayload.mediaUrls = [];
+                                updatePayload.thumbnailUrl = "";
+                            } else {
+                                updatePayload.mediaUrl = optResult.optimizedUrl;
+                                updatePayload.mediaUrls = [optResult.optimizedUrl];
+                                updatePayload.thumbnailUrl = optResult.thumbnailUrl;
+                                if (aiProcessedData.isGraphicOrBloody) {
+                                    updatePayload.isGrayscale = true;
+                                }
+                                if (aiProcessedData.isSensitiveVictimOrMinor) {
+                                    updatePayload.isPrivacyBlurred = true;
+                                }
                             }
                         }
                     } catch (e: any) {
@@ -705,7 +740,7 @@ export const onNewsPostCreated = onDocumentWritten({
                 }
 
                 console.log(`[AI_DONE] ${targetPostId} (Story ${i+1}/${processedStories.length}). Type: ${finalIsReporter ? 'REPORTER' : 'CITIZEN'}, Status: ${updatePayload.status}, Approved: ${updatePayload.approved}`);
-                if (isRejected) console.log(`[AI_REJECTED] ${targetPostId} Reason: ${aiProcessedData.rejectionReason}`);
+                if (isPostRejected) console.log(`[AI_REJECTED] ${targetPostId} Reason: ${updatePayload.rejectionReason || aiProcessedData.rejectionReason}`);
 
                 if (i === 0) {
                     await db.collection('news').doc(postId).update(updatePayload);
@@ -724,23 +759,23 @@ export const onNewsPostCreated = onDocumentWritten({
                 }
 
                 // Notifications & Rewards
-                if (isRejected && finalIsReporter && originalReporterId && i === 0) {
+                if (isPostRejected && finalIsReporter && originalReporterId && i === 0) {
                     await notifyReporter(
                         originalReporterId,
                         targetPostId,
                         aiProcessedData.headline?.telugu || latestData.headline?.telugu || "",
                         'POLICY_VIOLATION',
-                        updatePayload.mediaUrl || storyMediaUrl
+                        ""
                     );
                 }
 
-                if (updatePayload.status === "published" && finalIsReporter && originalReporterId) {
+                if (updatePayload.status === "published" && !isPostRejected && finalIsReporter && originalReporterId) {
                     const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
                     await awardPointsToReporter(originalReporterId, points);
                     await notifyReporter(
                         originalReporterId,
                         targetPostId,
-                        aiProcessedData.headline?.telugu || latestData.headline?.telugu || "",
+                        updatePayload.headline?.telugu || aiProcessedData.headline?.telugu || "",
                         'SUCCESS',
                         updatePayload.mediaUrl || storyMediaUrl
                     );

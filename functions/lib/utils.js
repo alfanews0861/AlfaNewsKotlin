@@ -15,36 +15,15 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAIInstance = exports.IMAGEN_FAST_MODEL = exports.IMAGEN_MODEL = exports.FLASH_MODEL = exports.PRO_MODEL = exports.SCHEDULED_MODEL = exports.REGION = void 0;
-exports.slugify = slugify;
-exports.getTopicName = getTopicName;
-exports.runWithAIFallback = runWithAIFallback;
-exports.getISTDateString = getISTDateString;
-exports.parseAIJson = parseAIJson;
-exports.sanitizeTeluguText = sanitizeTeluguText;
-exports.saveBufferToStorage = saveBufferToStorage;
-exports.saveImageLocally = saveImageLocally;
-exports.processAndOptimizeNewsImage = processAndOptimizeNewsImage;
-exports.createAndSaveThumbnail = createAndSaveThumbnail;
-exports.generateImageWithRetry = generateImageWithRetry;
+exports.generateImageWithRetry = exports.createAndSaveThumbnail = exports.processAndOptimizeNewsImage = exports.scanImageSafetyWithGeminiAI = exports.calculateSmartCrop16x9 = exports.detectFacesWithGeminiAI = exports.saveImageLocally = exports.saveBufferToStorage = exports.sanitizeTeluguText = exports.parseAIJson = exports.getISTDateString = exports.getAIInstance = exports.runWithAIFallback = exports.getTopicName = exports.slugify = exports.IMAGEN_FAST_MODEL = exports.IMAGEN_MODEL = exports.FLASH_MODEL = exports.PRO_MODEL = exports.SCHEDULED_MODEL = exports.REGION = void 0;
 const admin = __importStar(require("firebase-admin"));
 const genai_1 = require("@google/genai");
 const buffer_1 = require("buffer");
@@ -75,9 +54,11 @@ function slugify(text) {
         return code.toString(16).padStart(4, '0');
     }).join('').substring(0, 80); // FCM Limit is 900, but let's keep it sane
 }
+exports.slugify = slugify;
 function getTopicName(prefix, value) {
     return `${prefix}_${slugify(value)}`;
 }
+exports.getTopicName = getTopicName;
 const TEXT_MODELS = [
     "gemini-3.5-flash-lite", // 1. Primary: 1,500 RPD, 30 RPM, super fast & clean Telugu
     "gemini-3.5-flash", // 2. Secondary Fallback
@@ -209,6 +190,7 @@ async function runWithAIFallback(operation, customModels) {
     }
     throw lastError || new Error(`AI processing failed after ${totalAttempts} attempts across available keys and models.`);
 }
+exports.runWithAIFallback = runWithAIFallback;
 const getAIInstance = () => {
     const keys = getApiKeys();
     return getAIInstanceInternal(keys[0] || process.env.GEMINI_API_KEY || process.env.API_KEY || "");
@@ -220,6 +202,7 @@ function getISTDateString() {
     const istDate = new Date(istString);
     return `${istDate.getFullYear()}-${String(istDate.getMonth() + 1).padStart(2, '0')}-${String(istDate.getDate()).padStart(2, '0')}`;
 }
+exports.getISTDateString = getISTDateString;
 function parseAIJson(text) {
     let cleanText = text.trim();
     // 1. Handle Markdown Code Blocks
@@ -244,6 +227,7 @@ function parseAIJson(text) {
         throw new Error(`Invalid AI JSON response: ${e.message}`);
     }
 }
+exports.parseAIJson = parseAIJson;
 /**
  * Sanitizes Telugu text by converting any bled Kannada Unicode characters (0x0C80-0x0CFF)
  * back to Telugu, removing orphaned matras, broken placeholder glyphs, and zero-width spaces.
@@ -265,6 +249,7 @@ function sanitizeTeluguText(text) {
         .replace(/\s+([\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63])/g, '$1')
         .trim();
 }
+exports.sanitizeTeluguText = sanitizeTeluguText;
 async function saveBufferToStorage(buffer, prefix) {
     try {
         const webpBuffer = await sharp(buffer).webp({ quality: 80 }).toBuffer();
@@ -283,6 +268,7 @@ async function saveBufferToStorage(buffer, prefix) {
         return null;
     }
 }
+exports.saveBufferToStorage = saveBufferToStorage;
 async function saveImageLocally(externalUrl, prefix) {
     try {
         const response = await fetch(externalUrl);
@@ -296,14 +282,239 @@ async function saveImageLocally(externalUrl, prefix) {
         return null;
     }
 }
+exports.saveImageLocally = saveImageLocally;
+/**
+ * Calculates smart 16:9 crop coordinates preserving faces, heads, and salient human subjects.
+ * Uses facial skin chrominance (YCbCr) and edge density to dynamically locate people in vertical/portrait photos.
+ */
+/**
+ * Uses Gemini AI Vision to detect all human heads/faces in the image.
+ * Returns normalized bounding boxes [ymin, xmin, ymax, xmax] on a 0-1000 scale.
+ */
+async function detectFacesWithGeminiAI(imageBuffer) {
+    try {
+        const jpegBuffer = await sharp(imageBuffer)
+            .resize(640, 640, { fit: 'inside' })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+        const base64 = jpegBuffer.toString('base64');
+        const prompt = `Identify bounding boxes [ymin, xmin, ymax, xmax] for all human heads/faces and key subjects in this news photo. Scale 0-1000.`;
+        const schema = {
+            type: genai_1.Type.OBJECT,
+            properties: {
+                faces: {
+                    type: genai_1.Type.ARRAY,
+                    items: {
+                        type: genai_1.Type.OBJECT,
+                        properties: {
+                            box_2d: {
+                                type: genai_1.Type.ARRAY,
+                                items: { type: genai_1.Type.INTEGER }
+                            }
+                        },
+                        required: ["box_2d"]
+                    }
+                }
+            },
+            required: ["faces"]
+        };
+        const result = await runWithAIFallback(async (ai, modelName) => {
+            const res = await ai.models.generateContent({
+                model: modelName,
+                contents: [
+                    {
+                        role: "user",
+                        parts: [
+                            { inlineData: { mimeType: "image/jpeg", data: base64 } },
+                            { text: prompt }
+                        ]
+                    }
+                ],
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: schema,
+                    temperature: 0.1,
+                    maxOutputTokens: 1024
+                }
+            });
+            const text = res.text || res.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!text)
+                return null;
+            const parsed = parseAIJson(text);
+            if (parsed && Array.isArray(parsed.faces) && parsed.faces.length > 0) {
+                return parsed.faces
+                    .filter((f) => Array.isArray(f.box_2d) && f.box_2d.length === 4)
+                    .map((f) => ({
+                    ymin: f.box_2d[0],
+                    xmin: f.box_2d[1],
+                    ymax: f.box_2d[2],
+                    xmax: f.box_2d[3]
+                }));
+            }
+            return [];
+        });
+        return result;
+    }
+    catch (e) {
+        console.warn(`[AI_FACE_DETECTION_FALLBACK] AI vision face detection fallback:`, e.message);
+        return null;
+    }
+}
+exports.detectFacesWithGeminiAI = detectFacesWithGeminiAI;
+/**
+ * Calculates a clean 16:9 crop box using Gemini AI Vision face detection.
+ * Ensures heads and faces are 100% visible in the upper frame without being cut.
+ */
+async function calculateSmartCrop16x9(buffer, width, height) {
+    const targetAspect = 16 / 9;
+    const currentAspect = width / height;
+    // 1. If photo is already standard 16:9 (landscape), do NOT crop or call AI - preserve full original
+    if (Math.abs(currentAspect - targetAspect) <= 0.08) {
+        console.log(`[IMG_OPT] Image is already standard 16:9 (${width}x${height}, aspect: ${currentAspect.toFixed(2)}). Skipping AI crop.`);
+        return { left: 0, top: 0, width, height };
+    }
+    // 2. Only for vertical / portrait / square photos (e.g. 9:16, 3:4, 1:1)
+    if (currentAspect < targetAspect) {
+        const cropWidth = width;
+        const cropHeight = Math.round(width / targetAspect);
+        if (cropHeight >= height) {
+            return { left: 0, top: 0, width, height };
+        }
+        try {
+            console.log(`[AI_SMART_CROP] Vertical photo detected (${width}x${height}, aspect: ${currentAspect.toFixed(2)}). Running AI Face Detection...`);
+            // AI-Powered Face and Head Detection via Gemini Vision
+            const aiFaces = await detectFacesWithGeminiAI(buffer);
+            if (aiFaces && aiFaces.length > 0) {
+                const minFaceY = Math.min(...aiFaces.map(f => f.ymin)); // 0-1000 scale
+                const maxFaceY = Math.max(...aiFaces.map(f => f.ymax));
+                console.log(`[AI_SMART_CROP] Found ${aiFaces.length} faces via AI. Top face at ${minFaceY}/1000, Bottom face at ${maxFaceY}/1000.`);
+                // If faces are in the upper region of the photo (top 25%), keep top = 0 to guarantee 100% hair/headroom
+                if (minFaceY <= 250) {
+                    return { left: 0, top: 0, width: cropWidth, height: cropHeight };
+                }
+                // If faces are situated lower down in the frame (e.g. seated people),
+                // calculate top with 80 units (8% headroom) above highest head
+                const targetHeadroomPx = Math.max(0, Math.round(((minFaceY - 80) / 1000) * height));
+                let cropTop = Math.min(targetHeadroomPx, height - cropHeight);
+                cropTop = Math.max(0, cropTop);
+                return { left: 0, top: cropTop, width: cropWidth, height: cropHeight };
+            }
+        }
+        catch (err) {
+            console.warn('[AI_SMART_CROP] Error during AI face detection:', err.message);
+        }
+        // Fallback: Default to top-aligned crop (top = 0) so heads are never cut
+        return { left: 0, top: 0, width: cropWidth, height: cropHeight };
+    }
+    // 3. Landscape wider than 16:9
+    const cropHeight = height;
+    const cropWidth = Math.round(height * targetAspect);
+    if (cropWidth >= width) {
+        return { left: 0, top: 0, width, height };
+    }
+    const cropLeft = Math.max(0, Math.min(width - cropWidth, Math.round((width - cropWidth) / 2)));
+    return { left: cropLeft, top: 0, width: cropWidth, height: cropHeight };
+}
+exports.calculateSmartCrop16x9 = calculateSmartCrop16x9;
+/**
+ * 🛡️ AI Obscenity & Safety Scanner (Gemini Multimodal Vision)
+ * Scans submitted images for adult content, nudity, obscenity, illegal hate materials, or severe gore.
+ * Prevents brand damage, hack attempts, and rogue reporter sabotage.
+ */
+async function scanImageSafetyWithGeminiAI(buffer) {
+    try {
+        // Resize image to max 512px for lightning-fast inspection
+        const previewBuffer = await sharp(buffer)
+            .resize(512, 512, { fit: 'inside' })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+        const base64 = previewBuffer.toString("base64");
+        const prompt = `You are the Chief Trust, Safety & Legal Compliance Officer for a prestigious family-oriented Telugu news media platform.
+Analyze this submitted news photo strictly for adult, obscene, pornographic, violent, or brand-damaging illegal material.
+
+EVALUATION RULES:
+1. isAdultOrNude: true if there is ANY explicit nudity, pornographic/erotic images, sexually suggestive/obscene posing, exposed intimate body parts, or vulgar sexual depictions.
+2. isHateOrIllegal: true if there are hate symbols, terror propaganda, illegal weapons brandishing, narcotics/contraband, or illicit promotions.
+3. isExtremelyGruesome: true if there are decapitated/mutilated corpses, extreme gore, or graphic horrors unfit for public media.
+4. isSafe: true ONLY IF isAdultOrNude is false AND isHateOrIllegal is false AND isExtremelyGruesome is false.
+5. rejectionReason: In Telugu, provide a clear, respectful reason for rejection if unsafe (e.g. "అసభ్యకరమైన లేదా శృంగార చిత్రం గుర్తించబడింది", "చట్టవ్యతిరేక లేదా హింసాత్మక చిత్రం"), or null if safe.
+6. safetyDetails: Brief English explanation of findings.`;
+        const schema = {
+            type: genai_1.Type.OBJECT,
+            properties: {
+                isSafe: { type: genai_1.Type.BOOLEAN },
+                isAdultOrNude: { type: genai_1.Type.BOOLEAN },
+                isHateOrIllegal: { type: genai_1.Type.BOOLEAN },
+                isExtremelyGruesome: { type: genai_1.Type.BOOLEAN },
+                rejectionReason: { type: genai_1.Type.STRING },
+                safetyDetails: { type: genai_1.Type.STRING }
+            },
+            required: ["isSafe", "isAdultOrNude", "isHateOrIllegal", "isExtremelyGruesome", "safetyDetails"]
+        };
+        const result = await runWithAIFallback(async (ai, modelName) => {
+            const res = await ai.models.generateContent({
+                model: modelName,
+                contents: [
+                    {
+                        role: "user",
+                        parts: [
+                            { inlineData: { mimeType: "image/jpeg", data: base64 } },
+                            { text: prompt }
+                        ]
+                    }
+                ],
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: schema,
+                    temperature: 0.1,
+                    maxOutputTokens: 512
+                }
+            });
+            const text = res.text || res.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!text)
+                return { isSafe: true, isAdultOrNude: false, isHateOrIllegal: false, isExtremelyGruesome: false, rejectionReason: null, safetyDetails: "Empty response" };
+            const parsed = parseAIJson(text);
+            if (parsed && typeof parsed.isSafe === 'boolean') {
+                const isUnsafe = parsed.isAdultOrNude === true || parsed.isHateOrIllegal === true || parsed.isExtremelyGruesome === true || parsed.isSafe === false;
+                return {
+                    isSafe: !isUnsafe,
+                    isAdultOrNude: parsed.isAdultOrNude === true,
+                    isHateOrIllegal: parsed.isHateOrIllegal === true,
+                    isExtremelyGruesome: parsed.isExtremelyGruesome === true,
+                    rejectionReason: isUnsafe ? (parsed.rejectionReason || "అసభ్యకరమైన చిత్రం గుర్తించబడింది") : null,
+                    safetyDetails: parsed.safetyDetails || "Scanned"
+                };
+            }
+            return { isSafe: true, isAdultOrNude: false, isHateOrIllegal: false, isExtremelyGruesome: false, rejectionReason: null, safetyDetails: "Fallback" };
+        });
+        return result || { isSafe: true, isAdultOrNude: false, isHateOrIllegal: false, isExtremelyGruesome: false, rejectionReason: null, safetyDetails: "Default safe" };
+    }
+    catch (e) {
+        console.error("[IMAGE_SAFETY_SCAN_ERR] Error during image safety scan:", e.message);
+        // If Gemini safety settings triggered a block on the image itself, it is definitely UNSAFE!
+        if (e.message && (e.message.includes("SAFETY") || e.message.includes("blocked") || e.message.includes("SEXUAL") || e.message.includes("HARM"))) {
+            return {
+                isSafe: false,
+                isAdultOrNude: true,
+                isHateOrIllegal: false,
+                isExtremelyGruesome: false,
+                rejectionReason: "అసభ్యకరమైన చిత్రం (AI Safety System Blocked)",
+                safetyDetails: "Gemini built-in safety filter caught explicit content"
+            };
+        }
+        return { isSafe: true, isAdultOrNude: false, isHateOrIllegal: false, isExtremelyGruesome: false, rejectionReason: null, safetyDetails: "Error bypassed" };
+    }
+}
+exports.scanImageSafetyWithGeminiAI = scanImageSafetyWithGeminiAI;
 /**
  * Intelligently processes a news image:
- * 1. Converts to Black & White (grayscale) if flagged as bloody/graphic accident.
- * 2. Applies privacy protection blur if flagged as sensitive minor/POCSO/sexual assault victim or dead body.
- * 3. Auto-enhances brightness & dynamic contrast for dark night photos (normalize).
- * 4. Applies smart subtle sharpening to improve photo crispness.
- * 5. Smart-crops non-16:9 (vertical/square/4:3) images into a clean 16:9 frame keeping heads and salient subjects in view.
- * 6. Generates an optimized 16:9 image + fast thumbnail in WebP format.
+ * 1. Scans for Adult/Nudity/Obscenity with Gemini Vision (rejection shield).
+ * 2. Converts to Black & White (grayscale) if flagged as bloody/graphic accident.
+ * 3. Applies privacy protection blur if flagged as sensitive minor/POCSO/sexual assault victim or dead body.
+ * 4. Auto-enhances brightness & dynamic contrast for dark night photos (normalize).
+ * 5. Applies smart subtle sharpening to improve photo crispness.
+ * 6. Smart-crops non-16:9 (vertical 9:16 / square 1:1) images into a clean 16:9 frame keeping heads, faces, and salient subjects in view via AI.
+ * 7. Generates an optimized 16:9 image + fast thumbnail in WebP format.
  */
 async function processAndOptimizeNewsImage(imageUrl, postId, isGraphicOrBloody = false, isSensitiveVictimOrMinor = false) {
     try {
@@ -322,24 +533,46 @@ async function processAndOptimizeNewsImage(imageUrl, postId, isGraphicOrBloody =
         }
         const arrayBuffer = await response.arrayBuffer();
         const buffer = buffer_1.Buffer.from(arrayBuffer);
+        // 🛡️ STEP 1: AI Obscenity & Safety Scan (Instant Guard against adult/vulgar images)
+        const safetyResult = await scanImageSafetyWithGeminiAI(buffer);
+        if (!safetyResult.isSafe) {
+            console.warn(`[IMAGE_BLOCKED_UNSAFE] Post ${postId}: Image rejected for safety: ${safetyResult.rejectionReason} (${safetyResult.safetyDetails})`);
+            return {
+                optimizedUrl: "",
+                thumbnailUrl: "",
+                isSafe: false,
+                rejectionReason: safetyResult.rejectionReason || "అసభ్యకరమైన లేదా చట్టవ్యతిరేక చిత్రం గుర్తించబడింది"
+            };
+        }
         const img = sharp(buffer);
         const metadata = await img.metadata();
         const width = metadata.width || 1280;
         const height = metadata.height || 720;
-        const aspectRatio = width / height;
         const targetW = Math.min(Math.max(1280, width), 1920);
         const targetH = Math.round(targetW * 9 / 16);
-        // Pure 16:9 Crop with Top-Anchored Head & Face Preservation (Zero Blurred Background)
-        // By anchoring position to sharp.position.top (North), cropping starts at the very top edge (y=0)
-        // This strictly preserves people's heads, hair, faces, and shoulders in the 16:9 frame.
-        let pipeline = sharp(buffer)
-            .resize({
-            width: targetW,
-            height: targetH,
-            fit: sharp.fit.cover,
-            position: sharp.position.top // Top-anchored crop: HEADS & FACES ARE ALWAYS PRESERVED
-        })
-            .normalize();
+        // AI-Powered Smart 16:9 Crop for vertical/non-16:9 photos
+        const cropBox = await calculateSmartCrop16x9(buffer, width, height);
+        const isCropped = cropBox.width !== width || cropBox.height !== height || cropBox.left !== 0 || cropBox.top !== 0;
+        let pipeline = sharp(buffer);
+        if (isCropped) {
+            pipeline = pipeline
+                .extract(cropBox)
+                .resize({
+                width: targetW,
+                height: targetH,
+                fit: sharp.fit.fill
+            });
+        }
+        else {
+            pipeline = pipeline
+                .resize({
+                width: targetW,
+                height: targetH,
+                fit: sharp.fit.inside,
+                withoutEnlargement: true
+            });
+        }
+        pipeline = pipeline.normalize();
         if (isGraphicOrBloody) {
             console.log(`[IMG_OPT] Converting graphic/bloody image to Grayscale (B&W) for post ${postId}`);
             pipeline = pipeline.grayscale();
@@ -353,9 +586,9 @@ async function processAndOptimizeNewsImage(imageUrl, postId, isGraphicOrBloody =
         }
         // Save at ultra-crisp 92% WebP quality (lossless-grade crispness)
         const optimizedBuffer = await pipeline.webp({ quality: 92 }).toBuffer();
-        // Generate 16:9 Thumbnail for push notifications (400px width at 80% quality)
+        // Generate 16:9 Thumbnail for push notifications (400x225 with top position)
         const thumbBuffer = await sharp(optimizedBuffer)
-            .resize({ width: 400, withoutEnlargement: true })
+            .resize(400, 225, { fit: 'cover', position: 'top' })
             .webp({ quality: 80 })
             .toBuffer();
         const bucket = admin.storage().bucket();
@@ -372,17 +605,19 @@ async function processAndOptimizeNewsImage(imageUrl, postId, isGraphicOrBloody =
         const optimizedUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(optFileName)}?alt=media`;
         const thumbnailUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(thumbFileName)}?alt=media`;
         console.log(`[IMG_OPT] Optimized successfully -> Main: ${optimizedUrl.substring(0, 60)}..., Thumb: ${thumbnailUrl.substring(0, 60)}...`);
-        return { optimizedUrl, thumbnailUrl };
+        return { optimizedUrl, thumbnailUrl, isSafe: true, rejectionReason: null };
     }
     catch (e) {
         console.error(`[IMG_OPT_ERR] Error optimizing image for ${postId}:`, e.message);
         return null;
     }
 }
+exports.processAndOptimizeNewsImage = processAndOptimizeNewsImage;
 async function createAndSaveThumbnail(imageUrl, postId) {
     const result = await processAndOptimizeNewsImage(imageUrl, postId, false);
-    return result?.thumbnailUrl || null;
+    return result?.isSafe ? (result.thumbnailUrl || null) : null;
 }
+exports.createAndSaveThumbnail = createAndSaveThumbnail;
 async function generateImageWithRetry(aiUnused, // Keeping signature for compatibility
 prompt, aspectRatio = '9:16', retriesUnused = 3) {
     // NOTE: imagen-4.0-generate-001 is DEPRECATED (shutdown Aug 17, 2026)
@@ -429,4 +664,5 @@ prompt, aspectRatio = '9:16', retriesUnused = 3) {
         return null;
     }
 }
+exports.generateImageWithRetry = generateImageWithRetry;
 //# sourceMappingURL=utils.js.map

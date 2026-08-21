@@ -50,6 +50,28 @@ private var prefCursor: DocumentSnapshot? = null  // Tracks pagination state
   - Anti-duplicate logic: 12-hour window prevention + throttling
   - 4-level headline fallback (category → location → general → AI generation)
 
+### Web App (React + Vite + Tailwind)
+**Location**: `web/`
+
+- **Pattern**: React 18 SPA + Vite + Tailwind CSS + Firebase Web SDK
+- **Key Files**:
+  - `web/src/App.tsx`: Main application shell, router, and dialog controller
+  - `web/src/components/NewsFeed.tsx` & `LocalNewsFeed.tsx`: News feed UI components
+  - `web/src/services/firebase.ts`: Client-side Firebase initialization
+  - `web/src/types.ts`: TypeScript data interfaces matching backend schema
+- **Build & Deploy**:
+  ```bash
+  npm run dev:web            # Start local Vite development server
+  npm run build:web          # Builds web app to web/dist/
+  npm run deploy:hosting     # Deploy web app to Firebase Hosting
+  ```
+
+### VPS Scraper (Standalone Scraper Service)
+**Location**: `vps-scraper/`
+
+- **Pattern**: Node.js automated news scraper intended for deployment on VPS
+- **Key Files**: `scraper.js`, `.env.example`, `package.json`
+
 ---
 
 ## Developer Workflows

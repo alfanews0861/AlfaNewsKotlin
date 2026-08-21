@@ -1,0 +1,11 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.alfanews.telugu",
+    "sha256_cert_fingerprints": [
+      "0E:98:87:55:97:59:6F:48:21:6A:7E:26:16:F9:38:81:C2:E1:9A:2E:C5:0B:6D:40:43:95:48:26:42:43:A4:EE",
+      "07:5F:B8:8B:20:C9:AC:F1:98:D6:8A:32:6E:04:87:CD:7F:D5:E7:9E:57:E2:12:7D:DB:1A:3C:6F:42:D5:E8:B9"
+    ]
+  }
+}]

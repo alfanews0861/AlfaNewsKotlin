@@ -919,29 +919,37 @@ fun ReporterListCard(
                                     updates["suspended"] = false
                                     updates["promotedAt"] = com.google.firebase.Timestamp.now()
                                     updates["lastPostTimestamp"] = com.google.firebase.Timestamp.now()
+                                    updates["rejoinedAt"] = com.google.firebase.Timestamp.now()
+                                    updates["downgradedReason"] = com.google.firebase.firestore.FieldValue.delete()
+                                    updates["downgradedAt"] = com.google.firebase.firestore.FieldValue.delete()
+                                    updates["lastWarningDate"] = com.google.firebase.firestore.FieldValue.delete()
                                 } else {
-                                    // Suspend చేసినప్పుడు assignedMandal clear చేయాలి
-                                    // — mandal free అవుతుంది, వేరే reporter apply చేయగలరు
-                                    updates["assignedMandal"] = ""
                                     updates["previouslyDowngraded"] = true
                                     updates["suspended"] = true
+                                    updates["downgradedReason"] = "SUSPENDED_BY_ADMIN"
+                                    updates["downgradedAt"] = com.google.firebase.Timestamp.now()
                                 }
                                 FirebaseService.db.collection("users").document(reporter.id).update(updates).await()
 
-                                // reporter_applications లో కూడా status update చేయాలి
-                                // Suspend → SUSPENDED (mandal free అవుతుంది)
-                                // Restore → JOINED (mandal block అవుతుంది)
+                                // Sync reporter_applications
                                 val district = reporter.district?.trim() ?: ""
-                                val mandal = reporter.assignedMandal?.trim() ?: ""
+                                val mandal = (reporter.assignedMandal ?: "").trim()
                                 if (district.isNotEmpty() && mandal.isNotEmpty()) {
                                     val appSnap = FirebaseService.db.collection("reporter_applications")
                                         .whereEqualTo("userId", reporter.id)
-                                        .whereIn("status", listOf("JOINED", "SUSPENDED"))
                                         .get()
                                         .await()
                                     val newAppStatus = if (isSuspending) "SUSPENDED" else "JOINED"
                                     for (doc in appSnap.documents) {
-                                        doc.reference.update("status", newAppStatus).await()
+                                        val appUpdates = mutableMapOf<String, Any>(
+                                            "status" to newAppStatus,
+                                            "district" to district,
+                                            "mandal" to mandal
+                                        )
+                                        if (!isSuspending) {
+                                            appUpdates["rejoinedAt"] = com.google.firebase.Timestamp.now()
+                                        }
+                                        doc.reference.update(appUpdates).await()
                                     }
                                 }
 

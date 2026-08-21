@@ -1,0 +1,68 @@
+
+:root {
+  --sat: env(safe-area-inset-top);
+  --sab: env(safe-area-inset-bottom);
+  --sal: env(safe-area-inset-left);
+  --sar: env(safe-area-inset-right);
+}
+
+html {
+  height: 100%;
+  background-color: black;
+  scrollbar-width: none;
+}
+
+body {
+  font-family: 'Inter', 'Mallanna', sans-serif;
+  height: 100%;
+  width: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  padding-top: var(--sat);
+  padding-bottom: var(--sab);
+  background-color: black;
+  overscroll-behavior-y: none;
+  margin: 0;
+  overflow: hidden;
+}
+
+.font-ramabhadra {
+  font-family: 'Ramabhadra', sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.font-mallanna {
+  font-family: 'Mallanna', sans-serif;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+.snap-always {
+  scroll-snap-stop: always;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.5s ease-out forwards;
+}
+
+/* Glassmorphism Classes */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass-red {
+  background: rgba(220, 38, 38, 0.15);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+}

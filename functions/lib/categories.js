@@ -5,10 +5,7 @@
  * Used by: Backend AI, Mobile Filters, Web App
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.GLOBAL_CATEGORY_KEYWORDS = exports.CATEGORY_LIST = exports.CANONICAL_CATEGORIES = void 0;
-exports.normalizeCategory = normalizeCategory;
-exports.normalizeCategories = normalizeCategories;
-exports.getCategorySystemInstruction = getCategorySystemInstruction;
+exports.GLOBAL_CATEGORY_KEYWORDS = exports.getCategorySystemInstruction = exports.normalizeCategories = exports.normalizeCategory = exports.CATEGORY_LIST = exports.CANONICAL_CATEGORIES = void 0;
 exports.CANONICAL_CATEGORIES = {
     POLITICS: {
         telugu: "రాజకీయం",
@@ -127,6 +124,7 @@ function normalizeCategory(input) {
     }
     return "OTHER";
 }
+exports.normalizeCategory = normalizeCategory;
 /**
  * Normalize an array of categories
  */
@@ -135,6 +133,7 @@ function normalizeCategories(categories) {
         .map(cat => normalizeCategory(cat))
         .filter(cat => cat && cat !== "OTHER")));
 }
+exports.normalizeCategories = normalizeCategories;
 /**
  * Get system instruction for Gemini with category list
  */
@@ -289,6 +288,7 @@ JSON SCHEMA:
   ]
 }`;
 }
+exports.getCategorySystemInstruction = getCategorySystemInstruction;
 /**
  * Global categories that should always appear in home feed (not domain-specific)
  */

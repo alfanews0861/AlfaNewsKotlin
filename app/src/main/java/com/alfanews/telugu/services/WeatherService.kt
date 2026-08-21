@@ -3,10 +3,17 @@ package com.alfanews.telugu.services
 import com.alfanews.telugu.models.Language
 import com.alfanews.telugu.utils.Constants
 import com.google.gson.annotations.SerializedName
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
 import retrofit2.http.Query
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import java.util.concurrent.TimeUnit
 
 // --- Geocoding Models ---
 data class GeocodingResponse(
@@ -61,6 +68,40 @@ data class DailyData(
     @SerializedName("uv_index_max") val uvIndex: List<Double>?
 )
 
+// --- Real-time Station Weather Models (wttr.in METAR/WWO Observation) ---
+data class WttrResponse(
+    @SerializedName("current_condition") val currentCondition: List<WttrCurrentCondition>?,
+    @SerializedName("weather") val weather: List<WttrDayWeather>?
+)
+
+data class WttrCurrentCondition(
+    @SerializedName("temp_C") val tempC: String?,
+    @SerializedName("FeelsLikeC") val feelsLikeC: String?,
+    @SerializedName("humidity") val humidity: String?,
+    @SerializedName("windspeedKmph") val windspeedKmph: String?,
+    @SerializedName("weatherCode") val weatherCode: String?,
+    @SerializedName("uvIndex") val uvIndex: String?
+)
+
+data class WttrDayWeather(
+    @SerializedName("date") val date: String?,
+    @SerializedName("maxtempC") val maxtempC: String?,
+    @SerializedName("mintempC") val mintempC: String?,
+    @SerializedName("hourly") val hourly: List<WttrHourly>?
+)
+
+data class WttrHourly(
+    @SerializedName("weatherCode") val weatherCode: String?
+)
+
+interface WttrApiService {
+    @GET("{query}")
+    suspend fun getWttrWeather(
+        @retrofit2.http.Path(value = "query", encoded = true) query: String,
+        @Query("format") format: String = "j1"
+    ): WttrResponse
+}
+
 interface WeatherApiService {
     @GET("https://geocoding-api.open-meteo.com/v1/search")
     suspend fun getCoordinates(
@@ -87,8 +128,28 @@ interface WeatherApiService {
 }
 
 object WeatherService {
+    private val okHttpClient = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .addInterceptor { chain ->
+            val req = chain.request().newBuilder()
+                .header("User-Agent", "Mozilla/5.0 AlfaNews/5.4")
+                .build()
+            chain.proceed(req)
+        }
+        .build()
+
+    private val wttrRetrofit = Retrofit.Builder()
+        .baseUrl("https://wttr.in/")
+        .client(okHttpClient)
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+
+    private val wttrApi = wttrRetrofit.create(WttrApiService::class.java)
+
     private val retrofit = Retrofit.Builder()
         .baseUrl("https://api.open-meteo.com/")
+        .client(okHttpClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
 
@@ -97,6 +158,26 @@ object WeatherService {
     // ✅ In-memory cache: 5-min TTL per location
     private data class CachedWeather(val data: WeatherData, val fetchedAt: Long)
     private val weatherCache = mutableMapOf<String, CachedWeather>()
+
+    fun mapWwoToWmo(wwoCode: Int): Int {
+        return when (wwoCode) {
+            113 -> 0 // Clear/Sunny
+            116 -> 2 // Partly Cloudy
+            119 -> 2 // Cloudy
+            122 -> 3 // Overcast
+            143, 248, 260 -> 45 // Fog
+            176, 353 -> 80 // Rain showers
+            179, 350 -> 77 // Ice pellets
+            182, 185, 281, 284, 311, 314, 317, 320 -> 56 // Freezing drizzle/rain
+            200, 386, 389 -> 95 // Thunderstorm
+            392, 395 -> 99 // Severe Thunderstorm with hail
+            227, 230, 323, 326, 329, 332, 335, 338 -> 71 // Snow
+            263, 266 -> 51 // Light Drizzle
+            293, 296 -> 61 // Light Rain
+            299, 302, 305, 308, 356, 359 -> 65 // Heavy Rain
+            else -> 2
+        }
+    }
 
     // ═════════════════════════════════════════════════════════════════════════
     // 🎯 100% ACCURATE STATIC DISTRICT COORDINATES (33 TS + 29 AP Districts & Aliases)
@@ -379,6 +460,69 @@ object WeatherService {
             return cached.data
         }
 
+        val cleanedName = locationName.trim()
+            .replace("జిల్లా", "")
+            .replace("డిస్ట్రిక్ట్", "")
+            .replace("District", "", ignoreCase = true)
+            .replace("City", "", ignoreCase = true)
+            .trim()
+
+        val istCal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Kolkata"))
+        val hourOfDay = istCal.get(Calendar.HOUR_OF_DAY)
+        val currentIsDay = hourOfDay in 6..18
+        val currentIsoTime = SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("Asia/Kolkata")
+        }.format(Date())
+
+        // 🚀 ATTEMPT 1: Real-time ground meteorological station observation via wttr.in (METAR/WWO ground truth)
+        try {
+            val wttrQuery = if (validLat != null && validLon != null) {
+                String.format(Locale.US, "%.4f,%.4f", validLat, validLon)
+            } else {
+                locationMapping[cleanedName] ?: locationMapping[locationName.trim()] ?: cleanedName
+            }
+
+            val wttrData = wttrApi.getWttrWeather(wttrQuery)
+            val cur = wttrData.currentCondition?.firstOrNull()
+            if (cur != null && cur.tempC != null) {
+                val parsedTemp = cur.tempC.toDoubleOrNull()
+                if (parsedTemp != null) {
+                    val feelsLike = cur.feelsLikeC?.toDoubleOrNull()
+                    val humidity = cur.humidity?.toIntOrNull()
+                    val windSpeed = cur.windspeedKmph?.toDoubleOrNull() ?: 10.0
+                    val wwoCode = cur.weatherCode?.toIntOrNull() ?: 113
+                    val wmoCode = mapWwoToWmo(wwoCode)
+                    val uv = cur.uvIndex?.toDoubleOrNull()
+
+                    val forecastList = mutableListOf<DayForecast>()
+                    wttrData.weather?.take(7)?.forEach { dw ->
+                        val fDate = dw.date ?: ""
+                        val fMax = dw.maxtempC?.toDoubleOrNull() ?: (parsedTemp + 4.0)
+                        val fMin = dw.mintempC?.toDoubleOrNull() ?: (parsedTemp - 4.0)
+                        val fCode = dw.hourly?.getOrNull(4)?.weatherCode?.toIntOrNull()?.let { mapWwoToWmo(it) } ?: wmoCode
+                        forecastList.add(DayForecast(date = fDate, code = fCode, maxTemp = fMax, minTemp = fMin))
+                    }
+
+                    val result = WeatherData(
+                        temp = parsedTemp,
+                        code = wmoCode,
+                        wind = windSpeed,
+                        time = currentIsoTime,
+                        humidity = humidity,
+                        feelsLike = feelsLike,
+                        isDay = currentIsDay,
+                        uvIndex = if (!currentIsDay) 0.0 else (uv ?: 0.0),
+                        isPrecise = validLat != null && validLon != null,
+                        dailyForecast = forecastList
+                    )
+                    weatherCache[cacheKey] = CachedWeather(result, System.currentTimeMillis())
+                    return result
+                }
+            }
+        } catch (e: Exception) {
+            // Graceful fallback to Open-Meteo
+        }
+
         return try {
             val latitude: Double
             val longitude: Double
@@ -389,17 +533,18 @@ object WeatherService {
             } else {
                 // 🚀 FAST-PATH: Direct static coordinates lookup for all TS & AP districts & towns
                 val trimmed = locationName.trim()
-                val staticCoords = DISTRICT_COORDINATES[trimmed]
-                    ?: DISTRICT_COORDINATES.entries.find { it.key.equals(trimmed, ignoreCase = true) }?.value
-                    ?: Constants.MANDAL_DATA.entries.find { it.value.contains(trimmed) }?.key?.let { DISTRICT_COORDINATES[it] }
+                val staticCoords = DISTRICT_COORDINATES[cleanedName]
+                    ?: DISTRICT_COORDINATES[trimmed]
+                    ?: DISTRICT_COORDINATES.entries.find { it.key.equals(cleanedName, ignoreCase = true) || it.key.equals(trimmed, ignoreCase = true) }?.value
+                    ?: Constants.MANDAL_DATA.entries.find { it.value.contains(cleanedName) || it.value.contains(trimmed) }?.key?.let { DISTRICT_COORDINATES[it] }
 
                 if (staticCoords != null) {
                     latitude = staticCoords.first
                     longitude = staticCoords.second
                 } else {
                     // Fallback to Geocoding API if not found in static list
-                    val searchName = locationMapping[trimmed] ?: trimmed
-                    val parentDistrictTe = Constants.MANDAL_DATA.entries.find { it.value.contains(trimmed) }?.key
+                    val searchName = locationMapping[cleanedName] ?: locationMapping[trimmed] ?: cleanedName
+                    val parentDistrictTe = Constants.MANDAL_DATA.entries.find { it.value.contains(cleanedName) || it.value.contains(trimmed) }?.key
                     val parentDistrictEn = locationMapping[parentDistrictTe]
 
                     val finalSearchName = if (parentDistrictEn != null && searchName != parentDistrictEn) {
@@ -415,7 +560,7 @@ object WeatherService {
                         latitude = location.latitude
                         longitude = location.longitude
                     } else {
-                        val districtEn = locationMapping[parentDistrictTe] ?: locationMapping[trimmed]
+                        val districtEn = locationMapping[parentDistrictTe] ?: locationMapping[cleanedName] ?: locationMapping[trimmed]
                         if (districtEn != null) {
                             val districtGeo = api.getCoordinates(districtEn).results?.firstOrNull()
                             if (districtGeo != null) {
@@ -481,7 +626,7 @@ object WeatherService {
                 temp = realTemp,
                 code = realCode,
                 wind = realWind,
-                time = currentTimeStr,
+                time = currentIsoTime,
                 humidity = finalHumidity,
                 feelsLike = finalFeelsLike,
                 isDay = realIsDay,
@@ -564,7 +709,7 @@ object WeatherService {
                 66, 67 -> "భారీ వర్షం"
                 71, 73, 75, 77, 85, 86 -> "మంచు కురిసే అవకాశం"
                 80, 81, 82 -> "వర్షపు జల్లులు కురిసే అవకాశం"
-                95 -> "పిడుగులు, ఉరుములతో కూడిన వర్షం"
+                95 -> "ఉరుములు, పిడుగులతో కూడిన వర్షం"
                 96, 99 -> "తీవ్రమైన వడగళ్ల వాన"
                 else -> "సాధారణ వాతావరణం"
             }
@@ -587,22 +732,24 @@ object WeatherService {
             val baseDesc = if (!isDay) {
                 when (code) {
                     0 -> "Tonight in $location, skies are clear and the weather is calm and pleasant."
-                    1, 2 -> "Tonight in $location, scattered clouds are expected with pleasant weather."
+                    1 -> "Tonight in $location, skies are mostly clear with pleasant weather."
+                    2 -> "Tonight in $location, scattered clouds are expected with pleasant weather."
                     3 -> "Tonight in $location, the sky is completely overcast with thick cloud cover."
                     45, 48 -> "Foggy conditions are expected tonight in $location. Drivers are advised to be cautious."
-                    51, 53, 55 -> "Light drizzles may occur tonight in $location."
-                    61, 63, 65, 80, 81, 82 -> "Rain is likely tonight in $location. Carry rain gear if heading out."
+                    51, 53, 55, 56, 57 -> "Light drizzles may occur tonight in $location."
+                    61, 63, 65, 66, 67, 80, 81, 82 -> "Rain is likely tonight in $location. Carry rain gear if heading out."
                     95, 96, 99 -> "Severe thunderstorm and lightning warning tonight in $location. Stay indoors in safe shelters."
                     else -> "Weather in $location remains moderate tonight."
                 }
             } else {
                 when (code) {
                     0 -> "Today in $location, the sky is clear and bright with ample sunshine."
-                    1, 2 -> "Today in $location, scattered clouds with pleasant weather are expected."
+                    1 -> "Today in $location, skies are mostly clear with plenty of sunshine."
+                    2 -> "Today in $location, scattered clouds with pleasant weather are expected."
                     3 -> "Today in $location, the sky is completely overcast with thick clouds."
                     45, 48 -> "Foggy conditions in $location today. Commuters should drive carefully."
-                    51, 53, 55 -> "Light drizzles are expected today in $location."
-                    61, 63, 65, 80, 81, 82 -> "Rain is expected in $location today. Keep an umbrella handy."
+                    51, 53, 55, 56, 57 -> "Light drizzles are expected today in $location."
+                    61, 63, 65, 66, 67, 80, 81, 82 -> "Rain is expected in $location today. Keep an umbrella handy."
                     95, 96, 99 -> "Severe thunderstorm alert in $location. Avoid standing under trees and stay indoors."
                     else -> "Weather in $location is normal today."
                 }
@@ -620,23 +767,25 @@ object WeatherService {
         } else {
             val baseDesc = if (!isDay) {
                 when (code) {
-                    0 -> "నేడు రాత్రి $location లో ఆకాశం నిర్మలంగా, ప్రశాంతంగా ఆహ్లాదకరంగా ఉంటుంది."
-                    1, 2 -> "నేడు రాత్రి $location లో అక్కడక్కడ తేలికపాటి మేఘాలు ఉంటాయి. రాత్రి వాతావరణం అనుకూలంగా ఉంటుంది."
-                    3 -> "నేడు రాత్రి $location లో ఆకాశం మేఘావృతమై మబ్బుపట్టి ఉంటుంది."
+                    0 -> "నేడు రాత్రి $location లో ఆకాశం నిర్మలంగా, ఆహ్లాదకరంగా ఉంటుంది."
+                    1 -> "నేడు రాత్రి $location లో ఆకాశం ప్రధానంగా నిర్మలంగా, ప్రశాంతంగా ఉంటుంది."
+                    2 -> "నేడు రాత్రి $location లో అక్కడక్కడ తేలికపాటి మేఘాలు ఉంటాయి. రాత్రి వాతావరణం అనుకూలంగా ఉంటుంది."
+                    3 -> "నేడు రాత్రి $location లో ఆకాశం పూర్తిగా మేఘావృతమై (మబ్బు పట్టి) ఉంటుంది."
                     45, 48 -> "నేడు రాత్రి $location లో పొగమంచు కురిసే అవకాశం ఉంది. వాహనదారులు జాగ్రత్తగా డ్రైవ్ చేయాలి."
-                    51, 53, 55 -> "నేడు రాత్రి $location లో తేలికపాటి చినుకులు పడే అవకాశం ఉంది."
-                    61, 63, 65, 80, 81, 82 -> "నేడు రాత్రి $location లో వర్షం కురిసే అవకాశం ఉంది. రాత్రి ప్రయాణాలు చేసేవారు జాగ్రత్తగా ఉండాలి."
+                    51, 53, 55, 56, 57 -> "నేడు రాత్రి $location లో తేలికపాటి చినుకులు పడే అవకాశం ఉంది."
+                    61, 63, 65, 66, 67, 80, 81, 82 -> "నేడు రాత్రి $location లో వర్షం కురిసే అవకాశం ఉంది. రాత్రి ప్రయాణాలు చేసేవారు జాగ్రత్తగా ఉండాలి."
                     95, 96, 99 -> "హెచ్చరిక: నేడు రాత్రి $location లో ఉరుములు, మెరుపులతో కూడిన భారీ వర్షం పడే ప్రమాదం ఉంది. ప్రజలు సురక్షిత ప్రాంతాల్లో ఉండాలి."
                     else -> "నేడు రాత్రి $location లో వాతావరణం సాధారణంగా ఉంటుంది."
                 }
             } else {
                 when (code) {
                     0 -> "నేడు $location లో ఆకాశం చాలా నిర్మలంగా, ప్రకాశవంతంగా ఉంటుంది."
-                    1, 2 -> "నేడు $location లో అక్కడక్కడ మేఘాలు కనిపిస్తాయి. వాతావరణం ఆహ్లాదకరంగా ఉంటుంది."
+                    1 -> "నేడు $location లో ఆకాశం ప్రధానంగా నిర్మలంగా, ఆహ్లాదకరంగా ఉంటుంది."
+                    2 -> "నేడు $location లో అక్కడక్కడ మేఘాలు కనిపిస్తాయి. వాతావరణం ఆహ్లాదకరంగా ఉంటుంది."
                     3 -> "నేడు $location లో ఆకాశం పూర్తిగా మేఘావృతమై (మబ్బు పట్టి) ఉంటుంది."
                     45, 48 -> "నేడు $location లో పొగమంచు కురిసే అవకాశం ఉంది. రోడ్డుపై ప్రయాణించే వారు జాగ్రత్తగా ఉండాలి."
-                    51, 53, 55 -> "నేడు $location లో అప్పుడప్పుడు తేలికపాటి చినుకులు పడే అవకాశం ఉంది."
-                    61, 63, 65, 80, 81, 82 -> "నేడు $location లో వర్షం కురిసే అవకాశం ఉంది. బయటకు వెళ్లేవారు గొడుగు వెంట ఉంచుకోవడం మంచిది."
+                    51, 53, 55, 56, 57 -> "నేడు $location లో అప్పుడప్పుడు తేలికపాటి చినుకులు పడే అవకాశం ఉంది."
+                    61, 63, 65, 66, 67, 80, 81, 82 -> "నేడు $location లో వర్షం కురిసే అవకాశం ఉంది. బయటకు వెళ్లేవారు గొడుగు వెంట ఉంచుకోవడం మంచిది."
                     95, 96, 99 -> "హెచ్చరిక: నేడు $location లో పిడుగులతో కూడిన భారీ వర్షం పడే ప్రమాదం ఉంది. ఉరుములు వస్తున్నప్పుడు చెట్ల కింద ఉండరాదు, సురక్షితమైన భవనాల్లో ఉండాలి."
                     else -> "నేడు $location లో వాతావరణం సాధారణంగా ఉంటుంది."
                 }
@@ -657,7 +806,8 @@ object WeatherService {
     fun getWeatherTypeLabel(code: Int): String {
         return when (code) {
             0 -> "Sunny"
-            1, 2 -> "Partly Cloudy"
+            1 -> "Mainly Clear"
+            2 -> "Partly Cloudy"
             3 -> "Overcast"
             45, 48 -> "Foggy"
             51, 53, 55, 56, 57 -> "Drizzle"

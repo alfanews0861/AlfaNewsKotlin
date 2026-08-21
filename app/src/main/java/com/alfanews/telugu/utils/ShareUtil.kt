@@ -158,6 +158,44 @@ object ShareUtil {
     }
 
     /**
+     * Share a news post using WhatsApp Rich Link Preview format.
+     * This generates a rich card with big image preview in WhatsApp,
+     * allowing users to tap the image/card to open the AlfaNews app directly.
+     */
+    fun shareNewsWhatsAppRichLink(
+        context: Context,
+        postId: String,
+        headline: String,
+        customText: String? = null
+    ) {
+        val shareUrl = "https://alfanews.app/news/$postId"
+        val shareText = customText ?: buildString {
+            append("🔴 ")
+            append(headline)
+            append("\n\n👇 పూర్తి వార్త & వీడియో కోసం క్రింది లింక్ క్లిక్ చేయండి:\n")
+            append(shareUrl)
+            append("\n\n📲 తాజా తెలుగు వార్తల కోసం Alfa News యాప్ ఇన్‌స్టాల్ చేసుకోండి!")
+        }
+
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            action = Intent.ACTION_SEND
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, shareText)
+            putExtra(Intent.EXTRA_SUBJECT, headline)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        val chooser = Intent.createChooser(sendIntent, "Share News").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            context.startActivity(chooser)
+        } catch (e: Exception) {
+            Log.e("ShareUtil", "Could not start rich link share", e)
+        }
+    }
+
+    /**
      * Generate a shareable link without actually opening the share sheet
      * Useful if you want to copy the link to clipboard instead of sharing immediately
      *
@@ -181,4 +219,5 @@ object ShareUtil {
         )
     }
 }
+
 

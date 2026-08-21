@@ -10,9 +10,25 @@ service cloud.firestore {
     // User Profiles & Subcollections (Messages, Notifications)
     match /users/{userId} {
       allow read: if true;
-      allow write: if request.auth != null && (request.auth.uid == userId ||
+      // Allow create if creating own doc or if Admin/Editor
+      allow create: if request.auth != null && (
+        request.auth.uid == userId ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         getUserData().role in ['ADMIN', 'EDITOR'])
+      );
+
+      // Normal users cannot modify protected fields (role, points, badges, assignments, warnings)
+      allow update: if request.auth != null && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         getUserData().role in ['ADMIN', 'EDITOR']) ||
+        (request.auth.uid == userId &&
+         !request.resource.data.diff(resource.data).affectedKeys()
+           .hasAny(['role', 'points', 'badges', 'assignedDistricts', 'warningLevel', 'inProbation', 'suspended', 'previouslyDowngraded']))
+      );
+
+      allow delete: if request.auth != null &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        getUserData().role in ['ADMIN', 'EDITOR']);
+        getUserData().role == 'ADMIN';
 
       // User Personal Messages
       match /messages/{messageId} {
@@ -103,11 +119,7 @@ service cloud.firestore {
       allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
     }
 
-    // System Settings - Public Read, Admin Write (with exception for active_weather_grids)
-    match /settings/active_weather_grids {
-      allow read: if true;
-      allow create, update: if true;
-    }
+    // System Settings - Public Read, Admin Write
     match /settings/{settingId} {
       allow read: if true;
       allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
@@ -174,16 +186,29 @@ service cloud.firestore {
       }
     }
 
-    // Reporter Applications
+    // Reporter Applications (Public apply, secure read for applicant/admin, admin manage)
     match /reporter_applications/{appId} {
       allow create: if true;
-      allow read, update, delete: if request.auth != null;
+      allow read: if request.auth != null && (
+        (resource.data.userId == request.auth.uid) ||
+        (resource.data.phone == request.auth.token.phone_number) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         getUserData().role in ['ADMIN', 'EDITOR', 'NEWS_DESK'])
+      );
+      allow update, delete: if request.auth != null &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        getUserData().role in ['ADMIN', 'EDITOR', 'NEWS_DESK'];
     }
 
     // Anonymous/Guest Devices for Notifications
     match /anonymous_devices/{deviceId} {
       allow read: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
       allow create, update: if true;
+    }
+
+    // App Install Tracking Receipts (Admin/Cloud Functions only)
+    match /app_installs/{installId} {
+      allow read, write: if false;
     }
   }
 }

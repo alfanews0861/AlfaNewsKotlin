@@ -1,0 +1,51 @@
+
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Allow public read access to all files (so images can be seen by everyone)
+    match /{allPaths=**} {
+      allow read: if true;
+    }
+
+    // User Profiles: Allow authenticated users to upload their own profile photos
+    match /user-profiles/{allPaths=**} {
+      allow write: if request.auth != null;
+    }
+
+    // Signatures: Allow authenticated users to upload their signatures
+    match /signatures/{allPaths=**} {
+      allow write: if request.auth != null;
+    }
+    
+    // Generated ID Cards: Allow users to save their card image
+    match /id-cards/{allPaths=**} {
+      allow write: if request.auth != null;
+    }
+
+    // News Media: Allow authenticated users (reporters/admins) to upload news images/videos
+    match /news-media/{allPaths=**} {
+      allow write: if request.auth != null;
+    }
+
+    // Citizen Media: Allow authenticated users to upload their social news reports
+    match /citizen-media/{allPaths=**} {
+      allow write: if request.auth != null;
+    }
+    
+    // Classifieds: Allow authenticated users to upload images for ads
+    match /classifieds-media/{allPaths=**} {
+       allow write: if request.auth != null;
+    }
+    
+    // Local Ads: Allow authenticated users to upload ad banners
+    match /local-ads/{allPaths=**} {
+       allow write: if request.auth != null;
+    }
+    
+    // General Ads Media
+    match /ads-media/{allPaths=**} {
+       allow write: if request.auth != null;
+    }
+  }
+}

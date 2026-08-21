@@ -332,6 +332,7 @@ fun MainScreen(
                     Footer(
                         activeTab = activeTab,
                         unreadMessagesCount = unreadMessagesCount,
+                        language = language,
                         onTabChange = { tab: String -> 
                             // Reset overlay states when switching tabs via footer
                             showPostNewsPage = false

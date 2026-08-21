@@ -3,61 +3,70 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     
+    // Helper function for image validation (size and MIME type)
+    function isValidImage(maxSizeMB) {
+      return request.auth != null
+        && request.resource.size < maxSizeMB * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/octet-stream');
+    }
+
+    // Helper function for media validation (Images, Videos, Audio, PDF)
+    function isValidMedia(maxSizeMB) {
+      return request.auth != null
+        && request.resource.size < maxSizeMB * 1024 * 1024
+        && (
+          request.resource.contentType.matches('image/.*')
+          || request.resource.contentType.matches('video/.*')
+          || request.resource.contentType.matches('audio/.*')
+          || request.resource.contentType.matches('application/pdf')
+          || request.resource.contentType == 'application/octet-stream'
+        );
+    }
 
     // Allow public read access to all files
     match /{allPaths=**} {
       allow read: if true;
     }
 
-    // User Profiles
+    // User Profiles, Photos, Signatures, ID Cards (Max 5MB images)
     match /user-profiles/{allPaths=**} {
-      allow write: if request.auth != null;
+      allow write: if isValidImage(5);
     }
     match /profile_photos/{allPaths=**} {
-      allow write: if request.auth != null;
+      allow write: if isValidImage(5);
     }
     match /profile_images/{allPaths=**} {
-      allow write: if request.auth != null;
+      allow write: if isValidImage(5);
     }
-
-    // Signatures
     match /signatures/{allPaths=**} {
-      allow write: if request.auth != null;
+      allow write: if isValidImage(5);
     }
-    
-    // Generated ID Cards
     match /id-cards/{allPaths=**} {
-      allow write: if request.auth != null;
+      allow write: if isValidImage(5);
     }
 
-    // News Media: Allow authenticated users to upload
+    // News & Citizen Media (Max 100MB for news images/videos/audio)
     match /news-media/{allPaths=**} {
-        allow write: if request.auth != null;
+      allow write: if isValidMedia(100);
     }
-
-    // Citizen Media: Allow authenticated users to upload
     match /citizen-media/{allPaths=**} {
-      allow write: if request.auth != null;
+      allow write: if isValidMedia(100);
     }
     
-    // Classifieds
+    // Classifieds & Ads Media (Max 50MB)
     match /classifieds-media/{allPaths=**} {
-       allow write: if request.auth != null;
+      allow write: if isValidMedia(50);
     }
-    
-    // Local Ads
     match /local-ads/{allPaths=**} {
-       allow write: if request.auth != null;
+      allow write: if isValidMedia(50);
     }
-    
-    // General Ads Media
     match /ads-media/{allPaths=**} {
-       allow write: if request.auth != null;
+      allow write: if isValidMedia(50);
     }
 
-    // Default uploads path
+    // Default uploads path (Max 100MB media)
     match /uploads/{allPaths=**} {
-       allow write: if request.auth != null;
+      allow write: if isValidMedia(100);
     }
   }
 }

@@ -14,7 +14,8 @@
     }
   ],
   "hosting": {
-    "public": "dist",
+    "target": "alfa-news",
+    "public": "web/dist",
     "ignore": [
       "firebase.json",
       "**/.*",
@@ -22,8 +23,47 @@
     ],
     "rewrites": [
       {
+        "source": "/news-card/**",
+        "function": "getNewsCardImage"
+      },
+      {
+        "source": "/news/**",
+        "function": "shareNews"
+      },
+      {
+        "source": "/ad/**",
+        "function": "shareNews"
+      },
+      {
         "source": "/verify/**",
         "function": "verifyReporter"
+      },
+      {
+        "source": "/sitemap.xml",
+        "function": "serveSitemap"
+      },
+      {
+        "source": "/ads.txt",
+        "destination": "/ads.txt"
+      },
+      {
+        "source": "/app-ads.txt",
+        "destination": "/app-ads.txt"
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ],
+    "headers": [
+      {
+        "source": "/index.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
       }
     ]
   }
