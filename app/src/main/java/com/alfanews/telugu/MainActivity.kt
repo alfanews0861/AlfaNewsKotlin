@@ -69,7 +69,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
         if (result.resultCode != RESULT_OK) {
-            Log.d("MainActivity", "Update flow cancelled or failed: ${result.resultCode}")
+            Log.d("MainActivity", "Flexible update flow cancelled or failed: ${result.resultCode}")
         }
     }
     
@@ -109,8 +109,8 @@ class MainActivity : ComponentActivity() {
         appUpdateManager = AppUpdateManagerFactory.create(this)
         appUpdateManager.registerListener(installStateUpdatedListener)
         
-        // Silent / Flexible In-App Update check
-        checkAppUpdate()
+        // Silent / Flexible In-App Update check (Background download, non-blocking)
+        checkFlexibleAppUpdate()
 
         // Hand over control to our custom Animated Splash Screen immediately
         splashScreen.setKeepOnScreenCondition { false }
@@ -206,8 +206,7 @@ class MainActivity : ComponentActivity() {
                             MainScreen(
                                 mainViewModel = mainViewModel, 
                                 newsFeedViewModel = newsFeedViewModel,
-                                checkForUpdate = this@MainActivity::checkAppUpdate,
-                                completeUpdate = this@MainActivity::completeUpdate
+                                completeUpdate = this@MainActivity::completeAppUpdate
                             )
                         }
                     }
@@ -216,7 +215,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun checkAppUpdate() {
+    private fun checkFlexibleAppUpdate() {
         if (this@MainActivity.isFinishing || this@MainActivity.isDestroyed) return
         
         try {
@@ -224,6 +223,7 @@ class MainActivity : ComponentActivity() {
             appUpdateInfoTask.addOnSuccessListener { appUpdateInfo ->
                 if (this@MainActivity.isFinishing || this@MainActivity.isDestroyed) return@addOnSuccessListener
                 
+                // Silent / Flexible Update only - Never force/immediate update
                 if (appUpdateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
                     appUpdateInfo.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE)) {
                     
@@ -241,19 +241,15 @@ class MainActivity : ComponentActivity() {
                 Log.w("MainActivity", "Failed to check appUpdateInfo", e)
             }
         } catch (e: Throwable) {
-            Log.e("MainActivity", "Error in checkAppUpdate", e)
+            Log.e("MainActivity", "Error in checkFlexibleAppUpdate", e)
         }
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-    }
-
-    private fun completeUpdate() {
+    private fun completeAppUpdate() {
         try {
             appUpdateManager.completeUpdate()
         } catch (e: Throwable) {
-            Log.e("MainActivity", "Failed to complete update", e)
+            Log.e("MainActivity", "Failed to complete app update", e)
         }
     }
 
@@ -313,7 +309,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        appUpdateManager.unregisterListener(installStateUpdatedListener)
+        try {
+            appUpdateManager.unregisterListener(installStateUpdatedListener)
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Error unregistering update listener", e)
+        }
     }
 
     // యాప్ రన్ అవుతున్నప్పుడు కొత్త ఇంటెంట్ వస్తే

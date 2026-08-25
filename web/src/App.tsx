@@ -7,6 +7,7 @@ import AdminPanel from './components/AdminPanel';
 import Footer from './components/Footer';
 import Classifieds from './components/Classifieds';
 import ContactUsPage from './components/policy/ContactUsPage';
+import JoinReporterPage from './components/JoinReporterPage';
 import ReporterProfileView from './components/ReporterProfileView';
 import CreateMenu from './components/CreateMenu';
 import InstallPrompt from './components/InstallPrompt';
@@ -67,7 +68,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const handleHashChange = () => {
         if (window.location.hash.startsWith('#/apply-reporter')) {
-            setActiveTab('contact');
+            setActiveTab('apply-reporter');
         }
     };
     
@@ -220,12 +221,16 @@ const App: React.FC = () => {
       else if (action === 'citizen') { setActiveTab('contact'); }
       else if (action === 'job_application') { 
           window.location.hash = '#/apply-reporter'; 
-          setActiveTab('contact'); 
+          setActiveTab('apply-reporter'); 
       }
   }, []);
 
   const handleProfileClick = useCallback(() => setShowLogin(true), []);
-  const handleReporterClick = useCallback((id: string) => { setSelectedReporterId(id); setHomeViewMode('profile'); }, []);
+  const handleReporterClick = useCallback((id: string) => { 
+      setSelectedReporterId(id); 
+      setHomeViewMode('profile'); 
+      setActiveTab('home');
+  }, []);
 
   if (!authChecked) return <div className="h-full bg-black flex items-center justify-center text-white">Loading...</div>;
 
@@ -243,10 +248,20 @@ const App: React.FC = () => {
                     )}
                 </>
             )}
-            {activeTab === 'local' && <LocalNewsFeed language={language} onProfileClick={() => setShowLogin(true)} currentUser={currentUser} onReporterClick={(id) => { setSelectedReporterId(id); setHomeViewMode('profile'); }} />}
+            {activeTab === 'local' && <LocalNewsFeed language={language} onProfileClick={() => setShowLogin(true)} currentUser={currentUser} onReporterClick={handleReporterClick} />}
             {activeTab === 'create' && <CreateMenu user={currentUser} onAction={handleCreateAction} onClose={() => setActiveTab('home')} />}
             {activeTab === 'classifieds' && <Classifieds />}
             {activeTab === 'contact' && <div className="h-full overflow-y-auto bg-white p-4 text-black"><ContactUsPage /></div>}
+            {activeTab === 'apply-reporter' && (
+                <JoinReporterPage 
+                    user={currentUser} 
+                    onClose={() => {
+                        if (window.location.hash) { window.location.hash = ''; window.history.replaceState(null, '', ' '); }
+                        setActiveTab('home');
+                    }} 
+                    onLoginRequest={() => setShowLogin(true)} 
+                />
+            )}
             {activeTab === 'profile' && (
                 <div className="absolute inset-0 z-40 text-black">
                     <AdminPanel user={currentUser || {id:'guest', role:UserRole.GUEST, name:'Guest'} as User} onClose={() => setActiveTab('home')} language={language} setLanguage={setLanguage} onLogout={() => signOut(auth)} onLoginRequest={() => setShowLogin(true)} />

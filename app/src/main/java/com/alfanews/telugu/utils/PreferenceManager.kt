@@ -56,6 +56,8 @@ class PreferenceManager(context: Context) {
         private const val KEY_STREAK_LONGEST_DAYS = "key_streak_longest_days"
         private const val KEY_STREAK_TOTAL_DAYS = "key_streak_total_days"
         private const val KEY_OPINION_VOTE_PREFIX = "key_opinion_vote_"
+        private const val KEY_DETECTED_MANDAL = "key_detected_mandal"
+        private const val KEY_MANDAL_SCORES_PREFIX = "key_mandal_scores_"
 
         @Volatile
         private var INSTANCE: PreferenceManager? = null
@@ -473,5 +475,84 @@ class PreferenceManager(context: Context) {
 
     fun saveOpinionVote(postId: String, option: String) {
         prefs.edit().putString(KEY_OPINION_VOTE_PREFIX + postId, option).apply()
+    }
+
+    // ==========================================
+    // MANDAL & LOCATION PERSONALIZATION TRACKER
+    // ==========================================
+
+    /** ఆటోమేటిక్‌గా (GPS) గుర్తించబడిన మండలం. */
+    var detectedMandal: String?
+        get() = prefs.getString(KEY_DETECTED_MANDAL, null)
+        set(value) {
+            prefs.edit().putString(KEY_DETECTED_MANDAL, value).apply()
+        }
+
+    /**
+     * యూజర్ ఒక మండల వార్తను చదివినప్పుడు ఆ మండలం రీడ్ స్కోరును పెంచుతుంది.
+     */
+    fun trackMandalRead(mandal: String, district: String, weight: Int = 1) {
+        if (mandal.isBlank() || district.isBlank()) return
+        val currentScores = getMandalScores(district).toMutableMap()
+        currentScores[mandal] = (currentScores[mandal] ?: 0) + weight
+        saveMandalScores(district, currentScores)
+    }
+
+    /**
+     * ఒక జిల్లాలో యూజర్ చదివిన అన్ని మండలాల స్కోర్లను రిటర్న్ చేస్తుంది.
+     */
+    fun getMandalScores(district: String): Map<String, Int> {
+        if (district.isBlank()) return emptyMap()
+        val json = prefs.getString("$KEY_MANDAL_SCORES_PREFIX$district", null) ?: return emptyMap()
+        return try {
+            val result = mutableMapOf<String, Int>()
+            val obj = org.json.JSONObject(json)
+            obj.keys().forEach { key -> result[key] = obj.getInt(key) }
+            result
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    /**
+     * ఒక జిల్లాలో యూజర్ ఎక్కువగా చదువుతున్న మండలాన్ని (Top Read Mandal) అందిస్తుంది.
+     */
+    fun getTopMandal(district: String): String? {
+        if (district.isBlank()) return null
+        return getMandalScores(district)
+            .entries
+            .filter { it.value > 0 }
+            .maxByOrNull { it.value }
+            ?.key
+    }
+
+    /**
+     * యూజర్ యొక్క ప్రాథమిక మండలాన్ని అందిస్తుంది:
+     * 1. ఎక్కువగా చదివిన మండలం (Top Read Mandal)
+     * 2. GPS గుర్తించిన మండలం (Detected Mandal)
+     * 3. ప్రొఫైల్ లో కేటాయించిన మండలం (Assigned Mandal)
+     */
+    fun getEffectiveUserMandal(district: String?, currentUser: com.alfanews.telugu.models.User? = null): String? {
+        if (district.isNullOrBlank()) return null
+        
+        // 1. యూజర్ ఎక్కువగా చదివిన మండలం (Top read mandal in this district)
+        val topRead = getTopMandal(district)
+        if (!topRead.isNullOrBlank()) return topRead
+
+        // 2. GPS ద్వారా గుర్తించిన మండలం (Detected from Geocoder)
+        val detected = detectedMandal
+        if (!detected.isNullOrBlank()) return detected
+
+        // 3. యూజర్ లేదా రిపోర్టర్ కి అసైన్ చేసిన మండలం
+        val assigned = currentUser?.assignedMandal
+        if (!assigned.isNullOrBlank()) return assigned
+
+        return null
+    }
+
+    private fun saveMandalScores(district: String, scores: Map<String, Int>) {
+        val obj = org.json.JSONObject()
+        scores.forEach { (k, v) -> obj.put(k, v) }
+        prefs.edit().putString("$KEY_MANDAL_SCORES_PREFIX$district", obj.toString()).apply()
     }
 }

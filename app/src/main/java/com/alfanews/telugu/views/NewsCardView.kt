@@ -227,6 +227,20 @@ fun NewsCardView(
                             Log.e("NewsCardView", "Category tracking failed", e)
                         }
                     }
+
+                    // 📍 MANDAL ENGAGEMENT TRACKING
+                    try {
+                        val prefs = PreferenceManager.getInstance(context)
+                        val effectiveDist = district ?: post.district ?: prefs.getEffectiveDistrict()
+                        if (!effectiveDist.isNullOrBlank() && effectiveDist != "General" && effectiveDist != "State") {
+                            val mandal = com.alfanews.telugu.utils.LocationHierarchyManager.extractMandalFromPost(post, effectiveDist)
+                            if (!mandal.isNullOrBlank()) {
+                                prefs.trackMandalRead(mandal, effectiveDist, 1)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("NewsCardView", "Mandal tracking failed", e)
+                    }
                 }
             }
         }
@@ -405,7 +419,8 @@ fun NewsCardView(
                                     fontFamily = Mallanna,
                                     modifier = Modifier.align(Alignment.BottomStart).padding(10.dp).clickable {
                                         val url = post.originalUrl
-                                        if (!url.isNullOrEmpty()) uriHandler.openUri(url) else onReporterClick(post.reporter.id)
+                                        val reporterTarget = post.reporter.id.ifEmpty { post.reporter.name }
+                                        if (!url.isNullOrEmpty()) uriHandler.openUri(url) else if (reporterTarget.isNotEmpty()) onReporterClick(reporterTarget)
                                     }
                                 )
                             }
@@ -437,6 +452,7 @@ fun NewsCardView(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 if (post.reporter.name.isNotEmpty()) {
+                                    val reporterTarget = post.reporter.id.ifEmpty { post.reporter.name }
                                     Text(
                                         text = post.reporter.name,
                                         fontSize = 12.sp,
@@ -445,7 +461,9 @@ fun NewsCardView(
                                         color = MaterialTheme.colorScheme.primary,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f, fill = false).clickable { onReporterClick(post.reporter.id) }
+                                        modifier = Modifier.weight(1f, fill = false).clickable { 
+                                            if (reporterTarget.isNotEmpty()) onReporterClick(reporterTarget)
+                                        }
                                     )
                                     Text(text = " | ", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
                                 }
@@ -648,13 +666,7 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
         try {
             val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
             val shareUrl = "https://alfanews.app/news/${post.id}"
-            val shareText = customShareText ?: buildString {
-                append("🔴 ")
-                append(headline)
-                append("\n\n👇 పూర్తి వార్త & వీడియో కోసం క్రింది లింక్ క్లిక్ చేయండి:\n")
-                append(shareUrl)
-                append("\n\n📲 తాజా తెలుగు వార్తల కోసం Alfa News యాప్ ఇన్‌స్టాల్ చేసుకోండి!")
-            }
+            val shareText = customShareText ?: "🔴 $headline\n\n$shareUrl"
 
             val intent = Intent(Intent.ACTION_SEND).apply {
                 action = Intent.ACTION_SEND

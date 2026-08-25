@@ -237,7 +237,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onClose }) =>
                             try {
                                 // Attempt to sign in with a known test account or just bypass for preview
                                 // For now, let's just show a message or try a common test email if it exists
-                                alert("Preview లో టెస్టింగ్ కోసం 'Email' ట్యాబ్ లో test@alfanews.in / 123456 ప్రయత్నించండి.");
+                                alert("Preview లో టెస్టింగ్ కోసం 'Email' ట్యాబ్ లో test@alfanews.app / 123456 ప్రయత్నించండి.");
                             } finally { setIsLoading(false); }
                         }} 
                         className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl text-sm"

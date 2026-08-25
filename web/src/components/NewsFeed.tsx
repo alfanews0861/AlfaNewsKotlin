@@ -47,6 +47,29 @@ interface NewsFeedProps {
   initialPostId?: string | null;
 }
 
+const strictlyGlobalKeywords = [
+  "సినిమా", "స్పోర్ట్స్", "జాతీయం", "అంతర్జాతీయం", "వ్యాపారం", 
+  "ఆరోగ్యం", "విద్య", "టెక్నాలజీ", "వ్యవసాయం", "భక్తి", 
+  "వినోదం", "ప్రపంచం", "క్రైమ్", "లైఫ్ స్టైల్", "జనరల్", "రాష్ట్రం",
+  "రాష్ట్ర వార్తలు", "ముఖ్యాంశాలు", "బ్రేకింగ్", "వైరల్", "తాజా వార్తలు",
+  "ఆంధ్రప్రదేశ్", "తెలంగాణ", "భారతదేశం", "రాజకీయం", "సినిమా వార్తలు"
+];
+
+const globalDistrictsList = [
+  "General", "State", "Sports", "Health", "Technology", "Business", 
+  "Entertainment", "Cinema", "National", "International", "Politics", 
+  "Crime", "Education", "Agriculture", "Devotional", "Lifestyle", 
+  "AndhraPradesh", "Telangana", "ఆంధ్రప్రదేశ్", "తెలంగాణ", "జనరల్", "భారతదేశం", "ప్రపంచం"
+];
+
+const isGlobalPost = (post: NewsPost): boolean => {
+  if (post.isGlobal) return true;
+  if (!post.district || globalDistrictsList.some(d => d.toLowerCase() === post.district?.toLowerCase())) return true;
+  if (post.category && strictlyGlobalKeywords.some(kw => post.category?.toLowerCase().includes(kw.toLowerCase()))) return true;
+  if (post.categories && post.categories.some(c => strictlyGlobalKeywords.some(kw => c.toLowerCase().includes(kw.toLowerCase())))) return true;
+  return false;
+};
+
 const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUser, onLoadComplete, onReporterClick, initialPostId }) => {
   const hasMoreRef = useRef(true);
   
@@ -135,20 +158,19 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
             }
         }
 
-        // REFINED MIXING LOGIC:
-        
+        // 40/30/30 MIXING LOGIC:
         let prefPromise = Promise.resolve({posts:[], cursor:null, count:0});
         
         if (explicitCategories && explicitCategories.length > 0) {
             const catsToFetch = explicitCategories.slice(0, 10);
-            prefPromise = fetchStream([where('categories', 'array-contains-any', catsToFetch)], prefCursor.current, 3);
+            prefPromise = fetchStream([where('categories', 'array-contains-any', catsToFetch)], prefCursor.current, 4);
         } else if (implicitCategory) {
-            prefPromise = fetchStream([where('categories', 'array-contains', implicitCategory)], prefCursor.current, 3);
+            prefPromise = fetchStream([where('categories', 'array-contains', implicitCategory)], prefCursor.current, 4);
         }
 
         const [prefRes, localRes, globalRes, greetingRes] = await Promise.all([
             prefPromise,
-            userDistrict ? fetchStream([where('district', '==', userDistrict)], localCursor.current, 5) : Promise.resolve({posts:[], cursor:null, count:0}),
+            userDistrict ? fetchStream([where('district', '==', userDistrict)], localCursor.current, 6) : Promise.resolve({posts:[], cursor:null, count:0}),
             fetchStream([where('district', 'in', ["General", "State", "Sports", "Health", "Technology", "Business", "Entertainment", "Cinema", "National", "International", "Politics", "Crime", "Education", "Agriculture", "Devotional", "Lifestyle", "AndhraPradesh", "Telangana"])], globalCursor.current, 10),
             fetchStream([where('categories', 'array-contains', 'Greetings')], greetingCursor.current, 1)
         ]);
@@ -158,18 +180,12 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
         globalCursor.current = globalRes.cursor;
         greetingCursor.current = greetingRes.cursor;
 
-        const globalDistricts = ["General", "State", "Sports", "Health", "Technology", "Business", "Entertainment", "Cinema", "National", "International", "Politics", "Crime", "Education", "Agriculture", "Devotional", "Lifestyle", "AndhraPradesh", "Telangana"];
         const combinedRaw = [...prefRes.posts, ...localRes.posts, ...globalRes.posts, ...greetingRes.posts];
 
-        // Filter out posts from other districts
+        // Filter out posts: allow if global OR if district matches user's district
         const filteredRaw = combinedRaw.filter(p => {
-            // Global news is always allowed
-            if (!p.district || globalDistricts.includes(p.district)) return true;
-            
-            // If user has a district, allow it
-            if (userDistrict && p.district === userDistrict) return true;
-            
-            // Otherwise, it's a district news from a different district, so exclude it
+            if (isGlobalPost(p)) return true;
+            if (userDistrict && p.district?.toLowerCase() === userDistrict.toLowerCase()) return true;
             return false;
         });
 

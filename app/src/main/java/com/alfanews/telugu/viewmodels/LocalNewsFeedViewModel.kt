@@ -160,7 +160,14 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         val locality = address.locality
                         val detectedName = subAdmin ?: locality ?: adminArea
                         val district = findMatchingDistrict(detectedName)
-                        if (district != null) return@withContext district
+                        if (district != null) {
+                            val placeForMandal = locality ?: address.subLocality ?: address.featureName ?: localityPlace
+                            val matchedMandal = com.alfanews.telugu.utils.LocationHierarchyManager.findMatchingMandal(district, placeForMandal)
+                            if (matchedMandal != null) {
+                                prefs.detectedMandal = matchedMandal
+                            }
+                            return@withContext district
+                        }
                     }
                 }
             } catch (e: Exception) { }
@@ -369,13 +376,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 lastDocument = snapshot?.documents?.lastOrNull()
                 _hasMore.value = snapshot?.documents?.size == pageSize
                 
-                val finalPosts = posts.toMutableList()
-                val lat = prefs.lastLat.takeIf { it != 0.0 }
-                val lon = prefs.lastLon.takeIf { it != 0.0 }
-                
-                // Weather post removed as per user request to improve performance
+                val rankedPosts = withContext(Dispatchers.Default) {
+                    rankLocalNews(posts, district, currentUser)
+                }
 
-                _news.value = finalPosts
+                _news.value = rankedPosts
                 // Only scroll to top if we are loading the first page (lastDocument is null)
                 if (lastDocument == null) {
                     _shouldScrollToTop.value = true 
@@ -451,14 +456,17 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                      val uniqueNewPosts = newPosts.filter { post: NewsPost -> !currentIds.contains(post.id) }
                      
                      if (uniqueNewPosts.isNotEmpty()) {
-                        _news.value = _news.value + uniqueNewPosts
-                        consecutiveEmptyLoads = 0
-                    } else {
-                         consecutiveEmptyLoads++
-                         if (consecutiveEmptyLoads >= 3) {
-                             _hasMore.value = false
+                         val rankedNewPosts = withContext(Dispatchers.Default) {
+                             rankLocalNews(uniqueNewPosts, district, currentUser)
                          }
-                     }
+                         _news.value = _news.value + rankedNewPosts
+                         consecutiveEmptyLoads = 0
+                     } else {
+                          consecutiveEmptyLoads++
+                          if (consecutiveEmptyLoads >= 3) {
+                              _hasMore.value = false
+                          }
+                      }
                  } else {
                      _hasMore.value = false
                  }
@@ -479,6 +487,64 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         if (now - lastRefreshTimeLong > 300000 || _news.value.isEmpty()) {
             loadNews(language, currentUser)
         }
+    }
+
+    /**
+     * 3-Tier ప్రాధాన్యత ఆర్డర్ లో జిల్లా వార్తలను ర్యాంక్ చేస్తుంది:
+     * 1. Tier 1 (టాప్ ప్రయారిటీ): యూజర్ ఎక్కువగా చదివే మండలం / GPS గుర్తించిన మండలం వార్తలు
+     * 2. Tier 2 (రెండవ ప్రయారిటీ): ఆ నియోజకవర్గంలోని (Assembly Constituency) ఇతర మండలాల వార్తలు
+     * 3. Tier 3 (మూడవ ప్రయారిటీ): చుట్టుపక్కల నియోజకవర్గాలు & జిల్లాలోని ఇతర వార్తలు
+     */
+    private fun rankLocalNews(
+        posts: List<NewsPost>,
+        district: String,
+        currentUser: User?
+    ): List<NewsPost> {
+        if (posts.isEmpty()) return emptyList()
+
+        // 1. యూజర్ యొక్క ప్రాథమిక మండలాన్ని (Primary Mandal) గుర్తించడం
+        val primaryMandal = prefs.getEffectiveUserMandal(district, currentUser)
+        if (primaryMandal.isNullOrBlank()) {
+            // Cold start or no reading/GPS signal: తాజా క్రమం (Timestamp DESC)
+            return posts.sortedByDescending { it.timestamp }
+        }
+
+        // 2. ఆ మండలం చెందే అసెంబ్లీ నియోజకవర్గాన్ని (Constituency) గుర్తించడం
+        val constituency = com.alfanews.telugu.utils.LocationHierarchyManager.getConstituencyForMandal(district, primaryMandal)
+        val constituencyMandals = if (!constituency.isNullOrBlank()) {
+            com.alfanews.telugu.utils.LocationHierarchyManager.getMandalsForConstituency(district, constituency)
+        } else emptyList()
+
+        // 3. 3-Tier గ్రూపింగ్
+        val tier1Mandal = mutableListOf<NewsPost>()
+        val tier2Constituency = mutableListOf<NewsPost>()
+        val tier3District = mutableListOf<NewsPost>()
+
+        for (post in posts) {
+            val postMandal = com.alfanews.telugu.utils.LocationHierarchyManager.extractMandalFromPost(post, district)
+
+            if (postMandal != null && isMandalMatch(postMandal, primaryMandal)) {
+                tier1Mandal.add(post)
+            } else if (postMandal != null && constituencyMandals.any { isMandalMatch(it, postMandal) }) {
+                tier2Constituency.add(post)
+            } else {
+                tier3District.add(post)
+            }
+        }
+
+        // ప్రతి గ్రూప్‌లో తాజా వార్తలకు ప్రాధాన్యత (Timestamp DESC)
+        tier1Mandal.sortByDescending { it.timestamp }
+        tier2Constituency.sortByDescending { it.timestamp }
+        tier3District.sortByDescending { it.timestamp }
+
+        // బ్లెండింగ్: యూజర్ మండలం -> ఆ నియోజకవర్గం -> జిల్లాలోని మిగతా వార్తలు
+        return (tier1Mandal + tier2Constituency + tier3District).distinctBy { it.id }
+    }
+
+    private fun isMandalMatch(m1: String, m2: String): Boolean {
+        val clean1 = m1.replace("అర్బన్", "").replace("రూరల్", "").replace("Urban", "", true).replace("Rural", "", true).trim()
+        val clean2 = m2.replace("అర్బన్", "").replace("రూరల్", "").replace("Urban", "", true).replace("Rural", "", true).trim()
+        return clean1.equals(clean2, ignoreCase = true) || clean1.contains(clean2, ignoreCase = true) || clean2.contains(clean1, ignoreCase = true)
     }
 
     private fun convertToNewsPost(id: String, data: Map<String, Any?>): NewsPost? {

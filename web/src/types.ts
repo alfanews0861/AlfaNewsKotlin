@@ -76,8 +76,30 @@ export interface NewsPost {
     organizations: string[];
     locations: string[];
   };
+  category?: string;
+  youtubeUrl?: string;
   tone?: string;
   type?: string;
+  approved?: boolean;
+  status?: string;
+  isGlobal?: boolean;
+  surveyQuestions?: SurveyQuestion[];
+  votes?: Record<string, number>;
+  realVotesCount?: number;
+  fakeVotesBase?: number;
+  surveyCreatedAt?: number;
+}
+
+export interface SurveyOption {
+  id: string;
+  text: string;
+  votes?: number;
+}
+
+export interface SurveyQuestion {
+  id: string;
+  questionText: string;
+  options: SurveyOption[];
 }
 
 export enum Language {
@@ -156,15 +178,60 @@ export interface ScrapingSource {
     category: string;
     state?: string;
     district?: string;
+    group?: number;
     lastStatus?: 'active' | 'error';
     lastFetchTime?: any;
     lastError?: string;
     lastProcessedCount?: number;
-    // New stats fields
+    lastFailedCount?: number;
+    processed24h?: number;
+    failed24h?: number;
+    todayProcessedCount?: number;
     totalProcessedCount?: number;
     totalFailedCount?: number;
-    todayProcessedCount?: number;
     isPaused?: boolean;
+}
+
+export interface ReporterConversation {
+    id: string;
+    reporterId: string;
+    reporterName: string;
+    reporterDistrict?: string;
+    reporterPhone?: string;
+    reporterPhotoUrl?: string;
+    lastMessage: string;
+    lastMessageTime: number;
+    lastSenderRole: string;
+    unreadCountForAdmin: number;
+    unreadCountForReporter: number;
+    updatedAt: number;
+}
+
+export interface ReporterMessage {
+    id: string;
+    senderId: string;
+    senderName: string;
+    senderRole: string;
+    text: string;
+    imageUrl?: string;
+    timestamp: number;
+    read: boolean;
+}
+
+export interface AffiliateConfig {
+    amazonAccessKey: string;
+    amazonSecretKey: string;
+    amazonAssociateTag: string;
+    flipkartId: string;
+    flipkartToken: string;
+    updatedAt?: any;
+}
+
+export interface AppConfigData {
+    min_version_code?: number;
+    authorized_signature?: string;
+    maintenance_mode?: boolean;
+    announcement_text?: string;
 }
 
 export enum AdStatus {

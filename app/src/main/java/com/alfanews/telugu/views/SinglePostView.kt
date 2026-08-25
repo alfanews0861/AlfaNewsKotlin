@@ -43,7 +43,8 @@ fun SinglePostView(
     currentUser: User?,
     onLoginRequest: () -> Unit = {},
     onGoHome: () -> Unit = {},
-    onDistrictClick: () -> Unit = {}
+    onDistrictClick: () -> Unit = {},
+    onReporterClick: (String) -> Unit = {}
 ) {
     var post by remember { mutableStateOf<NewsPost?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -157,7 +158,7 @@ fun SinglePostView(
                             currentUser = currentUser,
                             showTopHeader = false,
                             onProfileClick = onLoginRequest,
-                            onReporterClick = {},
+                            onReporterClick = onReporterClick,
                             onDistrictClick = onDistrictClick
                         )
                     }

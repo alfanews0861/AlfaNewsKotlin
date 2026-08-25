@@ -108,9 +108,7 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
     if (isSharing || !cardRef.current) return;
     setIsSharing(true);
     
-    const packageName = "com.alfanews.telugu"; 
-    const playStoreUrl = `https://play.google.com/store/apps/details?id=${packageName}&referrer=news_id%3D${post.id}`;
-    const shareText = `*${headline}*\n\nపూర్తి వివరాల కోసం ఆల్ఫా న్యూస్ యాప్ ని డౌన్లోడ్ చేసుకోండి:\n${playStoreUrl}`;
+    const shareText = `🔴 ${headline}\n\nhttps://alfanews.app/news/${post.id}`;
 
     try {
         updateDoc(doc(db, 'news', post.id), { shares: increment(1) }).catch(console.error);
@@ -174,7 +172,7 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
             <div className="flex-1 overflow-y-auto no-scrollbar">
                 <h1 className="font-ramabhadra text-2xl leading-tight mb-2">{headline}</h1>
                 <div className="font-mallanna text-sm text-gray-400 mb-3">
-                <span onClick={(e) => { e.stopPropagation(); onReporterClick(post.reporter.id); }} className="cursor-pointer hover:underline">{post.reporter.name}</span> • <span onClick={(e) => { e.stopPropagation(); onCategoryClick(post.category); }} className="cursor-pointer hover:underline">{post.location}</span> • <span>{formattedTimestamp}</span>
+                <span onClick={(e) => { e.stopPropagation(); onReporterClick(post.reporter?.id || post.reporter?.name || ''); }} className="cursor-pointer hover:underline">{post.reporter?.name || 'Reporter'}</span> • <span onClick={(e) => { e.stopPropagation(); onCategoryClick(post.category); }} className="cursor-pointer hover:underline">{post.location}</span> • <span>{formattedTimestamp}</span>
                 </div>
                 <p className="font-mallanna text-lg leading-relaxed">{content}</p>
             </div>

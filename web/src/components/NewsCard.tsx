@@ -23,6 +23,22 @@ const CommentIcon = () => (
   <MessageCircle className="h-6 w-6 text-white" strokeWidth={1.5} />
 );
 
+export const extractYoutubeVideoId = (url?: string | null): string | null => {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  
+  const match = trimmed.match(/^.*(?:(?:youtu\.be\/|v\/|vi\/|u\/\w\/|embed\/|shorts\/)|(?:(?:watch)?\?v(?:i)?=|\&v(?:i)?=))([^#\&\?]*).*/i);
+  if (match && match[1] && match[1].length === 11) {
+    return match[1];
+  }
+  
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
+    return trimmed;
+  }
+  return null;
+};
+
 interface NewsCardProps {
   post: NewsPost;
   language: Language;
@@ -49,6 +65,9 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
 
   const headline = language === Language.TELUGU ? (post.headline?.telugu || '') : (post.headline?.english || '');
   const content = language === Language.TELUGU ? (post.content?.telugu || '') : (post.content?.english || '');
+
+  // Extract YouTube ID if present in youtubeUrl or mediaUrl
+  const youtubeVideoId = extractYoutubeVideoId(post.youtubeUrl || (post.mediaType === 'video' || post.mediaUrl?.includes('youtu') ? post.mediaUrl : null));
 
   // --- FAKE COUNTERS LOGIC ---
   useEffect(() => {
@@ -124,7 +143,7 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
   const handleShare = async () => {
     if (isSharing || !cardRef.current) return;
     setIsSharing(true);
-    const shareText = `*${headline}*\n\nపూర్తి వివరాల కోసం ఆల్ఫా న్యూస్ యాప్ డౌన్లోడ్ చేసుకోండి: https://alfanews.in/#/s/${post.id}`;
+    const shareText = `🔴 ${headline}\n\nhttps://alfanews.app/news/${post.id}`;
     try {
         if (navigator.share) {
             await navigator.share({ title: 'Alfa News', text: shareText });
@@ -271,13 +290,23 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
       <div ref={cardRef} className="w-full h-full snap-start snap-always shrink-0 overflow-hidden text-white bg-black flex flex-col relative border-b border-white/5">
         {/* Top Media Section (45%) */}
         <div className="h-[45%] w-full relative shrink-0 overflow-hidden bg-zinc-900">
-          {post.mediaType === 'video' ? (
+          {youtubeVideoId ? (
+            <div className="w-full h-full relative bg-black flex items-center justify-center">
+              <iframe
+                src={`https://www.youtube-nocookie.com/embed/${youtubeVideoId}?autoplay=1&mute=1&playsinline=1&enablejsapi=1&rel=0&modestbranding=1`}
+                title={headline || "YouTube Video"}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                className="w-full h-full border-0"
+              />
+            </div>
+          ) : post.mediaType === 'video' ? (
             <video ref={videoRef} src={post.mediaUrl} className="w-full h-full object-cover object-top" loop muted playsInline preload="none" />
           ) : (
             <img src={getOptimizedImageUrl(post.mediaUrl)} alt="News" className="w-full h-full object-cover object-top" loading="lazy" referrerPolicy="no-referrer" />
           )}
           {/* Subtle bottom shadow on image */}
-          <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/80 to-transparent"></div>
+          <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/80 to-transparent pointer-events-none"></div>
           {sourceDisplay && (
             <a 
               href={sourceDisplay.href} 
@@ -299,7 +328,16 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
                     
                     {/* Meta Section with Dotted Borders */}
                     <div className="py-1.5 border-y border-dotted border-white/20 mb-3 flex flex-wrap items-center gap-x-2 text-[10px] font-mallanna text-gray-400">
-                        <span className="text-red-500 font-bold">{post.reporter?.name || 'Reporter'}</span>
+                        <span 
+                            onClick={(e) => { 
+                                e.stopPropagation(); 
+                                const target = post.reporter?.id || post.reporter?.name;
+                                if (target) onReporterClick(target); 
+                            }} 
+                            className="text-red-500 font-bold cursor-pointer hover:underline"
+                        >
+                            {post.reporter?.name || 'Reporter'}
+                        </span>
                         <span>-</span>
                         <span>
                             {post.location === 'General' ? 'జనరల్' : 

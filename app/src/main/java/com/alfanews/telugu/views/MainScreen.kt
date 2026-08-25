@@ -39,8 +39,7 @@ import kotlinx.coroutines.launch
 fun MainScreen(
     mainViewModel: MainViewModel,
     newsFeedViewModel: NewsFeedViewModel,
-    checkForUpdate: () -> Unit,
-    completeUpdate: () -> Unit
+    completeUpdate: () -> Unit = {}
 ) {
     val currentUser: User? by mainViewModel.currentUser.collectAsStateWithLifecycle()
     val language: Language by mainViewModel.language.collectAsStateWithLifecycle()
@@ -100,10 +99,6 @@ fun MainScreen(
                 activeTab != "home" -> mainViewModel.setActiveTab("home")
             }
         }
-    }
-
-    LaunchedEffect(Unit) {
-        checkForUpdate()
     }
 
     val context = LocalContext.current

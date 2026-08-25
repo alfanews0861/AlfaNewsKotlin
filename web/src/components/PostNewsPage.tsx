@@ -23,6 +23,7 @@ const PostNewsPage: React.FC<PostNewsPageProps> = ({ user, postToEdit, onActionC
     const isEditMode = !!postToEdit;
     const [headline, setHeadline] = useState('');
     const [content, setContent] = useState('');
+    const [youtubeUrl, setYoutubeUrl] = useState('');
     const [mediaFile, setMediaFile] = useState<File | null>(null);
     const [mediaPreview, setMediaPreview] = useState<string | null>(null);
     const [selectedCategory, setSelectedCategory] = useState('రాజకీయం');
@@ -35,6 +36,7 @@ const PostNewsPage: React.FC<PostNewsPageProps> = ({ user, postToEdit, onActionC
         if (isEditMode && postToEdit) {
             setHeadline(postToEdit.headline?.telugu || '');
             setContent(postToEdit.content?.telugu || '');
+            setYoutubeUrl(postToEdit.youtubeUrl || '');
             setMediaPreview(postToEdit.mediaUrl);
             setSelectedCategory(postToEdit.categories?.find(c => CATEGORIES.includes(c)) || 'రాజకీయం');
             setSelectedDistrict(postToEdit.district || '');
@@ -114,11 +116,12 @@ const PostNewsPage: React.FC<PostNewsPageProps> = ({ user, postToEdit, onActionC
                 finalCategories.push(selectedDistrict);
             }
 
-            const baseData = {
+            const baseData: any = {
                 headline: { telugu: generatedTeluguHeadline || headline, english: englishHeadline || "" },
                 content: { telugu: summarizedTeluguContent || content, english: englishContent || "" },
                 mediaUrl,
-                mediaType: mediaFile?.type.startsWith('video') ? 'video' : (isEditMode ? postToEdit?.mediaType : 'image'),
+                youtubeUrl: youtubeUrl.trim(),
+                mediaType: youtubeUrl.trim() ? 'video' : (mediaFile?.type.startsWith('video') ? 'video' : (isEditMode ? postToEdit?.mediaType : 'image')),
                 postFormat: PostFormat.VERTICAL,
                 categories: Array.from(new Set(finalCategories)), 
                 category: finalCategory,
@@ -158,6 +161,17 @@ const PostNewsPage: React.FC<PostNewsPageProps> = ({ user, postToEdit, onActionC
                 <input type="text" className={inputClass} value={headline} onChange={e => setHeadline(e.target.value)} placeholder="హెడ్ లైన్..." required />
                 <textarea rows={6} className={inputClass} value={content} onChange={e => setContent(e.target.value)} placeholder="వార్త వివరాలు..." required />
                 
+                <div className="mb-4">
+                    <label className="block text-gray-700 font-bold mb-1 text-sm">యూట్యూబ్ వీడియో లింక్ (YouTube Video Link - ఐచ్ఛికం)</label>
+                    <input 
+                        type="url" 
+                        className="w-full border-2 p-3.5 rounded-xl text-base text-black bg-gray-50 focus:ring-2 focus:ring-red-500 outline-none" 
+                        value={youtubeUrl} 
+                        onChange={e => setYoutubeUrl(e.target.value)} 
+                        placeholder="https://www.youtube.com/watch?v=... లేదా https://youtu.be/..." 
+                    />
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <select className={inputClass} value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)}>
                         {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}

@@ -97,10 +97,10 @@ object ShareUtil {
             postTitle = postTitle,
             onLinkReady = { shortLink ->
                 val shareText = buildString {
-                    append("Check out this news: ")
+                    append("🔴 ")
                     append(postTitle)
                     if (additionalText.isNotEmpty()) {
-                        append("\n")
+                        append("\n\n")
                         append(additionalText)
                     }
                     append("\n\n")
@@ -127,10 +127,10 @@ object ShareUtil {
                 Log.e("ShareUtil", "Failed to share post", e)
                 // Fallback: Share without dynamic link (just the post ID)
                 val fallbackText = buildString {
-                    append("Check out this news: ")
+                    append("🔴 ")
                     append(postTitle)
                     if (additionalText.isNotEmpty()) {
-                        append("\n")
+                        append("\n\n")
                         append(additionalText)
                     }
                     append("\n\n")
@@ -169,13 +169,7 @@ object ShareUtil {
         customText: String? = null
     ) {
         val shareUrl = "https://alfanews.app/news/$postId"
-        val shareText = customText ?: buildString {
-            append("🔴 ")
-            append(headline)
-            append("\n\n👇 పూర్తి వార్త & వీడియో కోసం క్రింది లింక్ క్లిక్ చేయండి:\n")
-            append(shareUrl)
-            append("\n\n📲 తాజా తెలుగు వార్తల కోసం Alfa News యాప్ ఇన్‌స్టాల్ చేసుకోండి!")
-        }
+        val shareText = customText ?: "🔴 $headline\n\n$shareUrl"
 
         val sendIntent = Intent(Intent.ACTION_SEND).apply {
             action = Intent.ACTION_SEND

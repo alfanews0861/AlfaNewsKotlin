@@ -17,7 +17,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
 
         if (action == "com.alfanews.telugu.ACTION_SHARE") {
             // షేర్ చేయడానికి ప్రత్యేకమైన షేర్ ఇంటెంట్
-            val shareText = "$title\n\n$body\n\nపూర్తి వివరాల కోసం క్లిక్ చేయండి: $url\n\nAlfaNews యాప్ డౌన్లోడ్ చేసుకోండి: https://play.google.com/store/apps/details?id=com.alfanews.telugu"
+            val shareText = "🔴 $title\n\n$url"
             
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"

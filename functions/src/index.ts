@@ -208,128 +208,55 @@ export const getNewsCardImage = onRequest(async (req, res) => {
         }
 
         const data = doc.data() || {};
-        const title = data.headline?.telugu || data.headline?.english || data.title || data.businessName || "Alfa News Telugu";
-        const content = data.content?.telugu || data.summary?.telugu || data.content?.english || data.summary?.english || data.description || "";
-        const location = data.location || data.district || "ఆంధ్రప్రదేశ్";
-        const reporterName = data.reporter?.name || data.reporterName || "Alfa News";
-        const likes = data.likes || 0;
-        const shares = data.shares || 0;
-        const comments = data.commentCount || 0;
-
         let mediaUrl = data.mediaUrl || data.imageUrl || (Array.isArray(data.images) && data.images.length > 0 ? data.images[0] : null) || data.videoThumbnailUrl;
 
-        const cardWidth = 720;
-        const cardHeight = 1280;
-        const photoHeight = 486; // 38% of card height
-
-        // 1. Base Dark Background (#121212)
-        const bgSvg = `
-        <svg width="${cardWidth}" height="${cardHeight}" viewBox="0 0 ${cardWidth} ${cardHeight}" xmlns="http://www.w3.org/2000/svg">
-            <rect width="${cardWidth}" height="${cardHeight}" fill="#121212" />
-        </svg>`;
-
-        // 2. Fetch and prepare media photo (Width: 720, Height: 486)
-        let mediaBuffer: Buffer | null = null;
-        if (mediaUrl && mediaUrl.startsWith("http")) {
-            try {
-                const response = await fetch(mediaUrl, { signal: AbortSignal.timeout(4000) });
-                if (response.ok) {
-                    const arrayBuf = await response.arrayBuffer();
-                    const rawBuffer = Buffer.from(arrayBuf);
-                    mediaBuffer = await sharp(rawBuffer)
-                        .resize(cardWidth, photoHeight, { fit: 'cover', position: 'center' })
-                        .jpeg({ quality: 85 })
-                        .toBuffer();
-                }
-            } catch (err) {
-                console.warn("Could not fetch media photo for card:", err);
-            }
+        // If direct mediaUrl is available, redirect directly to original high-res image
+        if (mediaUrl && typeof mediaUrl === 'string' && mediaUrl.startsWith("http")) {
+            res.set('Cache-Control', 'public, max-age=86400, s-maxage=604800');
+            res.redirect(302, mediaUrl);
+            return;
         }
 
-        // 3. Format Text Lines
-        const titleLines = wrapText(title, 26, 3);
-        const contentLines = wrapText(content, 36, 12);
+        // Fallback: Generate a clean 1200x630 landscape card
+        const title = data.headline?.telugu || data.headline?.english || data.title || data.businessName || "Alfa News Telugu";
+        const location = data.location || data.district || "ఆంధ్రప్రదేశ్";
+        const reporterName = data.reporter?.name || data.reporterName || "Alfa News";
 
-        let headlineTspans = titleLines.map((line, idx) => `<tspan x="24" dy="${idx === 0 ? '0' : '44'}">${escapeXml(line)}</tspan>`).join('');
-        let contentTspans = contentLines.map((line, idx) => `<tspan x="24" dy="${idx === 0 ? '0' : '36'}">${escapeXml(line)}</tspan>`).join('');
+        const cardWidth = 1200;
+        const cardHeight = 630;
 
-        const overlaySvg = `
+        const titleLines = wrapText(title, 32, 4);
+        let headlineTspans = titleLines.map((line, idx) => `<tspan x="60" dy="${idx === 0 ? '0' : '56'}">${escapeXml(line)}</tspan>`).join('');
+
+        const cardSvg = `
         <svg width="${cardWidth}" height="${cardHeight}" viewBox="0 0 ${cardWidth} ${cardHeight}" xmlns="http://www.w3.org/2000/svg">
             <style>
-                .source { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Mallanna", "Ramabhadra", sans-serif; font-size: 16px; fill: #ffffff; }
-                .headline { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Mallanna", "Ramabhadra", sans-serif; font-size: 32px; font-weight: 800; fill: #ffffff; }
-                .reporter { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Mallanna", "Ramabhadra", sans-serif; font-size: 19px; font-weight: 700; fill: #38bdf8; }
-                .meta { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Mallanna", "Ramabhadra", sans-serif; font-size: 18px; fill: #94a3b8; }
-                .body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Mallanna", "Ramabhadra", sans-serif; font-size: 22px; font-weight: 400; fill: #cbd5e1; }
-                .action-count { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 15px; font-weight: 600; fill: #94a3b8; text-anchor: middle; }
-                .watermark { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; font-weight: 700; fill: #ef4444; }
+                .headline { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Mallanna", "Ramabhadra", sans-serif; font-size: 42px; font-weight: 800; fill: #ffffff; }
+                .reporter { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Mallanna", "Ramabhadra", sans-serif; font-size: 26px; font-weight: 700; fill: #38bdf8; }
+                .meta { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Mallanna", "Ramabhadra", sans-serif; font-size: 24px; fill: #94a3b8; }
+                .brand { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 28px; font-weight: 800; fill: #ffffff; }
             </style>
+            <!-- Background -->
+            <rect width="${cardWidth}" height="${cardHeight}" fill="#0f172a" />
+            
+            <!-- Top Header Bar -->
+            <rect x="0" y="0" width="${cardWidth}" height="90" fill="#ef4444" />
+            <text x="60" y="58" class="brand">🔴 ALFA NEWS TELUGU</text>
 
-            <!-- Media Source watermark on photo (Y: 465) -->
-            <rect x="0" y="445" width="720" height="41" fill="rgba(0,0,0,0.4)" />
-            <text x="16" y="471" class="source">మూలం: ${escapeXml(reporterName)}</text>
-
-            <!-- Headline Text (Y: 525) -->
-            <text x="24" y="525" class="headline">
+            <!-- Headline -->
+            <text x="60" y="200" class="headline">
                 ${headlineTspans}
             </text>
 
-            <!-- Dotted Line 1 (Y: 640) -->
-            <line x1="24" y1="645" x2="615" y2="645" stroke="#475569" stroke-width="1.5" stroke-dasharray="4 4" />
-
-            <!-- Meta Row: Reporter | Location (Y: 675) -->
-            <text x="24" y="675" class="reporter">${escapeXml(reporterName)}</text>
-            <text x="190" y="675" class="meta">| 📍 ${escapeXml(location)}</text>
-
-            <!-- Dotted Line 2 (Y: 695) -->
-            <line x1="24" y1="695" x2="615" y2="695" stroke="#475569" stroke-width="1.5" stroke-dasharray="4 4" />
-
-            <!-- Full Article Content Body (Y: 735) -->
-            <text x="24" y="735" class="body">
-                ${contentTspans}
-            </text>
-
-            <!-- Right Action Bar (X: 630 to 700) -->
-            <!-- Like Action -->
-            <circle cx="660" cy="540" r="22" fill="#1e293b" />
-            <text x="660" y="547" font-size="20" text-anchor="middle">❤️</text>
-            <text x="660" y="580" class="action-count">${likes}</text>
-
-            <!-- Share Action -->
-            <circle cx="660" cy="630" r="22" fill="#1e293b" />
-            <text x="660" y="637" font-size="20" text-anchor="middle">🔗</text>
-            <text x="660" y="670" class="action-count">${shares}</text>
-
-            <!-- Comment Action -->
-            <circle cx="660" cy="720" r="22" fill="#1e293b" />
-            <text x="660" y="727" font-size="20" text-anchor="middle">💬</text>
-            <text x="660" y="760" class="action-count">${comments}</text>
-
-            <!-- Bottom Brand Bar -->
-            <rect x="0" y="1230" width="720" height="50" fill="#0f172a" />
-            <text x="24" y="1262" class="watermark">🔴 ALFA NEWS APP</text>
-            <text x="560" y="1262" font-size="14" fill="#64748b" font-family="sans-serif">alfanews.app</text>
+            <!-- Meta Row -->
+            <line x1="60" y1="520" x2="1140" y2="520" stroke="#334155" stroke-width="2" stroke-dasharray="6 6" />
+            <text x="60" y="565" class="reporter">${escapeXml(reporterName)}</text>
+            <text x="320" y="565" class="meta">| 📍 ${escapeXml(location)}</text>
+            <text x="960" y="565" font-family="sans-serif" font-size="20" fill="#64748b">alfanews.app</text>
         </svg>`;
 
-        const compositeInputs: any[] = [];
-
-        if (mediaBuffer) {
-            compositeInputs.push({
-                input: mediaBuffer,
-                top: 0,
-                left: 0
-            });
-        }
-
-        compositeInputs.push({
-            input: Buffer.from(overlaySvg),
-            top: 0,
-            left: 0
-        });
-
-        const finalImage = await sharp(Buffer.from(bgSvg))
-            .composite(compositeInputs)
-            .jpeg({ quality: 85 })
+        const finalImage = await sharp(Buffer.from(cardSvg))
+            .jpeg({ quality: 90 })
             .toBuffer();
 
         res.set({
@@ -367,7 +294,11 @@ export const shareNews = onRequest(async (req, res) => {
         const titleRaw = data.headline?.telugu || data.headline?.english || data.title || data.businessName || "Alfa News Telugu";
         const descRaw = data.summary?.telugu || data.summary?.english || (data.content?.telugu ? data.content.telugu.substring(0, 160) + "..." : (data.description || "తాజా తెలుగు వార్తలు మరియు వీడియోల కోసం Alfa News యాప్‌లో చూడండి."));
         
-        const cardImageUrl = `https://alfanews.app/news-card/${id}.jpg`;
+        let rawImage = data.mediaUrl || data.imageUrl || (Array.isArray(data.images) && data.images.length > 0 ? data.images[0] : null) || data.videoThumbnailUrl;
+        const cardImageUrl = (rawImage && typeof rawImage === 'string' && rawImage.startsWith("http"))
+            ? rawImage
+            : `https://alfanews.app/news-card/${id}.jpg`;
+
         const safeTitle = escapeHtml(titleRaw);
         const safeDesc = escapeHtml(descRaw);
         const safeImage = escapeHtml(cardImageUrl);
@@ -381,7 +312,7 @@ export const shareNews = onRequest(async (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>${safeTitle} | Alfa News</title>
 
-    <!-- Open Graph (WhatsApp, Facebook, Telegram) - Full News Card Image -->
+    <!-- Open Graph (WhatsApp, Facebook, Telegram) - Clean High-Res Image Preview -->
     <meta property="og:site_name" content="Alfa News">
     <meta property="og:type" content="article">
     <meta property="og:url" content="${postUrl}">
@@ -390,8 +321,6 @@ export const shareNews = onRequest(async (req, res) => {
     <meta property="og:image" content="${safeImage}">
     <meta property="og:image:secure_url" content="${safeImage}">
     <meta property="og:image:type" content="image/jpeg">
-    <meta property="og:image:width" content="720">
-    <meta property="og:image:height" content="1200">
     <meta property="og:image:alt" content="${safeTitle}">
 
     <!-- Twitter Card -->

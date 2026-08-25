@@ -521,6 +521,15 @@ object AnalyticsService {
         post.entities.locations.forEach { loc ->
             if (loc.isNotBlank()) locationScores[loc] = (locationScores[loc] ?: 0) + weight
         }
+
+        // 📍 MANDAL ENGAGEMENT TRACKING
+        val postDistrict = extractDistrict(post)
+        val mandal = com.alfanews.telugu.utils.LocationHierarchyManager.extractMandalFromPost(post, postDistrict)
+        if (!mandal.isNullOrBlank() && postDistrict.isNotBlank() && postDistrict != "General") {
+            if (::appContext.isInitialized) {
+                com.alfanews.telugu.utils.PreferenceManager.getInstance(appContext).trackMandalRead(mandal, postDistrict, weight)
+            }
+        }
         
         normalizeScoresIfNeeded()
         saveToPrefs()

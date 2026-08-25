@@ -34,44 +34,95 @@ const ReporterProfileView: React.FC<ReporterProfileViewProps> = ({ reporterId, o
                 // Log Reporter Follow/Interest
                 logAnalyticsEvent(AnalyticsEventType.REPORTER_FOLLOW, { id: 'reporter_view', categories: [], reporter: { id: reporterId, name: '' } } as any, currentUser?.id);
                 
+                let resolvedReporter: User | null = null;
+
                 // Handling for the new Virtual Reporters from BOT_ prefix
                 if (reporterId.startsWith('BOT_')) {
-                    const botName = reporterId.replace('BOT_', '');
-                    setReporter({
+                    const botName = reporterId.replace('BOT_', '').replace(/_/g, ' ');
+                    resolvedReporter = {
                         id: reporterId,
-                        name: botName,
+                        name: botName || 'Alfa Desk',
                         role: UserRole.REPORTER,
-                        photoUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(botName)}&background=random`
-                    } as User);
+                        photoUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(botName || 'Alfa')}&background=random`
+                    } as User;
+                    setReporter(resolvedReporter);
                 } 
                 // Legacy SYSTEM handles
                 else if (reporterId.startsWith('SYSTEM_')) {
-                    setReporter({
+                    resolvedReporter = {
                         id: reporterId,
                         name: reporterId === 'SYSTEM_RSS' ? 'Web Desk' : (reporterId === 'SYSTEM_SOCIAL' ? 'Social Desk' : 'News Desk'),
                         role: UserRole.REPORTER,
                         photoUrl: 'https://ui-avatars.com/api/?name=Alfa+News&background=random'
-                    } as User);
+                    } as User;
+                    setReporter(resolvedReporter);
                 } 
                 // Regular logged in users
                 else {
-                    const userRef = doc(db, 'users', reporterId);
-                    const userSnap = await getDoc(userRef);
-                    if (userSnap.exists()) {
-                        setReporter({ id: userSnap.id, ...userSnap.data() } as User);
+                    try {
+                        const userRef = doc(db, 'users', reporterId);
+                        const userSnap = await getDoc(userRef);
+                        if (userSnap.exists()) {
+                            resolvedReporter = { id: userSnap.id, ...userSnap.data() } as User;
+                            setReporter(resolvedReporter);
+                        }
+                    } catch (uErr) {
+                        console.warn("Error fetching user doc:", uErr);
                     }
                 }
 
                 const newsRef = collection(db, 'news');
-                const q = query(newsRef, where('reporter.id', '==', reporterId), orderBy('timestamp', 'desc'), limit(50));
-                const querySnapshot = await getDocs(q);
-                const fetchedPosts = querySnapshot.docs.map((doc: any) => {
-                    const data = doc.data();
-                    const timestamp = data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
-                    return { id: doc.id, ...data, timestamp } as NewsPost;
-                });
+                let fetchedPosts: NewsPost[] = [];
+                try {
+                    const q = query(newsRef, where('reporter.id', '==', reporterId), orderBy('timestamp', 'desc'), limit(50));
+                    const querySnapshot = await getDocs(q);
+                    fetchedPosts = querySnapshot.docs.map((doc: any) => {
+                        const data = doc.data();
+                        const timestamp = data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
+                        return { id: doc.id, ...data, timestamp } as NewsPost;
+                    });
+                } catch (qErr) {
+                    console.warn("Primary reporter.id query failed, trying simple query:", qErr);
+                    try {
+                        const qSimple = query(newsRef, where('reporter.id', '==', reporterId), limit(50));
+                        const querySnapshot = await getDocs(qSimple);
+                        fetchedPosts = querySnapshot.docs.map((doc: any) => {
+                            const data = doc.data();
+                            const timestamp = data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
+                            return { id: doc.id, ...data, timestamp } as NewsPost;
+                        });
+                    } catch (e2) {
+                        console.error("Simple reporter query error:", e2);
+                    }
+                }
+
+                if (fetchedPosts.length === 0) {
+                    try {
+                        const qName = query(newsRef, where('reporter.name', '==', reporterId), limit(50));
+                        const querySnapshot = await getDocs(qName);
+                        fetchedPosts = querySnapshot.docs.map((doc: any) => {
+                            const data = doc.data();
+                            const timestamp = data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
+                            return { id: doc.id, ...data, timestamp } as NewsPost;
+                        });
+                    } catch (e3) {
+                        console.warn("Fallback reporter.name query error:", e3);
+                    }
+                }
+
                 fetchedPosts.sort((a: NewsPost, b: NewsPost) => b.timestamp - a.timestamp);
                 setPosts(fetchedPosts);
+
+                // Fallback reporter details if not found in database
+                if (!resolvedReporter) {
+                    const repName = fetchedPosts[0]?.reporter?.name || reporterId;
+                    setReporter({
+                        id: reporterId,
+                        name: repName,
+                        role: UserRole.REPORTER,
+                        photoUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(repName)}&background=random`
+                    } as User);
+                }
             } catch (e) {
                 console.error("Error fetching reporter profile:", e);
             } finally {

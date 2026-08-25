@@ -13,9 +13,10 @@ interface SinglePostViewProps {
     currentUser: User | null;
     onLoginRequest: () => void;
     onGoHome: () => void;
+    onReporterClick?: (id: string) => void;
 }
 
-const SinglePostView: React.FC<SinglePostViewProps> = ({ postId, language, currentUser, onLoginRequest, onGoHome }) => {
+const SinglePostView: React.FC<SinglePostViewProps> = ({ postId, language, currentUser, onLoginRequest, onGoHome, onReporterClick }) => {
     const [post, setPost] = useState<NewsPost | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -65,7 +66,7 @@ const SinglePostView: React.FC<SinglePostViewProps> = ({ postId, language, curre
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
             </button>
             <div className="flex-1 overflow-hidden">
-                <NewsCard post={post} language={language} onProfileClick={onLoginRequest} currentUser={currentUser} onCategoryClick={() => {}} onReporterClick={() => {}} />
+                <NewsCard post={post} language={language} onProfileClick={onLoginRequest} currentUser={currentUser} onCategoryClick={() => {}} onReporterClick={onReporterClick || (() => {})} />
             </div>
         </div>
     );
