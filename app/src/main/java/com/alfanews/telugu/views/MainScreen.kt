@@ -485,6 +485,10 @@ fun MainScreen(
                             onNavigateToLogin = {
                                 showJoinReporterPage = false
                                 mainViewModel.setActiveTab("profile")
+                            },
+                            onOpenChat = {
+                                showJoinReporterPage = false
+                                mainViewModel.setActiveTab("messages")
                             }
                         )
                     } else if (showEditProfilePage && user != null) {
@@ -618,16 +622,10 @@ fun MainScreen(
                                         currentUser = user,
                                         onBack = { mainViewModel.setActiveTab("profile") }
                                     )
-                                } else if (user.role == UserRole.REPORTER) {
+                                } else {
                                     ReporterDeskChatView(
                                         user = user,
                                         onBack = { mainViewModel.setActiveTab("profile") }
-                                    )
-                                } else {
-                                    MessagesPageView(
-                                        user = user,
-                                        onBack = { mainViewModel.setActiveTab("profile") },
-                                        onMenuClick = { scope.launch { drawerState.open() } }
                                     )
                                 }
                             }

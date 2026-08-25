@@ -1,0 +1,14 @@
+node_modules/
+*.log
+*.txt
+*.bak
+scratch/
+test_*.js
+rest_*.js
+check_*.js
+debug_*.js
+insert_*.js
+upload_*.js
+firebase-debug*
+.git
+.cache

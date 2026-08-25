@@ -24,23 +24,38 @@
     "rewrites": [
       {
         "source": "/news-card/**",
-        "function": "getNewsCardImage"
+        "function": {
+          "functionId": "getNewsCardImage",
+          "region": "asia-south1"
+        }
       },
       {
         "source": "/news/**",
-        "function": "shareNews"
+        "function": {
+          "functionId": "shareNews",
+          "region": "asia-south1"
+        }
       },
       {
         "source": "/ad/**",
-        "function": "shareNews"
+        "function": {
+          "functionId": "shareNews",
+          "region": "asia-south1"
+        }
       },
       {
         "source": "/verify/**",
-        "function": "verifyReporter"
+        "function": {
+          "functionId": "verifyReporter",
+          "region": "asia-south1"
+        }
       },
       {
         "source": "/sitemap.xml",
-        "function": "serveSitemap"
+        "function": {
+          "functionId": "serveSitemap",
+          "region": "asia-south1"
+        }
       },
       {
         "source": "/ads.txt",

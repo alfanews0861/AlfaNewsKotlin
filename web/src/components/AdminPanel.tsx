@@ -62,7 +62,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onClose, language, setLan
       title: 'రిపోర్టర్లు & యూజర్లు (Reporters & Users)',
       items: [
         { id: 'reporterManagement', label: 'రిపోర్టర్ల నిర్వహణ (Reporters)', icon: '🪪', roles: [UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN] },
-        { id: 'messages', label: 'రిపోర్టర్ డెస్క్ చాట్ (Reporter Chat)', icon: '💬', roles: [UserRole.REPORTER, UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN] },
+        { id: 'messages', label: 'రిపోర్టర్ డెస్క్ చాట్ (Reporter Chat)', icon: '💬', roles: [UserRole.GUEST, UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN] },
         { id: 'manageUsers', label: 'వినియోగదారుల నిర్వహణ (Users)', icon: '👥', roles: [UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN] },
       ]
     },

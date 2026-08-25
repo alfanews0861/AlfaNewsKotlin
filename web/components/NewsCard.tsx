@@ -108,7 +108,7 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
     if (isSharing || !cardRef.current) return;
     setIsSharing(true);
     
-    const shareText = `🔴 ${headline}\n\nhttps://alfanews.app/news/${post.id}`;
+    const shareText = `${headline}\nhttps://alfanews.app/news/${post.id}\n\nShared via AlfaNews`;
 
     try {
         updateDoc(doc(db, 'news', post.id), { shares: increment(1) }).catch(console.error);

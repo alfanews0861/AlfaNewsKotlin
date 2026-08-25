@@ -38,11 +38,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
 
+data class SubmissionResult(
+    val title: String,
+    val message: String,
+    val isConflict: Boolean = false
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JoinReporterPageView(
     onClose: () -> Unit,
-    onNavigateToLogin: () -> Unit
+    onNavigateToLogin: () -> Unit,
+    onOpenChat: (() -> Unit)? = null
 ) {
     val currentUser = FirebaseService.auth.currentUser
     val isUserLoggedIn = currentUser != null
@@ -75,7 +82,7 @@ fun JoinReporterPageView(
 
     var isSubmitting by remember { mutableStateOf(false) }
     var hasPendingApplication by remember { mutableStateOf(false) }
-    var showSuccessDialog by remember { mutableStateOf<String?>(null) }
+    var submissionResult by remember { mutableStateOf<SubmissionResult?>(null) }
     
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -753,6 +760,8 @@ fun JoinReporterPageView(
                             var submittedSuccessfully = false
                             var wasAutoApproved = false
                             var isReapplication = false
+                            var isConflict = false
+                            var existingRepName = ""
 
                             // 1. Try Cloud Function first (handles notifications & auto-approval)
                             try {
@@ -773,8 +782,11 @@ fun JoinReporterPageView(
                                 )
                                 if (result.isSuccess) {
                                     submittedSuccessfully = true
-                                    wasAutoApproved = result.getOrNull()?.get("autoApproved") == true
-                                    isReapplication = result.getOrNull()?.get("isPreviouslyDowngraded") == true
+                                    val data = result.getOrNull()
+                                    wasAutoApproved = data?.get("autoApproved") == true
+                                    isReapplication = data?.get("isPreviouslyDowngraded") == true
+                                    isConflict = data?.get("isConflict") == true
+                                    existingRepName = data?.get("existingReporterName") as? String ?: ""
                                 }
                             } catch (e: Exception) {
                                 e.printStackTrace()
@@ -791,6 +803,7 @@ fun JoinReporterPageView(
                                     }
                                     isReapplication = isPrevDown
                                     val isVacant = !occupiedMandals.contains("${selectedDistrict.trim()}|${selectedMandal.trim()}")
+                                    isConflict = !isVacant
                                     val finalStatus = if (currentUid.isNotEmpty() && !isPrevDown && isVacant) "JOINED" else "PENDING"
                                     val autoApp = (finalStatus == "JOINED")
 
@@ -809,6 +822,7 @@ fun JoinReporterPageView(
                                         "message" to additionalMessage,
                                         "status" to finalStatus,
                                         "autoApproved" to autoApp,
+                                        "isConflict" to isConflict,
                                         "isReapplication" to isPrevDown,
                                         "previouslyDowngraded" to isPrevDown,
                                         "agreedToRules" to true,
@@ -831,6 +845,46 @@ fun JoinReporterPageView(
                                             "phone" to phone
                                         )
                                         userRef.set(updates, com.google.firebase.firestore.SetOptions.merge()).await()
+                                    } else if (isConflict && currentUid.isNotEmpty()) {
+                                        val conflictText = "నమస్కారం ${fullName.ifEmpty { "మిత్రమా" }}, మీరు కోరిన ${selectedMandal} మండలానికి ఇప్పటికే క్రియాశీల విలేకరి ఉన్నారు.\n\nఅందువల్ల మీ దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు పంపబడింది. మా అడ్మిన్ టీమ్ పరిశీలించి త్వరలోనే మిమ్మల్ని సంప్రదిస్తారు. మీకు ఏవైనా సందేహాలున్నా లేదా మీ వివరాలు తెలియజేయాలన్నా ఇక్కడే అడ్మిన్‌కు నేరుగా మెసేజ్ / రిప్లై ఇవ్వవచ్చు. ధన్యవాదాలు!"
+                                        val msgTimestamp = com.google.firebase.Timestamp.now()
+
+                                        val convData = mapOf(
+                                            "reporterId" to currentUid,
+                                            "reporterName" to fullName,
+                                            "reporterDistrict" to selectedDistrict,
+                                            "reporterMandal" to selectedMandal,
+                                            "lastMessage" to conflictText,
+                                            "lastMessageTime" to msgTimestamp,
+                                            "lastSenderRole" to "ADMIN",
+                                            "lastSenderId" to "SYSTEM_ADMIN",
+                                            "unreadCountForReporter" to 1,
+                                            "updatedAt" to msgTimestamp
+                                        )
+                                        FirebaseService.db.collection("reporter_conversations").document(currentUid).set(convData, com.google.firebase.firestore.SetOptions.merge()).await()
+
+                                        val msgData = mapOf(
+                                            "senderId" to "SYSTEM_ADMIN",
+                                            "senderName" to "AlfaNews Editorial Desk",
+                                            "senderRole" to "ADMIN",
+                                            "text" to conflictText,
+                                            "type" to "NOTICE",
+                                            "read" to false,
+                                            "timestamp" to msgTimestamp
+                                        )
+                                        FirebaseService.db.collection("reporter_conversations").document(currentUid).collection("messages").add(msgData).await()
+
+                                        val userMsgData = mapOf(
+                                            "title" to "మీ దరఖాస్తు పరిశీలనలో ఉంది ⏳",
+                                            "body" to conflictText,
+                                            "senderName" to "AlfaNews Editorial Desk",
+                                            "senderRole" to "ADMIN",
+                                            "read" to false,
+                                            "importance" to "HIGH",
+                                            "type" to "REPORTER_APP_PENDING",
+                                            "timestamp" to msgTimestamp
+                                        )
+                                        FirebaseService.db.collection("users").document(currentUid).collection("messages").add(userMsgData).await()
                                     }
 
                                     submittedSuccessfully = true
@@ -843,14 +897,33 @@ fun JoinReporterPageView(
                             isSubmitting = false
                             if (submittedSuccessfully) {
                                 if (wasAutoApproved) {
-                                    showSuccessDialog = context.getString(R.string.app_auto_approved_success, selectedMandal)
+                                    submissionResult = SubmissionResult(
+                                        title = "అభినందనలు! 🎉",
+                                        message = "${selectedMandal} మండలానికి మీ దరఖాస్తు ఆమోదించబడింది. మీరు ఇప్పుడు ఆల్ఫా న్యూస్ రిపోర్టర్‌గా నియమించబడ్డారు!",
+                                        isConflict = false
+                                    )
                                 } else if (isReapplication) {
-                                    showSuccessDialog = context.getString(R.string.app_reapplication_review_pending)
+                                    submissionResult = SubmissionResult(
+                                        title = "పరిశీలనలో ఉంది ⏳",
+                                        message = "మీ రీ-అప్లికేషన్ విజయవంతంగా సమర్పించబడింది. మా అడ్మిన్ ప్రతినిధులు త్వరలోనే పరిశీలిస్తారు.",
+                                        isConflict = false
+                                    )
+                                } else if (isConflict) {
+                                    val repInfo = if (existingRepName.isNotBlank()) " ($existingRepName)" else ""
+                                    submissionResult = SubmissionResult(
+                                        title = "పరిశీలనలో ఉంది ⏳",
+                                        message = "${selectedMandal} మండలానికి ఇప్పటికే క్రియాశీల విలేకరి${repInfo} ఉన్నారు. అందువల్ల మీ దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు పంపబడింది.\n\nఅడ్మిన్ డెస్క్ నుండి మీకు సందేశం (Message) వచ్చింది. మీరు చాట్ ఓపెన్ చేసి అడ్మిన్‌కు రిప్లై ఇవ్వవచ్చు.",
+                                        isConflict = true
+                                    )
                                 } else {
-                                    showSuccessDialog = context.getString(R.string.app_success_logged_in)
+                                    submissionResult = SubmissionResult(
+                                        title = "దరఖాస్తు సమర్పించబడింది",
+                                        message = "మీ దరఖాస్తు విజయవంతంగా మాకు అందింది. మీ మండలానికి సంబంధించిన వివరాలను మా బృందం పరిశీలించి త్వరలో సంప్రదిస్తుంది.",
+                                        isConflict = false
+                                    )
                                 }
                             } else {
-                                Toast.makeText(context, context.getString(R.string.submission_failed, "సమర్పించడం విఫలమైంది."), Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "సమర్పించడం విఫలమైంది. దయచేసి మళ్లీ ప్రయత్నించండి.", Toast.LENGTH_LONG).show()
                             }
                         }
                     },
@@ -874,21 +947,48 @@ fun JoinReporterPageView(
         }
     }
 
-    showSuccessDialog?.let { message ->
+    submissionResult?.let { res ->
         AlertDialog(
             onDismissRequest = { /* Prevent dismissal by clicking outside */ },
-            title = { Text(stringResource(R.string.congratulations), fontFamily = Ramabhadra) },
-            text = { Text(message, fontFamily = Mallanna) },
+            title = { Text(res.title, fontFamily = Ramabhadra, fontWeight = FontWeight.Bold) },
+            text = { Text(res.message, fontFamily = Mallanna, fontSize = 15.sp, lineHeight = 22.sp) },
             confirmButton = {
-                Button(
-                    onClick = {
-                        showSuccessDialog = null
-                        onClose()
+                if (res.isConflict) {
+                    Button(
+                        onClick = {
+                            submissionResult = null
+                            if (onOpenChat != null) {
+                                onOpenChat()
+                            } else {
+                                onClose()
+                            }
+                        }
+                    ) {
+                        Text("అడ్మిన్ డెస్క్ చాట్ (Open Chat)", fontFamily = Ramabhadra)
                     }
-                ) {
-                    Text(stringResource(R.string.ok))
+                } else {
+                    Button(
+                        onClick = {
+                            submissionResult = null
+                            onClose()
+                        }
+                    ) {
+                        Text(stringResource(R.string.ok), fontFamily = Ramabhadra)
+                    }
                 }
-            }
+            },
+            dismissButton = if (res.isConflict) {
+                {
+                    TextButton(
+                        onClick = {
+                            submissionResult = null
+                            onClose()
+                        }
+                    ) {
+                        Text("సరే (OK)", fontFamily = Ramabhadra)
+                    }
+                }
+            } else null
         )
     }
 }

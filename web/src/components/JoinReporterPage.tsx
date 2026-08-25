@@ -6,16 +6,17 @@ import * as _functions from 'firebase/functions';
 import { User, TS_DISTRICTS, AP_DISTRICTS } from '../types';
 import { MANDAL_DATA } from '../data/mandalData';
 
-const { collection, query, where, getDocs, addDoc, serverTimestamp } = _firestore as any;
+const { collection, query, where, getDocs, addDoc, doc, setDoc, serverTimestamp } = _firestore as any;
 const { getFunctions, httpsCallable } = _functions as any;
 
 interface JoinReporterPageProps {
     user: User | null;
     onClose: () => void;
     onLoginRequest: () => void;
+    onOpenChat?: () => void;
 }
 
-const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLoginRequest }) => {
+const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLoginRequest, onOpenChat }) => {
     const isUserLoggedIn = Boolean(user && user.id && user.id !== 'guest');
 
     const [hasPendingApplication, setHasPendingApplication] = useState(false);
@@ -35,7 +36,7 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
 
     const [rulesCheckboxChecked, setRulesCheckboxChecked] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [resultDialog, setResultDialog] = useState<{ title: string; message: string; isSuccess: boolean } | null>(null);
+    const [resultDialog, setResultDialog] = useState<{ title: string; message: string; isSuccess: boolean; isConflict?: boolean } | null>(null);
 
     // Check if user has an existing pending application
     useEffect(() => {
@@ -93,6 +94,8 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
             let submittedSuccessfully = false;
             let wasAutoApproved = false;
             let isReapplication = false;
+            let isConflict = false;
+            let existingRepName = '';
 
             // 1. Try Cloud Function first
             try {
@@ -118,6 +121,8 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
                     submittedSuccessfully = true;
                     wasAutoApproved = res.data.autoApproved === true;
                     isReapplication = res.data.isPreviouslyDowngraded === true;
+                    isConflict = res.data.isConflict === true;
+                    existingRepName = res.data.existingReporterName || '';
                 }
             } catch (fnErr) {
                 console.warn("Cloud function submission fallback to direct firestore:", fnErr);
@@ -142,14 +147,55 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
                         message: additionalMessage.trim(),
                         status: finalStatus,
                         autoApproved: false,
+                        isConflict: true,
                         agreedToRules: true,
                         userId: user.id,
                         timestamp: serverTimestamp()
                     };
 
                     await addDoc(collection(db, 'reporter_applications'), appData);
+
+                    // Add conflict notification for user
+                    const conflictText = `నమస్కారం ${fullName.trim() || 'మిత్రమా'}, మీరు కోరిన ${selectedMandal} మండలానికి ఇప్పటికే క్రియాశీల విలేకరి ఉన్నారు.\n\nఅందువల్ల మీ దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు పంపబడింది. మా అడ్మిన్ టీమ్ పరిశీలించి త్వరలోనే మిమ్మల్ని సంప్రదిస్తారు. మీకు ఏవైనా సందేహాలున్నా లేదా మీ వివరాలు తెలియజేయాలన్నా ఇక్కడే అడ్మిన్‌కు నేరుగా మెసేజ్ / రిప్లై ఇవ్వవచ్చు. ధన్యవాదాలు!`;
+                    
+                    const msgTimestamp = serverTimestamp();
+                    await addDoc(collection(db, 'reporter_conversations', user.id, 'messages'), {
+                        senderId: "SYSTEM_ADMIN",
+                        senderName: "AlfaNews Editorial Desk",
+                        senderRole: "ADMIN",
+                        text: conflictText,
+                        type: "NOTICE",
+                        read: false,
+                        timestamp: msgTimestamp
+                    });
+
+                    await setDoc(doc(db, 'reporter_conversations', user.id), {
+                        reporterId: user.id,
+                        reporterName: fullName.trim() || "Applicant",
+                        reporterDistrict: selectedDistrict.trim(),
+                        reporterMandal: selectedMandal.trim(),
+                        lastMessage: conflictText,
+                        lastMessageTime: msgTimestamp,
+                        lastSenderRole: "ADMIN",
+                        lastSenderId: "SYSTEM_ADMIN",
+                        unreadCountForReporter: 1,
+                        updatedAt: msgTimestamp
+                    }, { merge: true });
+
+                    await addDoc(collection(db, 'users', user.id, 'messages'), {
+                        title: "మీ దరఖాస్తు పరిశీలనలో ఉంది ⏳",
+                        body: conflictText,
+                        senderName: "AlfaNews Editorial Desk",
+                        senderRole: "ADMIN",
+                        read: false,
+                        importance: "HIGH",
+                        type: "REPORTER_APP_PENDING",
+                        timestamp: msgTimestamp
+                    });
+
                     submittedSuccessfully = true;
                     wasAutoApproved = false;
+                    isConflict = true;
                 } catch (dbErr) {
                     console.error("Direct firestore application failed:", dbErr);
                 }
@@ -160,19 +206,30 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
                     setResultDialog({
                         title: "అభినందనలు! 🎉",
                         message: `${selectedMandal} మండలానికి మీ దరఖాస్తు ఆమోదించబడింది. మీరు ఇప్పుడు ఆల్ఫా న్యూస్ రిపోర్టర్‌గా నియమించబడ్డారు!`,
-                        isSuccess: true
+                        isSuccess: true,
+                        isConflict: false
                     });
                 } else if (isReapplication) {
                     setResultDialog({
-                        title: "పరిశీలనలో ఉంది",
+                        title: "పరిశీలనలో ఉంది ⏳",
                         message: "మీ రీ-అప్లికేషన్ విజయవంతంగా సమర్పించబడింది. మా అడ్మిన్ ప్రతినిధులు త్వరలోనే పరిశీలిస్తారు.",
-                        isSuccess: true
+                        isSuccess: true,
+                        isConflict: false
+                    });
+                } else if (isConflict) {
+                    const repInfo = existingRepName ? ` (${existingRepName})` : '';
+                    setResultDialog({
+                        title: "పరిశీలనలో ఉంది ⏳",
+                        message: `${selectedMandal} మండలానికి ఇప్పటికే క్రియాశీల విలేకరి${repInfo} ఉన్నారు. అందువల్ల మీ దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు పంపబడింది.\n\nఅడ్మిన్ డెస్క్ నుండి మీకు సందేశం (Message) వచ్చింది. మీరు అడ్మిన్‌తో మాట్లాడవచ్చు / రిప్లై ఇవ్వవచ్చు.`,
+                        isSuccess: true,
+                        isConflict: true
                     });
                 } else {
                     setResultDialog({
                         title: "దరఖాస్తు సమర్పించబడింది",
                         message: "మీ దరఖాస్తు విజయవంతంగా మాకు అందింది. మీ మండలానికి సంబంధించిన వివరాలను మా బృందం పరిశీలించి త్వరలో సంప్రదిస్తుంది.",
-                        isSuccess: true
+                        isSuccess: true,
+                        isConflict: false
                     });
                 }
             } else {
@@ -535,15 +592,42 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
                             <h3 className="text-2xl font-bold font-ramabhadra text-gray-900">{resultDialog.title}</h3>
                             <p className="text-gray-600 text-base leading-relaxed font-mallanna">{resultDialog.message}</p>
                         </div>
-                        <button
-                            onClick={() => {
-                                setResultDialog(null);
-                                onClose();
-                            }}
-                            className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 px-6 rounded-xl transition shadow-md font-ramabhadra text-lg"
-                        >
-                            సరే (OK)
-                        </button>
+                        {resultDialog.isConflict ? (
+                            <div className="flex flex-col gap-3 w-full">
+                                <button
+                                    onClick={() => {
+                                        setResultDialog(null);
+                                        if (onOpenChat) {
+                                            onOpenChat();
+                                        } else {
+                                            onClose();
+                                        }
+                                    }}
+                                    className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 px-6 rounded-xl transition shadow-md font-ramabhadra text-lg"
+                                >
+                                    అడ్మిన్ డెస్క్ చాట్ (Open Chat)
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setResultDialog(null);
+                                        onClose();
+                                    }}
+                                    className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-xl transition font-ramabhadra"
+                                >
+                                    సరే (OK)
+                                </button>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => {
+                                    setResultDialog(null);
+                                    onClose();
+                                }}
+                                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 px-6 rounded-xl transition shadow-md font-ramabhadra text-lg"
+                            >
+                                సరే (OK)
+                            </button>
+                        )}
                     </div>
                 </div>
             )}

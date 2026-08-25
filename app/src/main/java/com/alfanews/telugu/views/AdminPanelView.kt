@@ -216,16 +216,10 @@ fun AdminPanelView(
                                     activePage = "profile" 
                                 }
                             )
-                        } else if (user.role == UserRole.REPORTER) {
+                        } else {
                             ReporterDeskChatView(
                                 user = user,
                                 onBack = { activePage = "profile" }
-                            )
-                        } else {
-                            MessagesPageView(
-                                user = user,
-                                onBack = { activePage = "profile" },
-                                showTitle = false
                             )
                         }
                     }

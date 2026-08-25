@@ -145,14 +145,43 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
     setIsSharing(true);
     const shareText = `🔴 ${headline}\n\nhttps://alfanews.app/news/${post.id}`;
     try {
-        if (navigator.share) {
+        // 📸 9:16 Real Browser Screenshot Capture via html2canvas
+        let shareFile: File | null = null;
+        try {
+            const canvas = await html2canvas(cardRef.current, {
+                useCORS: true,
+                scale: 2,
+                backgroundColor: '#000000',
+                logging: false,
+                ignoreElements: (element: Element) => element.classList?.contains('share-ignore')
+            } as any);
+            const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95));
+            if (blob) {
+                shareFile = new File([blob], `alfanews_${post.id}.jpg`, { type: 'image/jpeg' });
+            }
+        } catch (screenshotErr) {
+            console.warn("Could not capture DOM screenshot, falling back to text:", screenshotErr);
+        }
+
+        if (shareFile && navigator.canShare && navigator.canShare({ files: [shareFile] })) {
+            await navigator.share({
+                files: [shareFile],
+                title: headline,
+                text: shareText
+            });
+            if (currentUser) updateInterests(currentUser, post);
+        } else if (navigator.share) {
             await navigator.share({ title: 'Alfa News', text: shareText });
             if (currentUser) updateInterests(currentUser, post);
         } else {
             await navigator.clipboard.writeText(shareText);
             alert("లింక్ కాపీ చేయబడింది!");
         }
-    } catch (e) {} finally { setIsSharing(false); }
+    } catch (e) {
+        console.error("Share error:", e);
+    } finally {
+        setIsSharing(false);
+    }
   };
 
   const formattedDate = post.timestamp ? new Date(post.timestamp).toLocaleDateString('te-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '';

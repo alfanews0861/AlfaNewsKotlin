@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { User, ReporterConversation, ReporterMessage } from '../types';
+import { User, UserRole, ReporterConversation, ReporterMessage } from '../types';
 import { db } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 
-const { collection, getDocs, addDoc, doc, updateDoc, query, orderBy, onSnapshot, increment } = _firestore as any;
+const { collection, getDocs, addDoc, doc, setDoc, updateDoc, query, orderBy, onSnapshot, increment } = _firestore as any;
 
 interface AdminReporterMessagingPageProps {
   currentUser: User;
@@ -12,6 +12,7 @@ interface AdminReporterMessagingPageProps {
 }
 
 const AdminReporterMessagingPage: React.FC<AdminReporterMessagingPageProps> = ({ currentUser, initialReporterId }) => {
+  const isAdmin = [UserRole.ADMIN, UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE].includes(currentUser.role);
   const [conversations, setConversations] = useState<ReporterConversation[]>([]);
   const [activeReporter, setActiveReporter] = useState<ReporterConversation | null>(null);
   const [messages, setMessages] = useState<ReporterMessage[]>([]);
@@ -21,8 +22,31 @@ const AdminReporterMessagingPage: React.FC<AdminReporterMessagingPageProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Listen to conversations
+  // For non-admin user (reporter / applicant), automatically initialize activeReporter
   useEffect(() => {
+    if (!isAdmin && currentUser?.id && currentUser.id !== 'guest') {
+      setActiveReporter({
+        id: currentUser.id,
+        reporterId: currentUser.id,
+        reporterName: currentUser.name || 'Applicant / Reporter',
+        reporterDistrict: currentUser.district || '',
+        reporterPhone: currentUser.phone || '',
+        reporterPhotoUrl: currentUser.photoUrl || '',
+        lastMessage: '',
+        lastMessageTime: Date.now(),
+        lastSenderRole: 'REPORTER',
+        unreadCountForAdmin: 0,
+        unreadCountForReporter: 0,
+        updatedAt: Date.now()
+      });
+      setLoadingConv(false);
+    }
+  }, [isAdmin, currentUser?.id]);
+
+  // Listen to conversations (for admin)
+  useEffect(() => {
+    if (!isAdmin) return;
+
     const q = query(
       collection(db, 'reporter_conversations'),
       orderBy('updatedAt', 'desc')
@@ -60,7 +84,7 @@ const AdminReporterMessagingPage: React.FC<AdminReporterMessagingPageProps> = ({
     });
 
     return () => unsubscribe();
-  }, [initialReporterId]);
+  }, [isAdmin, initialReporterId]);
 
   // Listen to messages of active conversation
   useEffect(() => {
@@ -82,10 +106,14 @@ const AdminReporterMessagingPage: React.FC<AdminReporterMessagingPageProps> = ({
       setMessages(list);
       setLoadingMessages(false);
 
-      // Mark unread count as 0 for admin
-      if (activeReporter.unreadCountForAdmin > 0) {
+      // Mark unread count as 0
+      if (isAdmin && activeReporter.unreadCountForAdmin > 0) {
         updateDoc(doc(db, 'reporter_conversations', activeReporter.reporterId), {
           unreadCountForAdmin: 0
+        }).catch(console.error);
+      } else if (!isAdmin && activeReporter.unreadCountForReporter > 0) {
+        updateDoc(doc(db, 'reporter_conversations', activeReporter.reporterId), {
+          unreadCountForReporter: 0
         }).catch(console.error);
       }
     }, (err: any) => {
@@ -94,7 +122,7 @@ const AdminReporterMessagingPage: React.FC<AdminReporterMessagingPageProps> = ({
     });
 
     return () => unsubscribe();
-  }, [activeReporter?.reporterId]);
+  }, [isAdmin, activeReporter?.reporterId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -110,24 +138,40 @@ const AdminReporterMessagingPage: React.FC<AdminReporterMessagingPageProps> = ({
     try {
       const now = Date.now();
       const messagesCol = collection(db, 'reporter_conversations', activeReporter.reporterId, 'messages');
+      const senderRole = isAdmin ? 'ADMIN' : 'REPORTER';
+      const senderName = currentUser.name || (isAdmin ? 'Admin Desk' : 'Reporter');
       
       await addDoc(messagesCol, {
         senderId: currentUser.id,
-        senderName: currentUser.name || 'Admin Desk',
-        senderRole: 'ADMIN',
+        senderName: senderName,
+        senderRole: senderRole,
         text: textToSend,
         timestamp: now,
         read: false
       });
 
-      await updateDoc(doc(db, 'reporter_conversations', activeReporter.reporterId), {
+      const convDocRef = doc(db, 'reporter_conversations', activeReporter.reporterId);
+      const updateData: any = {
         lastMessage: textToSend,
         lastMessageTime: now,
-        lastSenderRole: 'ADMIN',
-        unreadCountForReporter: increment(1),
-        unreadCountForAdmin: 0,
+        lastSenderRole: senderRole,
+        lastSenderId: currentUser.id,
         updatedAt: now
-      });
+      };
+
+      if (isAdmin) {
+        updateData.unreadCountForReporter = increment(1);
+        updateData.unreadCountForAdmin = 0;
+      } else {
+        updateData.unreadCountForAdmin = increment(1);
+        updateData.unreadCountForReporter = 0;
+        updateData.reporterId = currentUser.id;
+        updateData.reporterName = currentUser.name || 'Applicant';
+        updateData.reporterPhone = currentUser.phone || '';
+        updateData.reporterDistrict = currentUser.district || '';
+      }
+
+      await setDoc(convDocRef, updateData, { merge: true });
     } catch (err: any) {
       alert(`మెసేజ్ పంపడంలో లోపం: ${err.message}`);
     }
@@ -171,112 +215,126 @@ const AdminReporterMessagingPage: React.FC<AdminReporterMessagingPageProps> = ({
       </div>
 
       <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden grid grid-cols-1 md:grid-cols-12 min-h-[600px]">
-        {/* Left: Conversation List */}
-        <div className={`md:col-span-4 border-r border-gray-200 flex flex-col ${activeReporter ? 'hidden md:flex' : 'flex'}`}>
-          <div className="p-4 border-b border-gray-200">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="రిపోర్టర్ పేరు లేదా జిల్లా..."
-              className="w-full border border-gray-300 px-3.5 py-2.5 rounded-xl text-sm bg-gray-50 outline-none focus:ring-2 focus:ring-teal-500"
-            />
-          </div>
+        {/* Left: Conversation List (Visible only to Admin) */}
+        {isAdmin && (
+          <div className={`md:col-span-4 border-r border-gray-200 flex flex-col ${activeReporter ? 'hidden md:flex' : 'flex'}`}>
+            <div className="p-4 border-b border-gray-200">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="రిపోర్టర్ పేరు లేదా జిల్లా..."
+                className="w-full border border-gray-300 px-3.5 py-2.5 rounded-xl text-sm bg-gray-50 outline-none focus:ring-2 focus:ring-teal-500"
+              />
+            </div>
 
-          <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
-            {loadingConv ? (
-              <div className="p-8 text-center text-gray-400 font-bold">లోడ్ అవుతోంది...</div>
-            ) : filteredConversations.length === 0 ? (
-              <div className="p-8 text-center text-gray-400 font-bold">సంభాషణలు ఏవీ లేవు.</div>
-            ) : (
-              filteredConversations.map(conv => (
-                <button
-                  key={conv.id}
-                  onClick={() => setActiveReporter(conv)}
-                  className={`w-full text-left p-4 hover:bg-teal-50/50 transition-colors flex items-start gap-3 ${
-                    activeReporter?.reporterId === conv.reporterId ? 'bg-teal-50 border-l-4 border-teal-600' : ''
-                  }`}
-                >
-                  <div className="w-12 h-12 rounded-2xl bg-teal-100 text-teal-800 font-bold flex items-center justify-center shrink-0 text-lg shadow-sm">
-                    {conv.reporterName ? conv.reporterName.charAt(0).toUpperCase() : 'R'}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-center mb-1">
-                      <h4 className="font-bold text-gray-900 truncate text-base">{conv.reporterName}</h4>
-                      <span className="text-[10px] text-gray-400 shrink-0">{formatMessageTime(conv.lastMessageTime)}</span>
+            <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+              {loadingConv ? (
+                <div className="p-8 text-center text-gray-400 font-bold">లోడ్ అవుతోంది...</div>
+              ) : filteredConversations.length === 0 ? (
+                <div className="p-8 text-center text-gray-400 font-bold">సంభాషణలు ఏవీ లేవు.</div>
+              ) : (
+                filteredConversations.map(conv => (
+                  <button
+                    key={conv.id}
+                    onClick={() => setActiveReporter(conv)}
+                    className={`w-full text-left p-4 hover:bg-teal-50/50 transition-colors flex items-start gap-3 ${
+                      activeReporter?.reporterId === conv.reporterId ? 'bg-teal-50 border-l-4 border-teal-600' : ''
+                    }`}
+                  >
+                    <div className="w-12 h-12 rounded-2xl bg-teal-100 text-teal-800 font-bold flex items-center justify-center shrink-0 text-lg shadow-sm">
+                      {conv.reporterName ? conv.reporterName.charAt(0).toUpperCase() : 'R'}
                     </div>
 
-                    {conv.reporterDistrict && (
-                      <span className="text-[10px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded-md font-semibold mb-1 inline-block">
-                        {conv.reporterDistrict}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-center mb-1">
+                        <h4 className="font-bold text-gray-900 truncate text-base">{conv.reporterName}</h4>
+                        <span className="text-[10px] text-gray-400 shrink-0">{formatMessageTime(conv.lastMessageTime)}</span>
+                      </div>
+
+                      {conv.reporterDistrict && (
+                        <span className="text-[10px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded-md font-semibold mb-1 inline-block">
+                          {conv.reporterDistrict}
+                        </span>
+                      )}
+
+                      <p className="text-gray-500 text-xs truncate">
+                        {conv.lastSenderRole === 'ADMIN' ? 'మీరు: ' : ''}{conv.lastMessage || 'మెసేజ్ లేదు'}
+                      </p>
+                    </div>
+
+                    {conv.unreadCountForAdmin > 0 && (
+                      <span className="bg-red-600 text-white text-xs font-black px-2 py-0.5 rounded-full shrink-0 animate-pulse">
+                        {conv.unreadCountForAdmin}
                       </span>
                     )}
-
-                    <p className="text-gray-500 text-xs truncate">
-                      {conv.lastSenderRole === 'ADMIN' ? 'మీరు: ' : ''}{conv.lastMessage || 'మెసేజ్ లేదు'}
-                    </p>
-                  </div>
-
-                  {conv.unreadCountForAdmin > 0 && (
-                    <span className="bg-red-600 text-white text-xs font-black px-2 py-0.5 rounded-full shrink-0 animate-pulse">
-                      {conv.unreadCountForAdmin}
-                    </span>
-                  )}
-                </button>
-              ))
-            )}
+                  </button>
+                ))
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Right: Active Chat Window */}
-        <div className={`md:col-span-8 flex flex-col bg-gray-50 ${!activeReporter ? 'hidden md:flex' : 'flex'}`}>
+        <div className={`${isAdmin ? 'md:col-span-8' : 'md:col-span-12'} flex flex-col bg-gray-50 ${!activeReporter ? 'hidden md:flex' : 'flex'}`}>
           {activeReporter ? (
             <>
               {/* Chat Header */}
               <div className="p-4 bg-white border-b border-gray-200 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setActiveReporter(null)}
-                    className="md:hidden p-2 text-gray-600 hover:bg-gray-100 rounded-xl"
-                  >
-                    ←
-                  </button>
+                  {isAdmin && (
+                    <button
+                      onClick={() => setActiveReporter(null)}
+                      className="md:hidden p-2 text-gray-600 hover:bg-gray-100 rounded-xl"
+                    >
+                      ←
+                    </button>
+                  )}
                   <div className="w-10 h-10 rounded-xl bg-teal-100 text-teal-800 font-bold flex items-center justify-center">
-                    {activeReporter.reporterName.charAt(0).toUpperCase()}
+                    {isAdmin ? activeReporter.reporterName.charAt(0).toUpperCase() : '📢'}
                   </div>
                   <div>
-                    <h3 className="font-bold text-gray-900 text-lg leading-tight">{activeReporter.reporterName}</h3>
+                    <h3 className="font-bold text-gray-900 text-lg leading-tight">
+                      {isAdmin ? activeReporter.reporterName : 'అల్ఫా న్యూస్ ఎడిటోరియల్ డెస్క్ (Editorial Desk)'}
+                    </h3>
                     <p className="text-xs text-gray-500">
-                      {activeReporter.reporterDistrict ? `${activeReporter.reporterDistrict} • ` : ''}
-                      {activeReporter.reporterPhone || 'రిపోర్టర్'}
+                      {isAdmin ? (
+                        <>
+                          {activeReporter.reporterDistrict ? `${activeReporter.reporterDistrict} • ` : ''}
+                          {activeReporter.reporterPhone || 'రిపోర్టర్'}
+                        </>
+                      ) : (
+                        'ప్రత్యక్ష సంభాషణ • ఆన్‌లైన్'
+                      )}
                     </p>
                   </div>
                 </div>
               </div>
 
-              {/* Quick Template Alerts */}
-              <div className="px-4 py-2 bg-teal-50 border-b border-teal-100 flex flex-wrap gap-2 items-center text-xs">
-                <span className="font-bold text-teal-900">త్వరిత సందేశాలు:</span>
-                <button
-                  onClick={() => handleQuickTemplate('⚠️ దయచేసి వార్తా ప్రమాణాలను మరియు సరైన ఫోటోలను జత చేయండి.')}
-                  className="bg-white border border-teal-200 text-teal-800 px-2.5 py-1 rounded-lg hover:bg-teal-100 transition-colors"
-                >
-                  ⚠️ నాణ్యత హెచ్చరిక
-                </button>
-                <button
-                  onClick={() => handleQuickTemplate('📢 మీ ప్రాంతంలోని బ్రేకింగ్ వార్తలను వెంటనే అప్‌డేట్ చేయండి.')}
-                  className="bg-white border border-teal-200 text-teal-800 px-2.5 py-1 rounded-lg hover:bg-teal-100 transition-colors"
-                >
-                  📢 బ్రేకింగ్ అలర్ట్
-                </button>
-                <button
-                  onClick={() => handleQuickTemplate('✅ మీ వార్త ఆమోదించబడింది మరియు పబ్లిష్ చేయబడింది.')}
-                  className="bg-white border border-teal-200 text-teal-800 px-2.5 py-1 rounded-lg hover:bg-teal-100 transition-colors"
-                >
-                  ✅ ఆమోదం
-                </button>
-              </div>
+              {/* Quick Template Alerts (Admin Only) */}
+              {isAdmin && (
+                <div className="px-4 py-2 bg-teal-50 border-b border-teal-100 flex flex-wrap gap-2 items-center text-xs">
+                  <span className="font-bold text-teal-900">త్వరిత సందేశాలు:</span>
+                  <button
+                    onClick={() => handleQuickTemplate('⚠️ దయచేసి వార్తా ప్రమాణాలను మరియు సరైన ఫోటోలను జత చేయండి.')}
+                    className="bg-white border border-teal-200 text-teal-800 px-2.5 py-1 rounded-lg hover:bg-teal-100 transition-colors"
+                  >
+                    ⚠️ నాణ్యత హెచ్చరిక
+                  </button>
+                  <button
+                    onClick={() => handleQuickTemplate('📢 మీ ప్రాంతంలోని బ్రేకింగ్ వార్తలను వెంటనే అప్‌డేట్ చేయండి.')}
+                    className="bg-white border border-teal-200 text-teal-800 px-2.5 py-1 rounded-lg hover:bg-teal-100 transition-colors"
+                  >
+                    📢 బ్రేకింగ్ అలర్ట్
+                  </button>
+                  <button
+                    onClick={() => handleQuickTemplate('✅ మీ వార్త ఆమోదించబడింది మరియు పబ్లిష్ చేయబడింది.')}
+                    className="bg-white border border-teal-200 text-teal-800 px-2.5 py-1 rounded-lg hover:bg-teal-100 transition-colors"
+                  >
+                    ✅ ఆమోదం
+                  </button>
+                </div>
+              )}
 
               {/* Messages Area */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -286,25 +344,25 @@ const AdminReporterMessagingPage: React.FC<AdminReporterMessagingPageProps> = ({
                   </div>
                 ) : messages.length === 0 ? (
                   <div className="text-center py-16 text-gray-400 font-bold">
-                    ఈ రిపోర్టర్‌తో సంభాషణ ప్రారంభించండి.
+                    {isAdmin ? 'ఈ రిపోర్టర్‌తో సంభాషణ ప్రారంభించండి.' : 'ఎడిటోరియల్ డెస్క్‌తో మీ సంభాషణ ప్రారంభించండి.'}
                   </div>
                 ) : (
                   messages.map(msg => {
-                    const isAdmin = msg.senderRole === 'ADMIN';
+                    const isMyMessage = msg.senderId === currentUser.id || (isAdmin ? msg.senderRole === 'ADMIN' : msg.senderRole !== 'ADMIN');
                     return (
-                      <div key={msg.id} className={`flex flex-col ${isAdmin ? 'items-end' : 'items-start'}`}>
+                      <div key={msg.id} className={`flex flex-col ${isMyMessage ? 'items-end' : 'items-start'}`}>
                         <div
                           className={`max-w-[80%] rounded-2xl p-3.5 shadow-sm text-sm ${
-                            isAdmin
+                            isMyMessage
                               ? 'bg-teal-700 text-white rounded-br-none'
                               : 'bg-white text-gray-900 border border-gray-200 rounded-bl-none'
                           }`}
                         >
                           <div className="font-semibold mb-1 text-[11px] opacity-75">
-                            {isAdmin ? 'అడ్మిన్ డెస్క్' : msg.senderName || 'రిపోర్టర్'}
+                            {isMyMessage ? 'మీరు' : (msg.senderRole === 'ADMIN' ? 'అడ్మిన్ డెస్క్' : (msg.senderName || 'రిపోర్టర్'))}
                           </div>
                           <p className="whitespace-pre-wrap font-medium">{msg.text}</p>
-                          <div className={`text-[10px] mt-1 text-right ${isAdmin ? 'text-teal-200' : 'text-gray-400'}`}>
+                          <div className={`text-[10px] mt-1 text-right ${isMyMessage ? 'text-teal-200' : 'text-gray-400'}`}>
                             {formatMessageTime(msg.timestamp)}
                           </div>
                         </div>

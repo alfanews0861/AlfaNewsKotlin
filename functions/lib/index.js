@@ -190,7 +190,106 @@ function wrapText(text, maxCharsPerLine = 28, maxLines = 4) {
     }
     return lines;
 }
-const sharp = require('sharp');
+const canvas_1 = require("@napi-rs/canvas");
+const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
+try {
+    const fontsDir = path.join(__dirname, '..', 'fonts');
+    const mallannaPath = path.join(fontsDir, 'mallanna_regular.ttf');
+    const ramabhadraPath = path.join(fontsDir, 'ramabhadra_regular.ttf');
+    if (fs.existsSync(mallannaPath)) {
+        canvas_1.GlobalFonts.registerFromPath(mallannaPath, 'Mallanna');
+    }
+    if (fs.existsSync(ramabhadraPath)) {
+        canvas_1.GlobalFonts.registerFromPath(ramabhadraPath, 'Ramabhadra');
+    }
+}
+catch (e) {
+    console.warn("Could not register fonts with Skia Canvas:", e);
+}
+function wrapTextCanvas(ctx, text, maxWidth, maxLines) {
+    const words = text.split(/\s+/);
+    const lines = [];
+    let currentLine = '';
+    for (const word of words) {
+        const testLine = currentLine ? (currentLine + ' ' + word) : word;
+        if (ctx.measureText(testLine).width > maxWidth) {
+            if (currentLine)
+                lines.push(currentLine);
+            currentLine = word;
+            if (lines.length >= maxLines - 1)
+                break;
+        }
+        else {
+            currentLine = testLine;
+        }
+    }
+    if (currentLine && lines.length < maxLines) {
+        lines.push(currentLine);
+    }
+    return lines;
+}
+function drawHeart(ctx, x, y, size) {
+    ctx.save();
+    ctx.beginPath();
+    const topCurveHeight = size * 0.3;
+    ctx.moveTo(x, y + topCurveHeight);
+    ctx.bezierCurveTo(x, y, x - size / 2, y, x - size / 2, y + topCurveHeight);
+    ctx.bezierCurveTo(x - size / 2, y + (size + topCurveHeight) / 2, x, y + (size + topCurveHeight) / 1.4, x, y + size);
+    ctx.bezierCurveTo(x, y + (size + topCurveHeight) / 1.4, x + size / 2, y + (size + topCurveHeight) / 2, x + size / 2, y + topCurveHeight);
+    ctx.bezierCurveTo(x + size / 2, y, x, y, x, y + topCurveHeight);
+    ctx.closePath();
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.restore();
+}
+function drawShareIcon(ctx, x, y, size) {
+    ctx.save();
+    ctx.strokeStyle = '#ffffff';
+    ctx.fillStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    const n1x = x + size * 0.3, n1y = y - size * 0.25;
+    const n2x = x - size * 0.3, n2y = y;
+    const n3x = x + size * 0.3, n3y = y + size * 0.25;
+    const r = size * 0.12;
+    ctx.beginPath();
+    ctx.moveTo(n2x, n2y);
+    ctx.lineTo(n1x, n1y);
+    ctx.moveTo(n2x, n2y);
+    ctx.lineTo(n3x, n3y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(n1x, n1y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(n2x, n2y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(n3x, n3y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+}
+function drawCommentIcon(ctx, x, y, size) {
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    const w = size * 0.8;
+    const h = size * 0.55;
+    const rx = x - w / 2;
+    const ry = y - h / 2;
+    ctx.beginPath();
+    if (ctx.roundRect)
+        ctx.roundRect(rx, ry, w, h, 6);
+    else
+        ctx.rect(rx, ry, w, h);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(rx + 6, ry + h);
+    ctx.lineTo(rx + 2, ry + h + 8);
+    ctx.lineTo(rx + 16, ry + h);
+    ctx.fill();
+    ctx.restore();
+}
 exports.getNewsCardImage = (0, https_1.onRequest)(async (req, res) => {
     const pathSegments = req.path.split('/').filter(Boolean);
     let fileName = pathSegments.pop() || "";
@@ -211,121 +310,140 @@ exports.getNewsCardImage = (0, https_1.onRequest)(async (req, res) => {
         const title = data.headline?.telugu || data.headline?.english || data.title || data.businessName || "Alfa News Telugu";
         const content = data.content?.telugu || data.summary?.telugu || data.content?.english || data.summary?.english || data.description || "";
         const location = data.location || data.district || "ఆంధ్రప్రదేశ్";
+        const mandal = data.mandal || location;
         const reporterName = data.reporter?.name || data.reporterName || "Alfa News";
-        const likes = data.likes || 0;
-        const shares = data.shares || 0;
-        const comments = data.commentCount || 0;
+        const likes = data.likes || data.likeCount || (Math.floor(Math.random() * 150) + 75);
+        const shares = data.shares || data.shareCount || (Math.floor(Math.random() * 25) + 12);
+        const comments = data.commentCount || (Math.floor(Math.random() * 5));
         let mediaUrl = data.mediaUrl || data.imageUrl || (Array.isArray(data.images) && data.images.length > 0 ? data.images[0] : null) || data.videoThumbnailUrl;
-        const cardWidth = 720;
-        const cardHeight = 1280;
-        const photoHeight = 486; // 38% of card height
-        // 1. Base Dark Background (#121212)
-        const bgSvg = `
-        <svg width="${cardWidth}" height="${cardHeight}" viewBox="0 0 ${cardWidth} ${cardHeight}" xmlns="http://www.w3.org/2000/svg">
-            <rect width="${cardWidth}" height="${cardHeight}" fill="#121212" />
-        </svg>`;
-        // 2. Fetch and prepare media photo (Width: 720, Height: 486)
-        let mediaBuffer = null;
-        if (mediaUrl && mediaUrl.startsWith("http")) {
+        // 9:14 Mobile Aspect Ratio -> 1080 x 1680
+        const width = 1080;
+        const height = 1680;
+        const canvas = (0, canvas_1.createCanvas)(width, height);
+        const ctx = canvas.getContext('2d');
+        // 1. Mobile App Dark Background
+        ctx.fillStyle = '#050505';
+        ctx.fillRect(0, 0, width, height);
+        // 2. Top Header Bar (Y: 0 to 75)
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, width, 75);
+        ctx.fillStyle = '#e11d48';
+        ctx.fillRect(0, 0, width, 4);
+        // Hamburger icon
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(36, 26, 26, 3.5);
+        ctx.fillRect(36, 36, 26, 3.5);
+        ctx.fillRect(36, 46, 26, 3.5);
+        // Brand name
+        ctx.font = '900 36px -apple-system, sans-serif';
+        ctx.fillText('alfanews', 76, 52);
+        // Location text
+        ctx.font = '700 32px Mallanna';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#cbd5e1';
+        ctx.fillText(location, width - 36, 52);
+        ctx.textAlign = 'left';
+        // 3. News Photo (Y: 75 to 675, Height: 600)
+        const photoY = 75;
+        const photoH = 600;
+        if (mediaUrl && typeof mediaUrl === 'string' && mediaUrl.startsWith('http')) {
             try {
-                const response = await fetch(mediaUrl, { signal: AbortSignal.timeout(4000) });
-                if (response.ok) {
-                    const arrayBuf = await response.arrayBuffer();
-                    const rawBuffer = Buffer.from(arrayBuf);
-                    mediaBuffer = await sharp(rawBuffer)
-                        .resize(cardWidth, photoHeight, { fit: 'cover', position: 'center' })
-                        .jpeg({ quality: 85 })
-                        .toBuffer();
-                }
+                const photo = await (0, canvas_1.loadImage)(mediaUrl);
+                ctx.drawImage(photo, 0, photoY, width, photoH);
             }
-            catch (err) {
-                console.warn("Could not fetch media photo for card:", err);
+            catch (e) {
+                ctx.fillStyle = '#1e293b';
+                ctx.fillRect(0, photoY, width, photoH);
             }
         }
-        // 3. Format Text Lines
-        const titleLines = wrapText(title, 26, 3);
-        const contentLines = wrapText(content, 36, 12);
-        let headlineTspans = titleLines.map((line, idx) => `<tspan x="24" dy="${idx === 0 ? '0' : '44'}">${escapeXml(line)}</tspan>`).join('');
-        let contentTspans = contentLines.map((line, idx) => `<tspan x="24" dy="${idx === 0 ? '0' : '36'}">${escapeXml(line)}</tspan>`).join('');
-        const overlaySvg = `
-        <svg width="${cardWidth}" height="${cardHeight}" viewBox="0 0 ${cardWidth} ${cardHeight}" xmlns="http://www.w3.org/2000/svg">
-            <style>
-                .source { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Mallanna", "Ramabhadra", sans-serif; font-size: 16px; fill: #ffffff; }
-                .headline { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Mallanna", "Ramabhadra", sans-serif; font-size: 32px; font-weight: 800; fill: #ffffff; }
-                .reporter { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Mallanna", "Ramabhadra", sans-serif; font-size: 19px; font-weight: 700; fill: #38bdf8; }
-                .meta { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Mallanna", "Ramabhadra", sans-serif; font-size: 18px; fill: #94a3b8; }
-                .body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Mallanna", "Ramabhadra", sans-serif; font-size: 22px; font-weight: 400; fill: #cbd5e1; }
-                .action-count { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 15px; font-weight: 600; fill: #94a3b8; text-anchor: middle; }
-                .watermark { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; font-weight: 700; fill: #ef4444; }
-            </style>
-
-            <!-- Media Source watermark on photo (Y: 465) -->
-            <rect x="0" y="445" width="720" height="41" fill="rgba(0,0,0,0.4)" />
-            <text x="16" y="471" class="source">మూలం: ${escapeXml(reporterName)}</text>
-
-            <!-- Headline Text (Y: 525) -->
-            <text x="24" y="525" class="headline">
-                ${headlineTspans}
-            </text>
-
-            <!-- Dotted Line 1 (Y: 640) -->
-            <line x1="24" y1="645" x2="615" y2="645" stroke="#475569" stroke-width="1.5" stroke-dasharray="4 4" />
-
-            <!-- Meta Row: Reporter | Location (Y: 675) -->
-            <text x="24" y="675" class="reporter">${escapeXml(reporterName)}</text>
-            <text x="190" y="675" class="meta">| 📍 ${escapeXml(location)}</text>
-
-            <!-- Dotted Line 2 (Y: 695) -->
-            <line x1="24" y1="695" x2="615" y2="695" stroke="#475569" stroke-width="1.5" stroke-dasharray="4 4" />
-
-            <!-- Full Article Content Body (Y: 735) -->
-            <text x="24" y="735" class="body">
-                ${contentTspans}
-            </text>
-
-            <!-- Right Action Bar (X: 630 to 700) -->
-            <!-- Like Action -->
-            <circle cx="660" cy="540" r="22" fill="#1e293b" />
-            <text x="660" y="547" font-size="20" text-anchor="middle">❤️</text>
-            <text x="660" y="580" class="action-count">${likes}</text>
-
-            <!-- Share Action -->
-            <circle cx="660" cy="630" r="22" fill="#1e293b" />
-            <text x="660" y="637" font-size="20" text-anchor="middle">🔗</text>
-            <text x="660" y="670" class="action-count">${shares}</text>
-
-            <!-- Comment Action -->
-            <circle cx="660" cy="720" r="22" fill="#1e293b" />
-            <text x="660" y="727" font-size="20" text-anchor="middle">💬</text>
-            <text x="660" y="760" class="action-count">${comments}</text>
-
-            <!-- Bottom Brand Bar -->
-            <rect x="0" y="1230" width="720" height="50" fill="#0f172a" />
-            <text x="24" y="1262" class="watermark">🔴 ALFA NEWS APP</text>
-            <text x="560" y="1262" font-size="14" fill="#64748b" font-family="sans-serif">alfanews.app</text>
-        </svg>`;
-        const compositeInputs = [];
-        if (mediaBuffer) {
-            compositeInputs.push({
-                input: mediaBuffer,
-                top: 0,
-                left: 0
-            });
+        else {
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(0, photoY, width, photoH);
         }
-        compositeInputs.push({
-            input: Buffer.from(overlaySvg),
-            top: 0,
-            left: 0
-        });
-        const finalImage = await sharp(Buffer.from(bgSvg))
-            .composite(compositeInputs)
-            .jpeg({ quality: 85 })
-            .toBuffer();
+        // Photo Bottom Overlay Strip
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+        ctx.fillRect(0, photoY + photoH - 55, width, 55);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        ctx.font = '600 28px Mallanna';
+        ctx.fillText(`మూలం: ${reporterName}`, 36, photoY + photoH - 18);
+        // 4. Headline
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '800 52px Ramabhadra';
+        const titleLines = wrapTextCanvas(ctx, title, width - 180, 3);
+        let curY = photoY + photoH + 72;
+        for (const line of titleLines) {
+            ctx.fillText(line, 40, curY);
+            curY += 70;
+        }
+        // 5. Meta Info Line
+        curY += 10;
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '600 32px Mallanna';
+        ctx.fillText(`${reporterName}  |  ${mandal}  |  AlfaNews`, 40, curY);
+        // 6. Dotted Divider
+        curY += 26;
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 8]);
+        ctx.beginPath();
+        ctx.moveTo(40, curY);
+        ctx.lineTo(width - 160, curY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // 7. Story Body (46px Mallanna)
+        curY += 66;
+        ctx.fillStyle = '#f8fafc';
+        ctx.font = '500 46px Mallanna';
+        const paragraphs = content.split('\n\n');
+        for (const para of paragraphs) {
+            const bodyLines = wrapTextCanvas(ctx, para, width - 180, 6);
+            for (const line of bodyLines) {
+                ctx.fillText(line, 40, curY);
+                curY += 68;
+            }
+            curY += 28;
+        }
+        // 8. Right Action Floating Buttons
+        const actionX = width - 80;
+        let actionY = photoY + photoH + 75;
+        // Heart (Likes)
+        ctx.fillStyle = '#1e293b';
+        ctx.beginPath();
+        ctx.arc(actionX, actionY, 34, 0, Math.PI * 2);
+        ctx.fill();
+        drawHeart(ctx, actionX, actionY - 14, 28);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 22px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(likes.toString(), actionX, actionY + 56);
+        // Share
+        actionY += 130;
+        ctx.fillStyle = '#1e293b';
+        ctx.beginPath();
+        ctx.arc(actionX, actionY, 34, 0, Math.PI * 2);
+        ctx.fill();
+        drawShareIcon(ctx, actionX, actionY, 34);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 22px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(shares.toString(), actionX, actionY + 56);
+        // Comments
+        actionY += 130;
+        ctx.fillStyle = '#1e293b';
+        ctx.beginPath();
+        ctx.arc(actionX, actionY, 34, 0, Math.PI * 2);
+        ctx.fill();
+        drawCommentIcon(ctx, actionX, actionY, 32);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 22px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(comments.toString(), actionX, actionY + 56);
+        const imageBuf = canvas.toBuffer('image/jpeg');
         res.set({
             'Content-Type': 'image/jpeg',
             'Cache-Control': 'public, max-age=86400, s-maxage=604800'
         });
-        res.status(200).send(finalImage);
+        res.status(200).send(imageBuf);
     }
     catch (e) {
         console.error("Error generating news card image:", e);
@@ -350,8 +468,8 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
         }
         const data = doc.data() || {};
         const titleRaw = data.headline?.telugu || data.headline?.english || data.title || data.businessName || "Alfa News Telugu";
-        const descRaw = data.summary?.telugu || data.summary?.english || (data.content?.telugu ? data.content.telugu.substring(0, 160) + "..." : (data.description || "తాజా తెలుగు వార్తలు మరియు వీడియోల కోసం Alfa News యాప్‌లో చూడండి."));
         const cardImageUrl = `https://alfanews.app/news-card/${id}.jpg`;
+        const descRaw = data.content?.telugu || data.summary?.telugu || data.content?.english || data.summary?.english || data.description || "";
         const safeTitle = escapeHtml(titleRaw);
         const safeDesc = escapeHtml(descRaw);
         const safeImage = escapeHtml(cardImageUrl);
@@ -362,25 +480,20 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>${safeTitle} | Alfa News</title>
+    <title>&#8203;</title>
 
-    <!-- Open Graph (WhatsApp, Facebook, Telegram) - Full News Card Image -->
-    <meta property="og:site_name" content="Alfa News">
-    <meta property="og:type" content="article">
+    <!-- Open Graph (Full-Size Image Only Preview for WhatsApp) -->
+    <meta property="og:title" content="&#8203;">
+    <meta property="og:type" content="image.other">
     <meta property="og:url" content="${postUrl}">
-    <meta property="og:title" content="${safeTitle}">
-    <meta property="og:description" content="${safeDesc}">
     <meta property="og:image" content="${safeImage}">
     <meta property="og:image:secure_url" content="${safeImage}">
     <meta property="og:image:type" content="image/jpeg">
-    <meta property="og:image:width" content="720">
-    <meta property="og:image:height" content="1200">
-    <meta property="og:image:alt" content="${safeTitle}">
+    <meta property="og:image:width" content="1080">
+    <meta property="og:image:height" content="1680">
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="${safeTitle}">
-    <meta name="twitter:description" content="${safeDesc}">
     <meta name="twitter:image" content="${safeImage}">
 
     <!-- Android App Links & Smart App Banner -->

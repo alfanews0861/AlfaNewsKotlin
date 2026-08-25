@@ -452,9 +452,10 @@ export async function notifyApplicantOfConflict(
 ) {
     if (!userId) return;
     try {
-        const conflictText = `నమస్కారం ${applicantName || 'మిత్రమా'}, మీరు కోరిన ${mandal} మండలానికి ఇప్పటికే క్రియాశీల విలేకరి (${existingReporterName || 'ఇతరులు'}) ఉన్నారు.\n\nఅందువల్ల మీ దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు (పోటీ / ప్రొబేషన్) పంపబడింది. మా అడ్మిన్ టీమ్ పరిశీలించి త్వరలోనే మిమ్మల్ని సంప్రదిస్తారు లేదా మీకు తగిన మండలాన్ని కేటాయిస్తారు. ధన్యవాదాలు!`;
+        const conflictText = `నమస్కారం ${applicantName || 'మిత్రమా'}, మీరు కోరిన ${mandal} మండలానికి ఇప్పటికే క్రియాశీల విలేకరి (${existingReporterName || 'ఇతరులు'}) ఉన్నారు.\n\nఅందువల్ల మీ దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు (పోటీ / ప్రొబేషన్) పంపబడింది. మా అడ్మిన్ టీమ్ పరిశీలించి త్వరలోనే మిమ్మల్ని సంప్రదిస్తారు. మీకు ఏవైనా సందేహాలున్నా లేదా మీ వివరాలు తెలియజేయాలన్నా ఇక్కడే అడ్మిన్‌కు నేరుగా మెసేజ్ / రిప్లై ఇవ్వవచ్చు. ధన్యవాదాలు!`;
         const msgTimestamp = admin.firestore.FieldValue.serverTimestamp();
         
+        // 1. Add to 2-way reporter conversation for chat
         await db.collection('reporter_conversations').doc(userId).collection('messages').add({
             senderId: "SYSTEM_ADMIN",
             senderName: "AlfaNews Editorial Desk",
@@ -478,6 +479,19 @@ export async function notifyApplicantOfConflict(
             updatedAt: msgTimestamp
         }, { merge: true });
 
+        // 2. Add to user's general in-app messages list
+        await db.collection('users').doc(userId).collection('messages').add({
+            title: "మీ దరఖాస్తు పరిశీలనలో ఉంది ⏳",
+            body: conflictText,
+            senderName: "AlfaNews Editorial Desk",
+            senderRole: "ADMIN",
+            read: false,
+            importance: "HIGH",
+            type: "REPORTER_APP_PENDING",
+            timestamp: msgTimestamp
+        });
+
+        // 3. Send FCM push notification
         const userDoc = await db.collection('users').doc(userId).get();
         const userData = userDoc.data() || {};
         const tokens = [...(userData.fcmTokens || []), userData.fcmToken].filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
@@ -486,7 +500,7 @@ export async function notifyApplicantOfConflict(
                 token,
                 notification: {
                     title: "మీ దరఖాస్తు పరిశీలనలో ఉంది ⏳",
-                    body: `${mandal} మండలానికి ఇప్పటికే విలేకరి ఉన్నందున మీ దరఖాస్తు అడ్మిన్ పరిశీలనకు పంపబడింది.`
+                    body: `${mandal} మండలానికి ఇప్పటికే విలేకరి ఉన్నందున మీ దరఖాస్తు అడ్మిన్ పరిశీలనకు పంపబడింది. వివరాలకు అడ్మిన్ డెస్క్ సందేశాన్ని చూడండి.`
                 },
                 data: {
                     type: "REPORTER_APP_PENDING",

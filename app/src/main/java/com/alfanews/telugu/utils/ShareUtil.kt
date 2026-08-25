@@ -169,7 +169,7 @@ object ShareUtil {
         customText: String? = null
     ) {
         val shareUrl = "https://alfanews.app/news/$postId"
-        val shareText = customText ?: "🔴 $headline\n\n$shareUrl"
+        val shareText = customText ?: "$headline\n$shareUrl\n\nShared via AlfaNews"
 
         val sendIntent = Intent(Intent.ACTION_SEND).apply {
             action = Intent.ACTION_SEND

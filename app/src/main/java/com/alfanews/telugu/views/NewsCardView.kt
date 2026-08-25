@@ -664,21 +664,47 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
     scope.launch {
         setSharing(true)
         try {
+            kotlinx.coroutines.delay(100)
             val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
             val shareUrl = "https://alfanews.app/news/${post.id}"
             val shareText = customShareText ?: "🔴 $headline\n\n$shareUrl"
 
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                action = Intent.ACTION_SEND
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, shareText)
-                putExtra(Intent.EXTRA_SUBJECT, headline)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val bitmap = takeScreenshot(view, cardBounds)
+            val uri = if (bitmap != null) {
+                saveImageToCache(context, bitmap)
+            } else {
+                fallbackGetNewsImageUri(context, post, language)
             }
-            val chooser = Intent.createChooser(intent, context.getString(R.string.share_news)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+            if (uri != null) {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    action = Intent.ACTION_SEND
+                    type = "image/jpeg"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_TEXT, shareText)
+                    putExtra(Intent.EXTRA_SUBJECT, headline)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                intent.clipData = ClipData.newRawUri(null, uri)
+                val chooser = Intent.createChooser(intent, context.getString(R.string.share_news)).apply {
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(chooser)
+            } else {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    action = Intent.ACTION_SEND
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, shareText)
+                    putExtra(Intent.EXTRA_SUBJECT, headline)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                val chooser = Intent.createChooser(intent, context.getString(R.string.share_news)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(chooser)
             }
-            context.startActivity(chooser)
 
             FirebaseService.db.collection("news").document(post.id).update("shares", FieldValue.increment(1)).addOnSuccessListener { setShareCount(1) }
             AnalyticsService.logNewsShare(post)
@@ -689,6 +715,7 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
                 try { PreferenceManager.getInstance(context).trackCategoryRead(primaryCat) } catch (e: Exception) { }
             }
         } catch (e: Exception) { 
+            Log.e("NewsCardView", "Share error", e)
             Toast.makeText(context, "Share error", Toast.LENGTH_SHORT).show() 
         } finally { 
             setSharing(false) 

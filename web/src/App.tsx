@@ -260,6 +260,11 @@ const App: React.FC = () => {
                         setActiveTab('home');
                     }} 
                     onLoginRequest={() => setShowLogin(true)} 
+                    onOpenChat={() => {
+                        if (window.location.hash) { window.location.hash = ''; window.history.replaceState(null, '', ' '); }
+                        setActiveTab('profile');
+                        setShowAdmin(true);
+                    }}
                 />
             )}
             {activeTab === 'profile' && (
