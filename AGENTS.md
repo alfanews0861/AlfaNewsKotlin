@@ -76,14 +76,13 @@ private var prefCursor: DocumentSnapshot? = null  // Tracks pagination state
 
 ## Developer Workflows
 
-### Building Android Release APK
-```powershell
-# Location: build_release_apk.ps1
-# Auto-retries 10x (daemon crashes are common)
-# Kills Java processes between attempts
-./build_release_apk.ps1
-# Output: app/build/outputs/apk/release/app-release.apk
-```
+### Standard Rules (⚠️ CRITICAL)
+- **Do NOT build APK on every change (ప్రతీ మార్పుకి APK బిల్డ్ చేయవద్దు)**:
+  APK builds consume substantial system resources and time. Android release/debug builds are handled automatically via GitHub Actions pipelines or only when explicitly requested by the user. Do not trigger `./build_release_apk.ps1` or `assembleRelease` unless the user specifically asks for it.
+- **Cross-Mandal Reporter Attribution**:
+  When a reporter posts news for a mandal other than their assigned mandal, public author credits are displayed as `"Alfa News Desk"`, while incentive reward points and notifications are still credited to the submitting reporter (`originalReporterId`).
+
+### Building Android Release APK (Only when explicitly requested by user)
 
 **Manual Build**:
 ```bash

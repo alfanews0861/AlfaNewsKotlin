@@ -58,7 +58,8 @@ fun InAppNotificationView(
                     onClick() 
                 },
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                contentColor = MaterialTheme.colorScheme.onSurface
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
         ) {
@@ -100,16 +101,18 @@ fun InAppNotificationView(
                                 Text(
                                     text = dist,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.secondary,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
                         }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
+                    val headlineText = if (post.headline.telugu.isNotBlank()) post.headline.telugu else post.headline.english
                     Text(
-                        text = post.headline.telugu,
+                        text = headlineText,
                         style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis

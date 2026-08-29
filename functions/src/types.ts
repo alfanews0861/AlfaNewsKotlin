@@ -69,6 +69,8 @@ export interface NewsPost {
   affiliateUrl?: string; // New field for ecommerce products
   productPrice?: string; // Optional price information
   notificationTitle?: string; // High-engagement curiosity hook title for push notifications
+  isCitizen?: boolean;
+  isReporter?: boolean;
 }
 
 export enum Language {
@@ -94,3 +96,61 @@ export interface Comment {
   text: string;
   timestamp: number;
 }
+
+export interface DistrictSocialConfig {
+  id: string;
+  district: string;
+  state: 'TS' | 'AP';
+  enabled: boolean;
+  facebook?: {
+    enabled: boolean;
+    pageId: string;
+    pageName?: string;
+    pageAccessToken?: string;
+  };
+  instagram?: {
+    enabled: boolean;
+    igUserId: string;
+    accountName?: string;
+    accessToken?: string;
+  };
+  customHashtags?: string[];
+  includeAppDownloadLink?: boolean;
+  updatedAt?: any;
+  stats?: {
+    totalFbPosts?: number;
+    totalIgPosts?: number;
+    lastPostTime?: any;
+    lastFbStatus?: 'SUCCESS' | 'FAILED' | 'IDLE';
+    lastIgStatus?: 'SUCCESS' | 'FAILED' | 'IDLE';
+    lastError?: string | null;
+  };
+}
+
+export interface SocialAutoPostSettings {
+  globalEnabled: boolean;
+  appId?: string;
+  appSecret?: string;
+  defaultAccessToken?: string;
+  defaultAppDownloadLink?: string;
+  defaultHashtags?: string[];
+  updatedAt?: any;
+}
+
+
+export interface SocialAutoPostLog {
+  id: string;
+  postId: string;
+  headline: string;
+  district: string;
+  state?: string;
+  mediaUrl?: string;
+  facebookStatus: 'SUCCESS' | 'FAILED' | 'SKIPPED';
+  facebookPostId?: string;
+  facebookError?: string;
+  instagramStatus: 'SUCCESS' | 'FAILED' | 'SKIPPED';
+  instagramMediaId?: string;
+  instagramError?: string;
+  timestamp: any;
+}
+

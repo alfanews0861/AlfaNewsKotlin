@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { User, UserRole, Language, NewsPost } from '../types';
 import PostNewsPage from './PostNewsPage';
@@ -18,6 +17,7 @@ import RssFeedsPage from './RssFeedsPage';
 import GNewsPage from './GNewsPage';
 import SocialMediaFeedsPage from './SocialMediaFeedsPage';
 import WhatsappManagerPage from './WhatsappManagerPage';
+import SocialAutoPostPage from './SocialAutoPostPage';
 
 interface AdminPanelProps {
   user: User;
@@ -26,6 +26,8 @@ interface AdminPanelProps {
   setLanguage: (lang: Language) => void;
   onLogout: () => void;
   onLoginRequest?: () => void;
+  unreadMessagesCount?: number;
+  initialPage?: string;
 }
 
 interface NavItem {
@@ -41,11 +43,26 @@ interface NavSection {
   items: NavItem[];
 }
 
-const AdminPanel: React.FC<AdminPanelProps> = ({ user, onClose, language, setLanguage, onLogout, onLoginRequest }) => {
-  const [activePage, setActivePage] = useState('profile');
+const AdminPanel: React.FC<AdminPanelProps> = ({
+  user,
+  onClose,
+  language,
+  setLanguage,
+  onLogout,
+  onLoginRequest,
+  unreadMessagesCount = 0,
+  initialPage = 'profile'
+}) => {
+  const [activePage, setActivePage] = useState(initialPage);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [editingPost, setEditingPost] = useState<NewsPost | null>(null);
   const [chatTargetReporterId, setChatTargetReporterId] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (initialPage) {
+      setActivePage(initialPage);
+    }
+  }, [initialPage]);
 
   const navSections: NavSection[] = [
     {
@@ -83,6 +100,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onClose, language, setLan
     {
       title: 'ఆటోమేషన్ & స్క్రాపింగ్ (Scraping Hub)',
       items: [
+        { id: 'socialAutoPost', label: 'డిస్ట్రిక్ట్ సోషల్ ఆటో-పోస్ట్ (FB & Insta)', icon: '🚀', badge: 'NEW', roles: [UserRole.ADMIN] },
         { id: 'webScraping', label: 'వెబ్ స్క్రాపర్ (Web Scraper)', icon: '🌐', badge: 'RESTORED', roles: [UserRole.ADMIN] },
         { id: 'rssFeeds', label: 'RSS ఫీడ్స్ (RSS Feeds)', icon: '📡', roles: [UserRole.ADMIN] },
         { id: 'gnews', label: 'గూగుల్ న్యూస్ (Google News)', icon: '📰', roles: [UserRole.ADMIN] },
@@ -129,6 +147,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onClose, language, setLan
             setLanguage={setLanguage}
             onNavigate={handleMenuClick}
             onLoginRequest={onLoginRequest}
+            unreadMessagesCount={unreadMessagesCount}
           />
         );
       case 'post':
@@ -164,7 +183,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onClose, language, setLan
       case 'reporterManagement':
         return <ReporterManagementPage currentUser={user} />;
       case 'messages':
-        return <AdminReporterMessagingPage currentUser={user} initialReporterId={chatTargetReporterId} />;
+        return (
+          <AdminReporterMessagingPage
+            currentUser={user}
+            initialReporterId={chatTargetReporterId}
+            onBackToPanel={() => setActivePage('profile')}
+          />
+        );
       case 'manageUsers':
         return <UserManagementPage currentUser={user} />;
       case 'ads':
@@ -175,6 +200,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onClose, language, setLan
         return <AdminNotificationsPage />;
       case 'appConfig':
         return <AppConfigPage />;
+      case 'socialAutoPost':
+        return <SocialAutoPostPage currentUser={user} />;
       case 'webScraping':
         return <WebScrapingPage />;
       case 'rssFeeds':
@@ -238,6 +265,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onClose, language, setLan
                 </div>
                 {accessibleSectionItems.map(item => {
                   const isActive = activePage === item.id;
+                  const isMessageItem = item.id === 'messages';
+                  const showUnread = isMessageItem && unreadMessagesCount > 0;
+
                   return (
                     <button
                       key={item.id}
@@ -252,11 +282,19 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onClose, language, setLan
                         <span className="text-lg">{item.icon}</span>
                         <span className="truncate">{item.label}</span>
                       </div>
-                      {item.badge && (
-                        <span className="text-[9px] bg-purple-500/30 text-purple-300 border border-purple-400/30 px-1.5 py-0.5 rounded-md font-mono font-bold">
-                          {item.badge}
-                        </span>
-                      )}
+                      
+                      <div className="flex items-center gap-1.5">
+                        {showUnread && (
+                          <span className="bg-red-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse shadow-sm">
+                            {unreadMessagesCount > 99 ? '99+' : unreadMessagesCount}
+                          </span>
+                        )}
+                        {item.badge && (
+                          <span className="text-[9px] bg-purple-500/30 text-purple-300 border border-purple-400/30 px-1.5 py-0.5 rounded-md font-mono font-bold">
+                            {item.badge}
+                          </span>
+                        )}
+                      </div>
                     </button>
                   );
                 })}
@@ -302,8 +340,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onClose, language, setLan
           </button>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 bg-gray-50 pb-20">
-          <div className={activePage === 'reporterManagement' || activePage === 'messages' ? 'w-full mx-auto' : 'max-w-5xl mx-auto'}>
+        <main className={`flex-1 min-h-0 flex flex-col ${activePage === 'messages' ? 'overflow-hidden p-2 md:p-3 bg-gray-100/70' : 'overflow-y-auto p-2 md:p-4 pb-16 bg-gray-50'}`}>
+          <div className={activePage === 'reporterManagement' || activePage === 'dailyReport' || activePage === 'messages' || activePage === 'manage' ? 'w-full h-full flex flex-col min-h-0' : 'max-w-6xl w-full mx-auto'}>
             {renderActivePage()}
           </div>
         </main>
@@ -313,4 +351,3 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ user, onClose, language, setLan
 };
 
 export default AdminPanel;
-

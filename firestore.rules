@@ -108,28 +108,53 @@ service cloud.firestore {
     // RSS, Social & Scraping Feeds (Admin only write)
     match /rss_feeds/{feedId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+        getUserData().role in ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'] || getUserData().role == 'ADMIN'
+      );
     }
     match /social_feeds/{feedId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+        getUserData().role in ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'] || getUserData().role == 'ADMIN'
+      );
     }
     match /scraping_sources/{sourceId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+        getUserData().role in ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'] || getUserData().role == 'ADMIN'
+      );
+    }
+
+    // Social Auto-Post Configs & Logs
+    match /social_auto_post_configs/{configId} {
+      allow read: if true;
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+        getUserData().role in ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'] || getUserData().role == 'ADMIN'
+      );
+    }
+    match /social_auto_post_logs/{logId} {
+      allow read: if true;
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+        getUserData().role in ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'] || getUserData().role == 'ADMIN'
+      );
     }
 
     // System Settings - Public Read, Admin Write
     match /settings/{settingId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+        getUserData().role in ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'] || getUserData().role == 'ADMIN'
+      );
     }
 
     // System Settings (Old name, kept for compatibility) - Public Read, Admin Write
     match /system_settings/{settingId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+        getUserData().role in ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'] || getUserData().role == 'ADMIN'
+      );
     }
+
     
     // Contact Messages (Public write, Admin read)
     match /contact_messages/{messageId} {

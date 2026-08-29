@@ -246,9 +246,16 @@ STEP 4: CURIOSITY HOOK NOTIFICATION TITLE (notificationTitle)
 - If isBreaking is false AND notificationWorthy is false:
   Set 'notificationTitle' to null.
 
-STEP 5: VOCAL CONTENT (Anchor Audio Bulletin Script ~50-60 words)
-- Natural spoken news bulletin style for Chirp 3 HD voiceover (completed in ~20 seconds). NO intros or greetings.
-- Every complete sentence MUST strictly end with a full stop (.) for natural speech rhythm.
+STEP 5: VOCAL CONTENT (Anchor Audio Bulletin Script ~50-65 words)
+- Natural, professional spoken Telugu TV News Anchor delivery style for the complete story.
+- Must cover the FULL news story (both lead incident and key details from the 60-70 word written content), without omitting key facts. Do NOT cut it down to just 20-25 words — ensure the entire 50-65 word story is spoken.
+- Strictly NO intros or greetings (NO "నమస్కారం", "స్వాగతం", "ఈనాటి వార్తలు", etc.).
+- Use expressive punctuation anchors for AI speech synthesis:
+  * Use exclamation marks (!) for breaking/urgent developments and emphatic punch statements.
+  * Use commas (,) naturally between clauses for rhythmic breathing pauses.
+  * Use full stops (.) at the end of every sentence.
+  * Use ellipses (...) for dramatic pauses or headline transitions.
+- The language should be natural spoken Telugu (వాడుక భాష) with clear, crisp diction as spoken by top TV news anchors.
 
 STEP 6: METADATA & LOCATION
 - Location: Extract exact Mandalam (sub-district) name in Telugu. If district-wide, use District name.

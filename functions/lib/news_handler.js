@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onNewsPostCreated = exports.processNewsPost = void 0;
+exports.onNewsPostCreated = exports.processNewsPost = exports.performAIProcessing = exports.fetchRecentMandalNews = exports.calculateTextSimilarity = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -34,7 +34,6 @@ const path = __importStar(require("path"));
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 ffmpeg.setFfmpegPath(ffmpegPath);
-const { google } = require('googleapis');
 const utils_1 = require("./utils");
 const categories_1 = require("./categories");
 const reporter_handler_1 = require("./reporter_handler");
@@ -213,6 +212,73 @@ Output JSON only.`,
  * Helper: Perform AI enhancement on news content
  */
 /**
+ * Helper: Fast string similarity check (Jaccard similarity on Telugu word tokens)
+ */
+function calculateTextSimilarity(text1, text2) {
+    if (!text1 || !text2)
+        return 0;
+    const tokens1 = new Set(text1.toLowerCase().replace(/[^\u0C00-\u0C7F0-9a-zA-Z]/g, ' ').split(/\s+/).filter(w => w.length > 2));
+    const tokens2 = new Set(text2.toLowerCase().replace(/[^\u0C00-\u0C7F0-9a-zA-Z]/g, ' ').split(/\s+/).filter(w => w.length > 2));
+    if (tokens1.size === 0 || tokens2.size === 0)
+        return 0;
+    let intersectionCount = 0;
+    for (const t of tokens1) {
+        if (tokens2.has(t))
+            intersectionCount++;
+    }
+    const unionSize = new Set([...tokens1, ...tokens2]).size;
+    return unionSize > 0 ? (intersectionCount / unionSize) : 0;
+}
+exports.calculateTextSimilarity = calculateTextSimilarity;
+/**
+ * Helper: Fetch approved news in the same mandal/district from the last 6 hours (cost-effective query)
+ */
+async function fetchRecentMandalNews(postData, currentPostId) {
+    const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
+    const targetDistrict = (postData?.district || "").trim();
+    const targetLocation = (postData?.location || postData?.mandal || "").trim();
+    try {
+        let queryRef = db.collection('news')
+            .where('approved', '==', true)
+            .where('timestamp', '>=', sixHoursAgo);
+        if (targetDistrict && targetDistrict !== "State" && targetDistrict !== "General") {
+            queryRef = queryRef.where('district', '==', targetDistrict);
+        }
+        const snapshot = await queryRef.orderBy('timestamp', 'desc').limit(25).get();
+        if (snapshot.empty)
+            return [];
+        const recentList = [];
+        const normTargetLoc = targetLocation.toLowerCase().replace(/\s+/g, '');
+        for (const doc of snapshot.docs) {
+            if (currentPostId && doc.id === currentPostId)
+                continue;
+            const d = doc.data();
+            const docLoc = (d.location || d.mandal || "").trim().toLowerCase().replace(/\s+/g, '');
+            // Filter to same mandal if specified, or same district if no mandal specified
+            const isMandalMatch = !normTargetLoc || docLoc === normTargetLoc ||
+                (normTargetLoc.length > 2 && (docLoc.includes(normTargetLoc) || normTargetLoc.includes(docLoc)));
+            if (isMandalMatch) {
+                const hl = d.headline?.telugu || d.title || "";
+                const ct = d.content?.telugu || d.summary || "";
+                if (hl || ct) {
+                    recentList.push({
+                        id: doc.id,
+                        headline: hl,
+                        content: ct,
+                        location: d.location || d.mandal || targetLocation
+                    });
+                }
+            }
+        }
+        return recentList.slice(0, 5); // At most 5 most recent stories for concise AI context
+    }
+    catch (e) {
+        console.warn(`[DUPLICATE_FETCH_WARN] Could not fetch recent mandal news:`, e.message);
+        return [];
+    }
+}
+exports.fetchRecentMandalNews = fetchRecentMandalNews;
+/**
  * Helper: Normalize a single AI-generated story object
  */
 function normalizeSingleStory(aiRes, actualPostData) {
@@ -241,7 +307,12 @@ function normalizeSingleStory(aiRes, actualPostData) {
     else {
         finalNotificationTitle = (0, utils_1.sanitizeTeluguText)(finalNotificationTitle);
     }
-    const isRejected = aiRes.rejectionReason && aiRes.rejectionReason.length > 0;
+    const isDuplicate = aiRes.isDuplicate === true;
+    let rejectionReason = aiRes.rejectionReason || "";
+    if (isDuplicate && (!rejectionReason || rejectionReason.toLowerCase() === "null" || rejectionReason.toLowerCase() === "none")) {
+        rejectionReason = "ఈ మండలంలో గత 6 గంటల్లో ఇప్పటికే ప్రచురించబడిన వార్త (డూప్లికేట్).";
+    }
+    const isRejected = (rejectionReason && rejectionReason.length > 0) || isDuplicate;
     if (!isRejected && (!finalContent || !finalHeadline)) {
         console.warn("[AI_FIELD_WARNING] AI story item missing Telugu fields:", JSON.stringify(aiRes).substring(0, 300));
     }
@@ -249,7 +320,6 @@ function normalizeSingleStory(aiRes, actualPostData) {
         aiRes.english?.content || aiRes.english?.contentEn || aiRes.english?.summary ||
         aiRes.english_version?.content || aiRes.english_version?.summary ||
         aiRes.summaryEn || aiRes.summarized_english_content || aiRes.englishContent || "";
-    let rejectionReason = aiRes.rejectionReason || "";
     if (rejectionReason.toLowerCase() === "null" ||
         rejectionReason.toLowerCase() === "none" ||
         rejectionReason.toLowerCase() === "n/a" ||
@@ -294,6 +364,8 @@ function normalizeSingleStory(aiRes, actualPostData) {
         matchedImageIndex: typeof aiRes.matchedImageIndex === 'number' ? aiRes.matchedImageIndex : 0,
         isSafeForYouTube: aiRes.isSafeForYouTube ?? true,
         rejectionReason: rejectionReason,
+        isDuplicate: isDuplicate,
+        duplicateOfPostId: aiRes.duplicateOfPostId || null,
         tone: aiRes.tone || "NORMAL",
         vocalContent: aiRes.vocalContent || finalContent || "",
         qualitySignals: aiRes.qualitySignals || { biasScore: 0.5, publicInterestScore: 0.5, investigativeScore: 0, isPersonalPraise: false },
@@ -310,7 +382,43 @@ function normalizeSingleStory(aiRes, actualPostData) {
 /**
  * Helper: Perform AI enhancement on news content (returns Array of 1 to 3 stories)
  */
-async function performAIProcessing(headline, content, actualPostData) {
+async function performAIProcessing(headline, content, actualPostData, recentStories = []) {
+    // 1. FAST PRE-CHECK: Text similarity against recent stories in the same mandal (0 Gemini Token cost)
+    if (recentStories.length > 0) {
+        for (const recent of recentStories) {
+            const headlineSim = calculateTextSimilarity(headline, recent.headline);
+            const contentSim = calculateTextSimilarity(content, recent.content);
+            if (headlineSim >= 0.75 || contentSim >= 0.70 || (headlineSim >= 0.55 && contentSim >= 0.55)) {
+                console.log(`[FAST_DUPLICATE_HIT] Exact/near-exact text similarity hit with post ${recent.id} (headlineSim: ${headlineSim.toFixed(2)}, contentSim: ${contentSim.toFixed(2)})`);
+                return [{
+                        headline: { telugu: headline, english: "" },
+                        content: { telugu: content, english: "" },
+                        notificationTitle: "",
+                        location: actualPostData?.location || recent.location || "",
+                        category: "జిల్లా వార్త",
+                        categories: ["జిల్లా వార్త"],
+                        tags: [],
+                        entities: { people: [], organizations: [], locations: [] },
+                        matchedImageIndex: 0,
+                        isSafeForYouTube: true,
+                        rejectionReason: "ఈ మండలంలో గత 6 గంటల్లో ఇప్పటికే ప్రచురించబడిన వార్త (డూప్లికేట్).",
+                        isDuplicate: true,
+                        duplicateOfPostId: recent.id,
+                        tone: "NORMAL",
+                        vocalContent: content,
+                        qualitySignals: { biasScore: 0.5, publicInterestScore: 0.5, investigativeScore: 0, isPersonalPraise: false },
+                        storyFingerprint: `dup_${recent.id}`,
+                        isBreaking: false,
+                        notificationWorthy: false,
+                        isGraphicOrBloody: false,
+                        isSensitiveVictimOrMinor: false,
+                        aiProcessed: true,
+                        aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                    }];
+            }
+        }
+    }
     const singleStorySchema = {
         type: genai_1.Type.OBJECT,
         properties: {
@@ -324,6 +432,8 @@ async function performAIProcessing(headline, content, actualPostData) {
             matchedImageIndex: { type: genai_1.Type.INTEGER },
             isSafeForYouTube: { type: genai_1.Type.BOOLEAN },
             rejectionReason: { type: genai_1.Type.STRING },
+            isDuplicate: { type: genai_1.Type.BOOLEAN },
+            duplicateOfPostId: { type: genai_1.Type.STRING, nullable: true },
             tone: { type: genai_1.Type.STRING },
             vocalContent: { type: genai_1.Type.STRING },
             notificationTitle: { type: genai_1.Type.STRING },
@@ -350,7 +460,7 @@ async function performAIProcessing(headline, content, actualPostData) {
                 }
             }
         },
-        required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory", "isSafeForYouTube", "rejectionReason", "tags", "entities", "tone", "vocalContent", "isBreaking", "notificationWorthy"]
+        required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory", "isSafeForYouTube", "rejectionReason", "isDuplicate", "tags", "entities", "tone", "vocalContent", "isBreaking", "notificationWorthy"]
     };
     const schema = {
         type: genai_1.Type.OBJECT,
@@ -363,6 +473,20 @@ async function performAIProcessing(headline, content, actualPostData) {
         required: ["stories"]
     };
     console.log(`[AI_START] Processing: ${headline.substring(0, 30)}... (Type: ${actualPostData?.isReporter ? 'Reporter' : 'Citizen'})`);
+    const recentStoriesPrompt = recentStories.length > 0
+        ? `\nRECENT APPROVED NEWS IN THIS SAME MANDAL IN THE PAST 6 HOURS:\n` +
+            recentStories.map((s, idx) => `[Prior Story ${idx + 1}] ID: ${s.id} | Location: ${s.location} | Headline: ${s.headline} | Content: ${s.content.substring(0, 150)}`).join('\n') +
+            `\n\nDUPLICATE DETECTION RULES (CRITICAL):\n` +
+            `- Compare incoming news with the [Prior Story] list in this same mandal above.\n` +
+            `- If the incoming news is describing the EXACT SAME real-world event/incident (e.g. same accident, same press statement, same local theft, same public meeting/inauguration) already published in a Prior Story:\n` +
+            `  1. Set isDuplicate = true\n` +
+            `  2. Set duplicateOfPostId = matching Prior Story ID\n` +
+            `  3. Set rejectionReason = "ఈ మండలంలో గత 6 గంటల్లో ఇప్పటికే ప్రచురించబడిన వార్త (డూప్లికేట్)."\n` +
+            `- If it is a completely DIFFERENT topic/event, or a significant follow-up with substantial new facts:\n` +
+            `  1. Set isDuplicate = false\n` +
+            `  2. Set duplicateOfPostId = null\n` +
+            `  3. Leave rejectionReason empty (unless rejected for policy/safety violation).\n`
+        : `\nDUPLICATE DETECTION: No recent stories found in this mandal in the past 6 hours. Set isDuplicate = false, duplicateOfPostId = null.\n`;
     const metadataPrompt = `
 SUBMISSION METADATA:
 - type: ${actualPostData?.isReporter ? 'REPORTER_SUBMISSION' : 'CITIZEN_SUBMISSION'}
@@ -371,22 +495,21 @@ SUBMISSION METADATA:
 - district: ${actualPostData?.district || 'Unknown'}
 - location: ${actualPostData?.location || 'Unknown'}
 
+${recentStoriesPrompt}
+
 PROACTIVE MULTI-STORY BUNDLE DETECTION (CRITICAL):
 - Proactively detect if the input text contains multiple distinct sub-stories or angles:
-  1. Political Attack + Development Works/Achievements (e.g. Leader attacks rival on corruption, AND explains party's own development works or welfare comparison) -> MUST SPLIT into 2 distinct stories (Story 1: The sharp political/corruption attack; Story 2: Development works, achievements & challenges).
+  1. Political Attack + Development Works/Achievements -> MUST SPLIT into 2 distinct stories.
   2. Multiple distinct scandals/scams or allegations in the same press meet -> MUST SPLIT into 2 distinct stories.
-  3. Bundled press releases / tour notes (Press meet + Project inauguration + Condolence) -> MUST SPLIT into 2 to 3 standalone stories.
+  3. Bundled press releases / tour notes -> MUST SPLIT into 2 to 3 standalone stories.
 - If multiple distinct events/topics exist, output 2 to 3 separate story objects in the 'stories' array.
 - If strictly one single topic, return 1 story in the 'stories' array.
 - Assign 'matchedImageIndex' (0, 1, 2) matching which attached photo corresponds to each story.
 
 NOTIFICATION INSTRUCTIONS (CRITICAL):
-- isBreaking: true ONLY if the news is genuinely urgent and time-sensitive
-  (accidents, deaths, natural disasters, major political decisions, crimes, emergency events).
-  Do NOT set true for routine news, press meets, events, or opinion pieces.
+- isBreaking: true ONLY if the news is genuinely urgent and time-sensitive (accidents, deaths, natural disasters, major political decisions, crimes, emergency events).
 - notificationWorthy: true if the news is relevant to a broad audience and worth sending as a push notification.
 - notificationTitle: If isBreaking or notificationWorthy is true, generate an intriguing Telugu curiosity hook title (max 8-10 words).
-  If both are false, set notificationTitle to null.
 - tone options: BREAKING | URGENT | IMPORTANT | NORMAL | SOFT
 `;
     return await (0, utils_1.runWithAIFallback)(async (ai, modelName) => {
@@ -434,6 +557,7 @@ NOTIFICATION INSTRUCTIONS (CRITICAL):
         });
     });
 }
+exports.performAIProcessing = performAIProcessing;
 /**
  * 6. Main News Processing (OnCall)
  */
@@ -456,21 +580,26 @@ exports.processNewsPost = (0, https_1.onCall)(async (request) => {
             headline = content.substring(0, 60).split('\n')[0] + "...";
         const mediaUrl = postData?.mediaUrl || "";
         const mediaUrls = postData?.mediaUrls || (mediaUrl ? [mediaUrl] : []);
+        const isCitizen = postData?.isCitizen === true || (!postData?.isReporter && postData?.processingType !== "REPORTER_SUBMISSION");
+        const reporterId = request.auth?.uid || (typeof postData?.reporter === 'string' ? postData.reporter : postData?.reporter?.id);
+        const finalReporter = isCitizen
+            ? { id: reporterId || "", name: "సిటిజెన్ పోస్ట్" }
+            : (postData?.reporter || { id: reporterId || "", name: "" });
         const finalData = {
             ...postData,
             headline: { telugu: headline, english: postData?.headline?.english || "" },
             content: { telugu: content, english: postData?.content?.telugu || "" },
             mediaUrl: mediaUrl,
             mediaUrls: mediaUrls,
-            isCitizen: postData?.isCitizen || true,
-            isReporter: postData?.isReporter || false,
+            reporter: finalReporter,
+            isCitizen: isCitizen,
+            isReporter: !isCitizen && (postData?.isReporter === true),
             aiProcessed: false,
             approved: false,
             status: "PENDING",
             timestamp: postData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         };
-        const reporterId = request.auth?.uid || (typeof postData?.reporter === 'string' ? postData.reporter : postData?.reporter?.id);
         if (reporterId && !reporterId.startsWith('BOT_') && !reporterId.startsWith('SYSTEM_')) {
             await db.collection('users').doc(reporterId).set({
                 lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp()
@@ -565,7 +694,8 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
         return;
     }
     const originalReporterId = latestData.reporter?.id;
-    const isReporter = latestData.isReporter === true || latestData.processingType === "REPORTER_SUBMISSION";
+    const isCitizen = latestData.isCitizen === true || latestData.reporter?.name === "సిటిజెన్ పోస్ట్" || (!latestData.isReporter && latestData.processingType !== "REPORTER_SUBMISSION");
+    const isReporter = !isCitizen && (latestData.isReporter === true || latestData.processingType === "REPORTER_SUBMISSION");
     // 2. SURVEY PROCESS — Translate survey using Gemini AI
     if (latestData.type === "survey") {
         if (latestData.aiProcessed) {
@@ -627,39 +757,82 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                 await db.collection('news').doc(postId).update({ status: "FAILED", error: "Missing headline or content" });
                 return;
             }
-            const processedStories = await performAIProcessing(headline, content, latestData);
+            // Fetch recent news in the same mandal/district from the last 6 hours (cost-effective)
+            const recentMandalNews = await fetchRecentMandalNews(latestData, postId);
+            const processedStories = await performAIProcessing(headline, content, latestData, recentMandalNews);
             console.log(`[AI_SPLIT] Post ${postId} processed into ${processedStories.length} distinct stories.`);
             const availableMediaUrls = latestData.mediaUrls && latestData.mediaUrls.length > 0
                 ? latestData.mediaUrls
                 : (latestData.mediaUrl ? [latestData.mediaUrl] : []);
+            // Fetch submitting reporter assigned mandal to verify cross-mandal submissions
+            let submittingReporterAssignedMandal = "";
+            if (originalReporterId && !isCitizen) {
+                try {
+                    const repDoc = await db.collection('users').doc(originalReporterId).get();
+                    if (repDoc.exists) {
+                        const repData = repDoc.data();
+                        submittingReporterAssignedMandal = (repData?.assignedMandal || repData?.mandal || repData?.mandalam || "").trim();
+                    }
+                }
+                catch (e) {
+                    console.warn(`[REPORTER_MANDAL_FETCH_WARN] Could not fetch user data for ${originalReporterId}:`, e.message);
+                }
+            }
             for (let i = 0; i < processedStories.length; i++) {
                 const aiProcessedData = processedStories[i];
                 const targetPostId = i === 0 ? postId : `${postId}_part${i + 1}`;
-                // --- MANDALAM REPORTER ASSIGNMENT LOGIC ---
-                // Only auto-assign for citizen/auto posts; NEVER overwrite an official reporter's submission!
-                if (!isReporter && !originalReporterId) {
+                const targetMandalam = (aiProcessedData.location || latestData.location || latestData.mandal || "").trim();
+                // --- MANDALAM REPORTER ASSIGNMENT & ATTRIBUTION LOGIC ---
+                // Only auto-assign for scraper/auto posts; NEVER overwrite citizen posts!
+                if (isCitizen) {
+                    aiProcessedData.reporter = { id: latestData.reporter?.id || originalReporterId || "", name: "సిటిజెన్ పోస్ట్" };
+                    aiProcessedData.isCitizen = true;
+                    aiProcessedData.isReporter = false;
+                }
+                else if (!isReporter && !originalReporterId) {
                     const targetDistrict = data.district || (aiProcessedData.categories && aiProcessedData.categories.find((c) => !c.includes("వార్త") && c !== aiProcessedData.category));
-                    const targetMandalam = aiProcessedData.location;
                     if (targetDistrict && targetMandalam) {
                         const assignedReporter = await (0, reporter_handler_1.getAssignedReporter)(targetDistrict, targetMandalam);
                         if (assignedReporter) {
-                            console.log(`[REPORTER_ASSIGN] Assigning citizen/auto post ${targetPostId} to ${assignedReporter.name} for mandalam ${targetMandalam}`);
+                            console.log(`[REPORTER_ASSIGN] Assigning auto post ${targetPostId} to ${assignedReporter.name} for mandalam ${targetMandalam}`);
                             aiProcessedData.reporter = assignedReporter;
+                            aiProcessedData.isReporter = true;
+                        }
+                        else {
+                            aiProcessedData.reporter = { id: "ALFA_DESK", name: "Alfa News Desk" };
                             aiProcessedData.isReporter = true;
                         }
                     }
                 }
-                else if (latestData.reporter) {
-                    // Retain original submitting reporter
-                    aiProcessedData.reporter = latestData.reporter;
+                else if (originalReporterId) {
+                    // Submitting reporter post: check if cross-mandal post (outside assigned mandal)
+                    const normTargetMandal = targetMandalam.toLowerCase().replace(/\s+/g, '');
+                    const normRepMandal = submittingReporterAssignedMandal.toLowerCase().replace(/\s+/g, '');
+                    const isDifferentMandal = normTargetMandal.length > 0 && normRepMandal.length > 0 && normTargetMandal !== normRepMandal;
+                    if (isDifferentMandal) {
+                        console.log(`[CROSS_MANDAL_CREDIT] Reporter ${originalReporterId} (assigned: '${submittingReporterAssignedMandal}') posted for '${targetMandalam}'. Attribution set to 'Alfa News Desk'. Points will be credited to reporter.`);
+                        aiProcessedData.reporter = {
+                            id: originalReporterId,
+                            name: "Alfa News Desk",
+                            originalReporterName: latestData.reporter?.name || "Reporter"
+                        };
+                    }
+                    else {
+                        aiProcessedData.reporter = latestData.reporter || { id: originalReporterId, name: "Reporter" };
+                    }
                     aiProcessedData.isReporter = true;
                 }
-                const finalIsReporter = isReporter || aiProcessedData.isReporter;
-                const isRejected = aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0;
+                const finalIsReporter = !isCitizen && (isReporter || aiProcessedData.isReporter);
+                const finalIsCitizen = isCitizen;
+                const isDuplicateStory = aiProcessedData.isDuplicate === true;
+                const isRejected = (aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0) || isDuplicateStory;
                 const mTypes = (latestData.mediaTypes || []).map((t) => t.toUpperCase());
                 const hasVideo = mTypes.includes('VIDEO') || latestData.mediaType?.toUpperCase() === 'VIDEO';
                 const updatePayload = {
                     ...aiProcessedData,
+                    isCitizen: finalIsCitizen,
+                    isReporter: finalIsReporter,
+                    reporter: finalIsCitizen ? { id: latestData.reporter?.id || originalReporterId || "", name: "సిటిజెన్ పోస్ట్" } : (aiProcessedData.reporter || latestData.reporter),
                     status: isRejected ? "REJECTED" : (hasVideo ? "PROCESSING_VIDEO" : "published"),
                     approved: isRejected ? false : (finalIsReporter ? (hasVideo ? false : true) : (!hasVideo))
                 };
@@ -722,7 +895,8 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                 }
                 // Notifications & Rewards
                 if (isPostRejected && finalIsReporter && originalReporterId && i === 0) {
-                    await (0, reporter_handler_1.notifyReporter)(originalReporterId, targetPostId, aiProcessedData.headline?.telugu || latestData.headline?.telugu || "", 'POLICY_VIOLATION', "");
+                    const notifyType = isDuplicateStory ? 'DUPLICATE' : 'POLICY_VIOLATION';
+                    await (0, reporter_handler_1.notifyReporter)(originalReporterId, targetPostId, aiProcessedData.headline?.telugu || latestData.headline?.telugu || "", notifyType, "");
                 }
                 if (updatePayload.status === "published" && !isPostRejected && finalIsReporter && originalReporterId) {
                     const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
@@ -821,9 +995,6 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
             else {
                 await pipeline(Readable.fromWeb(videoRes.body), fs.createWriteStream(videoPath));
             }
-            const ttsAuth = new google.auth.GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
-            const authClient = await ttsAuth.getClient();
-            const accessToken = (await authClient.getAccessToken()).token;
             let teluguVocal = data.vocalContent || teluguNews;
             // Filter out intro greetings like "నమస్కారం" so they don't get read in voiceover
             teluguVocal = teluguVocal.replace(/^(నమస్కారం|నమస్కారమండి|నమస్కారాలు|నమస్తే)[,\s!.]*/gi, '').trim();
@@ -836,43 +1007,87 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
             // Restore protected tags to a safe internal format for processing
             vocal = vocal.replace(/___STRESS_START___/g, '[[STRESS]]')
                 .replace(/___STRESS_END___/g, '[[/STRESS]]');
-            // 2. SAFE TRUNCATION: Truncate base text first to avoid cutting SSML tags later
-            let baseText = vocal.substring(0, 4000).replace(/\s+/g, ' ').trim();
-            // 3. SANITIZE: Escape XML special characters properly
-            baseText = baseText.replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&apos;');
-            // 4. INJECT SSML: Clean markup for Studio (Chirp) voices
-            // Chirp 3 HD handles punctuation (. , ...) naturally.
-            // Internal SSML tags (<break>, inner <prosody>) cause unnatural audio boundary gaps/pauses.
-            let processedText = baseText;
-            processedText = processedText.replace(/,\s*,+/g, ','); // Clean double commas like ", ,"
-            processedText = processedText.replace(/,\s*\./g, '.'); // Clean comma before period ", ."
-            processedText = processedText.replace(/,\s*/g, ', ');
-            processedText = processedText.replace(/\.\s*/g, '. ');
-            // Clean STRESS tags cleanly so no internal SSML tags create unnatural gaps in Chirp 3 HD
-            processedText = processedText.replace(/\[\[STRESS\]\](.*?)\[\[\/STRESS\]\]/g, '$1');
-            // Pitch shift (-1.8st) gives a deep, serious, authoritative news-anchor tone (గంభీరత్వం)
-            let selectedVoice = data.voiceModel || 'te-IN-Chirp3-HD-Kore';
-            const ssml = `<speak><prosody rate="1.30" pitch="-1.8st" volume="+6dB">${processedText}</prosody></speak>`;
-            console.log(`[TTS_REQUEST] postId: ${postId}, voice: ${selectedVoice}, ssml: ${ssml.substring(0, 500)}`);
-            let ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
-                body: JSON.stringify({
-                    input: { ssml: ssml },
-                    voice: { languageCode: 'te-IN', name: selectedVoice },
-                    audioConfig: { audioEncoding: 'MP3', sampleRateHertz: 48000 }
-                })
-            });
-            let ttsData = await ttsRes.json();
-            // FALLBACK LOGIC: Try Neural2-B (Deep Male Voice) or Wavenet-B / Standard-A if primary fails
-            if (!ttsData.audioContent) {
-                console.warn(`[TTS_WARNING] Primary voice ${selectedVoice} failed. Trying Neural2 Male fallback.`);
-                selectedVoice = 'te-IN-Neural2-B';
-                ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
+            // 2. SAFE TRUNCATION: Truncate base text
+            let baseText = vocal.substring(0, 3000).replace(/\s+/g, ' ').trim();
+            // Prepare clean plain Telugu vocal text for Sarvam AI with expressive punctuation
+            let plainVocalText = baseText.replace(/\[\[STRESS\]\](.*?)\[\[\/STRESS\]\]/g, '$1');
+            plainVocalText = plainVocalText.replace(/,\s*,+/g, ',');
+            plainVocalText = plainVocalText.replace(/,\s*\./g, '.');
+            plainVocalText = plainVocalText.replace(/,\s*/g, ', ');
+            plainVocalText = plainVocalText.replace(/\.\s*/g, '. ');
+            plainVocalText = plainVocalText.replace(/!\s*/g, '! ');
+            plainVocalText = plainVocalText.replace(/\?\s*/g, '? ');
+            plainVocalText = plainVocalText.substring(0, 2500).trim();
+            let audioBuffer = null;
+            const sarvamApiKey = process.env.SARVAM_API_KEY;
+            // --- PRIMARY TTS: Sarvam AI (Simran, Telugu, 1.25x speed, 0.85 temperature, 44.1kHz High Quality Stereo) ---
+            if (sarvamApiKey) {
+                try {
+                    console.log(`[SARVAM_TTS_REQUEST] postId: ${postId}, speaker: simran, pace: 1.25, temp: 0.85, length: ${plainVocalText.length}`);
+                    const sarvamRes = await fetch('https://api.sarvam.ai/text-to-speech', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'api-subscription-key': sarvamApiKey
+                        },
+                        body: JSON.stringify({
+                            inputs: [plainVocalText],
+                            target_language_code: 'te-IN',
+                            speaker: 'simran',
+                            pace: 1.25,
+                            temperature: 0.85,
+                            model: 'bulbul:v3',
+                            speech_sample_rate: 44100
+                        }),
+                        signal: AbortSignal.timeout(25000)
+                    });
+                    if (sarvamRes.ok) {
+                        const sarvamData = await sarvamRes.json();
+                        if (sarvamData.audios && Array.isArray(sarvamData.audios) && sarvamData.audios.length > 0 && sarvamData.audios[0]) {
+                            audioBuffer = Buffer.from(sarvamData.audios[0], 'base64');
+                            console.log(`[SARVAM_TTS_SUCCESS] Generated voiceover using Sarvam AI for post ${postId} (Bytes: ${audioBuffer.length})`);
+                        }
+                        else {
+                            console.warn(`[SARVAM_TTS_WARNING] Sarvam AI returned OK but no audio content:`, JSON.stringify(sarvamData));
+                        }
+                    }
+                    else {
+                        const errText = await sarvamRes.text().catch(() => '');
+                        console.warn(`[SARVAM_TTS_WARNING] Sarvam AI HTTP error ${sarvamRes.status}: ${errText}`);
+                    }
+                }
+                catch (sarvamErr) {
+                    console.warn(`[SARVAM_TTS_ERROR] Sarvam AI request failed: ${sarvamErr.message}`);
+                }
+            }
+            else {
+                console.log(`[SARVAM_TTS_INFO] SARVAM_API_KEY not configured in environment. Routing directly to Chirp 3 HD.`);
+            }
+            // --- FALLBACK TTS: Google Cloud Text-to-Speech (Chirp 3 HD -> Neural2 -> Standard) ---
+            if (!audioBuffer) {
+                console.log(`[TTS_FALLBACK] Falling back to Google Cloud Chirp 3 HD for post ${postId}...`);
+                const { GoogleAuth } = require('google-auth-library');
+                const ttsAuth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
+                const authClient = await ttsAuth.getClient();
+                const accessToken = (await authClient.getAccessToken()).token;
+                // 3. SANITIZE: Escape XML special characters properly
+                let xmlText = baseText.replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&apos;');
+                // 4. INJECT SSML: Clean markup for Studio (Chirp) voices
+                let processedText = xmlText;
+                processedText = processedText.replace(/,\s*,+/g, ',');
+                processedText = processedText.replace(/,\s*\./g, '.');
+                processedText = processedText.replace(/,\s*/g, ', ');
+                processedText = processedText.replace(/\.\s*/g, '. ');
+                processedText = processedText.replace(/\[\[STRESS\]\](.*?)\[\[\/STRESS\]\]/g, '$1');
+                // Pitch shift (-1.8st) gives a deep, serious, authoritative news-anchor tone (గంభీరత్వం)
+                let selectedVoice = data.voiceModel || 'te-IN-Chirp3-HD-Kore';
+                const ssml = `<speak><prosody rate="1.30" pitch="-1.8st" volume="+6dB">${processedText}</prosody></speak>`;
+                console.log(`[TTS_REQUEST] postId: ${postId}, voice: ${selectedVoice}, ssml: ${ssml.substring(0, 500)}`);
+                let ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
                     body: JSON.stringify({
@@ -881,25 +1096,41 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                         audioConfig: { audioEncoding: 'MP3', sampleRateHertz: 48000 }
                     })
                 });
-                ttsData = await ttsRes.json();
+                let ttsData = await ttsRes.json();
+                // FALLBACK LOGIC: Try Neural2-B (Deep Male Voice) or Wavenet-B / Standard-A if primary fails
+                if (!ttsData.audioContent) {
+                    console.warn(`[TTS_WARNING] Primary voice ${selectedVoice} failed. Trying Neural2 Male fallback.`);
+                    selectedVoice = 'te-IN-Neural2-B';
+                    ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+                        body: JSON.stringify({
+                            input: { ssml: ssml },
+                            voice: { languageCode: 'te-IN', name: selectedVoice },
+                            audioConfig: { audioEncoding: 'MP3', sampleRateHertz: 48000 }
+                        })
+                    });
+                    ttsData = await ttsRes.json();
+                }
+                if (!ttsData.audioContent) {
+                    console.warn(`[TTS_WARNING] Neural2-B failed. Falling back to Standard-B.`);
+                    selectedVoice = 'te-IN-Standard-B';
+                    ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+                        body: JSON.stringify({
+                            input: { ssml: ssml },
+                            voice: { languageCode: 'te-IN', name: selectedVoice },
+                            audioConfig: { audioEncoding: 'MP3' }
+                        })
+                    });
+                    ttsData = await ttsRes.json();
+                }
+                if (!ttsData.audioContent)
+                    throw new Error(`TTS failed even after fallback: ${ttsData.error?.message || 'No audio'}`);
+                audioBuffer = Buffer.from(ttsData.audioContent, 'base64');
             }
-            if (!ttsData.audioContent) {
-                console.warn(`[TTS_WARNING] Neural2-B failed. Falling back to Standard-B.`);
-                selectedVoice = 'te-IN-Standard-B';
-                ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
-                    body: JSON.stringify({
-                        input: { ssml: ssml },
-                        voice: { languageCode: 'te-IN', name: selectedVoice },
-                        audioConfig: { audioEncoding: 'MP3' }
-                    })
-                });
-                ttsData = await ttsRes.json();
-            }
-            if (!ttsData.audioContent)
-                throw new Error(`TTS failed even after fallback: ${ttsData.error?.message || 'No audio'}`);
-            fs.writeFileSync(audioPath, Buffer.from(ttsData.audioContent, 'base64'));
+            fs.writeFileSync(audioPath, audioBuffer);
             const logoPath = path.join(process.cwd(), 'assets', 'logo.png');
             const hasLogo = fs.existsSync(logoPath);
             await new Promise((resolve, reject) => {
@@ -1031,6 +1262,7 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
             const refreshToken = ytSettings.exists ? ytSettings.data()?.refreshToken : process.env.YOUTUBE_REFRESH_TOKEN;
             if (!refreshToken)
                 throw new Error("YouTube Refresh Token missing");
+            const { google } = require('googleapis');
             const ytAuth = new google.auth.OAuth2(process.env.YOUTUBE_CLIENT_ID, process.env.YOUTUBE_CLIENT_SECRET);
             ytAuth.setCredentials({ refresh_token: refreshToken });
             const youtube = google.youtube({ version: 'v3', auth: ytAuth });

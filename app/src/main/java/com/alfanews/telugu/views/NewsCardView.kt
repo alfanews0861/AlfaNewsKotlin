@@ -215,7 +215,7 @@ fun NewsCardView(
                             // ప్రతి 5 reads కి topic subscriptions update చేస్తాం
                             val totalReads = prefs.getCategoryReadCounts().values.sum()
                             if (totalReads % 5 == 0) {
-                                MyFirebaseMessagingService().updateCategorySubscriptions(prefs)
+                                MyFirebaseMessagingService.updateCategorySubscriptions(prefs)
                             }
 
                             // 🔥 DAILY READING STREAK TRACKER
@@ -410,7 +410,15 @@ fun NewsCardView(
                                 }
                             }
                             
-                            if (post.reporter.name.isNotEmpty()) {
+                            if (post.isCitizen || post.reporter.name == "సిటిజెన్ పోస్ట్") {
+                                Text(
+                                    text = if (language == Language.TELUGU) "సిటిజెన్ పోస్ట్" else "Citizen Post",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontFamily = Mallanna,
+                                    modifier = Modifier.align(Alignment.BottomStart).padding(10.dp)
+                                )
+                            } else if (post.reporter.name.isNotEmpty()) {
                                 val sourceText = if (language == Language.TELUGU) "మూలం: " else "Source: "
                                 Text(
                                     text = "$sourceText${post.reporter.name}",
@@ -451,7 +459,19 @@ fun NewsCardView(
                                 modifier = Modifier.weight(1f, fill = false),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                if (post.reporter.name.isNotEmpty()) {
+                                if (post.isCitizen || post.reporter.name == "సిటిజెన్ పోస్ట్") {
+                                    Text(
+                                        text = if (language == Language.TELUGU) "సిటిజెన్ పోస్ట్" else "Citizen Post",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = Mallanna,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    Text(text = " | ", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
+                                } else if (post.reporter.name.isNotEmpty()) {
                                     val reporterTarget = post.reporter.id.ifEmpty { post.reporter.name }
                                     Text(
                                         text = post.reporter.name,

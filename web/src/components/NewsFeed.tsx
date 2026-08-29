@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import NewsCard from './NewsCard';
+import NewsCard, { getReadNewsIds } from './NewsCard';
 import AdCard from './AdCard';
 import AppDownloadModal from './AppDownloadModal';
 import { NewsPost, Language, User, UserInterest } from '../types';
@@ -78,6 +77,26 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
   const [hasMore, setHasMore] = useState(true);
   const [showPreferences, setShowPreferences] = useState(false);
 
+  // Read News Visibility & Filtering
+  const [hideReadNews, setHideReadNews] = useState<boolean>(() => {
+    return localStorage.getItem('alfa_hide_read_news') === 'true';
+  });
+  const [readIds, setReadIds] = useState<Set<string>>(() => getReadNewsIds());
+
+  useEffect(() => {
+    const handleReadUpdate = () => {
+      setReadIds(getReadNewsIds());
+    };
+    window.addEventListener('alfa_read_news_updated', handleReadUpdate);
+    return () => window.removeEventListener('alfa_read_news_updated', handleReadUpdate);
+  }, []);
+
+  const toggleHideRead = () => {
+    const nextVal = !hideReadNews;
+    setHideReadNews(nextVal);
+    localStorage.setItem('alfa_hide_read_news', String(nextVal));
+  };
+
   // Sync ref with state
   useEffect(() => {
     hasMoreRef.current = hasMore;
@@ -140,7 +159,6 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
             if (cachedStr) {
                 try {
                     const cached = JSON.parse(cachedStr);
-                    // 3-minute TTL for cache to ensure freshness while saving reads
                     if (Date.now() - cached.timestamp < 3 * 60 * 1000) {
                         setNews(cached.news);
                         prefCursor.current = cached.cursors.pref;
@@ -150,7 +168,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
                         setLoading(false);
                         fetchingRef.current = false;
                         if (onLoadComplete) onLoadComplete();
-                        return; // Skip fetching from server
+                        return;
                     }
                 } catch (e) {
                     console.error("Cache parse error", e);
@@ -182,14 +200,12 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
 
         const combinedRaw = [...prefRes.posts, ...localRes.posts, ...globalRes.posts, ...greetingRes.posts];
 
-        // Filter out posts: allow if global OR if district matches user's district
         const filteredRaw = combinedRaw.filter(p => {
             if (isGlobalPost(p)) return true;
             if (userDistrict && p.district?.toLowerCase() === userDistrict.toLowerCase()) return true;
             return false;
         });
 
-        // Ensure the combined array is globally sorted by timestamp FIRST before any ranked processing
         filteredRaw.sort((a, b) => b.timestamp - a.timestamp);
 
         setNews(prev => {
@@ -203,7 +219,6 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
             
             const finalNews = isInitial ? rankedNewPosts : [...prev, ...rankedNewPosts];
             
-            // Save to cache if it's the initial load
             if (isInitial) {
                 sessionStorage.setItem(cacheKey, JSON.stringify({
                     timestamp: Date.now(),
@@ -253,8 +268,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
         }
     };
     init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialPostId]); // Intentionally omitting loadMixedFeed to prevent feed reset on interest updates
+  }, [initialPostId]);
 
   useEffect(() => {
     if (loading || !hasMore) return;
@@ -265,32 +279,74 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
     }, { rootMargin: '1200px', threshold: 0 });
     if (sentinelRef.current) observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, hasMore]); // Intentionally omitting loadMixedFeed
+  }, [loading, hasMore]);
 
+  // Read News Filter calculation
+  const displayedNews = hideReadNews ? news.filter(p => !readIds.has(p.id)) : news;
+  const hiddenReadCount = news.filter(p => readIds.has(p.id)).length;
 
   return (
     <div className="relative h-full w-full bg-black overflow-hidden flex flex-col">
-      <div className="absolute top-0 left-0 right-0 p-3 z-30 flex items-center justify-between drop-shadow-md bg-gradient-to-b from-black/60 to-transparent">
+      {/* Header controls */}
+      <div className="absolute top-0 left-0 right-0 p-3 z-30 flex items-center justify-between drop-shadow-md bg-gradient-to-b from-black/70 via-black/40 to-transparent">
           <div className="flex items-center pointer-events-none whitespace-nowrap shrink-0">
               <span className="font-poppins font-bold text-2xl text-white">alfa</span>
               <span className="font-poppins font-semibold text-2xl text-red-600">news</span>
           </div>
-          <button 
-              onClick={() => setShowPreferences(true)}
-              className="p-2 bg-white/10 backdrop-blur-md rounded-full border border-white/20 text-white shadow-lg active:scale-95 transition-transform"
-          >
-              <Settings2 className="w-5 h-5" />
-          </button>
+
+          <div className="flex items-center gap-2">
+              {/* Hide / Show Read News Toggle Button */}
+              {hiddenReadCount > 0 && (
+                <button
+                  onClick={toggleHideRead}
+                  className={`px-3 py-1.5 rounded-full border text-xs font-bold font-mallanna flex items-center gap-1.5 shadow-md active:scale-95 transition-all backdrop-blur-md ${
+                    hideReadNews
+                      ? 'bg-red-600/90 text-white border-red-500/50 animate-pulse'
+                      : 'bg-white/10 text-gray-200 border-white/20 hover:bg-white/20'
+                  }`}
+                  title={hideReadNews ? "చదివిన వార్తలను చూపించు" : "చదివిన వార్తలను దాచు"}
+                >
+                  <span>{hideReadNews ? '👁️‍🗨️' : '👁️'}</span>
+                  <span>{hideReadNews ? `చూపించు (${hiddenReadCount})` : 'చదివినవి దాచు'}</span>
+                </button>
+              )}
+
+              <button 
+                  onClick={() => setShowPreferences(true)}
+                  className="p-2 bg-white/10 backdrop-blur-md rounded-full border border-white/20 text-white shadow-lg active:scale-95 transition-transform"
+              >
+                  <Settings2 className="w-5 h-5" />
+              </button>
+          </div>
       </div>
+
       {loading && news.length === 0 && (
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black">
               <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin mb-4"></div>
               <p className="text-white font-mallanna text-xl">వార్తలు సిద్ధమవుతున్నాయి...</p>
           </div>
       )}
+
       <div ref={feedRef} className="flex-1 w-full overflow-y-auto snap-y snap-mandatory no-scrollbar relative z-10 bg-black overscroll-none scroll-smooth">
-        {news.map((post, index) => {
+        {/* If all loaded posts are hidden because they are read */}
+        {hideReadNews && displayedNews.length === 0 && news.length > 0 && (
+          <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center snap-start snap-always bg-black">
+            <span className="text-5xl mb-3">✓</span>
+            <h3 className="font-ramabhadra text-2xl text-white font-bold mb-2">అన్ని వార్తలు చదివారు!</h3>
+            <p className="font-mallanna text-gray-400 text-base mb-6 max-w-xs">
+              ఈ పేజీలోని {hiddenReadCount} వార్తలను మీరు ఇప్పటికే చదివారు. వాటిని మళ్లీ చూడటానికి క్రింది బటన్ క్లిక్ చేయండి.
+            </p>
+            <button
+              onClick={toggleHideRead}
+              className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-2xl font-bold font-mallanna text-base shadow-lg active:scale-95 transition-all flex items-center gap-2"
+            >
+              <span>👁️</span>
+              <span>చదివిన వార్తలను చూపించు</span>
+            </button>
+          </div>
+        )}
+
+        {displayedNews.map((post, index) => {
             const elements = [
                 <div key={post.id} className="w-full h-full snap-start snap-always shrink-0 bg-black">
                     <NewsCard 
@@ -330,7 +386,6 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
               currentUser={currentUser} 
               onClose={() => setShowPreferences(false)} 
               onSave={() => {
-                  // Reload feed with new preferences
                   setLoading(true);
                   setNews([]);
                   prefCursor.current = null;

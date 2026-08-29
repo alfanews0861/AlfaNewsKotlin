@@ -42,9 +42,18 @@ const CATEGORY_TOPICS: Record<string, string> = {
 // TIME-BASED ENGAGING TITLES
 // ==========================================
 function getTitleForHour(hour: number, headline: string, curiosityTitle?: string): string {
-    const raw = (curiosityTitle && curiosityTitle.trim()) ? curiosityTitle.trim() : headline.trim();
-    const short = raw.length > 50 ? raw.substring(0, 50).trim() + "..." : raw;
-    if (hour === 8)  return `☀️ శుభోదయం! ${short}`;
+    if (curiosityTitle && curiosityTitle.trim().length > 0) {
+        const raw = curiosityTitle.trim();
+        const short = raw.length > 55 ? raw.substring(0, 55).trim() + "..." : raw;
+        if (hour === 8)  return `☀️ ${short}`;
+        if (hour === 13) return `⚡ ${short}`;
+        if (hour === 18) return `🌆 ${short}`;
+        if (hour === 21) return `🌙 ${short}`;
+        return `📰 ${short}`;
+    }
+    const raw = headline.trim();
+    const short = raw.length > 45 ? raw.substring(0, 45).trim() + "..." : raw;
+    if (hour === 8)  return `☀️ శుభోదయం: ${short}`;
     if (hour === 13) return `🔴 తాజా వార్త: ${short}`;
     if (hour === 18) return `🌆 సాయంత్రం అప్‌డేట్: ${short}`;
     if (hour === 21) return `🌙 రాత్రి వార్తలు: ${short}`;
@@ -64,10 +73,20 @@ function buildNewsMessage(
 ): admin.messaging.Message {
     const headline = news.headline?.telugu || news.headline?.english || news.headline || "";
     const body = (headline + "").substring(0, 150);
-    // 🛡️ Cost & Egress Guard: Only attach image to system notification drawer if it is a lightweight CDN/YouTube thumbnail.
-    // NEVER attach heavy raw Firebase Storage downloads to FCM broadcast payloads to prevent massive background download spikes.
-    const isHeavyStorageUrl = imageUrl.includes('firebasestorage.googleapis.com') && !imageUrl.includes('thumbnails%2F') && !imageUrl.includes('_thumb');
-    const safeDrawerImageUrl = (!isHeavyStorageUrl && imageUrl) ? imageUrl : undefined;
+    // 🛡️ 100% Ironclad Cost & Egress Guard:
+    // 1. External CDN (Eenadu, Sakshi, YouTube, TV9) -> 0 Firebase egress cost (bandwidth is on external CDN).
+    // 2. Firebase Storage -> Block completely from system drawer to guarantee EXACTLY ₹0 / $0 Firebase Storage egress bill!
+    let safeDrawerImageUrl: string | undefined = undefined;
+    if (imageUrl && imageUrl.trim()) {
+        const isFirebaseStorage = imageUrl.includes('firebasestorage.googleapis.com');
+        if (!isFirebaseStorage && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
+            // External CDN: 100% Safe, ₹0 Firebase Cost
+            safeDrawerImageUrl = imageUrl;
+        } else {
+            // Firebase Storage: Guaranteed ₹0 Egress by omitting from broadcast drawer
+            safeDrawerImageUrl = undefined;
+        }
+    }
 
     return {
         notification: {
@@ -205,9 +224,9 @@ export const sendPersonalizedNotification = onSchedule({
             const message = buildNewsMessage(
                 topNews,
                 getTitleForHour(istHour, headline, curiosityTitle),
-                "general_news",
+                "general_news_v2",
                 imageUrl,
-                3600000, // 1 hour TTL
+                21600000, // 6 hour TTL (better delivery for offline/doze devices)
                 { topic: 'all_users' }
             );
 
@@ -245,9 +264,9 @@ export const sendPersonalizedNotification = onSchedule({
                 const message = buildNewsMessage(
                     districtNews,
                     `📍 ${district}: ${shortTitle}`,
-                    "local_news",
+                    "local_news_v2",
                     imageUrl,
-                    7200000, // 2 hour TTL
+                    21600000, // 6 hour TTL
                     { topic: topicName }
                 );
 
@@ -282,9 +301,9 @@ export const sendPersonalizedNotification = onSchedule({
                 const message = buildNewsMessage(
                     catNews,
                     `📌 ${teluguCat}: ${shortTitle}`,
-                    "general_news",
+                    "general_news_v2",
                     imageUrl,
-                    3600000, // 1 hour TTL
+                    21600000, // 6 hour TTL
                     { topic: topicName }
                 );
                 await admin.messaging().send(message);

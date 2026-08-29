@@ -20,15 +20,24 @@ fun DocumentSnapshot.toUserObject(): User? {
 
         // Attempt automatic deserialization first
         val baseUser = this.toObject(User::class.java)
+        val mandalFallback = this.getString("assignedMandal") 
+            ?: this.getString("mandal") 
+            ?: this.getString("mandalam") 
+            ?: this.getString("selectedMandal")
         baseUser?.copy(
             id = this.id,
-            role = parsedRole
+            role = parsedRole,
+            assignedMandal = baseUser.assignedMandal ?: mandalFallback
         )
     } catch (e: Exception) {
         // Fallback to manual mapping if automatic deserialization fails
         try {
             val rawRole = this.get("role")
             val parsedRole = UserRole.fromString(rawRole)
+            val mandalFallback = this.getString("assignedMandal") 
+                ?: this.getString("mandal") 
+                ?: this.getString("mandalam") 
+                ?: this.getString("selectedMandal")
 
             User(
                 id = this.id,
@@ -47,7 +56,7 @@ fun DocumentSnapshot.toUserObject(): User? {
                 referralCount = this.getLong("referralCount")?.toInt() ?: 0,
                 signatureUrl = this.getString("signatureUrl"),
                 idCardUrl = this.getString("idCardUrl"),
-                assignedMandal = this.getString("assignedMandal"),
+                assignedMandal = mandalFallback,
                 assignedDistricts = (this.get("assignedDistricts") as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
                 fcmTokens = (this.get("fcmTokens") as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
                 lastTokenUpdate = this.getLong("lastTokenUpdate"),

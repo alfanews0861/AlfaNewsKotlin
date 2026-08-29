@@ -1,9 +1,9 @@
-
 import React from 'react';
 
 interface FooterProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
+  unreadMessagesCount?: number;
 }
 
 const HomeIcon = ({ active }: { active: boolean }) => (
@@ -24,10 +24,17 @@ const ClassifiedsIcon = ({ active }: { active: boolean }) => (
   </svg>
 );
 
-const ProfileIcon = ({ active }: { active: boolean }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 ${active ? 'text-red-600' : 'text-gray-400'}`} viewBox="0 0 24 24" fill="currentColor">
-    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-  </svg>
+const ProfileIcon = ({ active, badgeCount }: { active: boolean; badgeCount?: number }) => (
+  <div className="relative">
+    <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 ${active ? 'text-red-600' : 'text-gray-400'}`} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+    </svg>
+    {badgeCount && badgeCount > 0 ? (
+      <span className="absolute -top-1.5 -right-2 min-w-[16px] h-4 bg-red-600 text-white text-[9px] font-black rounded-full flex items-center justify-center px-1 border border-black shadow-xs animate-pulse">
+        {badgeCount > 99 ? '99+' : badgeCount}
+      </span>
+    ) : null}
+  </div>
 );
 
 const GooglePlusIcon = () => (
@@ -46,7 +53,7 @@ const GooglePlusIcon = () => (
     </div>
 );
 
-const Footer: React.FC<FooterProps> = ({ activeTab, onTabChange }) => {
+const Footer: React.FC<FooterProps> = ({ activeTab, onTabChange, unreadMessagesCount = 0 }) => {
   return (
     <div className="h-[64px] w-full bg-black border-t border-gray-800 flex justify-around items-center z-50 shrink-0 pb-safe">
       <button 
@@ -65,7 +72,7 @@ const Footer: React.FC<FooterProps> = ({ activeTab, onTabChange }) => {
         <span className={`text-[10px] mt-1 font-mallanna ${activeTab === 'local' ? 'text-white' : 'text-gray-500'}`}>లోకల్</span>
       </button>
 
-      {/* NEW PLUS BUTTON */}
+      {/* PLUS BUTTON */}
       <button 
         onClick={() => onTabChange('create')} 
         className="flex flex-col items-center justify-center w-full h-full"
@@ -86,7 +93,7 @@ const Footer: React.FC<FooterProps> = ({ activeTab, onTabChange }) => {
         onClick={() => onTabChange('profile')} 
         className="flex flex-col items-center justify-center w-full h-full"
       >
-        <ProfileIcon active={activeTab === 'profile'} />
+        <ProfileIcon active={activeTab === 'profile'} badgeCount={unreadMessagesCount} />
         <span className={`text-[10px] mt-1 font-mallanna ${activeTab === 'profile' ? 'text-white' : 'text-gray-500'}`}>ప్రొఫైల్</span>
       </button>
     </div>

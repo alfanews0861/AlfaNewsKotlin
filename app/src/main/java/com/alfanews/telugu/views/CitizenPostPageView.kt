@@ -222,7 +222,7 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
                     "mediaTypes" to listOf(if (mediaUrl.contains(".mp4") || mediaUrl.contains("video")) "VIDEO" else "IMAGE"),
                     "location" to selectedMandal,
                     "categories" to finalCategories,
-                    "reporter" to mapOf("id" to user.id, "name" to if (isAnonymous) "అజ్ఞాత పౌరుడు" else user.name),
+                    "reporter" to mapOf("id" to user.id, "name" to "సిటిజెన్ పోస్ట్"),
                     "category" to "జనరల్",
                     "district" to selectedDistrict,
                     "state" to selectedState,

@@ -83,9 +83,17 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         try {
-            // 🧹 Release memory cache when system is under memory pressure or app enters background
-            if (level >= TRIM_MEMORY_UI_HIDDEN || level >= TRIM_MEMORY_RUNNING_MODERATE || level >= TRIM_MEMORY_BACKGROUND || level >= TRIM_MEMORY_RUNNING_LOW) {
-                SingletonImageLoader.get(this).memoryCache?.clear()
+            // 🧹 Play Store Quality Standard: Immediately release in-memory bitmap cache
+            // when app moves to background (UI_HIDDEN / BACKGROUND) or system reports memory pressure
+            when {
+                level >= TRIM_MEMORY_COMPLETE || 
+                level >= TRIM_MEMORY_RUNNING_CRITICAL || 
+                level >= TRIM_MEMORY_BACKGROUND || 
+                level >= TRIM_MEMORY_UI_HIDDEN || 
+                level >= TRIM_MEMORY_RUNNING_LOW || 
+                level >= TRIM_MEMORY_RUNNING_MODERATE -> {
+                    SingletonImageLoader.get(this).memoryCache?.clear()
+                }
             }
         } catch (e: Exception) {
             Log.e("AlfaNewsApp", "Error trimming Coil memory cache: ${e.message}")
@@ -95,6 +103,7 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
     override fun onLowMemory() {
         super.onLowMemory()
         try {
+            // 🛑 Full release of in-memory bitmap cache under low memory
             SingletonImageLoader.get(this).memoryCache?.clear()
         } catch (e: Exception) {
             Log.e("AlfaNewsApp", "Error clearing memory on low memory: ${e.message}")
@@ -110,9 +119,26 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             
             val channels = listOf(
-                NotificationChannel("general_news", "General News", NotificationManager.IMPORTANCE_DEFAULT),
-                NotificationChannel("breaking_news", "Breaking News", NotificationManager.IMPORTANCE_HIGH),
-                NotificationChannel("local_news", "Local News", NotificationManager.IMPORTANCE_DEFAULT)
+                NotificationChannel("general_news_v2", "General News", NotificationManager.IMPORTANCE_HIGH).apply {
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 250, 100, 250)
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                },
+                NotificationChannel("breaking_news", "Breaking News", NotificationManager.IMPORTANCE_HIGH).apply {
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 300, 150, 300)
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                },
+                NotificationChannel("local_news_v2", "Local News", NotificationManager.IMPORTANCE_HIGH).apply {
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 250, 100, 250)
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                },
+                NotificationChannel("weather_alerts", "Weather Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 250, 100, 250)
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                }
             )
             
             notificationManager.createNotificationChannels(channels)

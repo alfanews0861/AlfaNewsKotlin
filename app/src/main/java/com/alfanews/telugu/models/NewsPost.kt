@@ -87,6 +87,7 @@ data class NewsPost(
     val approved: Boolean = false,
     val aiProcessed: Boolean = false,
     val isReporter: Boolean = false,
+    val isCitizen: Boolean = false,
     val isGlobal: Boolean = false,
     val category: String? = null,
     val district: String? = null,
@@ -204,7 +205,8 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
     val approved = data["approved"] as? Boolean ?: false
     val aiProcessed = data["aiProcessed"] as? Boolean ?: false
     val isGlobal = data["isGlobal"] as? Boolean ?: false
-    val isReporter = data["isReporter"] as? Boolean ?: (data["processingType"]?.toString() == "REPORTER_SUBMISSION")
+    val isCitizen = (data["isCitizen"] as? Boolean) == true || reporter.name == "సిటిజెన్ పోస్ట్" || reporter.name == "అజ్ఞాత పౌరుడు"
+    val isReporter = if (isCitizen) false else (data["isReporter"] as? Boolean ?: (data["processingType"]?.toString() == "REPORTER_SUBMISSION"))
     
     // Parse survey fields
     val rawQuestions = data["surveyQuestions"] as? List<*>
@@ -321,6 +323,7 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
         approved = approved,
         aiProcessed = aiProcessed,
         isReporter = isReporter,
+        isCitizen = isCitizen,
         surveyQuestions = surveyQuestions,
         isMultiPage = isMultiPage,
         fakeVotesBase = fakeVotesBase,

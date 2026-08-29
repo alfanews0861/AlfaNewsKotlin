@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import NewsCard from './NewsCard';
+import NewsCard, { getReadNewsIds } from './NewsCard';
 import { NewsPost, Language, User, TS_DISTRICTS, AP_DISTRICTS } from '../types';
 import { db } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
@@ -20,6 +19,26 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
   const [isDetecting, setIsDetecting] = useState(false);
+
+  // Read News Visibility & Filtering
+  const [hideReadNews, setHideReadNews] = useState<boolean>(() => {
+    return localStorage.getItem('alfa_hide_read_news') === 'true';
+  });
+  const [readIds, setReadIds] = useState<Set<string>>(() => getReadNewsIds());
+
+  useEffect(() => {
+    const handleReadUpdate = () => {
+      setReadIds(getReadNewsIds());
+    };
+    window.addEventListener('alfa_read_news_updated', handleReadUpdate);
+    return () => window.removeEventListener('alfa_read_news_updated', handleReadUpdate);
+  }, []);
+
+  const toggleHideRead = () => {
+    const nextVal = !hideReadNews;
+    setHideReadNews(nextVal);
+    localStorage.setItem('alfa_hide_read_news', String(nextVal));
+  };
   
   const hasMoreRef = useRef(true);
   useEffect(() => {
@@ -63,24 +82,19 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
     navigator.geolocation.getCurrentPosition(async (pos) => {
       try {
         const { latitude, longitude } = pos.coords;
-        // Use free Nominatim reverse geocoding instead of Gemini to avoid API key issues on client
         const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10&addressdetails=1`);
         const data = await response.json();
         
         const districtName = data.address?.state_district || data.address?.county || '';
         
-        // Simple mapping logic (can be expanded)
         const districtList = [...TS_DISTRICTS, ...AP_DISTRICTS];
         let detected = null;
         
         for (const d of districtList) {
-            // Basic matching, assuming Nominatim returns english names like "Hyderabad District"
-            // This is a simplified fallback since we removed Gemini
             if (districtName.toLowerCase().includes('hyderabad')) detected = 'హైదరాబాద్';
             else if (districtName.toLowerCase().includes('rangareddy')) detected = 'రంగారెడ్డి';
             else if (districtName.toLowerCase().includes('visakhapatnam')) detected = 'విశాఖపట్నం';
             else if (districtName.toLowerCase().includes('vijayawada') || districtName.toLowerCase().includes('krishna')) detected = 'కృష్ణా';
-            // Add more mappings as needed, or just default to a known one if matched
         }
 
         if (detected) {
@@ -102,18 +116,17 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
         if (cachedStr) {
             try {
                 const cached = JSON.parse(cachedStr);
-                // 3-minute TTL
                 if (Date.now() - cached.timestamp < 3 * 60 * 1000) {
                     setNews(cached.news);
                     lastVisible.current = cached.cursor;
                     setLoading(false);
                     fetchingRef.current = false;
-                    setHasMore(true); // Assume more might exist
+                    setHasMore(true);
                     if (onLoadComplete) {
                         onLoadComplete();
                         setTimeout(() => { if (feedRef.current) feedRef.current.scrollTop = 0; }, 100);
                     }
-                    return; // Skip server fetch
+                    return;
                 }
             } catch (e) {
                 console.error("Cache parse error", e);
@@ -193,8 +206,7 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
   
   useEffect(() => { 
     fetchLocalNews(true); 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeDistrict]); // Intentionally omitting fetchLocalNews
+  }, [activeDistrict]);
 
   useEffect(() => {
     if (loading || !hasMore) return;
@@ -206,8 +218,11 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
 
     if (sentinelRef.current) observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, hasMore]); // Intentionally omitting fetchLocalNews
+  }, [loading, hasMore]);
+
+  // Read News Filter calculation
+  const displayedNews = hideReadNews ? news.filter(p => !readIds.has(p.id)) : news;
+  const hiddenReadCount = news.filter(p => readIds.has(p.id)).length;
 
   return (
     <div className="relative h-full w-full bg-black overflow-hidden flex flex-col">
@@ -216,7 +231,24 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
           <span className="font-poppins font-semibold text-3xl text-red-600">news</span>
       </div>
 
-      <div className="absolute top-4 right-4 z-40">
+      <div className="absolute top-4 right-4 z-40 flex items-center gap-2">
+          {/* Hide / Show Read News Button */}
+          {hiddenReadCount > 0 && (
+            <button
+              onClick={toggleHideRead}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-bold font-mallanna flex items-center gap-1.5 shadow-2xl active:scale-95 transition-all backdrop-blur-md ${
+                hideReadNews
+                  ? 'bg-red-600/90 text-white border-red-500/50 animate-pulse'
+                  : 'bg-black/80 text-gray-200 border-white/20 hover:bg-black/90'
+              }`}
+              title={hideReadNews ? "చదివిన వార్తలను చూపించు" : "చదివిన వార్తలను దాచు"}
+            >
+              <span>{hideReadNews ? '👁️‍🗨️' : '👁️'}</span>
+              <span>{hideReadNews ? `చూపించు (${hiddenReadCount})` : 'చదివినవి దాచు'}</span>
+            </button>
+          )}
+
+          {/* District Picker Button */}
           <button 
              onClick={() => setShowSelector(!showSelector)} 
              className="bg-black/80 backdrop-blur-md border border-white/20 px-3 py-1.5 rounded-xl flex items-center gap-2 shadow-2xl transition-transform active:scale-95"
@@ -279,6 +311,24 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
            </div>
       ) : (
           <div ref={feedRef} className="flex-1 overflow-y-auto snap-y snap-mandatory no-scrollbar bg-black overscroll-none scroll-smooth">
+              {/* If all loaded posts are hidden because they are read */}
+              {hideReadNews && displayedNews.length === 0 && news.length > 0 && (
+                <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center snap-start snap-always bg-black">
+                  <span className="text-5xl mb-3">✓</span>
+                  <h3 className="font-ramabhadra text-2xl text-white font-bold mb-2">అన్ని స్థానిక వార్తలు చదివారు!</h3>
+                  <p className="font-mallanna text-gray-400 text-base mb-6 max-w-xs">
+                    ఈ ప్రాంతంలోని {hiddenReadCount} వార్తలను మీరు ఇప్పటికే చదివారు. వాటిని మళ్లీ చూడటానికి క్రింది బటన్ క్లిక్ చేయండి.
+                  </p>
+                  <button
+                    onClick={toggleHideRead}
+                    className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-2xl font-bold font-mallanna text-base shadow-lg active:scale-95 transition-all flex items-center gap-2"
+                  >
+                    <span>👁️</span>
+                    <span>చదివిన వార్తలను చూపించు</span>
+                  </button>
+                </div>
+              )}
+
               {news.length === 0 && !loading ? (
                   <div className="h-full flex flex-col items-center justify-center text-center p-8 text-gray-500">
                        <p className="font-mallanna text-xl">ప్రస్తుతం వార్తలు ఏవీ లేవు.</p>
@@ -286,7 +336,7 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
                   </div>
               ) : (
                   <>
-                    {news.map((post) => (
+                    {displayedNews.map((post) => (
                         <div key={post.id} className="w-full h-full snap-start snap-always shrink-0 bg-black">
                             <NewsCard post={post} language={language} onProfileClick={onProfileClick} currentUser={currentUser} onCategoryClick={() => {}} onReporterClick={onReporterClick} />
                         </div>

@@ -172,7 +172,11 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
             <div className="flex-1 overflow-y-auto no-scrollbar">
                 <h1 className="font-ramabhadra text-2xl leading-tight mb-2">{headline}</h1>
                 <div className="font-mallanna text-sm text-gray-400 mb-3">
-                <span onClick={(e) => { e.stopPropagation(); onReporterClick(post.reporter?.id || post.reporter?.name || ''); }} className="cursor-pointer hover:underline">{post.reporter?.name || 'Reporter'}</span> • <span onClick={(e) => { e.stopPropagation(); onCategoryClick(post.category); }} className="cursor-pointer hover:underline">{post.location}</span> • <span>{formattedTimestamp}</span>
+                {post.isCitizen || post.reporter?.name === 'సిటిజెన్ పోస్ట్' ? (
+                    <span className="text-red-500 font-bold">సిటిజెన్ పోస్ట్</span>
+                ) : (
+                    <span onClick={(e) => { e.stopPropagation(); onReporterClick(post.reporter?.id || post.reporter?.name || ''); }} className="cursor-pointer hover:underline">{post.reporter?.name || 'Reporter'}</span>
+                )} • <span onClick={(e) => { e.stopPropagation(); onCategoryClick(post.category); }} className="cursor-pointer hover:underline">{post.location}</span> • <span>{formattedTimestamp}</span>
                 </div>
                 <p className="font-mallanna text-lg leading-relaxed">{content}</p>
             </div>

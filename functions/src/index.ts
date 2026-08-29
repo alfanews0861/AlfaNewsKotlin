@@ -76,6 +76,17 @@ export {
     reportNewsPost
 } from './report_handler';
 
+// 8. Export Social Auto-Post Engine (Facebook & Instagram per District)
+export {
+    onNewsPostSocialAutoPost,
+    testDistrictSocialPost,
+    manuallyTriggerSocialPost,
+    initializeDistrictSocialConfigs,
+    exchangeForPermanentToken
+} from './social_auto_post';
+
+
+
 
 import { UserRole } from "./types";
 

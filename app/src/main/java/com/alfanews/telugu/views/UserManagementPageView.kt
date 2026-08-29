@@ -32,6 +32,7 @@ fun UserManagementPageView(currentUser: User) {
     var users by remember { mutableStateOf<List<User>>(emptyList()) }
     var filteredUsers by remember { mutableStateOf<List<User>>(emptyList()) }
     var editors by remember { mutableStateOf<List<User>>(emptyList()) }
+    var occupiedMandalsMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var loading by remember { mutableStateOf(true) }
     var searchTerm by remember { mutableStateOf("") }
     var updatingUsers by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -53,6 +54,34 @@ fun UserManagementPageView(currentUser: User) {
         scope.launch {
             loading = true
             try {
+                // Fetch occupied mandals map for reporters
+                try {
+                    val repSnap = FirebaseService.db.collection("users")
+                        .whereIn("role", listOf("REPORTER", "reporter", "STAFF_REPORTER", "staff_reporter", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0, "3"))
+                        .get().await()
+                    val occMap = mutableMapOf<String, String>()
+                    for (uDoc in repSnap.documents) {
+                        val isSuspended = uDoc.getBoolean("suspended") == true || uDoc.getBoolean("previouslyDowngraded") == true
+                        val roleStr = uDoc.get("role")?.toString()?.uppercase() ?: ""
+                        if (isSuspended || roleStr == "SUBSCRIBER" || roleStr == "GUEST" || roleStr == "1" || roleStr == "1.0") continue
+
+                        val dist = (uDoc.getString("district") ?: uDoc.getString("state_district") ?: "").trim()
+                        val mandal = (uDoc.getString("assignedMandal") ?: uDoc.getString("mandal") ?: uDoc.getString("mandalam") ?: uDoc.getString("selectedMandal") ?: "").trim()
+                        val name = uDoc.getString("name") ?: "Reporter"
+                        val phoneStr = uDoc.getString("phone") ?: ""
+                        if (dist.isNotEmpty() && mandal.isNotEmpty()) {
+                            val occupantInfo = if (phoneStr.isNotEmpty()) "$name ($phoneStr)" else name
+                            occMap["$dist|$mandal"] = occupantInfo
+                            occMap["${dist.trim()}|${mandal.trim()}"] = occupantInfo
+                            occMap["${dist.lowercase()}|${mandal.lowercase()}"] = occupantInfo
+                            occMap["${dist.replace(" ", "")}|${mandal.replace(" ", "")}"] = occupantInfo
+                        }
+                    }
+                    occupiedMandalsMap = occMap
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+
                 // ✅ Optimized: Role-based queries instead of fetching all users
                 val queries = when (currentUser.role) {
                     UserRole.EDITOR -> {
@@ -182,6 +211,7 @@ fun UserManagementPageView(currentUser: User) {
                                     user = user,
                                     editors = editors,
                                     currentUser = currentUser,
+                                    occupiedMandalsMap = occupiedMandalsMap,
                                     isUpdating = updatingUsers.contains(user.id),
                                     onUpdate = { data -> handleUserUpdate(user.id, data) }
                                 )
@@ -198,6 +228,7 @@ private fun UserManagementCard(
     user: User,
     editors: List<User>,
     currentUser: User,
+    occupiedMandalsMap: Map<String, String> = emptyMap(),
     isUpdating: Boolean,
     onUpdate: (Map<String, Any>) -> Unit
 ) {
@@ -225,10 +256,10 @@ private fun UserManagementCard(
 
             // Role Management Section
             if (currentUser.role == UserRole.ADMIN) {
-                AdminRoleManager(user, isUpdating, onUpdate, editors)
+                AdminRoleManager(user, isUpdating, onUpdate, editors, occupiedMandalsMap)
             } else if ((currentUser.role == UserRole.EDITOR || currentUser.role == UserRole.REGIONAL_INCHARGE) && 
                 (user.role == UserRole.SUBSCRIBER || user.role == UserRole.REPORTER)) {
-                EditorRoleManager(user, currentUser, isUpdating, onUpdate)
+                EditorRoleManager(user, currentUser, isUpdating, onUpdate, occupiedMandalsMap)
             }
         }
     }
@@ -236,7 +267,13 @@ private fun UserManagementCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AdminRoleManager(user: User, isUpdating: Boolean, onUpdate: (Map<String, Any>) -> Unit, editors: List<User>) {
+private fun AdminRoleManager(
+    user: User,
+    isUpdating: Boolean,
+    onUpdate: (Map<String, Any>) -> Unit,
+    editors: List<User>,
+    occupiedMandalsMap: Map<String, String> = emptyMap()
+) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         var roleExpanded by remember { mutableStateOf(false) }
         val availableRoles = listOf(UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.EDITOR, UserRole.ADMIN)
@@ -291,6 +328,9 @@ private fun AdminRoleManager(user: User, isUpdating: Boolean, onUpdate: (Map<Str
             LocationSelector(
                 selectedDistrict = district,
                 selectedMandal = mandal,
+                occupiedMandalsMap = occupiedMandalsMap,
+                currentUserId = user.id,
+                currentUserName = user.name,
                 onLocationChange = { d, m -> 
                     district = d
                     mandal = m
@@ -301,7 +341,8 @@ private fun AdminRoleManager(user: User, isUpdating: Boolean, onUpdate: (Map<Str
                 onClick = { 
                     onUpdate(mapOf(
                         "district" to district,
-                        "assignedMandal" to mandal
+                        "assignedMandal" to mandal,
+                        "mandal" to mandal
                     ))
                 },
                 enabled = !isUpdating && (district != (user.district ?: "") || mandal != (user.assignedMandal ?: "")),
@@ -341,7 +382,13 @@ private fun AdminRoleManager(user: User, isUpdating: Boolean, onUpdate: (Map<Str
 }
 
 @Composable
-private fun EditorRoleManager(user: User, currentUser: User, isUpdating: Boolean, onUpdate: (Map<String, Any>) -> Unit) {
+private fun EditorRoleManager(
+    user: User,
+    currentUser: User,
+    isUpdating: Boolean,
+    onUpdate: (Map<String, Any>) -> Unit,
+    occupiedMandalsMap: Map<String, String> = emptyMap()
+) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (user.role == UserRole.SUBSCRIBER) {
             Button(
@@ -362,6 +409,9 @@ private fun EditorRoleManager(user: User, currentUser: User, isUpdating: Boolean
             LocationSelector(
                 selectedDistrict = district,
                 selectedMandal = mandal,
+                occupiedMandalsMap = occupiedMandalsMap,
+                currentUserId = user.id,
+                currentUserName = user.name,
                 onLocationChange = { d, m -> 
                     district = d
                     mandal = m
@@ -369,7 +419,7 @@ private fun EditorRoleManager(user: User, currentUser: User, isUpdating: Boolean
             )
             
             Button(
-                onClick = { onUpdate(mapOf("district" to district, "assignedMandal" to mandal)) },
+                onClick = { onUpdate(mapOf("district" to district, "assignedMandal" to mandal, "mandal" to mandal)) },
                 enabled = !isUpdating && (district != (user.district ?: "") || mandal != (user.assignedMandal ?: "")),
                 modifier = Modifier.fillMaxWidth()
             ) {

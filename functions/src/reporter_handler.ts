@@ -27,7 +27,7 @@ export async function notifyReporter(
     reporterId: string,
     postId: string,
     headline: string,
-    type: 'SUCCESS' | 'INTERNAL_ERROR' | 'POLICY_VIOLATION',
+    type: 'SUCCESS' | 'INTERNAL_ERROR' | 'POLICY_VIOLATION' | 'DUPLICATE',
     imageUrl?: string
 ) {
     try {
@@ -54,6 +54,10 @@ export async function notifyReporter(
             title = 'వార్త ప్రచురించబడింది! ✅';
             const truncatedHeadline = headline.length > 50 ? headline.substring(0, 50) + "..." : headline;
             body = `మీ వార్త: "${truncatedHeadline}" విజయవంతంగా ప్రచురించబడింది.`;
+        } else if (type === 'DUPLICATE') {
+            title = 'వార్త తిరస్కరించబడింది (డూప్లికేట్)! ⚠️';
+            const truncatedHeadline = headline.length > 40 ? headline.substring(0, 40) + "..." : headline;
+            body = `"${truncatedHeadline}" - ఈ మండలంలో ఈ వార్త గత 6 గంటల్లో ఇప్పటికే ప్రచురించబడింది.`;
         } else if (type === 'POLICY_VIOLATION') {
             title = 'వార్త తిరస్కరించబడింది! ⚠️';
             body = `మీ వార్తలోని అంశాలు మా నిబంధనలకు విరుద్ధంగా ఉన్నందున ప్రచురించబడలేదు.`;

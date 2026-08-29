@@ -131,4 +131,72 @@ class ReporterApplicationLogicTest {
         assertEquals("1", deduplicated[0]["id"])
         assertEquals("3", deduplicated[1]["id"])
     }
+
+    @Test
+    fun testMandalOccupancyKeyNormalizationAndLookup() {
+        val occMap = mutableMapOf<String, String>()
+        val dist = " ఖమ్మం "
+        val mandal = " కొణిజర్ల "
+        val name = "రమేష్"
+        val phone = "9876543210"
+
+        val occupantInfo = "$name ($phone)"
+        val trimmedDist = dist.trim()
+        val trimmedMandal = mandal.trim()
+
+        occMap["$trimmedDist|$trimmedMandal"] = occupantInfo
+        occMap["${trimmedDist.lowercase()}|${trimmedMandal.lowercase()}"] = occupantInfo
+        occMap["${trimmedDist.replace(" ", "")}|${trimmedMandal.replace(" ", "")}"] = occupantInfo
+
+        // Lookup with exact key
+        val exactOccupant = occMap["ఖమ్మం|కొణిజర్ల"]
+        assertNotNull(exactOccupant)
+        assertEquals("రమేష్ (9876543210)", exactOccupant)
+
+        // Lookup with untrimmed or spaced key
+        val selectedDist = " ఖమ్మం"
+        val selectedMandal = "కొణిజర్ల "
+        val exactKey = "$selectedDist|$selectedMandal"
+        val trimmedKey = "${selectedDist.trim()}|${selectedMandal.trim()}"
+        val lowerKey = "${selectedDist.trim().lowercase()}|${selectedMandal.trim().lowercase()}"
+        val noSpaceKey = "${selectedDist.replace(" ", "")}|${selectedMandal.replace(" ", "")}"
+
+        val foundOccupant = occMap[exactKey] 
+            ?: occMap[trimmedKey] 
+            ?: occMap[lowerKey] 
+            ?: occMap[noSpaceKey]
+
+        assertNotNull(foundOccupant)
+        assertEquals("రమేష్ (9876543210)", foundOccupant)
+    }
+
+    @Test
+    fun testActiveReporterFilterExcludesSuspendedAndDowngraded() {
+        val users = listOf(
+            mapOf("id" to "1", "role" to "REPORTER", "district" to "ఖమ్మం", "assignedMandal" to "కొణిజర్ల", "name" to "Active Rep 1"),
+            mapOf("id" to "2", "role" to "REPORTER", "district" to "ఖమ్మం", "assignedMandal" to "వైరా", "suspended" to true, "name" to "Suspended Rep"),
+            mapOf("id" to "3", "role" to "REPORTER", "district" to "ఖమ్మం", "assignedMandal" to "మధిర", "previouslyDowngraded" to true, "name" to "Downgraded Rep"),
+            mapOf("id" to "4", "role" to "SUBSCRIBER", "district" to "ఖమ్మం", "assignedMandal" to "సత్తుపల్లి", "name" to "Subscriber")
+        )
+
+        val activeMap = mutableMapOf<String, String>()
+        for (u in users) {
+            val isSuspended = u["suspended"] == true || u["previouslyDowngraded"] == true
+            val roleStr = u["role"]?.toString()?.uppercase() ?: ""
+            if (isSuspended || roleStr == "SUBSCRIBER" || roleStr == "GUEST") continue
+
+            val dist = (u["district"] as? String ?: "").trim()
+            val mandal = (u["assignedMandal"] as? String ?: "").trim()
+            val name = u["name"] as? String ?: ""
+            if (dist.isNotEmpty() && mandal.isNotEmpty()) {
+                activeMap["$dist|$mandal"] = name
+            }
+        }
+
+        assertEquals(1, activeMap.size)
+        assertTrue(activeMap.containsKey("ఖమ్మం|కొణిజర్ల"))
+        assertFalse(activeMap.containsKey("ఖమ్మం|వైరా"))
+        assertFalse(activeMap.containsKey("ఖమ్మం|మధిర"))
+        assertFalse(activeMap.containsKey("ఖమ్మం|సత్తుపల్లి"))
+    }
 }

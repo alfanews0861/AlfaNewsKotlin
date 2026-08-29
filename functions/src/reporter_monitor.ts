@@ -309,6 +309,15 @@ export async function handleReporterStatus(
     }
 
     const reporterName = reporter.name || reporter.phone || reporterId;
+    const points = Number(reporter.points || 0);
+    const isProtectedSenior = points >= 50 || reporter.isProtectedSenior === true || reporter.exemptFromInactivity === true;
+
+    if (shouldDowngrade && isProtectedSenior) {
+        console.log(`[REPORTER_MONITOR] 🛡️ Senior reporter protection active for ${reporterName} (${points} points). Skipping auto-demotion.`);
+        shouldDowngrade = false;
+        await sendInternalMessage(reporterId, "మీ వార్తల కోసం Alfa News వేచి చూస్తోంది! 📰", "నమస్కారం! మీరు చాలా కాలంగా వార్తలు పంపలేదు. మీ ప్రాంత తాజా విశేషాలను త్వరలోనే పంపగలరని ఆశిస్తున్నాము.", "NORMAL", reporter, "REMINDER");
+        return false;
+    }
 
     if (shouldDowngrade) {
         console.log(`[REPORTER_MONITOR] ⚠️ Downgrading reporter ${reporterName} (ID: ${reporterId}) due to ${daysInactive} days inactivity (Probation: ${inProbation}).`);

@@ -89,21 +89,29 @@ fun ReporterManagementPageView(
                 val activeReporterPhones = mutableSetOf<String>()
                 try {
                     val usersSnap = FirebaseService.db.collection("users")
-                        .whereIn("role", listOf("REPORTER", "reporter", 2, 2.0, "2"))
+                        .whereIn("role", listOf("REPORTER", "reporter", "STAFF_REPORTER", "staff_reporter", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0, "3"))
                         .get().await()
                     val occMap = mutableMapOf<String, String>()
                     for (uDoc in usersSnap.documents) {
+                        val isSuspended = uDoc.getBoolean("suspended") == true || uDoc.getBoolean("previouslyDowngraded") == true
+                        val roleStr = uDoc.get("role")?.toString()?.uppercase() ?: ""
+                        if (isSuspended || roleStr == "SUBSCRIBER" || roleStr == "GUEST" || roleStr == "1" || roleStr == "1.0") continue
+
                         activeReporterUserIds.add(uDoc.id)
                         val phone = (uDoc.getString("phone") ?: "").filter { it.isDigit() }
                         if (phone.length >= 10) {
                             activeReporterPhones.add(phone.takeLast(10))
                         }
-                        val dist = (uDoc.getString("district") ?: "").trim()
-                        val mandal = (uDoc.getString("assignedMandal") ?: uDoc.getString("mandal") ?: "").trim()
+                        val dist = (uDoc.getString("district") ?: uDoc.getString("state_district") ?: "").trim()
+                        val mandal = (uDoc.getString("assignedMandal") ?: uDoc.getString("mandal") ?: uDoc.getString("mandalam") ?: uDoc.getString("selectedMandal") ?: "").trim()
                         val name = uDoc.getString("name") ?: "Reporter"
                         val phoneStr = uDoc.getString("phone") ?: ""
                         if (dist.isNotEmpty() && mandal.isNotEmpty()) {
-                            occMap["$dist|$mandal"] = if (phoneStr.isNotEmpty()) "$name ($phoneStr)" else name
+                            val occupantInfo = if (phoneStr.isNotEmpty()) "$name ($phoneStr)" else name
+                            occMap["$dist|$mandal"] = occupantInfo
+                            occMap["${dist.trim()}|${mandal.trim()}"] = occupantInfo
+                            occMap["${dist.lowercase()}|${mandal.lowercase()}"] = occupantInfo
+                            occMap["${dist.replace(" ", "")}|${mandal.replace(" ", "")}"] = occupantInfo
                         }
                     }
                     occupiedMandalsMap = occMap
@@ -603,6 +611,7 @@ fun ReporterManagementPageView(
                                 reporter = reporter,
                                 currentUser = currentUser,
                                 stats = reporterStats[reporter.id],
+                                occupiedMandalsMap = occupiedMandalsMap,
                                 onRefresh = { fetchData() },
                                 onCardClick = { reporterId ->
                                     if (onOpenProfile != null) {
@@ -669,8 +678,18 @@ fun ApplicationCard(
     val rawStatus = (app["status"] as? String)?.uppercase() ?: "PENDING"
     val isPending = rawStatus != "JOINED" && rawStatus != "APPROVED" && rawStatus != "REJECTED"
 
-    val isOccupied = editDistrict.isNotBlank() && editMandal.isNotBlank() && occupiedMandalsMap.containsKey("$editDistrict|$editMandal")
-    val currentOccupant = if (isOccupied) occupiedMandalsMap["$editDistrict|$editMandal"] else null
+    val isOccupied = editDistrict.isNotBlank() && editMandal.isNotBlank() && (
+        occupiedMandalsMap.containsKey("$editDistrict|$editMandal") ||
+        occupiedMandalsMap.containsKey("${editDistrict.trim()}|${editMandal.trim()}") ||
+        occupiedMandalsMap.containsKey("${editDistrict.trim().lowercase()}|${editMandal.trim().lowercase()}") ||
+        occupiedMandalsMap.containsKey("${editDistrict.replace(" ", "")}|${editMandal.replace(" ", "")}")
+    )
+    val currentOccupant = if (isOccupied) (
+        occupiedMandalsMap["$editDistrict|$editMandal"] ?:
+        occupiedMandalsMap["${editDistrict.trim()}|${editMandal.trim()}"] ?:
+        occupiedMandalsMap["${editDistrict.trim().lowercase()}|${editMandal.trim().lowercase()}"] ?:
+        occupiedMandalsMap["${editDistrict.replace(" ", "")}|${editMandal.replace(" ", "")}"]
+    ) else null
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -862,6 +881,7 @@ fun ReporterListCard(
     reporter: User,
     currentUser: User,
     stats: com.alfanews.telugu.viewmodels.ReporterStats? = null,
+    occupiedMandalsMap: Map<String, String> = emptyMap(),
     onRefresh: () -> Unit,
     onCardClick: (String) -> Unit = {},
     onChatClick: ((String) -> Unit)? = null
@@ -908,106 +928,152 @@ fun ReporterListCard(
                                     }
                                     context.startActivity(intent)
                                 } catch (e: Exception) {
-                                    Toast.makeText(context, "కాల్ చేయలేకపోతున్నాము.", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Cannot place call", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }
                     ) {
-                        Icon(Icons.Default.Phone, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF4CAF50))
-                        Spacer(Modifier.width(4.dp))
-                        Text(reporter.phone ?: "No Phone", fontSize = 14.sp, color = Color(0xFF4CAF50), fontWeight = FontWeight.Medium)
+                        Icon(Icons.Default.Phone, contentDescription = "Call", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = reporter.phone ?: "No Phone",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
 
+                    // Location details
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("${reporter.district} - ${reporter.assignedMandal}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        IconButton(onClick = { isEditingLocation = !isEditingLocation }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.EditLocation, contentDescription = "Edit Location", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        Icon(Icons.Default.Place, contentDescription = "Location", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("${reporter.district ?: "N/A"} - ${reporter.assignedMandal ?: "మండలం కేటాయించలేదు"}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (onChatClick != null) {
-                        IconButton(onClick = { onChatClick(reporter.id) }) {
-                            Icon(
-                                Icons.Default.Chat,
-                                contentDescription = "Chat with Reporter",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                IconButton(
+                    onClick = { onCardClick(reporter.id) }
+                ) {
+                    Icon(Icons.Default.ChevronRight, contentDescription = "View Profile", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Action Row: Chat, Status, Location Edit, Role Actions
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Left: Chat Button
+                FilledTonalButton(
+                    onClick = { onChatClick?.invoke(reporter.id) },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.Chat, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("డెస్క్ చాట్", fontSize = 12.sp)
+                }
+
+                // Middle: Location edit toggle
+                OutlinedButton(
+                    onClick = { isEditingLocation = !isEditingLocation },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.EditLocation, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (isEditingLocation) "రద్దు" else "మండలం మార్చు", fontSize = 12.sp)
+                }
+
+                // Right: Downgrade / Delete actions for admin
+                if (currentUser.role == UserRole.ADMIN || currentUser.role == UserRole.EDITOR) {
+                    var showActionMenu by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { showActionMenu = true }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Actions", modifier = Modifier.size(18.dp))
                         }
-                    }
+                        DropdownMenu(expanded = showActionMenu, onDismissRequest = { showActionMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("రిపోర్టర్ హోదా తొలగించు (Downgrade)", color = Color(0xFFE65100)) },
+                                onClick = {
+                                    showActionMenu = false
+                                    scope.launch {
+                                        try {
+                                            val district = (reporter.district ?: "").trim()
+                                            val mandal = (reporter.assignedMandal ?: "").trim()
+                                            val updates = mutableMapOf<String, Any>(
+                                                "role" to "SUBSCRIBER",
+                                                "warningLevel" to 0,
+                                                "inProbation" to false,
+                                                "downgradedAt" to com.google.firebase.Timestamp.now(),
+                                                "downgradedBy" to currentUser.id,
+                                                "downgradedReason" to "MANUAL_ADMIN_ACTION",
+                                                "previouslyDowngraded" to true
+                                            )
+                                            if (district.isNotEmpty() && mandal.isNotEmpty()) {
+                                                updates["lastKnownMandal"] = "$district|$mandal"
+                                                updates["assignedMandal"] = ""
+                                                updates["mandal"] = ""
+                                            }
+                                            FirebaseService.db.collection("users").document(reporter.id).update(updates).await()
 
-                    IconButton(onClick = {
-                        scope.launch {
-                            try {
-                                val isSuspending = reporter.role == UserRole.REPORTER
-                                val newRole = if (isSuspending) UserRole.SUBSCRIBER else UserRole.REPORTER
-                                val updates = mutableMapOf<String, Any>("role" to newRole.toString())
-                                if (newRole == UserRole.REPORTER) {
-                                    updates["warningLevel"] = 0
-                                    updates["inProbation"] = false
-                                    updates["previouslyDowngraded"] = false
-                                    updates["suspended"] = false
-                                    updates["promotedAt"] = com.google.firebase.Timestamp.now()
-                                    updates["lastPostTimestamp"] = com.google.firebase.Timestamp.now()
-                                    updates["rejoinedAt"] = com.google.firebase.Timestamp.now()
-                                    updates["downgradedReason"] = com.google.firebase.firestore.FieldValue.delete()
-                                    updates["downgradedAt"] = com.google.firebase.firestore.FieldValue.delete()
-                                    updates["lastWarningDate"] = com.google.firebase.firestore.FieldValue.delete()
-                                } else {
-                                    updates["previouslyDowngraded"] = true
-                                    updates["suspended"] = true
-                                    updates["downgradedReason"] = "SUSPENDED_BY_ADMIN"
-                                    updates["downgradedAt"] = com.google.firebase.Timestamp.now()
-                                }
-                                FirebaseService.db.collection("users").document(reporter.id).update(updates).await()
+                                            // Auto-suspend existing applications
+                                            try {
+                                                val appsSnap = FirebaseService.db.collection("reporter_applications")
+                                                    .whereEqualTo("userId", reporter.id).get().await()
+                                                for (appDoc in appsSnap.documents) {
+                                                    appDoc.reference.update(mapOf("status" to "SUSPENDED", "suspendedAt" to com.google.firebase.Timestamp.now(), "reason" to "ADMIN_DOWNGRADED"))
+                                                }
+                                            } catch (e: Exception) {}
 
-                                // Sync reporter_applications
-                                val district = reporter.district?.trim() ?: ""
-                                val mandal = (reporter.assignedMandal ?: "").trim()
-                                if (district.isNotEmpty() && mandal.isNotEmpty()) {
-                                    val appSnap = FirebaseService.db.collection("reporter_applications")
-                                        .whereEqualTo("userId", reporter.id)
-                                        .get()
-                                        .await()
-                                    val newAppStatus = if (isSuspending) "SUSPENDED" else "JOINED"
-                                    for (doc in appSnap.documents) {
-                                        val appUpdates = mutableMapOf<String, Any>(
-                                            "status" to newAppStatus,
-                                            "district" to district,
-                                            "mandal" to mandal
-                                        )
-                                        if (!isSuspending) {
-                                            appUpdates["rejoinedAt"] = com.google.firebase.Timestamp.now()
+                                            Toast.makeText(context, "${reporter.name} సబ్‌స్క్రైబర్‌గా మార్చబడ్డారు.", Toast.LENGTH_SHORT).show()
+                                            onRefresh()
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
                                         }
-                                        doc.reference.update(appUpdates).await()
                                     }
                                 }
-
-                                Toast.makeText(context, if (isSuspending) "Suspended" else "Restored", Toast.LENGTH_SHORT).show()
-                                onRefresh()
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            )
+                            if (currentUser.role == UserRole.ADMIN) {
+                                DropdownMenuItem(
+                                    text = { Text("యూజర్ ఖాతాను తొలగించు (Delete)", color = Color.Red) },
+                                    onClick = {
+                                        showActionMenu = false
+                                        scope.launch {
+                                            try {
+                                                FirebaseService.db.collection("users").document(reporter.id).delete().await()
+                                                try {
+                                                    val appsSnap = FirebaseService.db.collection("reporter_applications")
+                                                        .whereEqualTo("userId", reporter.id).get().await()
+                                                    for (appDoc in appsSnap.documents) {
+                                                        appDoc.reference.delete()
+                                                    }
+                                                } catch (e: Exception) {}
+                                                Toast.makeText(context, "${reporter.name} ఖాతా తొలగించబడింది.", Toast.LENGTH_SHORT).show()
+                                                onRefresh()
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                )
                             }
                         }
-                    }) {
-                        Icon(
-                            if (reporter.role == UserRole.REPORTER) Icons.Default.Block else Icons.Default.CheckCircle,
-                            contentDescription = "Toggle Status",
-                            tint = if (reporter.role == UserRole.REPORTER) Color(0xFFEF5350) else Color(0xFF66BB6A)
-                        )
                     }
                 }
             }
 
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Statistics Row
-            Spacer(modifier = Modifier.height(12.dp))
+            // Post count statistics row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                    .padding(12.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1029,6 +1095,9 @@ fun ReporterListCard(
                 LocationSelector(
                     selectedDistrict = editDistrict,
                     selectedMandal = editMandal,
+                    occupiedMandalsMap = occupiedMandalsMap,
+                    currentUserId = reporter.id,
+                    currentUserName = reporter.name,
                     onLocationChange = { d, m -> editDistrict = d; editMandal = m }
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -1039,7 +1108,8 @@ fun ReporterListCard(
                             try {
                                 val updates = mapOf(
                                     "district" to editDistrict,
-                                    "assignedMandal" to editMandal
+                                    "assignedMandal" to editMandal,
+                                    "mandal" to editMandal
                                 )
                                 FirebaseService.db.collection("users").document(reporter.id).update(updates).await()
                                 Toast.makeText(context, "Location updated", Toast.LENGTH_SHORT).show()
@@ -1100,6 +1170,8 @@ fun LocationSelector(
     selectedDistrict: String,
     selectedMandal: String,
     occupiedMandalsMap: Map<String, String> = emptyMap(),
+    currentUserId: String? = null,
+    currentUserName: String? = null,
     onLocationChange: (String, String) -> Unit
 ) {
     var distExpanded by remember { mutableStateOf(false) }
@@ -1112,7 +1184,7 @@ fun LocationSelector(
                 value = selectedDistrict,
                 onValueChange = {},
                 readOnly = true,
-                label = { Text("District") },
+                label = { Text("జిల్లా (District)") },
                 modifier = Modifier.fillMaxWidth().menuAnchor(),
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = distExpanded) },
                 colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
@@ -1137,20 +1209,33 @@ fun LocationSelector(
                     value = selectedMandal,
                     onValueChange = {},
                     readOnly = true,
-                    label = { Text("Mandal") },
+                    label = { Text("మండలం (Mandal)") },
                     modifier = Modifier.fillMaxWidth().menuAnchor(),
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = mandExpanded) },
                     colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
                 )
                 ExposedDropdownMenu(expanded = mandExpanded, onDismissRequest = { mandExpanded = false }) {
                     mandals.forEach { mandalName: String ->
-                        val key = "$selectedDistrict|$mandalName"
-                        val occupant = occupiedMandalsMap[key]
+                        val exactKey = "$selectedDistrict|$mandalName"
+                        val trimmedKey = "${selectedDistrict.trim()}|${mandalName.trim()}"
+                        val lowerKey = "${selectedDistrict.trim().lowercase()}|${mandalName.trim().lowercase()}"
+                        val noSpaceKey = "${selectedDistrict.replace(" ", "")}|${mandalName.replace(" ", "")}"
+                        val occupant = occupiedMandalsMap[exactKey] 
+                            ?: occupiedMandalsMap[trimmedKey] 
+                            ?: occupiedMandalsMap[lowerKey]
+                            ?: occupiedMandalsMap[noSpaceKey]
+
+                        val isCurrentReporterHere = if (currentUserName != null && occupant != null) {
+                            occupant.contains(currentUserName, ignoreCase = true)
+                        } else false
+
                         DropdownMenuItem(
                             text = { 
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (occupant != null) {
-                                        Text("🟠 $mandalName (ఉన్నారు: $occupant)", color = Color(0xFFE65100), fontSize = 13.sp)
+                                    if (isCurrentReporterHere) {
+                                        Text("🔵 $mandalName (ప్రస్తుతం ఈ రిపోర్టర్ కేటాయించబడ్డారు)", color = Color(0xFF1976D2), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    } else if (occupant != null) {
+                                        Text("🟠 $mandalName (ఉన్నారు: $occupant)", color = Color(0xFFE65100), fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                     } else {
                                         Text("🟢 $mandalName (ఖాళీగా ఉంది)", color = Color(0xFF2E7D32), fontSize = 13.sp)
                                     }

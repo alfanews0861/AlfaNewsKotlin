@@ -13,7 +13,7 @@ const createMockRequest = (data: any) => ({
   auth: { uid: "test-reporter-123" },
 });
 
-const createValidAIResponse = () => ({
+const createValidAIResponse = (): any => ({
   content: "The 70-word enhanced news content here.",
   headline: "Compelling Headlines",
   headlineEn: "Compelling Headline",
@@ -45,7 +45,7 @@ describe("processReporterSubmission - Input Validation", () => {
     });
 
     // Expected: HttpsError with 'invalid-argument' code
-    expect(validateInput(request.data)).toThrow("వార్త శీర్షిక మరియు వివరణ తప్పనిసరి.");
+    expect(() => validateInput(request.data)).toThrow("వార్త శీర్షిక మరియు వివరణ తప్పనిసరి.");
   });
 
   test("should reject when content is empty", () => {
@@ -56,7 +56,7 @@ describe("processReporterSubmission - Input Validation", () => {
       },
     });
 
-    expect(validateInput(request.data)).toThrow("వార్త శీర్షిక మరియు వివరణ తప్పనిసరి.");
+    expect(() => validateInput(request.data)).toThrow("వార్త శీర్షిక మరియు వివరణ తప్పనిసరి.");
   });
 
   test("should reject when both headline and content are empty", () => {
@@ -67,7 +67,7 @@ describe("processReporterSubmission - Input Validation", () => {
       },
     });
 
-    expect(validateInput(request.data)).toThrow("వార్త శీర్షిక మరియు వివరణ తप్పనిసరి.");
+    expect(() => validateInput(request.data)).toThrow("వార్త శీర్షిక మరియు వివరణ తప్పనిసరి.");
   });
 
   test("should accept when content passed as rawContent parameter", () => {
@@ -281,7 +281,7 @@ describe("processReporterSubmission - Entities Validation", () => {
 describe("processReporterSubmission - Media Handling", () => {
   test("should detect video media type by .mp4 extension", () => {
     const mediaUrl = "https://storage.firebase.example.com/video_123.mp4";
-    const mediaType = "IMAGE";
+    const mediaType: string = "IMAGE";
 
     const isVideo = mediaType === "VIDEO" || mediaUrl.toLowerCase().includes(".mp4");
 
@@ -290,7 +290,7 @@ describe("processReporterSubmission - Media Handling", () => {
 
   test("should not detect video for image media type", () => {
     const mediaUrl = "https://storage.firebase.example.com/image_123.jpg";
-    const mediaType = "IMAGE";
+    const mediaType: string = "IMAGE";
 
     const isVideo = mediaType === "VIDEO" || mediaUrl.toLowerCase().includes(".mp4");
 

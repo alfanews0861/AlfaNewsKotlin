@@ -43,9 +43,9 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
      * అప్లికేషన్‌లో ఉపయోగించే నోటిఫికేషన్ ఛానెల్‌ల రకాలు.
      */
     private enum class AppNotificationChannel(val id: String, val channelName: String, val importance: Int) {
-        GENERAL("general_news", "General News", NotificationManager.IMPORTANCE_DEFAULT),
+        GENERAL("general_news_v2", "General News", NotificationManager.IMPORTANCE_HIGH),
         BREAKING("breaking_news", "Breaking News", NotificationManager.IMPORTANCE_HIGH),
-        LOCAL("local_news", "Local News", NotificationManager.IMPORTANCE_DEFAULT),
+        LOCAL("local_news_v2", "Local News", NotificationManager.IMPORTANCE_HIGH),
         WEATHER("weather_alerts", "Weather Alerts", NotificationManager.IMPORTANCE_HIGH)
     }
 
@@ -64,19 +64,25 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         val title = remoteMessage.data["title"] ?: remoteMessage.notification?.title
         val body = remoteMessage.data["body"] ?: remoteMessage.notification?.body
         val actionUrl = remoteMessage.data["actionUrl"]
-        val imageUrl = remoteMessage.data["imageUrl"] ?: remoteMessage.notification?.imageUrl?.toString()
-        val channelId = remoteMessage.data["channelId"] ?: AppNotificationChannel.GENERAL.id
-
-        if (title != null && body != null) {
-            try {
-                val bundle = android.os.Bundle().apply {
-                    putString("channel_id", channelId)
-                    if (!actionUrl.isNullOrBlank()) putString("action_url", actionUrl)
-                }
-                AnalyticsService.logAnalyticsEvent("notification_received", bundle)
-            } catch (e: Exception) { }
-            sendNotification(title, body, channelId, actionUrl, imageUrl)
+        val imageUrl = remoteMessage.data["imageUrl"] ?: remoteMessage.data["image"] ?: remoteMessage.notification?.imageUrl?.toString()
+        val rawChannelId = remoteMessage.data["channelId"] ?: remoteMessage.notification?.channelId ?: AppNotificationChannel.GENERAL.id
+        val channelId = when (rawChannelId) {
+            "general_news" -> AppNotificationChannel.GENERAL.id
+            "local_news" -> AppNotificationChannel.LOCAL.id
+            else -> rawChannelId
         }
+        val badgeCount = remoteMessage.data["badge"]?.toIntOrNull() 
+            ?: remoteMessage.data["unreadCount"]?.toIntOrNull() 
+            ?: if (remoteMessage.data["type"] == "REPORTER_MESSAGE" || remoteMessage.data["type"] == "REPORTER_BROADCAST") 1 else 0
+
+        try {
+            val bundle = android.os.Bundle().apply {
+                putString("channel_id", channelId)
+                if (!actionUrl.isNullOrBlank()) putString("action_url", actionUrl)
+            }
+            AnalyticsService.logAnalyticsEvent("notification_received", bundle)
+        } catch (e: Exception) { }
+        sendNotification(title ?: "Alfa News", body ?: "", channelId, actionUrl, imageUrl, badgeCount)
     }
 
     /**
@@ -262,37 +268,40 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
      * ఈ method ను news detail screen లో కూడా call చేయవచ్చు.
      */
     fun updateCategorySubscriptions(prefs: PreferenceManager = PreferenceManager.getInstance(applicationContext)) {
-        serviceScope.launch {
-            try {
-                val topCategories = prefs.getTopCategories(3)
-                val newTopics = topCategories
-                    .mapNotNull { CATEGORY_TOPIC_MAP[it] }
-                    .toSet()
-
-                val currentTopics = prefs.subscribedCategoryTopics
-
-                // Unsubscribe తీసేసిన topics
-                (currentTopics - newTopics).forEach { oldTopic ->
-                    FirebaseMessaging.getInstance().unsubscribeFromTopic(oldTopic).await()
-                    Log.d("MyFirebaseMsgService", "Unsubscribed from category: $oldTopic")
-                }
-
-                // కొత్త topics subscribe
-                (newTopics - currentTopics).forEach { newTopic ->
-                    FirebaseMessaging.getInstance().subscribeToTopic(newTopic).await()
-                    Log.d("MyFirebaseMsgService", "Subscribed to category: $newTopic")
-                }
-
-                // Save updated set
-                prefs.subscribedCategoryTopics = newTopics
-                Log.d("MyFirebaseMsgService", "Category topics updated: $newTopics")
-            } catch (e: Exception) {
-                Log.e("MyFirebaseMsgService", "updateCategorySubscriptions failed", e)
-            }
-        }
+        Companion.updateCategorySubscriptions(prefs)
     }
 
     companion object {
+        fun updateCategorySubscriptions(prefs: PreferenceManager) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val topCategories = prefs.getTopCategories(3)
+                    val newTopics = topCategories
+                        .mapNotNull { CATEGORY_TOPIC_MAP[it] }
+                        .toSet()
+
+                    val currentTopics = prefs.subscribedCategoryTopics
+
+                    // Unsubscribe తీసేసిన topics
+                    (currentTopics - newTopics).forEach { oldTopic ->
+                        FirebaseMessaging.getInstance().unsubscribeFromTopic(oldTopic).await()
+                        Log.d("MyFirebaseMsgService", "Unsubscribed from category: $oldTopic")
+                    }
+
+                    // కొత్త topics subscribe
+                    (newTopics - currentTopics).forEach { newTopic ->
+                        FirebaseMessaging.getInstance().subscribeToTopic(newTopic).await()
+                        Log.d("MyFirebaseMsgService", "Subscribed to category: $newTopic")
+                    }
+
+                    // Save updated set
+                    prefs.subscribedCategoryTopics = newTopics
+                    Log.d("MyFirebaseMsgService", "Category topics updated: $newTopics")
+                } catch (e: Exception) {
+                    Log.e("MyFirebaseMsgService", "updateCategorySubscriptions failed", e)
+                }
+            }
+        }
         /**
          * Telugu category → FCM topic name mapping.
          * Backend notification_engine.ts లో getCategoryTopic() తో exactly match అవుతుంది.
@@ -343,7 +352,11 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     channelInfo.id,
                     channelInfo.channelName,
                     channelInfo.importance
-                )
+                ).apply {
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 250, 100, 250)
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                }
                 notificationManager.createNotificationChannel(channel)
             }
         }
@@ -358,7 +371,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
      * @param actionUrl నోటిఫికేషన్ క్లిక్ చేసినప్పుడు తెరవవలసిన URL (ఉంటే).
      * @param imageUrl నోటిఫికేషన్‌లో చూపించాల్సిన చిత్రం URL.
      */
-    private fun sendNotification(title: String, messageBody: String, channelId: String, actionUrl: String?, imageUrl: String?) {
+    private fun sendNotification(title: String, messageBody: String, channelId: String, actionUrl: String?, imageUrl: String?, badgeCount: Int = 0) {
         // ✅ FIX: Image download తప్పనిసరిగా Background thread లో జరగాలి.
         // NetworkOnMainThreadException వల్ల notification అస్సలు రాకపోవడం fix అవుతుంది.
         serviceScope.launch {
@@ -407,6 +420,10 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .addAction(R.drawable.ic_launcher_foreground, "చదవండి", pendingIntent)
                 .addAction(R.drawable.ic_launcher_foreground, "షేర్ చేయండి", sharePendingIntent)
+
+            if (badgeCount > 0) {
+                notificationBuilder.setNumber(badgeCount)
+            }
 
             // 🖼️ Rich Notification: ఫోటో ఉంటే Coil 3 ద్వారా Safe గా లోడ్ చేసి చూపిస్తాం
             if (!imageUrl.isNullOrBlank()) {

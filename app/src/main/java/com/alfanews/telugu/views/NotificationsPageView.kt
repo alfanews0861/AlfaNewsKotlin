@@ -242,7 +242,7 @@ fun NotificationItem(
     }
 
     val isUnread = !notification.read
-    val bgColor = if (isUnread) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surface
+    val bgColor = if (isUnread) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
     val titleColor = MaterialTheme.colorScheme.onSurface
     val bodyColor = MaterialTheme.colorScheme.onSurfaceVariant
     val dateColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
@@ -260,7 +260,7 @@ fun NotificationItem(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Icon
-            NotificationIcon(type = notification.type, isDark = isUnread)
+            NotificationIcon(type = notification.type)
 
             // Content
             Column(
@@ -286,7 +286,7 @@ fun NotificationItem(
                             modifier = Modifier
                                 .size(9.dp)
                                 .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary)
+                                .background(Color(0xFF3B82F6))
                         )
                     }
                 }
@@ -313,11 +313,11 @@ fun NotificationItem(
         }
     }
 
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
 }
 
 @Composable
-fun NotificationIcon(type: NotificationType, isDark: Boolean = false) {
+fun NotificationIcon(type: NotificationType) {
     val (icon, color) = when (type) {
         NotificationType.NEWS -> Icons.Default.Article to Color(0xFF3B82F6)
         NotificationType.ENGAGEMENT -> Icons.Default.Favorite to MaterialTheme.colorScheme.error
@@ -328,7 +328,7 @@ fun NotificationIcon(type: NotificationType, isDark: Boolean = false) {
     Surface(
         modifier = Modifier.size(40.dp),
         shape = CircleShape,
-        color = color.copy(alpha = 0.12f)
+        color = color.copy(alpha = 0.16f)
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),

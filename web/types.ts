@@ -58,6 +58,8 @@ export interface NewsPost {
   localAdUrl?: string;     
   localAdContact?: string; 
   originalUrl?: string;
+  isCitizen?: boolean;
+  isReporter?: boolean;
 }
 
 export enum Language {

@@ -12,3 +12,4 @@ upload_*.js
 firebase-debug*
 .git
 .cache
+.env*

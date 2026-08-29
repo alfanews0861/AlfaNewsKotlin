@@ -26,7 +26,7 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.getNewsCardImage = exports.sendContactEmail = exports.triggerPushBroadcast = exports.reportNewsPost = exports.broadcastToAllReporters = exports.sendAdminReporterMessage = exports.onNewsPostCreated = exports.processNewsPost = exports.recordAppInstallReferral = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.runAutoApprovePendingBackfill = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
+exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.getNewsCardImage = exports.sendContactEmail = exports.triggerPushBroadcast = exports.exchangeForPermanentToken = exports.initializeDistrictSocialConfigs = exports.manuallyTriggerSocialPost = exports.testDistrictSocialPost = exports.onNewsPostSocialAutoPost = exports.reportNewsPost = exports.broadcastToAllReporters = exports.sendAdminReporterMessage = exports.onNewsPostCreated = exports.processNewsPost = exports.recordAppInstallReferral = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.runAutoApprovePendingBackfill = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
 /**
  * Alfa News - Cloud Functions v18.0 (Refactored & Modular)
  */
@@ -88,6 +88,13 @@ Object.defineProperty(exports, "broadcastToAllReporters", { enumerable: true, ge
 // 7. Export News Reporting & Auto-Takedown
 var report_handler_1 = require("./report_handler");
 Object.defineProperty(exports, "reportNewsPost", { enumerable: true, get: function () { return report_handler_1.reportNewsPost; } });
+// 8. Export Social Auto-Post Engine (Facebook & Instagram per District)
+var social_auto_post_1 = require("./social_auto_post");
+Object.defineProperty(exports, "onNewsPostSocialAutoPost", { enumerable: true, get: function () { return social_auto_post_1.onNewsPostSocialAutoPost; } });
+Object.defineProperty(exports, "testDistrictSocialPost", { enumerable: true, get: function () { return social_auto_post_1.testDistrictSocialPost; } });
+Object.defineProperty(exports, "manuallyTriggerSocialPost", { enumerable: true, get: function () { return social_auto_post_1.manuallyTriggerSocialPost; } });
+Object.defineProperty(exports, "initializeDistrictSocialConfigs", { enumerable: true, get: function () { return social_auto_post_1.initializeDistrictSocialConfigs; } });
+Object.defineProperty(exports, "exchangeForPermanentToken", { enumerable: true, get: function () { return social_auto_post_1.exchangeForPermanentToken; } });
 const types_1 = require("./types");
 /**
  * Push Broadcast Function (Manual Push - Admin Only)
