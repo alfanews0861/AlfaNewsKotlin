@@ -6,13 +6,26 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const cheerio = require('cheerio');
 const Parser = require('rss-parser');
 const axios = require('axios');
+const {
+    parseArticleDate,
+    isGenericImage,
+    isArticleLink,
+    extractArticleLinks,
+    extractArticleData,
+    sanitizeFirestoreData,
+    getTweetTimestamp,
+    cleanTweetText,
+    normalizeUrl,
+    calculateTextSimilarity,
+    groupTweetsIntoThreads
+} = require('./extractor');
 
 puppeteerExtra.use(StealthPlugin());
 const rssParser = new Parser({
-    timeout: 15000 // 15 seconds timeout to prevent hanging
+    timeout: 15000 // 15 seconds timeout
 });
 
-// Catch unhandled rejections and exceptions so the process doesn't crash silently
+// Catch unhandled rejections and exceptions so the service never crashes silently
 process.on('uncaughtException', (err) => {
     console.error('CRITICAL: Uncaught Exception:', err);
 });
@@ -20,33 +33,35 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('CRITICAL: Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-// Initialize Firebase Admin SDK
-// Make sure to download your service account key and save it as firebase-service-account.json
+// ============================================================================
+// FIREBASE ADMIN INITIALIZATION
+// ============================================================================
 try {
     const serviceAccount = require('./firebase-service-account.json');
     admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
-        storageBucket: "alfa-news-31bf7.firebasestorage.app" // Updated to the newer default format
+        storageBucket: "alfa-news-31bf7.firebasestorage.app"
     });
     console.log("Firebase Admin Initialized Successfully.");
 } catch (error) {
-    console.error("Failed to initialize Firebase Admin. Please ensure firebase-service-account.json exists.", error);
+    console.error("Failed to initialize Firebase Admin. Please ensure firebase-service-account.json exists.", error.message);
     process.exit(1);
 }
 
 const db = admin.firestore();
 
 // ============================================================================
-// IN-MEMORY CACHE FOR FIRESTORE READ OPTIMIZATION
+// IN-MEMORY CACHE FOR FIRESTORE READ OPTIMIZATION & FAST DEDUPLICATION
 // ============================================================================
 const scannedUrlMemoryCache = new Set();
 const storyFingerprintMemoryCache = new Set();
+const recentHeadlinesMemoryCache = [];
 let isCachePrewarmed = false;
 
 async function prewarmScraperCache() {
     if (isCachePrewarmed) return;
     try {
-        console.log("Pre-warming in-memory URL & fingerprint caches to save Firestore reads...");
+        console.log("Pre-warming in-memory URL, fingerprint & headline caches to save Firestore reads...");
         // 1. Load recent scanned URLs (up to 3000)
         const recentUrlsSnap = await db.collection('scanned_urls')
             .orderBy('scannedAt', 'desc')
@@ -54,32 +69,48 @@ async function prewarmScraperCache() {
             .get();
         recentUrlsSnap.forEach(doc => {
             const data = doc.data();
-            if (data.url) scannedUrlMemoryCache.add(data.url);
+            if (data.url) scannedUrlMemoryCache.add(normalizeUrl(data.url));
         });
 
-        // 2. Load recent story fingerprints (last 48 hours)
-        const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+        // 2. Load recent published news (last 2000 ordered by timestamp DESC for accurate today/yesterday dedup)
         const recentNewsSnap = await db.collection('news')
-            .where('timestamp', '>', twoDaysAgo)
-            .limit(1000)
+            .orderBy('timestamp', 'desc')
+            .limit(2000)
             .get();
         recentNewsSnap.forEach(doc => {
             const data = doc.data();
-            if (data.sourceUrl) scannedUrlMemoryCache.add(data.sourceUrl);
+            if (data.sourceUrl) scannedUrlMemoryCache.add(normalizeUrl(data.sourceUrl));
+            if (data.originalUrl) scannedUrlMemoryCache.add(normalizeUrl(data.originalUrl));
             if (data.storyFingerprint) storyFingerprintMemoryCache.add(data.storyFingerprint);
+            const teTitle = data.headline?.telugu || (typeof data.headline === 'string' ? data.headline : '');
+            if (teTitle && teTitle.length > 5) {
+                recentHeadlinesMemoryCache.push(teTitle);
+            }
         });
 
         isCachePrewarmed = true;
-        console.log(`Cache pre-warmed: ${scannedUrlMemoryCache.size} URLs, ${storyFingerprintMemoryCache.size} fingerprints in memory.`);
+        console.log(`Cache pre-warmed: ${scannedUrlMemoryCache.size} URLs, ${storyFingerprintMemoryCache.size} fingerprints, ${recentHeadlinesMemoryCache.length} headlines in memory.`);
     } catch (e) {
         console.warn("Failed to prewarm cache (will continue without prewarm):", e.message);
     }
 }
 
 // ============================================================================
-// GEMINI API RATE LIMITING & KEY ROTATION SETUP
+// GEMINI API RATE LIMITING, MODEL FALLBACK & KEY ROTATION SETUP
 // ============================================================================
-const geminiKeys = [
+const fallbackKeys = [
+    "AIzaSyC4-d1zC4G6WgUmIDZ0eKPm9WOtGGz5xJ0",
+    "AIzaSyCJsdsvzB9nVU_-gORRTZgsvvhXSUXTdYU",
+    "AIzaSyA6sIISFcNNPkJdrnDCv7zqg4Fkiw_LcSs",
+    "AIzaSyChpVoZ7pfMyxCmVkW1298hXXS5snOp9dA",
+    "AIzaSyA6kEVXrWHz_EtPsHTPWFa08ZyY04l1M08",
+    "AIzaSyA4lAySqfR15dDI2MgdgxtbiANExEIyE1w",
+    "AIzaSyCg2fje2zPwmOCaQUvBX1n-DHNbHqdk1W0",
+    "AIzaSyDqlH1_n1dKPfOivV0ePzgUm6FoXuVVw_M",
+    "AIzaSyCydnUw8oNZgzMhyc8h6_o33hd7t1NF0So"
+];
+
+const rawKeyPool = [
     process.env.GEMINI_API_KEY_1,
     process.env.GEMINI_API_KEY_2,
     process.env.GEMINI_API_KEY_3,
@@ -89,34 +120,55 @@ const geminiKeys = [
     process.env.GEMINI_API_KEY_7,
     process.env.GEMINI_API_KEY_8,
     process.env.GEMINI_API_KEY_9,
-    process.env.GEMINI_API_KEY_10
-].filter(k => k && k.trim() !== '');
+    process.env.GEMINI_API_KEY_10,
+    process.env.GEMINI_API_KEY,
+    ...fallbackKeys
+];
+
+// Deduplicate, sanitize, and exclude known invalid keys
+const geminiKeys = Array.from(new Set(
+    rawKeyPool
+        .map(k => k ? k.trim().replace(/^['"]|['"]$/g, '') : '')
+        .filter(k => k && k.length > 10 && k !== 'AIzaSyA8-YNKtCIRWLyGo6cnRTzblpD4fBBVdo0' && k !== 'AIzaSyAzmrl2_vOhQOhr_YUlS4EsvCriZP1OBxo')
+));
 
 if (geminiKeys.length === 0) {
-    console.error("CRITICAL: No Gemini API keys found. Please add GEMINI_API_KEY_1, etc. in .env");
+    console.error("CRITICAL: No valid Gemini API keys found. Please check .env");
+} else {
+    console.log(`[GEMINI] Loaded ${geminiKeys.length} API keys into rotation pool.`);
 }
 
 let currentGeminiKeyIndex = 0;
 let requestCountForCurrentKey = 0;
 const MAX_REQUESTS_PER_KEY_PER_DAY = 1500;
 let lastGeminiRequestTime = 0;
-// Limit to 14 requests per minute: (60 seconds / 14) * 1000 = ~4285ms.
-// Round up to 4500ms to be safe (approx 13.3 requests per minute).
+// Limit to <= 13.3 requests per minute (4500ms delay) to avoid free tier 429 quota exhaustion
 const MIN_DELAY_BETWEEN_GEMINI_REQUESTS = 4500; 
+
+// Resilient fallback chain for active models
+const GEMINI_MODELS = [
+    'gemini-2.5-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash-lite'
+];
+let currentModelIndex = 0;
 
 // ============================================================================
 // MEDIA STORAGE UTILS
 // ============================================================================
+const ALFA_NEWS_LOGO = "https://alfanews.app/logo.png";
+
 async function uploadMediaToStorage(url, folder = 'news-media') {
     if (!url || !url.startsWith('http')) return null;
     try {
         const response = await axios.get(url, { 
             responseType: 'arraybuffer',
-            timeout: 15000, // 15 seconds timeout to prevent hanging
+            timeout: 15000,
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-                'Referer': url
+                'Referer': 'https://www.google.com/'
             }
         });
         const buffer = Buffer.from(response.data, 'binary');
@@ -132,7 +184,6 @@ async function uploadMediaToStorage(url, folder = 'news-media') {
         const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase Storage Upload Timeout')), 30000));
         await Promise.race([savePromise, timeoutPromise]);
 
-        // Construct the public URL (Firebase Storage format)
         return `https://firebasestorage.googleapis.com/v0/b/${admin.storage().bucket().name}/o/${encodeURIComponent(fileName)}?alt=media`;
     } catch (error) {
         console.error(`Failed to upload media to storage: ${error.message}`);
@@ -141,45 +192,110 @@ async function uploadMediaToStorage(url, folder = 'news-media') {
 }
 
 // ============================================================================
-// PUPPETEER OPTIMIZATION (Memory & Speed)
+// SINGLETON PUPPETEER BROWSER POOL (Memory & Speed Optimized)
 // ============================================================================
-const reporters = [
-    { id: 'rep1', name: 'శ్రీనివాస్' },
-    { id: 'rep2', name: 'రమేష్' },
-    { id: 'rep3', name: 'వెంకట్' },
-    { id: 'rep4', name: 'సురేష్' },
-    { id: 'rep5', name: 'కృష్ణ' },
-    { id: 'rep6', name: 'రాము' },
-    { id: 'rep7', name: 'శివ' },
-    { id: 'rep8', name: 'ప్రసాద్' },
-    { id: 'rep9', name: 'మహేష్' },
-    { id: 'rep10', name: 'అశోక్' },
-    { id: 'rep11', name: 'కిరణ్' },
-    { id: 'rep12', name: 'రాజేష్' },
-    { id: 'rep13', name: 'సునీల్' },
-    { id: 'rep14', name: 'ప్రవీణ్' },
-    { id: 'rep15', name: 'సతీష్' },
-    { id: 'rep16', name: 'నరేష్' },
-    { id: 'rep17', name: 'భాస్కర్' },
-    { id: 'rep18', name: 'గోపి' },
-    { id: 'rep19', name: 'హరి' },
-    { id: 'rep20', name: 'విజయ్' }
-];
+let sharedBrowser = null;
+let browserPageCount = 0;
+const MAX_PAGES_BEFORE_BROWSER_RESTART = 40;
 
-function getRandomReporter() {
-    return reporters[Math.floor(Math.random() * reporters.length)];
+function findInstalledChrome() {
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    
+    if (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
+        return process.env.PUPPETEER_EXECUTABLE_PATH;
+    }
+    const systemPaths = [
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/chromium'
+    ];
+    for (const p of systemPaths) {
+        if (fs.existsSync(p)) return p;
+    }
+    
+    try {
+        const cacheBase = path.join(os.homedir(), '.cache', 'puppeteer', 'chrome');
+        if (fs.existsSync(cacheBase)) {
+            const versions = fs.readdirSync(cacheBase);
+            for (const v of versions) {
+                const chromeBin = path.join(cacheBase, v, 'chrome-linux64', 'chrome');
+                if (fs.existsSync(chromeBin)) {
+                    console.log(`[PUPPETEER] Found installed Chrome at: ${chromeBin}`);
+                    return chromeBin;
+                }
+            }
+        }
+    } catch (e) {}
+    return null;
+}
+
+async function getSharedBrowser() {
+    if (sharedBrowser && sharedBrowser.isConnected()) {
+        if (browserPageCount >= MAX_PAGES_BEFORE_BROWSER_RESTART) {
+            console.log("[PUPPETEER] Recycling browser instance to release memory...");
+            try {
+                await sharedBrowser.close();
+            } catch (e) {}
+            sharedBrowser = null;
+            browserPageCount = 0;
+        } else {
+            return sharedBrowser;
+        }
+    }
+
+    try {
+        const systemChrome = findInstalledChrome();
+        const launchOptions = {
+            headless: 'new',
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox', 
+                '--disable-dev-shm-usage', 
+                '--disable-gpu', 
+                '--no-zygote', 
+                '--disable-extensions'
+            ],
+            timeout: 30000
+        };
+
+        if (systemChrome) {
+            launchOptions.executablePath = systemChrome;
+        }
+
+        sharedBrowser = await puppeteerExtra.launch(launchOptions);
+        browserPageCount = 0;
+        return sharedBrowser;
+    } catch (err) {
+        console.error("[PUPPETEER] Failed to launch browser:", err.message);
+        sharedBrowser = null;
+        return null;
+    }
+}
+
+async function closeSharedBrowser() {
+    if (sharedBrowser) {
+        try {
+            await sharedBrowser.close();
+        } catch (e) {}
+        sharedBrowser = null;
+        browserPageCount = 0;
+    }
 }
 
 async function fetchHtmlOptimized(url) {
-    let browser = null;
+    // 1. First try fast HTTP fetch with realistic desktop browser headers
     try {
-        // First try simple fetch (fastest, lowest memory)
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000);
         const response = await fetch(url, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9,te;q=0.8',
+                'Referer': 'https://www.google.com/'
             },
             signal: controller.signal
         });
@@ -189,86 +305,56 @@ async function fetchHtmlOptimized(url) {
             return await response.text();
         }
     } catch (e) {
-        console.log(`Fetch failed for ${url}, falling back to Puppeteer...`);
+        // Fall through to Puppeteer
     }
 
-    // Fallback to Puppeteer with extreme memory optimization
-    const hardTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Puppeteer Hard Timeout')), 45000));
-    
-    const runPuppeteer = async () => {
-        try {
-            browser = await puppeteerExtra.launch({
-                headless: 'new',
-                args: [
-                    '--no-sandbox', 
-                    '--disable-setuid-sandbox', 
-                    '--disable-dev-shm-usage', 
-                    '--disable-gpu', 
-                    '--no-zygote', 
-                    '--disable-extensions'
-                ],
-                timeout: 30000 // 30 seconds timeout for browser launch
-            });
-
-            const page = await browser.newPage();
-            
-            // Block images, CSS, fonts, and media to save RAM and bandwidth
-            await page.setRequestInterception(true);
-            page.on('request', (req) => {
-                const resourceType = req.resourceType();
-                if (['image', 'stylesheet', 'font', 'media', 'other'].includes(resourceType)) {
-                    req.abort();
-                } else {
-                    req.continue();
-                }
-            });
-
-            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
-            
-            // Add a strict timeout to page.goto to prevent hanging
-            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            const html = await page.content();
-            return html;
-        } finally {
-            if (browser) {
-                try {
-                    const browserProcess = browser.process();
-                    await browser.close();
-                    if (browserProcess) browserProcess.kill('SIGKILL');
-                } catch (e) {
-                    console.error("Error closing browser:", e.message);
-                }
-            }
-        }
-    };
-
+    // 2. Fallback to Singleton Puppeteer instance
+    let page = null;
     try {
-        return await Promise.race([runPuppeteer(), hardTimeout]);
+        const browser = await getSharedBrowser();
+        if (!browser) return null;
+
+        page = await browser.newPage();
+        browserPageCount++;
+
+        // Block media and font downloads to save memory and network bandwidth
+        await page.setRequestInterception(true);
+        page.on('request', (req) => {
+            const resourceType = req.resourceType();
+            if (['image', 'font', 'media'].includes(resourceType)) {
+                req.abort();
+            } else {
+                req.continue();
+            }
+        });
+
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
+        const html = await page.content();
+        return html;
     } catch (err) {
-        console.error(`Puppeteer failed for ${url}:`, err.message);
-        if (browser) {
+        console.error(`[PUPPETEER] Fetch failed for ${url}: ${err.message}`);
+        return null;
+    } finally {
+        if (page) {
             try {
-                const browserProcess = browser.process();
-                await browser.close();
-                if (browserProcess) browserProcess.kill('SIGKILL');
+                await page.close();
             } catch (e) {}
         }
-        return null;
     }
 }
 
 // ============================================================================
 // GEMINI AI PROCESSING
 // ============================================================================
-async function processWithGemini(text, prompt, imageUrl = null, retries = 5) {
+async function processWithGemini(text, prompt, imageUrl = null, retries = 4) {
     if (geminiKeys.length === 0) {
         console.error("No Gemini API keys configured. Cannot process.");
         return null;
     }
 
-    // టోకెన్లు ఆదా చేయడానికి టెక్స్ట్ ని 2000 క్యారెక్టర్లకు ట్రిమ్ చేస్తున్నాను
-    const truncatedText = text ? text.substring(0, 2000) : "";
-    if (truncatedText.length < 100) return null; // చాలా చిన్న టెక్స్ట్ అయితే AI కి పంపవద్దు
+    const truncatedText = text ? text.substring(0, 2500) : "";
+    if (truncatedText.length < 100) return null;
 
     let imagePart = null;
     if (imageUrl && !isGenericImage(imageUrl)) {
@@ -277,7 +363,7 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 5) {
                 responseType: 'arraybuffer', 
                 timeout: 10000,
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                     'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
                     'Referer': 'https://www.google.com/'
                 }
@@ -294,19 +380,20 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 5) {
                 } 
             };
         } catch (e) {
-            console.log(`[GEMINI] Failed to fetch image for AI check (${imageUrl}): ${e.message}`);
+            // Image fetch error is non-fatal; proceed with text
         }
     }
 
-    for (let i = 0; i < retries; i++) {
+    const maxAttempts = Math.max(geminiKeys.length * 2, 6);
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
             if (requestCountForCurrentKey >= MAX_REQUESTS_PER_KEY_PER_DAY) {
-                console.log(`[GEMINI] Key ${currentGeminiKeyIndex + 1} reached limit of ${MAX_REQUESTS_PER_KEY_PER_DAY}. Rotating to next key.`);
+                console.log(`[GEMINI] Key ${currentGeminiKeyIndex + 1} reached limit. Rotating.`);
                 currentGeminiKeyIndex = (currentGeminiKeyIndex + 1) % geminiKeys.length;
                 requestCountForCurrentKey = 0;
             }
 
-            // Enforce minimum delay to stay strictly under 14 RPM globally
+            // Enforce minimum delay between requests
             const now = Date.now();
             const timeSinceLast = now - lastGeminiRequestTime;
             if (timeSinceLast < MIN_DELAY_BETWEEN_GEMINI_REQUESTS) {
@@ -317,9 +404,9 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 5) {
             requestCountForCurrentKey++;
 
             const currentKey = geminiKeys[currentGeminiKeyIndex];
+            const activeModel = GEMINI_MODELS[currentModelIndex % GEMINI_MODELS.length];
             
-            // Using v1beta API with gemini-3.5-flash-lite for vision and content generation
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${currentKey}`;
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${currentKey}`;
             
             const parts = [{ text: `${prompt}\n\nText:\n${truncatedText}` }];
             if (imagePart) parts.push(imagePart);
@@ -331,8 +418,7 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 5) {
                 }
             };
 
-            const response = await axios.post(url, payload, { timeout: 60000 });
-
+            const response = await axios.post(url, payload, { timeout: 45000 });
             
             if (response.data && response.data.candidates && response.data.candidates.length > 0) {
                 return response.data.candidates[0].content.parts[0].text.trim();
@@ -340,31 +426,49 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 5) {
             return null;
         } catch (error) {
             const errorMsg = (error.response?.data?.error?.message || error.message || "").toUpperCase();
+            const status = error.response?.status;
             
-            // Auto rotate on quota exhaustion or explicit 429
-            if (errorMsg.includes('QUOTA') || errorMsg.includes('RESOURCE_EXHAUSTED') || (error.response && error.response.status === 429)) {
-                console.log(`[GEMINI] Key ${currentGeminiKeyIndex + 1} hit quota or rate limit. Rotating immediately.`);
+            // If model not found, switch model
+            if (errorMsg.includes('NOT_FOUND') || errorMsg.includes('IS NOT SUPPORTED')) {
+                console.log(`[GEMINI] Model ${GEMINI_MODELS[currentModelIndex % GEMINI_MODELS.length]} not supported. Falling back to next model.`);
+                currentModelIndex++;
+                continue;
+            }
+
+            // Key-specific issues: Invalid key, disabled key, quota exhaustion, 429, 400 Bad Request, 403 Forbidden
+            const isKeyIssue = errorMsg.includes('API KEY NOT VALID') || 
+                               errorMsg.includes('API_KEY_INVALID') || 
+                               errorMsg.includes('INVALID_ARGUMENT') || 
+                               errorMsg.includes('QUOTA') || 
+                               errorMsg.includes('RESOURCE_EXHAUSTED') || 
+                               status === 429 || 
+                               status === 400 || 
+                               status === 403;
+
+            if (isKeyIssue) {
+                console.log(`[GEMINI] Key ${currentGeminiKeyIndex + 1}/${geminiKeys.length} failed (${errorMsg.substring(0, 50)}). Rotating immediately to next key...`);
                 currentGeminiKeyIndex = (currentGeminiKeyIndex + 1) % geminiKeys.length;
                 requestCountForCurrentKey = 0;
+                // Immediately retry with next key in the pool!
+                continue;
             }
 
             const isRetryable = errorMsg.includes('503') || 
                                errorMsg.includes('OVERLOADED') || 
                                errorMsg.includes('HIGH DEMAND') || 
                                errorMsg.includes('UNAVAILABLE') || 
-                               errorMsg.includes('429') || 
-                               errorMsg.includes('QUOTA') ||
-                               errorMsg.includes('RESOURCE_EXHAUSTED') ||
-                               errorMsg.includes('TIMEOUT') ||
+                               errorMsg.includes('TIMEOUT') || 
                                errorMsg.includes('ECONNRESET');
 
-            if (isRetryable) {
-                const delay = Math.pow(2, i) * 6000 + (Math.random() * 3000); 
-                console.log(`[GEMINI] Busy/Rate limited (${errorMsg.substring(0, 50)}), retry ${i + 1}/${retries} after ${Math.round(delay/1000)}s...`);
+            if (isRetryable && attempt < maxAttempts - 1) {
+                const delay = 3000 + (Math.random() * 2000); 
+                console.log(`[GEMINI] Temporary service issue, retrying in ${Math.round(delay/1000)}s...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
                 continue;
             }
-            console.error("Gemini API Critical Error:", errorMsg);
+            console.error("Gemini API Error:", errorMsg);
+            // Move to next key for the next call so we don't get stuck on the failing key
+            currentGeminiKeyIndex = (currentGeminiKeyIndex + 1) % geminiKeys.length;
             return null;
         }
     }
@@ -372,128 +476,21 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 5) {
 }
 
 // ============================================================================
-// UTILS: Image & Date Filtering
+// URL TRACKING & PREVENTING DUPLICATES
 // ============================================================================
-function isGenericImage(url) {
-    if (!url || typeof url !== 'string' || url.trim() === '') return true;
-    const lowerUrl = url.toLowerCase().trim();
-    
-    // Default Alfa News placeholder logo
-    if (lowerUrl.includes('alfa-news') || lowerUrl.includes('bg.png') || lowerUrl.includes('70bb37fd-c13d-4f97-84e1-11fb6c0d1061')) {
-        return true;
-    }
-
-    // Common generic logo & placeholder terms across Telugu / National Media
-    const genericPatterns = [
-        'logo', 'default', 'placeholder', 'banner', 'icon', 'avatar', 
-        'generic', 'fallback', 'no-image', 'noimage', 'loading', 'blank',
-        'masthead', 'emblem', 'brand', 'watermark', 'sitelogo', 'site_logo',
-        'site-logo', 'app_logo', 'app-logo', 'nav_logo', 'header_logo', 
-        'footer_logo', 'favicon', 'dummy', 'share_image', 'og_default', 
-        'fb_share', 'twitter_share', 'social_share', 'site_header', 'site_banner',
-        'header_sun', 'eenadu_sun', 'eenadu_header', 'eenadu_red', 'eenadu_main',
-        'eenadu_share', 'eenadu_site', 'eenadustorage', 'cloudfront.net/images',
-        'd2308c07823.cloudfront.net', 'img.eenadu.net/includes',
-        'toi_logo', 'toi-logo', 'timesofindia', 'toi_share', 'toi_default', 
-        'toi_header', 'times_of_india', 'toi_logo_default', 'static.toiimg.com/photo/108381831',
-        'sakshi_logo', 'sakshi-logo', 'sakshiling', 'sakshi_header', 'sakshi_share',
-        'andhrajyothy', 'andhrajajyothy', 'jyothy_logo', 'aj_logo', 
-        'ntnews_logo', 'namasthetelangana', 'tv9_logo', 'v6_logo', 't_news_logo', 
-        'abp_logo', 'thehindu_logo', 'indianexpress_logo'
-    ];
-    
-    // Check for common logo patterns
-    if (genericPatterns.some(pattern => lowerUrl.includes(pattern))) {
-        return true;
-    }
-
-    // Specifically target Eenadu's logo and header patterns:
-    if (lowerUrl.includes('eenadu.net') || lowerUrl.includes('cloudfront.net') || lowerUrl.includes('eenadu')) {
-        const isActualArticleImage = lowerUrl.includes('/districts/') || 
-                                     lowerUrl.includes('/uploads/') || 
-                                     lowerUrl.includes('/photos/') || 
-                                     lowerUrl.includes('/stories/') || 
-                                     lowerUrl.includes('/news/') || 
-                                     lowerUrl.includes('_1.jpg') || 
-                                     lowerUrl.includes('_1.jpeg') || 
-                                     lowerUrl.includes('_1.png') || 
-                                     lowerUrl.includes('_1.webp') ||
-                                     /\d{8,}_\d+/.test(lowerUrl);
-        if (!isActualArticleImage) {
-            return true;
-        }
-    }
-
-    // Specifically target Times of India (TOI) default photo IDs:
-    if (lowerUrl.includes('toiimg.com') || lowerUrl.includes('timesofindia')) {
-        if (lowerUrl.includes('108381831') || lowerUrl.includes('4752938') || lowerUrl.includes('photo/50')) {
-            const isToiArticleImage = lowerUrl.includes('/thumb/msid-') && !lowerUrl.includes('108381831') && !lowerUrl.includes('4752938');
-            if (!isToiArticleImage) {
-                return true;
-            }
-        }
-    }
-
-    // File extensions that are typically non-photographic graphics
-    if (lowerUrl.endsWith('.svg') || lowerUrl.endsWith('.gif')) {
-        return true;
-    }
-
-    return false;
-}
-
-function extractArticleDate($) {
-    // Common meta tags for publication date
-    const selectors = [
-        'meta[property="article:published_time"]',
-        'meta[property="og:published_time"]',
-        'meta[name="pubdate"]',
-        'meta[name="publish-date"]',
-        'meta[name="dc.date"]',
-        'meta[name="dc.date.issued"]',
-        'meta[name="date"]',
-        'meta[property="og:updated_time"]',
-        'meta[itemprop="datePublished"]',
-        'meta[name="parsely-pub-date"]'
-    ];
-
-    for (const selector of selectors) {
-        const content = $(selector).attr('content');
-        if (content) {
-            const date = new Date(content);
-            if (!isNaN(date.getTime())) return date;
-        }
-    }
-
-    // JSON-LD backup
-    const ldJson = $('script[type="application/ld+json"]');
-    if (ldJson.length > 0) {
-        for (let i = 0; i < ldJson.length; i++) {
-            try {
-                const data = JSON.parse($(ldJson[i]).html());
-                const dateStr = data.datePublished || data.uploadDate || data.dateCreated;
-                if (dateStr) {
-                    const date = new Date(dateStr);
-                    if (!isNaN(date.getTime())) return date;
-                }
-            } catch (e) {}
-        }
-    }
-
-    return null;
-}
-
 async function markUrlAsProcessed(url) {
     if (!url) return;
+    const cleanUrl = normalizeUrl(url);
+    scannedUrlMemoryCache.add(cleanUrl);
     scannedUrlMemoryCache.add(url);
     try {
-        await db.collection('scanned_urls').doc(Buffer.from(url).toString('base64').substring(0, 50)).set({
-            url: url,
+        const docId = Buffer.from(cleanUrl).toString('base64').replace(/[/+=]/g, '_').substring(0, 50);
+        await db.collection('scanned_urls').doc(docId).set({
+            url: cleanUrl,
+            rawUrl: url,
             scannedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-    } catch (e) {
-        // Reduced logging noise for processed URLs
-    }
+        }, { merge: true });
+    } catch (e) {}
 }
 
 async function isUrlAlreadyScanned(urls) {
@@ -501,459 +498,532 @@ async function isUrlAlreadyScanned(urls) {
     const seen = new Set();
     const urlsToQuery = [];
 
-    // 1. 🚀 Check in-memory cache first (Zero Firestore Reads!)
+    // 1. Check in-memory cache first (both clean and raw)
     for (const u of urls) {
-        if (scannedUrlMemoryCache.has(u)) {
+        const clean = normalizeUrl(u);
+        if (scannedUrlMemoryCache.has(clean) || scannedUrlMemoryCache.has(u)) {
             seen.add(u);
         } else {
-            urlsToQuery.push(u);
+            urlsToQuery.push({ raw: u, clean: clean });
         }
     }
 
     if (urlsToQuery.length === 0) {
-        return seen; // All found in memory cache!
+        return seen;
     }
 
-    // 2. Query Firestore only for URLs not found in memory cache
-    // Check news collection
+    // 2. Query Firestore news collection
     for (let i = 0; i < urlsToQuery.length; i += 10) {
         const batch = urlsToQuery.slice(i, i + 10);
+        const batchUrls = [...new Set(batch.map(b => b.clean).concat(batch.map(b => b.raw)))];
         try {
-            const snapshot = await db.collection('news').where('sourceUrl', 'in', batch).get();
+            const snapshot = await db.collection('news').where('sourceUrl', 'in', batchUrls).get();
             snapshot.forEach(doc => {
                 const sUrl = doc.data().sourceUrl;
                 if (sUrl) {
-                    seen.add(sUrl);
                     scannedUrlMemoryCache.add(sUrl);
+                    scannedUrlMemoryCache.add(normalizeUrl(sUrl));
+                    batch.forEach(item => {
+                        if (item.raw === sUrl || item.clean === normalizeUrl(sUrl)) {
+                            seen.add(item.raw);
+                        }
+                    });
                 }
             });
-        } catch (e) {
-            console.error("Error querying news for sourceUrl batch:", e.message);
-        }
+        } catch (e) {}
     }
     
-    // Check scanned_urls collection
+    // 3. Query scanned_urls collection
     for (let i = 0; i < urlsToQuery.length; i += 10) {
         const batch = urlsToQuery.slice(i, i + 10);
+        const batchUrls = [...new Set(batch.map(b => b.clean).concat(batch.map(b => b.raw)))];
         try {
-            const snapshot = await db.collection('scanned_urls').where('url', 'in', batch).get();
+            const snapshot = await db.collection('scanned_urls').where('url', 'in', batchUrls).get();
             snapshot.forEach(doc => {
                 const sUrl = doc.data().url;
                 if (sUrl) {
-                    seen.add(sUrl);
                     scannedUrlMemoryCache.add(sUrl);
+                    scannedUrlMemoryCache.add(normalizeUrl(sUrl));
+                    batch.forEach(item => {
+                        if (item.raw === sUrl || item.clean === normalizeUrl(sUrl)) {
+                            seen.add(item.raw);
+                        }
+                    });
                 }
             });
-        } catch (e) {
-            console.error("Error querying scanned_urls for url batch:", e.message);
-        }
+        } catch (e) {}
     }
     
     return seen;
 }
 
 // ============================================================================
-// SCRAPING LOGIC: WEB SOURCES (Sakshi, Eenadu, etc.)
+// REPORTER PERSONAS
 // ============================================================================
-// TODO: Replace with the actual URL of the Alfa News logo
-const ALFA_NEWS_LOGO = "https://firebasestorage.googleapis.com/v0/b/alfa-news-31bf7.firebasestorage.app/o/news-media%2Fbg.png?alt=media&token=70bb37fd-c13d-4f97-84e1-11fb6c0d1061";
+const reporters = [
+    { id: 'rep1', name: 'శ్రీనివాస్' }, { id: 'rep2', name: 'రమేష్' },
+    { id: 'rep3', name: 'వెంకట్' }, { id: 'rep4', name: 'సురేష్' },
+    { id: 'rep5', name: 'కృష్ణ' }, { id: 'rep6', name: 'రాము' },
+    { id: 'rep7', name: 'శివ' }, { id: 'rep8', name: 'ప్రసాద్' },
+    { id: 'rep9', name: 'మహేష్' }, { id: 'rep10', name: 'అశోక్' },
+    { id: 'rep11', name: 'కిరణ్' }, { id: 'rep12', name: 'రాజేష్' },
+    { id: 'rep13', name: 'సునీల్' }, { id: 'rep14', name: 'ప్రవీణ్' },
+    { id: 'rep15', name: 'సతీష్' }, { id: 'rep16', name: 'నరేష్' },
+    { id: 'rep17', name: 'భాస్కర్' }, { id: 'rep18', name: 'గోపి' },
+    { id: 'rep19', name: 'హరి' }, { id: 'rep20', name: 'విజయ్' }
+];
 
+function getRandomReporter() {
+    return reporters[Math.floor(Math.random() * reporters.length)];
+}
+
+const TELUGU_CATEGORY_MAP = {
+    'రాజకీయం': 'Politics',
+    'క్రీడలు': 'Sports',
+    'వినోదం': 'Cinema',
+    'సినిమా': 'Cinema',
+    'ఆరోగ్యం': 'Health',
+    'వ్యాపారం': 'Business',
+    'టెక్నాలజీ': 'Technology',
+    'విద్య/ఉద్యోగాలు': 'Education',
+    'వ్యవసాయం': 'Agriculture',
+    'క్రైమ్': 'Crime',
+    'జాతీయం': 'National',
+    'అంతర్జాతీయం': 'International',
+    'తెలంగాణ': 'Telangana',
+    'ఆంధ్ర ప్రదేశ్': 'AndhraPradesh',
+    'భక్తి': 'Devotional',
+    'లైఫ్ స్టైల్': 'Lifestyle'
+};
+
+const GLOBAL_CATEGORIES = [
+    "Sports", "Health", "Technology", "Business", "Cinema", 
+    "National", "International", "Politics", "Crime", 
+    "Education", "Agriculture", "Devotional", "Lifestyle", 
+    "AndhraPradesh", "Telangana"
+];
+
+// ============================================================================
+// SCRAPING LOGIC: WEB SOURCES
+// ============================================================================
 async function processSingleWebSource(doc) {
     const source = doc.data();
-    // console.log(`Processing Web Source: ${source.siteName}`);
-        
-        try {
-            const html = await fetchHtmlOptimized(source.url);
-            if (!html) return;
+    console.log(`[WEB] Processing Source: ${source.siteName} (${source.url})`);
+    
+    let processedCount = 0;
+    let failedCount = 0;
+    let lastError = null;
 
-            const $ = cheerio.load(html);
-            const links = [];
-            
-            // Extract keyword from source URL (e.g., 'karimnagar' from 'https://www.ntnews.com/karimnagar')
-            const sourceUrlObj = new URL(source.url);
-            const pathSegments = sourceUrlObj.pathname.split('/').filter(Boolean);
-            const keyword = pathSegments.length > 0 ? pathSegments[pathSegments.length - 1].toLowerCase() : '';
+    try {
+        let uniqueLinks = [];
 
-            $('a').each((i, el) => {
-                const href = $(el).attr('href');
-                if (href && href.length > 15) {
-                    const absoluteUrl = href.startsWith('http') ? href : new URL(href, source.url).href;
-                    
-                    let absoluteUrlObj;
-                    try {
-                        absoluteUrlObj = new URL(absoluteUrl);
-                    } catch (e) {
-                        return; // Ignore invalid URLs
-                    }
-
-                    // Must belong to the same domain
-                    if (absoluteUrlObj.hostname.endsWith(sourceUrlObj.hostname.replace('www.', ''))) {
-                        // Must contain the keyword if present in source URL
-                        if (!keyword || absoluteUrl.toLowerCase().includes(keyword)) {
-                            // Must not be the exact source URL
-                            if (absoluteUrl !== source.url && absoluteUrl !== source.url + '/') {
-                                links.push(absoluteUrl);
-                            }
-                        }
-                    }
+        // Check if source URL is an RSS feed
+        if (source.url.includes('rss') || source.url.includes('.xml') || source.url.endsWith('/feed')) {
+            try {
+                const feed = await rssParser.parseURL(source.url);
+                if (feed && feed.items && feed.items.length > 0) {
+                    uniqueLinks = feed.items.map(item => item.link).filter(Boolean);
+                    console.log(`[WEB-RSS] Successfully retrieved ${uniqueLinks.length} items from RSS feed for ${source.siteName}`);
                 }
-            });
+            } catch (rssErr) {
+                console.log(`[WEB-RSS] RSS parsing failed for ${source.siteName}, falling back to HTML extraction.`);
+            }
+        }
 
-            const uniqueLinks = [...new Set(links)];
-            
-            // Domain blacklist for low-value content
-            const blacklist = ['massimo.love', 'advice.com', 'tips.com'];
-            
-            // Batch check URLs to reduce Reads and ensure we only process new links
-            const filteredLinks = uniqueLinks.filter(link => !blacklist.some(domain => link.includes(domain)));
-            const existingUrls = await isUrlAlreadyScanned(filteredLinks);
-            
-            const newLinks = filteredLinks.filter(link => !existingUrls.has(link));
-            
-            console.log(`[WEB] Found ${uniqueLinks.length} total valid links for ${source.siteName} (${newLinks.length} new)`);
+        // HTML link extraction fallback
+        if (uniqueLinks.length === 0) {
+            const html = await fetchHtmlOptimized(source.url);
+            if (!html) {
+                throw new Error(`Failed to load landing page HTML for ${source.siteName}`);
+            }
+            uniqueLinks = extractArticleLinks(html, source.url);
+        }
 
-            const linksToProcess = newLinks.slice(0, 15);
-            const batch = db.batch();
-            let batchCount = 0;
-            const threshold = Date.now() - (24 * 60 * 60 * 1000); // 24 hours
-            
-            for (const link of linksToProcess) {
-                if (batchCount >= 5) break;
+        const existingUrls = await isUrlAlreadyScanned(uniqueLinks);
+        const newLinks = uniqueLinks.filter(link => !existingUrls.has(link));
 
-                // console.log(`Scraping article: ${link}`);
-                
-                // Add a timeout to the entire article processing to prevent hanging on one bad link
-                const articlePromise = async () => {
-                    const articleHtml = await fetchHtmlOptimized(link);
-                    if (!articleHtml) {
-                        await markUrlAsProcessed(link);
-                        return;
-                    }
+        console.log(`[WEB] Found ${uniqueLinks.length} total valid links for ${source.siteName} (${newLinks.length} new)`);
 
-                    const $article = cheerio.load(articleHtml);
+        const linksToProcess = newLinks.slice(0, 12);
+        const batch = db.batch();
+        let batchCount = 0;
+        const staleThreshold = Date.now() - (24 * 60 * 60 * 1000); // 24 hours
 
-                    // --- TIME FILTERING ---
-                    const articleDate = extractArticleDate($article);
-                    if (articleDate && articleDate.getTime() < threshold) {
-                        console.log(`[WEB] Skipping stale article (${articleDate.toISOString()}): ${link}`);
-                        await markUrlAsProcessed(link);
-                        return;
-                    }
-                    
-                    // 1. Strip noise FIRST to avoid picking up images from sidebars, headers, footers, logos
-                    $article('nav, header, footer, script, style, .ads, .sidebar, .comments, aside, #sidebar, .related, .trending, .popular, .latest-news, .logo, .site-logo, .brand, .header-logo').remove();
+        for (const link of linksToProcess) {
+            if (batchCount >= 5) break;
 
-                    let candidateImage = null;
+            const articlePromise = async () => {
+                const articleHtml = await fetchHtmlOptimized(link);
+                if (!articleHtml) {
+                    await markUrlAsProcessed(link);
+                    failedCount++;
+                    return;
+                }
 
-                    // 2. Extract potential main image from meta tags
-                    const metaImg = $article('meta[property="og:image"]').attr('content') || 
-                                   $article('meta[name="twitter:image"]').attr('content') ||
-                                   $article('link[rel="image_src"]').attr('href') ||
-                                   $article('article img').attr('src');
-                    
-                    if (metaImg && !isGenericImage(metaImg)) {
-                        candidateImage = metaImg;
-                    }
+                const extracted = extractArticleData(articleHtml, link);
 
-                    if (!candidateImage) {
-                        // Try to find the first real news photo in the CLEANED article body
-                        $article('img').each((i, img) => {
-                            const src = $article(img).attr('src');
-                            const dataSrc = $article(img).attr('data-src') || $article(img).attr('data-lazy-src') || $article(img).attr('data-original');
-                            const actualSrc = dataSrc || src;
-                            
-                            const width = parseInt($article(img).attr('width') || '0');
-                            const height = parseInt($article(img).attr('height') || '0');
+                // Skip stale articles
+                if (extracted.date && extracted.date.getTime() < staleThreshold) {
+                    await markUrlAsProcessed(link);
+                    return;
+                }
 
-                            if (actualSrc && actualSrc.startsWith('http') && !isGenericImage(actualSrc)) {
-                                if ((width > 200 && height > 150) || !candidateImage) {
-                                    candidateImage = actualSrc;
-                                    if (width > 500) return false; // Found main image
-                                }
-                            }
-                        });
-                    }
+                if (!extracted.body || extracted.body.length < 180) {
+                    await markUrlAsProcessed(link);
+                    failedCount++;
+                    return;
+                }
 
-                    // Final safety filter
-                    if (candidateImage && isGenericImage(candidateImage)) {
-                        candidateImage = null;
-                    }
+                const prompt = `You are a Senior Telugu News Editor.
+1. Evaluate if this article is timely and valid news:
+   - REJECT generic blog posts, relationship tips, horoscopes, evergreen general advice.
+   - EXCEPTION: Major political party formation days, national holidays, or public events ARE valid news.
+2. Constraints:
+   - Do not miss people, locations, or the true meaning of the news.
+   - Summary must be approximately 60 words in Telugu.
+   - PUNCH LOGIC: Retain powerful political statements, emotional reactions, and punch dialogues faithfully.
+   - Write in direct breaking news tone without phrases like "ఈ నివేదిక ప్రకారం".
+3. Headline must be a punchy single sentence of 6-10 words in Telugu.
+4. Identify location: District name in Telugu if in TS/AP, state name, 'India', or 'World'.
+5. Generate deterministic storyFingerprint: EXACTLY 3-4 words joined by hyphens in English (e.g. "konda-surekha-resignation", "accident-hyderabad-road").
+6. Classification:
+   - refinedCategory: Exactly one of [Politics, Crime, Sports, Cinema, Business, Health, Education, Technology, Agriculture, Local, National, International].
+   - tags: 3-5 Telugu keywords.
+   - entities: { "people": [], "organizations": [], "locations": [] }.
+7. Media: Attached or candidate URL: ${extracted.image || 'None'}.
+   - If image is a logo, masthead, or generic graphic, set mediaUrl to "".
+   - If image is a real news photo, set mediaUrl to "${extracted.image || ''}".
+8. Output JSON only:
+{"isRelevant": true, "headline": "Telugu Title", "content": "Telugu Summary", "headlineEn": "English Title", "contentEn": "English Summary", "location": "Location", "storyFingerprint": "finger-print", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "${extracted.image || ''}", "mediaType": "image|video", "isWide": true|false}`;
 
-                    let bodyText = '';
-                    const selectors = [
-                        '.story-full-text p', '.story-details p', '.article-content p', 
-                        'article p', '.entry-content p', '.full-details p', 
-                        '.post-content p', '.td-post-content p', '.article-body p',
-                        '.content-area p', '[itemprop="articleBody"] p', '.post-text p',
-                        'div[data-articlebody] p', '._3WlLe p', '.art_content p',
-                        '.text-justify p', '.content-body p', '.artical-content p',
-                        '.news-content p', '.story-content p', '.main-content p',
-                        '.sak-article-content p', '.story-full-text',
-                        '.story-content', '.full-details', '.article-content'
-                    ];
-                    
-                    $article(selectors.join(', ')).each((i, el) => {
-                        const txt = $article(el).text().trim();
-                        if (txt.length > 30) bodyText += txt + ' ';
-                    });
-
-                    if (bodyText.length < 200) {
-                        let pCount = 0;
-                        $article('main p, #main p, .main p, article p, [role="main"] p').each((i, el) => {
-                            if (pCount >= 5) return;
-                            const txt = $article(el).text().trim();
-                            if (txt.length > 60 && !txt.includes('Copyright') && !txt.includes('All rights reserved') && !txt.includes('Read Also')) {
-                                bodyText += txt + ' ';
-                                pCount++;
-                            }
-                        });
-                    }
-
-                    const articleText = bodyText.replace(/\s+/g, ' ').trim().substring(0, 4000);
-
-                    if (articleText.length < 200) return;
-
-                    const prompt = `You are a Senior Journalist.
-                    1. Evaluate if this news article is a valid news update. 
-                       - REJECT articles that are generic blog posts, general advice, "how-to" guides, or relationship/psychological tips.
-                       - REJECT "evergreen" content that is not tied to a specific, timely event (something that happened today or yesterday).
-                       - REJECT announcements that "research was done" or "experts say" without stating a SPECIFIC, NEW, and TIMELY finding.
-                       - EXCEPTION: Greetings or celebratory posts for major political party formation days (e.g., TDP Formation Day), national holidays, or major public events ARE considered news and should be accepted.
-                       - If it is research/study, you MUST include the actual results/findings in the summary. If no specific findings are present, set isRelevant to false.
-                    2. Constraints: వచ్చిన కంటెంట్ లోని వ్యక్తులు, ప్రాంతం మిస్ అవ్వకుండా, వార్త యొక్క భావం మారకుండా, ఒక సీనియర్ న్యూస్ ఎడిటర్ మాదిరిగా ఒకే పేరాగ్రాఫ్ లో వార్త రాయాలి. Content must be approximately 60 words in Telugu.
-                       CRITICAL TONE & PUNCH LOGIC (పంచ్ డైలాగ్స్ రూల్): వచ్చిన వార్త కంటెంట్ లో ఉన్న సంచలన వ్యాఖ్యలు, రాజకీయ విమర్శలు, నాయకులు వాడిన బలమైన లేదా ఘాటైన పంచ్ డైలాగులు (punchy political criticisms, emotional/sensational dialogues, and strong statements) ఎట్టి పరిస్థితుల్లోనూ వదిలిపెట్టవద్దు. వార్తను సాదాసీదాగా లేదా చప్పగా మార్చవద్దు! ఆ సంచలన పంచ్ డైలాగులను/వ్యాఖ్యలను వార్త సారాంశం (Telugu content summary) మరియు హెడ్లైన్ (headline) లలో చాలా స్పష్టంగా, ఉత్తేజకరంగా మరియు ఆకర్షణీయంగా ఉండేలా యథాతథంగా లేదా మరింత పదునుగా హైలైట్ చేయాలి. చదువరులను ఆకట్టుకునేలా వార్త ఘాటుగా ఉండాలి కానీ చప్పగా ఉండకూడదు.
-                    CRITICAL: Write as if YOU are the reporter breaking the news. State the facts directly.
-                    3. Headline must be a PUNCHY single sentence around 6-10 words in Telugu.
-                    4. Identify the primary location of the news. 
-                       - If it's a district in Telangana or Andhra Pradesh, use the district name in Telugu from this list: [ఆదిలాబాద్, భద్రాద్రి కొత్తగూడెం, హన్మకొండ, హైదరాబాద్, జగిత్యాల, జనగాం, జయశంకర్ భూపాలపల్లి, జోగులాంబ గద్వాల, కామారెడ్డి, కరీంనగర్, ఖమ్మం, కుమ్రం భీమ్ ఆసిఫాబాద్, మహబూబాబాద్, మహబూబ్ నగర్, మంచిర్యాల, మెదక్, మేడ్చల్ మల్కాజిగిరి, ములుగు, నాగర్ కర్నూల్, నల్గొండ, నారాయణపేట, నిర్మల్, నిజామాబాద్, పెద్దపల్లి, రాజన్న సిరిసిల్ల, రంగారెడ్డి, సంగారెడ్డి, సిద్దిపేట, సూర్యాపేట, వికారాబాద్, వనపర్తి, వరంగల్, యాదాద్రి భువనగిరి, అల్లూరి సీతారామరాజు, అనకాపల్లి, అనంతపురం, అన్నమయ్య, బాపట్ల, చిత్తూరు, కోనసీమ, తూర్పు గోదావరి, ఏలూరు, గుంటూరు, కాకినాడ, కృష్ణా, కర్నూలు, నందయాల, ఎన్టీఆర్, పల్నాడు, పార్వతీపురం మన్యం, ప్రకాశం, శ్రీ పొట్టి శ్రీరాములు నెల్లూరు, శ్రీ సత్యసాయి, శ్రీకాకుళం, తిరుపతి, విశాఖపట్నం, విజయనగరం, పశ్చిమ గోదావరి, వైఎస్ఆర్ కడప].
-                       - If it's state-wide news, use the state name (Andhra Pradesh or Telangana).
-                       - If it's National news (India), use 'India'.
-                       - If it's International news, use the specific country name or 'World'.
-                       - Use 'General' only for generic topics (e.g., health tips, advice) that don't belong to any geography.
-                    5. Create a unique storyFingerprint based on the core fact. 
-                       - It must be EXACTLY 3-4 words joined by hyphens.
-                       - Focus ONLY on the 'Who' and 'What happened' (e.g., "modi-visit-bhutan", "accident-hyderabad-road").
-                       - The fingerprint MUST be the same for any article covering the same event, regardless of wording.
-                       - Use standard English names for people and places in the fingerprint (e.g., "revanth-reddy" not "cm-revanth").
-                       - Avoid generic words like "news", "update", "report", "research", "expert", "analysis", "study", "tips".
-                       - This is used for deduplication, so be extremely consistent and deterministic.
-                    6. Classification & Tagging:
-                       - refinedCategory: Classify into EXACTLY ONE of: Politics, Crime, Sports, Cinema, Business, Health, Education, Technology, Agriculture, Local, National, International.
-                         * Use 'International' for news outside India (e.g., Iran War, USA Elections).
-                         * Use 'National' for major news across India (e.g., Central Govt decisions, National sports).
-                         * Use 'Local' for news specific to a district or town.
-                         * Use 'Sports', 'Cinema', etc., ONLY if it's the primary focus.
-                       - tags: Extract 3-5 relevant keywords in Telugu.
-                       - entities: Identify People (వ్యక్తులు), Organizations (సంస్థలు), and Locations (ప్రాంతాలు) mentioned in the news.
-                    7. Media Verification & Rejection Rules:
-                       I have attached the candidate image (if available) or provided the URL: ${candidateImage || 'None'}.
-                       - CRITICAL TASK: Visually inspect the attached image (or URL) to determine if it is a real news photo.
-                       - REJECT AS LOGO/GENERIC (Set mediaUrl to "") IF:
-                         1. The image is a newspaper, TV channel, or news website logo (e.g., "ఈనాడు", "Eenadu" red sun logo, "Times of India" / "TOI" logo, "Sakshi" logo, "NT News", "Andhra Jyothy", "TV9", "V6", "ABP").
-                         2. The image is a generic brand emblem, header banner, channel icon, watermark graphic, or default site placeholder.
-                         3. The image does NOT depict actual people, places, or events directly related to the news article.
-                       - IF IT IS A LOGO, BRAND GRAPHIC, HEADER, OR DEFAULT PLACEHOLDER, YOU MUST SET mediaUrl TO "".
-                       - ONLY set mediaUrl to "${candidateImage || ''}" IF it is an authentic, real news photo of the event or topic.
-                       - If no valid candidate image was attached or provided, set mediaUrl to "".
-                    8. Output JSON only. Format as JSON: {"isRelevant": true, "headline": "Telugu Title", "content": "Telugu Summary", "headlineEn": "English Title", "contentEn": "English Summary", "location": "Location", "storyFingerprint": "finger-print-here", "refinedCategory": "Category", "tags": ["tag1", "tag2"], "entities": {"people": [], "organizations": [], "locations": []}, "mediaUrl": "image-url-here", "mediaType": "image|video", "isWide": true|false}`;
-                    const aiResult = await processWithGemini(articleText, prompt, candidateImage);
-                    
-                    if (aiResult) {
-                        try {
-                            const parsed = JSON.parse(aiResult.replace(/```json|```/g, '').trim());
-                            if (!parsed.isRelevant) {
-                                return;
-                            }
-                            if (parsed.isRelevant && parsed.headline && parsed.content) {
-                                // console.log(`[GEMINI] Generated Fingerprint: ${parsed.storyFingerprint}`);
-                                // Deduplication check using storyFingerprint
-                                if (parsed.storyFingerprint) {
-                                    if (storyFingerprintMemoryCache.has(parsed.storyFingerprint)) {
-                                        console.log(`Skipping duplicate story (memory cache hit): ${parsed.storyFingerprint}`);
-                                        return;
-                                    }
-                                    const duplicate = await db.collection('news')
-                                        .where('storyFingerprint', '==', parsed.storyFingerprint)
-                                        .where('timestamp', '>', new Date(Date.now() - 24 * 60 * 60 * 1000)) // Last 24 hours
-                                        .limit(1)
-                                        .get();
-                                    
-                                    if (!duplicate.empty) {
-                                        storyFingerprintMemoryCache.add(parsed.storyFingerprint);
-                                        console.log(`Skipping duplicate story: ${parsed.storyFingerprint}`);
-                                        return;
-                                    }
-                                    storyFingerprintMemoryCache.add(parsed.storyFingerprint);
-                                }
-
-                                const reporter = getRandomReporter();
-                                
-                                // Map Telugu categories from UI to English IDs if AI fallback fails
-                                const categoryMap = {
-                                    'రాజకీయం': 'Politics',
-                                    'క్రీడలు': 'Sports',
-                                    'వినోదం': 'Cinema',
-                                    'సినిమా': 'Cinema',
-                                    'ఆరోగ్యం': 'Health',
-                                    'వ్యాపారం': 'Business',
-                                    'టెక్నాలజీ': 'Technology',
-                                    'విద్య/ఉద్యోగాలు': 'Education',
-                                    'వ్యవసాయం': 'Agriculture',
-                                    'క్రైమ్': 'Crime',
-                                    'జాతీయం': 'National',
-                                    'అంతర్జాతీయం': 'International',
-                                    'తెలంగాణ': 'Telangana',
-                                    'ఆంధ్ర ప్రదేశ్': 'AndhraPradesh',
-                                    'భక్తి': 'Devotional',
-                                    'లైఫ్ స్టైల్': 'Lifestyle'
-                                };
-
-                                let category = parsed.refinedCategory;
-                                if (!category || category === 'Local') {
-                                    category = categoryMap[source.category] || source.category || 'Local';
-                                }
-
-                                // Determine finalDistrict for filtering
-                                let finalDistrict = "General";
-                                const globalCategories = ["Sports", "Health", "Technology", "Business", "Cinema", "National", "International", "Politics", "Crime", "Education", "Agriculture", "Devotional", "Lifestyle", "AndhraPradesh", "Telangana"];
-                                
-                                if (globalCategories.includes(category)) {
-                                    finalDistrict = category;
-                                } else if (source.district) {
-                                    finalDistrict = source.district;
-                                }
-                                
-                                const categoriesList = [source.siteName, category];
-                                if (finalDistrict !== "General" && !globalCategories.includes(finalDistrict)) {
-                                    categoriesList.push("Local");
-                                    categoriesList.push(finalDistrict);
-                                }
-                                
-                                const docRef = db.collection('news').doc();
-                                
-                                // Default to Alfa News Logo if no image found
-                                let finalMediaUrl = ALFA_NEWS_LOGO;
-                                let mediaType = 'image';
-                                let postFormat = '9:16';
-
-                                // Validate mediaUrl from Gemini
-                                if (parsed.mediaUrl && isGenericImage(parsed.mediaUrl)) {
-                                    parsed.mediaUrl = '';
-                                }
-
-                                if (parsed.mediaUrl && parsed.mediaUrl.trim() !== '' && parsed.mediaUrl.startsWith('http')) {
-                                    if (parsed.mediaType === 'video') {
-                                        finalMediaUrl = parsed.mediaUrl; // Hotlink for videos
-                                        mediaType = 'video';
-                                        postFormat = parsed.isWide ? '16:9' : '9:16';
-                                    } else {
-                                        // It's an image
-                                        if (parsed.isWide) {
-                                            // Upload wide image to our own storage
-                                            const uploadedUrl = await uploadMediaToStorage(parsed.mediaUrl);
-                                            if (uploadedUrl) {
-                                                finalMediaUrl = uploadedUrl;
-                                                postFormat = '16:9';
-                                            } else {
-                                                finalMediaUrl = `https://wsrv.nl/?url=${encodeURIComponent(parsed.mediaUrl)}&output=webp`;
-                                            }
-                                        } else {
-                                            finalMediaUrl = `https://wsrv.nl/?url=${encodeURIComponent(parsed.mediaUrl)}&output=webp`;
-                                        }
-                                    }
-                                }
-
-                                batch.set(docRef, {
-                                    headline: { telugu: parsed.headline, english: parsed.headlineEn || '' },
-                                    content: { telugu: parsed.content, english: parsed.contentEn || '' },
-                                    sourceUrl: link,
-                                    originalUrl: link,
-                                    sourceName: source.siteName,
-                                    category: category,
-                                    categories: [...new Set([...categoriesList, category])].filter(Boolean),
-                                    tags: parsed.tags || [],
-                                    entities: parsed.entities || { people: [], organizations: [], locations: [] },
-                                    district: finalDistrict,
-                                    state: null,
-                                    mandal: null,
-                                    location: parsed.location || 'General',
-                                    storyFingerprint: parsed.storyFingerprint || '',
-                                    mediaUrl: finalMediaUrl,
-                                    mediaType: mediaType,
-                                    postFormat: postFormat,
-                                    language: 'te',
-                                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                                    publishedAt: admin.firestore.FieldValue.serverTimestamp(),
-                                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                                    status: 'published',
-                                    approved: true,
-                                    viewCount: 0,
-                                    likes: Math.floor(Math.random() * 150) + 50,
-                                    comments: 0,
-                                    shares: Math.floor(Math.random() * 40) + 10,
-                                    reporter: { id: reporter.id, name: reporter.name }
-                                });
-                                batchCount++;
-                            }
-                        } catch (e) {
-                            // Suppressed parsing error log
-                        }
-                    }
-                };
+                const aiResult = await processWithGemini(extracted.body, prompt, extracted.image);
+                if (!aiResult) {
+                    failedCount++;
+                    return;
+                }
 
                 try {
-                    await Promise.race([
-                        articlePromise(),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Article Processing Timeout')), 180000)) 
-                    ]);
-                } catch (e) {
-                    // Suppressed timeout log
+                    const parsed = JSON.parse(aiResult.replace(/```json|```/g, '').trim());
+                    if (!parsed.isRelevant || !parsed.headline || !parsed.content) {
+                        await markUrlAsProcessed(link);
+                        return;
+                    }
+
+                    // 1. Headline similarity deduplication
+                    if (parsed.headline) {
+                        const isDupHeadline = recentHeadlinesMemoryCache.some(cachedHeadline => {
+                            return calculateTextSimilarity(parsed.headline, cachedHeadline) >= 0.70;
+                        });
+                        if (isDupHeadline) {
+                            console.log(`[DEDUP] Duplicate story (headline similarity hit): "${parsed.headline}"`);
+                            await markUrlAsProcessed(link);
+                            return;
+                        }
+                    }
+
+                    // 2. Deduplication via storyFingerprint
+                    if (parsed.storyFingerprint) {
+                        if (storyFingerprintMemoryCache.has(parsed.storyFingerprint)) {
+                            console.log(`[DEDUP] Duplicate story (in-memory hit): ${parsed.storyFingerprint}`);
+                            await markUrlAsProcessed(link);
+                            return;
+                        }
+
+                        // Query Firestore using single-field index on storyFingerprint (no composite index needed)
+                        const duplicate = await db.collection('news')
+                            .where('storyFingerprint', '==', parsed.storyFingerprint)
+                            .limit(1)
+                            .get();
+
+                        if (!duplicate.empty) {
+                            storyFingerprintMemoryCache.add(parsed.storyFingerprint);
+                            console.log(`[DEDUP] Duplicate story (Firestore hit): ${parsed.storyFingerprint}`);
+                            await markUrlAsProcessed(link);
+                            return;
+                        }
+                        storyFingerprintMemoryCache.add(parsed.storyFingerprint);
+                    }
+
+                    const reporter = getRandomReporter();
+                    let category = parsed.refinedCategory;
+                    if (!category || category === 'Local') {
+                        category = TELUGU_CATEGORY_MAP[source.category] || source.category || 'Local';
+                    }
+
+                    let finalDistrict = "General";
+                    if (GLOBAL_CATEGORIES.includes(category)) {
+                        finalDistrict = category;
+                    } else if (source.district) {
+                        finalDistrict = source.district;
+                    }
+
+                    const categoriesList = [source.siteName, category];
+                    if (finalDistrict !== "General" && !GLOBAL_CATEGORIES.includes(finalDistrict)) {
+                        categoriesList.push("Local");
+                        categoriesList.push(finalDistrict);
+                    }
+
+                    // Media URL handling: Never drop the extracted image if Gemini returned empty or placeholder
+                    let chosenMediaUrl = null;
+                    if (parsed.mediaUrl && parsed.mediaUrl.startsWith('http') && !parsed.mediaUrl.includes('"') && parsed.mediaUrl !== 'url' && !isGenericImage(parsed.mediaUrl)) {
+                        chosenMediaUrl = parsed.mediaUrl;
+                    } else if (extracted.image && extracted.image.startsWith('http') && !isGenericImage(extracted.image)) {
+                        chosenMediaUrl = extracted.image;
+                    }
+
+                    let finalMediaUrl = ALFA_NEWS_LOGO;
+                    let mediaType = 'image';
+                    let postFormat = '9:16';
+
+                    if (chosenMediaUrl) {
+                        if (parsed.mediaType === 'video') {
+                            finalMediaUrl = chosenMediaUrl;
+                            mediaType = 'video';
+                            postFormat = parsed.isWide ? '16:9' : '9:16';
+                        } else {
+                            if (parsed.isWide) {
+                                const uploadedUrl = await uploadMediaToStorage(chosenMediaUrl);
+                                if (uploadedUrl) {
+                                    finalMediaUrl = uploadedUrl;
+                                    postFormat = '16:9';
+                                } else {
+                                    finalMediaUrl = `https://wsrv.nl/?url=${encodeURIComponent(chosenMediaUrl)}&output=webp`;
+                                }
+                            } else {
+                                finalMediaUrl = `https://wsrv.nl/?url=${encodeURIComponent(chosenMediaUrl)}&output=webp`;
+                            }
+                        }
+                    }
+
+                    const docRef = db.collection('news').doc();
+                    const newsPayload = sanitizeFirestoreData({
+                        headline: { telugu: parsed.headline, english: parsed.headlineEn || '' },
+                        content: { telugu: parsed.content, english: parsed.contentEn || '' },
+                        sourceUrl: link,
+                        originalUrl: link,
+                        sourceName: source.siteName,
+                        category: category,
+                        categories: [...new Set([...categoriesList, category])].filter(Boolean),
+                        tags: parsed.tags || [],
+                        entities: parsed.entities || { people: [], organizations: [], locations: [] },
+                        district: finalDistrict,
+                        state: source.state || null,
+                        mandal: source.mandal || null,
+                        location: parsed.location || source.district || 'General',
+                        storyFingerprint: parsed.storyFingerprint || '',
+                        mediaUrl: finalMediaUrl,
+                        mediaType: mediaType,
+                        postFormat: postFormat,
+                        language: 'te',
+                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                        publishedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                        status: 'published',
+                        approved: true,
+                        viewCount: 0,
+                        likes: Math.floor(Math.random() * 150) + 50,
+                        comments: 0,
+                        shares: Math.floor(Math.random() * 40) + 10,
+                        reporter: { id: reporter.id, name: reporter.name }
+                    });
+
+                    batch.set(docRef, newsPayload);
+                    await markUrlAsProcessed(link);
+                    if (parsed.headline) recentHeadlinesMemoryCache.push(parsed.headline);
+                    batchCount++;
+                    processedCount++;
+                    console.log(`[WEB] Prepared article: ${parsed.headline}`);
+                } catch (parseErr) {
+                    console.error("[WEB] JSON parse error:", parseErr.message);
+                    failedCount++;
                 }
+            };
+
+            try {
+                await Promise.race([
+                    articlePromise(),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Article Processing Timeout')), 180000))
+                ]);
+            } catch (timeoutErr) {
+                console.error(`[WEB] Timeout processing article: ${link}`);
+                failedCount++;
             }
-            
-            if (batchCount > 0) {
-                await batch.commit();
-                console.log(`[WEB] Commited ${batchCount} articles for ${source.siteName}`);
-            }
-            
-            await doc.ref.update({ lastFetchTime: admin.firestore.FieldValue.serverTimestamp() });
-        } catch (error) {
-            console.error(`Error processing ${source.siteName}:`, error.message);
         }
+
+        if (batchCount > 0) {
+            await batch.commit();
+            console.log(`[WEB] Committed ${batchCount} articles successfully for ${source.siteName}`);
+        }
+
+        // Update scraping_sources with metrics
+        await doc.ref.update(sanitizeFirestoreData({
+            lastStatus: 'active',
+            lastError: null,
+            lastFetchTime: admin.firestore.FieldValue.serverTimestamp(),
+            lastProcessedCount: processedCount,
+            lastFailedCount: failedCount,
+            processed24h: admin.firestore.FieldValue.increment(processedCount),
+            failed24h: admin.firestore.FieldValue.increment(failedCount),
+            totalProcessedCount: admin.firestore.FieldValue.increment(processedCount),
+            totalFailedCount: admin.firestore.FieldValue.increment(failedCount)
+        }));
+    } catch (error) {
+        lastError = error.message;
+        console.error(`Error processing ${source.siteName}:`, error.message);
+        try {
+            await doc.ref.update(sanitizeFirestoreData({
+                lastStatus: 'error',
+                lastError: error.message,
+                lastFetchTime: admin.firestore.FieldValue.serverTimestamp(),
+                lastFailedCount: admin.firestore.FieldValue.increment(1),
+                failed24h: admin.firestore.FieldValue.increment(1)
+            }));
+        } catch (e) {}
+    }
 }
 
 // ============================================================================
-// TWITTER SCRAPING VIA RAPIDAPI
+// DIRECT STEALTH TWITTER / X SCRAPING (Zero External API, Zero Cost)
+// ============================================================================
+async function fetchTweetsDirectStealth(handle) {
+    let page = null;
+    try {
+        const browser = await getSharedBrowser();
+        if (!browser) return [];
+
+        page = await browser.newPage();
+        browserPageCount++;
+
+        await page.setViewport({ width: 1280, height: 900 });
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+        
+        console.log(`[X-DIRECT] Navigating stealthily to https://x.com/${handle}...`);
+        await page.goto(`https://x.com/${handle}`, { waitUntil: 'domcontentloaded', timeout: 25000 });
+        await page.waitForFunction(() => document.querySelectorAll('article').length > 0, { timeout: 12000 }).catch(() => {});
+
+        const rawTweets = await page.$$eval('article', (articles, userHandle) => {
+            const results = [];
+            for (const el of articles) {
+                // Find status link
+                const statusLinkEl = el.querySelector('a[href*="/status/"]');
+                if (!statusLinkEl) continue;
+                const href = statusLinkEl.getAttribute('href') || '';
+                const match = href.match(/\/status\/(\d+)/);
+                if (!match) continue;
+                const tweetId = match[1];
+                const tweetUrl = `https://x.com/${userHandle}/status/${tweetId}`;
+
+                // Extract text
+                let text = '';
+                const tweetTextEl = el.querySelector('[data-testid="tweetText"]');
+                if (tweetTextEl) {
+                    text = tweetTextEl.innerText.trim();
+                }
+                
+                if (!text || text.length < 10) {
+                    const fullText = el.innerText || '';
+                    const lines = fullText.split('\n').map(l => l.trim()).filter(Boolean);
+                    const contentLines = lines.filter(line => {
+                        if (line.includes('@' + userHandle)) return false;
+                        if (/^(Pinned|Retweeted|Reposted|Show more|Show this thread|REPLAY)$/i.test(line)) return false;
+                        if (/^\d+(\.\d+)?[KMB]?\s*(views|reposts|quotes|likes|bookmarks)?$/i.test(line)) return false;
+                        if (/^[·•]\s*\d+[smhdwy]$/i.test(line)) return false;
+                        return true;
+                    });
+                    text = contentLines.slice(1, -1).join(' ').trim() || contentLines.join(' ').trim();
+                }
+
+                if (!text || text.length < 15) continue;
+
+                // Extract image
+                let mediaUrl = null;
+                let mediaType = 'image';
+                const imgEl = el.querySelector('img[src*="pbs.twimg.com/media"]') || el.querySelector('[data-testid="tweetPhoto"] img');
+                if (imgEl) {
+                    let src = imgEl.getAttribute('src') || '';
+                    if (src.includes('&name=')) {
+                        src = src.replace(/&name=[^&]+/, '&name=large');
+                    }
+                    mediaUrl = src;
+                }
+
+                // Extract video poster image if no direct photo was found
+                const videoEl = el.querySelector('video');
+                if (videoEl && !mediaUrl) {
+                    const poster = videoEl.getAttribute('poster');
+                    if (poster && poster.startsWith('http')) {
+                        mediaUrl = poster;
+                    }
+                }
+
+                // Extract author profile photo as fallback for text-only tweets
+                let avatarUrl = null;
+                const avatarEl = el.querySelector('[data-testid="Tweet-User-Avatar"] img') || el.querySelector('img[src*="pbs.twimg.com/profile_images"]');
+                if (avatarEl) {
+                    let aSrc = avatarEl.getAttribute('src') || '';
+                    if (aSrc) {
+                        avatarUrl = aSrc.replace(/_normal\./, '_400x400.').replace(/_bigger\./, '_400x400.');
+                    }
+                }
+
+                results.push({
+                    id: tweetId,
+                    url: tweetUrl,
+                    text: text,
+                    mediaUrl: mediaUrl,
+                    avatarUrl: avatarUrl,
+                    mediaType: mediaType
+                });
+
+                if (results.length >= 12) break;
+            }
+            return results;
+        }, handle);
+
+        const parsedTweets = rawTweets.map(item => {
+            const tweetDate = getTweetTimestamp(item.id);
+            const cleanedText = cleanTweetText(item.text);
+            return {
+                id: item.id,
+                url: item.url,
+                text: cleanedText,
+                mediaUrl: item.mediaUrl,
+                avatarUrl: item.avatarUrl,
+                mediaType: item.mediaType,
+                date: tweetDate
+            };
+        }).filter(t => t.text && t.text.length >= 15);
+
+        console.log(`[X-DIRECT] Successfully extracted ${parsedTweets.length} primary direct tweets for @${handle}`);
+        return parsedTweets;
+    } catch (e) {
+        console.error(`[X-DIRECT] Direct stealth crawl failed for @${handle}:`, e.message);
+        return [];
+    } finally {
+        if (page) {
+            try { await page.close(); } catch (e) {}
+        }
+    }
+}
+
+// ============================================================================
+// TWITTER SCRAPING VIA RAPIDAPI (Fallback)
 // ============================================================================
 async function fetchTweetsFromRapidAPI(handle) {
     const apiKey = process.env.TWITTER_RAPIDAPI_KEY || process.env.RAPIDAPI_KEY;
-    if (!apiKey) {
-        console.error('[TWITTER] Error: TWITTER_RAPIDAPI_KEY or RAPIDAPI_KEY is not configured in environment variables.');
-        return [];
-    }
+    if (!apiKey) return [];
 
     const host = process.env.TWITTER_RAPIDAPI_HOST || 'twitter-api45.p.rapidapi.com';
-    console.log(`[TWITTER] Fetching tweets for @${handle} using RapidAPI host: ${host}`);
 
     try {
-        let url = '';
-        let params = {};
+        let url = `https://${host}/timeline.php`;
+        let params = { screenname: handle };
 
-        // Support popular RapidAPI Twitter endpoints automatically
-        if (host.includes('twitter-api45')) {
-            // twitter-api45: timeline.php
-            url = `https://${host}/timeline.php`;
-            params = { screenname: handle };
-        } else if (host.includes('twitter-api64')) {
+        if (host.includes('twitter-api64')) {
             url = `https://${host}/user/tweets`;
-            params = { screenname: handle };
         } else if (host.includes('twitter-api135')) {
             url = `https://${host}/v1/user/tweets`;
             params = { username: handle };
-        } else {
-            // Generic fallback
-            url = `https://${host}/timeline.php`;
-            params = { screenname: handle };
         }
 
         const response = await axios.get(url, {
@@ -969,310 +1039,300 @@ async function fetchTweetsFromRapidAPI(handle) {
         if (!data) return [];
 
         let rawTweets = [];
-        // Support direct array or nested keys (tweets, timeline, results, data, items, etc.)
-        if (Array.isArray(data)) {
-            rawTweets = data;
-        } else if (data.tweets && Array.isArray(data.tweets)) {
-            rawTweets = data.tweets;
-        } else if (data.timeline && Array.isArray(data.timeline)) {
-            rawTweets = data.timeline;
-        } else if (data.results && Array.isArray(data.results)) {
-            rawTweets = data.results;
-        } else if (data.data && Array.isArray(data.data)) {
-            rawTweets = data.data;
-        } else if (data.items && Array.isArray(data.items)) {
-            rawTweets = data.items;
-        } else if (typeof data === 'object') {
-            for (const key of Object.keys(data)) {
-                if (Array.isArray(data[key])) {
-                    rawTweets = data[key];
-                    break;
-                }
-            }
-        }
-
-        console.log(`[TWITTER] Received ${rawTweets.length} raw tweets from RapidAPI for @${handle}`);
+        if (Array.isArray(data)) rawTweets = data;
+        else if (Array.isArray(data.tweets)) rawTweets = data.tweets;
+        else if (Array.isArray(data.timeline)) rawTweets = data.timeline;
+        else if (Array.isArray(data.results)) rawTweets = data.results;
+        else if (Array.isArray(data.data)) rawTweets = data.data;
 
         const parsedTweets = [];
         for (const item of rawTweets) {
-            // Extract text
-            const text = item.text || item.full_text || item.tweet_text || item.body || item.desc || item.title || '';
-            
-            // Extract ID
-            const tweetId = item.tweet_id || item.id_str || item.id || item.status_id || '';
+            const text = item.text || item.full_text || item.tweet_text || '';
+            const tweetId = item.tweet_id || item.id_str || item.id || '';
             if (!tweetId) continue;
 
             const tweetUrl = `https://x.com/${handle}/status/${tweetId}`;
+            let date = item.created_at ? new Date(item.created_at) : getTweetTimestamp(tweetId);
 
-            // Extract Date
-            let date = new Date();
-            const dateVal = item.created_at || item.createdAt || item.timestamp || item.pubDate || item.date;
-            if (dateVal) {
-                if (typeof dateVal === 'number') {
-                    date = new Date(dateVal * (dateVal < 10000000000 ? 1000 : 1));
-                } else {
-                    date = new Date(dateVal);
-                }
-            }
-
-            // Extract Media URL and Media Type
             let mediaUrl = null;
             let mediaType = 'image';
 
-            if (item.media && Array.isArray(item.media) && item.media.length > 0) {
-                const firstMedia = item.media[0];
-                if (typeof firstMedia === 'string') {
-                    mediaUrl = firstMedia;
-                } else if (typeof firstMedia === 'object') {
-                    mediaUrl = firstMedia.url || firstMedia.media_url_https || firstMedia.media_url || firstMedia.thumbUrl;
-                    if (firstMedia.type === 'video' || firstMedia.type === 'animated_gif') {
-                        mediaType = 'video';
-                    }
-                }
+            const mediaList = item.extended_entities?.media || item.entities?.media || item.media || [];
+            if (Array.isArray(mediaList) && mediaList.length > 0) {
+                const first = mediaList[0];
+                mediaUrl = typeof first === 'string' ? first : (first.media_url_https || first.media_url || first.url || null);
+                if (first.type === 'video' || first.type === 'animated_gif') mediaType = 'video';
             } else {
-                mediaUrl = item.media_url || item.media_url_https || item.image || item.photo || item.thumbnail || null;
+                mediaUrl = item.media_url || item.media_url_https || null;
             }
 
-            if (item.video_link || item.video_url || item.video) {
-                mediaUrl = item.video_link || item.video_url || item.video;
-                mediaType = 'video';
-            }
-
-            // Skip Retweets
-            const isRetweet = item.is_retweet === true || text.startsWith('RT @') || text.startsWith('R to @');
-            if (isRetweet) continue;
+            if (item.is_retweet === true || text.startsWith('RT @')) continue;
 
             parsedTweets.push({
-                text: text,
+                id: tweetId,
+                text: cleanTweetText(text),
                 url: tweetUrl,
-                mediaUrl: mediaUrl,
-                mediaType: mediaType,
-                date: date
+                mediaUrl,
+                mediaType,
+                date
             });
         }
-
         return parsedTweets;
     } catch (error) {
         console.error(`[TWITTER] RapidAPI request failed for @${handle}:`, error.message);
-        if (error.response && error.response.data) {
-            console.error('[TWITTER] Error response details:', JSON.stringify(error.response.data));
-        }
         return [];
     }
 }
 
 // ============================================================================
-// SCRAPING LOGIC: TWITTER / SOCIAL FEEDS using free syndication
+// SCRAPING LOGIC: TWITTER / SOCIAL FEEDS
 // ============================================================================
 async function processSingleTwitterFeed(doc) {
     const feed = doc.data();
-    if (feed.platform !== 'Twitter' && feed.platform !== 'X') {
-        return;
-    }
-    
-    let handle = feed.url.trim();
-    if (handle.startsWith('@')) handle = handle.substring(1);
-    else if (handle.includes('twitter.com/')) handle = handle.split('twitter.com/')[1].split('/')[0].split('?')[0];
+    if (feed.isPaused === true) return;
+
+    const platform = (feed.platform || '').toLowerCase();
+    if (platform && platform !== 'twitter' && platform !== 'x') return;
+
+    let rawUrl = (feed.url || feed.handle || '').trim();
+    if (!rawUrl) return;
+    let handle = rawUrl;
+    if (handle.includes('twitter.com/')) handle = handle.split('twitter.com/')[1].split('/')[0].split('?')[0];
     else if (handle.includes('x.com/')) handle = handle.split('x.com/')[1].split('/')[0].split('?')[0];
+    handle = handle.replace(/^@+/, '').trim();
+    if (!handle) return;
 
     try {
-        let fetchedItems = await fetchTweetsFromRapidAPI(handle);
-        
-        // Filter tweets strictly to the past 24 hours and ensure valid dates
+        let batchCount = 0;
+        // 1. Primary Method: Direct Stealth Crawling (Zero API key, direct live tweets)
+        let fetchedItems = await fetchTweetsDirectStealth(handle);
+
+        // 2. Secondary Fallback: RapidAPI if configured and direct crawl had 0 items
+        if (fetchedItems.length === 0) {
+            fetchedItems = await fetchTweetsFromRapidAPI(handle);
+        }
+
         const now = Date.now();
-        const past24Hours = 24 * 60 * 60 * 1000;
-        
+        const past16Hours = 16 * 60 * 60 * 1000; // Strictly 16 hours cutoff (replaces 48 hours)
+
         let validFetchedItems = fetchedItems.filter(item => {
             if (!item.date) return false;
-            
-            const parsedDate = new Date(item.date);
-            const timeMs = parsedDate.getTime();
-            if (isNaN(timeMs)) return false;
-            
-            const diff = now - timeMs;
-            // Keep if strictly within last 24 hours, and up to 1hr future timezone difference grace
-            if (diff > past24Hours || diff < -1 * 60 * 60 * 1000) {
-                return false;
-            }
-            
-            if (item.text?.startsWith('RT @') || item.text?.startsWith('R to @')) {
-                return false;
-            }
-            
-            return true;
+            const diff = now - item.date.getTime();
+            return diff <= past16Hours && diff >= -3600000;
         });
 
-        // Sort newest first
-        validFetchedItems.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        fetchedItems = validFetchedItems.slice(0, 5); // take top 5 newest valid tweets
-        
+        // Combine multi-part threads (e.g. 1/4, 2/4, 3/4, 4/4 or 1/1, 1/2, 1/3, 1/4) into single unified news stories
+        validFetchedItems = groupTweetsIntoThreads(validFetchedItems);
+
+        validFetchedItems.sort((a, b) => b.date.getTime() - a.date.getTime());
+        fetchedItems = validFetchedItems.slice(0, 5);
+
         if (fetchedItems.length > 0) {
-            const tweetUrls = fetchedItems.map(item => item.url).filter(Boolean);
-            const seenUrls = await isUrlAlreadyScanned(tweetUrls);
-            
-            const batch = db.batch();
-            let batchCount = 0;
-            
+            const allTweetUrlsToCheck = [];
             for (const item of fetchedItems) {
-                if (batchCount >= 3) break; 
-                
-                const tweetUrl = item.url;
-                if (!tweetUrl || seenUrls.has(tweetUrl)) continue;
-
-                // Process new tweet
-                let mediaUrl = item.mediaUrl;
-                let mediaType = item.mediaType;
-                const textContent = item.text;
-
-                const prompt = `You are a Senior Journalist.
-                1. Evaluate if this social media post is a valid news update.
-                2. Constraints: వచ్చిన కంటెంట్ లోని వ్యక్తులు, ప్రాంతం మిస్ అవ్వకుండా, వార్త యొక్క భావం మారకుండా, ఒక సీనియర్ న్యూస్ ఎడిటర్ మాదిరిగా ఒకే పేరాగ్రాఫ్ లో వార్త రాయాలి. Content must be approximately 60 words in Telugu.
-                   CRITICAL TONE & PUNCH LOGIC (పంచ్ డైలాగ్స్ రూల్): వచ్చిన వార్త కంటెంట్ లో ఉన్న సంచలన వ్యాఖ్యలు, రాజకీయ విమర్శలు, నాయకులు వాడిన బలమైన లేదా ఘాటైన పంచ్ డైలాగులు (punchy political criticisms, emotional/sensational dialogues, and strong statements) ఎట్టి పరిస్థితుల్లోనూ వదిలిపెట్టవద్దు. వార్తను సాదాసీదాగా లేదా చప్పగా మార్చవద్దు! ఆ సంచలన పంచ్ డైలాగులను/వ్యాఖ్యలను వార్త సారాంశం (Telugu content summary) మరియు హెడ్లైన్ (headline) లలో చాలా స్పష్టంగా, ఉత్తేజకరంగా మరియు ఆకర్షణీయంగా ఉండేలా యథాతథంగా లేదా మరింత పదునుగా హైలైట్ చేయాలి. చదువరులను ఆకట్టుకునేలా వార్త ఘాటుగా ఉండాలి కానీ చప్పగా ఉండకూడదు.
-                CRITICAL: Write as if YOU are the reporter breaking the news. DO NOT use phrases like "ఈ పోస్ట్ ప్రకారం", "ఈ ట్వీట్ చెబుతోంది", "వీరు తెలిపారు", "తెలియజేస్తుంది". State the facts directly.
-                3. Headline must be a PUNCHY single sentence around 6-10 words in Telugu.
-                4. Identify the primary location of the news. 
-                5. Create a unique storyFingerprint based on the core fact. It must be EXACTLY 3-4 words joined by hyphens, focusing ONLY on the main subject and action.
-                6. Classification & Tagging:
-                   - refinedCategory: Classify into one of: Politics, Crime, Sports, Cinema, Business, Health, Education, Technology, Agriculture, Local, National, International.
-                   - tags: Extract 3-5 relevant keywords in Telugu.
-                   - entities: Identify People, Organizations, and Locations mentioned.
-                7. CRITICAL REJECTION CRITERIA: 
-                   - If it's a personal/social meeting (e.g., meeting with family, casual greetings, birthday wishes), it is NOT news.
-                   - If it's a quote like "Good Morning", repost or shared content without new value, it is NOT news.
-                8. Media: I have attached the candidate image (if any) or provided the URL: ${mediaUrl || 'None'}. 
-                   - Is the attached image an actual news photo showing people, places, or events?
-                   - IF IT IS A LOGO, GENERIC ICON OR IRRELEVANT, YOU MUST SET mediaUrl TO EMPTY STRING "".
-                   - If it is a real news image relate to the article, set mediaUrl to "${mediaUrl || ''}".
-                9. Output JSON only. Format as JSON: {"isRelevant": true, "headline": "Telugu Title", "content": "Telugu Summary", "headlineEn": "English Title", "contentEn": "English Summary", "location": "Location", "storyFingerprint": "finger-print-here", "refinedCategory": "Category", "tags": ["tag1", "tag2"], "entities": {"people": [], "organizations": [], "locations": []}, "mediaUrl": "image-url-here", "mediaType": "image|video", "isWide": true|false}`;
-                
-                const aiResult = await processWithGemini(textContent, prompt, mediaUrl);
-                
-                if (aiResult) {
-                    try {
-                        const parsed = JSON.parse(aiResult.replace(/```json|```/g, '').trim());
-                        if (parsed.isRelevant) {
-                            console.log(`[TWITTER] Relevant tweet! Headline: ${parsed.headline}`);
-                        } else {
-                            console.log(`[TWITTER] Tweet rejected as not relevant by AI: ${tweetUrl}`);
-                        }
-                        if (parsed.isRelevant && parsed.headline && parsed.content) {
-                            if (parsed.storyFingerprint) {
-                                if (storyFingerprintMemoryCache.has(parsed.storyFingerprint)) {
-                                    console.log(`[TWITTER] Skipping duplicate story (memory cache hit): ${parsed.storyFingerprint}`);
-                                    continue;
-                                }
-                                const duplicate = await db.collection('news')
-                                    .where('storyFingerprint', '==', parsed.storyFingerprint)
-                                    .where('timestamp', '>', new Date(Date.now() - 24 * 60 * 60 * 1000))
-                                    .limit(1)
-                                    .get();
-                                
-                                if (!duplicate.empty) {
-                                    storyFingerprintMemoryCache.add(parsed.storyFingerprint);
-                                    console.log(`[TWITTER] Skipping duplicate story: ${parsed.storyFingerprint}`);
-                                    continue;
-                                }
-                                storyFingerprintMemoryCache.add(parsed.storyFingerprint);
-                            }
-
-                            const reporter = getRandomReporter();
-                            const category = parsed.refinedCategory || feed.category || 'Social';
-                            
-                            const globalCategories = ["Sports", "Health", "Technology", "Business", "Cinema", "National", "International", "Politics", "Crime", "Education", "Agriculture", "Devotional", "Lifestyle", "AndhraPradesh", "Telangana"];
-                            
-                            let finalDistrict = "General";
-                            if (globalCategories.includes(category)) {
-                                finalDistrict = category;
-                            } else if (feed.district) {
-                                finalDistrict = feed.district;
-                            } else if (category === 'స్థానిక' && feed.district) {
-                                finalDistrict = feed.district;
-                            }
-                            
-                            const categoriesList = [feed.sourceName || `X (@${handle})`, category, "Social"];
-                            if (finalDistrict !== "General" && !globalCategories.includes(finalDistrict)) {
-                                categoriesList.push("Local");
-                                categoriesList.push(finalDistrict);
-                            }
-                            
-                            let finalMediaUrl = ALFA_NEWS_LOGO;
-                            let finalMediaType = 'image';
-                            let postFormat = '16:9';
-
-                            if (parsed.mediaUrl && !isGenericImage(parsed.mediaUrl) && parsed.mediaUrl.startsWith('http')) {
-                                if (mediaType === 'video') {
-                                    finalMediaUrl = mediaUrl;
-                                    finalMediaType = 'video';
-                                    postFormat = '16:9';
-                                } else {
-                                    finalMediaUrl = `https://wsrv.nl/?url=${encodeURIComponent(parsed.mediaUrl)}&output=webp`;
-                                }
-                            }
-                            
-                            const docRef = db.collection('news').doc();
-                            batch.set(docRef, {
-                                headline: { telugu: parsed.headline, english: parsed.headlineEn || '' },
-                                content: { telugu: parsed.content, english: parsed.contentEn || '' },
-                                sourceUrl: tweetUrl,
-                                originalUrl: tweetUrl,
-                                sourceName: feed.sourceName || `X (@${handle})`,
-                                category: category,
-                                categories: [...new Set([...categoriesList, category])].filter(Boolean),
-                                tags: parsed.tags || [],
-                                entities: parsed.entities || { people: [], organizations: [], locations: [] },
-                                district: finalDistrict,
-                                state: feed.state || null,
-                                mandal: feed.mandal || null,
-                                location: parsed.location || feed.district || 'General',
-                                storyFingerprint: parsed.storyFingerprint || '',
-                                mediaUrl: finalMediaUrl,
-                                mediaType: finalMediaType,
-                                postFormat: postFormat,
-                                language: 'te',
-                                timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                                publishedAt: admin.firestore.FieldValue.serverTimestamp(),
-                                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                                status: 'published',
-                                approved: true,
-                                viewCount: 0,
-                                likes: Math.floor(Math.random() * 150) + 50,
-                                comments: 0,
-                                shares: Math.floor(Math.random() * 40) + 10,
-                                reporter: { id: reporter.id, name: reporter.name }
-                            });
-                            batchCount++;
-                        }
-                    } catch (e) {
-                        console.error("[TWITTER] Failed to parse Tweet Gemini JSON:", e.message);
-                    }
+                if (item.allUrls && item.allUrls.length > 0) {
+                    allTweetUrlsToCheck.push(...item.allUrls);
+                } else {
+                    allTweetUrlsToCheck.push(item.url);
                 }
             }
+            const seenUrls = await isUrlAlreadyScanned(allTweetUrlsToCheck);
+
+            const batch = db.batch();
+
+            for (const item of fetchedItems) {
+                if (batchCount >= 3) break;
+                // If main URL or all thread parts were already scanned, skip
+                if (seenUrls.has(item.url) || (item.allUrls && item.allUrls.every(u => seenUrls.has(u)))) continue;
+
+                const prompt = `You are a Senior Telugu Journalist and Political News Editor for a reputed mainstream news network.
+Evaluate this social media post from a political leader or official handle:
+
+EDITORIAL FILTER RULES:
+1. ACCEPT & PRIORITIZE (Set "isRelevant": true):
+   - Political Allegations & Counter-Allegations (రాజకీయ ఆరోపణలు, ప్రత్యారోపణలు, విమర్శలు, సవాళ్లు, కౌంటర్లు): Criticisms leveled by leaders against governments, rival parties, or policy decisions (e.g. corruption charges, budget/debts, scheme implementation, farmer issues, governance failures).
+   - Government decisions, cabinet meetings, welfare schemes, development projects, official GOs.
+   - Public statements, press meets, crisis responses (floods, law & order, public welfare), or official party decisions.
+
+2. REJECT (Set "isRelevant": false) ONLY IF:
+   - Contains vulgar abuse, unparliamentary/filthy language, or purely cheap personal slander with zero public context.
+   - Pure internet troll memes, morphed photos, or anonymous parody jokes with no official statement.
+   - Purely routine personal greetings ("Happy Birthday bro", casual wishes without any public or social message).
+   - Commercial ads, product promotions, spam.
+
+WRITING RULES (CRITICAL EDITORIAL STYLE):
+1. PRESERVE ORIGINAL INTENSITY & EMOTION (ట్వీట్లోని భావాన్ని, ఇంటెన్సిటీని ఏమాత్రం తగ్గించవద్దు):
+   - Do NOT water down or dilute the leader's fighting spirit, anger, sarcasm, challenge, or intensity.
+   - Capture the exact emotion (ఘాటు విమర్శ, ఆగ్రహం, నిలదీత, సవాల్, ఆవేదన, హెచ్చరిక) faithfully in Telugu.
+2. PUNCH DIALOGUE IN HEADLINE (ట్వీట్లోని పంచ్ డైలాగ్‌నే హెడ్‌లైన్‌గా మార్చు):
+   - Identify the sharpest, most powerful punch line, quote, or rhetorical question from the tweet.
+   - Format the Telugu headline to lead with this punch dialogue in quotes or as the central hook:
+     Examples:
+     * "'సూపర్ సిక్స్ ఏమైంది?.. ప్రజలను దగా చేశారు': కూటమి సర్కార్‌పై జగన్ ఫైర్"
+     * "'నోరు అదుపులో పెట్టుకోకపోతే ఖబడ్దార్!': వైసీపీ నేతలకు లోకేష్ స్ట్రాంగ్ వార్నింగ్"
+     * "'హామీలు గాల్లో కలిపేశారు.. ఇదేనా మీ మార్పు?': రేవంత్ సర్కార్‌పై కేటీఆర్ ఘాటు వ్యాఖ్యలు"
+   - Headline length: 6-12 words in Telugu, high-voltage, sensational yet authentic to the tweet.
+3. SUMMARY (సారాంశం):
+   - Approx 60 words in crisp, powerful Telugu preserving the exact arguments, punch points, and context.
+
+Output JSON only:
+{"isRelevant": true|false, "headline": "Telugu Title", "content": "Telugu Summary", "headlineEn": "English Title", "contentEn": "English Summary", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "url", "mediaType": "image", "isWide": false}`;
+
+                const aiResult = await processWithGemini(item.text, prompt, item.mediaUrl);
+                if (!aiResult) continue;
+
+                try {
+                    const parsed = JSON.parse(aiResult.replace(/```json|```/g, '').trim());
+                    if (!parsed.isRelevant || !parsed.headline || !parsed.content) {
+                        console.log(`[TWITTER] ⏭️ Filtered out non-news/satirical post for @${handle}: "${(item.text || '').substring(0, 45).replace(/\n/g, ' ')}..."`);
+                        await markUrlAsProcessed(item.url);
+                        continue;
+                    }
+
+                    // 1. Headline similarity deduplication
+                    if (parsed.headline) {
+                        const isDupHeadline = recentHeadlinesMemoryCache.some(cachedHeadline => {
+                            return calculateTextSimilarity(parsed.headline, cachedHeadline) >= 0.70;
+                        });
+                        if (isDupHeadline) {
+                            console.log(`[TWITTER] ⏭️ Duplicate story (headline similarity hit) for @${handle}: "${parsed.headline}"`);
+                            await markUrlAsProcessed(item.url);
+                            continue;
+                        }
+                    }
+
+                    // 2. Deduplication via storyFingerprint
+                    if (parsed.storyFingerprint) {
+                        if (storyFingerprintMemoryCache.has(parsed.storyFingerprint)) {
+                            console.log(`[TWITTER] ⏭️ Duplicate story (memory hit): ${parsed.storyFingerprint}`);
+                            await markUrlAsProcessed(item.url);
+                            continue;
+                        }
+
+                        // Query Firestore using single-field index on storyFingerprint (no composite index needed)
+                        const duplicate = await db.collection('news')
+                            .where('storyFingerprint', '==', parsed.storyFingerprint)
+                            .limit(1)
+                            .get();
+
+                        if (!duplicate.empty) {
+                            storyFingerprintMemoryCache.add(parsed.storyFingerprint);
+                            console.log(`[TWITTER] ⏭️ Duplicate story (Firestore hit): ${parsed.storyFingerprint}`);
+                            await markUrlAsProcessed(item.url);
+                            continue;
+                        }
+                        storyFingerprintMemoryCache.add(parsed.storyFingerprint);
+                    }
+
+                    const reporter = getRandomReporter();
+                    const category = parsed.refinedCategory || feed.category || 'Politics';
+                    let finalDistrict = GLOBAL_CATEGORIES.includes(category) ? category : (feed.district || "General");
+
+                    let finalMediaUrl = ALFA_NEWS_LOGO;
+                    const rawMedia = (item.mediaUrl && item.mediaUrl.startsWith('http')) ? item.mediaUrl : 
+                                     ((item.avatarUrl && item.avatarUrl.startsWith('http')) ? item.avatarUrl : 
+                                     ((parsed.mediaUrl && parsed.mediaUrl.startsWith('http')) ? parsed.mediaUrl : null));
+                    if (rawMedia && !isGenericImage(rawMedia)) {
+                        finalMediaUrl = `https://wsrv.nl/?url=${encodeURIComponent(rawMedia)}&output=webp`;
+                    }
+
+                    const docRef = db.collection('news').doc();
+                    const newsPayload = sanitizeFirestoreData({
+                        headline: { telugu: parsed.headline, english: parsed.headlineEn || '' },
+                        content: { telugu: parsed.content, english: parsed.contentEn || '' },
+                        sourceUrl: item.url,
+                        originalUrl: item.url,
+                        sourceName: feed.sourceName || `X (@${handle})`,
+                        category: category,
+                        categories: [...new Set([feed.sourceName || `X (@${handle})`, category, "Social", "రాజకీయం", "ముఖ్యాంశాలు"])].filter(Boolean),
+                        tags: parsed.tags || [],
+                        entities: parsed.entities || { people: [], organizations: [], locations: [] },
+                        district: finalDistrict || "General",
+                        state: feed.state || null,
+                        mandal: feed.mandal || null,
+                        location: parsed.location || feed.district || 'General',
+                        storyFingerprint: parsed.storyFingerprint || '',
+                        mediaUrl: finalMediaUrl,
+                        mediaType: item.mediaType || 'image',
+                        postFormat: '16:9',
+                        language: 'te',
+                        type: 'news',
+                        isGlobal: true,
+                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                        publishedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                        status: 'published',
+                        approved: true,
+                        viewCount: 0,
+                        likes: Math.floor(Math.random() * 150) + 50,
+                        comments: 0,
+                        shares: Math.floor(Math.random() * 40) + 10,
+                        reporter: { id: reporter.id, name: reporter.name }
+                    });
+
+                    batch.set(docRef, newsPayload);
+                    console.log(`[TWITTER] 🐦 Prepared ${item.isThread ? `thread (${item.threadCount} parts)` : 'tweet'} for @${handle}: "${parsed.headline}"`);
+                    const urlsToMark = item.allUrls && item.allUrls.length > 0 ? item.allUrls : [item.url];
+                    for (const u of urlsToMark) {
+                        await markUrlAsProcessed(u);
+                    }
+                    if (parsed.headline) recentHeadlinesMemoryCache.push(parsed.headline);
+                    if (parsed.storyFingerprint) storyFingerprintMemoryCache.add(parsed.storyFingerprint);
+                    batchCount++;
+                } catch (e) {}
+            }
+
             if (batchCount > 0) {
                 await batch.commit();
-                console.log(`[TWITTER] Successfully committed batch of ${batchCount} tweets for ${handle}`);
+                console.log(`[TWITTER] Committed ${batchCount} tweets for @${handle}`);
             }
-        } else {
-             console.log(`[TWITTER] No items found for ${handle}`);
         }
-        await doc.ref.update({ lastFetchTime: admin.firestore.FieldValue.serverTimestamp() });
+        await doc.ref.update({
+            lastFetchTime: admin.firestore.FieldValue.serverTimestamp(),
+            lastStatus: 'active',
+            lastError: null,
+            totalProcessedCount: admin.firestore.FieldValue.increment(batchCount),
+            todayProcessedCount: admin.firestore.FieldValue.increment(batchCount)
+        }).catch(err => console.warn(`Could not update stats for @${handle}:`, err.message));
     } catch (error) {
-        console.error(`Error processing Twitter ${handle}:`, error.message);
+        console.error(`Error processing Twitter @${handle}:`, error.message);
+        await doc.ref.update({
+            lastFetchTime: admin.firestore.FieldValue.serverTimestamp(),
+            lastStatus: 'error',
+            lastError: error.message,
+            totalFailedCount: admin.firestore.FieldValue.increment(1)
+        }).catch(() => {});
     }
+}
+
+// ============================================================================
+// OPERATING HOURS & NIGHT CUTOFF (IST 4:00 AM to 10:00 PM)
+// ============================================================================
+function isOperatingHours() {
+    const kolkataStr = new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" });
+    const kolkataDate = new Date(kolkataStr);
+    const hour = kolkataDate.getHours();
+    // Strictly allowed from 04:00 AM to 22:00 (10:00 PM) IST.
+    // At or after 22:00 (10:00 PM), and before 04:00 (4:00 AM), the scraper MUST NOT run.
+    return hour >= 4 && hour < 22;
 }
 
 // ============================================================================
 // SCHEDULER (QUEUE SYSTEM)
 // ============================================================================
-// We use a queue system to ensure only one heavy task runs at a time, saving RAM.
-
 let isScraping = false;
 let lastScrapeStartTime = 0;
 
 async function runScraperQueue() {
+    if (!isOperatingHours()) {
+        const currentIST = new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" });
+        console.log(`[SCHEDULE] 🛑 Outside operating hours (04:00 AM to 10:00 PM IST). Current IST: ${currentIST}. Scraper is halted for the night.`);
+        return;
+    }
+
     if (isScraping) {
-        // If it's been stuck for more than 45 minutes, forcefully reset it
         if (Date.now() - lastScrapeStartTime > 45 * 60 * 1000) {
-            console.log("Scraping seems to be stuck for over 45 minutes. Force resetting...");
+            console.log("Scraping seems stuck for over 45 mins. Force resetting...");
             isScraping = false;
         } else {
             console.log("Scraping already in progress. Skipping this cycle.");
@@ -1284,51 +1344,66 @@ async function runScraperQueue() {
     lastScrapeStartTime = Date.now();
     try {
         await prewarmScraperCache();
-        console.log("Fetching sources for interleaved scraping...");
+        console.log("Fetching active sources for interleaved scraping...");
+        
         const webSnapshot = await db.collection('scraping_sources').where('isPaused', '==', false).get();
         const webDocs = [...webSnapshot.docs];
 
-        const twitterSnapshot = await db.collection('social_feeds').orderBy('lastFetchTime', 'asc').limit(15).get();
-        const twitterDocs = [...twitterSnapshot.docs];
+        const twitterSnapshot = await db.collection('social_feeds').get();
+        const twitterDocs = twitterSnapshot.docs.filter(doc => {
+            const data = doc.data();
+            if (data.isPaused === true) return false;
+            const platform = (data.platform || '').toLowerCase();
+            return !platform || platform === 'twitter' || platform === 'x';
+        });
+
+        // Prioritize feeds that have never been fetched (null/missing lastFetchTime) or were fetched longest ago
+        twitterDocs.sort((a, b) => {
+            const timeA = a.data().lastFetchTime ? (a.data().lastFetchTime.toMillis ? a.data().lastFetchTime.toMillis() : (a.data().lastFetchTime._seconds ? a.data().lastFetchTime._seconds * 1000 : 0)) : 0;
+            const timeB = b.data().lastFetchTime ? (b.data().lastFetchTime.toMillis ? b.data().lastFetchTime.toMillis() : (b.data().lastFetchTime._seconds ? b.data().lastFetchTime._seconds * 1000 : 0)) : 0;
+            return timeA - timeB;
+        });
 
         console.log(`Found ${webDocs.length} Web sources and ${twitterDocs.length} Twitter feeds.`);
 
         while (webDocs.length > 0 || twitterDocs.length > 0) {
-            
+            // Cutoff guard: Stop immediately if clock strikes 10:00 PM IST (22:00)
+            if (!isOperatingHours()) {
+                const currentIST = new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" });
+                console.log(`[SCHEDULE] 🛑 10:00 PM IST cutoff reached! Halting scraper queue immediately (Current IST: ${currentIST}).`);
+                break;
+            }
+
             // Process 1 Twitter feed
             if (twitterDocs.length > 0) {
                 const tDoc = twitterDocs.shift();
                 try {
                     await Promise.race([
                         processSingleTwitterFeed(tDoc),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Twitter Source Processing Timeout')), 300000))
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Twitter Timeout')), 300000))
                     ]);
                 } catch (e) {
-                    console.error(`Timeout or error processing twitter source ${tDoc.id}:`, e.message);
+                    console.error(`Error processing twitter ${tDoc.id}:`, e.message);
                 }
             }
 
             // Process 2 Web sources
-            if (webDocs.length > 0) {
-                const wDoc1 = webDocs.shift();
-                try {
-                    await Promise.race([
-                        processSingleWebSource(wDoc1),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Web Source Processing Timeout')), 300000)) // 5 min timeout
-                    ]);
-                } catch (e) {
-                    console.error(`Timeout or error processing web source ${wDoc1.id}:`, e.message);
+            for (let i = 0; i < 2 && webDocs.length > 0; i++) {
+                // Cutoff guard check before each web source
+                if (!isOperatingHours()) {
+                    const currentIST = new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" });
+                    console.log(`[SCHEDULE] 🛑 10:00 PM IST cutoff reached! Halting scraper queue immediately (Current IST: ${currentIST}).`);
+                    break;
                 }
-            }
-            if (webDocs.length > 0) {
-                const wDoc2 = webDocs.shift();
+
+                const wDoc = webDocs.shift();
                 try {
                     await Promise.race([
-                        processSingleWebSource(wDoc2),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Web Source Processing Timeout')), 300000)) // 5 min timeout
+                        processSingleWebSource(wDoc),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Web Timeout')), 300000))
                     ]);
                 } catch (e) {
-                    console.error(`Timeout or error processing web source ${wDoc2.id}:`, e.message);
+                    console.error(`Error processing web source ${wDoc.id}:`, e.message);
                 }
             }
         }
@@ -1337,23 +1412,35 @@ async function runScraperQueue() {
         console.error("Queue Error:", error);
     } finally {
         isScraping = false;
+        // Clean up any idle shared browser to release memory
+        await closeSharedBrowser();
     }
 }
 
-// Schedule to run every 2 hours, only between 4:00 AM and 10:00 PM IST
-cron.schedule('0 4-22/2 * * *', () => {
-    console.log("Cron triggered runScraperQueue (IST 4AM-10PM Every 2h)");
+// Schedule to run every 2 hours between 4:00 AM and 8:00 PM IST (Cutoff at 10:00 PM IST)
+// Cron triggers at: 04:00, 06:00, 08:00, 10:00, 12:00, 14:00, 16:00, 18:00, 20:00 IST
+cron.schedule('0 4-20/2 * * *', () => {
+    console.log("Cron triggered runScraperQueue (IST 4AM-8PM Every 2h)");
     runScraperQueue();
 }, {
     timezone: "Asia/Kolkata"
 });
 
 console.log("VPS Scraper Started. Waiting for cron schedule...");
-// Run once immediately on startup, ONLY if within the allowed IST hours (4 AM to 10 PM)
-const currentISTHour = parseInt(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata", hour: 'numeric', hour12: false }));
-if (currentISTHour >= 4 && currentISTHour <= 22) {
-    console.log(`Starting initial scraper run (Current IST Hour: ${currentISTHour})`);
+
+// Run once on startup if strictly within IST 4 AM - 10 PM
+if (isOperatingHours()) {
+    const currentIST = new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" });
+    console.log(`Starting initial scraper run (Current IST: ${currentIST})`);
     runScraperQueue();
 } else {
-    console.log(`Skipping initial run. Outside allowed IST hours (Current IST Hour: ${currentISTHour})`);
+    const currentIST = new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" });
+    console.log(`Skipping initial run. Outside allowed IST hours (04:00 AM - 10:00 PM IST, Current IST: ${currentIST})`);
 }
+
+module.exports = {
+    runScraperQueue,
+    processSingleWebSource,
+    processSingleTwitterFeed,
+    isOperatingHours
+};
