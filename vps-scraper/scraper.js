@@ -1080,13 +1080,25 @@ function findInstalledChrome() {
     try {
         const cacheBase = path.join(os.homedir(), '.cache', 'puppeteer', 'chrome');
         if (fs.existsSync(cacheBase)) {
-            const versions = fs.readdirSync(cacheBase);
-            for (const v of versions) {
-                const chromeBin = path.join(cacheBase, v, 'chrome-linux64', 'chrome');
-                if (fs.existsSync(chromeBin)) {
-                    console.log(`[PUPPETEER] Found installed Chrome at: ${chromeBin}`);
-                    return chromeBin;
+            const findChromeRecursive = (dir, depth = 0) => {
+                if (depth > 4) return null;
+                const entries = fs.readdirSync(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                    const fullPath = path.join(dir, entry.name);
+                    if (entry.isFile() && (entry.name === 'chrome' || entry.name === 'chrome.exe')) {
+                        return fullPath;
+                    }
+                    if (entry.isDirectory()) {
+                        const found = findChromeRecursive(fullPath, depth + 1);
+                        if (found) return found;
+                    }
                 }
+                return null;
+            };
+            const chromeBin = findChromeRecursive(cacheBase);
+            if (chromeBin) {
+                console.log(`[PUPPETEER] Auto-detected installed Chrome at: ${chromeBin}`);
+                return chromeBin;
             }
         }
     } catch (e) {}
