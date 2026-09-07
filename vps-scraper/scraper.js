@@ -959,18 +959,6 @@ async function prewarmScraperCache() {
 // ============================================================================
 // GEMINI API RATE LIMITING, MODEL FALLBACK & KEY ROTATION SETUP
 // ============================================================================
-const fallbackKeys = [
-    "AIzaSyC4-d1zC4G6WgUmIDZ0eKPm9WOtGGz5xJ0",
-    "AIzaSyCJsdsvzB9nVU_-gORRTZgsvvhXSUXTdYU",
-    "AIzaSyA6sIISFcNNPkJdrnDCv7zqg4Fkiw_LcSs",
-    "AIzaSyChpVoZ7pfMyxCmVkW1298hXXS5snOp9dA",
-    "AIzaSyA6kEVXrWHz_EtPsHTPWFa08ZyY04l1M08",
-    "AIzaSyA4lAySqfR15dDI2MgdgxtbiANExEIyE1w",
-    "AIzaSyCg2fje2zPwmOCaQUvBX1n-DHNbHqdk1W0",
-    "AIzaSyDqlH1_n1dKPfOivV0ePzgUm6FoXuVVw_M",
-    "AIzaSyCydnUw8oNZgzMhyc8h6_o33hd7t1NF0So"
-];
-
 const rawKeyPool = [
     process.env.GEMINI_API_KEY_1,
     process.env.GEMINI_API_KEY_2,
@@ -982,15 +970,14 @@ const rawKeyPool = [
     process.env.GEMINI_API_KEY_8,
     process.env.GEMINI_API_KEY_9,
     process.env.GEMINI_API_KEY_10,
-    process.env.GEMINI_API_KEY,
-    ...fallbackKeys
+    process.env.GEMINI_API_KEY
 ];
 
-// Deduplicate, sanitize, and exclude known invalid keys
+// Deduplicate and sanitize keys from .env
 const geminiKeys = Array.from(new Set(
     rawKeyPool
         .map(k => k ? k.trim().replace(/^['"]|['"]$/g, '') : '')
-        .filter(k => k && k.length > 10 && k !== 'AIzaSyA8-YNKtCIRWLyGo6cnRTzblpD4fBBVdo0' && k !== 'AIzaSyAzmrl2_vOhQOhr_YUlS4EsvCriZP1OBxo')
+        .filter(k => k && k.length > 10)
 ));
 
 if (geminiKeys.length === 0) {
@@ -1006,12 +993,11 @@ let lastGeminiRequestTime = 0;
 // Limit to <= 13.3 requests per minute (4500ms delay) to avoid free tier 429 quota exhaustion
 const MIN_DELAY_BETWEEN_GEMINI_REQUESTS = 4500; 
 
-// Resilient fallback chain for active models
+// Resilient fallback chain for active models (gemini-3.6-flash is recommended by Google)
 const GEMINI_MODELS = [
-    'gemini-2.5-flash',
-    'gemini-3.1-flash-lite',
     'gemini-3.6-flash',
-    'gemini-3.5-flash-lite'
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite'
 ];
 let currentModelIndex = 0;
 
@@ -1301,17 +1287,18 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 4) {
             const errorMsg = (error.response?.data?.error?.message || error.message || "").toUpperCase();
             const status = error.response?.status;
             
-            // If model not found, switch model
-            if (errorMsg.includes('NOT_FOUND') || errorMsg.includes('IS NOT SUPPORTED')) {
+            // If model not found or deprecated, switch model
+            if (errorMsg.includes('NOT_FOUND') || errorMsg.includes('IS NOT SUPPORTED') || errorMsg.includes('NO LONGER AVAILABLE')) {
                 console.log(`[GEMINI] Model ${GEMINI_MODELS[currentModelIndex % GEMINI_MODELS.length]} not supported. Falling back to next model.`);
                 currentModelIndex++;
                 continue;
             }
 
-            // Key-specific issues: Invalid key, disabled key, quota exhaustion, 429, 400 Bad Request, 403 Forbidden
+            // Key-specific issues: Invalid key, leaked key, disabled key, quota exhaustion, 429, 400 Bad Request, 403 Forbidden
             const isKeyIssue = errorMsg.includes('API KEY NOT VALID') || 
                                errorMsg.includes('API_KEY_INVALID') || 
                                errorMsg.includes('INVALID_ARGUMENT') || 
+                               errorMsg.includes('REPORTED AS LEAKED') || 
                                errorMsg.includes('QUOTA') || 
                                errorMsg.includes('RESOURCE_EXHAUSTED') || 
                                status === 429 || 
