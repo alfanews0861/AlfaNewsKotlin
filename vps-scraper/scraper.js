@@ -993,11 +993,15 @@ let lastGeminiRequestTime = 0;
 // Limit to <= 13.3 requests per minute (4500ms delay) to avoid free tier 429 quota exhaustion
 const MIN_DELAY_BETWEEN_GEMINI_REQUESTS = 4500; 
 
-// Resilient fallback chain for active models (gemini-3.6-flash is recommended by Google)
+// Resilient fallback chain for active models:
+// 1. Primary: gemini-3.5-flash-lite (high RPM/TPM free tier limits)
+// 2. Secondary: gemini-3.6-flash
+// 3. Fallbacks: gemini-3.1-flash-lite & gemini-flash-lite-latest
 const GEMINI_MODELS = [
-    'gemini-3.6-flash',
     'gemini-3.5-flash-lite',
-    'gemini-3.1-flash-lite'
+    'gemini-3.6-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-flash-lite-latest'
 ];
 let currentModelIndex = 0;
 
