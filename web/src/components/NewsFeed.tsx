@@ -46,24 +46,122 @@ interface NewsFeedProps {
   initialPostId?: string | null;
 }
 
+// 🌐 UNIVERSAL GLOBAL KEYWORDS (Excluded state-specific politics and state names)
 const strictlyGlobalKeywords = [
-  "సినిమా", "స్పోర్ట్స్", "జాతీయం", "అంతర్జాతీయం", "వ్యాపారం", 
+  "సినిమా", "స్పోర్ట్స్", "క్రీడలు", "జాతీయం", "అంతర్జాతీయం", "వ్యాపారం", 
   "ఆరోగ్యం", "విద్య", "టెక్నాలజీ", "వ్యవసాయం", "భక్తి", 
-  "వినోదం", "ప్రపంచం", "క్రైమ్", "లైఫ్ స్టైల్", "జనరల్", "రాష్ట్రం",
-  "రాష్ట్ర వార్తలు", "ముఖ్యాంశాలు", "బ్రేకింగ్", "వైరల్", "తాజా వార్తలు",
-  "ఆంధ్రప్రదేశ్", "తెలంగాణ", "భారతదేశం", "రాజకీయం", "సినిమా వార్తలు"
+  "వినోదం", "ప్రపంచం", "లైఫ్ స్టైల్", "జనరల్", "భారతదేశం", "సినిమా వార్తలు"
 ];
 
-const globalDistrictsList = [
-  "General", "State", "Sports", "Health", "Technology", "Business", 
-  "Entertainment", "Cinema", "National", "International", "Politics", 
+const universalDistrictsList = [
+  "General", "Sports", "Health", "Technology", "Business", 
+  "Entertainment", "Cinema", "National", "International", 
   "Crime", "Education", "Agriculture", "Devotional", "Lifestyle", 
-  "AndhraPradesh", "Telangana", "ఆంధ్రప్రదేశ్", "తెలంగాణ", "జనరల్", "భారతదేశం", "ప్రపంచం"
+  "జనరల్", "భారతదేశం", "ప్రపంచం", "జాతీయం", "అంతర్జాతీయం"
 ];
+
+export const mapDistrictToState = (district?: string | null): 'Telangana' | 'Andhra Pradesh' | null => {
+  if (!district) return null;
+  const clean = district.trim().replace(/జిల్లా|డిస్ట్రిక్ట్|district/gi, '').trim().toLowerCase();
+
+  const tsList = [
+    "telangana", "ts", "tg", "తెలంగాణ", "తెలంగాణా", "hyderabad", "హైదరాబాద్", "secunderabad", "సికింద్రాబాద్",
+    "cyberabad", "సైబరాబాద్", "adilabad", "ఆదిలాబాద్", "bhadradri", "కొత్తగూడెం", "kothagudem",
+    "hanumakonda", "hanamkonda", "హన్మకొండ", "హనుమకొండ", "warangal", "వరంగల్", "jagtial", "జగిత్యాల",
+    "jangaon", "జనగాం", "bhupalpally", "భూపాలపల్లి", "gadwal", "గద్వాల", "kamareddy", "కామారెడ్డి",
+    "karimnagar", "కరీంనగర్", "khammam", "ఖమ్మం", "asifabad", "ఆసిఫాబాద్", "mahabubabad", "మహబూబాబాద్",
+    "mahabubnagar", "మహబూబ్ నగర్", "mancherial", "మంచిర్యాల", "medak", "మెదక్", "medchal", "మేడ్చల్",
+    "malkajgiri", "మల్కాజిగిరి", "mulugu", "ములుగు", "nagarkurnool", "నాగర్ కర్నూల్", "nalgonda", "నల్గొండ",
+    "narayanpet", "నారాయణపేట", "nirmal", "నిర్మల్", "nizamabad", "నిజామాబాద్", "peddapalli", "పెద్దపల్లి",
+    "sircilla", "సిరిసిల్ల", "rangareddy", "రంగారెడ్డి", "sangareddy", "సంగారెడ్డి", "siddipet", "సిద్దిపేట",
+    "suryapet", "సూర్యాపేట", "vikarabad", "వికారాబాద్", "wanaparthy", "వనపర్తి", "yadadri", "యాదాద్రి", "bhuvanagiri", "భువనగిరి"
+  ];
+
+  const apList = [
+    "andhra pradesh", "andhrapradesh", "ap", "andhra", "ఆంధ్రప్రదేశ్", "ఆంధ్ర ప్రదేశ్", "ఆంధ్ర",
+    "alluri", "అల్లూరి", "paderu", "పాడేరు", "anakapalli", "అనకాపల్లి", "anantapur", "అనంతపురం",
+    "annamayya", "అన్నమయ్య", "rayachoti", "రాయచోటి", "bapatla", "బాపట్ల", "chittoor", "చిత్తూరు",
+    "konaseema", "కోనసీమ", "amalapuram", "అమలాపురం", "east godavari", "తూర్పు గోదావరి", "rajahmundry", "రాజమండ్రి",
+    "eluru", "ఏలూరు", "guntur", "గుంటూరు", "kakinada", "కాకినాడ", "krishna", "కృష్ణా", "machilipatnam", "మచిలీపట్నం",
+    "kurnool", "కర్నూలు", "nandyal", "నంద్యాల", "ntr", "ఎన్టీఆర్", "vijayawada", "విజయవాడ",
+    "palnadu", "పల్నాడు", "narasaraopeta", "నరసరావుపేట", "manyam", "మన్యం", "parvathipuram", "పార్వతీపురం",
+    "prakasam", "ప్రకాశం", "ongole", "ఒంగోలు", "markapur", "మార్కాపురం", "polavaram", "పోలవరం", "madanapalle", "మదనపల్లె",
+    "nellore", "నెల్లూరు", "sathya sai", "సత్యసాయి", "puttaparthi", "పుట్టపర్తి", "srikakulam", "శ్రీకాకుళం",
+    "tirupati", "తిరుపతి", "tirumala", "తిరుమల", "visakhapatnam", "విశాఖపట్నం", "vizag", "వైజాగ్",
+    "vizianagaram", "విజయనగరం", "west godavari", "పశ్చిమ గోదావరి", "bhimavaram", "భీమవరం", "kadapa", "కడప", "amaravati", "అమరావతి"
+  ];
+
+  if (tsList.some(item => clean.includes(item) || item.includes(clean))) return 'Telangana';
+  if (apList.some(item => clean.includes(item) || item.includes(clean))) return 'Andhra Pradesh';
+  return null;
+};
+
+export const inferStateFromPost = (post: NewsPost): 'Telangana' | 'Andhra Pradesh' | null => {
+  if (post.state) {
+    const sState = mapDistrictToState(post.state);
+    if (sState) return sState;
+  }
+  if (post.district) {
+    const dState = mapDistrictToState(post.district);
+    if (dState) return dState;
+  }
+  if (post.category) {
+    const cState = mapDistrictToState(post.category);
+    if (cState) return cState;
+  }
+  if (post.categories) {
+    for (const cat of post.categories) {
+      const cState = mapDistrictToState(cat);
+      if (cState) return cState;
+    }
+  }
+  if (post.tags) {
+    for (const tag of post.tags) {
+      const tState = mapDistrictToState(tag);
+      if (tState) return tState;
+    }
+  }
+
+  const text = `${post.headline?.telugu || ''} ${post.headline?.english || ''} ${post.content?.telugu || ''} ${post.content?.english || ''}`.toLowerCase();
+
+  const tsTerms = [
+    "రేవంత్", "కేసీఆర్", "కేటీఆర్", "హరీశ్ రావు", "హరీష్ రావు", "భట్టి విక్రమార్క",
+    "ఈటల", "బండి సంజయ్", "కిషన్ రెడ్డి", "బీఆర్ఎస్", "బిఆర్ఎస్", "brs", "trs", "టీఆర్ఎస్",
+    "హైడ్రా", "hydraa", "ghmc", "hmda", "తెలంగాణ", "telangana", "కాళేశ్వరం", "సింగరేణి", "యాదాద్రి"
+  ];
+
+  const apTerms = [
+    "చంద్రబాబు", "పవన్ కళ్యాణ్", "పవన్", "లోకేష్", "లోకేశ్", "జగన్", "వైసీపీ", "వైసిపి",
+    "ysrcp", "టీడీపీ", "టిడిపి", "tdp", "జనసేన", "janasena", "jsp", "తిరుమల", "ttd",
+    "అమరావతి", "పోలవరం", "విశాఖ ఉక్కు", "ఆంధ్రప్రదేశ్", "andhra pradesh", "ఆంధ్ర"
+  ];
+
+  let tsScore = 0;
+  let apScore = 0;
+  for (const term of tsTerms) {
+    if (text.includes(term.toLowerCase())) tsScore++;
+  }
+  for (const term of apTerms) {
+    if (text.includes(term.toLowerCase())) apScore++;
+  }
+
+  if (tsScore > apScore && tsScore > 0) return 'Telangana';
+  if (apScore > tsScore && apScore > 0) return 'Andhra Pradesh';
+  return null;
+};
+
+export const isPostAllowedForState = (post: NewsPost, userState: 'Telangana' | 'Andhra Pradesh' | null): boolean => {
+  if (!userState) return true;
+  const postState = inferStateFromPost(post);
+  if (postState && postState !== userState) return false;
+  const postDistState = mapDistrictToState(post.district);
+  if (postDistState && postDistState !== userState) return false;
+  return true;
+};
 
 const isGlobalPost = (post: NewsPost): boolean => {
   if (post.isGlobal) return true;
-  if (!post.district || globalDistrictsList.some(d => d.toLowerCase() === post.district?.toLowerCase())) return true;
+  if (universalDistrictsList.some(d => d.toLowerCase() === post.district?.toLowerCase())) return true;
   if (post.category && strictlyGlobalKeywords.some(kw => post.category?.toLowerCase().includes(kw.toLowerCase()))) return true;
   if (post.categories && post.categories.some(c => strictlyGlobalKeywords.some(kw => c.toLowerCase().includes(kw.toLowerCase())))) return true;
   return false;
@@ -186,10 +284,17 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
             prefPromise = fetchStream([where('categories', 'array-contains', implicitCategory)], prefCursor.current, 4);
         }
 
+        const userState = mapDistrictToState(userDistrict);
+        const globalDistrictsForQuery = userState === 'Andhra Pradesh'
+          ? ["General", "State", "Sports", "Health", "Technology", "Business", "Entertainment", "Cinema", "National", "International", "Crime", "Education", "Agriculture", "Devotional", "Lifestyle", "AndhraPradesh", "AP", "ఆంధ్రప్రదేశ్"]
+          : userState === 'Telangana'
+          ? ["General", "State", "Sports", "Health", "Technology", "Business", "Entertainment", "Cinema", "National", "International", "Crime", "Education", "Agriculture", "Devotional", "Lifestyle", "Telangana", "TS", "తెలంగాణ", "Hyderabad", "హైదరాబాద్"]
+          : ["General", "State", "Sports", "Health", "Technology", "Business", "Entertainment", "Cinema", "National", "International", "Crime", "Education", "Agriculture", "Devotional", "Lifestyle", "AndhraPradesh", "Telangana"];
+
         const [prefRes, localRes, globalRes, greetingRes] = await Promise.all([
             prefPromise,
             userDistrict ? fetchStream([where('district', '==', userDistrict)], localCursor.current, 6) : Promise.resolve({posts:[], cursor:null, count:0}),
-            fetchStream([where('district', 'in', ["General", "State", "Sports", "Health", "Technology", "Business", "Entertainment", "Cinema", "National", "International", "Politics", "Crime", "Education", "Agriculture", "Devotional", "Lifestyle", "AndhraPradesh", "Telangana"])], globalCursor.current, 10),
+            userDistrict ? fetchStream([where('district', 'in', globalDistrictsForQuery)], globalCursor.current, 10) : fetchStream([], globalCursor.current, 15),
             fetchStream([where('categories', 'array-contains', 'Greetings')], greetingCursor.current, 1)
         ]);
 
@@ -200,11 +305,22 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
 
         const combinedRaw = [...prefRes.posts, ...localRes.posts, ...globalRes.posts, ...greetingRes.posts];
 
-        const filteredRaw = combinedRaw.filter(p => {
+        let filteredRaw = combinedRaw.filter(p => {
+            // 🛑 STRICT STATE ISOLATION (రెండు రాష్ట్రాల వార్తలు & ప్రాంతీయ రాజకీయాల విభజన)
+            if (!isPostAllowedForState(p, userState)) return false;
+            if (!userDistrict) return true;
             if (isGlobalPost(p)) return true;
-            if (userDistrict && p.district?.toLowerCase() === userDistrict.toLowerCase()) return true;
+            if (userDistrict && (p.district?.toLowerCase() === userDistrict.toLowerCase() || p.categories?.includes(userDistrict))) return true;
             return false;
         });
+
+        if (filteredRaw.length === 0 && isInitial) {
+            const emergencyRes = await fetchStream([], null, 15);
+            if (emergencyRes.posts.length > 0) {
+                filteredRaw = emergencyRes.posts;
+                globalCursor.current = emergencyRes.cursor;
+            }
+        }
 
         filteredRaw.sort((a, b) => b.timestamp - a.timestamp);
 

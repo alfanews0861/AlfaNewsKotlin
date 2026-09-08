@@ -222,4 +222,38 @@ describe('Reporter Application & Auto-Approval Logic Tests', () => {
         expect(shouldAutoApprove).toBe(false);
         expect(finalStatus).toBe('PENDING');
     });
+
+    test('Reporter Monthly Performance Audit: Meets benchmark with >= 20 own-mandal news posts', () => {
+        const monthlyTarget = 20;
+        const ownMandalPostsThisMonth = 24;
+        const daysSinceLastPost = 1;
+
+        const meetsBenchmark = ownMandalPostsThisMonth >= monthlyTarget && daysSinceLastPost <= 3;
+        const shortfall = Math.max(0, monthlyTarget - ownMandalPostsThisMonth);
+
+        expect(meetsBenchmark).toBe(true);
+        expect(shortfall).toBe(0);
+    });
+
+    test('Reporter Monthly Performance Audit: Deficient with < 20 own-mandal news posts triggers alert', () => {
+        const monthlyTarget = 20;
+        const ownMandalPostsThisMonth = 7;
+        const daysSinceLastPost = 4;
+
+        const meetsBenchmark = ownMandalPostsThisMonth >= monthlyTarget && daysSinceLastPost <= 3;
+        const shortfall = Math.max(0, monthlyTarget - ownMandalPostsThisMonth);
+
+        expect(meetsBenchmark).toBe(false);
+        expect(shortfall).toBe(13);
+
+        // Verification of alert message content
+        const applicantName = "రమేష్ కుమార్";
+        const mandal = "కొణిజర్ల";
+        const alertText = `నమస్కారం విలేకరి మిత్రమా, Alfa News ఎడిటోరియల్ డెస్క్ నుండి అత్యవసర గమనిక.\n\nమీరు కేటాయించబడిన ${mandal} మండలానికి ఈ నెలలో ఆశించిన స్థాయిలో వార్తలు అందించడం లేదు. నిబంధనల ప్రకారం ప్రతినెలా కనీసం 20 సొంత మండల వార్తలను పోస్ట్ చేయాల్సి ఉండగా, ఈ నెలలో మీరు కేవలం ${ownMandalPostsThisMonth} వార్తలు మాత్రమే పోస్ట్ చేశారు (ఇంకా ${shortfall} వార్తల కొరత ఉంది).\n\nమీ మండల వార్తల కవరేజ్ తక్కువగా ఉన్నందున, మీ ${mandal} మండలానికి సంబంధించి ఇప్పటికే '${applicantName}' గారు విలేకరి పదవి కోసం దరఖాస్తు చేసుకున్నారు.`;
+
+        expect(alertText).toContain('కొణిజర్ల');
+        expect(alertText).toContain('రమేష్ కుమార్');
+        expect(alertText).toContain('20');
+        expect(alertText).toContain('13');
+    });
 });

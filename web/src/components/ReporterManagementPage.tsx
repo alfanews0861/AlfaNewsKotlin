@@ -1,11 +1,15 @@
 
 import React, { useState, useEffect, useCallback, ChangeEvent, useMemo } from 'react';
 import { User, UserRole, TS_DISTRICTS, AP_DISTRICTS } from '../types';
-import { db } from '../services/firebase';
+import { MANDAL_DATA } from '../data/mandalData';
+import { app, db } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
-import { Phone, MessageSquare, AlertTriangle, CheckCircle, Clock, ShieldAlert, Sparkles, ArrowUpDown, Trash2, UserMinus } from 'lucide-react';
+import * as _functions from 'firebase/functions';
+import { Phone, MessageSquare, AlertTriangle, CheckCircle, Clock, ShieldAlert, Sparkles, ArrowUpDown, Trash2, UserMinus, MapPin, RefreshCw } from 'lucide-react';
 
 const { collection, getDocs, query, orderBy, doc, updateDoc, setDoc, deleteDoc, where, onSnapshot } = _firestore as any;
+const { getFunctions, httpsCallable } = _functions as any;
+const functions = getFunctions(app, 'asia-south1');
 
 const SearchIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
@@ -67,6 +71,10 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
   const [sortField, setSortField] = useState<SortField>('totalNewsCount');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [selectedDistrict, setSelectedDistrict] = useState('ALL');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [editingLocationUser, setEditingLocationUser] = useState<ReporterWithCounts | null>(null);
+  const [editLocDistrict, setEditLocDistrict] = useState('');
+  const [editLocMandal, setEditLocMandal] = useState('');
 
   // Fetch Applications and Occupied Mandals
   const fetchApplications = useCallback(async () => {
@@ -151,17 +159,25 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
 
         try {
           const newsRef = collection(db, 'news');
-          const totalQuery = query(newsRef, where('reporter.id', '==', userData.id));
-          const totalSnap = await getDocs(totalQuery);
-          userData.totalNewsCount = totalSnap.size;
+          const [snapId, snapName, snapOrig] = await Promise.all([
+            getDocs(query(newsRef, where('reporter.id', '==', userData.id))).catch(() => null),
+            userData.name ? getDocs(query(newsRef, where('reporter.name', '==', userData.name))).catch(() => null) : null,
+            getDocs(query(newsRef, where('originalReporterId', '==', userData.id))).catch(() => null)
+          ]);
+
+          const docMap = new Map<string, any>();
+          if (snapId) snapId.docs.forEach((d: any) => docMap.set(d.id, d.data()));
+          if (snapName) snapName.docs.forEach((d: any) => docMap.set(d.id, d.data()));
+          if (snapOrig) snapOrig.docs.forEach((d: any) => docMap.set(d.id, d.data()));
+
+          userData.totalNewsCount = docMap.size;
 
           let todayCount = 0;
           let lastWeekCount = 0;
           let latestMs: number | null = null;
           let earliestMs: number | null = null;
 
-          totalSnap.forEach((docSnap: any) => {
-            const nData = docSnap.data();
+          docMap.forEach((nData: any) => {
             let dateMs: number | null = null;
             if (nData.timestamp?.toMillis) {
               dateMs = nData.timestamp.toMillis();
@@ -427,6 +443,48 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
     }
   };
 
+  const handleSyncLeaderboard = async () => {
+    setIsSyncing(true);
+    try {
+      const syncFn = httpsCallable(functions, 'backfillReporterPoints');
+      const res: any = await syncFn();
+      alert(res?.data?.message || 'లీడర్‌బోర్డ్ & రిపోర్టర్ డేటా విజయవంతంగా సింక్ చేయబడింది!');
+      fetchReporters();
+      fetchApplications();
+    } catch (err: any) {
+      alert('సింక్ చేయడం విఫలమైంది: ' + err.message);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleSaveReporterLocation = async () => {
+    if (!editingLocationUser || !editLocDistrict || !editLocMandal) {
+      alert('దయచేసి జిల్లా మరియు మండలం రెండింటినీ ఎంచుకోండి.');
+      return;
+    }
+    const targetUserId = editingLocationUser.id;
+    setUpdatingReporters(prev => ({ ...prev, [targetUserId]: true }));
+    try {
+      const cleanDist = editLocDistrict.trim();
+      const cleanMandal = editLocMandal.trim();
+      await updateDoc(doc(db, 'users', targetUserId), {
+        district: cleanDist,
+        assignedMandal: cleanMandal,
+        mandal: cleanMandal,
+        state_district: cleanDist
+      });
+      setReporters(prev => prev.map(u => u.id === targetUserId ? { ...u, district: cleanDist, assignedMandal: cleanMandal } : u));
+      setFilteredReporters(prev => prev.map(u => u.id === targetUserId ? { ...u, district: cleanDist, assignedMandal: cleanMandal } : u));
+      setEditingLocationUser(null);
+      alert('మండలం విజయవంతంగా కేటాయించబడింది!');
+    } catch (err: any) {
+      alert('లొకేషన్ సేవ్ చేయడం విఫలమైంది: ' + err.message);
+    } finally {
+      setUpdatingReporters(prev => ({ ...prev, [targetUserId]: false }));
+    }
+  };
+
   // Filtered Applications List
   const filteredApps = useMemo(() => {
     return applications.filter(app => {
@@ -474,24 +532,38 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
           </div>
         </div>
 
-        {/* Tab Buttons */}
-        <div className="flex bg-white/20 p-1.5 rounded-2xl backdrop-blur-sm gap-1">
-          <button
-            onClick={() => setSelectedTab('applications')}
-            className={`px-5 py-2 rounded-xl font-bold text-sm transition-all ${
-              selectedTab === 'applications' ? 'bg-white text-teal-900 shadow-md' : 'text-white hover:bg-white/10'
-            }`}
-          >
-            📋 దరఖాస్తులు ({applications.filter(a => (a.status || 'PENDING').toUpperCase() === 'PENDING').length})
-          </button>
-          <button
-            onClick={() => setSelectedTab('reporters')}
-            className={`px-5 py-2 rounded-xl font-bold text-sm transition-all ${
-              selectedTab === 'reporters' ? 'bg-white text-teal-900 shadow-md' : 'text-white hover:bg-white/10'
-            }`}
-          >
-            👥 యాక్టివ్ రిపోర్టర్లు ({reporters.length})
-          </button>
+        {/* Tab & Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2">
+          {currentUser.role === UserRole.ADMIN && (
+            <button
+              onClick={handleSyncLeaderboard}
+              disabled={isSyncing}
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-sm shadow-md flex items-center gap-1.5 transition-all disabled:opacity-50"
+              title="వార్తల ఆధారంగా రిపోర్టర్ పాయింట్లు మరియు లీడర్‌బోర్డ్ రీ-క్యాలిక్యులేట్ చేయండి"
+            >
+              <RefreshCw size={15} className={isSyncing ? "animate-spin" : ""} />
+              <span>{isSyncing ? "సింక్ అవుతోంది..." : "లీడర్ బోర్డ్ డేటా సింక్"}</span>
+            </button>
+          )}
+
+          <div className="flex bg-white/20 p-1.5 rounded-2xl backdrop-blur-sm gap-1">
+            <button
+              onClick={() => setSelectedTab('applications')}
+              className={`px-5 py-2 rounded-xl font-bold text-sm transition-all ${
+                selectedTab === 'applications' ? 'bg-white text-teal-900 shadow-md' : 'text-white hover:bg-white/10'
+              }`}
+            >
+              📋 దరఖాస్తులు ({applications.filter(a => (a.status || 'PENDING').toUpperCase() === 'PENDING').length})
+            </button>
+            <button
+              onClick={() => setSelectedTab('reporters')}
+              className={`px-5 py-2 rounded-xl font-bold text-sm transition-all ${
+                selectedTab === 'reporters' ? 'bg-white text-teal-900 shadow-md' : 'text-white hover:bg-white/10'
+              }`}
+            >
+              👥 యాక్టివ్ రిపోర్టర్లు ({reporters.length})
+            </button>
+          </div>
         </div>
       </div>
 
@@ -763,8 +835,21 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
                       return (
                         <tr key={user.id} className="hover:bg-gray-50">
                           <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                            <div>{user.district || 'N/A'}{user.assignedMandal || (user as any).mandal ? ` - ${user.assignedMandal || (user as any).mandal}` : ''}</div>
-                            <div className="text-xs text-gray-500 font-normal">{user.state || 'TS'}</div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span>{user.district || 'N/A'}{user.assignedMandal || (user as any).mandal ? ` - ${user.assignedMandal || (user as any).mandal}` : ''}</span>
+                              <button
+                                onClick={() => {
+                                  setEditingLocationUser(user);
+                                  setEditLocDistrict(user.district || '');
+                                  setEditLocMandal(user.assignedMandal || (user as any).mandal || '');
+                                }}
+                                className="text-teal-700 hover:text-teal-900 px-2 py-0.5 text-xs bg-teal-50 hover:bg-teal-100 rounded-md border border-teal-200 font-bold transition-colors"
+                                title="జిల్లా / మండలం కేటాయించండి లేదా మార్చండి"
+                              >
+                                ✏️ మండలం మార్చు
+                              </button>
+                            </div>
+                            <div className="text-xs text-gray-500 font-normal mt-0.5">{user.state || 'TS'}</div>
                           </td>
                           <td className="px-4 py-4 whitespace-nowrap">
                             <div className="flex items-center">
@@ -888,6 +973,88 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Location Assignment Modal */}
+      {editingLocationUser && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 flex flex-col gap-4 animate-fade-in">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="text-xl font-bold text-gray-900 font-ramabhadra flex items-center gap-2">
+                <MapPin className="text-teal-600" size={22} />
+                మండలం కేటాయింపు
+              </h3>
+              <button
+                onClick={() => setEditingLocationUser(null)}
+                className="text-gray-400 hover:text-gray-600 text-xl font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div>
+              <p className="text-base text-gray-700 font-bold mb-1">రిపోర్టర్: <span className="text-teal-800">{editingLocationUser.name}</span></p>
+              <p className="text-xs text-gray-500">{editingLocationUser.phone || 'ఫోన్ లేదు'}</p>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">జిల్లా (District):</label>
+                <select
+                  value={editLocDistrict}
+                  onChange={(e) => {
+                    setEditLocDistrict(e.target.value);
+                    setEditLocMandal('');
+                  }}
+                  className="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white font-medium outline-none focus:ring-2 focus:ring-teal-500"
+                >
+                  <option value="">-- జిల్లా ఎంచుకోండి --</option>
+                  <optgroup label="తెలంగాణ (TS)">
+                    {TS_DISTRICTS.map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="ఆంధ్రప్రదేశ్ (AP)">
+                    {AP_DISTRICTS.map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">మండలం (Mandal):</label>
+                <select
+                  value={editLocMandal}
+                  onChange={(e) => setEditLocMandal(e.target.value)}
+                  className="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white font-medium outline-none focus:ring-2 focus:ring-teal-500"
+                  disabled={!editLocDistrict}
+                >
+                  <option value="">-- మండలం ఎంచుకోండి --</option>
+                  {(editLocDistrict ? (MANDAL_DATA[editLocDistrict] || []) : []).map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-3 border-t mt-2">
+              <button
+                onClick={() => setEditingLocationUser(null)}
+                className="px-4 py-2 rounded-xl text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200"
+              >
+                రద్దు చేయి (Cancel)
+              </button>
+              <button
+                onClick={handleSaveReporterLocation}
+                disabled={updatingReporters[editingLocationUser.id]}
+                className="px-5 py-2 rounded-xl text-sm font-bold text-white bg-teal-700 hover:bg-teal-800 shadow-md disabled:opacity-50"
+              >
+                {updatingReporters[editingLocationUser.id] ? 'సేవ్ అవుతోంది...' : 'లొకేషన్ సేవ్ చేయి'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

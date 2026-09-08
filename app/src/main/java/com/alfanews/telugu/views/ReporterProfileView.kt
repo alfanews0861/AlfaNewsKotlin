@@ -118,13 +118,22 @@ fun ReporterProfileView(
                     val userSnap = userRef.get().await()
                     if (userSnap.exists()) {
                         reporter = userSnap.toUserObject()
+                    } else {
+                        // Fallback lookup by name in users collection
+                        val nameSnap = FirebaseService.db.collection("users")
+                            .whereEqualTo("name", targetId)
+                            .limit(1)
+                            .get().await()
+                        if (!nameSnap.isEmpty) {
+                            reporter = nameSnap.documents.first().toUserObject()
+                        }
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
             }
             
-            // 2. Fetch posts by this reporter (try reporter.id, fallback to reporter.name)
+            // 2. Fetch posts by this reporter (try reporter.id, fallback to reporter.name, originalReporterId, userId)
             val newsRef = FirebaseService.db.collection("news")
             var querySnapshot = try {
                 newsRef.whereEqualTo("reporter.id", targetId).get().await()
@@ -135,6 +144,14 @@ fun ReporterProfileView(
             if (querySnapshot == null || querySnapshot.isEmpty) {
                 try {
                     querySnapshot = newsRef.whereEqualTo("reporter.name", targetId).get().await()
+                } catch (e: Exception) {
+                    // Ignore
+                }
+            }
+
+            if ((querySnapshot == null || querySnapshot.isEmpty) && reporter != null) {
+                try {
+                    querySnapshot = newsRef.whereEqualTo("reporter.id", reporter!!.id).get().await()
                 } catch (e: Exception) {
                     // Ignore
                 }
@@ -154,14 +171,38 @@ fun ReporterProfileView(
             // Sort by timestamp (newest first)
             posts = fetchedPosts.sortedByDescending { it.timestamp }
 
-            // 3. Guaranteed fallback if user doc was not found in users collection
+            // 3. Guaranteed fallback if user doc was not found in users collection, or dynamic points calculation
+            val repName = reporter?.name?.ifEmpty { null } ?: posts.firstOrNull()?.reporter?.name?.ifEmpty { null } ?: targetId
+            
+            var calculatedPoints = 0
+            posts.forEach { p ->
+                val isVideo = p.mediaType == com.alfanews.telugu.models.MediaType.VIDEO || p.mediaTypes.contains(com.alfanews.telugu.models.MediaType.VIDEO)
+                calculatedPoints += if (isVideo) 20 else 10
+            }
+            val currentPoints = reporter?.points ?: 0
+            val effectivePoints = if (currentPoints > 0) currentPoints else calculatedPoints
+
+            val badges = (reporter?.badges ?: emptyList()).toMutableList()
+            if (badges.isEmpty() && effectivePoints > 0) {
+                if (effectivePoints >= 100) badges.add("BRONZE")
+                if (effectivePoints >= 500) badges.add("SILVER")
+                if (effectivePoints >= 2000) badges.add("GOLD")
+                if (effectivePoints >= 10000) badges.add("DIAMOND")
+            }
+
             if (reporter == null) {
-                val repName = posts.firstOrNull()?.reporter?.name?.ifEmpty { null } ?: targetId
                 reporter = User(
                     id = targetId,
                     name = repName,
                     role = UserRole.REPORTER,
+                    points = effectivePoints,
+                    badges = badges,
                     photoUrl = "https://ui-avatars.com/api/?name=${repName}&background=random"
+                )
+            } else if (currentPoints == 0 && calculatedPoints > 0) {
+                reporter = reporter!!.copy(
+                    points = calculatedPoints,
+                    badges = if (reporter!!.badges.isEmpty()) badges else reporter!!.badges
                 )
             }
             

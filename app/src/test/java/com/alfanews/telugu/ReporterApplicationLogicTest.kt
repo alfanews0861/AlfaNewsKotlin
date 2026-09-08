@@ -199,4 +199,120 @@ class ReporterApplicationLogicTest {
         assertFalse(activeMap.containsKey("ఖమ్మం|మధిర"))
         assertFalse(activeMap.containsKey("ఖమ్మం|సత్తుపల్లి"))
     }
+
+    // Simulates the client and server validation logic for reporter applications
+    private fun validateReporterApplication(
+        fullName: String,
+        fatherName: String,
+        phone: String,
+        address: String,
+        district: String,
+        mandal: String,
+        interestedArea: String,
+        education: String,
+        currentOrg: String,
+        rulesAgreed: Boolean
+    ): Pair<Boolean, String?> {
+        val cleanPhone = phone.filter { it.isDigit() }.let { if (it.length > 10) it.takeLast(10) else it }
+        val phoneRegex = Regex("^[6-9]\\d{9}$")
+
+        return when {
+            fullName.trim().length < 3 -> false to "పూర్తి పేరు"
+            fatherName.trim().length < 3 -> false to "తండ్రి పేరు"
+            !phoneRegex.matches(cleanPhone) -> false to "ఫోన్ నంబర్"
+            address.trim().length < 6 -> false to "చిరునామా"
+            district.trim().isEmpty() -> false to "జిల్లా"
+            mandal.trim().isEmpty() -> false to "మండలం"
+            interestedArea.trim().isEmpty() -> false to "ఆసక్తి ఉన్న కేటగిరీ"
+            education.trim().isEmpty() -> false to "విద్యార్హత"
+            currentOrg.trim().isEmpty() -> false to "ప్రస్తుత సంస్థ"
+            !rulesAgreed -> false to "నిబంధనలు"
+            else -> true to null
+        }
+    }
+
+    @Test
+    fun testFormValidationFailsOnIncompleteOrBlankFields() {
+        // Blank form
+        val (blankValid, blankErr) = validateReporterApplication(
+            fullName = "",
+            fatherName = "",
+            phone = "",
+            address = "",
+            district = "",
+            mandal = "",
+            interestedArea = "",
+            education = "",
+            currentOrg = "",
+            rulesAgreed = false
+        )
+        assertFalse(blankValid)
+        assertEquals("పూర్తి పేరు", blankErr)
+
+        // Invalid phone (e.g. only 5 digits or starts with 2)
+        val (invalidPhoneValid, invalidPhoneErr) = validateReporterApplication(
+            fullName = "రమేష్ కుమార్",
+            fatherName = "సోమయ్య",
+            phone = "12345",
+            address = "గాంధీ నగర్, ఖమ్మం",
+            district = "ఖమ్మం",
+            mandal = "ఖమ్మం",
+            interestedArea = "రాజకీయం",
+            education = "డిగ్రీ",
+            currentOrg = "స్వతంత్ర విలేకరి",
+            rulesAgreed = true
+        )
+        assertFalse(invalidPhoneValid)
+        assertEquals("ఫోన్ నంబర్", invalidPhoneErr)
+
+        // Short address
+        val (shortAddrValid, shortAddrErr) = validateReporterApplication(
+            fullName = "రమేష్ కుమార్",
+            fatherName = "సోమయ్య",
+            phone = "9876543210",
+            address = "గ్రామం",
+            district = "ఖమ్మం",
+            mandal = "ఖమ్మం",
+            interestedArea = "రాజకీయం",
+            education = "డిగ్రీ",
+            currentOrg = "స్వతంత్ర విలేకరి",
+            rulesAgreed = true
+        )
+        assertFalse(shortAddrValid)
+        assertEquals("చిరునామా", shortAddrErr)
+
+        // Rules not agreed
+        val (rulesNotAgreedValid, rulesNotAgreedErr) = validateReporterApplication(
+            fullName = "రమేష్ కుమార్",
+            fatherName = "సోమయ్య",
+            phone = "9876543210",
+            address = "గాంధీ నగర్, ఖమ్మం టౌన్",
+            district = "ఖమ్మం",
+            mandal = "ఖమ్మం",
+            interestedArea = "రాజకీయం",
+            education = "డిగ్రీ",
+            currentOrg = "స్వతంత్ర విలేకరి",
+            rulesAgreed = false
+        )
+        assertFalse(rulesNotAgreedValid)
+        assertEquals("నిబంధనలు", rulesNotAgreedErr)
+    }
+
+    @Test
+    fun testFormValidationPassesOnCompleteAndValidForm() {
+        val (valid, err) = validateReporterApplication(
+            fullName = "రమేష్ కుమార్",
+            fatherName = "సోమయ్య",
+            phone = "9876543210",
+            address = "గాంధీ నగర్, ఖమ్మం టౌన్",
+            district = "ఖమ్మం",
+            mandal = "ఖమ్మం",
+            interestedArea = "రాజకీయం",
+            education = "డిగ్రీ",
+            currentOrg = "స్వతంత్ర విలేకరి",
+            rulesAgreed = true
+        )
+        assertTrue(valid)
+        assertNull(err)
+    }
 }

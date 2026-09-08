@@ -116,9 +116,7 @@ fun NewsCardView(
     onEditClick: (NewsPost) -> Unit = {},
     isActive: Boolean = false
 ) {
-    LaunchedEffect(autoShare) {
-        if (autoShare) onAutoShareDone()
-    }
+    // Note: autoShare / onAutoShareDone kept in signature with defaults for backwards compatibility
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val view = LocalView.current

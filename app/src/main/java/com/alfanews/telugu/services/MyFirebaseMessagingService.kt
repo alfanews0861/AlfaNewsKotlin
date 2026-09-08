@@ -82,6 +82,43 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             }
             AnalyticsService.logAnalyticsEvent("notification_received", bundle)
         } catch (e: Exception) { }
+
+        // 🛡️ DISTRICT GATEKEEPER:
+        // ఒకవేళ ఇది జిల్లా వార్త అయితే, అది యూజర్ ఎంచుకున్న ప్రస్తుత జిల్లాకు సంబంధించినదా కాదా అని తనిఖీ చేస్తాము.
+        // వేరే జిల్లా వార్త అయితే సైలెంట్‌గా డ్రాప్ చేసి, ఆ టాపిక్ నుండి తక్షణమే అన్‌సబ్‌స్క్రయిబ్ చేస్తాము.
+        val notifDistrict = remoteMessage.data["district"]
+        val newsType = remoteMessage.data["newsType"]
+        val fromTopic = remoteMessage.from?.removePrefix("/topics/") ?: ""
+        val isDistrictNews = newsType == "DISTRICT" || 
+                             channelId == AppNotificationChannel.LOCAL.id || 
+                             fromTopic.startsWith("district_")
+
+        if (isDistrictNews) {
+            val prefs = PreferenceManager.getInstance(applicationContext)
+            val userDistrict = prefs.getEffectiveDistrict() ?: prefs.userDistrict
+            val expectedDistrictTopic = if (!userDistrict.isNullOrBlank()) NotificationHelper.getTopicName("district", userDistrict) else null
+
+            // Foreign district topic నుండి వస్తే auto-unsubscribe చేసి డ్రాప్ చేస్తాము
+            if (fromTopic.startsWith("district_") && expectedDistrictTopic != null && fromTopic != expectedDistrictTopic) {
+                Log.w("MyFirebaseMsgService", "Foreign district topic message dropped: $fromTopic (user is in $expectedDistrictTopic). Auto-unsubscribing...")
+                serviceScope.launch {
+                    try { FirebaseMessaging.getInstance().unsubscribeFromTopic(fromTopic).await() } catch (e: Exception) {}
+                }
+                return
+            }
+
+            // పేలోడ్ లోని జిల్లా యూజర్ ప్రస్తుత జిల్లా కాకపోతే డ్రాప్ చేస్తాము
+            if (!notifDistrict.isNullOrBlank() && !userDistrict.isNullOrBlank() && notifDistrict != userDistrict) {
+                Log.w("MyFirebaseMsgService", "Foreign district news dropped: $notifDistrict (user is in $userDistrict)")
+                if (fromTopic.startsWith("district_")) {
+                    serviceScope.launch {
+                        try { FirebaseMessaging.getInstance().unsubscribeFromTopic(fromTopic).await() } catch (e: Exception) {}
+                    }
+                }
+                return
+            }
+        }
+
         sendNotification(title ?: "Alfa News", body ?: "", channelId, actionUrl, imageUrl, badgeCount)
     }
 
@@ -129,12 +166,19 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             serviceScope.launch {
                 try {
                     val prefs = PreferenceManager.getInstance(applicationContext)
+                    val installId = prefs.getOrCreateInstallId()
                     val guestData = mutableMapOf<String, Any>(
                         "fcmToken" to token,
+                        "installId" to installId,
                         "isAnonymous" to true,
                         "notificationsEnabled" to true,
-                        "lastActive" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                        "lastActive" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                        "platform" to "android",
+                        "appVersion" to com.alfanews.telugu.BuildConfig.VERSION_NAME
                     )
+                    prefs.selectedDistrict?.let { guestData["district"] = it }
+                    prefs.detectedDistrict?.let { guestData["detectedDistrict"] = it }
+                    prefs.localPlace?.let { guestData["place"] = it }
                     prefs.referredBy?.let { ref ->
                         if (ref.isNotEmpty()) {
                             guestData["referredBy"] = ref
@@ -162,13 +206,9 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 FirebaseMessaging.getInstance().subscribeToTopic("all_users").await()
                 FirebaseMessaging.getInstance().subscribeToTopic("breaking_news").await()
 
-                // ✅ జిల్లా ఆధారిత టాపిక్ కి సబ్‌స్క్రయిబ్ చేయడం (సురక్షితమైన పేరుతో)
-                val userDistrict = prefs.userDistrict
-                if (!userDistrict.isNullOrBlank()) {
-                    val districtTopic = NotificationHelper.getTopicName("district", userDistrict)
-                    FirebaseMessaging.getInstance().subscribeToTopic(districtTopic).await()
-                    Log.d("MyFirebaseMsgService", "Subscribed to district topic: $districtTopic")
-                }
+                // ✅ కేవలం యూజర్ ప్రస్తుత జిల్లాకు మాత్రమే సబ్‌స్క్రయిబ్ చేయడం (సురక్షిత సింక్ & క్లీనప్)
+                val effectiveDistrict = prefs.getEffectiveDistrict() ?: prefs.userDistrict
+                NotificationHelper.syncDistrictTopic(applicationContext, effectiveDistrict)
 
                 // ✅ HYPER-LOCAL WEATHER: GPS grid topic (0.1° ≈ 10km cell)
                 // User GPS coordinates prefs లో save అయి ఉంటే grid topic subscribe చేస్తాం.
@@ -206,9 +246,9 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                             Log.w("MyFirebaseMsgService", "Could not save weather GPS to Firestore", e)
                         }
                     }
-                } else if (!userDistrict.isNullOrBlank()) {
+                } else if (!effectiveDistrict.isNullOrBlank()) {
                     // GPS లేకపోతే old district weather topic fallback
-                    val weatherAlertTopic = NotificationHelper.getTopicName("weather_alert", userDistrict)
+                    val weatherAlertTopic = NotificationHelper.getTopicName("weather_alert", effectiveDistrict)
                     FirebaseMessaging.getInstance().subscribeToTopic(weatherAlertTopic).await()
                     Log.d("MyFirebaseMsgService", "Fallback: subscribed to district weather topic: $weatherAlertTopic")
                 }
@@ -231,11 +271,13 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 FirebaseMessaging.getInstance().unsubscribeFromTopic("all_users").await()
                 FirebaseMessaging.getInstance().unsubscribeFromTopic("breaking_news").await()
 
-                val userDistrict = prefs.userDistrict
-                if (!userDistrict.isNullOrBlank()) {
-                    val oldDistrictTopic = NotificationHelper.getTopicName("district", userDistrict)
-                    val oldWeatherTopic  = NotificationHelper.getTopicName("weather_alert", userDistrict)
-                    FirebaseMessaging.getInstance().unsubscribeFromTopic(oldDistrictTopic).await()
+                val effectiveDistrict = prefs.getEffectiveDistrict() ?: prefs.userDistrict
+                val currentSubscribedTopic = prefs.subscribedDistrictTopic
+                if (!currentSubscribedTopic.isNullOrBlank()) {
+                    FirebaseMessaging.getInstance().unsubscribeFromTopic(currentSubscribedTopic).await()
+                }
+                if (!effectiveDistrict.isNullOrBlank()) {
+                    val oldWeatherTopic = NotificationHelper.getTopicName("weather_alert", effectiveDistrict)
                     FirebaseMessaging.getInstance().unsubscribeFromTopic(oldWeatherTopic).await()
                 }
 

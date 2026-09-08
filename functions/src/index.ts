@@ -50,13 +50,15 @@ export {
     runAutoApprovePendingBackfill,
     reactivateFalselyDemotedReporters,
     runReactivateDemotedReportersHttp,
-    recordAppInstallReferral
+    recordAppInstallReferral,
+    restoreAllDowngradedReporters
 } from "./reporter_handler";
 
 // 3. Export Main News Functions
 export {
     processNewsPost,
-    onNewsPostCreated
+    onNewsPostCreated,
+    scheduleReprocessFailedReporterNews
 } from "./news_handler";
 
 // 4. Export Notification Engine
@@ -130,12 +132,13 @@ export const triggerPushBroadcast = onCall(async (request) => {
     };
 
     if (imageUrl && imageUrl.startsWith('http')) {
-        const isHeavyStorageUrl = imageUrl.includes('firebasestorage.googleapis.com') && !imageUrl.includes('thumbnails%2F') && !imageUrl.includes('_thumb');
-        if (!isHeavyStorageUrl) {
-            message.notification.imageUrl = imageUrl;
-            message.android.notification.imageUrl = imageUrl;
-        }
-        message.data.imageUrl = imageUrl;
+        const isStorageUrl = imageUrl.includes('firebasestorage.googleapis.com') || imageUrl.includes('firebasestorage.app');
+        const finalImageUrl = isStorageUrl
+            ? `https://wsrv.nl/?url=${encodeURIComponent(imageUrl)}&w=640&output=webp&q=75`
+            : imageUrl;
+        message.notification.imageUrl = finalImageUrl;
+        message.android.notification.imageUrl = finalImageUrl;
+        message.data.imageUrl = finalImageUrl;
     }
 
     try {

@@ -76,12 +76,15 @@ function parseArticleDate(rawDate) {
 // ============================================================================
 const GENERIC_IMAGE_PATTERNS = [
     'placeholder', 'default-image', 'default_image', 'no-image', 'noimage',
-    'masthead', 'site-logo', 'sitelogo', 'site_logo',
+    'masthead', 'site-logo', 'sitelogo', 'site_logo', 'channel_logo', 'brand_logo', 'news_logo',
     'app-logo', 'header_logo', 'header-logo', 'footer_logo', 'footer-logo', 'favicon',
     'dummy', 'share_image', 'og_default', 'fb_share', 'twitter_share',
-    'header_sun', 'eenadu_sun', 'eenadu_header', 'eenadu_red',
+    'header_sun', 'eenadu_sun', 'eenadu_header', 'eenadu_red', 'eenadu_logo',
     'toi_logo', 'toi-logo', 'timesofindia_logo', 'sakshi_logo', 'sakshi-logo',
-    'aj_logo', 'ntnews_logo', 'tv9_logo', 'v6_logo', 'abp_logo',
+    'aj_logo', 'ntnews_logo', 'tv9_logo', 'v6_logo', 'abp_logo', 'abp_live',
+    'etv', 'etvbharat', 'etv-bharat', 'etv_bharat', 'etv_logo', 'bharat_logo',
+    'hmtv', 'mahaa', '10tv', 'ap7am', 'telugustop', 'tv5', 'ntv_logo', 'aajtak', 'news18',
+    'greatandhra', 'gulte', 'thehindu', 'deccanchronicle', 'watermark', 'banner_logo',
     'static.toiimg.com/photo/108381831', 'static.toiimg.com/photo/4752938',
     'scorecardresearch.com', 'google-analytics', 'facebook.com/tr',
     'assets/_images/logos/', 'e-paper.webp', 'bell-icon.webp', 'gg-pref.gif',
@@ -108,9 +111,21 @@ function isGenericImage(url) {
         return true;
     }
 
-    // Exact logo file name match (e.g. logo.png, logo.webp, site_logo.jpg)
-    if (/\/logo[-_a-z0-9]*\.(png|jpg|jpeg|webp)/i.test(lowerUrl)) {
+    // Exact or partial logo file name match
+    if (/(?:logo|brand|masthead|watermark|banner_logo)[-_a-z0-9]*\.(?:png|jpg|jpeg|webp)/i.test(lowerUrl)) {
         return true;
+    }
+
+    // Directory-level logo assets
+    if (/\/(?:logos|branding|placeholders|watermarks|brand_assets)\//i.test(lowerUrl)) {
+        return true;
+    }
+
+    // ETV / ETV Bharat specifics (channel logos, default mastheads)
+    if (lowerUrl.includes('etvbharat') || lowerUrl.includes('etv.co.in') || lowerUrl.includes('etv-bharat') || lowerUrl.includes('etv_bharat')) {
+        if (lowerUrl.includes('logo') || lowerUrl.includes('default') || lowerUrl.includes('placeholder') || lowerUrl.includes('brand') || lowerUrl.includes('channel') || lowerUrl.includes('bharat_logo') || lowerUrl.includes('etv_logo')) {
+            return true;
+        }
     }
 
     // Eenadu specifics: reject known header/brand assets, but accept all article media
@@ -122,7 +137,8 @@ function isGenericImage(url) {
             lowerUrl.includes('andhra-pradesh-logo') || 
             lowerUrl.includes('telangana-logo') ||
             lowerUrl.includes('eenadu_sun') ||
-            lowerUrl.includes('eenadu_header')) {
+            lowerUrl.includes('eenadu_header') ||
+            lowerUrl.includes('eenadu_logo')) {
             return true;
         }
         // Genuine article media across Eenadu CDN paths
@@ -155,6 +171,35 @@ function isGenericImage(url) {
     }
 
     return false;
+}
+
+/**
+ * Sanitizes Telugu text by converting any bled Kannada Unicode characters (0x0C80-0x0CFF)
+ * and Devanagari/Hindi Unicode characters (0x0900-0x097F) to Telugu, removing orphaned matras,
+ * broken placeholder glyphs, and zero-width spaces, ensuring 100% pure Telugu script purity.
+ */
+function sanitizeTeluguText(text) {
+    if (!text) return "";
+    return text
+        // 1. Map any bled Kannada Unicode characters (0x0C80-0x0CFF) to Telugu Unicode (0x0C00-0x0C7F)
+        .replace(/[\u0C80-\u0CFF]/g, (char) => {
+            const code = char.charCodeAt(0) - 0x0080;
+            return (code >= 0x0C00 && code <= 0x0C7F) ? String.fromCharCode(code) : '';
+        })
+        // 2. Map any bled Devanagari / Hindi Unicode characters (0x0900-0x097F) to Telugu Unicode (0x0C00-0x0C7F)
+        .replace(/[\u0900-\u097F]/g, (char) => {
+            const code = char.charCodeAt(0) + 0x0300;
+            return (code >= 0x0C00 && code <= 0x0C7F) ? String.fromCharCode(code) : '';
+        })
+        // 3. Strip any residual unmapped Kannada or Hindi characters to guarantee 0% Kannada/Hindi
+        .replace(/[\u0900-\u097F\u0C80-\u0CFF]/g, '')
+        // 4. Remove dotted circle characters used as fallback for broken combining marks
+        .replace(/\u25CC/g, '')
+        // 5. Remove invisible zero-width spaces that break Telugu word joining
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        // 6. Fix spaces before Telugu combining vowel marks / virama
+        .replace(/\s+([\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63])/g, '$1')
+        .trim();
 }
 
 // ============================================================================
@@ -357,8 +402,9 @@ function extractArticleData(html, articleUrl) {
         } catch (e) {}
     });
 
-    // 2. Strip noise elements from DOM
-    $('nav, header, footer, script, style, .ads, .sidebar, .comments, aside, #sidebar, .related, .trending, .popular, .latest-news, .logo, .site-logo, .brand, .header-logo, .menu, .navigation, .social-share, .footer-tags, .tags, .widget, .promo, .about-us, .author-bio, [role="complementary"], .breadcrumb, .taboola, .outbrain, .google_ads_wrap_in_image, .next-article, .infinite-scroll').remove();
+    // 2. Strip noise elements, tickers, related stories, and logo tags from DOM
+    $('nav, header, footer, script, style, .ads, .sidebar, .comments, aside, #sidebar, .related, .trending, .popular, .latest-news, .logo, .site-logo, .brand, .header-logo, .menu, .navigation, .social-share, .footer-tags, .tags, .widget, .promo, .about-us, .author-bio, [role="complementary"], .breadcrumb, .taboola, .outbrain, .google_ads_wrap_in_image, .next-article, .infinite-scroll, .related-stories, .side-bar, .more-news, .also-read, .trending-news, .other-news, .story-related, .news-ticker, .ticker, .scroll-news, .news-strip, .breaking-strip').remove();
+    $('img[src*="logo" i], img[class*="logo" i], img[id*="logo" i], img[alt*="logo" i], img[alt*="ETV" i], img[alt*="Sakshi" i], img[alt*="Eenadu" i], img[src*="etvbharat" i], img[src*="etv-bharat" i]').remove();
 
     // 3. Extract DOM Article Body
     let domBody = '';

@@ -15,23 +15,47 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateImageWithRetry = exports.createAndSaveThumbnail = exports.processAndOptimizeNewsImage = exports.scanImageSafetyWithGeminiAI = exports.calculateSmartCrop16x9 = exports.detectFacesWithGeminiAI = exports.saveImageLocally = exports.saveBufferToStorage = exports.sanitizeTeluguText = exports.parseAIJson = exports.getISTDateString = exports.getAIInstance = exports.runWithAIFallback = exports.getTopicName = exports.slugify = exports.IMAGEN_FAST_MODEL = exports.IMAGEN_MODEL = exports.FLASH_MODEL = exports.PRO_MODEL = exports.SCHEDULED_MODEL = exports.REGION = void 0;
+exports.getAIInstance = exports.IMAGEN_FAST_MODEL = exports.IMAGEN_MODEL = exports.FLASH_MODEL = exports.PRO_MODEL = exports.SCHEDULED_MODEL = exports.REGION = void 0;
+exports.slugify = slugify;
+exports.getTopicName = getTopicName;
+exports.runWithAIFallback = runWithAIFallback;
+exports.getISTDateString = getISTDateString;
+exports.parseAIJson = parseAIJson;
+exports.sanitizeTeluguText = sanitizeTeluguText;
+exports.saveBufferToStorage = saveBufferToStorage;
+exports.saveImageLocally = saveImageLocally;
+exports.detectFacesWithGeminiAI = detectFacesWithGeminiAI;
+exports.calculateSmartCrop16x9 = calculateSmartCrop16x9;
+exports.scanImageSafetyWithGeminiAI = scanImageSafetyWithGeminiAI;
+exports.processAndOptimizeNewsImage = processAndOptimizeNewsImage;
+exports.createAndSaveThumbnail = createAndSaveThumbnail;
+exports.generateImageWithRetry = generateImageWithRetry;
 const admin = __importStar(require("firebase-admin"));
 const genai_1 = require("@google/genai");
 const buffer_1 = require("buffer");
 const sharp = require('sharp');
 exports.REGION = "asia-south1";
-exports.SCHEDULED_MODEL = "gemini-3.5-flash-lite";
-exports.PRO_MODEL = "gemini-3.5-flash-lite";
-exports.FLASH_MODEL = "gemini-3.5-flash-lite";
+exports.SCHEDULED_MODEL = "gemini-3.7-flash";
+exports.PRO_MODEL = "gemini-3.7-flash";
+exports.FLASH_MODEL = "gemini-3.7-flash";
 exports.IMAGEN_MODEL = "gemini-3.1-flash-image"; // GA as of 2026
 exports.IMAGEN_FAST_MODEL = "gemini-3.1-flash-image"; // imagen-4.0 deprecated Aug 17, 2026
 /**
@@ -54,15 +78,14 @@ function slugify(text) {
         return code.toString(16).padStart(4, '0');
     }).join('').substring(0, 80); // FCM Limit is 900, but let's keep it sane
 }
-exports.slugify = slugify;
 function getTopicName(prefix, value) {
     return `${prefix}_${slugify(value)}`;
 }
-exports.getTopicName = getTopicName;
 const TEXT_MODELS = [
-    "gemini-3.5-flash-lite", // 1. Primary: 1,500 RPD, 30 RPM, super fast & clean Telugu
-    "gemini-3.5-flash", // 2. Secondary Fallback
-    "gemini-3.6-flash" // 3. Tertiary Fallback
+    "gemini-3.7-flash", // 1. Primary: Latest flagship model (5 RPM dedicated quota)
+    "gemini-3.6-flash", // 2. Secondary: Powerful Flash model (5 RPM dedicated quota)
+    "gemini-3.5-flash-lite", // 3. Tertiary: High-speed, high-quota safety net (15-30 RPM)
+    "gemini-3.1-flash-lite" // 4. Stable backup fallback
 ];
 /**
  * Priority list of API keys: Free 1 -> Free 2 -> Paid -> Legacy fallback
@@ -74,7 +97,9 @@ function getApiKeys() {
         process.env.PAID_GEMINI_API_KEY,
         process.env.GEMINI_API_KEY,
         process.env.API_KEY
-    ].filter(key => !!key && key.trim().length > 0);
+    ]
+        .map(key => key ? key.replace(/^["']|["']$/g, '').trim() : '')
+        .filter(key => key.length > 0);
 }
 /**
  * Safety flag to prevent unexpected billing.
@@ -132,12 +157,13 @@ async function runWithAIFallback(operation, customModels) {
     const apiKeys = getApiKeys();
     const keysToTry = apiKeys.length > 0 ? apiKeys : [process.env.GEMINI_API_KEY || process.env.API_KEY || ""];
     const modelsToTry = customModels || TEXT_MODELS;
-    const MAX_TOTAL_ATTEMPTS = 4;
+    const MAX_TOTAL_ATTEMPTS = 8;
     let totalAttempts = 0;
     let lastError = null;
     for (let k = 0; k < keysToTry.length; k++) {
         const currentKey = keysToTry[k];
-        const isPaidKey = currentKey === process.env.PAID_GEMINI_API_KEY;
+        const paidKeyClean = (process.env.PAID_GEMINI_API_KEY || '').replace(/^["']|["']$/g, '').trim();
+        const isPaidKey = !!paidKeyClean && currentKey === paidKeyClean;
         if (isPaidKey && !isPaidFallbackEnabled()) {
             console.warn(`[AI-SKIP] Paid key detected but PAID_FALLBACK_ENABLED is false. Skipping.`);
             continue;
@@ -168,19 +194,14 @@ async function runWithAIFallback(operation, customModels) {
                     console.warn(`[KEY-INVALID] Key ${keyLabel} unauthorized (403). Moving to next key.`);
                     break;
                 }
-                // If 429 (rate/quota limit) and another key is available, immediately switch to the other key
-                if (status === 429 && k < keysToTry.length - 1) {
-                    const nextKeyLabel = k === 0 ? "FREE_2" : (k === 1 ? "PAID" : `KEY_${k + 1}`);
-                    console.warn(`[KEY-429-SWITCH] Key ${keyLabel} hit 429. Switching to ${nextKeyLabel}...`);
-                    break; // break model loop to switch key
-                }
-                // If on last available key or no other keys, continue trying next model
+                // If 429 (rate/quota limit)
                 if (status === 429) {
-                    console.warn(`[MODEL-429-FALLBACK] Model ${currentModelName} hit rate limit. Trying next model...`);
+                    console.warn(`[MODEL-429] Model ${currentModelName} (${keyLabel}) hit rate/quota limit. Waiting briefly...`);
+                    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 500));
                 }
                 // If 503/504 transient server overload, wait briefly
                 if (status === 503 || status === 504) {
-                    await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 300));
+                    await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 400));
                 }
             }
         }
@@ -190,7 +211,6 @@ async function runWithAIFallback(operation, customModels) {
     }
     throw lastError || new Error(`AI processing failed after ${totalAttempts} attempts across available keys and models.`);
 }
-exports.runWithAIFallback = runWithAIFallback;
 const getAIInstance = () => {
     const keys = getApiKeys();
     return getAIInstanceInternal(keys[0] || process.env.GEMINI_API_KEY || process.env.API_KEY || "");
@@ -202,7 +222,6 @@ function getISTDateString() {
     const istDate = new Date(istString);
     return `${istDate.getFullYear()}-${String(istDate.getMonth() + 1).padStart(2, '0')}-${String(istDate.getDate()).padStart(2, '0')}`;
 }
-exports.getISTDateString = getISTDateString;
 function parseAIJson(text) {
     let cleanText = text.trim();
     // 1. Handle Markdown Code Blocks
@@ -227,10 +246,10 @@ function parseAIJson(text) {
         throw new Error(`Invalid AI JSON response: ${e.message}`);
     }
 }
-exports.parseAIJson = parseAIJson;
 /**
  * Sanitizes Telugu text by converting any bled Kannada Unicode characters (0x0C80-0x0CFF)
- * back to Telugu, removing orphaned matras, broken placeholder glyphs, and zero-width spaces.
+ * and Devanagari/Hindi Unicode characters (0x0900-0x097F) to Telugu, removing orphaned matras,
+ * broken placeholder glyphs, and zero-width spaces, ensuring 100% pure Telugu script purity.
  */
 function sanitizeTeluguText(text) {
     if (!text)
@@ -238,18 +257,24 @@ function sanitizeTeluguText(text) {
     return text
         // 1. Map any bled Kannada Unicode characters (0x0C80-0x0CFF) to Telugu Unicode (0x0C00-0x0C7F)
         .replace(/[\u0C80-\u0CFF]/g, (char) => {
-        const teluguCode = char.charCodeAt(0) - 0x0080;
-        return String.fromCharCode(teluguCode);
+        const code = char.charCodeAt(0) - 0x0080;
+        return (code >= 0x0C00 && code <= 0x0C7F) ? String.fromCharCode(code) : '';
     })
-        // 2. Remove dotted circle characters used as fallback for broken combining marks
+        // 2. Map any bled Devanagari / Hindi Unicode characters (0x0900-0x097F) to Telugu Unicode (0x0C00-0x0C7F)
+        .replace(/[\u0900-\u097F]/g, (char) => {
+        const code = char.charCodeAt(0) + 0x0300;
+        return (code >= 0x0C00 && code <= 0x0C7F) ? String.fromCharCode(code) : '';
+    })
+        // 3. Strip any residual unmapped Kannada or Hindi characters to guarantee 0% Kannada/Hindi
+        .replace(/[\u0900-\u097F\u0C80-\u0CFF]/g, '')
+        // 4. Remove dotted circle characters used as fallback for broken combining marks
         .replace(/\u25CC/g, '')
-        // 3. Remove invisible zero-width spaces that break Telugu word joining
+        // 5. Remove invisible zero-width spaces that break Telugu word joining
         .replace(/[\u200B-\u200D\uFEFF]/g, '')
-        // 4. Fix spaces before Telugu combining vowel marks / virama
+        // 6. Fix spaces before Telugu combining vowel marks / virama
         .replace(/\s+([\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63])/g, '$1')
         .trim();
 }
-exports.sanitizeTeluguText = sanitizeTeluguText;
 async function saveBufferToStorage(buffer, prefix) {
     try {
         const webpBuffer = await sharp(buffer).webp({ quality: 80 }).toBuffer();
@@ -268,7 +293,6 @@ async function saveBufferToStorage(buffer, prefix) {
         return null;
     }
 }
-exports.saveBufferToStorage = saveBufferToStorage;
 async function saveImageLocally(externalUrl, prefix) {
     try {
         const response = await fetch(externalUrl);
@@ -282,7 +306,6 @@ async function saveImageLocally(externalUrl, prefix) {
         return null;
     }
 }
-exports.saveImageLocally = saveImageLocally;
 /**
  * Calculates smart 16:9 crop coordinates preserving faces, heads, and salient human subjects.
  * Uses facial skin chrominance (YCbCr) and edge density to dynamically locate people in vertical/portrait photos.
@@ -360,7 +383,6 @@ async function detectFacesWithGeminiAI(imageBuffer) {
         return null;
     }
 }
-exports.detectFacesWithGeminiAI = detectFacesWithGeminiAI;
 /**
  * Calculates a clean 16:9 crop box using Gemini AI Vision face detection.
  * Ensures heads and faces are 100% visible in the upper frame without being cut.
@@ -415,7 +437,6 @@ async function calculateSmartCrop16x9(buffer, width, height) {
     const cropLeft = Math.max(0, Math.min(width - cropWidth, Math.round((width - cropWidth) / 2)));
     return { left: cropLeft, top: 0, width: cropWidth, height: cropHeight };
 }
-exports.calculateSmartCrop16x9 = calculateSmartCrop16x9;
 /**
  * 🛡️ AI Obscenity & Safety Scanner (Gemini Multimodal Vision)
  * Scans submitted images for adult content, nudity, obscenity, illegal hate materials, or severe gore.
@@ -505,7 +526,6 @@ EVALUATION RULES:
         return { isSafe: true, isAdultOrNude: false, isHateOrIllegal: false, isExtremelyGruesome: false, rejectionReason: null, safetyDetails: "Error bypassed" };
     }
 }
-exports.scanImageSafetyWithGeminiAI = scanImageSafetyWithGeminiAI;
 /**
  * Intelligently processes a news image:
  * 1. Scans for Adult/Nudity/Obscenity with Gemini Vision (rejection shield).
@@ -612,12 +632,10 @@ async function processAndOptimizeNewsImage(imageUrl, postId, isGraphicOrBloody =
         return null;
     }
 }
-exports.processAndOptimizeNewsImage = processAndOptimizeNewsImage;
 async function createAndSaveThumbnail(imageUrl, postId) {
     const result = await processAndOptimizeNewsImage(imageUrl, postId, false);
     return result?.isSafe ? (result.thumbnailUrl || null) : null;
 }
-exports.createAndSaveThumbnail = createAndSaveThumbnail;
 async function generateImageWithRetry(aiUnused, // Keeping signature for compatibility
 prompt, aspectRatio = '9:16', retriesUnused = 3) {
     // NOTE: imagen-4.0-generate-001 is DEPRECATED (shutdown Aug 17, 2026)
@@ -664,5 +682,4 @@ prompt, aspectRatio = '9:16', retriesUnused = 3) {
         return null;
     }
 }
-exports.generateImageWithRetry = generateImageWithRetry;
 //# sourceMappingURL=utils.js.map

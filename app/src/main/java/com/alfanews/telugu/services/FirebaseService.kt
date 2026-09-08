@@ -19,13 +19,19 @@ object FirebaseService {
     val db: FirebaseFirestore by lazy { 
         val instance = FirebaseFirestore.getInstance()
         
-        // యూజర్ కోరిక మేరకు ఆఫ్‌లైన్ పర్సిస్టెన్స్‌ను నిలిపివేస్తున్నాము.
-        // దీనివల్ల వార్తల డేటా ఫోన్ మెమరీని GBలలో ఆక్రమించదు.
-        // కేవలం అవసరమైనప్పుడు మాత్రమే క్లౌడ్ నుండి డేటా వస్తుంది.
-        // ⚠️ గమనిక: ఆఫ్‌లైన్ పర్సిస్టెన్స్ నిలిపివేయబడినందున, ఆఫ్‌లైన్‌లో ఉన్నప్పుడు Firestore రీడ్స్ ఫెయిల్ అవుతాయి.
-        // కావున ViewModels అన్నింటిలోనూ Firestore కనెక్షన్ ఫెయిల్యూర్లను (Exceptions) తప్పకుండా హ్యాండిల్ చేయాలి.
+        // 🔒 ఖర్చు మరియు మెమరీ రక్షణ:
+        // పూర్తి అపరిమిత కాషింగ్ వల్ల ఫోన్ మెమరీ పెరిగిపోకుండా,
+        // గరిష్టంగా 30MB కఠిన పరిమితితో కూడిన PersistentCache ని సెట్ చేస్తున్నాము.
+        // దీనివల్ల:
+        // 1. రీసెంట్ టెక్స్ట్ వార్తలు కాష్ లో ఉండి నెట్‌వర్క్ డ్రాప్ అయినా కనిపిస్తాయి.
+        // 2. ఒకే డేటాను మళ్ళీ మళ్ళీ క్లౌడ్ నుండి లాగకుండా ఫైర్‌స్టోర్ రీడ్స్ & ఎగ్రెస్ ఆదా అవుతాయి.
+        // 3. 30MB దాటగానే పాత డేటాను ఆటోమేటిక్‌గా డిలీట్ (LRU Eviction) చేసి ఫోన్ మెమరీని రక్షిస్తుంది.
+        val cacheSettings = com.google.firebase.firestore.PersistentCacheSettings.newBuilder()
+            .setSizeBytes(30L * 1024L * 1024L) // 30 MB strict cache limit
+            .build()
+
         val settings = com.google.firebase.firestore.FirebaseFirestoreSettings.Builder()
-            .setPersistenceEnabled(false) // పర్సిస్టెన్స్ నిలిపివేయబడింది
+            .setLocalCacheSettings(cacheSettings)
             .build()
 
         try {

@@ -46,7 +46,10 @@ fun UserManagementPageView(currentUser: User) {
         return userList.filter { u ->
             u.name.lowercase().contains(lowercasedFilter) ||
             (u.email?.lowercase()?.contains(lowercasedFilter) == true) ||
-            (u.phone?.lowercase()?.contains(lowercasedFilter) == true)
+            (u.phone?.lowercase()?.contains(lowercasedFilter) == true) ||
+            (u.district?.lowercase()?.contains(lowercasedFilter) == true) ||
+            (u.assignedMandal?.lowercase()?.contains(lowercasedFilter) == true) ||
+            (u.role.name.lowercase().contains(lowercasedFilter))
         }
     }
 
@@ -107,10 +110,10 @@ fun UserManagementPageView(currentUser: User) {
                     }
                     else -> {
                         FirebaseService.db.collection("users")
-                            .orderBy("name", Query.Direction.ASCENDING)
                             .get()
                             .await()
                             .documents.mapNotNull { doc -> doc.toUserObject() }
+                            .sortedBy { it.name.lowercase() }
                     }
                 }
 

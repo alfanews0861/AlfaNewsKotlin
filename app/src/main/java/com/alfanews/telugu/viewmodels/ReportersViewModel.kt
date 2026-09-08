@@ -48,7 +48,7 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
             _loading.value = true
             try {
                 var query = FirebaseService.db.collection("users")
-                    .whereIn("role", listOf("REPORTER", 2, 2.0))
+                    .whereIn("role", listOf("REPORTER", "reporter", "STAFF_REPORTER", "staff_reporter", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0))
                 
                 if (district != null && district.isNotEmpty()) {
                     query = query.whereEqualTo("district", district)

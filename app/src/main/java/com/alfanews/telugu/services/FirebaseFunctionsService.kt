@@ -91,6 +91,10 @@ object FirebaseFunctionsService {
     suspend fun backfillReporterPoints(): Result<Map<String, Any>> {
         return callFunction("backfillReporterPoints")
     }
+
+    suspend fun restoreAllDowngradedReporters(): Result<Map<String, Any>> {
+        return callFunction("restoreAllDowngradedReporters")
+    }
     
     
     suspend fun sendContactEmail(name: String, phone: String, message: String): Result<Map<String, Any>> {

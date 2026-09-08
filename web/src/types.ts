@@ -28,12 +28,15 @@ export interface User {
   state?: string;
   district?: string;
   assignedMandal?: string;
+  mandal?: string;
   assignedDistricts?: string[];
   pushEnabled?: boolean;
   fcmTokens?: string[];
   lastTokenUpdate?: number;
   preferredCategories?: string[];
   interests?: UserInterest;
+  points?: number;
+  badges?: string[];
   createdAt?: number;
   lastLogin?: number;
   totalNewsCount?: number;

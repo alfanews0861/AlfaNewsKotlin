@@ -50,6 +50,8 @@ class PreferenceManager(context: Context) {
         private const val KEY_INSTALL_ID = "key_app_install_id"
         private const val KEY_CATEGORY_READ_COUNTS = "key_category_read_counts"  // JSON map of category→count
         private const val KEY_SUBSCRIBED_CATEGORIES = "key_subscribed_cat_topics" // Set of subscribed category topics
+        private const val KEY_SUBSCRIBED_DISTRICT_TOPIC = "key_subscribed_district_topic" // User's single subscribed district topic
+        private const val KEY_HAS_CLEANED_STALE_DISTRICTS = "key_has_cleaned_stale_districts_v1" // One-time purge flag
         private const val KEY_WEATHER_GRID_TOPIC = "key_weather_grid_topic"        // Current weather grid FCM topic
         private const val KEY_STREAK_LAST_READ_DATE = "key_streak_last_read_date"
         private const val KEY_STREAK_CURRENT_DAYS = "key_streak_current_days"
@@ -152,10 +154,10 @@ class PreferenceManager(context: Context) {
         }
 
     /** 
-     * యూజర్ ఎంచుకున్న స్టోరేజ్ లిమిట్ (MB లలో). డిఫాల్ట్ గా 500 MB.
+     * యూజర్ ఎంచుకున్న స్టోరేజ్ లిమిట్ (MB లలో). డిఫాల్ట్ గా 50 MB (ఫోన్ స్టోరేజ్ & ఎగ్రెస్ కంట్రోల్).
      */
     var storageLimitMB: Int
-        get() = prefs.getInt(KEY_STORAGE_LIMIT_MB, 500)
+        get() = prefs.getInt(KEY_STORAGE_LIMIT_MB, 50)
         set(value) {
             prefs.edit().putInt(KEY_STORAGE_LIMIT_MB, value).apply()
         }
@@ -397,6 +399,19 @@ class PreferenceManager(context: Context) {
     var weatherGridTopic: String?
         get() = prefs.getString(KEY_WEATHER_GRID_TOPIC, null)
         set(value) = prefs.edit().putString(KEY_WEATHER_GRID_TOPIC, value).apply()
+
+    /**
+     * User ప్రస్తుతం సబ్‌స్క్రయిబ్ అయి ఉన్న ఏకైక జిల్లా FCM topic.
+     * బహుళ జిల్లాల నోటిఫికేషన్లు రాకుండా రక్షణ కోసం దీనిని ట్రాక్ చేస్తాము.
+     */
+    var subscribedDistrictTopic: String?
+        get() = prefs.getString(KEY_SUBSCRIBED_DISTRICT_TOPIC, null)
+        set(value) = prefs.edit().putString(KEY_SUBSCRIBED_DISTRICT_TOPIC, value).apply()
+
+    /** పాత వెర్షన్ల నుండి పేరుకుపోయిన జోంబీ జిల్లా టాపిక్స్ క్లీనప్ జరిగిందో లేదో ట్రాక్ చేస్తుంది. */
+    var hasCleanedStaleDistricts: Boolean
+        get() = prefs.getBoolean(KEY_HAS_CLEANED_STALE_DISTRICTS, false)
+        set(value) = prefs.edit().putBoolean(KEY_HAS_CLEANED_STALE_DISTRICTS, value).apply()
 
     private fun saveCategoryReadCounts(counts: Map<String, Int>) {
         val obj = org.json.JSONObject()

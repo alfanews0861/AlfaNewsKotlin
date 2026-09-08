@@ -2,11 +2,10 @@ import * as admin from "firebase-admin";
 import { GoogleGenAI, Type } from "@google/genai";
 import { Buffer } from 'buffer';
 const sharp = require('sharp');
-
 export const REGION = "asia-south1";
-export const SCHEDULED_MODEL = "gemini-3.5-flash-lite";
-export const PRO_MODEL = "gemini-3.5-flash-lite";
-export const FLASH_MODEL = "gemini-3.5-flash-lite";
+export const SCHEDULED_MODEL = "gemini-3.7-flash";
+export const PRO_MODEL = "gemini-3.7-flash";
+export const FLASH_MODEL = "gemini-3.7-flash";
 export const IMAGEN_MODEL = "gemini-3.1-flash-image";         // GA as of 2026
 export const IMAGEN_FAST_MODEL = "gemini-3.1-flash-image";    // imagen-4.0 deprecated Aug 17, 2026
 
@@ -36,9 +35,10 @@ export function getTopicName(prefix: string, value: string): string {
 }
 
 const TEXT_MODELS = [
-    "gemini-3.5-flash-lite",  // 1. Primary: 1,500 RPD, 30 RPM, super fast & clean Telugu
-    "gemini-3.5-flash",       // 2. Secondary Fallback
-    "gemini-3.6-flash"        // 3. Tertiary Fallback
+    "gemini-3.7-flash",       // 1. Primary: Latest flagship model (5 RPM dedicated quota)
+    "gemini-3.6-flash",       // 2. Secondary: Powerful Flash model (5 RPM dedicated quota)
+    "gemini-3.5-flash-lite",  // 3. Tertiary: High-speed, high-quota safety net (15-30 RPM)
+    "gemini-3.1-flash-lite"   // 4. Stable backup fallback
 ];
 
 /**
@@ -51,7 +51,9 @@ function getApiKeys(): string[] {
         process.env.PAID_GEMINI_API_KEY,
         process.env.GEMINI_API_KEY,
         process.env.API_KEY
-    ].filter(key => !!key && key.trim().length > 0) as string[];
+    ]
+        .map(key => key ? key.replace(/^["']|["']$/g, '').trim() : '')
+        .filter(key => key.length > 0);
 }
 
 /**
@@ -111,13 +113,14 @@ export async function runWithAIFallback<T>(
     const keysToTry = apiKeys.length > 0 ? apiKeys : [process.env.GEMINI_API_KEY || process.env.API_KEY || ""];
     const modelsToTry = customModels || TEXT_MODELS;
 
-    const MAX_TOTAL_ATTEMPTS = 4;
+    const MAX_TOTAL_ATTEMPTS = 8;
     let totalAttempts = 0;
     let lastError: any = null;
 
     for (let k = 0; k < keysToTry.length; k++) {
         const currentKey = keysToTry[k];
-        const isPaidKey = currentKey === process.env.PAID_GEMINI_API_KEY;
+        const paidKeyClean = (process.env.PAID_GEMINI_API_KEY || '').replace(/^["']|["']$/g, '').trim();
+        const isPaidKey = !!paidKeyClean && currentKey === paidKeyClean;
 
         if (isPaidKey && !isPaidFallbackEnabled()) {
             console.warn(`[AI-SKIP] Paid key detected but PAID_FALLBACK_ENABLED is false. Skipping.`);
@@ -155,21 +158,15 @@ export async function runWithAIFallback<T>(
                     break;
                 }
 
-                // If 429 (rate/quota limit) and another key is available, immediately switch to the other key
-                if (status === 429 && k < keysToTry.length - 1) {
-                    const nextKeyLabel = k === 0 ? "FREE_2" : (k === 1 ? "PAID" : `KEY_${k+1}`);
-                    console.warn(`[KEY-429-SWITCH] Key ${keyLabel} hit 429. Switching to ${nextKeyLabel}...`);
-                    break; // break model loop to switch key
-                }
-
-                // If on last available key or no other keys, continue trying next model
+                // If 429 (rate/quota limit)
                 if (status === 429) {
-                    console.warn(`[MODEL-429-FALLBACK] Model ${currentModelName} hit rate limit. Trying next model...`);
+                    console.warn(`[MODEL-429] Model ${currentModelName} (${keyLabel}) hit rate/quota limit. Waiting briefly...`);
+                    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 500));
                 }
 
                 // If 503/504 transient server overload, wait briefly
                 if (status === 503 || status === 504) {
-                    await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 300));
+                    await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 400));
                 }
             }
         }
@@ -225,24 +222,33 @@ export function parseAIJson(text: string) {
 
 /**
  * Sanitizes Telugu text by converting any bled Kannada Unicode characters (0x0C80-0x0CFF)
- * back to Telugu, removing orphaned matras, broken placeholder glyphs, and zero-width spaces.
+ * and Devanagari/Hindi Unicode characters (0x0900-0x097F) to Telugu, removing orphaned matras,
+ * broken placeholder glyphs, and zero-width spaces, ensuring 100% pure Telugu script purity.
  */
 export function sanitizeTeluguText(text: string): string {
     if (!text) return "";
     return text
         // 1. Map any bled Kannada Unicode characters (0x0C80-0x0CFF) to Telugu Unicode (0x0C00-0x0C7F)
         .replace(/[\u0C80-\u0CFF]/g, (char) => {
-            const teluguCode = char.charCodeAt(0) - 0x0080;
-            return String.fromCharCode(teluguCode);
+            const code = char.charCodeAt(0) - 0x0080;
+            return (code >= 0x0C00 && code <= 0x0C7F) ? String.fromCharCode(code) : '';
         })
-        // 2. Remove dotted circle characters used as fallback for broken combining marks
+        // 2. Map any bled Devanagari / Hindi Unicode characters (0x0900-0x097F) to Telugu Unicode (0x0C00-0x0C7F)
+        .replace(/[\u0900-\u097F]/g, (char) => {
+            const code = char.charCodeAt(0) + 0x0300;
+            return (code >= 0x0C00 && code <= 0x0C7F) ? String.fromCharCode(code) : '';
+        })
+        // 3. Strip any residual unmapped Kannada or Hindi characters to guarantee 0% Kannada/Hindi
+        .replace(/[\u0900-\u097F\u0C80-\u0CFF]/g, '')
+        // 4. Remove dotted circle characters used as fallback for broken combining marks
         .replace(/\u25CC/g, '')
-        // 3. Remove invisible zero-width spaces that break Telugu word joining
+        // 5. Remove invisible zero-width spaces that break Telugu word joining
         .replace(/[\u200B-\u200D\uFEFF]/g, '')
-        // 4. Fix spaces before Telugu combining vowel marks / virama
+        // 6. Fix spaces before Telugu combining vowel marks / virama
         .replace(/\s+([\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63])/g, '$1')
         .trim();
 }
+
 
 export async function saveBufferToStorage(buffer: Buffer, prefix: string): Promise<string | null> {
     try {

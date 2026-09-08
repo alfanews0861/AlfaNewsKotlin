@@ -40,14 +40,14 @@ export function parseToDate(val: any): Date | null {
  * missed, pending news, or reassigned news).
  * Does NOT restrict with an arbitrary 3-day cutoff.
  */
-export async function getActualLatestNewsDate(reporterId: string): Promise<Date | null> {
+export async function getActualLatestNewsDate(reporterId: string, reporterName?: string): Promise<Date | null> {
     if (!reporterId) return null;
     let latestDate: Date | null = null;
 
     const checkDocs = (docs: admin.firestore.QueryDocumentSnapshot[]) => {
         for (const doc of docs) {
             const data = doc.data();
-            const date = parseToDate(data.timestamp || data.createdAt || data.lastUpdated);
+            const date = parseToDate(data.timestamp || data.createdAt || data.lastUpdated || data.publishedAt);
             if (date) {
                 if (!latestDate || date.getTime() > latestDate.getTime()) {
                     latestDate = date;
@@ -65,33 +65,28 @@ export async function getActualLatestNewsDate(reporterId: string): Promise<Date 
             .get();
         if (!primarySnap.empty) {
             checkDocs(primarySnap.docs);
-            if (latestDate) return latestDate; // 🚀 Early exit! Found latest post in 1 read.
+            if (latestDate) return latestDate;
         }
     } catch {
         // Fallback without composite index if orderBy failed
+    }
+
+    // Check all possible reporter identifier fields thoroughly
+    const queryFields = ['reporter.id', 'originalReporterId', 'reporterId', 'userId'];
+    for (const field of queryFields) {
         try {
-            const fallbackSnap = await db.collection('news').where('reporter.id', '==', reporterId).limit(5).get();
-            if (!fallbackSnap.empty) {
-                checkDocs(fallbackSnap.docs);
-                if (latestDate) return latestDate;
+            const snap = await db.collection('news').where(field, '==', reporterId).get();
+            if (!snap.empty) {
+                checkDocs(snap.docs);
             }
         } catch {}
     }
 
-    // Only try legacy alternate field names if primary query returned nothing
-    const alternateQueries = [
-        () => db.collection('news').where('originalReporterId', '==', reporterId).limit(1).get(),
-        () => db.collection('news').where('reporterId', '==', reporterId).limit(1).get(),
-        () => db.collection('news').where('userId', '==', reporterId).limit(1).get(),
-        () => db.collection('news').where('reporter', '==', reporterId).limit(1).get(),
-    ];
-
-    for (const attempt of alternateQueries) {
+    if (reporterName) {
         try {
-            const snap = await attempt();
-            if (!snap.empty) {
-                checkDocs(snap.docs);
-                if (latestDate) break; // 🚀 Early exit once found
+            const nameSnap = await db.collection('news').where('reporter.name', '==', reporterName).get();
+            if (!nameSnap.empty) {
+                checkDocs(nameSnap.docs);
             }
         } catch {}
     }
@@ -224,7 +219,7 @@ export async function handleReporterStatus(
     if (existingLastPost && (now.getTime() - existingLastPost.getTime()) < 48 * 60 * 60 * 1000) {
         actualNewsDate = existingLastPost;
     } else {
-        actualNewsDate = await getActualLatestNewsDate(reporterId);
+        actualNewsDate = await getActualLatestNewsDate(reporterId, reporter.name);
         if (actualNewsDate) {
             const userLastPost = parseToDate(reporter.lastPostTimestamp);
             if (!userLastPost || actualNewsDate.getTime() > userLastPost.getTime()) {
@@ -309,12 +304,37 @@ export async function handleReporterStatus(
     }
 
     const reporterName = reporter.name || reporter.phone || reporterId;
-    const points = Number(reporter.points || 0);
-    const isProtectedSenior = points >= 50 || reporter.isProtectedSenior === true || reporter.exemptFromInactivity === true;
+    let points = Number(reporter.points || 0);
+
+    // Dynamic lifetime news count check to guarantee protection for reporters with post history
+    let totalNewsPosts = 0;
+    try {
+        const [snapId, snapName, snapOrig] = await Promise.all([
+            db.collection('news').where('reporter.id', '==', reporterId).get().catch(() => null),
+            reporterName ? db.collection('news').where('reporter.name', '==', reporterName).get().catch(() => null) : null,
+            db.collection('news').where('originalReporterId', '==', reporterId).get().catch(() => null)
+        ]);
+        const postSet = new Set<string>();
+        if (snapId) snapId.docs.forEach(d => postSet.add(d.id));
+        if (snapName) snapName.docs.forEach(d => postSet.add(d.id));
+        if (snapOrig) snapOrig.docs.forEach(d => postSet.add(d.id));
+        totalNewsPosts = postSet.size;
+    } catch {}
+
+    if (totalNewsPosts > 0 && points === 0) {
+        points = totalNewsPosts * 10;
+        await db.collection('users').doc(reporterId).set({ points }, { merge: true });
+    }
+
+    const isProtectedSenior = points >= 50 || totalNewsPosts >= 5 || reporter.isProtectedSenior === true || reporter.exemptFromInactivity === true;
 
     if (shouldDowngrade && isProtectedSenior) {
-        console.log(`[REPORTER_MONITOR] 🛡️ Senior reporter protection active for ${reporterName} (${points} points). Skipping auto-demotion.`);
+        console.log(`[REPORTER_MONITOR] 🛡️ Senior reporter protection active for ${reporterName} (${points} points, ${totalNewsPosts} posts). Skipping auto-demotion.`);
         shouldDowngrade = false;
+        await db.collection('users').doc(reporterId).set({
+            isProtectedSenior: true,
+            warningLevel: 0
+        }, { merge: true });
         await sendInternalMessage(reporterId, "మీ వార్తల కోసం Alfa News వేచి చూస్తోంది! 📰", "నమస్కారం! మీరు చాలా కాలంగా వార్తలు పంపలేదు. మీ ప్రాంత తాజా విశేషాలను త్వరలోనే పంపగలరని ఆశిస్తున్నాము.", "NORMAL", reporter, "REMINDER");
         return false;
     }

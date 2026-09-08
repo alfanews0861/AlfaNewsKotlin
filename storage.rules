@@ -30,43 +30,54 @@ service firebase.storage {
 
     // User Profiles, Photos, Signatures, ID Cards (Max 5MB images)
     match /user-profiles/{allPaths=**} {
-      allow write: if isValidImage(5);
+      allow create, update: if isValidImage(5);
+      allow delete: if request.auth != null;
     }
     match /profile_photos/{allPaths=**} {
-      allow write: if isValidImage(5);
+      allow create, update: if isValidImage(5);
+      allow delete: if request.auth != null;
     }
     match /profile_images/{allPaths=**} {
-      allow write: if isValidImage(5);
+      allow create, update: if isValidImage(5);
+      allow delete: if request.auth != null;
     }
     match /signatures/{allPaths=**} {
-      allow write: if isValidImage(5);
+      allow create, update: if isValidImage(5);
+      allow delete: if request.auth != null;
     }
     match /id-cards/{allPaths=**} {
-      allow write: if isValidImage(5);
+      allow create, update: if isValidImage(5);
+      allow delete: if request.auth != null;
     }
 
     // News & Citizen Media (Max 100MB for news images/videos/audio)
     match /news-media/{allPaths=**} {
-      allow write: if isValidMedia(100);
+      allow create, update: if isValidMedia(100);
+      allow delete: if request.auth != null;
     }
     match /citizen-media/{allPaths=**} {
-      allow write: if isValidMedia(100);
+      allow create, update: if isValidMedia(100);
+      allow delete: if request.auth != null;
     }
     
     // Classifieds & Ads Media (Max 50MB)
     match /classifieds-media/{allPaths=**} {
-      allow write: if isValidMedia(50);
+      allow create, update: if isValidMedia(50);
+      allow delete: if request.auth != null;
     }
     match /local-ads/{allPaths=**} {
-      allow write: if isValidMedia(50);
+      allow create, update: if isValidMedia(50);
+      allow delete: if request.auth != null;
     }
     match /ads-media/{allPaths=**} {
-      allow write: if isValidMedia(50);
+      allow create, update: if isValidMedia(50);
+      allow delete: if request.auth != null;
     }
 
     // Default uploads path (Max 100MB media)
     match /uploads/{allPaths=**} {
-      allow write: if isValidMedia(100);
+      allow create, update: if isValidMedia(100);
+      allow delete: if request.auth != null;
     }
   }
 }

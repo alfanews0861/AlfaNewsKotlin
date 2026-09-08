@@ -162,4 +162,18 @@ object AdMobService {
 
     /** banner యాడ్ యూనిట్ ID ని తిరిగి ఇస్తుంది. */
     fun getBannerAdUnitId(): String = BANNER_AD_UNIT_ID
+
+    /**
+     * మెమరీ లీక్‌లను నివారించడానికి ప్రీ-లోడ్ అయిన అన్ని నేటివ్ యాడ్స్‌ను డిస్ట్రాయ్ చేసి క్లియర్ చేస్తుంది.
+     */
+    fun clearAndDestroyNativeAds() {
+        while (!nativeAds.isEmpty()) {
+            val ad = nativeAds.poll()
+            try {
+                ad?.destroy()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error destroying native ad: ${e.message}")
+            }
+        }
+    }
 }

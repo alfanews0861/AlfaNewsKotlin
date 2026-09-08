@@ -116,11 +116,35 @@ fun JoinReporterPageView(
     var phoneY by remember { mutableFloatStateOf(0f) }
     var addressY by remember { mutableFloatStateOf(0f) }
     var districtY by remember { mutableFloatStateOf(0f) }
+    var mandalY by remember { mutableFloatStateOf(0f) }
     var positionY by remember { mutableFloatStateOf(0f) }
     var areaY by remember { mutableFloatStateOf(0f) }
     var educationY by remember { mutableFloatStateOf(0f) }
     var orgY by remember { mutableFloatStateOf(0f) }
     var messageY by remember { mutableFloatStateOf(0f) }
+
+    var hasAttemptedSubmit by remember { mutableStateOf(false) }
+
+    val cleanPhone = remember(phone) {
+        val digits = phone.filter { it.isDigit() }
+        if (digits.length > 10) digits.takeLast(10) else digits
+    }
+    val isPhoneValid = remember(cleanPhone) {
+        cleanPhone.length == 10 && cleanPhone.matches(Regex("^[6-9]\\d{9}$"))
+    }
+    val isFullNameValid = remember(fullName) { fullName.trim().length >= 3 }
+    val isFatherNameValid = remember(fatherName) { fatherName.trim().length >= 3 }
+    val isAddressValid = remember(address) { address.trim().length >= 6 }
+    val isDistrictValid = remember(selectedDistrict) { selectedDistrict.isNotBlank() }
+    val isMandalValid = remember(selectedMandal) { selectedMandal.isNotBlank() }
+    val isCategoryValid = remember(interestedArea) { interestedArea.trim().length >= 2 }
+    val isEducationValid = remember(education) { education.trim().length >= 2 }
+    val isOrgValid = remember(currentOrg) { currentOrg.trim().length >= 2 }
+    val isRulesValid = rulesCheckboxChecked
+
+    val isFormValid = isFullNameValid && isFatherNameValid && isPhoneValid && isAddressValid &&
+            isDistrictValid && isMandalValid && isCategoryValid && isEducationValid &&
+            isOrgValid && isRulesValid
 
     // Coordinates of the scrollable content for relative calculation
     var contentCoordinates by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
@@ -157,7 +181,8 @@ fun JoinReporterPageView(
                         if (fullName.isEmpty()) fullName = userDoc.getString("name") ?: ""
                         if (phone.isEmpty()) {
                             val p = userDoc.getString("phone") ?: currentUser.phoneNumber ?: ""
-                            phone = p.replace("+91", "").trim()
+                            val cleanDigits = p.replace("+91", "").filter { it.isDigit() }
+                            phone = if (cleanDigits.length > 10) cleanDigits.takeLast(10) else cleanDigits
                         }
                         if (address.isEmpty()) address = userDoc.getString("address") ?: ""
                         if (selectedDistrict.isEmpty()) {
@@ -419,7 +444,11 @@ fun JoinReporterPageView(
                         OutlinedTextField(
                             value = fullName,
                             onValueChange = { fullName = it },
-                            label = { Text(stringResource(R.string.full_name), fontFamily = Mallanna) },
+                            label = { Text("${stringResource(R.string.full_name)} *", fontFamily = Mallanna) },
+                            isError = hasAttemptedSubmit && !isFullNameValid,
+                            supportingText = if (hasAttemptedSubmit && !isFullNameValid) {
+                                { Text("కనీసం 3 అక్షరాలతో పూర్తి పేరు నమోదు చేయండి", color = MaterialTheme.colorScheme.error, fontSize = 12.sp, fontFamily = Mallanna) }
+                            } else null,
                             modifier = Modifier.fillMaxWidth().onGloballyPositioned { 
                                 contentCoordinates?.let { parent -> fullNameY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
                             },
@@ -427,14 +456,19 @@ fun JoinReporterPageView(
                             shape = MaterialTheme.shapes.medium,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                errorBorderColor = MaterialTheme.colorScheme.error
                             )
                         )
                         
                         OutlinedTextField(
                             value = fatherName,
                             onValueChange = { fatherName = it },
-                            label = { Text(stringResource(R.string.father_name), fontFamily = Mallanna) },
+                            label = { Text("${stringResource(R.string.father_name)} *", fontFamily = Mallanna) },
+                            isError = hasAttemptedSubmit && !isFatherNameValid,
+                            supportingText = if (hasAttemptedSubmit && !isFatherNameValid) {
+                                { Text("కనీసం 3 అక్షరాలతో తండ్రి పేరు నమోదు చేయండి", color = MaterialTheme.colorScheme.error, fontSize = 12.sp, fontFamily = Mallanna) }
+                            } else null,
                             modifier = Modifier.fillMaxWidth().onGloballyPositioned { 
                                 contentCoordinates?.let { parent -> fatherNameY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
                             },
@@ -442,14 +476,24 @@ fun JoinReporterPageView(
                             shape = MaterialTheme.shapes.medium,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                errorBorderColor = MaterialTheme.colorScheme.error
                             )
                         )
                         
                         OutlinedTextField(
                             value = phone,
-                            onValueChange = { phone = it },
-                            label = { Text(stringResource(R.string.phone_number_label), fontFamily = Mallanna) },
+                            onValueChange = { input ->
+                                val digits = input.filter { it.isDigit() }
+                                if (digits.length <= 10) {
+                                    phone = digits
+                                }
+                            },
+                            label = { Text("${stringResource(R.string.phone_number_label)} (10 అంకెలు) *", fontFamily = Mallanna) },
+                            isError = hasAttemptedSubmit && !isPhoneValid,
+                            supportingText = if (hasAttemptedSubmit && !isPhoneValid) {
+                                { Text("చెల్లుబాటు అయ్యే 10 అంకెల మొబైల్ నంబర్ నమోదు చేయండి (6-9 తో ప్రారంభం కావాలి)", color = MaterialTheme.colorScheme.error, fontSize = 12.sp, fontFamily = Mallanna) }
+                            } else null,
                             modifier = Modifier.fillMaxWidth().onGloballyPositioned { 
                                 contentCoordinates?.let { parent -> phoneY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
                             },
@@ -460,14 +504,19 @@ fun JoinReporterPageView(
                             shape = MaterialTheme.shapes.medium,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                errorBorderColor = MaterialTheme.colorScheme.error
                             )
                         )
 
                         OutlinedTextField(
                             value = address,
                             onValueChange = { address = it },
-                            label = { Text("చిరునామా (Address)", fontFamily = Mallanna) },
+                            label = { Text("చిరునామా (Address) *", fontFamily = Mallanna) },
+                            isError = hasAttemptedSubmit && !isAddressValid,
+                            supportingText = if (hasAttemptedSubmit && !isAddressValid) {
+                                { Text("కనీసం 6 అక్షరాలతో పూర్తి చిరునామా నమోదు చేయండి", color = MaterialTheme.colorScheme.error, fontSize = 12.sp, fontFamily = Mallanna) }
+                            } else null,
                             modifier = Modifier.fillMaxWidth().onGloballyPositioned { 
                                 contentCoordinates?.let { parent -> addressY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
                             },
@@ -475,7 +524,8 @@ fun JoinReporterPageView(
                             shape = MaterialTheme.shapes.medium,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                errorBorderColor = MaterialTheme.colorScheme.error
                             )
                         )
                     }
@@ -502,7 +552,7 @@ fun JoinReporterPageView(
                                 value = selectedStateName,
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text(stringResource(R.string.select_state)) },
+                                label = { Text("${stringResource(R.string.select_state)} *") },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = stateExpanded) },
                                 modifier = Modifier.fillMaxWidth().menuAnchor(),
                                 shape = MaterialTheme.shapes.medium,
@@ -540,13 +590,18 @@ fun JoinReporterPageView(
                                 value = selectedDistrict,
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text(stringResource(R.string.select_district)) },
+                                label = { Text("${stringResource(R.string.select_district)} *") },
+                                isError = hasAttemptedSubmit && !isDistrictValid,
+                                supportingText = if (hasAttemptedSubmit && !isDistrictValid) {
+                                    { Text("దయచేసి జిల్లాను ఎంచుకోండి", color = MaterialTheme.colorScheme.error, fontSize = 12.sp, fontFamily = Mallanna) }
+                                } else null,
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = districtExpanded) },
                                 modifier = Modifier.fillMaxWidth().menuAnchor(),
                                 shape = MaterialTheme.shapes.medium,
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                    errorBorderColor = MaterialTheme.colorScheme.error
                                 )
                             )
                             ExposedDropdownMenu(
@@ -569,19 +624,27 @@ fun JoinReporterPageView(
                         if (selectedDistrict.isNotEmpty()) {
                             ExposedDropdownMenuBox(
                                 expanded = mandalExpanded,
-                                onExpandedChange = { mandalExpanded = !mandalExpanded }
+                                onExpandedChange = { mandalExpanded = !mandalExpanded },
+                                modifier = Modifier.onGloballyPositioned { 
+                                    contentCoordinates?.let { parent -> mandalY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
+                                }
                             ) {
                                 OutlinedTextField(
                                     value = selectedMandal,
                                     onValueChange = {},
                                     readOnly = true,
-                                    label = { Text(stringResource(R.string.select_mandal)) },
+                                    label = { Text("${stringResource(R.string.select_mandal)} *") },
+                                    isError = hasAttemptedSubmit && !isMandalValid,
+                                    supportingText = if (hasAttemptedSubmit && !isMandalValid) {
+                                        { Text("దయచేసి మండలాన్ని ఎంచుకోండి", color = MaterialTheme.colorScheme.error, fontSize = 12.sp, fontFamily = Mallanna) }
+                                    } else null,
                                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = mandalExpanded) },
                                     modifier = Modifier.fillMaxWidth().menuAnchor(),
                                     shape = MaterialTheme.shapes.medium,
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                        errorBorderColor = MaterialTheme.colorScheme.error
                                     )
                                 )
                                 ExposedDropdownMenu(
@@ -635,7 +698,11 @@ fun JoinReporterPageView(
                         OutlinedTextField(
                             value = interestedArea,
                             onValueChange = { interestedArea = it },
-                            label = { Text(stringResource(R.string.interested_category), fontFamily = Mallanna) },
+                            label = { Text("${stringResource(R.string.interested_category)} *", fontFamily = Mallanna) },
+                            isError = hasAttemptedSubmit && !isCategoryValid,
+                            supportingText = if (hasAttemptedSubmit && !isCategoryValid) {
+                                { Text("ఆసక్తి ఉన్న కేటగిరీని నమోదు చేయండి", color = MaterialTheme.colorScheme.error, fontSize = 12.sp, fontFamily = Mallanna) }
+                            } else null,
                             modifier = Modifier.fillMaxWidth().onGloballyPositioned { 
                                 contentCoordinates?.let { parent -> areaY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
                             },
@@ -643,14 +710,19 @@ fun JoinReporterPageView(
                             shape = MaterialTheme.shapes.medium,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                errorBorderColor = MaterialTheme.colorScheme.error
                             )
                         )
                         
                         OutlinedTextField(
                             value = education,
                             onValueChange = { education = it },
-                            label = { Text(stringResource(R.string.education_qualification), fontFamily = Mallanna) },
+                            label = { Text("${stringResource(R.string.education_qualification)} *", fontFamily = Mallanna) },
+                            isError = hasAttemptedSubmit && !isEducationValid,
+                            supportingText = if (hasAttemptedSubmit && !isEducationValid) {
+                                { Text("విద్యార్హతను నమోదు చేయండి", color = MaterialTheme.colorScheme.error, fontSize = 12.sp, fontFamily = Mallanna) }
+                            } else null,
                             modifier = Modifier.fillMaxWidth().onGloballyPositioned { 
                                 contentCoordinates?.let { parent -> educationY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
                             },
@@ -658,14 +730,19 @@ fun JoinReporterPageView(
                             shape = MaterialTheme.shapes.medium,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                errorBorderColor = MaterialTheme.colorScheme.error
                             )
                         )
                         
                         OutlinedTextField(
                             value = currentOrg,
                             onValueChange = { currentOrg = it },
-                            label = { Text(stringResource(R.string.current_organization), fontFamily = Mallanna) },
+                            label = { Text("${stringResource(R.string.current_organization)} *", fontFamily = Mallanna) },
+                            isError = hasAttemptedSubmit && !isOrgValid,
+                            supportingText = if (hasAttemptedSubmit && !isOrgValid) {
+                                { Text("ప్రస్తుత సంస్థ లేదా వృత్తిని నమోదు చేయండి", color = MaterialTheme.colorScheme.error, fontSize = 12.sp, fontFamily = Mallanna) }
+                            } else null,
                             modifier = Modifier.fillMaxWidth().onGloballyPositioned { 
                                 contentCoordinates?.let { parent -> orgY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
                             },
@@ -673,14 +750,15 @@ fun JoinReporterPageView(
                             shape = MaterialTheme.shapes.medium,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                errorBorderColor = MaterialTheme.colorScheme.error
                             )
                         )
                         
                         OutlinedTextField(
                             value = additionalMessage,
                             onValueChange = { additionalMessage = it },
-                            label = { Text(stringResource(R.string.additional_message), fontFamily = Mallanna) },
+                            label = { Text("${stringResource(R.string.additional_message)} (ఐచ్ఛికం / Optional)", fontFamily = Mallanna) },
                             modifier = Modifier.fillMaxWidth().onGloballyPositioned { 
                                 contentCoordinates?.let { parent -> messageY = parent.localPositionOf(it, androidx.compose.ui.geometry.Offset.Zero).y }
                             },
@@ -696,30 +774,69 @@ fun JoinReporterPageView(
                 }
                 
                 // Agreement Checkbox
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { rulesCheckboxChecked = !rulesCheckboxChecked }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (hasAttemptedSubmit && !rulesCheckboxChecked) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                        border = BorderStroke(
+                            if (hasAttemptedSubmit && !rulesCheckboxChecked) 2.dp else 1.dp,
+                            if (hasAttemptedSubmit && !rulesCheckboxChecked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { rulesCheckboxChecked = !rulesCheckboxChecked }
                     ) {
-                        Checkbox(
-                            checked = rulesCheckboxChecked,
-                            onCheckedChange = { rulesCheckboxChecked = it }
-                        )
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Checkbox(
+                                checked = rulesCheckboxChecked,
+                                onCheckedChange = { rulesCheckboxChecked = it }
+                            )
+                            Text(
+                                text = stringResource(R.string.reporter_rules_agree_checkbox),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                fontFamily = Mallanna,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                    if (hasAttemptedSubmit && !rulesCheckboxChecked) {
                         Text(
-                            text = stringResource(R.string.reporter_rules_agree_checkbox),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
+                            text = "దయచేసి పై నిబంధనలను చదివి అంగీకరించండి *",
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 12.sp,
                             fontFamily = Mallanna,
-                            color = MaterialTheme.colorScheme.onSurface
+                            modifier = Modifier.padding(start = 8.dp, top = 4.dp)
                         )
+                    }
+                }
+
+                // Validation Warning Banner before Submit Button
+                if (hasAttemptedSubmit && !isFormValid) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                            Text(
+                                text = "దయచేసి ఎరుపు రంగులో ఉన్న వివరాలన్నీ సరిగ్గా నింపిన తర్వాతే సబ్మిట్ చేయండి.",
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontFamily = Mallanna,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 14.sp
+                            )
+                        }
                     }
                 }
 
@@ -727,33 +844,43 @@ fun JoinReporterPageView(
                 
                 Button(
                     onClick = {
-                        if (!rulesCheckboxChecked) {
-                            Toast.makeText(context, "దయచేసి నిబంధనలను అంగీకరించండి.", Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
+                        hasAttemptedSubmit = true
+                        
+                        if (!isFormValid) {
+                            val firstEmptyField = when {
+                                !isFullNameValid -> "పూర్తి పేరు" to fullNameY
+                                !isFatherNameValid -> "తండ్రి పేరు" to fatherNameY
+                                !isPhoneValid -> "10 అంకెల ఫోన్ నంబర్" to phoneY
+                                !isAddressValid -> "చిరునామా" to addressY
+                                !isDistrictValid -> "జిల్లా" to districtY
+                                !isMandalValid -> "మండలం" to mandalY
+                                !isCategoryValid -> "ఆసక్తి ఉన్న కేటగిరీ" to areaY
+                                !isEducationValid -> "విద్యార్హత" to educationY
+                                !isOrgValid -> "ప్రస్తుత సంస్థ" to orgY
+                                !rulesCheckboxChecked -> "నిబంధనలు అంగీకరించండి" to Float.MAX_VALUE
+                                else -> null
+                            }
 
-                        val targetPosition = if (position.isNotBlank()) position else defaultPosition
-                        val emptyField = when {
-                            fullName.isBlank() -> "పూర్తి పేరు" to fullNameY
-                            fatherName.isBlank() -> "తండ్రి పేరు" to fatherNameY
-                            phone.isBlank() -> "ఫోన్ నంబర్" to phoneY
-                            address.isBlank() -> "చిరునామా" to addressY
-                            selectedDistrict.isBlank() -> "జిల్లా" to districtY
-                            selectedMandal.isBlank() -> "మండలం" to districtY
-                            interestedArea.isBlank() -> "ఆసక్తి ఉన్న కేటగిరీ" to areaY
-                            education.isBlank() -> "విద్యార్హత" to educationY
-                            currentOrg.isBlank() -> "ప్రస్తుత సంస్థ" to orgY
-                            additionalMessage.isBlank() -> "సందేశం" to messageY
-                            else -> null
-                        }
-
-                        if (emptyField != null) {
-                            Toast.makeText(context, "${emptyField.first} నింపండి", Toast.LENGTH_SHORT).show()
-                            scope.launch {
-                                scrollState.animateScrollTo(maxOf(0, emptyField.second.toInt() - 50))
+                            if (firstEmptyField != null) {
+                                Toast.makeText(context, "${firstEmptyField.first} సరిగ్గా నమోదు చేయండి", Toast.LENGTH_SHORT).show()
+                                if (firstEmptyField.second != Float.MAX_VALUE) {
+                                    scope.launch {
+                                        scrollState.animateScrollTo(maxOf(0, firstEmptyField.second.toInt() - 50))
+                                    }
+                                }
                             }
                             return@Button
                         }
+
+                        val targetPosition = if (position.isNotBlank()) position.trim() else defaultPosition
+                        val finalFullName = fullName.trim()
+                        val finalFatherName = fatherName.trim()
+                        val finalPhone = cleanPhone
+                        val finalAddress = address.trim()
+                        val finalInterestedArea = interestedArea.trim()
+                        val finalEducation = education.trim()
+                        val finalCurrentOrg = currentOrg.trim()
+                        val finalMessage = if (additionalMessage.isNotBlank()) additionalMessage.trim() else "విలేకరిగా పనిచేయడానికి ఆసక్తిగా ఉన్నాను"
                         
                         scope.launch {
                             isSubmitting = true
@@ -766,18 +893,18 @@ fun JoinReporterPageView(
                             // 1. Try Cloud Function first (handles notifications & auto-approval)
                             try {
                                 val result = FirebaseFunctionsService.submitReporterApplication(
-                                    fullName = fullName,
-                                    fatherName = fatherName,
-                                    phone = phone,
-                                    address = address,
+                                    fullName = finalFullName,
+                                    fatherName = finalFatherName,
+                                    phone = finalPhone,
+                                    address = finalAddress,
                                     position = targetPosition,
-                                    interestedArea = interestedArea,
-                                    education = education,
-                                    currentOrg = currentOrg,
+                                    interestedArea = finalInterestedArea,
+                                    education = finalEducation,
+                                    currentOrg = finalCurrentOrg,
                                     state = selectedState,
-                                    district = selectedDistrict,
-                                    mandal = selectedMandal,
-                                    message = additionalMessage,
+                                    district = selectedDistrict.trim(),
+                                    mandal = selectedMandal.trim(),
+                                    message = finalMessage,
                                     userId = FirebaseService.auth.currentUser?.uid
                                 )
                                 if (result.isSuccess) {
@@ -808,18 +935,18 @@ fun JoinReporterPageView(
                                     val autoApp = (finalStatus == "JOINED")
 
                                     val appData = mapOf(
-                                        "fullName" to fullName,
-                                        "fatherName" to fatherName,
-                                        "phone" to phone,
-                                        "address" to address,
+                                        "fullName" to finalFullName,
+                                        "fatherName" to finalFatherName,
+                                        "phone" to finalPhone,
+                                        "address" to finalAddress,
                                         "position" to targetPosition,
-                                        "interestedArea" to interestedArea,
-                                        "education" to education,
-                                        "currentOrg" to currentOrg,
+                                        "interestedArea" to finalInterestedArea,
+                                        "education" to finalEducation,
+                                        "currentOrg" to finalCurrentOrg,
                                         "state" to selectedState,
-                                        "district" to selectedDistrict,
-                                        "mandal" to selectedMandal,
-                                        "message" to additionalMessage,
+                                        "district" to selectedDistrict.trim(),
+                                        "mandal" to selectedMandal.trim(),
+                                        "message" to finalMessage,
                                         "status" to finalStatus,
                                         "autoApproved" to autoApp,
                                         "isConflict" to isConflict,
@@ -841,19 +968,19 @@ fun JoinReporterPageView(
                                             "promotedBy" to "AUTO_APPROVAL_SYSTEM",
                                             "agreedToRules" to true,
                                             "joinedAt" to com.google.firebase.Timestamp.now(),
-                                            "name" to fullName,
-                                            "phone" to phone
+                                            "name" to finalFullName,
+                                            "phone" to finalPhone
                                         )
                                         userRef.set(updates, com.google.firebase.firestore.SetOptions.merge()).await()
                                     } else if (isConflict && currentUid.isNotEmpty()) {
-                                        val conflictText = "నమస్కారం ${fullName.ifEmpty { "మిత్రమా" }}, మీరు కోరిన ${selectedMandal} మండలానికి ఇప్పటికే క్రియాశీల విలేకరి ఉన్నారు.\n\nఅందువల్ల మీ దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు పంపబడింది. మా అడ్మిన్ టీమ్ పరిశీలించి త్వరలోనే మిమ్మల్ని సంప్రదిస్తారు. మీకు ఏవైనా సందేహాలున్నా లేదా మీ వివరాలు తెలియజేయాలన్నా ఇక్కడే అడ్మిన్‌కు నేరుగా మెసేజ్ / రిప్లై ఇవ్వవచ్చు. ధన్యవాదాలు!"
+                                        val conflictText = "నమస్కారం ${finalFullName.ifEmpty { "మిత్రమా" }}, మీరు కోరిన ${selectedMandal} మండలానికి ఇప్పటికే క్రియాశీల విలేకరి ఉన్నారు.\n\nఅందువల్ల మీ దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు పంపబడింది. మా అడ్మిన్ టీమ్ పరిశీలించి త్వరలోనే మిమ్మల్ని సంప్రదిస్తారు. మీకు ఏవైనా సందేహాలున్నా లేదా మీ వివరాలు తెలియజేయాలన్నా ఇక్కడే అడ్మిన్‌కు నేరుగా మెసేజ్ / రిప్లై ఇవ్వవచ్చు. ధన్యవాదాలు!"
                                         val msgTimestamp = com.google.firebase.Timestamp.now()
 
                                         val convData = mapOf(
                                             "reporterId" to currentUid,
-                                            "reporterName" to fullName,
-                                            "reporterDistrict" to selectedDistrict,
-                                            "reporterMandal" to selectedMandal,
+                                            "reporterName" to finalFullName,
+                                            "reporterDistrict" to selectedDistrict.trim(),
+                                            "reporterMandal" to selectedMandal.trim(),
                                             "lastMessage" to conflictText,
                                             "lastMessageTime" to msgTimestamp,
                                             "lastSenderRole" to "ADMIN",
@@ -931,7 +1058,7 @@ fun JoinReporterPageView(
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = MaterialTheme.shapes.large,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+                        containerColor = if (isFormValid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.75f)
                     ),
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp)
                 ) {

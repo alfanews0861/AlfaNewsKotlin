@@ -15,18 +15,32 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onNewsPostCreated = exports.processNewsPost = exports.performAIProcessing = exports.fetchRecentMandalNews = exports.calculateTextSimilarity = void 0;
+exports.scheduleReprocessFailedReporterNews = exports.onNewsPostCreated = exports.processNewsPost = void 0;
+exports.calculateTextSimilarity = calculateTextSimilarity;
+exports.fetchRecentMandalNews = fetchRecentMandalNews;
+exports.performAIProcessing = performAIProcessing;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
+const scheduler_1 = require("firebase-functions/v2/scheduler");
 const genai_1 = require("@google/genai");
 const fs = __importStar(require("fs"));
 const os = __importStar(require("os"));
@@ -37,6 +51,7 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 const utils_1 = require("./utils");
 const categories_1 = require("./categories");
 const reporter_handler_1 = require("./reporter_handler");
+const location_data_1 = require("./location_data");
 const db = admin.firestore();
 /**
  * Helper: Extract storage path from Firebase Storage URL
@@ -229,14 +244,17 @@ function calculateTextSimilarity(text1, text2) {
     const unionSize = new Set([...tokens1, ...tokens2]).size;
     return unionSize > 0 ? (intersectionCount / unionSize) : 0;
 }
-exports.calculateTextSimilarity = calculateTextSimilarity;
 /**
  * Helper: Fetch approved news in the same mandal/district from the last 6 hours (cost-effective query)
  */
 async function fetchRecentMandalNews(postData, currentPostId) {
-    const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
     const targetDistrict = (postData?.district || "").trim();
     const targetLocation = (postData?.location || postData?.mandal || "").trim();
+    // Critical Safeguard: If no mandal/location is specified, do NOT fetch random district news as "same mandal"!
+    if (!targetLocation || targetLocation.length < 2) {
+        return [];
+    }
+    const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
     try {
         let queryRef = db.collection('news')
             .where('approved', '==', true)
@@ -254,9 +272,9 @@ async function fetchRecentMandalNews(postData, currentPostId) {
                 continue;
             const d = doc.data();
             const docLoc = (d.location || d.mandal || "").trim().toLowerCase().replace(/\s+/g, '');
-            // Filter to same mandal if specified, or same district if no mandal specified
-            const isMandalMatch = !normTargetLoc || docLoc === normTargetLoc ||
-                (normTargetLoc.length > 2 && (docLoc.includes(normTargetLoc) || normTargetLoc.includes(docLoc)));
+            // Strictly match same mandal
+            const isMandalMatch = docLoc === normTargetLoc ||
+                (normTargetLoc.length > 2 && docLoc.length > 2 && (docLoc.includes(normTargetLoc) || normTargetLoc.includes(docLoc)));
             if (isMandalMatch) {
                 const hl = d.headline?.telugu || d.title || "";
                 const ct = d.content?.telugu || d.summary || "";
@@ -277,7 +295,6 @@ async function fetchRecentMandalNews(postData, currentPostId) {
         return [];
     }
 }
-exports.fetchRecentMandalNews = fetchRecentMandalNews;
 /**
  * Helper: Normalize a single AI-generated story object
  */
@@ -287,7 +304,7 @@ function normalizeSingleStory(aiRes, actualPostData) {
         aiRes.telugu_version?.content || aiRes.telugu_version?.summary ||
         aiRes.summaryTe || aiRes.summarized_telugu_content || aiRes.summary ||
         aiRes.description || aiRes.summarizedTeluguContent || "";
-    finalContent = (0, utils_1.sanitizeTeluguText)(finalContent);
+    finalContent = (0, utils_1.sanitizeTeluguText)(finalContent).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
     let finalHeadline = aiRes.headline || aiRes.headlineTe || aiRes.headline_te ||
         aiRes.telugu?.headline || aiRes.telugu?.headlineTe ||
         aiRes.telugu_version?.headline || aiRes.telugu_version?.title ||
@@ -307,8 +324,23 @@ function normalizeSingleStory(aiRes, actualPostData) {
     else {
         finalNotificationTitle = (0, utils_1.sanitizeTeluguText)(finalNotificationTitle);
     }
-    const isDuplicate = aiRes.isDuplicate === true;
-    let rejectionReason = aiRes.rejectionReason || "";
+    let isDuplicate = aiRes.isDuplicate === true;
+    const dupPostId = (aiRes.duplicateOfPostId || "").trim();
+    let rejectionReason = (aiRes.rejectionReason || "").trim();
+    // Critical Safeguard 1: If AI flagged isDuplicate=true but did not provide a valid duplicateOfPostId,
+    // it is a hallucination. Override isDuplicate to false!
+    if (isDuplicate && (!dupPostId || dupPostId.toLowerCase() === "null" || dupPostId.toLowerCase() === "none")) {
+        console.warn(`[AI_DUP_FALSE_POSITIVE] AI flagged isDuplicate=true without valid duplicateOfPostId for "${finalHeadline}". Overriding isDuplicate to false.`);
+        isDuplicate = false;
+        if (rejectionReason.includes("డూప్లికేట్") || rejectionReason.toLowerCase().includes("duplicate")) {
+            rejectionReason = "";
+        }
+    }
+    // Safeguard 2: If AI marked isDuplicate = false, clear any contradictory duplicate rejectionReason
+    if (!isDuplicate && (rejectionReason.includes("డూప్లికేట్") || rejectionReason.toLowerCase().includes("duplicate"))) {
+        console.log(`[AI_RECONCILE] Clearing contradictory duplicate rejectionReason because isDuplicate is false.`);
+        rejectionReason = "";
+    }
     if (isDuplicate && (!rejectionReason || rejectionReason.toLowerCase() === "null" || rejectionReason.toLowerCase() === "none")) {
         rejectionReason = "ఈ మండలంలో గత 6 గంటల్లో ఇప్పటికే ప్రచురించబడిన వార్త (డూప్లికేట్).";
     }
@@ -384,38 +416,49 @@ function normalizeSingleStory(aiRes, actualPostData) {
  */
 async function performAIProcessing(headline, content, actualPostData, recentStories = []) {
     // 1. FAST PRE-CHECK: Text similarity against recent stories in the same mandal (0 Gemini Token cost)
-    if (recentStories.length > 0) {
-        for (const recent of recentStories) {
-            const headlineSim = calculateTextSimilarity(headline, recent.headline);
-            const contentSim = calculateTextSimilarity(content, recent.content);
-            if (headlineSim >= 0.75 || contentSim >= 0.70 || (headlineSim >= 0.55 && contentSim >= 0.55)) {
-                console.log(`[FAST_DUPLICATE_HIT] Exact/near-exact text similarity hit with post ${recent.id} (headlineSim: ${headlineSim.toFixed(2)}, contentSim: ${contentSim.toFixed(2)})`);
-                return [{
-                        headline: { telugu: headline, english: "" },
-                        content: { telugu: content, english: "" },
-                        notificationTitle: "",
-                        location: actualPostData?.location || recent.location || "",
-                        category: "జిల్లా వార్త",
-                        categories: ["జిల్లా వార్త"],
-                        tags: [],
-                        entities: { people: [], organizations: [], locations: [] },
-                        matchedImageIndex: 0,
-                        isSafeForYouTube: true,
-                        rejectionReason: "ఈ మండలంలో గత 6 గంటల్లో ఇప్పటికే ప్రచురించబడిన వార్త (డూప్లికేట్).",
-                        isDuplicate: true,
-                        duplicateOfPostId: recent.id,
-                        tone: "NORMAL",
-                        vocalContent: content,
-                        qualitySignals: { biasScore: 0.5, publicInterestScore: 0.5, investigativeScore: 0, isPersonalPraise: false },
-                        storyFingerprint: `dup_${recent.id}`,
-                        isBreaking: false,
-                        notificationWorthy: false,
-                        isGraphicOrBloody: false,
-                        isSensitiveVictimOrMinor: false,
-                        aiProcessed: true,
-                        aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
-                        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-                    }];
+    // Only trigger for near-identical copy-paste (>88% similarity) and NOT for routine welfare/ward-level events or video coverage
+    const mTypes = (actualPostData?.mediaTypes || []).map((t) => String(t).toUpperCase());
+    const isVideoPost = actualPostData?.mediaType?.toUpperCase() === 'VIDEO' || mTypes.includes('VIDEO');
+    if (recentStories.length > 0 && !isVideoPost) {
+        const isRoutineWelfareOrWard = (headline + " " + content).includes("పింఛన్") ||
+            (headline + " " + content).includes("వార్డు") ||
+            (headline + " " + content).includes("గ్రామం") ||
+            (headline + " " + content).includes("కాలనీ") ||
+            (headline + " " + content).includes("రేషన్") ||
+            (headline + " " + content).includes("సంక్షేమ");
+        if (!isRoutineWelfareOrWard) {
+            for (const recent of recentStories) {
+                const headlineSim = calculateTextSimilarity(headline, recent.headline);
+                const contentSim = calculateTextSimilarity(content, recent.content);
+                if (headlineSim >= 0.88 && contentSim >= 0.82) {
+                    console.log(`[FAST_DUPLICATE_HIT] Near-exact text similarity hit with post ${recent.id} (headlineSim: ${headlineSim.toFixed(2)}, contentSim: ${contentSim.toFixed(2)})`);
+                    return [{
+                            headline: { telugu: headline, english: "" },
+                            content: { telugu: content, english: "" },
+                            notificationTitle: "",
+                            location: actualPostData?.location || recent.location || "",
+                            category: "జిల్లా వార్త",
+                            categories: ["జిల్లా వార్త"],
+                            tags: [],
+                            entities: { people: [], organizations: [], locations: [] },
+                            matchedImageIndex: 0,
+                            isSafeForYouTube: true,
+                            rejectionReason: "ఈ మండలంలో గత కొన్ని గంటల్లో ఈ వార్తాంశం ఇప్పటికే ప్రచురించబడింది.",
+                            isDuplicate: true,
+                            duplicateOfPostId: recent.id,
+                            tone: "NORMAL",
+                            vocalContent: content,
+                            qualitySignals: { biasScore: 0.5, publicInterestScore: 0.5, investigativeScore: 0, isPersonalPraise: false },
+                            storyFingerprint: `dup_${recent.id}`,
+                            isBreaking: false,
+                            notificationWorthy: false,
+                            isGraphicOrBloody: false,
+                            isSensitiveVictimOrMinor: false,
+                            aiProcessed: true,
+                            aiProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
+                            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                        }];
+                }
             }
         }
     }
@@ -478,14 +521,25 @@ async function performAIProcessing(headline, content, actualPostData, recentStor
             recentStories.map((s, idx) => `[Prior Story ${idx + 1}] ID: ${s.id} | Location: ${s.location} | Headline: ${s.headline} | Content: ${s.content.substring(0, 150)}`).join('\n') +
             `\n\nDUPLICATE DETECTION RULES (CRITICAL):\n` +
             `- Compare incoming news with the [Prior Story] list in this same mandal above.\n` +
-            `- If the incoming news is describing the EXACT SAME real-world event/incident (e.g. same accident, same press statement, same local theft, same public meeting/inauguration) already published in a Prior Story:\n` +
-            `  1. Set isDuplicate = true\n` +
-            `  2. Set duplicateOfPostId = matching Prior Story ID\n` +
-            `  3. Set rejectionReason = "ఈ మండలంలో గత 6 గంటల్లో ఇప్పటికే ప్రచురించబడిన వార్త (డూప్లికేట్)."\n` +
-            `- If it is a completely DIFFERENT topic/event, or a significant follow-up with substantial new facts:\n` +
+            `- DIFFERENT TOPICS/EVENTS IN THE SAME MANDAL ARE 100% PERMITTED AND ARE NEVER DUPLICATES (CRITICAL):\n` +
+            `  * A mandal has many diverse everyday events. Multiple different news stories from the same mandal MUST ALL BE PUBLISHED.\n` +
+            `  * Examples of distinct, non-duplicate stories in the same mandal:\n` +
+            `    - Story A is about voter list verification / inquiry (ఓటర్ల సర్వే / ధ్రువపత్రాల పరిశీలన) vs Story B is about garbage/waste collection vehicle shortage (చెత్త సేకరణ వాహనాల కొరత) -> COMPLETELY DIFFERENT TOPICS -> NOT DUPLICATE (isDuplicate = false).\n` +
+            `    - School infrastructure issues vs Police inspections vs Local elections vs Sports meet vs Road accident -> COMPLETELY DIFFERENT TOPICS -> NOT DUPLICATE (isDuplicate = false).\n` +
+            `- ROUTINE WELFARE & WARD/VILLAGE-LEVEL SCHEMES EXEMPTION:\n` +
+            `  * Routine welfare events (e.g. NTR Bharosa Pensions / ఎన్టీఆర్ భరోసా పింఛన్ల పంపిణీ, Ration distribution, Kalyanamastu, Medical camps, House site pattas) happening in DIFFERENT WARDS (e.g. 24th Ward vs 10th Ward or Ward 1 vs Ward 2), DIFFERENT VILLAGES, OR DIFFERENT HABITATIONS in the same mandal are NOT duplicates! They are distinct ward/village events.\n` +
+            `- VIDEO COVERAGE EXEMPTION (CRITICAL):\n` +
+            `  * If the incoming post is a VIDEO report (mediaType = VIDEO or includes video), it is NEVER a duplicate of an earlier text/photo story! Video coverage is distinct multimedia content. Set isDuplicate = false, duplicateOfPostId = null.\n` +
+            `- ONLY MARK isDuplicate = true IF AND ONLY IF:\n` +
+            `  * The incoming news is reporting the EXACT SAME real-world incident/event (same exact accident at the same spot, same exact press meet/statement, same individual death/theft, same meeting) that has ALREADY been covered in one of the [Prior Story] items above, AND is the same media format.\n` +
+            `  * In that case only:\n` +
+            `    1. Set isDuplicate = true\n` +
+            `    2. Set duplicateOfPostId = matching Prior Story ID\n` +
+            `    3. Set rejectionReason = "ఈ మండలంలో గత కొన్ని గంటల్లో ఈ వార్తాంశం ఇప్పటికే ప్రచురించబడింది."\n` +
+            `- IF IT IS A DIFFERENT TOPIC, DIFFERENT EVENT, DIFFERENT WARD/VILLAGE, VIDEO COVERAGE, OR FOLLOW-UP:\n` +
             `  1. Set isDuplicate = false\n` +
             `  2. Set duplicateOfPostId = null\n` +
-            `  3. Leave rejectionReason empty (unless rejected for policy/safety violation).\n`
+            `  3. Leave rejectionReason empty "" (DO NOT put duplicate rejection message if topics differ!).\n`
         : `\nDUPLICATE DETECTION: No recent stories found in this mandal in the past 6 hours. Set isDuplicate = false, duplicateOfPostId = null.\n`;
     const metadataPrompt = `
 SUBMISSION METADATA:
@@ -496,6 +550,10 @@ SUBMISSION METADATA:
 - location: ${actualPostData?.location || 'Unknown'}
 
 ${recentStoriesPrompt}
+
+EDITORIAL & REJECTION INSTRUCTIONS (CRITICAL):
+- rejectionReason MUST be phrased politely in professional Telugu as if written by a Human Chief Editor / News Desk. NEVER mention AI, algorithms, bots, or automated systems. Explain naturally like an editor (e.g. 'ఈ మండలంలో ఈ వార్తాంశం ఇప్పటికే ప్రచురితమైంది', 'వార్తలో ప్రజా ప్రయోజనం కొరవడింది లేదా వ్యక్తిగత ప్రచారం', 'చిత్రం ప్రచురణ ప్రమాణాలకు అనుగుణంగా లేదు').
+
 
 PROACTIVE MULTI-STORY BUNDLE DETECTION (CRITICAL):
 - Proactively detect if the input text contains multiple distinct sub-stories or angles:
@@ -557,7 +615,6 @@ NOTIFICATION INSTRUCTIONS (CRITICAL):
         });
     });
 }
-exports.performAIProcessing = performAIProcessing;
 /**
  * 6. Main News Processing (OnCall)
  */
@@ -606,8 +663,74 @@ exports.processNewsPost = (0, https_1.onCall)(async (request) => {
             }, { merge: true });
         }
         if (postId) {
-            await db.collection('news').doc(postId).update(finalData);
-            return { success: true, postId: postId, message: "వార్త అప్‌డేట్ అవుతోంది..." };
+            const postRef = db.collection('news').doc(postId);
+            const existingSnap = await postRef.get();
+            if (!existingSnap.exists) {
+                throw new https_1.HttpsError('not-found', 'వార్త లభించలేదు.');
+            }
+            const existingData = existingSnap.data() || {};
+            const wasApproved = existingData.approved === true || (existingData.status || '').toUpperCase() === 'PUBLISHED';
+            if (wasApproved) {
+                const updatePayload = {
+                    ...postData,
+                    headline: {
+                        telugu: headline,
+                        english: postData?.headline?.english || existingData.headline?.english || ""
+                    },
+                    content: {
+                        telugu: content,
+                        english: postData?.content?.english || existingData.content?.english || ""
+                    },
+                    mediaUrl: mediaUrl || existingData.mediaUrl || "",
+                    mediaUrls: mediaUrls.length > 0 ? mediaUrls : (existingData.mediaUrls || (existingData.mediaUrl ? [existingData.mediaUrl] : [])),
+                    mediaType: postData?.mediaType || existingData.mediaType || "IMAGE",
+                    mediaTypes: postData?.mediaTypes || existingData.mediaTypes || ["IMAGE"],
+                    youtubeUrl: postData?.youtubeUrl !== undefined ? postData.youtubeUrl : (existingData.youtubeUrl || null),
+                    location: postData?.location || existingData.location || "",
+                    district: postData?.district || existingData.district || "State",
+                    state: postData?.state || existingData.state || "TS",
+                    category: postData?.category || existingData.category || "General News",
+                    categories: postData?.categories || existingData.categories || [],
+                    isGlobal: postData?.isGlobal !== undefined ? postData.isGlobal : (existingData.isGlobal || false),
+                    approved: true,
+                    status: "PUBLISHED",
+                    aiProcessed: true,
+                    videoProcessed: existingData.videoProcessed ?? true,
+                    timestamp: existingData.timestamp || admin.firestore.FieldValue.serverTimestamp(),
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                };
+                if (existingData.likes !== undefined)
+                    updatePayload.likes = existingData.likes;
+                if (existingData.comments !== undefined)
+                    updatePayload.comments = existingData.comments;
+                if (existingData.shares !== undefined)
+                    updatePayload.shares = existingData.shares;
+                if (existingData.views !== undefined)
+                    updatePayload.views = existingData.views;
+                if (existingData.longViews !== undefined)
+                    updatePayload.longViews = existingData.longViews;
+                if (existingData.reporter)
+                    updatePayload.reporter = existingData.reporter;
+                if (existingData.originalReporterId)
+                    updatePayload.originalReporterId = existingData.originalReporterId;
+                if (existingData.type)
+                    updatePayload.type = existingData.type;
+                await postRef.update(updatePayload);
+                console.log(`[NEWS_POST_EDIT_PUBLISHED] Post ${postId} updated directly without unpublishing.`);
+                return { success: true, postId: postId, message: "వార్త విజయవంతంగా నవీకరించబడింది." };
+            }
+            else {
+                const updatePayload = {
+                    ...finalData,
+                    forceReprocess: true,
+                    rejectionReason: admin.firestore.FieldValue.delete(),
+                    error: admin.firestore.FieldValue.delete(),
+                    timestamp: existingData.timestamp || admin.firestore.FieldValue.serverTimestamp()
+                };
+                await postRef.update(updatePayload);
+                console.log(`[NEWS_POST_EDIT_PENDING] Post ${postId} updated and queued for re-processing.`);
+                return { success: true, postId: postId, message: "వార్త అప్‌డేట్ అవుతోంది..." };
+            }
         }
         else {
             const newDocRef = await db.collection('news').add(finalData);
@@ -693,7 +816,7 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
         console.log(`[TRIGGER_SKIPPED] ${postId} is already in state: ${latestStatus}`);
         return;
     }
-    const originalReporterId = latestData.reporter?.id;
+    const originalReporterId = latestData.reporter?.id || (typeof latestData.reporter === 'string' ? latestData.reporter : null) || latestData.originalReporterId || latestData.userId || latestData.reporter?.name;
     const isCitizen = latestData.isCitizen === true || latestData.reporter?.name === "సిటిజెన్ పోస్ట్" || (!latestData.isReporter && latestData.processingType !== "REPORTER_SUBMISSION");
     const isReporter = !isCitizen && (latestData.isReporter === true || latestData.processingType === "REPORTER_SUBMISSION");
     // 2. SURVEY PROCESS — Translate survey using Gemini AI
@@ -741,13 +864,24 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
         }
     }
     // 3. AI PROCESSING PHASE
-    // Trigger if not processed and status is PENDING or missing
-    if (!latestData.aiProcessed && (latestStatus === "PENDING" || latestStatus === "" || data.forceReprocess)) {
+    // Trigger if not processed and status is PENDING or missing, or if forceReprocess is set
+    if ((!latestData.aiProcessed || data.forceReprocess) && (latestStatus === "PENDING" || latestStatus === "" || data.forceReprocess)) {
         console.log(`[ON_WRITE_PROCEED] AI Start: ${postId}`);
+        // Loop prevention: If reprocess count exceeds 3, abort to avoid infinite loop
+        if ((latestData.reprocessCount || 0) >= 3) {
+            console.warn(`[REPROCESS_ABORT] Post ${postId} reached max reprocess limit (3). Aborting to prevent infinite loop.`);
+            await db.collection('news').doc(postId).update({
+                status: "FAILED",
+                error: "Max reprocess attempts exceeded (infinite loop safeguard)",
+                forceReprocess: admin.firestore.FieldValue.delete()
+            });
+            return;
+        }
         // LOCK immediately with a transaction-like update or at least a check-before-update
-        // We use status: "REVIEWING_CONTENT" as the lock.
+        // We use status: "REVIEWING_CONTENT" as the lock and immediately clear forceReprocess
         await db.collection('news').doc(postId).update({
             status: "REVIEWING_CONTENT",
+            forceReprocess: admin.firestore.FieldValue.delete(),
             lastProcessingStart: admin.firestore.FieldValue.serverTimestamp()
         });
         try {
@@ -806,9 +940,12 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                 }
                 else if (originalReporterId) {
                     // Submitting reporter post: check if cross-mandal post (outside assigned mandal)
-                    const normTargetMandal = targetMandalam.toLowerCase().replace(/\s+/g, '');
-                    const normRepMandal = submittingReporterAssignedMandal.toLowerCase().replace(/\s+/g, '');
-                    const isDifferentMandal = normTargetMandal.length > 0 && normRepMandal.length > 0 && normTargetMandal !== normRepMandal;
+                    const targetDistrict = data.district || latestData.district || (aiProcessedData.categories && aiProcessedData.categories.find((c) => !c.includes("వార్త") && c !== aiProcessedData.category));
+                    let isDifferentMandal = false;
+                    if (submittingReporterAssignedMandal && targetMandalam) {
+                        const isMatch = (0, location_data_1.areMandalsMatching)(targetMandalam, submittingReporterAssignedMandal, targetDistrict);
+                        isDifferentMandal = !isMatch;
+                    }
                     if (isDifferentMandal) {
                         console.log(`[CROSS_MANDAL_CREDIT] Reporter ${originalReporterId} (assigned: '${submittingReporterAssignedMandal}') posted for '${targetMandalam}'. Attribution set to 'Alfa News Desk'. Points will be credited to reporter.`);
                         aiProcessedData.reporter = {
@@ -825,16 +962,39 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                 const finalIsReporter = !isCitizen && (isReporter || aiProcessedData.isReporter);
                 const finalIsCitizen = isCitizen;
                 const isDuplicateStory = aiProcessedData.isDuplicate === true;
+                // ACCIDENT & CRIME SHIELD:
+                // Never reject accident/crime stories because of graphic/injury mentions; instead convert image to B&W/Grayscale and publish!
+                const rawRejection = (aiProcessedData.rejectionReason || "").trim();
+                const isAccidentOrInjury = rawRejection.includes("ప్రమాదం") ||
+                    rawRejection.includes("రక్తపాతం") ||
+                    rawRejection.includes("గాయాలు") ||
+                    rawRejection.includes("దృశ్యం") ||
+                    rawRejection.includes("మరణం") ||
+                    rawRejection.includes("మృతి");
+                if (isAccidentOrInjury && !isDuplicateStory) {
+                    console.log(`[ACCIDENT_SHIELD] Post ${targetPostId}: Overriding rejection for accident/injury story. Enabling isGraphicOrBloody to apply B&W/blur.`);
+                    aiProcessedData.rejectionReason = null;
+                    aiProcessedData.isGraphicOrBloody = true;
+                    aiProcessedData.isBreaking = true;
+                }
                 const isRejected = (aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0) || isDuplicateStory;
                 const mTypes = (latestData.mediaTypes || []).map((t) => t.toUpperCase());
-                const hasVideo = mTypes.includes('VIDEO') || latestData.mediaType?.toUpperCase() === 'VIDEO';
+                const rawMediaUrl = latestData.mediaUrl || "";
+                const rawMediaUrls = Array.isArray(latestData.mediaUrls) ? latestData.mediaUrls : [];
+                const isDirectYoutube = (latestData.youtubeUrl && latestData.youtubeUrl.length > 5) ||
+                    rawMediaUrl.includes('youtube.com') || rawMediaUrl.includes('youtu.be') ||
+                    rawMediaUrls.some((u) => typeof u === 'string' && (u.includes('youtube.com') || u.includes('youtu.be')));
+                const hasVideo = mTypes.includes('VIDEO') || latestData.mediaType?.toUpperCase() === 'VIDEO' || isDirectYoutube;
+                const isAlreadyVideoReady = latestData.videoProcessed === true || isDirectYoutube;
+                const shouldWaitForVideoUpload = hasVideo && !isAlreadyVideoReady;
                 const updatePayload = {
                     ...aiProcessedData,
                     isCitizen: finalIsCitizen,
                     isReporter: finalIsReporter,
                     reporter: finalIsCitizen ? { id: latestData.reporter?.id || originalReporterId || "", name: "సిటిజెన్ పోస్ట్" } : (aiProcessedData.reporter || latestData.reporter),
-                    status: isRejected ? "REJECTED" : (hasVideo ? "PROCESSING_VIDEO" : "published"),
-                    approved: isRejected ? false : (finalIsReporter ? (hasVideo ? false : true) : (!hasVideo))
+                    status: isRejected ? "REJECTED" : (shouldWaitForVideoUpload ? "PROCESSING_VIDEO" : "PUBLISHED"),
+                    approved: isRejected ? false : (shouldWaitForVideoUpload ? false : true),
+                    ...(isAlreadyVideoReady ? { videoProcessed: true } : {})
                 };
                 // Smart Photo Matching:
                 // Use matchedImageIndex if valid, else match by index i or fallback to first image
@@ -893,14 +1053,17 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                     };
                     await db.collection('news').doc(targetPostId).set(splitDocData);
                 }
-                // Notifications & Rewards
-                if (isPostRejected && finalIsReporter && originalReporterId && i === 0) {
+                // Notifications & Rewards (Send to both registered reporters and citizen journalists)
+                if (isPostRejected && originalReporterId && i === 0) {
                     const notifyType = isDuplicateStory ? 'DUPLICATE' : 'POLICY_VIOLATION';
-                    await (0, reporter_handler_1.notifyReporter)(originalReporterId, targetPostId, aiProcessedData.headline?.telugu || latestData.headline?.telugu || "", notifyType, "");
+                    const specificReason = updatePayload.rejectionReason || aiProcessedData.rejectionReason || "";
+                    await (0, reporter_handler_1.notifyReporter)(originalReporterId, targetPostId, aiProcessedData.headline?.telugu || latestData.headline?.telugu || "", notifyType, "", specificReason);
                 }
-                if (updatePayload.status === "published" && !isPostRejected && finalIsReporter && originalReporterId) {
-                    const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
-                    await (0, reporter_handler_1.awardPointsToReporter)(originalReporterId, points);
+                if (updatePayload.status === "published" && !isPostRejected && originalReporterId) {
+                    if (finalIsReporter) {
+                        const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
+                        await (0, reporter_handler_1.awardPointsToReporter)(originalReporterId, points);
+                    }
                     await (0, reporter_handler_1.notifyReporter)(originalReporterId, targetPostId, updatePayload.headline?.telugu || aiProcessedData.headline?.telugu || "", 'SUCCESS', updatePayload.mediaUrl || storyMediaUrl);
                 }
             }
@@ -908,6 +1071,38 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
         }
         catch (err) {
             console.error(`[AI_FATAL_FAILED] ${postId}:`, err.message);
+            // Graceful Reporter Fallback:
+            // If post is from a registered reporter and has valid headline & content,
+            // do NOT leave it stuck in FAILED! Publish directly with reporter's original content so news goes LIVE immediately!
+            if (isReporter && (latestData.headline?.telugu || latestData.headline) && (latestData.content?.telugu || latestData.content)) {
+                console.log(`[AI_FALLBACK_PUBLISH] Publishing reporter post ${postId} directly with original content due to AI temporary outage.`);
+                const mediaUrl = latestData.mediaUrl || (latestData.mediaUrls && latestData.mediaUrls[0]) || "";
+                const updatePayloadFallback = {
+                    headline: {
+                        telugu: latestData.headline?.telugu || latestData.headline || "",
+                        english: latestData.headline?.english || ""
+                    },
+                    content: {
+                        telugu: latestData.content?.telugu || latestData.content || "",
+                        english: latestData.content?.english || ""
+                    },
+                    category: latestData.category || "జిల్లా వార్త",
+                    categories: Array.isArray(latestData.categories) ? latestData.categories : ["జిల్లా వార్త"],
+                    status: "published",
+                    approved: true,
+                    aiProcessed: false,
+                    isReporter: true,
+                    isCitizen: false,
+                    lastProcessingError: err.message,
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                };
+                await db.collection('news').doc(postId).update(updatePayloadFallback);
+                if (originalReporterId) {
+                    await (0, reporter_handler_1.awardPointsToReporter)(originalReporterId, 2);
+                    await (0, reporter_handler_1.notifyReporter)(originalReporterId, postId, latestData.headline?.telugu || latestData.headline || "వార్త", 'SUCCESS', mediaUrl);
+                }
+                return;
+            }
             await db.collection('news').doc(postId).update({
                 status: "FAILED",
                 error: err.message,
@@ -915,6 +1110,9 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                 lastProcessingError: err.message,
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             });
+            if (originalReporterId) {
+                await (0, reporter_handler_1.notifyReporter)(originalReporterId, postId, latestData.headline?.telugu || "వార్త", 'INTERNAL_ERROR', "", err.message);
+            }
             return;
         }
     }
@@ -923,7 +1121,36 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
     const mTypes = (data.mediaTypes || []).map((t) => t.toUpperCase());
     const videoIndex = mTypes.indexOf('VIDEO') !== -1 ? mTypes.indexOf('VIDEO') : (data.mediaType?.toUpperCase() === 'VIDEO' ? 0 : -1);
     const videoUrl = (videoIndex !== -1 && data.mediaUrls && data.mediaUrls[videoIndex]) || (videoIndex === 0 ? data.mediaUrl : null);
-    if (data.aiProcessed && status === "PROCESSING_VIDEO" && !data.videoProcessed) {
+    if (data.aiProcessed && (status === "PROCESSING_VIDEO" || status === "PENDING_YOUTUBE_RETRY") && !data.videoProcessed) {
+        // Direct YouTube link detection: If news has an existing YouTube link, publish directly without FFmpeg
+        const rawYtUrl = (data.youtubeUrl || videoUrl || "").trim();
+        const isYoutubeLink = rawYtUrl.includes('youtube.com') || rawYtUrl.includes('youtu.be');
+        if (isYoutubeLink) {
+            console.log(`[VIDEO_YOUTUBE_DIRECT] ${postId} is already a direct YouTube URL (${rawYtUrl}). Publishing directly without FFmpeg.`);
+            let ytId = "";
+            const ytMatch = rawYtUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+            if (ytMatch && ytMatch[1]) {
+                ytId = ytMatch[1];
+            }
+            const cleanYtUrl = ytId ? `https://www.youtube.com/watch?v=${ytId}` : rawYtUrl;
+            const ytThumb = ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : (data.thumbnailUrl || data.mediaUrl || "");
+            await db.collection('news').doc(postId).update({
+                youtubeUrl: cleanYtUrl,
+                mediaUrl: ytThumb,
+                mediaUrls: [ytThumb],
+                thumbnailUrl: ytThumb,
+                videoProcessed: true,
+                status: "published",
+                approved: true,
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            });
+            if (isReporter && originalReporterId) {
+                const points = calculateIncentivePoints(true, data.qualitySignals);
+                await (0, reporter_handler_1.awardPointsToReporter)(originalReporterId, points);
+                await (0, reporter_handler_1.notifyReporter)(originalReporterId, postId, data.headline?.telugu || "", 'SUCCESS');
+            }
+            return;
+        }
         if (!videoUrl) {
             console.error(`[VIDEO_ERR] ${postId}: Missing video URL for PROCESSING_VIDEO post.`);
             await db.collection('news').doc(postId).update({
@@ -940,7 +1167,7 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
         if (!latestData)
             return;
         const latestStatus = (latestData.status || "").toUpperCase();
-        if (latestStatus === "PROCESSING_VIDEO_START" || latestData.videoProcessed || latestStatus === "FAILED") {
+        if ((latestStatus === "PROCESSING_VIDEO_START" && !data.forceReprocess) || latestData.videoProcessed || latestStatus === "FAILED") {
             console.log(`[VIDEO_SKIPPED] ${postId} already processing, done, or failed.`);
             return;
         }
@@ -1133,131 +1360,169 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
             fs.writeFileSync(audioPath, audioBuffer);
             const logoPath = path.join(process.cwd(), 'assets', 'logo.png');
             const hasLogo = fs.existsSync(logoPath);
-            await new Promise((resolve, reject) => {
-                let logoWidth = 99;
-                let hasAudioStream = false;
-                let audioChannels = 2;
-                let videoWidth = 720;
-                let videoHeight = 1280;
-                try {
-                    const { execSync } = require('child_process');
-                    const ffprobeStatic = require('ffprobe-static');
-                    const probeOutput = execSync(`"${ffprobeStatic.path}" -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "${videoPath}"`).toString().trim();
-                    const parts = probeOutput.split('x');
-                    videoWidth = parseInt(parts[0]) || 720;
-                    videoHeight = parseInt(parts[1]) || 1280;
-                    if (videoWidth <= 450)
-                        logoWidth = 54;
-                    else if (videoWidth <= 950)
-                        logoWidth = 99;
-                    else
-                        logoWidth = 144;
-                    const audioProbe = execSync(`"${ffprobeStatic.path}" -v error -select_streams a:0 -show_entries stream=channels -of csv=s=x:p=0 "${videoPath}"`).toString().trim();
-                    hasAudioStream = audioProbe.length > 0;
-                    if (hasAudioStream) {
-                        audioChannels = parseInt(audioProbe) || 2;
-                    }
-                }
-                catch (e) { }
-                const isVertical = videoHeight > videoWidth;
-                const introFileName = isVertical ? 'YouTube_intro_BBC_style_9_16.mp4' : 'YouTube_channel_intro_16_9.mp4';
-                const outroFileName = isVertical ? 'alfanews_outro_like_share_9_16.mp4' : 'alfanews_outro_like_share_16_9.mp4';
-                const introPath = path.join(process.cwd(), 'assets', introFileName);
-                const outroPath = path.join(process.cwd(), 'assets', outroFileName);
-                const hasIntro = fs.existsSync(introPath);
-                const hasOutro = fs.existsSync(outroPath);
-                console.log(`[VIDEO_PROC] Res: ${videoWidth}x${videoHeight}, Vertical: ${isVertical}, HasIntro: ${hasIntro}, HasOutro: ${hasOutro}`);
-                let cmd = ffmpeg(videoPath).input(audioPath);
-                let logoInputIdx = -1;
-                let introInputIdx = -1;
-                let outroInputIdx = -1;
-                let currentIdx = 2;
-                if (hasLogo) {
-                    cmd.input(logoPath);
-                    logoInputIdx = currentIdx++;
-                }
-                if (hasIntro) {
-                    cmd.input(introPath);
-                    introInputIdx = currentIdx++;
-                }
-                if (hasOutro) {
-                    cmd.input(outroPath);
-                    outroInputIdx = currentIdx++;
-                }
-                const filterGraph = [];
-                // 1. Logo Watermark Overlay
-                if (hasLogo && logoInputIdx !== -1) {
-                    filterGraph.push({ filter: 'scale', options: `${logoWidth}:-2`, inputs: `${logoInputIdx}:v`, outputs: 'logo' });
-                    filterGraph.push({ filter: 'overlay', options: 'W-w-25:25', inputs: ['0:v', 'logo'], outputs: 'vlogo_raw' });
-                }
-                else {
-                    filterGraph.push({ filter: 'null', inputs: '0:v', outputs: 'vlogo_raw' });
-                }
-                // 2. Audio Processing (Voiceover TTS + Muted/Ducked Original Video Audio)
-                let mainAudioLabel = 'outa';
-                if (hasAudioStream) {
-                    let ttsDuration = 0;
+            const renderVideoWithFFmpeg = async () => {
+                const runPass = (isSimpleFallback) => new Promise((resolve, reject) => {
+                    let logoWidth = 99;
+                    let hasAudioStream = false;
+                    let audioChannels = 2;
+                    let videoWidth = 720;
+                    let videoHeight = 1280;
                     try {
                         const { execSync } = require('child_process');
                         const ffprobeStatic = require('ffprobe-static');
-                        const ttsProbe = execSync(`"${ffprobeStatic.path}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`).toString().trim();
-                        ttsDuration = parseFloat(ttsProbe) || 0;
+                        const probeOutput = execSync(`"${ffprobeStatic.path}" -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "${videoPath}"`).toString().trim();
+                        const parts = probeOutput.split('x');
+                        videoWidth = parseInt(parts[0]) || 720;
+                        videoHeight = parseInt(parts[1]) || 1280;
+                        if (videoWidth <= 450)
+                            logoWidth = 54;
+                        else if (videoWidth <= 950)
+                            logoWidth = 99;
+                        else
+                            logoWidth = 144;
+                        const audioProbe = execSync(`"${ffprobeStatic.path}" -v error -select_streams a:0 -show_entries stream=channels -of csv=s=x:p=0 "${videoPath}"`).toString().trim();
+                        hasAudioStream = audioProbe.length > 0;
+                        if (hasAudioStream) {
+                            audioChannels = parseInt(audioProbe) || 2;
+                        }
                     }
                     catch (e) { }
-                    filterGraph.push({
-                        filter: 'volume',
-                        options: { volume: `if(gte(t,${ttsDuration}),1,0)`, eval: 'frame' },
-                        inputs: '0:a',
-                        outputs: 'ducked_raw'
-                    });
-                    if (audioChannels === 1) {
-                        filterGraph.push({ filter: 'pan', options: 'stereo|c0=c0|c1=c0', inputs: 'ducked_raw', outputs: 'ducked_stereo' });
-                        filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: 'ducked_stereo', outputs: 'ducked' });
+                    let cmd = ffmpeg(videoPath).input(audioPath);
+                    if (isSimpleFallback) {
+                        console.log(`[VIDEO_PROC_FALLBACK] Executing resilient simple muxing for ${postId}...`);
+                        if (hasLogo) {
+                            cmd.input(logoPath);
+                            const simpleFilter = [
+                                { filter: 'scale', options: `${logoWidth}:-2`, inputs: '2:v', outputs: 'logo' },
+                                { filter: 'overlay', options: 'W-w-25:25', inputs: ['0:v', 'logo'], outputs: 'vf' }
+                            ];
+                            cmd.complexFilter(simpleFilter)
+                                .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', '-map', '[vf]', '-map', '1:a:0', '-ar', '44100', '-ac', '2', '-shortest'])
+                                .save(outputPath)
+                                .on('end', () => resolve(true))
+                                .on('error', (err) => reject(err));
+                        }
+                        else {
+                            cmd.outputOptions(['-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0', '-shortest'])
+                                .save(outputPath)
+                                .on('end', () => resolve(true))
+                                .on('error', (err) => reject(err));
+                        }
+                        return;
+                    }
+                    const isVertical = videoHeight > videoWidth;
+                    const introFileName = isVertical ? 'YouTube_intro_BBC_style_9_16.mp4' : 'YouTube_channel_intro_16_9.mp4';
+                    const outroFileName = isVertical ? 'alfanews_outro_like_share_9_16.mp4' : 'alfanews_outro_like_share_16_9.mp4';
+                    const introPath = path.join(process.cwd(), 'assets', introFileName);
+                    const outroPath = path.join(process.cwd(), 'assets', outroFileName);
+                    const hasIntro = fs.existsSync(introPath);
+                    const hasOutro = fs.existsSync(outroPath);
+                    console.log(`[VIDEO_PROC] Res: ${videoWidth}x${videoHeight}, Vertical: ${isVertical}, HasIntro: ${hasIntro}, HasOutro: ${hasOutro}`);
+                    let logoInputIdx = -1;
+                    let introInputIdx = -1;
+                    let outroInputIdx = -1;
+                    let currentIdx = 2;
+                    if (hasLogo) {
+                        cmd.input(logoPath);
+                        logoInputIdx = currentIdx++;
+                    }
+                    if (hasIntro) {
+                        cmd.input(introPath);
+                        introInputIdx = currentIdx++;
+                    }
+                    if (hasOutro) {
+                        cmd.input(outroPath);
+                        outroInputIdx = currentIdx++;
+                    }
+                    const filterGraph = [];
+                    // 1. Logo Watermark Overlay
+                    if (hasLogo && logoInputIdx !== -1) {
+                        filterGraph.push({ filter: 'scale', options: `${logoWidth}:-2`, inputs: `${logoInputIdx}:v`, outputs: 'logo' });
+                        filterGraph.push({ filter: 'overlay', options: 'W-w-25:25', inputs: ['0:v', 'logo'], outputs: 'vlogo_raw' });
                     }
                     else {
-                        filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: 'ducked_raw', outputs: 'ducked' });
+                        filterGraph.push({ filter: 'null', inputs: '0:v', outputs: 'vlogo_raw' });
                     }
-                    filterGraph.push({ filter: 'volume', options: 2.0, inputs: '1:a', outputs: 'tts_vol' });
-                    filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: 'tts_vol', outputs: 'enhanced_tts' });
-                    filterGraph.push({ filter: 'amix', options: { inputs: 2, duration: 'longest', dropout_transition: 0, normalize: 0 }, inputs: ['ducked', 'enhanced_tts'], outputs: 'outa' });
+                    // 2. Audio Processing (Voiceover TTS + Muted/Ducked Original Video Audio)
+                    let mainAudioLabel = 'outa';
+                    if (hasAudioStream) {
+                        let ttsDuration = 0;
+                        try {
+                            const { execSync } = require('child_process');
+                            const ffprobeStatic = require('ffprobe-static');
+                            const ttsProbe = execSync(`"${ffprobeStatic.path}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`).toString().trim();
+                            ttsDuration = parseFloat(ttsProbe) || 0;
+                        }
+                        catch (e) { }
+                        filterGraph.push({
+                            filter: 'volume',
+                            options: { volume: `if(gte(t,${ttsDuration}),1,0)`, eval: 'frame' },
+                            inputs: '0:a',
+                            outputs: 'ducked_raw'
+                        });
+                        if (audioChannels === 1) {
+                            filterGraph.push({ filter: 'pan', options: 'stereo|c0=c0|c1=c0', inputs: 'ducked_raw', outputs: 'ducked_stereo' });
+                            filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: 'ducked_stereo', outputs: 'ducked' });
+                        }
+                        else {
+                            filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: 'ducked_raw', outputs: 'ducked' });
+                        }
+                        filterGraph.push({ filter: 'volume', options: 2.0, inputs: '1:a', outputs: 'tts_vol' });
+                        filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: 'tts_vol', outputs: 'enhanced_tts' });
+                        filterGraph.push({ filter: 'amix', options: { inputs: 2, duration: 'longest', dropout_transition: 0, normalize: 0 }, inputs: ['ducked', 'enhanced_tts'], outputs: 'outa' });
+                    }
+                    else {
+                        filterGraph.push({ filter: 'volume', options: 2.0, inputs: '1:a', outputs: 'tts_vol' });
+                        filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: 'tts_vol', outputs: 'enhanced_tts' });
+                        mainAudioLabel = 'enhanced_tts';
+                    }
+                    // 3. Intro + Main Video + Outro Concatenation (Single Pass)
+                    if (hasIntro && hasOutro && introInputIdx !== -1 && outroInputIdx !== -1) {
+                        const targetW = isVertical ? 1080 : 1920;
+                        const targetH = isVertical ? 1920 : 1080;
+                        const scalePadOpt = `${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p`;
+                        filterGraph.push({ filter: 'scale', options: scalePadOpt, inputs: `${introInputIdx}:v`, outputs: 'vintro' });
+                        filterGraph.push({ filter: 'scale', options: scalePadOpt, inputs: 'vlogo_raw', outputs: 'vmain' });
+                        filterGraph.push({ filter: 'scale', options: scalePadOpt, inputs: `${outroInputIdx}:v`, outputs: 'voutro' });
+                        filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: `${introInputIdx}:a`, outputs: 'aintro' });
+                        filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: mainAudioLabel, outputs: 'amain' });
+                        filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: `${outroInputIdx}:a`, outputs: 'aoutro' });
+                        filterGraph.push({
+                            filter: 'concat',
+                            options: { n: 3, v: 1, a: 1 },
+                            inputs: ['vintro', 'aintro', 'vmain', 'amain', 'voutro', 'aoutro'],
+                            outputs: ['vf', 'outa_final']
+                        });
+                        cmd.complexFilter(filterGraph)
+                            .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', '[outa_final]', '-ar', '44100', '-ac', '2'])
+                            .save(outputPath)
+                            .on('end', () => resolve(true))
+                            .on('error', (err) => reject(err));
+                    }
+                    else {
+                        filterGraph.push({ filter: 'format', options: 'yuv420p', inputs: 'vlogo_raw', outputs: 'vf' });
+                        cmd.complexFilter(filterGraph)
+                            .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', `[${mainAudioLabel}]`, '-ar', '44100', '-ac', '2'])
+                            .save(outputPath)
+                            .on('end', () => resolve(true))
+                            .on('error', (err) => reject(err));
+                    }
+                });
+                try {
+                    await runPass(false);
                 }
-                else {
-                    filterGraph.push({ filter: 'volume', options: 2.0, inputs: '1:a', outputs: 'tts_vol' });
-                    filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: 'tts_vol', outputs: 'enhanced_tts' });
-                    mainAudioLabel = 'enhanced_tts';
+                catch (complexErr) {
+                    console.warn(`[FFMPEG_WARN] Complex filtergraph failed for ${postId} (${complexErr.message}). Retrying with resilient simple muxing.`);
+                    if (fs.existsSync(outputPath)) {
+                        try {
+                            fs.unlinkSync(outputPath);
+                        }
+                        catch (e) { }
+                    }
+                    await runPass(true);
                 }
-                // 3. Intro + Main Video + Outro Concatenation (Single Pass)
-                if (hasIntro && hasOutro && introInputIdx !== -1 && outroInputIdx !== -1) {
-                    const targetW = isVertical ? 1080 : 1920;
-                    const targetH = isVertical ? 1920 : 1080;
-                    const scalePadOpt = `${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p`;
-                    filterGraph.push({ filter: 'scale', options: scalePadOpt, inputs: `${introInputIdx}:v`, outputs: 'vintro' });
-                    filterGraph.push({ filter: 'scale', options: scalePadOpt, inputs: 'vlogo_raw', outputs: 'vmain' });
-                    filterGraph.push({ filter: 'scale', options: scalePadOpt, inputs: `${outroInputIdx}:v`, outputs: 'voutro' });
-                    filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: `${introInputIdx}:a`, outputs: 'aintro' });
-                    filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: mainAudioLabel, outputs: 'amain' });
-                    filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: `${outroInputIdx}:a`, outputs: 'aoutro' });
-                    filterGraph.push({
-                        filter: 'concat',
-                        options: { n: 3, v: 1, a: 1 },
-                        inputs: ['vintro', 'aintro', 'vmain', 'amain', 'voutro', 'aoutro'],
-                        outputs: ['vf', 'outa_final']
-                    });
-                    cmd.complexFilter(filterGraph)
-                        .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', '[outa_final]', '-ar', '44100', '-ac', '2'])
-                        .save(outputPath)
-                        .on('end', () => resolve(true))
-                        .on('error', (err) => reject(err));
-                }
-                else {
-                    filterGraph.push({ filter: 'format', options: 'yuv420p', inputs: 'vlogo_raw', outputs: 'vf' });
-                    cmd.complexFilter(filterGraph)
-                        .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', `[${mainAudioLabel}]`, '-ar', '44100', '-ac', '2'])
-                        .save(outputPath)
-                        .on('end', () => resolve(true))
-                        .on('error', (err) => reject(err));
-                }
-            });
+            };
+            await renderVideoWithFFmpeg();
             const ytSettings = await db.collection('settings').doc('youtube').get();
             const refreshToken = ytSettings.exists ? ytSettings.data()?.refreshToken : process.env.YOUTUBE_REFRESH_TOKEN;
             if (!refreshToken)
@@ -1307,9 +1572,11 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
             }
         }
         catch (err) {
-            console.error(`[VIDEO_ERR] ${postId}: ${err.message}. Locking post in FAILED_YOUTUBE_UPLOAD to prevent storage egress loop.`);
-            // Clean up raw storage file on failure as well to prevent storage accumulation
-            if (videoUrl && videoUrl.includes('firebasestorage.googleapis.com')) {
+            const currentVideoRetries = (latestData?.videoRetryCount || 0) + 1;
+            const canRetry = currentVideoRetries < 2;
+            console.error(`[VIDEO_ERR] ${postId}: ${err.message}. Video retry attempt: ${currentVideoRetries}/2.`);
+            // Clean up raw storage file on permanent failure to prevent storage accumulation
+            if (!canRetry && videoUrl && videoUrl.includes('firebasestorage.googleapis.com')) {
                 try {
                     const decodedUrl = decodeURIComponent(videoUrl);
                     const pathParts = decodedUrl.split('/o/');
@@ -1320,14 +1587,17 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                 }
                 catch (delErr) { }
             }
-            // Lock in FAILED_YOUTUBE_UPLOAD so it never retries automatically or streams raw video from Firebase Storage to users
             await db.collection('news').doc(postId).update({
-                status: "FAILED_YOUTUBE_UPLOAD",
+                status: canRetry ? "PENDING_YOUTUBE_RETRY" : "FAILED_YOUTUBE_UPLOAD",
                 approved: false,
                 videoProcessed: false,
+                videoRetryCount: currentVideoRetries,
                 processingError: err.message,
                 failedAt: admin.firestore.FieldValue.serverTimestamp()
             });
+            if (!canRetry && originalReporterId) {
+                await (0, reporter_handler_1.notifyReporter)(originalReporterId, postId, data.headline?.telugu || "వీడియో వార్త", 'INTERNAL_ERROR', "", `వీడియో అప్‌లోడ్ సాంకేతిక లోపం: ${err.message}`);
+            }
         }
         finally {
             [videoPath, audioPath, outputPath].forEach(p => {
@@ -1339,6 +1609,68 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                 }
             });
         }
+    }
+});
+/**
+ * 6.3 Scheduled Auto-Retry for Failed Reporter News (Runs every 30 minutes)
+ * Scans for reporter submissions from the last 4 hours that failed, remained pending, or were falsely rejected
+ * and triggers automated reprocessing.
+ */
+exports.scheduleReprocessFailedReporterNews = (0, scheduler_1.onSchedule)({
+    schedule: "*/30 * * * *",
+    timeZone: "Asia/Kolkata",
+    memory: "1GiB",
+    timeoutSeconds: 540,
+    region: utils_1.REGION,
+    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"]
+}, async (event) => {
+    console.log("[AUTO_RETRY_SCHEDULE] Starting 30-min scan for failed/pending reporter news...");
+    const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
+    try {
+        const snapshot = await db.collection('news')
+            .where('timestamp', '>=', admin.firestore.Timestamp.fromDate(fourHoursAgo))
+            .get();
+        const retryCandidates = snapshot.docs.filter(doc => {
+            const d = doc.data();
+            const status = (d.status || "").toUpperCase();
+            const isReporter = d.isReporter === true || (d.reporter?.id && !d.isCitizen && d.reporter?.name !== "సిటిజెన్ పోస్ట్");
+            if (!isReporter || d.approved === true)
+                return false;
+            // 1. Loop prevention: Never retry if reprocessCount >= 3
+            if ((d.reprocessCount || 0) >= 3)
+                return false;
+            // 2. Filter real policy rejections and verified duplicates
+            const isRealPolicyRejection = status === "REJECTED" && !d.isDuplicate;
+            const isRealDuplicate = d.isDuplicate === true && !!d.duplicateOfPostId;
+            if (isRealPolicyRejection || isRealDuplicate)
+                return false;
+            // 3. Check for AI failure, stuck pending, or false duplicate
+            const isFalseDuplicate = (status === "REJECTED" || d.isDuplicate === true) && !d.duplicateOfPostId;
+            const isFailedOrPendingAI = (status === "FAILED" || (status === "PENDING" && d.aiProcessed !== true) || status === "REVIEWING_CONTENT" || isFalseDuplicate);
+            // 4. Check for stuck video posts (PENDING_YOUTUBE_RETRY or interrupted video processing)
+            const mTypes = (d.mediaTypes || []).map((t) => t.toUpperCase());
+            const hasVideo = mTypes.includes('VIDEO') || d.mediaType?.toUpperCase() === 'VIDEO';
+            const isStuckVideo = hasVideo && (status === "PENDING_YOUTUBE_RETRY" || status === "PROCESSING_VIDEO" || status === "PROCESSING_VIDEO_START") && d.videoProcessed !== true;
+            return isFailedOrPendingAI || isStuckVideo;
+        });
+        console.log(`[AUTO_RETRY_SCHEDULE] Found ${retryCandidates.length} failed/pending reporter posts from the last 2 hours to retry.`);
+        for (const doc of retryCandidates) {
+            const postId = doc.id;
+            const data = doc.data();
+            const mTypes = (data.mediaTypes || []).map((t) => t.toUpperCase());
+            const hasVideo = mTypes.includes('VIDEO') || data.mediaType?.toUpperCase() === 'VIDEO';
+            const targetStatus = (data.aiProcessed && hasVideo) ? "PROCESSING_VIDEO" : "PENDING";
+            console.log(`[AUTO_RETRY_SCHEDULE] Retrying post: ${postId} (${data.headline?.telugu || 'Untitled'}) -> Target: ${targetStatus}, Attempts: ${(data.reprocessCount || 0) + 1}/2`);
+            await db.collection('news').doc(postId).update({
+                status: targetStatus,
+                forceReprocess: true,
+                reprocessCount: admin.firestore.FieldValue.increment(1),
+                lastReprocessAttempt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
+    }
+    catch (err) {
+        console.error("[AUTO_RETRY_SCHEDULE_ERR] Error during 2-hour auto-retry schedule:", err.message);
     }
 });
 //# sourceMappingURL=news_handler.js.map

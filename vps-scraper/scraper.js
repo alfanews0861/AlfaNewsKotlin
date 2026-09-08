@@ -80,12 +80,15 @@ function parseArticleDate(rawDate) {
 // ============================================================================
 const GENERIC_IMAGE_PATTERNS = [
     'placeholder', 'default-image', 'default_image', 'no-image', 'noimage',
-    'masthead', 'site-logo', 'sitelogo', 'site_logo',
+    'masthead', 'site-logo', 'sitelogo', 'site_logo', 'channel_logo', 'brand_logo', 'news_logo',
     'app-logo', 'header_logo', 'header-logo', 'footer_logo', 'footer-logo', 'favicon',
     'dummy', 'share_image', 'og_default', 'fb_share', 'twitter_share',
-    'header_sun', 'eenadu_sun', 'eenadu_header', 'eenadu_red',
+    'header_sun', 'eenadu_sun', 'eenadu_header', 'eenadu_red', 'eenadu_logo',
     'toi_logo', 'toi-logo', 'timesofindia_logo', 'sakshi_logo', 'sakshi-logo',
-    'aj_logo', 'ntnews_logo', 'tv9_logo', 'v6_logo', 'abp_logo',
+    'aj_logo', 'ntnews_logo', 'tv9_logo', 'v6_logo', 'abp_logo', 'abp_live',
+    'etv', 'etvbharat', 'etv-bharat', 'etv_bharat', 'etv_logo', 'bharat_logo',
+    'hmtv', 'mahaa', '10tv', 'ap7am', 'telugustop', 'tv5', 'ntv_logo', 'aajtak', 'news18',
+    'greatandhra', 'gulte', 'thehindu', 'deccanchronicle', 'watermark', 'banner_logo',
     'static.toiimg.com/photo/108381831', 'static.toiimg.com/photo/4752938',
     'scorecardresearch.com', 'google-analytics', 'facebook.com/tr',
     'assets/_images/logos/', 'e-paper.webp', 'bell-icon.webp', 'gg-pref.gif',
@@ -112,9 +115,21 @@ function isGenericImage(url) {
         return true;
     }
 
-    // Exact logo file name match (e.g. logo.png, logo.webp, site_logo.jpg)
-    if (/\/logo[-_a-z0-9]*\.(png|jpg|jpeg|webp)/i.test(lowerUrl)) {
+    // Exact or partial logo file name match
+    if (/(?:logo|brand|masthead|watermark|banner_logo)[-_a-z0-9]*\.(?:png|jpg|jpeg|webp)/i.test(lowerUrl)) {
         return true;
+    }
+
+    // Directory-level logo assets
+    if (/\/(?:logos|branding|placeholders|watermarks|brand_assets)\//i.test(lowerUrl)) {
+        return true;
+    }
+
+    // ETV / ETV Bharat specifics (channel logos, default mastheads)
+    if (lowerUrl.includes('etvbharat') || lowerUrl.includes('etv.co.in') || lowerUrl.includes('etv-bharat') || lowerUrl.includes('etv_bharat')) {
+        if (lowerUrl.includes('logo') || lowerUrl.includes('default') || lowerUrl.includes('placeholder') || lowerUrl.includes('brand') || lowerUrl.includes('channel') || lowerUrl.includes('bharat_logo') || lowerUrl.includes('etv_logo')) {
+            return true;
+        }
     }
 
     // Eenadu specifics: reject known header/brand assets, but accept all article media
@@ -126,7 +141,8 @@ function isGenericImage(url) {
             lowerUrl.includes('andhra-pradesh-logo') || 
             lowerUrl.includes('telangana-logo') ||
             lowerUrl.includes('eenadu_sun') ||
-            lowerUrl.includes('eenadu_header')) {
+            lowerUrl.includes('eenadu_header') ||
+            lowerUrl.includes('eenadu_logo')) {
             return true;
         }
         // Genuine article media across Eenadu CDN paths
@@ -159,6 +175,35 @@ function isGenericImage(url) {
     }
 
     return false;
+}
+
+/**
+ * Sanitizes Telugu text by converting any bled Kannada Unicode characters (0x0C80-0x0CFF)
+ * and Devanagari/Hindi Unicode characters (0x0900-0x097F) to Telugu, removing orphaned matras,
+ * broken placeholder glyphs, and zero-width spaces, ensuring 100% pure Telugu script purity.
+ */
+function sanitizeTeluguText(text) {
+    if (!text) return "";
+    return text
+        // 1. Map any bled Kannada Unicode characters (0x0C80-0x0CFF) to Telugu Unicode (0x0C00-0x0C7F)
+        .replace(/[\u0C80-\u0CFF]/g, (char) => {
+            const code = char.charCodeAt(0) - 0x0080;
+            return (code >= 0x0C00 && code <= 0x0C7F) ? String.fromCharCode(code) : '';
+        })
+        // 2. Map any bled Devanagari / Hindi Unicode characters (0x0900-0x097F) to Telugu Unicode (0x0C00-0x0C7F)
+        .replace(/[\u0900-\u097F]/g, (char) => {
+            const code = char.charCodeAt(0) + 0x0300;
+            return (code >= 0x0C00 && code <= 0x0C7F) ? String.fromCharCode(code) : '';
+        })
+        // 3. Strip any residual unmapped Kannada or Hindi characters to guarantee 0% Kannada/Hindi
+        .replace(/[\u0900-\u097F\u0C80-\u0CFF]/g, '')
+        // 4. Remove dotted circle characters used as fallback for broken combining marks
+        .replace(/\u25CC/g, '')
+        // 5. Remove invisible zero-width spaces that break Telugu word joining
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        // 6. Fix spaces before Telugu combining vowel marks / virama
+        .replace(/\s+([\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63])/g, '$1')
+        .trim();
 }
 
 // ============================================================================
@@ -361,8 +406,9 @@ function extractArticleData(html, articleUrl) {
         } catch (e) {}
     });
 
-    // 2. Strip noise elements from DOM
-    $('nav, header, footer, script, style, .ads, .sidebar, .comments, aside, #sidebar, .related, .trending, .popular, .latest-news, .logo, .site-logo, .brand, .header-logo, .menu, .navigation, .social-share, .footer-tags, .tags, .widget, .promo, .about-us, .author-bio, [role="complementary"], .breadcrumb, .taboola, .outbrain, .google_ads_wrap_in_image, .next-article, .infinite-scroll').remove();
+    // 2. Strip noise elements, tickers, related stories, and logo tags from DOM
+    $('nav, header, footer, script, style, .ads, .sidebar, .comments, aside, #sidebar, .related, .trending, .popular, .latest-news, .logo, .site-logo, .brand, .header-logo, .menu, .navigation, .social-share, .footer-tags, .tags, .widget, .promo, .about-us, .author-bio, [role="complementary"], .breadcrumb, .taboola, .outbrain, .google_ads_wrap_in_image, .next-article, .infinite-scroll, .related-stories, .side-bar, .more-news, .also-read, .trending-news, .other-news, .story-related, .news-ticker, .ticker, .scroll-news, .news-strip, .breaking-strip').remove();
+    $('img[src*="logo" i], img[class*="logo" i], img[id*="logo" i], img[alt*="logo" i], img[alt*="ETV" i], img[alt*="Sakshi" i], img[alt*="Eenadu" i], img[src*="etvbharat" i], img[src*="etv-bharat" i]').remove();
 
     // 3. Extract DOM Article Body
     let domBody = '';
@@ -1539,26 +1585,45 @@ async function processSingleWebSource(doc) {
                 }
 
                 const prompt = `You are a Senior Telugu News Editor.
-1. Evaluate if this article is timely and valid news:
+1. EVALUATE TIMELINESS & RELEVANCE:
    - REJECT generic blog posts, relationship tips, horoscopes, evergreen general advice.
    - EXCEPTION: Major political party formation days, national holidays, or public events ARE valid news.
-2. Constraints:
-   - Do not miss people, locations, or the true meaning of the news.
-   - Summary must be approximately 60 words in Telugu.
-   - PUNCH LOGIC: Retain powerful political statements, emotional reactions, and punch dialogues faithfully.
-   - Write in direct breaking news tone without phrases like "ఈ నివేదిక ప్రకారం".
-3. Headline must be a punchy single sentence of 6-10 words in Telugu.
-4. Identify location: District name in Telugu if in TS/AP, state name, 'India', or 'World'.
-5. Generate deterministic storyFingerprint: EXACTLY 3-4 words joined by hyphens in English (e.g. "konda-surekha-resignation", "accident-hyderabad-road").
-6. Classification:
+2. STRICT FOCUS ON PRIMARY CORE INCIDENT (ఏకైక ప్రధాన అంశం మాత్రమే):
+   - The input article text may contain side tickers, related news snippets, other party reactions, or unrelated temple/darshan items from the web layout.
+   - YOU MUST FOCUS STRICTLY ON THE MAIN/CORE INCIDENT ONLY.
+   - NEVER combine unrelated secondary events, side news, or multiple unrelated topics into this story!
+3. SINGLE UNIFIED PARAGRAPH (గతం లో మాదిరిగానే ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్):
+   - Summary ('content') MUST be strictly ONE continuous, unified single paragraph in Telugu (~60-70 words).
+   - DO NOT create multiple paragraphs. DO NOT insert newline characters (\\n) in the content.
+   - PRESERVE FULL ESSENCE, TONE & INTENSITY (వార్త భావం, టోన్, ఇంటెన్సిటీ ఏమాత్రం మిస్ కావద్దు):
+     * Capture the complete meaning/soul (భావం) of the news faithfully.
+     * Modulate and preserve the true emotional tone and intensity (ఆవేశం, ఆగ్రహం, బాధ, పోరాట పటిమ, లేదా ప్రజా సమస్య తీవ్రత).
+     * Include ALL key people's names (వ్యక్తుల పేర్లు) and exact locations/districts/mandals (ప్రాంతాలు). Never omit names or locations!
+4. PUNCH DIALOGUE AS HEADLINE (పంచ్ డైలాగ్ లేదా ఘాటైన వాక్యాన్నే హెడ్‌లైన్‌గా పెట్టు):
+   - Extract the speaker's sharpest punch dialogue, quote, rhetorical question, or fiery statement from the news as the headline hook.
+   - Format: Lead with the punch dialogue in quotes, followed by context:
+     Examples:
+     * "'ప్రజలను దగా చేశారు..': కూటమి సర్కార్‌పై జగన్ ఫైర్"
+     * "'అక్రమ అరెస్టులతో బెదిరించలేరు': హైదరాబాద్‌లో బీఆర్ఎస్ నేతల ఆగ్రహం"
+     * "'నోరు అదుపులో పెట్టుకోకపోతే ఖబడ్దార్!': టీడీపీ నేతల వార్నింగ్"
+   - Headline length: 6-10 words in Telugu.
+5. STRICT TELUGU SCRIPT PURITY (స్వచ్ఛమైన తెలుగు లిపి మాత్రమే):
+   - Output 100% pure Telugu script (Unicode U+0C00-U+0C7F).
+   - STRICTLY FORBIDDEN: NEVER mix Kannada (U+0C80-U+0CFF) or Hindi/Devanagari (U+0900-U+097F) letters into Telugu words. Zero Kannada or Hindi characters allowed in headlines or summary!
+6. STRICT IMAGE & LOGO EVALUATION (లోగోలు, లోగోలున్న ఇమేజ్‌లను పూర్తిగా తిరస్కరించు):
+   - Inspect the candidate image attached: ${extracted.image || 'None'}.
+   - If the image contains ANY channel logo (e.g. ETV, ETV Bharat, TV9, Sakshi, Eenadu, ABN, NTV, V6, T News, 10TV, HMTV, Mahaa, Zee, etc.), website logo, watermark, TV mic emblem, digital title card, or brand graphic:
+     YOU MUST REJECT IT! Set "hasLogo": true, "mediaUrl": "".
+   - ONLY set "mediaUrl": "${extracted.image || ''}" and "hasLogo": false if the image is a genuine, authentic real-world news photograph (e.g. accident scene, real persons, meeting, protest, on-ground event) WITHOUT ANY prominent TV/news logo or watermark.
+   - When in doubt, REJECT the image ("hasLogo": true, "mediaUrl": "").
+7. Identify location: District name in Telugu if in TS/AP, state name, 'India', or 'World'.
+8. Generate deterministic storyFingerprint: EXACTLY 3-4 words joined by hyphens in English.
+9. Classification:
    - refinedCategory: Exactly one of [Politics, Crime, Sports, Cinema, Business, Health, Education, Technology, Agriculture, Local, National, International].
    - tags: 3-5 Telugu keywords.
    - entities: { "people": [], "organizations": [], "locations": [] }.
-7. Media: Attached or candidate URL: ${extracted.image || 'None'}.
-   - If image is a logo, masthead, or generic graphic, set mediaUrl to "".
-   - If image is a real news photo, set mediaUrl to "${extracted.image || ''}".
-8. Output JSON only:
-{"isRelevant": true, "headline": "Telugu Title", "content": "Telugu Summary", "headlineEn": "English Title", "contentEn": "English Summary", "location": "Location", "storyFingerprint": "finger-print", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "${extracted.image || ''}", "mediaType": "image|video", "isWide": true|false}`;
+10. Output JSON only:
+{"isRelevant": true, "headline": "Telugu Title", "content": "Telugu Summary", "headlineEn": "English Title", "contentEn": "English Summary", "location": "Location", "storyFingerprint": "finger-print", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "hasLogo": false, "mediaUrl": "${extracted.image || ''}", "mediaType": "image|video", "isWide": true|false}`;
 
                 const aiResult = await processWithGemini(extracted.body, prompt, extracted.image);
                 if (!aiResult) {
@@ -1627,12 +1692,10 @@ async function processSingleWebSource(doc) {
                         categoriesList.push(finalDistrict);
                     }
 
-                    // Media URL handling: Never drop the extracted image if Gemini returned empty or placeholder
+                    // Media URL handling: Strict Logo Rejection & Never override AI logo decision
                     let chosenMediaUrl = null;
-                    if (parsed.mediaUrl && parsed.mediaUrl.startsWith('http') && !parsed.mediaUrl.includes('"') && parsed.mediaUrl !== 'url' && !isGenericImage(parsed.mediaUrl)) {
+                    if (parsed.hasLogo !== true && parsed.mediaUrl && parsed.mediaUrl.startsWith('http') && !parsed.mediaUrl.includes('"') && parsed.mediaUrl !== 'url' && !isGenericImage(parsed.mediaUrl)) {
                         chosenMediaUrl = parsed.mediaUrl;
-                    } else if (extracted.image && extracted.image.startsWith('http') && !isGenericImage(extracted.image)) {
-                        chosenMediaUrl = extracted.image;
                     }
 
                     let finalMediaUrl = ALFA_NEWS_LOGO;
@@ -1659,10 +1722,14 @@ async function processSingleWebSource(doc) {
                         }
                     }
 
+                    // Enforce pure Telugu script & Single Paragraph
+                    const cleanedHeadline = sanitizeTeluguText(parsed.headline);
+                    const cleanedContent = sanitizeTeluguText(parsed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+
                     const docRef = db.collection('news').doc();
                     const newsPayload = sanitizeFirestoreData({
-                        headline: { telugu: parsed.headline, english: parsed.headlineEn || '' },
-                        content: { telugu: parsed.content, english: parsed.contentEn || '' },
+                        headline: { telugu: cleanedHeadline, english: parsed.headlineEn || '' },
+                        content: { telugu: cleanedContent, english: parsed.contentEn || '' },
                         sourceUrl: link,
                         originalUrl: link,
                         sourceName: source.siteName,
@@ -2036,8 +2103,14 @@ WRITING RULES (CRITICAL EDITORIAL STYLE):
      * "'నోరు అదుపులో పెట్టుకోకపోతే ఖబడ్దార్!': వైసీపీ నేతలకు లోకేష్ స్ట్రాంగ్ వార్నింగ్"
      * "'హామీలు గాల్లో కలిపేశారు.. ఇదేనా మీ మార్పు?': రేవంత్ సర్కార్‌పై కేటీఆర్ ఘాటు వ్యాఖ్యలు"
    - Headline length: 6-12 words in Telugu, high-voltage, sensational yet authentic to the tweet.
-3. SUMMARY (సారాంశం):
-   - Approx 60 words in crisp, powerful Telugu preserving the exact arguments, punch points, and context.
+3. SUMMARY (గతం లో మాదిరిగానే ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్):
+   - Approx 60-70 words in crisp, powerful Telugu preserving the exact arguments, punch points, people names, and context.
+   - Strictly ONE continuous single unified paragraph. DO NOT split into multiple paragraphs, DO NOT use newlines.
+4. STRICT TELUGU SCRIPT PURITY (స్వచ్ఛమైన తెలుగు లిపి మాత్రమే):
+   - Output 100% pure Telugu script (Unicode U+0C00-U+0C7F).
+   - STRICTLY FORBIDDEN: Zero Kannada (U+0C80-U+0CFF) or Hindi/Devanagari (U+0900-U+097F) letters allowed!
+5. STRICT LOGO REJECTION:
+   - If media is purely a logo, channel icon, or brand card, set mediaUrl to "".
 
 Output JSON only:
 {"isRelevant": true|false, "headline": "Telugu Title", "content": "Telugu Summary", "headlineEn": "English Title", "contentEn": "English Summary", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "url", "mediaType": "image", "isWide": false}`;
@@ -2100,10 +2173,14 @@ Output JSON only:
                         finalMediaUrl = `https://wsrv.nl/?url=${encodeURIComponent(rawMedia)}&output=webp`;
                     }
 
+                    // Enforce pure Telugu script & Single Paragraph
+                    const cleanedHeadline = sanitizeTeluguText(parsed.headline);
+                    const cleanedContent = sanitizeTeluguText(parsed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+
                     const docRef = db.collection('news').doc();
                     const newsPayload = sanitizeFirestoreData({
-                        headline: { telugu: parsed.headline, english: parsed.headlineEn || '' },
-                        content: { telugu: parsed.content, english: parsed.contentEn || '' },
+                        headline: { telugu: cleanedHeadline, english: parsed.headlineEn || '' },
+                        content: { telugu: cleanedContent, english: parsed.contentEn || '' },
                         sourceUrl: item.url,
                         originalUrl: item.url,
                         sourceName: feed.sourceName || `X (@${handle})`,

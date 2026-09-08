@@ -87,7 +87,8 @@ class MainActivity : ComponentActivity() {
     ) { isGranted: Boolean ->
         if (isGranted) {
             Log.d("MainActivity", "Notification permission granted")
-            // Permission granted, FCM token will be generated/refreshed automatically
+            mainViewModel.syncUserFcmToken(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
+            mainViewModel.ensureDefaultSubscriptions()
         } else {
             Log.d("MainActivity", "Notification permission denied")
         }
@@ -123,10 +124,17 @@ class MainActivity : ComponentActivity() {
         // ఆండ్రాయిడ్ 13+ కోసం నోటిఫికేషన్ పర్మిషన్ అడగడం
         askNotificationPermission()
 
-        // Preload news to avoid delay after splash screen
+        // Preload news - if intent contains a postId (notification or deep link),
+        // pass initialPostId immediately so fast path loads the target post at index 0 without delay.
+        val initialPostId = extractPostIdFromIntent(intent)
+        if (initialPostId != null) {
+            newsFeedViewModel.setSharedPostId(initialPostId)
+            mainViewModel.setActiveTab("home")
+            AnalyticsService.logNotificationOpened(postId = initialPostId, actionUrl = intent?.getStringExtra("actionUrl"))
+        }
         val language = mainViewModel.language.value
         val currentUser = mainViewModel.currentUser.value
-        newsFeedViewModel.loadNews(language, currentUser)
+        newsFeedViewModel.loadNews(language, currentUser, initialPostId = initialPostId)
 
         // Handle Firebase Dynamic Links (for deferred deep links when app wasn't installed)
         // This must be done BEFORE handleDeepLink() to catch dynamic links properly
@@ -260,10 +268,13 @@ class MainActivity : ComponentActivity() {
                 PackageManager.PERMISSION_GRANTED
             ) {
                 // Permission is already granted
+                mainViewModel.syncUserFcmToken(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
             } else {
                 // Directly ask for the permission
                 requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
             }
+        } else {
+            mainViewModel.syncUserFcmToken(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
         }
     }
 
@@ -291,6 +302,9 @@ class MainActivity : ComponentActivity() {
         val isEnabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
         mainViewModel.setNotificationsGranted(isEnabled)
         com.alfanews.telugu.services.AnalyticsService.logNotificationPermissionStatus(isEnabled)
+        if (isEnabled) {
+            mainViewModel.syncUserFcmToken(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
+        }
 
         try {
             appUpdateManager.appUpdateInfo.addOnSuccessListener { appUpdateInfo ->
@@ -350,53 +364,90 @@ class MainActivity : ComponentActivity() {
             }
     }
 
+    private fun extractPostIdFromIntent(intent: Intent?): String? {
+        if (intent == null) return null
+        
+        // 1. Direct extras check (from notifications or custom intents)
+        val extraPostId = intent.getStringExtra("postId") 
+            ?: intent.getStringExtra("newsId") 
+            ?: intent.getStringExtra("news_id")
+        if (!extraPostId.isNullOrEmpty() && extraPostId != "news") {
+            return extraPostId
+        }
+
+        // 2. URI check (from data or actionUrl)
+        val fcmActionUrl = intent.getStringExtra("actionUrl")
+        val intentData = intent.data
+        val uri = intentData ?: fcmActionUrl?.let { Uri.parse(it) } ?: return null
+
+        return parsePostIdFromUri(uri)
+    }
+
+    private fun parsePostIdFromUri(u: Uri): String? {
+        return when (u.scheme) {
+            "alfanews" -> {
+                when (u.host) {
+                    "news", "share" -> u.lastPathSegment
+                    else -> null
+                }
+            }
+            "http", "https" -> {
+                val host = u.host
+                if (host == "alfanews.app" || host == "www.alfanews.app") {
+                    val pathSegments = u.pathSegments
+                    if (pathSegments.size >= 2 && (pathSegments[0] == "news" || pathSegments[0] == "share")) {
+                        pathSegments[1]
+                    } else null
+                } else null
+            }
+            else -> null
+        }
+    }
+
+    private fun parseReporterIdFromUri(u: Uri): String? {
+        return when (u.scheme) {
+            "alfanews" -> {
+                when (u.host) {
+                    "reporter", "verify" -> u.lastPathSegment
+                    else -> null
+                }
+            }
+            "http", "https" -> {
+                val host = u.host
+                if (host == "alfanews.app" || host == "www.alfanews.app") {
+                    val pathSegments = u.pathSegments
+                    if (pathSegments.size >= 2 && (pathSegments[0] == "reporter" || pathSegments[0] == "verify")) {
+                        pathSegments[1]
+                    } else null
+                } else null
+            }
+            else -> null
+        }
+    }
+
     private fun handleDeepLink(intent: Intent?) {
         try {
             val fcmActionUrl = intent?.getStringExtra("actionUrl")
             val intentData = intent?.data
-
             val uri = intentData ?: fcmActionUrl?.let { Uri.parse(it) }
 
-            uri?.let { u ->
-                var postId: String? = null
-                var reporterId: String? = null
+            val postId = extractPostIdFromIntent(intent)
+            val reporterId = uri?.let { parseReporterIdFromUri(it) }
 
-                when (u.scheme) {
-                    "alfanews" -> {
-                        // alfanews://news/POST_ID or alfanews://share/POST_ID or alfanews://reporter/REPORTER_ID
-                        when (u.host) {
-                            "news", "share" -> postId = u.lastPathSegment
-                            "reporter", "verify" -> reporterId = u.lastPathSegment
-                        }
-                    }
-                    "http", "https" -> {
-                        // https://alfanews.app/news/POST_ID or https://alfanews.app/verify/REPORTER_ID
-                        val host = u.host
-                        if (host == "alfanews.app" || host == "www.alfanews.app") {
-                            val pathSegments = u.pathSegments
-                            if (pathSegments.size >= 2) {
-                                when (pathSegments[0]) {
-                                    "news", "share" -> postId = pathSegments[1]
-                                    "reporter", "verify" -> reporterId = pathSegments[1]
-                                }
-                            }
-                        }
-                    }
+            if (postId != null) {
+                AnalyticsService.logNotificationOpened(postId = postId, actionUrl = fcmActionUrl)
+                // 🔗 CRITICAL: Set sharedPostId so UI knows to scroll to this post
+                newsFeedViewModel.setSharedPostId(postId)
+                mainViewModel.setActiveTab("home")
+                // Only load if the post isn't already the first item in the list
+                if (newsFeedViewModel.news.value.firstOrNull()?.id != postId) {
+                    newsFeedViewModel.loadNews(mainViewModel.language.value, mainViewModel.currentUser.value, initialPostId = postId)
                 }
+            }
 
-                if (postId != null) {
-                    val id = postId!!
-                    AnalyticsService.logNotificationOpened(postId = id, actionUrl = fcmActionUrl)
-                    // 🔗 CRITICAL: Set sharedPostId so UI knows to scroll to this post
-                    newsFeedViewModel.setSharedPostId(id)
-                    mainViewModel.setActiveTab("home")
-                    newsFeedViewModel.loadNews(mainViewModel.language.value, mainViewModel.currentUser.value, initialPostId = id)
-                }
-
-                if (reporterId != null) {
-                    AnalyticsService.logNotificationOpened(actionUrl = fcmActionUrl)
-                    mainViewModel.setReporterIdToShow(reporterId)
-                }
+            if (reporterId != null) {
+                AnalyticsService.logNotificationOpened(actionUrl = fcmActionUrl)
+                mainViewModel.setReporterIdToShow(reporterId)
             }
         } catch (e: Exception) {
             // Silent error handling - deeplink processing should never crash the app

@@ -134,12 +134,14 @@ fun NewsFeedView(
         snapPositionalThreshold = 0.10f
     )
 
-    LaunchedEffect(sharedPostId, news.size) {
-        if (sharedPostId != null && news.isNotEmpty()) {
-            val postIndex = news.indexOfFirst { it.id == sharedPostId }
+    LaunchedEffect(sharedPostId, news) {
+        val targetId = sharedPostId
+        if (targetId != null && news.isNotEmpty()) {
+            val postIndex = news.indexOfFirst { it.id == targetId }
             if (postIndex >= 0) {
                 val pageIndex = postIndex + (postIndex / 5)
-                pagerState.animateScrollToPage(pageIndex)
+                pagerState.scrollToPage(pageIndex)
+                viewModel.setSharedPostId(null)
             }
         }
     }
@@ -155,7 +157,22 @@ fun NewsFeedView(
     val onProfileClickRemembered = remember(onProfileClick) { onProfileClick }
     val onDistrictClickRemembered = remember(onDistrictClick) { onDistrictClick }
     val onEditClickRemembered = remember(onEditClick) { onEditClick }
-    val onAutoShareDoneRemembered = remember { { viewModel.setSharedPostId(null) } }
+
+    LaunchedEffect(news) {
+        val postsToPreload = news.take(5)
+        postsToPreload.forEach { post: NewsPost ->
+            if (post.mediaUrl.isNotEmpty()) {
+                val request = ImageRequest.Builder(context)
+                    .data(post.mediaUrl)
+                    .allowHardware(true)
+                    .crossfade(false)
+                    .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
+                    .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
+                    .build()
+                SingletonImageLoader.get(context).enqueue(request)
+            }
+        }
+    }
 
     LaunchedEffect(pagerState, news.size) {
         snapshotFlow { pagerState.currentPage }.collect { page ->
@@ -178,7 +195,7 @@ fun NewsFeedView(
                 viewModel.loadMore(language, currentUser)
             }
 
-            // 🚀 IMAGE PRELOADING: next 5 pages ahead for ultra-smooth scrolling
+            // 🚀 FAST SWIPE PRELOADING: వేగంగా స్వైప్ చేసే యూజర్ల కోసం 5 పేజీల ముందస్తు ఇమేజ్ ప్రీ-లోడింగ్
             (1..5).forEach { offset ->
                 val nextPageIndex = page + offset
                 val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
@@ -188,14 +205,16 @@ fun NewsFeedView(
                         val request = ImageRequest.Builder(context)
                             .data(post.mediaUrl)
                             .allowHardware(true)
-                            .crossfade(false) // No crossfade for background preloads
+                            .crossfade(false)
+                            .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
+                            .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
                             .build()
                         SingletonImageLoader.get(context).enqueue(request)
                     }
                 }
             }
 
-            // 🚀 LOCAL AD PRELOADING: limit to 2 slots ahead to minimize concurrent network streams
+            // 🚀 LOCAL AD PRELOADING: 2 స్లాట్లు ముందుగా
             (1..2).forEach { offset ->
                 val futurePage = page + offset
                 val isAdPage = (futurePage + 1) % 6 == 0
@@ -252,26 +271,15 @@ fun NewsFeedView(
                 }
             }
         } else if (news.isEmpty()) {
-            if (loading) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        CircularProgressIndicator(modifier = Modifier.size(40.dp), color = MaterialTheme.colorScheme.primary)
-                        Text(text = stringResource(R.string.news_preparing), color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge)
-                    }
+            if (!loading) {
+                LaunchedEffect(Unit) {
+                    viewModel.loadNews(language, currentUser, initialPostId)
                 }
-            } else {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        modifier = Modifier.padding(32.dp)
-                    ) {
-                        Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                        Text(text = stringResource(R.string.no_news_available), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground, textAlign = TextAlign.Center)
-                        Button(onClick = { viewModel.loadNews(language, currentUser, initialPostId) }) {
-                            Text(text = stringResource(R.string.retry))
-                        }
-                    }
+            }
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.size(40.dp), color = MaterialTheme.colorScheme.primary)
+                    Text(text = stringResource(R.string.news_preparing), color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge)
                 }
             }
         } else {
@@ -355,8 +363,6 @@ fun NewsFeedView(
                                     onProfileClick = onProfileClickRemembered,
                                     onReporterClick = onReporterClickRemembered,
                                     onDistrictClick = onDistrictClickRemembered,
-                                    autoShare = sharedPostId == post.id,
-                                    onAutoShareDone = onAutoShareDoneRemembered,
                                     onEditClick = onEditClickRemembered,
                                     modifier = Modifier.fillMaxSize(),
                                     showTopHeader = false,

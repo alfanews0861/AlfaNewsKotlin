@@ -93,6 +93,7 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
                 level >= TRIM_MEMORY_RUNNING_LOW || 
                 level >= TRIM_MEMORY_RUNNING_MODERATE -> {
                     SingletonImageLoader.get(this).memoryCache?.clear()
+                    com.alfanews.telugu.services.AdMobService.clearAndDestroyNativeAds()
                 }
             }
         } catch (e: Exception) {
@@ -103,8 +104,9 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
     override fun onLowMemory() {
         super.onLowMemory()
         try {
-            // 🛑 Full release of in-memory bitmap cache under low memory
+            // 🛑 Full release of in-memory bitmap cache and preloaded native ads under low memory
             SingletonImageLoader.get(this).memoryCache?.clear()
+            com.alfanews.telugu.services.AdMobService.clearAndDestroyNativeAds()
         } catch (e: Exception) {
             Log.e("AlfaNewsApp", "Error clearing memory on low memory: ${e.message}")
         }
@@ -152,8 +154,8 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         val prefs = PreferenceManager.getInstance(context)
         val limitMB = prefs.storageLimitMB
-        // ఒకవేళ అపరిమితం (0) అయితే 500MB, లేదంటే 70%
-        val diskLimitBytes = if (limitMB <= 0) 500 * 1024 * 1024L else (limitMB * 0.7).toLong() * 1024 * 1024L
+        // గరిష్టంగా 50MB సీలింగ్ (ఫోన్ స్టోరేజ్ & ఎగ్రెస్ ఖర్చుల రక్షణ)
+        val diskLimitBytes = if (limitMB <= 0) 50 * 1024 * 1024L else minOf(50L * 1024 * 1024L, (limitMB * 0.7).toLong() * 1024 * 1024L)
 
         return ImageLoader.Builder(context)
             .components {

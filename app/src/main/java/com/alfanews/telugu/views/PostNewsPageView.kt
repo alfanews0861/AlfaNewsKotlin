@@ -71,7 +71,20 @@ fun PostNewsPageView(
 ) {
     var headline by remember { mutableStateOf(postToEdit?.headline?.telugu ?: "") }
     var content by remember { mutableStateOf(postToEdit?.content?.telugu ?: "") }
-    var mediaUrl by remember { mutableStateOf(postToEdit?.mediaUrl ?: "") }
+    var existingMediaUrls by remember(postToEdit) {
+        mutableStateOf(
+            postToEdit?.let { p ->
+                p.mediaUrls.ifEmpty { if (p.mediaUrl.isNotEmpty()) listOf(p.mediaUrl) else emptyList() }
+            } ?: emptyList()
+        )
+    }
+    var existingMediaTypes by remember(postToEdit) {
+        mutableStateOf(
+            postToEdit?.let { p ->
+                p.mediaTypes.map { it.name }.ifEmpty { if (p.mediaUrl.isNotEmpty()) listOf(p.mediaType.name) else emptyList() }
+            } ?: emptyList()
+        )
+    }
     var youtubeUrl by remember { mutableStateOf(postToEdit?.youtubeUrl ?: "") }
     var mediaUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var location by remember { mutableStateOf(postToEdit?.location ?: user.assignedMandal ?: "") }
@@ -100,6 +113,19 @@ fun PostNewsPageView(
     var statusMessage by remember { mutableStateOf("") }
     
     LaunchedEffect(postToEdit) {
+        if (postToEdit != null) {
+            headline = postToEdit.headline.telugu
+            content = postToEdit.content.telugu
+            youtubeUrl = postToEdit.youtubeUrl ?: ""
+            location = postToEdit.location.ifEmpty { user.assignedMandal ?: "" }
+            category = postToEdit.categories.firstOrNull { !Constants.ALL_DISTRICTS.contains(it) } ?: postToEdit.category ?: "జిల్లా వార్త"
+            state = postToEdit.state ?: user.state ?: "TS"
+            district = postToEdit.district ?: user.district ?: ""
+            isGlobalNews = postToEdit.isGlobal
+            existingMediaUrls = postToEdit.mediaUrls.ifEmpty { if (postToEdit.mediaUrl.isNotEmpty()) listOf(postToEdit.mediaUrl) else emptyList() }
+            existingMediaTypes = postToEdit.mediaTypes.map { it.name }.ifEmpty { if (postToEdit.mediaUrl.isNotEmpty()) listOf(postToEdit.mediaType.name) else emptyList() }
+            mediaUris = emptyList()
+        }
         statusMessage = if (postToEdit != null) updateString else publishString
     }
 
@@ -175,16 +201,8 @@ fun PostNewsPageView(
             try {
                 statusMessage = context.getString(R.string.uploading_media)
                 
-                val finalMediaUrls = if (postToEdit != null) {
-                    (postToEdit.mediaUrls.ifEmpty { if (postToEdit.mediaUrl.isNotEmpty()) listOf(postToEdit.mediaUrl) else emptyList() }).toMutableList()
-                } else {
-                    mutableListOf<String>()
-                }
-                val finalMediaTypes = if (postToEdit != null) {
-                    (postToEdit.mediaTypes.map { it.name }.ifEmpty { listOf(postToEdit.mediaType.name) }).toMutableList()
-                } else {
-                    mutableListOf<String>()
-                }
+                val finalMediaUrls = existingMediaUrls.toMutableList()
+                val finalMediaTypes = existingMediaTypes.toMutableList()
 
                 if (mediaUris.isNotEmpty()) {
                     val sortedUris = mediaUris.sortedByDescending { uri ->
@@ -250,16 +268,20 @@ fun PostNewsPageView(
                     ).getOrThrow()
                     
                     val serverMessage = result["message"] as? String
-                    val newPostId = result["postId"] as? String
-                    
-                    // Improved Feedback: Clear message that upload is done and server is working
-                    val isVideoPost = finalMediaTypes.contains("VIDEO")
-                    if (isVideoPost) {
-                        Toast.makeText(context, "వార్త అప్‌లోడ్ విజయవంతమైంది! వీడియో తయారీ మరియు ఇతర పనులు నేపథ్యంలో జరుగుతున్నాయి. 10 నిమిషాల తర్వాత చూడండి.", Toast.LENGTH_LONG).show()
-                        onActionComplete("HOME_ONLY") 
+                    val newPostId = result["postId"] as? String ?: postToEdit?.id ?: ""
+
+                    if (postToEdit != null) {
+                        Toast.makeText(context, "వార్త విజయవంతంగా నవీకరించబడింది!", Toast.LENGTH_LONG).show()
+                        onActionComplete(postToEdit.id)
                     } else {
-                        Toast.makeText(context, "వార్త విజయవంతంగా పంపబడింది. త్వరలో హోమ్ ఫీడ్ లో చూడవచ్చు.", Toast.LENGTH_LONG).show()
-                        onActionComplete("HOME_ONLY")
+                        val isVideoPost = finalMediaTypes.contains("VIDEO")
+                        if (isVideoPost) {
+                            Toast.makeText(context, "వార్త అప్‌లోడ్ విజయవంతమైంది! వీడియో తయారీ మరియు ఇతర పనులు నేపథ్యంలో జరుగుతున్నాయి. 10 నిమిషాల తర్వాత చూడండి.", Toast.LENGTH_LONG).show()
+                            onActionComplete("HOME_ONLY") 
+                        } else {
+                            Toast.makeText(context, "వార్త విజయవంతంగా పంపబడింది. త్వరలో హోమ్ ఫీడ్ లో చూడవచ్చు.", Toast.LENGTH_LONG).show()
+                            onActionComplete("HOME_ONLY")
+                        }
                     }
                 } catch (e: Exception) {
                     statusMessage = context.getString(R.string.error)
@@ -373,9 +395,8 @@ fun PostNewsPageView(
                     Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(mediaLabel, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                         
-                        val combinedMediaUrls = remember(mediaUrl, mediaUris) {
-                            val existing = if (mediaUrl.isNotEmpty()) listOf(mediaUrl) else emptyList()
-                            existing + mediaUris.map { it.toString() }
+                        val combinedMediaUrls = remember(existingMediaUrls, mediaUris) {
+                            existingMediaUrls + mediaUris.map { it.toString() }
                         }
 
                         if (combinedMediaUrls.isNotEmpty()) {
@@ -423,10 +444,12 @@ fun PostNewsPageView(
 
                                 IconButton(
                                     onClick = {
-                                        if (pagerState.currentPage < (if (mediaUrl.isNotEmpty()) 1 else 0)) {
-                                            mediaUrl = ""
+                                        val curPage = pagerState.currentPage
+                                        if (curPage < existingMediaUrls.size) {
+                                            existingMediaUrls = existingMediaUrls.filterIndexed { index, _ -> index != curPage }
+                                            existingMediaTypes = existingMediaTypes.filterIndexed { index, _ -> index != curPage }
                                         } else {
-                                            val indexInUris = pagerState.currentPage - (if (mediaUrl.isNotEmpty()) 1 else 0)
+                                            val indexInUris = curPage - existingMediaUrls.size
                                             mediaUris = mediaUris.filterIndexed { index, _ -> index != indexInUris }
                                         }
                                     },
@@ -445,7 +468,7 @@ fun PostNewsPageView(
                                 onClick = { imageLauncher.launch("image/*") },
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                                 modifier = Modifier.weight(1f),
-                                enabled = (mediaUris.size + (if(mediaUrl.isNotEmpty()) 1 else 0)) < 3
+                                enabled = (mediaUris.size + existingMediaUrls.size) < 3
                             ) {
                                 Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.size(8.dp))
@@ -456,7 +479,7 @@ fun PostNewsPageView(
                                 onClick = { videoLauncher.launch("video/*") },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4285F4)),
                                 modifier = Modifier.weight(1f),
-                                enabled = mediaUris.none { context.contentResolver.getType(it)?.startsWith("video/") == true } && (mediaUris.size + (if(mediaUrl.isNotEmpty()) 1 else 0)) < 3
+                                enabled = mediaUris.none { context.contentResolver.getType(it)?.startsWith("video/") == true } && existingMediaTypes.none { it.uppercase() == "VIDEO" } && (mediaUris.size + existingMediaUrls.size) < 3
                             ) {
                                 Icon(Icons.Default.VideoLibrary, contentDescription = null, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.size(8.dp))

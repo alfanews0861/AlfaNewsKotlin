@@ -15,13 +15,23 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
 const admin = __importStar(require("firebase-admin"));
@@ -353,9 +363,13 @@ function getWeatherGridTopic(lat, lon) {
 }
 /**
  * Weather code + forecast data బట్టి alert తయారుచేస్తుంది.
- * hoursFromNow: రాబోయే ఎన్ని గంటల్లో (0 = ఇప్పుడే)
+ * hoursFromNow: రాబోయే ఎన్ని గంటల్లో (0 = ఇప్పుడే, 1 = 1 గంటలో)
  * precipitation: mm/hr
- * Returns { title, body, severity } or null (alert అవసరం లేకపోతే)
+ * Returns { title, body, severity, type } or null (alert అవసరం లేకపోతే)
+ *
+ * 🛡️ SPAM & FALSE ALARM GUARD:
+ * - తేలికపాటి చినుకులు (Drizzle 51-57) లేదా 0.1mm అంచనాలకు పుష్ నోటిఫికేషన్లు పంపకూడదు.
+ * - కేవలం నిజమైన అత్యవసర/తీవ్ర వాతావరణం (పిడుగులు, భారీ వర్షం, తీవ్ర గాలులు, తీవ్ర ఎండ) మాత్రమే అలర్ట్ పంపుతుంది.
  */
 function buildWeatherAlert(weatherCode, temp, windSpeed, hoursFromNow, precipitation) {
     const timeStr = hoursFromNow === 0
@@ -363,55 +377,53 @@ function buildWeatherAlert(weatherCode, temp, windSpeed, hoursFromNow, precipita
         : hoursFromNow === 1
             ? "1 గంటలో"
             : `${hoursFromNow} గంటల్లో`;
+    // 1. ⚡ పిడుగులు / ఉరుములు (Thunderstorms)
     if (weatherCode === 95 || weatherCode === 96 || weatherCode === 99) {
         return {
             title: `⚡ పిడుగుల హెచ్చరిక — ${timeStr}`,
             body: `మీ ప్రాంతంలో ${timeStr} ఉరుములు మెరుపులతో కూడిన భారీ వర్షం పడే ప్రమాదం ఉంది. చెట్ల కింద, తెరిచిన ప్రదేశాల్లో నిలబడవద్దు — సురక్షితమైన భవనంలో ఉండండి.`,
-            severity: "SEVERE"
+            severity: "SEVERE",
+            type: "THUNDERSTORM"
         };
     }
-    if ((weatherCode === 65 || weatherCode === 82) || precipitation >= 10) {
+    // 2. ⛈️ కుండపోత / అతి భారీ వర్షం (Heavy / Torrential rain: codes 65, 82 with precip >= 10 mm/hr or precipitation >= 15 mm/hr)
+    // 🛡️ సాధారణ లేదా మోస్తరు వర్షాలకు పుష్ నోటిఫికేషన్లు పూర్తిగా రద్దు చేయబడ్డాయి. కేవలం తీవ్ర భారీ వర్షానికి మాత్రమే అలర్ట్!
+    if (((weatherCode === 65 || weatherCode === 82) && precipitation >= 10.0) || precipitation >= 15.0) {
         return {
             title: `⛈️ భారీ వర్ష హెచ్చరిక — ${timeStr}`,
-            body: `మీ ప్రాంతంలో ${timeStr} భారీ వర్షం పడే అవకాశం ఉంది. తక్కువ దృశ్యమానత వుంటుంది, వాహనచోదకులు జాగ్రత్తగా ఉండాలి. రైతు సోదరులు ధాన్యం నిల్వలు జాగ్రత్త పరుచుకోవాలి.`,
-            severity: "SEVERE"
+            body: `మీ ప్రాంతంలో ${timeStr} కుండపోత భారీ వర్షం పడే అవకాశం ఉంది. లోతట్టు ప్రాంతాల ప్రజలు, వాహనచోదకులు అప్రమత్తంగా ఉండాలి.`,
+            severity: "SEVERE",
+            type: "HEAVY_RAIN"
         };
     }
-    if ((weatherCode >= 61 && weatherCode <= 82) || precipitation >= 2.5) {
-        return {
-            title: `🌧️ వర్ష సూచన — ${timeStr}`,
-            body: `మీ ప్రాంతంలో ${timeStr} వర్షం పడే అవకాశం ఉంది. బయటకు వెళ్లేవారు గొడుగు వెంట ఉంచుకోండి.`,
-            severity: "WARNING"
-        };
-    }
+    // 3. 🌪️ తీవ్ర ఈదురుగాలులు (High winds: >= 60 km/h)
     if (windSpeed >= 60) {
         return {
             title: `🌪️ తీవ్ర గాలుల హెచ్చరిక — ${timeStr}`,
-            body: `మీ ప్రాంతంలో ${timeStr} ${Math.round(windSpeed)} km/h వేగంతో తీవ్రమైన గాలులు వీచే అవకాశం ఉంది. బాహ్య నిర్మాణాలు, ఫ్లెక్సీలు జాగ్రత్తగా ఉంచుకోండి.`,
-            severity: "WARNING"
+            body: `మీ ప్రాంతంలో ${timeStr} ${Math.round(windSpeed)} km/h వేగంతో తీవ్రమైన ఈదురుగాలులు వీచే అవకాశం ఉంది. చెట్లు, విద్యుత్ స్తంభాలు, ఫ్లెక్సీల వద్ద జాగ్రత్తగా ఉండండి.`,
+            severity: "WARNING",
+            type: "HIGH_WIND"
         };
     }
+    // 4. 🌫️ దట్టమైన పొగమంచు (Dense fog: codes 45, 48)
     if (weatherCode === 45 || weatherCode === 48) {
         return {
             title: `🌫️ దట్టమైన పొగమంచు హెచ్చరిక — ${timeStr}`,
             body: `మీ ప్రాంతంలో ${timeStr} దట్టమైన పొగమంచు ఉంటుంది. వాహనదారులు ఫాగ్ లైట్లు వాడుతూ నెమ్మదిగా ప్రయాణించండి.`,
-            severity: "WARNING"
+            severity: "WARNING",
+            type: "DENSE_FOG"
         };
     }
-    if (temp >= 42) {
+    // 5. 🔥 తీవ్ర ఎండ / వడగాల్పులు (Extreme heatwave: >= 43°C)
+    if (temp >= 43) {
         return {
             title: `🔥 తీవ్ర ఎండ హెచ్చరిక`,
             body: `మీ ప్రాంతంలో ఉష్ణోగ్రత ${Math.round(temp)}°C కి చేరింది. మధ్యాహ్నం బయటకు రాకండి, తగినంత నీరు తాగండి — వడదెబ్బ తగిలే ప్రమాదం ఉంది.`,
-            severity: "SEVERE"
+            severity: "SEVERE",
+            type: "HEATWAVE"
         };
     }
-    if (weatherCode >= 51 && weatherCode <= 57) {
-        return {
-            title: `🌦️ చినుకుల సూచన — ${timeStr}`,
-            body: `మీ ప్రాంతంలో ${timeStr} తేలికపాటి చినుకులు పడే అవకాశం ఉంది.`,
-            severity: "INFO"
-        };
-    }
+    // Ordinary rain (< 15 mm) & Drizzle REMOVED completely to eliminate weather notification spam!
     return null;
 }
 /**
@@ -427,7 +439,7 @@ function buildWeatherAlert(weatherCode, temp, windSpeed, hoursFromNow, precipita
  *   (Android user subscribe అయినప్పుడు తన gridKey ని ఆ doc లో save చేస్తుంది)
  */
 exports.checkSevereWeatherAlerts = (0, scheduler_1.onSchedule)({
-    schedule: "0 6,8,10,12,14,16,18,20 * * *",
+    schedule: "0 7,12,17 * * *",
     timeZone: "Asia/Kolkata",
     memory: "512MiB",
     timeoutSeconds: 540,
@@ -453,9 +465,21 @@ exports.checkSevereWeatherAlerts = (0, scheduler_1.onSchedule)({
     const alertStateRef = db.collection('settings').doc('weather_alerts_v2');
     const alertStateDoc = await alertStateRef.get();
     const alertState = alertStateDoc.exists ? alertStateDoc.data() || {} : {};
-    const COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 గంటలు — duplicate spam నివారణ
-    const FORECAST_HOURS = 10; // రాబోయే 10 గంటల forecast చూస్తాం
+    const COOLDOWN_SAME_TYPE_MS = 12 * 60 * 60 * 1000; // 12 గంటలు — అదే అలర్ట్ రకానికి కూల్‌డౌన్
+    const COOLDOWN_ANY_ALERT_MS = 8 * 60 * 60 * 1000; // 8 గంటలు — ఏ వెదర్ అలర్ట్ కైనా కనీస విరామం (నోటిఫికేషన్ స్పామ్ నివారణ)
+    const FORECAST_HOURS = 2; // కేవలం రాబోయే 2 గంటల నమ్మకమైన ఫోర్‌కాస్ట్ మాత్రమే
     const updatedState = {};
+    // Current IST time string (e.g. "2026-09-03T15:00") to accurately align hourly data
+    const istParts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        hour12: false
+    }).formatToParts(new Date());
+    const getPart = (type) => istParts.find(x => x.type === type)?.value || '';
+    const currentIstHourStr = `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:00`;
     // ── Step 3: Per-grid weather check ─────────────────────────────────────
     // gridKey format: "weather_grid_{latKey}_{lonKey}"
     // e.g. "weather_grid_144_800" → lat=14.4, lon=80.0
@@ -469,14 +493,14 @@ exports.checkSevereWeatherAlerts = (0, scheduler_1.onSchedule)({
             const lon = parseInt(parts[3], 10) / 10; // 800 → 80.0
             if (isNaN(lat) || isNaN(lon))
                 continue;
-            // Open-Meteo hourly forecast — 1 API call per grid cell
+            // Open-Meteo hourly forecast — 1 API call per grid cell (request 6 hours around current)
             const url = [
                 `https://api.open-meteo.com/v1/forecast`,
                 `?latitude=${lat}&longitude=${lon}`,
                 `&hourly=precipitation,weather_code,wind_speed_10m,temperature_2m`,
                 `&current_weather=true`,
                 `&timezone=Asia%2FKolkata`,
-                `&forecast_hours=${FORECAST_HOURS}`
+                `&forecast_hours=6`
             ].join("");
             const res = await fetch(url);
             if (!res.ok) {
@@ -490,23 +514,36 @@ exports.checkSevereWeatherAlerts = (0, scheduler_1.onSchedule)({
             const hourlyCodes = data.hourly?.weather_code ?? [];
             const hourlyWind = data.hourly?.wind_speed_10m ?? [];
             const hourlyTemp = data.hourly?.temperature_2m ?? [];
+            // Find current IST hour index in hourlyTimes array to prevent using past data
+            let currentHourIndex = hourlyTimes.findIndex(t => t >= currentIstHourStr);
+            if (currentHourIndex < 0)
+                currentHourIndex = 0;
             let alertSent = false;
-            // రాబోయే FORECAST_HOURS గంటల్లో first severe event detect చేస్తాం
-            for (let h = 0; h < Math.min(hourlyTimes.length, FORECAST_HOURS); h++) {
-                const code = hourlyCodes[h] ?? 0;
-                const precip = hourlyPrecip[h] ?? 0;
-                const wind = hourlyWind[h] ?? 0;
-                const temp = hourlyTemp[h] ?? currentTemp;
-                const alert = buildWeatherAlert(code, temp, wind, h, precip);
+            // రాబోయే 0 నుండి FORECAST_HOURS (2) గంటల్లో first severe event detect చేస్తాం
+            for (let offset = 0; offset <= FORECAST_HOURS; offset++) {
+                const idx = currentHourIndex + offset;
+                if (idx >= hourlyTimes.length)
+                    break;
+                const code = hourlyCodes[idx] ?? 0;
+                const precip = hourlyPrecip[idx] ?? 0;
+                const wind = hourlyWind[idx] ?? 0;
+                const temp = hourlyTemp[idx] ?? currentTemp;
+                const alert = buildWeatherAlert(code, temp, wind, offset, precip);
                 if (!alert)
                     continue;
-                // Cooldown: same grid + same alert title → skip (4h window)
+                // Cooldown: check interval and type
                 const cellState = alertState[gridKey] || {};
                 const lastSentAt = cellState.lastSentAt ?? 0;
-                const lastTitle = cellState.lastTitle ?? "";
+                const lastType = cellState.lastType ?? cellState.severity ?? "";
                 const now = Date.now();
-                if (lastTitle === alert.title && (now - lastSentAt) < COOLDOWN_MS) {
-                    console.log(`[WEATHER_GRID] Cooldown: ${gridKey} → ${alert.title.substring(0, 35)}`);
+                // 1. Check minimum interval between ANY weather alert for this grid (4 hours)
+                if ((now - lastSentAt) < COOLDOWN_ANY_ALERT_MS) {
+                    console.log(`[WEATHER_GRID] Cooldown (any alert): ${gridKey}`);
+                    break;
+                }
+                // 2. Check cooldown for the SAME alert type (8 hours)
+                if (lastType === alert.type && (now - lastSentAt) < COOLDOWN_SAME_TYPE_MS) {
+                    console.log(`[WEATHER_GRID] Cooldown (same type ${alert.type}): ${gridKey}`);
                     break;
                 }
                 // ✅ 1 FCM topic send → all users in this 10km cell receive it (free)
@@ -519,7 +556,8 @@ exports.checkSevereWeatherAlerts = (0, scheduler_1.onSchedule)({
                         body: alert.body,
                         channelId: "weather_alerts",
                         severity: alert.severity,
-                        forecastHour: String(h),
+                        alertType: alert.type,
+                        forecastHour: String(offset),
                     },
                     android: {
                         notification: {
@@ -533,12 +571,13 @@ exports.checkSevereWeatherAlerts = (0, scheduler_1.onSchedule)({
                 };
                 try {
                     await admin.messaging().send(fcmMsg);
-                    console.log(`[WEATHER_GRID] ✅ ${gridKey} — ${alert.title.substring(0, 40)} [h+${h}]`);
+                    console.log(`[WEATHER_GRID] ✅ ${gridKey} — ${alert.title.substring(0, 40)} [h+${offset}]`);
                     updatedState[gridKey] = {
                         lastSentAt: Date.now(),
                         lastTitle: alert.title,
+                        lastType: alert.type,
                         severity: alert.severity,
-                        forecastHour: h,
+                        forecastHour: offset,
                     };
                     alertSent = true;
                 }
@@ -547,23 +586,49 @@ exports.checkSevereWeatherAlerts = (0, scheduler_1.onSchedule)({
                 }
                 break; // ఒక grid కి ఒకే alert per run
             }
-            // Current temp heat check (forecast-independent)
-            if (!alertSent && currentTemp >= 42) {
+            // Current temp heat check (forecast-independent, >= 43°C)
+            if (!alertSent && currentTemp >= 43) {
                 const alert = buildWeatherAlert(0, currentTemp, 0, 0, 0);
                 if (alert) {
                     const cellState = alertState[gridKey] || {};
+                    const lastSentAt = cellState.lastSentAt ?? 0;
+                    const lastType = cellState.lastType ?? "";
                     const now = Date.now();
-                    if (!(cellState.lastTitle === alert.title && (now - (cellState.lastSentAt ?? 0)) < COOLDOWN_MS)) {
+                    const canSendHeat = (now - lastSentAt) >= COOLDOWN_ANY_ALERT_MS &&
+                        (lastType !== 'HEATWAVE' || (now - lastSentAt) >= COOLDOWN_SAME_TYPE_MS);
+                    if (canSendHeat) {
                         const fcmMsg = {
                             notification: { title: alert.title, body: alert.body },
-                            data: { type: "WEATHER_ALERT", gridKey, title: alert.title, body: alert.body, channelId: "weather_alerts", severity: alert.severity, forecastHour: "0" },
-                            android: { notification: { channelId: "weather_alerts", priority: "max", defaultSound: true }, priority: "high" },
+                            data: {
+                                type: "WEATHER_ALERT",
+                                gridKey,
+                                title: alert.title,
+                                body: alert.body,
+                                channelId: "weather_alerts",
+                                severity: alert.severity,
+                                alertType: alert.type,
+                                forecastHour: "0"
+                            },
+                            android: {
+                                notification: {
+                                    channelId: "weather_alerts",
+                                    priority: "max",
+                                    defaultSound: true
+                                },
+                                priority: "high"
+                            },
                             topic: gridKey
                         };
                         try {
                             await admin.messaging().send(fcmMsg);
                             console.log(`[WEATHER_GRID] 🔥 Heat ${gridKey} (${Math.round(currentTemp)}°C)`);
-                            updatedState[gridKey] = { lastSentAt: Date.now(), lastTitle: alert.title, severity: alert.severity };
+                            updatedState[gridKey] = {
+                                lastSentAt: Date.now(),
+                                lastTitle: alert.title,
+                                lastType: alert.type,
+                                severity: alert.severity,
+                                forecastHour: 0
+                            };
                         }
                         catch (e) {
                             console.error(`[WEATHER_GRID_ERR] heat ${gridKey}:`, e.message);

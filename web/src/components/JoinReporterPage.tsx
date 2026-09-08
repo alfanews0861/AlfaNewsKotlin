@@ -22,7 +22,7 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
     const [hasPendingApplication, setHasPendingApplication] = useState(false);
     const [fullName, setFullName] = useState(user?.name || '');
     const [fatherName, setFatherName] = useState('');
-    const [phone, setPhone] = useState(user?.phone || '');
+    const [phone, setPhone] = useState((user?.phone || '').replace(/\D/g, '').slice(-10));
     const [address, setAddress] = useState(user?.address || '');
 
     const [selectedState, setSelectedState] = useState('TS');
@@ -37,6 +37,22 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
     const [rulesCheckboxChecked, setRulesCheckboxChecked] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [resultDialog, setResultDialog] = useState<{ title: string; message: string; isSuccess: boolean; isConflict?: boolean } | null>(null);
+    const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    const isPhoneValid = cleanPhone.length === 10 && /^[6-9]\d{9}$/.test(cleanPhone);
+    const isFullNameValid = fullName.trim().length >= 3;
+    const isFatherNameValid = fatherName.trim().length >= 3;
+    const isAddressValid = address.trim().length >= 6;
+    const isDistrictValid = selectedDistrict.trim().length > 0;
+    const isMandalValid = selectedMandal.trim().length > 0;
+    const isCategoryValid = interestedArea.trim().length >= 2;
+    const isEducationValid = education.trim().length >= 2;
+    const isOrgValid = currentOrg.trim().length >= 2;
+    const isRulesValid = rulesCheckboxChecked;
+
+    const isFormValid = isFullNameValid && isFatherNameValid && isPhoneValid && isAddressValid &&
+        isDistrictValid && isMandalValid && isCategoryValid && isEducationValid && isOrgValid && isRulesValid;
 
     // Check if user has an existing pending application
     useEffect(() => {
@@ -76,14 +92,23 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setHasAttemptedSubmit(true);
 
-        if (!rulesCheckboxChecked) {
+        if (!isRulesValid) {
             alert("దయచేసి నిబంధనలను అంగీకరించండి.");
             return;
         }
 
-        if (!fullName.trim() || !fatherName.trim() || !phone.trim() || !address.trim() || !selectedDistrict.trim() || !selectedMandal.trim() || !interestedArea.trim() || !education.trim() || !currentOrg.trim() || !additionalMessage.trim()) {
-            alert("దయచేసి అన్ని వివరాలను పూరించండి.");
+        if (!isFormValid) {
+            if (!isFullNameValid) alert("దయచేసి కనీసం 3 అక్షరాలతో పూర్తి పేరు నమోదు చేయండి.");
+            else if (!isFatherNameValid) alert("దయచేసి కనీసం 3 అక్షరాలతో తండ్రి పేరు నమోదు చేయండి.");
+            else if (!isPhoneValid) alert("దయచేసి చెల్లుబాటు అయ్యే 10 అంకెల మొబైల్ నంబర్ నమోదు చేయండి (6-9 తో ప్రారంభం కావాలి).");
+            else if (!isAddressValid) alert("దయచేసి కనీసం 6 అక్షరాలతో పూర్తి చిరునామా నమోదు చేయండి.");
+            else if (!isDistrictValid) alert("దయచేసి జిల్లాను ఎంచుకోండి.");
+            else if (!isMandalValid) alert("దయచేసి మండలాన్ని ఎంచుకోండి.");
+            else if (!isCategoryValid) alert("దయచేసి ఆసక్తి ఉన్న కేటగిరీని నమోదు చేయండి.");
+            else if (!isEducationValid) alert("దయచేసి విద్యార్హతను నమోదు చేయండి.");
+            else if (!isOrgValid) alert("దయచేసి ప్రస్తుత సంస్థ లేదా వృత్తిని నమోదు చేయండి.");
             return;
         }
 
@@ -91,6 +116,15 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
 
         try {
             const targetPosition = "మండల రిపోర్టర్ (Mandal Reporter)";
+            const finalFullName = fullName.trim();
+            const finalFatherName = fatherName.trim();
+            const finalPhone = cleanPhone;
+            const finalAddress = address.trim();
+            const finalInterestedArea = interestedArea.trim();
+            const finalEducation = education.trim();
+            const finalCurrentOrg = currentOrg.trim();
+            const finalMessage = additionalMessage.trim() || "విలేకరిగా పనిచేయడానికి ఆసక్తిగా ఉన్నాను";
+
             let submittedSuccessfully = false;
             let wasAutoApproved = false;
             let isReapplication = false;
@@ -102,18 +136,18 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
                 const functions = getFunctions(app, 'asia-south1');
                 const submitFn = httpsCallable(functions, 'submitReporterApplication');
                 const res: any = await submitFn({
-                    fullName: fullName.trim(),
-                    fatherName: fatherName.trim(),
-                    phone: phone.trim(),
-                    address: address.trim(),
+                    fullName: finalFullName,
+                    fatherName: finalFatherName,
+                    phone: finalPhone,
+                    address: finalAddress,
                     position: targetPosition,
-                    interestedArea: interestedArea.trim(),
-                    education: education.trim(),
-                    currentOrg: currentOrg.trim(),
+                    interestedArea: finalInterestedArea,
+                    education: finalEducation,
+                    currentOrg: finalCurrentOrg,
                     state: selectedState,
                     district: selectedDistrict.trim(),
                     mandal: selectedMandal.trim(),
-                    message: additionalMessage.trim(),
+                    message: finalMessage,
                     userId: user?.id || null
                 });
 
@@ -133,18 +167,18 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
                 try {
                     const finalStatus = "PENDING"; // Safe fallback
                     const appData = {
-                        fullName: fullName.trim(),
-                        fatherName: fatherName.trim(),
-                        phone: phone.trim(),
-                        address: address.trim(),
+                        fullName: finalFullName,
+                        fatherName: finalFatherName,
+                        phone: finalPhone,
+                        address: finalAddress,
                         position: targetPosition,
-                        interestedArea: interestedArea.trim(),
-                        education: education.trim(),
-                        currentOrg: currentOrg.trim(),
+                        interestedArea: finalInterestedArea,
+                        education: finalEducation,
+                        currentOrg: finalCurrentOrg,
                         state: selectedState,
                         district: selectedDistrict.trim(),
                         mandal: selectedMandal.trim(),
-                        message: additionalMessage.trim(),
+                        message: finalMessage,
                         status: finalStatus,
                         autoApproved: false,
                         isConflict: true,
@@ -156,7 +190,7 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
                     await addDoc(collection(db, 'reporter_applications'), appData);
 
                     // Add conflict notification for user
-                    const conflictText = `నమస్కారం ${fullName.trim() || 'మిత్రమా'}, మీరు కోరిన ${selectedMandal} మండలానికి ఇప్పటికే క్రియాశీల విలేకరి ఉన్నారు.\n\nఅందువల్ల మీ దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు పంపబడింది. మా అడ్మిన్ టీమ్ పరిశీలించి త్వరలోనే మిమ్మల్ని సంప్రదిస్తారు. మీకు ఏవైనా సందేహాలున్నా లేదా మీ వివరాలు తెలియజేయాలన్నా ఇక్కడే అడ్మిన్‌కు నేరుగా మెసేజ్ / రిప్లై ఇవ్వవచ్చు. ధన్యవాదాలు!`;
+                    const conflictText = `నమస్కారం ${finalFullName || 'మిత్రమా'}, మీరు కోరిన ${selectedMandal} మండలానికి ఇప్పటికే క్రియాశీల విలేకరి ఉన్నారు.\n\nఅందువల్ల మీ దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు పంపబడింది. మా అడ్మిన్ టీమ్ పరిశీలించి త్వరలోనే మిమ్మల్ని సంప్రదిస్తారు. మీకు ఏవైనా సందేహాలున్నా లేదా మీ వివరాలు తెలియజేయాలన్నా ఇక్కడే అడ్మిన్‌కు నేరుగా మెసేజ్ / రిప్లై ఇవ్వవచ్చు. ధన్యవాదాలు!`;
                     
                     const msgTimestamp = serverTimestamp();
                     await addDoc(collection(db, 'reporter_conversations', user.id, 'messages'), {
@@ -171,7 +205,7 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
 
                     await setDoc(doc(db, 'reporter_conversations', user.id), {
                         reporterId: user.id,
-                        reporterName: fullName.trim() || "Applicant",
+                        reporterName: finalFullName || "Applicant",
                         reporterDistrict: selectedDistrict.trim(),
                         reporterMandal: selectedMandal.trim(),
                         lastMessage: conflictText,
@@ -373,8 +407,11 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
                                             value={fullName}
                                             onChange={(e) => setFullName(e.target.value)}
                                             placeholder="మీ పూర్తి పేరు"
-                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-gray-50 font-bold"
+                                            className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 bg-gray-50 font-bold transition-all ${hasAttemptedSubmit && !isFullNameValid ? 'border-red-500 ring-1 ring-red-500 bg-red-50/20' : 'border-gray-300'}`}
                                         />
+                                        {hasAttemptedSubmit && !isFullNameValid && (
+                                            <p className="text-xs text-red-600 mt-1 font-bold">కనీసం 3 అక్షరాలతో పూర్తి పేరు నమోదు చేయండి</p>
+                                        )}
                                     </div>
 
                                     <div>
@@ -385,20 +422,26 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
                                             value={fatherName}
                                             onChange={(e) => setFatherName(e.target.value)}
                                             placeholder="తండ్రి పేరు"
-                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-gray-50 font-bold"
+                                            className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 bg-gray-50 font-bold transition-all ${hasAttemptedSubmit && !isFatherNameValid ? 'border-red-500 ring-1 ring-red-500 bg-red-50/20' : 'border-gray-300'}`}
                                         />
+                                        {hasAttemptedSubmit && !isFatherNameValid && (
+                                            <p className="text-xs text-red-600 mt-1 font-bold">కనీసం 3 అక్షరాలతో తండ్రి పేరు నమోదు చేయండి</p>
+                                        )}
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-bold text-gray-700 mb-1">ఫోన్ నంబర్ (Phone Number) *</label>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">ఫోన్ నంబర్ (Phone Number - 10 Digits) *</label>
                                         <input
                                             type="tel"
                                             required
                                             value={phone}
-                                            onChange={(e) => setPhone(e.target.value)}
-                                            placeholder="ఫోన్ నంబర్"
-                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-gray-50 font-bold"
+                                            onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                                            placeholder="10 అంకెల మొబైల్ నంబర్"
+                                            className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 bg-gray-50 font-bold transition-all ${hasAttemptedSubmit && !isPhoneValid ? 'border-red-500 ring-1 ring-red-500 bg-red-50/20' : 'border-gray-300'}`}
                                         />
+                                        {hasAttemptedSubmit && !isPhoneValid && (
+                                            <p className="text-xs text-red-600 mt-1 font-bold">చెల్లుబాటు అయ్యే 10 అంకెల మొబైల్ నంబర్ నమోదు చేయండి (6-9 తో ప్రారంభం కావాలి)</p>
+                                        )}
                                     </div>
 
                                     <div>
@@ -409,8 +452,11 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
                                             value={address}
                                             onChange={(e) => setAddress(e.target.value)}
                                             placeholder="ఇంటి నెం, వీధి, గ్రామం"
-                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-gray-50 font-bold"
+                                            className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 bg-gray-50 font-bold transition-all ${hasAttemptedSubmit && !isAddressValid ? 'border-red-500 ring-1 ring-red-500 bg-red-50/20' : 'border-gray-300'}`}
                                         />
+                                        {hasAttemptedSubmit && !isAddressValid && (
+                                            <p className="text-xs text-red-600 mt-1 font-bold">కనీసం 6 అక్షరాలతో చిరునామా నమోదు చేయండి</p>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -442,13 +488,16 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
                                             required
                                             value={selectedDistrict}
                                             onChange={(e) => setSelectedDistrict(e.target.value)}
-                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-gray-50 font-bold"
+                                            className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 bg-gray-50 font-bold transition-all ${hasAttemptedSubmit && !isDistrictValid ? 'border-red-500 ring-1 ring-red-500 bg-red-50/20' : 'border-gray-300'}`}
                                         >
                                             <option value="">-- జిల్లాను ఎంచుకోండి --</option>
                                             {districtsList.map((district) => (
                                                 <option key={district} value={district}>{district}</option>
                                             ))}
                                         </select>
+                                        {hasAttemptedSubmit && !isDistrictValid && (
+                                            <p className="text-xs text-red-600 mt-1 font-bold">దయచేసి జిల్లాను ఎంచుకోండి</p>
+                                        )}
                                     </div>
 
                                     {/* Mandal Dropdown */}
@@ -459,13 +508,16 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
                                             value={selectedMandal}
                                             onChange={(e) => setSelectedMandal(e.target.value)}
                                             disabled={!selectedDistrict}
-                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-gray-50 font-bold disabled:opacity-50"
+                                            className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 bg-gray-50 font-bold disabled:opacity-50 transition-all ${hasAttemptedSubmit && !isMandalValid ? 'border-red-500 ring-1 ring-red-500 bg-red-50/20' : 'border-gray-300'}`}
                                         >
                                             <option value="">-- మండలం ఎంచుకోండి --</option>
                                             {mandalsList.map((mandal) => (
                                                 <option key={mandal} value={mandal}>{mandal}</option>
                                             ))}
                                         </select>
+                                        {hasAttemptedSubmit && !isMandalValid && (
+                                            <p className="text-xs text-red-600 mt-1 font-bold">దయచేసి మండలాన్ని ఎంచుకోండి</p>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -496,8 +548,11 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
                                                 value={interestedArea}
                                                 onChange={(e) => setInterestedArea(e.target.value)}
                                                 placeholder="ఉదా: రాజకీయం, క్రైమ్, వ్యవసాయం"
-                                                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-gray-50 font-bold"
+                                                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 bg-gray-50 font-bold transition-all ${hasAttemptedSubmit && !isCategoryValid ? 'border-red-500 ring-1 ring-red-500 bg-red-50/20' : 'border-gray-300'}`}
                                             />
+                                            {hasAttemptedSubmit && !isCategoryValid && (
+                                                <p className="text-xs text-red-600 mt-1 font-bold">ఆసక్తి ఉన్న కేటగిరీని నమోదు చేయండి</p>
+                                            )}
                                         </div>
 
                                         <div>
@@ -508,8 +563,11 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
                                                 value={education}
                                                 onChange={(e) => setEducation(e.target.value)}
                                                 placeholder="ఉదా: డిగ్రీ, ఇంటర్, పిజి"
-                                                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-gray-50 font-bold"
+                                                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 bg-gray-50 font-bold transition-all ${hasAttemptedSubmit && !isEducationValid ? 'border-red-500 ring-1 ring-red-500 bg-red-50/20' : 'border-gray-300'}`}
                                             />
+                                            {hasAttemptedSubmit && !isEducationValid && (
+                                                <p className="text-xs text-red-600 mt-1 font-bold">విద్యార్హతను నమోదు చేయండి</p>
+                                            )}
                                         </div>
 
                                         <div>
@@ -520,19 +578,21 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
                                                 value={currentOrg}
                                                 onChange={(e) => setCurrentOrg(e.target.value)}
                                                 placeholder="ప్రస్తుత వృత్తి / పనిచేస్తున్న సంస్థ"
-                                                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-gray-50 font-bold"
+                                                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 bg-gray-50 font-bold transition-all ${hasAttemptedSubmit && !isOrgValid ? 'border-red-500 ring-1 ring-red-500 bg-red-50/20' : 'border-gray-300'}`}
                                             />
+                                            {hasAttemptedSubmit && !isOrgValid && (
+                                                <p className="text-xs text-red-600 mt-1 font-bold">ప్రస్తుత సంస్థ లేదా వృత్తిని నమోదు చేయండి</p>
+                                            )}
                                         </div>
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-bold text-gray-700 mb-1">సందేశం (Additional Message) *</label>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">సందేశం (Additional Message) - ఐచ్ఛికం / Optional</label>
                                         <textarea
-                                            required
                                             rows={3}
                                             value={additionalMessage}
                                             onChange={(e) => setAdditionalMessage(e.target.value)}
-                                            placeholder="మీ అనుభవం లేదా మాతో పంచుకోవాలనుకుంటున్న వివరాలు..."
+                                            placeholder="మీ అనుభవం లేదా మాతో పంచుకోవాలనుకుంటున్న వివరాలు (ఐచ్ఛికం)..."
                                             className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-gray-50 font-bold resize-none"
                                         />
                                     </div>
@@ -540,23 +600,38 @@ const JoinReporterPage: React.FC<JoinReporterPageProps> = ({ user, onClose, onLo
                             </div>
 
                             {/* Agreement Checkbox */}
-                            <div 
-                                onClick={() => setRulesCheckboxChecked(!rulesCheckboxChecked)}
-                                className="bg-red-50 border border-red-200 rounded-2xl p-4 cursor-pointer select-none flex items-center gap-3 transition-colors hover:bg-red-100/70"
-                            >
-                                <div className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${rulesCheckboxChecked ? 'bg-red-600 border-red-600 text-white' : 'border-gray-400 bg-white'}`}>
-                                    {rulesCheckboxChecked && <Check size={16} strokeWidth={3} />}
+                            <div>
+                                <div 
+                                    onClick={() => setRulesCheckboxChecked(!rulesCheckboxChecked)}
+                                    className={`border rounded-2xl p-4 cursor-pointer select-none flex items-center gap-3 transition-colors ${hasAttemptedSubmit && !rulesCheckboxChecked ? 'bg-red-50 border-red-500' : 'bg-red-50/50 border-red-200 hover:bg-red-100/70'}`}
+                                >
+                                    <div className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${rulesCheckboxChecked ? 'bg-red-600 border-red-600 text-white' : 'border-gray-400 bg-white'}`}>
+                                        {rulesCheckboxChecked && <Check size={16} strokeWidth={3} />}
+                                    </div>
+                                    <span className="text-sm font-bold text-gray-800 font-mallanna flex-1">
+                                        నేను పై నిబంధనలన్నింటినీ చదివాను, వీటికి పూర్తిగా అంగీకరిస్తున్నాను. *
+                                    </span>
                                 </div>
-                                <span className="text-sm font-bold text-gray-800 font-mallanna flex-1">
-                                    నేను పై నిబంధనలన్నింటినీ చదివాను, వీటికి పూర్తిగా అంగీకరిస్తున్నాను.
-                                </span>
+                                {hasAttemptedSubmit && !rulesCheckboxChecked && (
+                                    <p className="text-xs text-red-600 mt-1.5 font-bold pl-1">దయచేసి పై నిబంధనలను చదివి అంగీకరించండి</p>
+                                )}
                             </div>
+
+                            {/* Validation Warning Alert */}
+                            {hasAttemptedSubmit && !isFormValid && (
+                                <div className="bg-red-50 border border-red-300 rounded-2xl p-4 flex items-center gap-3 text-red-700">
+                                    <AlertCircle className="w-5 h-5 shrink-0 text-red-600" />
+                                    <p className="text-sm font-bold font-mallanna">
+                                        దయచేసి ఎరుపు రంగులో ఉన్న వివరాలన్నీ సరిగ్గా నింపిన తర్వాతే సబ్మిట్ చేయండి.
+                                    </p>
+                                </div>
+                            )}
 
                             {/* Submit Button */}
                             <div className="pt-2">
                                 <button
                                     type="submit"
-                                    disabled={isSubmitting || !rulesCheckboxChecked}
+                                    disabled={isSubmitting}
                                     className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white py-4 rounded-2xl text-xl font-bold transition-all shadow-lg flex items-center justify-center gap-3 font-ramabhadra"
                                 >
                                     {isSubmitting ? (

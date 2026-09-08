@@ -176,7 +176,7 @@ fun LocalNewsFeedView(
             }
         }
     }
-    
+
     LaunchedEffect(pagerState, news.size) { 
         snapshotFlow { pagerState.currentPage }.collect { page ->
             val newsIndex = page - (page / 6)
@@ -184,7 +184,7 @@ fun LocalNewsFeedView(
                 viewModel.loadMore(language, currentUser)
             }
 
-            // 🚀 IMAGE PRELOADING: 5 pages ahead for ultra-smooth scrolling
+            // 🚀 FAST SWIPE PRELOADING: వేగంగా స్వైప్ చేసే యూజర్ల కోసం 5 పేజీల ముందస్తు ఇమేజ్ ప్రీ-లోడింగ్
             (1..5).forEach { offset ->
                 val nextPageIndex = page + offset
                 val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
@@ -194,7 +194,7 @@ fun LocalNewsFeedView(
                         val request = ImageRequest.Builder(context)
                             .data(post.mediaUrl)
                             .allowHardware(true)
-                            .crossfade(false) // No crossfade for background preloads
+                            .crossfade(false)
                             .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
                             .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
                             .build()
@@ -203,7 +203,7 @@ fun LocalNewsFeedView(
                 }
             }
 
-            // 🚀 LOCAL AD PRELOADING: limit to 2 slots ahead
+            // 🚀 LOCAL AD PRELOADING: 2 స్లాట్లు ముందుగా
             (1..2).forEach { offset ->
                 val futurePage = page + offset
                 val isAdPage = (futurePage + 1) % 6 == 0

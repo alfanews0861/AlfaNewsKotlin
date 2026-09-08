@@ -54,6 +54,7 @@ fun ManagePostsPageView(
 
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
     var showBroadcastDialog by remember { mutableStateOf<NewsPost?>(null) }
+    var showStatusDetailDialog by remember { mutableStateOf<NewsPost?>(null) }
 
     // ✅ REAL-TIME LISTENER: Updates automatically when status changes
     DisposableEffect(currentUser) {
@@ -75,46 +76,7 @@ fun ManagePostsPageView(
             if (snapshot != null) {
                 posts = snapshot.documents.mapNotNull { doc ->
                     val data = doc.data ?: return@mapNotNull null
-                    val headlineData = data["headline"] as? Map<*, *> ?: emptyMap<Any, Any>()
-                    val contentData = data["content"] as? Map<*, *> ?: emptyMap<Any, Any>()
-                    val reporterData = data["reporter"] as? Map<*, *> ?: emptyMap<Any, Any>()
-
-                    val timestamp = when (val ts = data["timestamp"]) {
-                        is com.google.firebase.Timestamp -> ts.toDate().time
-                        is Number -> ts.toLong()
-                        else -> System.currentTimeMillis()
-                    }
-
-                    NewsPost(
-                        id = doc.id,
-                        headline = com.alfanews.telugu.models.Headline(
-                            telugu = headlineData["telugu"] as? String ?: "",
-                            english = headlineData["english"] as? String ?: ""
-                        ),
-                        content = com.alfanews.telugu.models.Content(
-                            telugu = contentData["telugu"] as? String ?: "",
-                            english = contentData["english"] as? String ?: ""
-                        ),
-                        mediaUrl = data["mediaUrl"] as? String ?: "",
-                        mediaType = when (data["mediaType"]?.toString()?.uppercase()) {
-                            "VIDEO" -> com.alfanews.telugu.models.MediaType.VIDEO
-                            else -> com.alfanews.telugu.models.MediaType.IMAGE
-                        },
-                        reporter = com.alfanews.telugu.models.Reporter(
-                            id = reporterData["id"] as? String ?: "",
-                            name = reporterData["name"] as? String ?: ""
-                        ),
-                        location = data["location"] as? String ?: "",
-                        state = data["state"] as? String,
-                        district = data["district"] as? String,
-                        timestamp = timestamp,
-                        categories = data["categories"] as? List<String> ?: emptyList(),
-                        likes = (data["likes"] as? Number)?.toInt() ?: (data["likes"] as? String)?.toIntOrNull() ?: 0,
-                        comments = (data["comments"] as? Number)?.toInt() ?: (data["comments"] as? String)?.toIntOrNull() ?: 0,
-                        shares = (data["shares"] as? Number)?.toInt() ?: (data["shares"] as? String)?.toIntOrNull() ?: 0,
-                        approved = data["approved"] as? Boolean ?: false,
-                        isGlobal = data["isGlobal"] as? Boolean ?: false
-                    )
+                    com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
                 }
             }
         }
@@ -236,7 +198,7 @@ fun ManagePostsPageView(
                                     if (post.approved) {
                                         onViewPost(post)
                                     } else {
-                                        Toast.makeText(context, "మీ వార్త పరిశీలనలో ఉంది...", Toast.LENGTH_SHORT).show()
+                                        showStatusDetailDialog = post
                                     }
                                 },
                             shape = RoundedCornerShape(12.dp),
@@ -302,7 +264,12 @@ fun ManagePostsPageView(
                                         Spacer(modifier = Modifier.height(6.dp))
 
                                         // Status Badge
-                                        val statusColor = if (post.approved) Color(0xFF4CAF50) else Color(0xFFFF9800)
+                                        val statusColor = when {
+                                            post.approved || post.status?.uppercase() == "PUBLISHED" -> Color(0xFF4CAF50)
+                                            post.status?.uppercase() == "REJECTED" -> Color(0xFFE53935)
+                                            post.status?.uppercase() == "FAILED" -> Color(0xFFD32F2F)
+                                            else -> Color(0xFFFF9800)
+                                        }
                                         val statusLabel = when (post.status?.uppercase()) {
                                             "PENDING" -> "పరిశీలనలో ఉంది..."
                                             "REVIEWING_CONTENT" -> "సిద్ధమవుతోంది..."
@@ -459,6 +426,121 @@ fun ManagePostsPageView(
                 dismissButton = {
                     TextButton(onClick = { showBroadcastDialog = null }) {
                         Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        showStatusDetailDialog?.let { dialogPost ->
+            val rawStatus = (dialogPost.status ?: "").uppercase()
+            val isRejected = rawStatus == "REJECTED" || !dialogPost.rejectionReason.isNullOrBlank()
+            val isFailed = rawStatus == "FAILED" || !dialogPost.error.isNullOrBlank()
+
+            val dialogTitle = when {
+                isRejected -> "⚠️ ఎడిటోరియల్ డెస్క్ పరిశీలన"
+                isFailed -> "⚠️ ప్రచురణలో అంతరాయం"
+                rawStatus == "REVIEWING_CONTENT" || rawStatus == "PROCESSING_VIDEO" -> "⏳ డెస్క్ పరిశీలిస్తోంది..."
+                else -> "⏳ పరిశీలనలో ఉంది (Pending)"
+            }
+
+            val statusColor = when {
+                isRejected -> Color(0xFFE53935)
+                isFailed -> Color(0xFFD32F2F)
+                else -> Color(0xFFFF9800)
+            }
+
+            val reasonContent = when {
+                !dialogPost.rejectionReason.isNullOrBlank() -> dialogPost.rejectionReason!!
+                dialogPost.isDuplicate -> "ఈ మండలంలో గత కొన్ని గంటల్లో ఈ వార్తాంశం ఇప్పటికే ప్రచురించబడింది."
+                !dialogPost.error.isNullOrBlank() -> "సాంకేతిక అంతరాయం వల్ల ప్రచురణ ప్రక్రియ నిలిచింది. డెస్క్ దీనిని మళ్ళీ పరిశీలిస్తుంది."
+                rawStatus == "PENDING" -> "మీ వార్త ఎడిటోరియల్ డెస్క్ పరిశీలనలో ఉంది. త్వరలోనే ప్రచురించబడుతుంది."
+                else -> "వార్త పరిశీలనలో ఉంది..."
+            }
+
+            AlertDialog(
+                onDismissRequest = { showStatusDetailDialog = null },
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            color = statusColor.copy(alpha = 0.15f),
+                            shape = CircleShape,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = if (isRejected || isFailed) "!" else "⏳",
+                                    fontWeight = FontWeight.Bold,
+                                    color = statusColor,
+                                    fontSize = 18.sp
+                                )
+                            }
+                        }
+                        Text(
+                            text = dialogTitle,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = statusColor
+                        )
+                    }
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        if (dialogPost.headline.telugu.isNotBlank()) {
+                            Text(
+                                text = dialogPost.headline.telugu,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "కారణం / వివరాలు:",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = reasonContent,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 18.sp
+                                )
+                            }
+                        }
+
+                        if (isRejected) {
+                            Text(
+                                text = "గమనిక: నిబంధనలకు విరుద్ధంగా ఉన్న వార్తలు, డూప్లికేట్లు ప్రచురించబడవు. దయచేసి వివరాలను సరిచూసి కొత్త వార్తను పోస్ట్ చేయండి.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { showStatusDetailDialog = null },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Text("సరే (Close)")
                     }
                 }
             )

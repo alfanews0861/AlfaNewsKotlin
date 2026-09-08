@@ -95,6 +95,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         prefs.selectedDistrict = district
         _activeDistrict.value = district
         AnalyticsService.logDistrictSelected(district, oldDistrict)
+        viewModelScope.launch {
+            NotificationHelper.syncDistrictTopic(getApplication(), district)
+        }
         loadNews(Language.TELUGU, null) 
     }
     
@@ -180,6 +183,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         _activeDistrict.value = district
         _loading.value = false
         _isDetecting.value = false
+        viewModelScope.launch {
+            NotificationHelper.syncDistrictTopic(getApplication(), prefs.getEffectiveDistrict())
+        }
         loadNews(Language.TELUGU, currentUser)
     }
 
@@ -381,8 +387,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 }
 
                 _news.value = rankedPosts
-                // Only scroll to top if we are loading the first page (lastDocument is null)
-                if (lastDocument == null) {
+                // Scroll to top on fresh district news load
+                if (rankedPosts.isNotEmpty()) {
                     _shouldScrollToTop.value = true 
                 }
                 _loading.value = false 

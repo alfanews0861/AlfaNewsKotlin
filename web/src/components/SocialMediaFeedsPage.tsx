@@ -5,7 +5,7 @@ import { db, app } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import * as _functions from 'firebase/functions';
 
-const { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, query, orderBy, Timestamp, where } = _firestore as any;
+const { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, query, orderBy, Timestamp, where, limit } = _firestore as any;
 const { getFunctions, httpsCallable } = _functions as any;
 
 // Icons
@@ -118,7 +118,41 @@ const SocialMediaFeedsPage: React.FC = () => {
                 );
             }
             const snap = await getDocs(q);
-            setTodayNews(snap.docs.map((d: any) => ({ id: d.id, ...d.data() })));
+            let items = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+
+            // Fallback 1: Query by direct sourceName if categories search yielded nothing
+            if (items.length === 0 && sourceName) {
+                try {
+                    const qDirect = query(
+                        collection(db, 'news'),
+                        where('sourceName', '==', sourceName),
+                        where('timestamp', '>=', startOfToday),
+                        orderBy('timestamp', 'desc')
+                    );
+                    const snapDirect = await getDocs(qDirect);
+                    items = snapDirect.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+                } catch (err) {
+                    console.warn("Direct sourceName query fallback skipped:", err);
+                }
+            }
+
+            // Fallback 2: If still empty for this feed, fetch the most recent posts for this source
+            if (items.length === 0 && sourceName) {
+                try {
+                    const qRecent = query(
+                        collection(db, 'news'),
+                        where('categories', 'array-contains', sourceName),
+                        orderBy('timestamp', 'desc'),
+                        limit(15)
+                    );
+                    const snapRecent = await getDocs(qRecent);
+                    items = snapRecent.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+                } catch (err) {
+                    console.warn("Recent posts fallback skipped:", err);
+                }
+            }
+
+            setTodayNews(items);
         } catch (e) {
             console.error("Error fetching today news:", e);
         } finally {
@@ -126,9 +160,21 @@ const SocialMediaFeedsPage: React.FC = () => {
         }
     };
 
+    const formatItemTime = (item: any) => {
+        const ts = item.timestamp || item.publishedAt || item.createdAt;
+        if (!ts) return '';
+        try {
+            if (ts.toMillis) return new Date(ts.toMillis()).toLocaleTimeString('te-IN', { hour: '2-digit', minute: '2-digit' });
+            if (ts.toDate) return ts.toDate().toLocaleTimeString('te-IN', { hour: '2-digit', minute: '2-digit' });
+            if (ts._seconds) return new Date(ts._seconds * 1000).toLocaleTimeString('te-IN', { hour: '2-digit', minute: '2-digit' });
+            if (typeof ts === 'string' || typeof ts === 'number') return new Date(ts).toLocaleTimeString('te-IN', { hour: '2-digit', minute: '2-digit' });
+        } catch (e) {}
+        return '';
+    };
+
     const formatLastCheck = (ts: any) => {
         if (!ts) return 'ఎప్పుడూ లేదు';
-        const date = ts instanceof Timestamp ? ts.toDate() : new Date(ts);
+        const date = ts instanceof Timestamp ? ts.toDate() : (ts?._seconds ? new Date(ts._seconds * 1000) : new Date(ts));
         return date.toLocaleTimeString('te-IN', { hour: '2-digit', minute: '2-digit' }) + ' ' + date.toLocaleDateString('te-IN', { day: 'numeric', month: 'short' });
     };
 
@@ -153,7 +199,9 @@ const SocialMediaFeedsPage: React.FC = () => {
                         <div className="p-6 border-b flex justify-between items-center bg-gray-50">
                             <div>
                                 <h3 className="text-2xl font-ramabhadra text-gray-800">{detailFeed === 'ALL' ? 'నేటి సోషల్ వార్తలు' : detailFeed}</h3>
-                                <p className="text-sm font-bold text-blue-600 uppercase tracking-widest">నేటి అప్‌డేట్స్</p>
+                                <p className="text-sm font-bold text-blue-600 uppercase tracking-widest">
+                                    {todayNews.length > 0 ? `${todayNews.length} వార్తలు లభించాయి` : 'నేటి అప్‌డేట్స్'}
+                                </p>
                             </div>
                             <button onClick={() => setDetailFeed(null)} className="p-2 bg-white rounded-full shadow-sm hover:text-red-600 transition-colors">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -175,7 +223,7 @@ const SocialMediaFeedsPage: React.FC = () => {
                                                 {item.categories?.find((c: string) => c !== 'Social' && c !== 'Local' && c !== item.category) || 'SOCIAL'}
                                             </span>
                                             <span className="text-[10px] font-bold text-gray-400">
-                                                {item.timestamp?.toMillis ? new Date(item.timestamp.toMillis()).toLocaleTimeString('te-IN', { hour: '2-digit', minute: '2-digit' }) : ''}
+                                                {formatItemTime(item)}
                                             </span>
                                         </div>
                                         <h4 className="text-lg font-bold leading-tight text-gray-800">{item.headline?.telugu}</h4>

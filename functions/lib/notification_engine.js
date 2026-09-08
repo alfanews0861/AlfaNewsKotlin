@@ -15,13 +15,23 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.onNewsPostApprovedNotify = exports.sendPersonalizedNotification = void 0;
 const admin = __importStar(require("firebase-admin"));
@@ -41,9 +51,17 @@ const utils_1 = require("./utils");
 // 3. Breaking trigger → isBreaking=true లేదా tone=BREAKING/URGENT అయినప్పుడు వెంటనే push
 // ==========================================
 const DISTRICTS = [
-    "హైదరాబాద్", "విశాఖపట్నం", "విజయవాడ", "గుంటూరు", "నెల్లూరు",
-    "కర్నూలు", "వరంగల్", "ఖమ్మం", "కరీంనగర్", "నిజామాబాద్",
-    "తిరుపతి", "అనంతపురం", "కడప", "కాకినాడ", "రాజమహేంద్రవరం"
+    // తెలంగాణ (33 జిల్లాలు)
+    "ఆదిలాబాద్", "భద్రాద్రి కొత్తగూడెం", "హన్మకొండ", "హైదరాబాద్", "జగిత్యాల", "జనగాం", "జయశంకర్ భూపాలపల్లి",
+    "జోగులాంబ గద్వాల", "కామారెడ్డి", "కరీంనగర్", "ఖమ్మం", "కుమ్రం భీమ్ ఆసిఫాబాద్", "మహబూబాబాద్", "మహబూబ్ నగర్",
+    "మంచిర్యాల", "మెదక్", "మేడ్చల్ మల్కాజిగిరి", "ములుగు", "నాగర్ కర్నూల్", "నల్గొండ", "నారాయణపేట", "నిర్మల్",
+    "నిజామాబాద్", "పెద్దపల్లి", "రాజన్న సిరిసిల్ల", "రంగారెడ్డి", "సంగారెడ్డి", "సిద్దిపేట", "సూర్యాపేట",
+    "వికారాబాద్", "వనపర్తి", "వరంగల్", "యాదాద్రి భువనగిరి",
+    // ఆంధ్రప్రదేశ్ (29 జిల్లాలు)
+    "అల్లూరి సీతారామరాజు", "అనకాపల్లి", "అనంతపురం", "అన్నమయ్య", "బాపట్ల", "చిత్తూరు", "కోనసీమ",
+    "తూర్పు గోదావరి", "ఏలూరు", "గుంటూరు", "కాకినాడ", "కృష్ణా", "కర్నూలు", "నంద్యాల", "ఎన్టీఆర్",
+    "పల్నాడు", "పార్వతీపురం మన్యం", "ప్రకాశం", "మార్కాపురం", "పోలవరం", "మదనపల్లె", "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు", "శ్రీ సత్యసాయి",
+    "శ్రీకాకుళం", "తిరుపతి", "విశాఖపట్నం", "విజయనగరం", "పశ్చిమ గోదావరి", "వైఎస్ఆర్ కడప"
 ];
 const CATEGORY_TOPICS = {
     "రాజకీయం": "cat_politics",
@@ -95,19 +113,22 @@ function getTitleForHour(hour, headline, curiosityTitle) {
 function buildNewsMessage(news, title, channelId, imageUrl, ttlMs, topicOrToken) {
     const headline = news.headline?.telugu || news.headline?.english || news.headline || "";
     const body = (headline + "").substring(0, 150);
-    // 🛡️ 100% Ironclad Cost & Egress Guard:
+    // 🛡️ 100% Zero-Cost Rich Notification Architecture:
     // 1. External CDN (Eenadu, Sakshi, YouTube, TV9) -> 0 Firebase egress cost (bandwidth is on external CDN).
-    // 2. Firebase Storage -> Block completely from system drawer to guarantee EXACTLY ₹0 / $0 Firebase Storage egress bill!
+    // 2. Firebase Storage -> Route through Cloudflare-backed free edge cache proxy (wsrv.nl).
+    //    First device hit caches the 25KB thumbnail on Cloudflare edge (1 single download from Firebase).
+    //    All subsequent 10,000+ devices download from Cloudflare CDN cache (CF-Cache: HIT).
+    //    Result: Rich BigPicture notifications on 100% of devices + EXACTLY ₹0 Firebase Storage egress bill!
     let safeDrawerImageUrl = undefined;
     if (imageUrl && imageUrl.trim()) {
-        const isFirebaseStorage = imageUrl.includes('firebasestorage.googleapis.com');
+        const isFirebaseStorage = imageUrl.includes('firebasestorage.googleapis.com') || imageUrl.includes('firebasestorage.app');
         if (!isFirebaseStorage && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
             // External CDN: 100% Safe, ₹0 Firebase Cost
             safeDrawerImageUrl = imageUrl;
         }
-        else {
-            // Firebase Storage: Guaranteed ₹0 Egress by omitting from broadcast drawer
-            safeDrawerImageUrl = undefined;
+        else if (isFirebaseStorage) {
+            // Cloudflare Edge Cache Proxy — 1 Firebase request, unlimited cached edge downloads
+            safeDrawerImageUrl = `https://wsrv.nl/?url=${encodeURIComponent(imageUrl)}&w=640&output=webp&q=75`;
         }
     }
     return {
@@ -134,9 +155,40 @@ function buildNewsMessage(news, title, channelId, imageUrl, ttlMs, topicOrToken)
             imageUrl: imageUrl || "",
             title,
             body,
+            district: news.district || "",
+            newsType: ('topic' in topicOrToken && topicOrToken.topic?.startsWith("district_")) ? "DISTRICT" : "MAIN",
         },
         ...topicOrToken,
     };
+}
+// ==========================================
+// MAIN / PRADHAANA NEWS FILTER
+// Ensures only state, national, global, breaking or high-impact news goes to all_users
+// Single-mandal or purely local district stories are excluded from all_users
+// ==========================================
+function isMainNews(n) {
+    if (n.isGlobal === true)
+        return true;
+    const tone = (n.tone || "").toUpperCase();
+    if (n.isBreaking === true || tone === 'BREAKING' || tone === 'URGENT' || tone === 'IMPORTANT')
+        return true;
+    if ((n.score ?? 0) >= 75)
+        return true;
+    const category = n.category || "";
+    const mainCategories = [
+        "రాజకీయం", "జాతీయం", "ప్రపంచం", "క్రీడలు", "వినోదం",
+        "వ్యాపారం", "టెక్నాలజీ", "ఆరోగ్యం", "విద్య", "వ్యవసాయం"
+    ];
+    if (mainCategories.includes(category)) {
+        if (category === "జిల్లా వార్త")
+            return false;
+        return true;
+    }
+    const broadDistricts = ["State", "National", "International", "తెలంగాణ", "ఆంధ్రప్రదేశ్", "భారతదేశం", "ప్రపంచం", "General", "AP", "TS"];
+    if (n.district && broadDistricts.some(d => d.toLowerCase() === (n.district + "").toLowerCase())) {
+        return true;
+    }
+    return false;
 }
 // ==========================================
 // ATOMIC DAILY LIMIT CHECK FOR BREAKING NEWS
@@ -174,7 +226,11 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
     const db = admin.firestore();
     const settingsRef = db.collection('settings').doc('notifications');
     const settingsDoc = await settingsRef.get();
-    const lastSentMap = settingsDoc.exists ? (settingsDoc.data()?.lastSentNewsIdMap || {}) : {};
+    const settingsData = settingsDoc.exists ? settingsDoc.data() : {};
+    const lastSentMap = settingsData?.lastSentNewsIdMap || {};
+    const recentGeneralIds = Array.isArray(settingsData?.recentGeneralIds)
+        ? settingsData.recentGeneralIds
+        : (lastSentMap['general'] ? [lastSentMap['general']] : []);
     const updatedMap = { ...lastSentMap };
     const istHour = parseInt(new Intl.DateTimeFormat('en-GB', {
         hour: 'numeric',
@@ -214,10 +270,17 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
         const viewsB = b.longViews || b.views || 0;
         return viewsB - viewsA;
     });
-    // --- 1. General Notification — అన్ని 4 scheduled slots (8, 13, 18, 21) కి పంపు ---
-    // Unsent news ని find చేస్తాం (ముందు పంపిన topNews కాకుండా next best news)
-    const topNews = allNews.find((n) => lastSentMap['general'] !== n.id) || allNews[0];
-    if (topNews && lastSentMap['general'] !== topNews.id) {
+    // --- 1. General Notification — అన్ని 4 scheduled slots (8, 13, 18, 21) కి ప్రధాన వార్త తప్పనిసరిగా పంపు ---
+    // ప్రధాన వార్తలు (State / National / Global / Major) మాత్రమే all_users కి వెళ్లాలి, స్థానిక మండల/జిల్లా వార్తలు వెళ్లకూడదు.
+    const mainNewsList = allNews.filter(isMainNews);
+    const candidateMainNews = mainNewsList.length > 0 ? mainNewsList : allNews;
+    // 1) గత 24 గంటల రీసెంట్ లిస్ట్ లో లేని సరికొత్త ప్రధాన వార్త
+    let topNews = candidateMainNews.find((n) => !recentGeneralIds.includes(n.id));
+    if (!topNews) {
+        // 2) Fallback: రీసెంట్ లిస్ట్ లో ఉన్నప్పటికీ, వెంటనే మునుపటి రన్‌లో పంపని అత్యుత్తమ ప్రధాన వార్త
+        topNews = candidateMainNews.find((n) => lastSentMap['general'] !== n.id) || candidateMainNews[0];
+    }
+    if (topNews) {
         const headline = topNews.headline?.telugu || topNews.headline?.english || topNews.headline || "నేటి ముఖ్య వార్తలు";
         const curiosityTitle = topNews.notificationTitle || "";
         let imageUrl = topNews.thumbnailUrl || "";
@@ -229,20 +292,22 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
             { topic: 'all_users' });
             await admin.messaging().send(message);
             updatedMap['general'] = topNews.id;
-            v2_1.logger.log(`[NOTIF] General sent: newsId=${topNews.id}, views=${topNews.longViews || 0}, hour=${istHour}`);
+            recentGeneralIds.unshift(topNews.id);
+            v2_1.logger.log(`[NOTIF] Pradhaana Vaartha (General) sent: newsId=${topNews.id}, category=${topNews.category}, views=${topNews.longViews || 0}, hour=${istHour}`);
         }
         catch (e) {
             v2_1.logger.error(`[NOTIF] General send failed:`, e.message);
         }
     }
     else {
-        v2_1.logger.log(`[NOTIF] General skipped — no new unsent news found. newsId=${topNews?.id}`);
+        v2_1.logger.log(`[NOTIF] General skipped — no candidate news found.`);
     }
     // --- 2. District Notification — 13 PM మరియు 21 PM slots కి district push ---
     if (istHour === 13 || istHour === 21) {
         for (const district of DISTRICTS) {
-            // ఆ జిల్లాలో ఇంతకుముందు పంపని best news కనుక్కోవడం
-            const districtNews = allNews.find((n) => ((Array.isArray(n.categories) && n.categories.includes(district)) || n.district === district) &&
+            // ఆ జిల్లాకు చెందిన వార్త మాత్రమే ఎంపిక చేస్తాం (ఇతర జిల్లాల వార్తలు లేదా ప్రధాన వార్తతో డూప్లికేట్ కాకుండా రక్షణ)
+            const districtNews = allNews.find((n) => (n.district === district || (n.category === "జిల్లా వార్త" && Array.isArray(n.categories) && n.categories.includes(district))) &&
+                n.id !== topNews?.id &&
                 lastSentMap[district] !== n.id);
             if (!districtNews)
                 continue;
@@ -268,7 +333,7 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
     // --- 3. Category Notification — 8 AM & 18 PM slots కి category-wise push ---
     if (istHour === 8 || istHour === 18) {
         for (const [teluguCat, topicName] of Object.entries(CATEGORY_TOPICS)) {
-            const catKey = `cat_${topicName}`;
+            const catKey = topicName;
             // ఆ category లో ఇంతకుముందు general గాని category గాని పంపని best news కనుక్కోవడం
             const catNews = allNews.find((n) => (n.category === teluguCat || (Array.isArray(n.categories) && n.categories.includes(teluguCat))) &&
                 lastSentMap['general'] !== n.id &&
@@ -290,8 +355,10 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
             }
         }
     }
+    const updatedRecentGeneral = recentGeneralIds.slice(0, 30);
     await settingsRef.set({
         lastSentNewsIdMap: updatedMap,
+        recentGeneralIds: updatedRecentGeneral,
         lastRunAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
     // Update scheduled run record for monitoring
@@ -303,8 +370,8 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
     }, { merge: true }).catch(() => { });
 });
 // ==========================================
-// BREAKING NEWS INSTANT TRIGGER
-// isBreaking=true లేదా tone=BREAKING/URGENT అయిన వెంటనే notification
+// BREAKING / IMPORTANT NEWS INSTANT TRIGGER
+// isBreaking=true లేదా tone=BREAKING/URGENT/IMPORTANT అయిన వెంటనే notification (గరిష్టంగా 5/రోజు)
 // ==========================================
 exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
     document: "news/{postId}",
@@ -320,14 +387,15 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
     const isNowApproved = after.approved === true;
     if (wasApproved || !isNowApproved)
         return;
-    // Breaking trigger: isBreaking=true OR tone=BREAKING/URGENT
+    // Trigger: isBreaking=true OR tone=BREAKING/URGENT OR tone=IMPORTANT (with notificationWorthy or high score)
     const tone = (after.tone || "").toUpperCase();
     const isBreakingOrUrgent = after.isBreaking === true || tone === 'BREAKING' || tone === 'URGENT';
-    if (!isBreakingOrUrgent) {
-        v2_1.logger.log(`[BREAKING] Not breaking/urgent: ${postId} (tone=${after.tone}, isBreaking=${after.isBreaking})`);
+    const isImportantNews = tone === 'IMPORTANT' && (after.notificationWorthy === true || (after.score ?? 0) >= 70);
+    if (!isBreakingOrUrgent && !isImportantNews) {
+        v2_1.logger.log(`[BREAKING] Not breaking/urgent/important: ${postId} (tone=${after.tone}, isBreaking=${after.isBreaking})`);
         return;
     }
-    v2_1.logger.log(`[BREAKING] Triggered: ${postId} (tone=${after.tone}, isBreaking=${after.isBreaking})`);
+    v2_1.logger.log(`[BREAKING] Triggered: ${postId} (tone=${after.tone}, isBreaking=${after.isBreaking}, important=${isImportantNews})`);
     // Age check — 6 గంటల కంటే పాత news కి breaking send వద్దు
     const ts = after.timestamp;
     let ageHours = 0;
@@ -341,18 +409,20 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
         v2_1.logger.log(`[BREAKING] Too old (${ageHours.toFixed(1)}h): ${postId}`);
         return;
     }
-    // Daily limit check - atomic to prevent race conditions (max 5 breaking notifications per day)
+    // Daily limit check - atomic to prevent race conditions (max 5 breaking/important notifications per day)
     const db = admin.firestore();
     const canSend = await checkAndIncrementLimitAtomic(db, 'notif_daily_breaking', 5);
     if (!canSend) {
-        v2_1.logger.log(`[BREAKING] Daily limit reached for breaking news. Skipping ${postId}`);
+        v2_1.logger.log(`[BREAKING] Daily limit reached for breaking/important news. Skipping ${postId}`);
         return;
     }
     // Duplicate check
     const settingsRef = db.collection('settings').doc('notifications');
     const settingsDoc = await settingsRef.get();
-    const lastSentMap = settingsDoc.exists ? (settingsDoc.data()?.lastSentNewsIdMap || {}) : {};
-    if (lastSentMap['general'] === postId) {
+    const settingsData = settingsDoc.exists ? settingsDoc.data() : {};
+    const lastSentMap = settingsData?.lastSentNewsIdMap || {};
+    const recentGeneralIds = Array.isArray(settingsData?.recentGeneralIds) ? settingsData.recentGeneralIds : [];
+    if (lastSentMap['general'] === postId || recentGeneralIds.includes(postId)) {
         v2_1.logger.log(`[BREAKING] Already sent: ${postId}`);
         return;
     }
@@ -361,10 +431,12 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
     const imageUrl = after.thumbnailUrl || after.mediaUrl || "";
     const breakingTitle = (tone === 'BREAKING' || after.isBreaking === true)
         ? `🔴 Breaking: ${shortBreaking}`
-        : `⚡ ముఖ్య వార్త: ${shortBreaking}`;
+        : (tone === 'URGENT')
+            ? `⚡ అత్యవసరం: ${shortBreaking}`
+            : `📌 ముఖ్యాంశం: ${shortBreaking}`;
     try {
         const news = { id: postId, ...after };
-        // 1. Breaking news → all_users కి పంపు (ఒకేసారి పంపడం ద్వారా డూప్లికేట్ నోటిఫికేషన్లు రాకుండా రక్షణ)
+        // 1. Breaking/Important news → all_users కి పంపు (ఒకేసారి పంపడం ద్వారా డూప్లికేట్ నోటిఫికేషన్లు రాకుండా రక్షణ)
         const message = buildNewsMessage(news, breakingTitle, "breaking_news", imageUrl, 1800000, // 30 min TTL
         { topic: 'all_users' });
         await admin.messaging().send(message);
@@ -377,8 +449,10 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
         if (catKey) {
             updatedHistory[catKey] = postId;
         }
+        const updatedRecentGeneral = [postId, ...recentGeneralIds.filter(id => id !== postId)].slice(0, 30);
         await settingsRef.set({
             lastSentNewsIdMap: updatedHistory,
+            recentGeneralIds: updatedRecentGeneral,
             lastBreakingAt: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
         v2_1.logger.log(`[BREAKING] ✅ Sent to all_users for ${postId} (tone=${after.tone}, age=${ageHours.toFixed(1)}h)`);

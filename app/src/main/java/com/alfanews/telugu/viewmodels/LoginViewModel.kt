@@ -116,7 +116,12 @@ class LoginViewModel : ViewModel() {
                     prefs.userId = user.uid
                     prefs.userName = existingUserDoc.getString("name") ?: user.displayName ?: "User"
                     prefs.userRole = roleFromDb
-                    prefs.userDistrict = existingUserDoc.getString("district")
+                    val dist = existingUserDoc.getString("district")
+                    prefs.userDistrict = dist
+                    if (!dist.isNullOrBlank()) {
+                        prefs.selectedDistrict = dist
+                        com.alfanews.telugu.utils.NotificationHelper.syncDistrictTopic(context, dist)
+                    }
 
                     val updateData = mutableMapOf<String, Any>(
                         "lastLogin" to Timestamp.now()

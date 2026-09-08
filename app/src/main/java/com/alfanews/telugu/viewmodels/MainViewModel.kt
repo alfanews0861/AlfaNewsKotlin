@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.net.Uri
 import android.provider.Settings
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.alfanews.telugu.models.*
@@ -205,6 +206,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                             AnalyticsService.onUserLogin(userObj)
                             startUnreadMessagesListener(userObj)
+                            syncUserFcmToken(userObj.id)
                             
                             if (prefs.isNotificationsEnabled) {
                                 val oldInterests = oldUser?.categoryScores?.keys ?: emptySet()
@@ -251,6 +253,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         startWeatherAlertListener()
         startAppConfigListener()
         ensureDefaultSubscriptions()
+        syncUserFcmToken(FirebaseService.auth.currentUser?.uid)
     }
 
     private fun startAppConfigListener() {
@@ -320,7 +323,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _activeWeatherAlert.value = null
     }
 
-    private fun ensureDefaultSubscriptions() {
+    fun ensureDefaultSubscriptions() {
         if (prefs.isNotificationsEnabled) {
             viewModelScope.launch {
                 try {
@@ -329,15 +332,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     messaging.subscribeToTopic("breaking_news").await()
                     
                     val district = prefs.getEffectiveDistrict()
-                    if (!district.isNullOrBlank()) {
-                        val districtTopic = NotificationHelper.getTopicName("district", district)
-                        messaging.subscribeToTopic(districtTopic).await()
-                        // ✅ FIX: Also subscribe to weather_alert topic.
-                        // Cloud Function sends weather alerts to "weather_alert_{district}" topic,
-                        // but app was only subscribing to "district_{district}" — mismatch! So alerts never arrived.
-                        val weatherAlertTopic = NotificationHelper.getTopicName("weather_alert", district)
-                        messaging.subscribeToTopic(weatherAlertTopic).await()
-                    }
+                    NotificationHelper.syncDistrictTopic(getApplication(), district)
                     
                     // సబ్‌స్క్రయిబ్ అయినట్లు అనలిటిక్స్ లో లాగ్ చేయడం
                     AnalyticsService.logAnalyticsEvent("default_topics_subscribed")
@@ -447,6 +442,70 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 updateTotal()
             }
     }
+ 
+    fun syncUserFcmToken(userId: String?) {
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { token ->
+                    if (!token.isNullOrBlank()) {
+                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            try {
+                                val isGuest = userId.isNullOrBlank() || userId == "guest"
+                                if (!isGuest) {
+                                    val uid = userId!!
+                                    try {
+                                        FirebaseService.db.collection("users").document(uid).update(
+                                            "fcmToken", token,
+                                            "fcmTokens", com.google.firebase.firestore.FieldValue.arrayUnion(token),
+                                            "lastActive", com.google.firebase.firestore.FieldValue.serverTimestamp()
+                                        ).await()
+                                        Log.d("MainViewModel", "Synced FCM token for user $uid")
+                                    } catch (e: Exception) {
+                                        val data = mapOf(
+                                            "fcmToken" to token,
+                                            "fcmTokens" to listOf(token),
+                                            "notificationsEnabled" to true,
+                                            "lastActive" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                                        )
+                                        FirebaseService.db.collection("users").document(uid).set(data, com.google.firebase.firestore.SetOptions.merge()).await()
+                                        Log.d("MainViewModel", "Set FCM token for user $uid with merge")
+                                    }
+                                } else {
+                                    val installId = prefs.getOrCreateInstallId()
+                                    val guestData = mutableMapOf<String, Any>(
+                                        "fcmToken" to token,
+                                        "installId" to installId,
+                                        "isAnonymous" to true,
+                                        "notificationsEnabled" to true,
+                                        "lastActive" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                                        "platform" to "android",
+                                        "appVersion" to com.alfanews.telugu.BuildConfig.VERSION_NAME
+                                    )
+                                    prefs.selectedDistrict?.let { guestData["district"] = it }
+                                    prefs.detectedDistrict?.let { guestData["detectedDistrict"] = it }
+                                    prefs.localPlace?.let { guestData["place"] = it }
+                                    prefs.referredBy?.let { ref ->
+                                        if (ref.isNotEmpty()) {
+                                            guestData["referredBy"] = ref
+                                        }
+                                    }
+                                    val tokenId = token.take(30).replace("/", "_")
+                                    FirebaseService.db.collection("anonymous_devices").document(tokenId)
+                                        .set(guestData, com.google.firebase.firestore.SetOptions.merge()).await()
+                                    Log.d("MainViewModel", "Synced anonymous device FCM token: $tokenId (installId: $installId)")
+                                }
+
+                                ensureDefaultSubscriptions()
+                            } catch (e: Exception) {
+                                Log.w("MainViewModel", "Failed to sync FCM token: ${e.message}")
+                            }
+                        }
+                    }
+                }
+        } catch (e: Exception) {
+            Log.w("MainViewModel", "Could not get FCM token: ${e.message}")
+        }
+    }
 
     override fun onCleared() {
         super.onCleared()
@@ -521,22 +580,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         AnalyticsService.logDistrictSelected(district, oldDistrict)
         viewModelScope.launch {
             // Update Firestore user record
-            _currentUser.value?.id?.let { uid ->
-                FirebaseService.db.collection("users").document(uid).update("district", district)
+            val uid = _currentUser.value?.id
+            if (!uid.isNullOrBlank() && uid != "guest") {
+                try {
+                    FirebaseService.db.collection("users").document(uid).update("district", district)
+                } catch (e: Exception) { }
+            } else {
+                syncUserFcmToken(null)
             }
             // ✅ FIX: Update FCM topic subscriptions when district changes
             if (prefs.isNotificationsEnabled) {
-                try {
-                    val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
-                    // Unsubscribe from old district topics
-                    if (!oldDistrict.isNullOrBlank() && oldDistrict != district) {
-                        messaging.unsubscribeFromTopic(NotificationHelper.getTopicName("district", oldDistrict)).await()
-                        messaging.unsubscribeFromTopic(NotificationHelper.getTopicName("weather_alert", oldDistrict)).await()
-                    }
-                    // Subscribe to new district topics
-                    messaging.subscribeToTopic(NotificationHelper.getTopicName("district", district)).await()
-                    messaging.subscribeToTopic(NotificationHelper.getTopicName("weather_alert", district)).await()
-                } catch (e: Exception) { }
+                NotificationHelper.syncDistrictTopic(getApplication(), district)
             }
         }
     }
@@ -594,6 +648,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 FirebaseService.db.collection("users").document(user.id).update(updates).await()
+                if (district.isNotBlank() && district != user.district) {
+                    prefs.userDistrict = district
+                    prefs.selectedDistrict = district
+                    _activeDistrict.value = district
+                    NotificationHelper.syncDistrictTopic(getApplication(), district)
+                }
             } catch (e: Exception) {
             } finally {
                 _isLoading.value = false
@@ -631,21 +691,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun updateCategoryTopicSubscriptions(oldCategories: Set<String>, newCategories: Set<String>) {
         val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
-        val categoryTopicMap = mapOf(
-            "రాజకీయం"    to "cat_politics",
-            "వినోదం"     to "cat_cinema",
-            "క్రైమ్"     to "cat_crime",
-            "క్రీడలు"    to "cat_sports",
-            "వ్యాపారం"   to "cat_business",
-            "టెక్నాలజీ" to "cat_technology",
-            "ఆరోగ్యం"   to "cat_health",
-            "విద్య"      to "cat_education",
-            "భక్తి"      to "cat_spiritual",
-            "వ్యవసాయం"  to "cat_agriculture",
-            "జాతీయం"    to "cat_national",
-            "ప్రపంచం"   to "cat_international",
-            "జీవనశైలి"  to "cat_lifestyle"
-        )
 
         viewModelScope.launch {
             try {
@@ -687,29 +732,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (enabled) {
                     messaging.subscribeToTopic("all_users").await()
                     messaging.subscribeToTopic("breaking_news").await()
-                    district?.let { d ->
-                        val districtTopic = NotificationHelper.getTopicName("district", d)
-                        messaging.subscribeToTopic(districtTopic).await()
-                        // ✅ FIX: Subscribe to weather alert topic too
-                        val weatherAlertTopic = NotificationHelper.getTopicName("weather_alert", d)
-                        messaging.subscribeToTopic(weatherAlertTopic).await()
-                        interests.forEach { category ->
-                            val interestTopic = NotificationHelper.getTopicName("interest_${NotificationHelper.slugify(d)}", category)
-                            messaging.subscribeToTopic(interestTopic).await()
+                    NotificationHelper.syncDistrictTopic(getApplication(), district)
+                    interests.forEach { category ->
+                        val catTopic = categoryTopicMap[category]
+                        if (catTopic != null) {
+                            messaging.subscribeToTopic(catTopic).await()
                         }
                     }
                 } else {
                     messaging.unsubscribeFromTopic("all_users").await()
                     messaging.unsubscribeFromTopic("breaking_news").await()
-                    district?.let { d ->
-                        val districtTopic = NotificationHelper.getTopicName("district", d)
-                        messaging.unsubscribeFromTopic(districtTopic).await()
-                        // ✅ FIX: Unsubscribe from weather alert topic too
-                        val weatherAlertTopic = NotificationHelper.getTopicName("weather_alert", d)
-                        messaging.unsubscribeFromTopic(weatherAlertTopic).await()
-                        interests.forEach { category ->
-                            val interestTopic = NotificationHelper.getTopicName("interest_${NotificationHelper.slugify(d)}", category)
-                            messaging.unsubscribeFromTopic(interestTopic).await()
+                    NotificationHelper.syncDistrictTopic(getApplication(), null)
+                    interests.forEach { category ->
+                        val catTopic = categoryTopicMap[category]
+                        if (catTopic != null) {
+                            messaging.unsubscribeFromTopic(catTopic).await()
                         }
                     }
                 }
@@ -720,5 +757,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (e: Exception) { }
         }
+    }
+
+    companion object {
+        val categoryTopicMap: Map<String, String> = mapOf(
+            "రాజకీయం"    to "cat_politics",
+            "వినోదం"     to "cat_cinema",
+            "క్రైమ్"     to "cat_crime",
+            "క్రీడలు"    to "cat_sports",
+            "వ్యాపారం"   to "cat_business",
+            "టెక్నాలజీ" to "cat_technology",
+            "ఆరోగ్యం"   to "cat_health",
+            "విద్య"      to "cat_education",
+            "భక్తి"      to "cat_spiritual",
+            "వ్యవసాయం"  to "cat_agriculture",
+            "జాతీయం"    to "cat_national",
+            "ప్రపంచం"   to "cat_international",
+            "జీవనశైలి"  to "cat_lifestyle"
+        )
     }
 }

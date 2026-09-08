@@ -1,5 +1,5 @@
 import { Type } from "@google/genai";
-import { runWithAIFallback, parseAIJson, PRO_MODEL } from "./utils";
+import { runWithAIFallback, parseAIJson, PRO_MODEL, sanitizeTeluguText } from "./utils";
 
 const PRIMARY_MODEL = PRO_MODEL;
 
@@ -35,12 +35,11 @@ export const processSocialPostWithAI = async (
             contents: [{ role: "user", parts: [{ text: `Platform: ${platform}\nCategory: ${category}\nInput Text:\n${socialText}` }] }],
             config: {
                 systemInstruction: `You are the Chief Editor of Alfa News (Telugu).
-1. Transform the input into high-quality Telugu news (content) of STRICTLY 60 to 70 words total (NEVER exceed 70 words) in exactly 2 micro-paragraphs separated by \\n\\n (Para 1: Core lead story ~30-35 words, Para 2: Background details & impact ~25-35 words).
-2. Capture the emotional essence (bhaavam) and include ALL factual names and locations. Never invent facts.
-3. Use 100% accurate standard Telugu spelling and grammar (e.g. use 'బనాయించి', NOT 'బనడించి'). No typing or compound letter errors.
-4. Write a crisp English summary (contentEn) maximum 60 words.
-5. Generate a dynamic, emotionally resonant Telugu headline (headline) STRICTLY 6-9 words. NEVER use boring meeting labels ("ప్రెస్ మీట్", "సమావేశం"). Match tone: poignant for human plight, fiery punch quote for speeches, crisp action for crimes/schemes.
-6. Generate a sharp English headline (headlineEn) maximum 10-12 words.
+1. Transform the input into high-quality Telugu news (content) of STRICTLY 60 to 70 words total as strictly ONE SINGLE UNIFIED PARAGRAPH (గతం లో మాదిరిగానే ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్, no multiple paragraphs, no newlines).
+2. Capture the full emotional essence (భావం), tone, and intensity (ఆవేశం, ఆగ్రహం, ఆవేదన). Include ALL factual names of people and exact locations. Never invent facts.
+3. Extract the sharpest punch dialogue or key statement from the news as the headline hook (e.g. "'...': ..."). STRICTLY 6-9 words.
+4. STRICT SCRIPT PURITY: Output pure Telugu script only (Unicode U+0C00-U+0C7F). Zero Kannada or Hindi/Devanagari characters allowed.
+5. Write a crisp English summary (contentEn) maximum 60 words, and English headline (headlineEn) maximum 10-12 words.
 LEGAL COMPLIANCE: Use objective, neutral language. For allegations, use "ఆరోపణలు వస్తున్నాయి" or "సమాచారం అందుతోంది".
 Output JSON only.`,
                 temperature: 0.4,
@@ -54,7 +53,12 @@ Output JSON only.`,
         const text = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!text) return null;
         const parsed = parseAIJson(text);
-        return parsed && parsed.isNewsFound ? parsed : null;
+        if (!parsed || !parsed.isNewsFound) return null;
+        return {
+            ...parsed,
+            headline: sanitizeTeluguText(parsed.headline),
+            content: sanitizeTeluguText(parsed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim()
+        };
     });
 };
 
@@ -96,12 +100,11 @@ export const processCitizenContentWithAI = async (
             contents: [{ role: "user", parts: [{ text: `Citizen Submission:\n${rawContent}` }] }],
             config: {
                 systemInstruction: `You are the Chief Editor of Alfa News (Telugu).
-1. Transform the input into high-quality Telugu news (content) of STRICTLY 60 to 70 words total (NEVER exceed 70 words) in exactly 2 micro-paragraphs separated by \\n\\n (Para 1: Core lead story ~30-35 words, Para 2: Background details & impact ~25-35 words).
-2. Capture the emotional essence (bhaavam) and include ALL factual names and locations. Never invent facts.
-3. Use 100% accurate standard Telugu spelling and grammar (e.g. use 'బనాయించి', NOT 'బనడించి'). No typing or compound letter errors.
-4. Write a crisp English summary (contentEn) maximum 60 words.
-5. Generate a dynamic, emotionally resonant Telugu headline (headline) STRICTLY 6-9 words. NEVER use boring meeting labels ("ప్రెస్ మీట్", "సమావేశం"). Match tone: poignant for human plight, fiery punch quote for speeches, crisp action for crimes/schemes.
-6. Generate a sharp English headline (headlineEn) maximum 10-12 words.
+1. Transform the input into high-quality Telugu news (content) of STRICTLY 60 to 70 words total as strictly ONE SINGLE UNIFIED PARAGRAPH (గతం లో మాదిరిగానే ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్, no multiple paragraphs, no newlines).
+2. Capture the full emotional essence (భావం), tone, and intensity (ఆవేశం, ఆగ్రహం, ఆవేదన). Include ALL factual names of people and exact locations. Never invent facts.
+3. Extract the sharpest punch dialogue or key statement from the news as the headline hook (e.g. "'...': ..."). STRICTLY 6-9 words.
+4. STRICT SCRIPT PURITY: Output pure Telugu script only (Unicode U+0C00-U+0C7F). Zero Kannada or Hindi/Devanagari characters allowed.
+5. Write a crisp English summary (contentEn) maximum 60 words, and English headline (headlineEn) maximum 10-12 words.
 LEGAL COMPLIANCE: Use objective, neutral language. For allegations, use "ఆరోపణలు వస్తున్నాయి" or "సమాచారం అందుతోంది".
 Output JSON only.`,
                 temperature: 0.4,
@@ -114,7 +117,12 @@ Output JSON only.`,
 
         const text = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!text) throw new Error("Empty AI response");
-        return parseAIJson(text);
+        const parsed = parseAIJson(text);
+        if (parsed && parsed.processed) {
+            parsed.processed.headline = sanitizeTeluguText(parsed.processed.headline);
+            parsed.processed.content = sanitizeTeluguText(parsed.processed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+        }
+        return parsed;
     });
 };
 
@@ -144,12 +152,11 @@ export const processContentWithAI = async (
             contents: [{ role: "user", parts: [{ text: `Headline: ${rawHeadline || 'N/A'}\nContent: ${rawContent}` }] }],
             config: {
                 systemInstruction: `You are the Chief Editor of Alfa News (Telugu).
-1. Transform the input into high-quality Telugu news (summarizedTeluguContent) of STRICTLY 60 to 70 words total (NEVER exceed 70 words) in exactly 2 micro-paragraphs separated by \\n\\n (Para 1: Core lead story ~30-35 words, Para 2: Background details & impact ~25-35 words).
-2. Capture the emotional essence (bhaavam) and include ALL factual names and locations. Never invent facts.
-3. Use 100% accurate standard Telugu spelling and grammar (e.g. use 'బనాయించి', NOT 'బనడించి'). No typing or compound letter errors.
-4. Write a crisp English summary (englishContent) maximum 60 words.
-5. Generate a dynamic, emotionally resonant Telugu headline (generatedTeluguHeadline) STRICTLY 6-9 words. NEVER use boring meeting labels ("ప్రెస్ మీట్", "సమావేశం"). Match tone: poignant for human plight, fiery punch quote for speeches, crisp action for crimes/schemes.
-6. Generate a sharp English headline (englishHeadline) maximum 10-12 words.
+1. Transform the input into high-quality Telugu news (summarizedTeluguContent) of STRICTLY 60 to 70 words total as strictly ONE SINGLE UNIFIED PARAGRAPH (గతం లో మాదిరిగానే ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్, no multiple paragraphs, no newlines).
+2. Capture the full emotional essence (భావం), tone, and intensity (ఆవేశం, ఆగ్రహం, ఆవేదన). Include ALL factual names of people and exact locations. Never invent facts.
+3. Extract the sharpest punch dialogue or key statement from the news as the headline hook (e.g. "'...': ..."). STRICTLY 6-9 words.
+4. STRICT SCRIPT PURITY: Output pure Telugu script only (Unicode U+0C00-U+0C7F). Zero Kannada or Hindi/Devanagari characters allowed.
+5. Write a crisp English summary (englishContent) maximum 60 words, and English headline (englishHeadline) maximum 10-12 words.
 LEGAL COMPLIANCE: Use objective, neutral language. For allegations, use "ఆరోపణలు వస్తున్నాయి" or "సమాచారం అందుతోంది".
 Output JSON only.`,
                 temperature: 0.4,
@@ -162,7 +169,12 @@ Output JSON only.`,
 
         const text = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!text) throw new Error("Empty AI response");
-        return parseAIJson(text);
+        const parsed = parseAIJson(text);
+        return {
+            ...parsed,
+            generatedTeluguHeadline: sanitizeTeluguText(parsed.generatedTeluguHeadline),
+            summarizedTeluguContent: sanitizeTeluguText(parsed.summarizedTeluguContent).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim()
+        };
     });
 };
 

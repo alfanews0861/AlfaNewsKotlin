@@ -15,18 +15,28 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.getNewsCardImage = exports.sendContactEmail = exports.triggerPushBroadcast = exports.exchangeForPermanentToken = exports.initializeDistrictSocialConfigs = exports.manuallyTriggerSocialPost = exports.testDistrictSocialPost = exports.onNewsPostSocialAutoPost = exports.reportNewsPost = exports.broadcastToAllReporters = exports.sendAdminReporterMessage = exports.onNewsPostCreated = exports.processNewsPost = exports.recordAppInstallReferral = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.runAutoApprovePendingBackfill = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
+exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.getNewsCardImage = exports.sendContactEmail = exports.triggerPushBroadcast = exports.exchangeForPermanentToken = exports.initializeDistrictSocialConfigs = exports.manuallyTriggerSocialPost = exports.testDistrictSocialPost = exports.onNewsPostSocialAutoPost = exports.reportNewsPost = exports.broadcastToAllReporters = exports.sendAdminReporterMessage = exports.scheduleReprocessFailedReporterNews = exports.onNewsPostCreated = exports.processNewsPost = exports.restoreAllDowngradedReporters = exports.recordAppInstallReferral = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.runAutoApprovePendingBackfill = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
 /**
  * Alfa News - Cloud Functions v18.0 (Refactored & Modular)
  */
@@ -73,10 +83,12 @@ Object.defineProperty(exports, "runAutoApprovePendingBackfill", { enumerable: tr
 Object.defineProperty(exports, "reactivateFalselyDemotedReporters", { enumerable: true, get: function () { return reporter_handler_1.reactivateFalselyDemotedReporters; } });
 Object.defineProperty(exports, "runReactivateDemotedReportersHttp", { enumerable: true, get: function () { return reporter_handler_1.runReactivateDemotedReportersHttp; } });
 Object.defineProperty(exports, "recordAppInstallReferral", { enumerable: true, get: function () { return reporter_handler_1.recordAppInstallReferral; } });
+Object.defineProperty(exports, "restoreAllDowngradedReporters", { enumerable: true, get: function () { return reporter_handler_1.restoreAllDowngradedReporters; } });
 // 3. Export Main News Functions
 var news_handler_1 = require("./news_handler");
 Object.defineProperty(exports, "processNewsPost", { enumerable: true, get: function () { return news_handler_1.processNewsPost; } });
 Object.defineProperty(exports, "onNewsPostCreated", { enumerable: true, get: function () { return news_handler_1.onNewsPostCreated; } });
+Object.defineProperty(exports, "scheduleReprocessFailedReporterNews", { enumerable: true, get: function () { return news_handler_1.scheduleReprocessFailedReporterNews; } });
 // 4. Export Notification Engine
 __exportStar(require("./notification_engine"), exports);
 // 5. Export Reporter Monitoring
@@ -132,12 +144,13 @@ exports.triggerPushBroadcast = (0, https_1.onCall)(async (request) => {
         topic: topic || 'all_users'
     };
     if (imageUrl && imageUrl.startsWith('http')) {
-        const isHeavyStorageUrl = imageUrl.includes('firebasestorage.googleapis.com') && !imageUrl.includes('thumbnails%2F') && !imageUrl.includes('_thumb');
-        if (!isHeavyStorageUrl) {
-            message.notification.imageUrl = imageUrl;
-            message.android.notification.imageUrl = imageUrl;
-        }
-        message.data.imageUrl = imageUrl;
+        const isStorageUrl = imageUrl.includes('firebasestorage.googleapis.com') || imageUrl.includes('firebasestorage.app');
+        const finalImageUrl = isStorageUrl
+            ? `https://wsrv.nl/?url=${encodeURIComponent(imageUrl)}&w=640&output=webp&q=75`
+            : imageUrl;
+        message.notification.imageUrl = finalImageUrl;
+        message.android.notification.imageUrl = finalImageUrl;
+        message.data.imageUrl = finalImageUrl;
     }
     try {
         const response = await admin.messaging().send(message);

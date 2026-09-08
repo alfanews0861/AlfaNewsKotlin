@@ -373,7 +373,9 @@ const PostNewsPage: React.FC<PostNewsPageProps> = ({ user, postToEdit, onActionC
       });
 
       const isVideoPost = finalMediaTypes.includes('VIDEO');
-      const successMsg = isVideoPost
+      const successMsg = isEditMode
+        ? 'వార్త విజయవంతంగా నవీకరించబడింది!'
+        : isVideoPost
         ? 'వార్త అప్‌లోడ్ విజయవంతమైంది! వీడియో తయారీ మరియు ఇతర పనులు నేపథ్యంలో జరుగుతున్నాయి. 10 నిమిషాల తర్వాత చూడండి.'
         : 'వార్త విజయవంతంగా పంపబడింది. త్వరలో హోమ్ ఫీడ్ లో చూడవచ్చు.';
 

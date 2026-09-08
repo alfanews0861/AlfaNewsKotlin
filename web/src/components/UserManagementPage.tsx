@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useCallback, ChangeEvent } from 'react';
-import { User, UserRole } from '../types';
+import { User, UserRole, TS_DISTRICTS, AP_DISTRICTS } from '../types';
+import { MANDAL_DATA } from '../data/mandalData';
 import { db } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 
@@ -47,6 +48,8 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
     const [loadingMore, setLoadingMore] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [updatingUsers, setUpdatingUsers] = useState<Record<string, boolean>>({});
+    const [editLocations, setEditLocations] = useState<Record<string, { district?: string; mandal?: string }>>({});
+    const [editingName, setEditingName] = useState<Record<string, string>>({});
     const [sortBy, setSortBy] = useState<string>('name');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
     const [lastDoc, setLastDoc] = useState<any>(null);
@@ -164,10 +167,57 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
         const filteredData = baseList.filter(user =>
             (user.name || '').toLowerCase().includes(lowercasedFilter) ||
             (user.email && user.email.toLowerCase().includes(lowercasedFilter)) ||
-            (user.phone && user.phone.toLowerCase().includes(lowercasedFilter))
+            (user.phone && user.phone.toLowerCase().includes(lowercasedFilter)) ||
+            (user.district && user.district.toLowerCase().includes(lowercasedFilter)) ||
+            (user.assignedMandal && user.assignedMandal.toLowerCase().includes(lowercasedFilter)) ||
+            (user.role && user.role.toLowerCase().includes(lowercasedFilter))
         );
         setFilteredUsers(filteredData);
     }, [searchTerm, users, currentUser]);
+
+    const handleNameSave = async (userId: string, newName: string) => {
+        if (!newName.trim()) return;
+        setUpdatingUsers(prev => ({ ...prev, [userId]: true }));
+        try {
+            const userDocRef = doc(db, 'users', userId);
+            await updateDoc(userDocRef, { name: newName.trim() });
+            setUsers(prev => prev.map(u => u.id === userId ? { ...u, name: newName.trim() } : u));
+            setFilteredUsers(prev => prev.map(u => u.id === userId ? { ...u, name: newName.trim() } : u));
+            setEditingName(prev => {
+                const next = { ...prev };
+                delete next[userId];
+                return next;
+            });
+            alert('పేరు విజయవంతంగా అప్‌డేట్ చేయబడింది!');
+        } catch (e: any) {
+            alert('పేరు అప్‌డేట్ చేయడం విఫలమైంది: ' + e.message);
+        } finally {
+            setUpdatingUsers(prev => ({ ...prev, [userId]: false }));
+        }
+    };
+
+    const handleLocationSave = async (userId: string, district: string, mandal: string) => {
+        setUpdatingUsers(prev => ({ ...prev, [userId]: true }));
+        try {
+            const userDocRef = doc(db, 'users', userId);
+            const cleanDistrict = district.trim();
+            const cleanMandal = mandal.trim();
+            await updateDoc(userDocRef, {
+                district: cleanDistrict,
+                assignedMandal: cleanMandal,
+                mandal: cleanMandal,
+                state_district: cleanDistrict
+            });
+            setUsers(prev => prev.map(u => u.id === userId ? { ...u, district: cleanDistrict, assignedMandal: cleanMandal, mandal: cleanMandal } : u));
+            setFilteredUsers(prev => prev.map(u => u.id === userId ? { ...u, district: cleanDistrict, assignedMandal: cleanMandal, mandal: cleanMandal } : u));
+            alert('మండలం & జిల్లా విజయవంతంగా కేటాయించబడ్డాయి!');
+        } catch (e: any) {
+            console.error(e);
+            alert("లొకేషన్ సేవ్ చేయడం విఫలమైంది: " + e.message);
+        } finally {
+            setUpdatingUsers(prev => ({ ...prev, [userId]: false }));
+        }
+    };
 
     const handlePromoteToReporter = async (userId: string) => {
         if (!window.confirm("ఈ వినియోగదారుని రిపోర్టర్‌గా మార్చాలనుకుంటున్నారా?")) return;
@@ -329,101 +379,223 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
             ) : (
                 <div className="space-y-3">
                     {filteredUsers.length > 0 ? filteredUsers.map(user => (
-                        <div key={user.id} className="flex flex-col md:flex-row justify-between items-center bg-gray-50 p-4 rounded-lg border">
-                            <div className="flex items-center mb-3 md:mb-0 text-left w-full md:w-auto min-w-0">
-                                <img src={user.photoUrl || `https://i.pravatar.cc/40?u=${user.id}`} alt={user.name} className="w-12 h-12 rounded-full mr-4 shrink-0" />
-                                <div className="truncate text-xl">
-                                    <p 
-                                        className={`font-semibold truncate break-all ${user.role !== UserRole.GUEST && user.role !== UserRole.SUBSCRIBER ? 'text-blue-600 cursor-pointer hover:underline' : 'text-gray-800'}`}
-                                        onClick={() => handleReporterClick(user)}
-                                    >
-                                        {user.name}
-                                    </p>
-                                    <p className="text-lg text-gray-500 truncate break-all">{user.email || 'No email'}</p>
-                                    <p className="text-lg text-gray-500 truncate break-all">ఫోన్ నంబర్: {user.phone || 'నంబర్ లేదు'}</p>
-                                    
-                                    {/* Display News Counts for Reporters */}
-                                    {user.role !== UserRole.GUEST && user.role !== UserRole.SUBSCRIBER && (
-                                        <div className="flex gap-4 mt-2 mb-1">
-                                            <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-md border border-blue-100 text-sm font-medium">
-                                                ఇప్పటి వరకు: {user.totalNewsCount || 0}
-                                            </div>
-                                            <div className="bg-green-50 text-green-700 px-3 py-1 rounded-md border border-green-100 text-sm font-medium">
-                                                ఈ రోజు: {user.todayNewsCount || 0}
-                                            </div>
+                        <div key={user.id} className="flex flex-col bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-sm">
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                                <div className="flex items-start text-left w-full md:w-auto min-w-0">
+                                    <img src={user.photoUrl || `https://i.pravatar.cc/40?u=${user.id}`} alt={user.name} className="w-12 h-12 rounded-full mr-4 shrink-0 mt-1" />
+                                    <div className="text-xl w-full">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            {editingName[user.id] !== undefined ? (
+                                                <div className="flex items-center gap-2">
+                                                    <input
+                                                        type="text"
+                                                        value={editingName[user.id]}
+                                                        onChange={e => setEditingName(prev => ({ ...prev, [user.id]: e.target.value }))}
+                                                        className="border border-blue-400 px-2 py-0.5 rounded text-lg font-bold outline-none bg-white"
+                                                    />
+                                                    <button
+                                                        onClick={() => handleNameSave(user.id, editingName[user.id])}
+                                                        className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2.5 py-1 rounded font-bold"
+                                                    >
+                                                        Save
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setEditingName(prev => {
+                                                            const next = { ...prev };
+                                                            delete next[user.id];
+                                                            return next;
+                                                        })}
+                                                        className="text-gray-500 text-xs hover:underline"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center gap-2">
+                                                    <p 
+                                                        className={`font-semibold truncate ${user.role !== UserRole.GUEST && user.role !== UserRole.SUBSCRIBER ? 'text-blue-600 cursor-pointer hover:underline' : 'text-gray-800'}`}
+                                                        onClick={() => handleReporterClick(user)}
+                                                    >
+                                                        {user.name || 'User'}
+                                                    </p>
+                                                    {currentUser.role === UserRole.ADMIN && (
+                                                        <button
+                                                            onClick={() => setEditingName(prev => ({ ...prev, [user.id]: user.name || '' }))}
+                                                            className="text-xs text-gray-400 hover:text-blue-600"
+                                                            title="పేరు మార్చండి"
+                                                        >
+                                                            ✏️
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
-                                    )}
-
-                                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                                        {user.createdAt && (
-                                            <p className="text-xs text-gray-400">
-                                                మొదటి లాగిన్: {formatDateTime(user.createdAt)}
-                                            </p>
+                                        <p className="text-lg text-gray-500 truncate break-all">{user.email || 'No email'}</p>
+                                        <p className="text-lg text-gray-500 truncate break-all">ఫోన్ నంబర్: {user.phone || 'నంబర్ లేదు'}</p>
+                                        
+                                        {/* Display News Counts for Reporters */}
+                                        {user.role !== UserRole.GUEST && user.role !== UserRole.SUBSCRIBER && (
+                                            <div className="flex gap-4 mt-2 mb-1">
+                                                <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-md border border-blue-100 text-sm font-medium">
+                                                    ఇప్పటి వరకు: {user.totalNewsCount || 0}
+                                                </div>
+                                                <div className="bg-green-50 text-green-700 px-3 py-1 rounded-md border border-green-100 text-sm font-medium">
+                                                    ఈ రోజు: {user.todayNewsCount || 0}
+                                                </div>
+                                            </div>
                                         )}
-                                        {user.lastLogin && (
-                                            <p className="text-xs text-blue-500 font-medium">
-                                                తాజా లాగిన్: {formatDateTime(user.lastLogin)}
-                                            </p>
+
+                                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                                            {user.createdAt && (
+                                                <p className="text-xs text-gray-400">
+                                                    మొదటి లాగిన్: {formatDateTime(user.createdAt)}
+                                                </p>
+                                            )}
+                                            {user.lastLogin && (
+                                                <p className="text-xs text-blue-500 font-medium">
+                                                    తాజా లాగిన్: {formatDateTime(user.lastLogin)}
+                                                </p>
+                                            )}
+                                        </div>
+                                        {currentUser.role === UserRole.ADMIN && user.role === UserRole.REPORTER && (
+                                            <p className="text-xs text-gray-400">Promoted By: {users.find(u => u.id === user.promotedBy)?.name || 'Admin/Unknown'}</p>
                                         )}
                                     </div>
-                                    {currentUser.role === UserRole.ADMIN && user.role === UserRole.REPORTER && (
-                                        <p className="text-xs text-gray-400">Promoted By: {users.find(u => u.id === user.promotedBy)?.name || 'Admin/Unknown'}</p>
-                                    )}
                                 </div>
-                            </div>
-                            
-                            <div className="flex items-center space-x-3 shrink-0 flex-wrap justify-end gap-y-2">
-                                <span className={`text-base font-semibold px-2.5 py-1 rounded-full ${getRoleBadgeColor(user.role)}`}>
-                                    {user.role}
-                                </span>
+                                
+                                <div className="flex items-center space-x-3 shrink-0 flex-wrap justify-end gap-y-2">
+                                    <span className={`text-base font-semibold px-2.5 py-1 rounded-full ${getRoleBadgeColor(user.role)}`}>
+                                        {user.role}
+                                    </span>
 
-                                {/* STAFF_REPORTER / REGIONAL_INCHARGE VIEW ACTIONS */}
-                                {(currentUser.role === UserRole.STAFF_REPORTER || currentUser.role === UserRole.REGIONAL_INCHARGE) && (
-                                    <>
-                                        {user.role === UserRole.SUBSCRIBER && (
-                                            <button 
-                                                onClick={() => handlePromoteToReporter(user.id)}
-                                                disabled={updatingUsers[user.id]}
-                                                className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 disabled:opacity-50 text-lg"
-                                            >
-                                                Make Reporter
-                                            </button>
-                                        )}
-                                    </>
-                                )}
+                                    {/* STAFF_REPORTER / REGIONAL_INCHARGE VIEW ACTIONS */}
+                                    {(currentUser.role === UserRole.STAFF_REPORTER || currentUser.role === UserRole.REGIONAL_INCHARGE) && (
+                                        <>
+                                            {user.role === UserRole.SUBSCRIBER && (
+                                                <button 
+                                                    onClick={() => handlePromoteToReporter(user.id)}
+                                                    disabled={updatingUsers[user.id]}
+                                                    className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 disabled:opacity-50 text-lg"
+                                                >
+                                                    Make Reporter
+                                                </button>
+                                            )}
+                                        </>
+                                    )}
 
-                                {/* ADMIN VIEW ACTIONS */}
-                                {currentUser.role === UserRole.ADMIN && (
-                                    <div className="flex flex-col items-end gap-2">
-                                        <select
-                                            value={user.role}
-                                            onChange={(e) => handleRoleChangeAdmin(user.id, e.target.value as UserRole)}
-                                            disabled={updatingUsers[user.id]}
-                                            className="border border-gray-300 rounded-md p-1.5 text-lg"
-                                        >
-                                            {availableRoles.map(role => (
-                                                <option key={role} value={role}>{role}</option>
-                                            ))}
-                                        </select>
-                                        
-                                        {/* Reassign Reporter Logic */}
-                                        {user.role === UserRole.REPORTER && (
+                                    {/* ADMIN VIEW ACTIONS */}
+                                    {currentUser.role === UserRole.ADMIN && (
+                                        <div className="flex flex-col items-end gap-2">
                                             <select
-                                                value={user.promotedBy || ""}
-                                                onChange={(e) => handleReassignReporter(user.id, e.target.value)}
-                                                className="border border-gray-300 rounded-md p-1.5 text-sm w-40"
+                                                value={user.role}
+                                                onChange={(e) => handleRoleChangeAdmin(user.id, e.target.value as UserRole)}
+                                                disabled={updatingUsers[user.id]}
+                                                className="border border-gray-300 rounded-md p-1.5 text-lg"
                                             >
-                                                <option value="ADMIN">Assign to Admin</option>
-                                                {editors.map(ed => (
-                                                    <option key={ed.id} value={ed.id}>Manager: {ed.name}</option>
+                                                {availableRoles.map(role => (
+                                                    <option key={role} value={role}>{role}</option>
                                                 ))}
                                             </select>
-                                        )}
-                                    </div>
-                                )}
-                                
-                                {updatingUsers[user.id] && <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>}
+                                            
+                                            {/* Reassign Reporter Logic */}
+                                            {user.role === UserRole.REPORTER && (
+                                                <select
+                                                    value={user.promotedBy || ""}
+                                                    onChange={(e) => handleReassignReporter(user.id, e.target.value)}
+                                                    className="border border-gray-300 rounded-md p-1.5 text-sm w-40"
+                                                >
+                                                    <option value="ADMIN">Assign to Admin</option>
+                                                    {editors.map(ed => (
+                                                        <option key={ed.id} value={ed.id}>Manager: {ed.name}</option>
+                                                    ))}
+                                                </select>
+                                            )}
+                                        </div>
+                                    )}
+                                    
+                                    {updatingUsers[user.id] && <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>}
+                                </div>
                             </div>
+
+                            {/* Reporter Location Management (District & Mandal Assignment) */}
+                            {(user.role === UserRole.REPORTER || user.role === UserRole.STAFF_REPORTER || user.role === UserRole.REGIONAL_INCHARGE) && (
+                                <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap items-center gap-2 bg-white p-3 rounded-lg border">
+                                    <span className="text-sm font-bold text-gray-700">📍 మండలం కేటాయింపు:</span>
+                                    
+                                    {/* District selector */}
+                                    <select
+                                        value={editLocations[user.id]?.district !== undefined ? editLocations[user.id]?.district : (user.district || '')}
+                                        onChange={(e) => {
+                                            const dist = e.target.value;
+                                            setEditLocations(prev => ({
+                                                ...prev,
+                                                [user.id]: {
+                                                    district: dist,
+                                                    mandal: ''
+                                                }
+                                            }));
+                                        }}
+                                        className="border border-gray-300 rounded-md p-1 text-sm bg-gray-50 font-medium"
+                                    >
+                                        <option value="">-- జిల్లా ఎంచుకోండి --</option>
+                                        <optgroup label="తెలంగాణ (TS)">
+                                            {TS_DISTRICTS.map(d => (
+                                                <option key={d} value={d}>{d}</option>
+                                            ))}
+                                        </optgroup>
+                                        <optgroup label="ఆంధ్రప్రదేశ్ (AP)">
+                                            {AP_DISTRICTS.map(d => (
+                                                <option key={d} value={d}>{d}</option>
+                                            ))}
+                                        </optgroup>
+                                    </select>
+
+                                    {/* Mandal selector */}
+                                    <select
+                                        value={editLocations[user.id]?.mandal !== undefined ? editLocations[user.id]?.mandal : (user.assignedMandal || (user as any).mandal || '')}
+                                        onChange={(e) => {
+                                            const m = e.target.value;
+                                            const currentDist = editLocations[user.id]?.district !== undefined ? editLocations[user.id]?.district : (user.district || '');
+                                            setEditLocations(prev => ({
+                                                ...prev,
+                                                [user.id]: {
+                                                    district: currentDist,
+                                                    mandal: m
+                                                }
+                                            }));
+                                        }}
+                                        className="border border-gray-300 rounded-md p-1 text-sm bg-gray-50 font-medium"
+                                        disabled={!(editLocations[user.id]?.district || user.district)}
+                                    >
+                                        <option value="">-- మండలం ఎంచుకోండి --</option>
+                                        {((editLocations[user.id]?.district || user.district) ? (MANDAL_DATA[editLocations[user.id]?.district || user.district || ''] || []) : []).map(m => (
+                                            <option key={m} value={m}>{m}</option>
+                                        ))}
+                                    </select>
+
+                                    <button
+                                        onClick={() => {
+                                            const selectedDist = editLocations[user.id]?.district !== undefined ? editLocations[user.id]?.district : (user.district || '');
+                                            const selectedMandal = editLocations[user.id]?.mandal !== undefined ? editLocations[user.id]?.mandal : (user.assignedMandal || (user as any).mandal || '');
+                                            if (!selectedDist || !selectedMandal) {
+                                                alert('దయచేసి జిల్లా మరియు మండలం రెండింటినీ ఎంచుకోండి.');
+                                                return;
+                                            }
+                                            handleLocationSave(user.id, selectedDist, selectedMandal);
+                                        }}
+                                        disabled={updatingUsers[user.id]}
+                                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded text-sm font-bold shadow-sm disabled:opacity-50"
+                                    >
+                                        మండలం సేవ్ చేయి
+                                    </button>
+
+                                    {(user.district && (user.assignedMandal || (user as any).mandal)) && (
+                                        <span className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full font-semibold ml-auto">
+                                            ప్రస్తుత మండలం: {user.district} - {user.assignedMandal || (user as any).mandal}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )) : (
                         <p className="text-center text-gray-500 text-xl">వినియోగదారులు ఎవరూ కనుగొనబడలేదు.</p>

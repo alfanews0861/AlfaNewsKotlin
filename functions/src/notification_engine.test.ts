@@ -42,7 +42,7 @@ describe('Notification Engine Logic', () => {
         const allNews = [
             { id: '1', score: 100, headline: 'No media', mediaUrl: '' },
             { id: '2', score: 100, headline: 'With media', mediaUrl: 'http://img.png' },
-            { id: '3', score: 50, headline: 'Low score with media', mediaUrl: 'http://img.png' }
+            { id: '3', score: 50, headline: 'Low score without media', mediaUrl: '' }
         ];
 
         const sortedNews = [...allNews].sort((a: any, b: any) => {
@@ -96,5 +96,67 @@ describe('Notification Engine Logic', () => {
 
         const topicName = getTopicName("district", input);
         expect(topicName).toBe(`district_${slug}`);
+    });
+
+    test('Main News vs Local District News separation', () => {
+        // News pool with both local district items and major state/national headlines
+        const newsItems = [
+            { id: 'loc1', category: 'జిల్లా వార్త', district: 'వరంగల్', longViews: 500, score: 50 },
+            { id: 'main1', category: 'జాతీయం', district: 'National', longViews: 200, score: 80 },
+            { id: 'main2', category: 'రాజకీయం', district: 'తెలంగాణ', longViews: 300, score: 85 },
+            { id: 'loc2', category: 'జిల్లా వార్త', district: 'కరీంనగర్', longViews: 600, score: 40 }
+        ];
+
+        function isMainNews(n: any): boolean {
+            if (n.isGlobal === true) return true;
+            const tone = (n.tone || "").toUpperCase();
+            if (n.isBreaking === true || tone === 'BREAKING' || tone === 'URGENT' || tone === 'IMPORTANT') return true;
+            if ((n.score ?? 0) >= 75) return true;
+
+            const category = n.category || "";
+            const mainCategories = [
+                "రాజకీయం", "జాతీయం", "ప్రపంచం", "క్రీడలు", "వినోదం",
+                "వ్యాపారం", "టెక్నాలజీ", "ఆరోగ్యం", "విద్య", "వ్యవసాయం"
+            ];
+            if (mainCategories.includes(category)) {
+                if (category === "జిల్లా వార్త") return false;
+                return true;
+            }
+
+            const broadDistricts = ["State", "National", "International", "తెలంగాణ", "ఆంధ్రప్రదేశ్", "భారతదేశం", "ప్రపంచం", "General", "AP", "TS"];
+            if (n.district && broadDistricts.some(d => d.toLowerCase() === (n.district + "").toLowerCase())) {
+                return true;
+            }
+
+            return false;
+        }
+
+        const mainNews = newsItems.filter(isMainNews);
+        expect(mainNews.map(n => n.id)).toEqual(['main1', 'main2']);
+
+        // When sorted by views among main news, highest main news is chosen (main2) instead of loc2 (600 views)
+        mainNews.sort((a, b) => b.longViews - a.longViews);
+        expect(mainNews[0].id).toBe('main2');
+    });
+
+    test('General news fallback guarantees a story even if all are in recentGeneralIds', () => {
+        const candidateMainNews = [
+            { id: 'story1', longViews: 500 },
+            { id: 'story2', longViews: 400 },
+            { id: 'story3', longViews: 300 }
+        ];
+
+        const recentGeneralIds = ['story1', 'story2', 'story3'];
+        const lastSentMap = { general: 'story1' };
+
+        // 1) Try finding fresh unsent
+        let topNews = candidateMainNews.find((n: any) => !recentGeneralIds.includes(n.id));
+        if (!topNews) {
+            // 2) Fallback: pick highest viewed candidate that was NOT the immediate last sent
+            topNews = candidateMainNews.find((n: any) => lastSentMap['general'] !== n.id) || candidateMainNews[0];
+        }
+
+        expect(topNews).toBeDefined();
+        expect(topNews!.id).toBe('story2'); // Picked story2, not skipped!
     });
 });

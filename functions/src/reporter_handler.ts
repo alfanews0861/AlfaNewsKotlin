@@ -3,7 +3,7 @@ import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { onDocumentWritten, onDocumentCreated } from "firebase-functions/v2/firestore";
 import * as nodemailer from "nodemailer";
 import { REGION } from "./utils";
-import { extractDistrictAndMandal } from "./location_data";
+import { extractDistrictAndMandal, areMandalsMatching } from "./location_data";
 
 const db = admin.firestore();
 
@@ -28,13 +28,123 @@ export async function notifyReporter(
     postId: string,
     headline: string,
     type: 'SUCCESS' | 'INTERNAL_ERROR' | 'POLICY_VIOLATION' | 'DUPLICATE',
-    imageUrl?: string
+    imageUrl?: string,
+    specificReason?: string
 ) {
     try {
-        const userDoc = await db.collection('users').doc(reporterId).get();
-        if (!userDoc.exists) return;
+        let targetUserId = reporterId ? reporterId.trim() : "";
+        if (!targetUserId || targetUserId.startsWith('BOT_') || targetUserId.startsWith('SYSTEM_') || targetUserId === 'ALFA_DESK') {
+            return;
+        }
+
+        let userRef = db.collection('users').doc(targetUserId);
+        let userDoc = await userRef.get();
+
+        // If doc doesn't exist by ID, search by name (handle legacy/cross-field matches)
+        if (!userDoc.exists) {
+            const nameQuery = await db.collection('users').where('name', '==', targetUserId).limit(1).get();
+            if (!nameQuery.empty) {
+                targetUserId = nameQuery.docs[0].id;
+                userRef = db.collection('users').doc(targetUserId);
+                userDoc = nameQuery.docs[0];
+            }
+        }
+
+        if (!userDoc.exists) {
+            console.log(`[NOTIFY_SKIP] User document not found for reporterId: ${reporterId}`);
+            return;
+        }
 
         const userData = userDoc.data();
+        const reporterName = userData?.name || "రిపోర్టర్";
+
+        // Helper to convert technical errors or raw strings into polite, human editorial reasons
+        const toHumanEditorialReason = (rawReason?: string): string => {
+            if (!rawReason || rawReason.trim().length === 0) {
+                if (type === 'DUPLICATE') return "ఈ వార్తాంశం గత కొన్ని గంటల్లో మీ మండలంలో ఇప్పటికే మన యాప్‌లో ప్రచురితమైంది.";
+                if (type === 'POLICY_VIOLATION') return "వార్తలోని అంశాలు మా ఎడిటోరియల్ మార్గదర్శకాలకు అనుగుణంగా లేనందున ప్రచురించలేకపోయాము.";
+                if (type === 'INTERNAL_ERROR') return "సర్వర్ లేదా నెట్‌వర్క్ అంతరాయం వల్ల ఈ వార్త ప్రచురణ తాత్కాలికంగా నిలిచింది.";
+                return "";
+            }
+
+            const lower = rawReason.toLowerCase();
+            const hasTechnicalLeak = lower.includes('gemini') || lower.includes('ai') || lower.includes('model') ||
+                lower.includes('quota') || lower.includes('resource_exhausted') || lower.includes('503') ||
+                lower.includes('429') || lower.includes('json') || lower.includes('syntax') ||
+                lower.includes('ffmpeg') || lower.includes('exit code') || lower.includes('stream specifier') ||
+                lower.includes('http') || lower.includes('internal error') || lower.includes('abort');
+
+            if (hasTechnicalLeak) {
+                if (lower.includes('video') || lower.includes('ffmpeg') || lower.includes('youtube')) {
+                    return "వీడియో ఫైల్ ప్రాసెసింగ్ సమయంలో సాంకేతిక అంతరాయం ఏర్పడింది. దయచేసి వీడియోను మళ్ళీ సరిచూసి పంపగలరు.";
+                }
+                return "సర్వర్ నెట్‌వర్క్ అంతరాయం వల్ల ప్రచురణ ప్రక్రియ నిలిచిపోయింది. దయచేసి కాసేపటి తర్వాత మళ్ళీ ప్రయత్నించండి.";
+            }
+
+            if (rawReason.includes("గత 6 గంటల్లో") || rawReason.includes("డూప్లికేట్")) {
+                return "ఈ వార్తాంశం గత కొన్ని గంటల్లో మీ మండలంలో ఇప్పటికే మన యాప్‌లో ప్రచురితమైంది. ఒకే వార్త పాఠకులకు పునరావృతం కాకుండా ఉండేందుకు దీనిని ఆమోదించలేకపోయాము.";
+            }
+
+            return rawReason;
+        };
+
+        const humanReason = toHumanEditorialReason(specificReason);
+        const truncatedHeadline = headline.length > 40 ? headline.substring(0, 40) + "..." : headline;
+
+        let title = "";
+        let body = "";
+        let chatText = "";
+
+        if (type === 'SUCCESS') {
+            title = 'మీ వార్త లైవ్ అయ్యింది! 📰';
+            body = `నమస్కారం! మీరు పంపిన "${truncatedHeadline}" వార్త విజయవంతంగా ప్రచురించబడింది.`;
+
+            chatText = `నమస్కారం ${reporterName} గారు,\n\nమీరు పంపిన వార్త: "${headline}"\n\nఎడిటోరియల్ డెస్క్ పరిశీలన పూర్తయింది. ఈ వార్త విజయవంతంగా లైవ్‌లో ప్రచురించబడింది. ధన్యవాదాలు!\n\n- ఆల్ఫా న్యూస్ ఎడిటోరియల్ డెస్క్`;
+        } else if (type === 'DUPLICATE') {
+            title = 'ఎడిటోరియల్ డెస్క్ సమాచారం ℹ️';
+            body = `నమస్కారం! "${truncatedHeadline}" వార్తాంశం మీ మండలంలో ఇప్పటికే కవర్ అయింది.`;
+
+            chatText = `నమస్కారం ${reporterName} గారు,\n\nమీరు పంపిన వార్త: "${headline}"\n\nఎడిటోరియల్ డెస్క్ పరిశీలన:\nఈ వార్తాంశం మీ మండలంలో గత కొన్ని గంటల్లోనే ఇప్పటికే మన యాప్‌లో ప్రచురితమైంది. ఒకే వార్త పాఠకులకు పునరావృతం కాకుండా చూసేందుకు ఎడిటోరియల్ టీమ్ దీనిని ఆమోదించలేకపోయింది.\n\nదయచేసి మీ ప్రాంతంలోని ఇతర తాజా ప్రజా సమస్యలు లేదా కొత్త వార్తలను పంపగలరు. ధన్యవాదాలు!\n\n- ఎడిటోరియల్ డెస్క్ (ఆల్ఫా న్యూస్)`;
+        } else if (type === 'POLICY_VIOLATION') {
+            title = 'ఎడిటోరియల్ డెస్క్ పరిశీలన ⚠️';
+            body = `"${truncatedHeadline}" వార్త ఎడిటోరియల్ నిబంధనల ప్రకారం ప్రచురించబడలేదు. డెస్క్ చాట్ చూడండి.`;
+
+            chatText = `నమస్కారం ${reporterName} గారు,\n\nమీరు పంపిన వార్త: "${headline}"\n\nఎడిటోరియల్ డెస్క్ పరిశీలన:\n${humanReason}\n\nమా ప్రచురణ నిబంధనల ప్రకారం ప్రజా ప్రయోజనమున్న వార్తలకు ప్రాధాన్యత ఇస్తాము. భవిష్యత్తులో ఈ అంశాలను గమనించి వార్తలు పంపగలరు. ధన్యవాదాలు!\n\n- ఎడిటోరియల్ డెస్క్ (ఆల్ఫా న్యూస్)`;
+        } else {
+            title = 'వార్త ప్రచురణ సమాచారం ⚠️';
+            body = `"${truncatedHeadline}" వార్త అప్‌లోడ్‌లో అంతరాయం ఏర్పడింది. దయచేసి మళ్ళీ ప్రయత్నించండి.`;
+
+            chatText = `నమస్కారం ${reporterName} గారు,\n\nమీరు పంపిన వార్త: "${headline}"\n\nపరిశీలన వివరాలు:\n${humanReason}\n\nదయచేసి ఈ వార్తను కాసేపటి తర్వాత మళ్ళీ యాప్ ద్వారా పంపగలరు. అవసరమైతే నేరుగా డెస్క్‌ను సంప్రదించండి. కలిగిన అంతరాయానికి క్షమించండి.\n\n- ఆల్ఫా న్యూస్ డెస్క్`;
+        }
+
+        // 1. IN-APP DESK CHAT MESSAGE:
+        // Always write to reporter_conversations so the reporter receives a personal 1-on-1 message in Desk Chat
+        // from human editorial staff, even if push tokens are missing!
+        try {
+            await db.collection('reporter_conversations').doc(targetUserId).collection('messages').add({
+                senderId: 'SYSTEM',
+                senderName: 'ఆల్ఫా న్యూస్ ఎడిటోరియల్ డెస్క్',
+                senderRole: 'ADMIN',
+                text: chatText,
+                type: type === 'SUCCESS' ? 'NOTICE' : 'WARNING',
+                read: false,
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            await db.collection('reporter_conversations').doc(targetUserId).set({
+                reporterId: targetUserId,
+                reporterName,
+                unreadCountForReporter: admin.firestore.FieldValue.increment(1),
+                lastMessage: chatText.substring(0, 100),
+                lastMessageTimestamp: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            console.log(`[NOTIFY_DESK_CHAT] Added human editorial message to reporter_conversations for ${targetUserId}`);
+        } catch (chatErr: any) {
+            console.error(`[NOTIFY_DESK_CHAT_ERR] Could not write in-app message:`, chatErr.message);
+        }
+
+        // 2. FCM PUSH NOTIFICATION:
         if (userData && userData.notificationsEnabled === false) return;
 
         const tokens: string[] = [];
@@ -45,31 +155,20 @@ export async function notifyReporter(
             });
         }
 
-        if (tokens.length === 0) return;
-
-        let title = "";
-        let body = "";
-
-        if (type === 'SUCCESS') {
-            title = 'వార్త ప్రచురించబడింది! ✅';
-            const truncatedHeadline = headline.length > 50 ? headline.substring(0, 50) + "..." : headline;
-            body = `మీ వార్త: "${truncatedHeadline}" విజయవంతంగా ప్రచురించబడింది.`;
-        } else if (type === 'DUPLICATE') {
-            title = 'వార్త తిరస్కరించబడింది (డూప్లికేట్)! ⚠️';
-            const truncatedHeadline = headline.length > 40 ? headline.substring(0, 40) + "..." : headline;
-            body = `"${truncatedHeadline}" - ఈ మండలంలో ఈ వార్త గత 6 గంటల్లో ఇప్పటికే ప్రచురించబడింది.`;
-        } else if (type === 'POLICY_VIOLATION') {
-            title = 'వార్త తిరస్కరించబడింది! ⚠️';
-            body = `మీ వార్తలోని అంశాలు మా నిబంధనలకు విరుద్ధంగా ఉన్నందున ప్రచురించబడలేదు.`;
-        } else {
-            title = 'వార్త ప్రచురణలో అంతరాయం! ❌';
-            body = `సాంకేతిక కారణాల వల్ల మీ వార్త ప్రచురించబడలేదు. దయచేసి మళ్ళీ ప్రయత్నిచండి.`;
+        if (tokens.length === 0) {
+            console.log(`[NOTIFY_FCM_SKIP] No FCM tokens found for reporter ${targetUserId}`);
+            return;
         }
 
         const message = {
             notification: { title, body },
             android: {
-                notification: { imageUrl: imageUrl || "" }
+                priority: 'high' as const,
+                notification: {
+                    imageUrl: imageUrl || "",
+                    channelId: 'general_news',
+                    sound: 'default'
+                }
             },
             data: {
                 actionUrl: `alfanews://news/${postId}`,
@@ -77,6 +176,8 @@ export async function notifyReporter(
                 type: `REPORTER_SUBMISSION_${type}`,
                 title,
                 body,
+                channelId: 'general_news',
+                rejectionReason: specificReason || "",
                 imageUrl: imageUrl || ""
             }
         };
@@ -88,12 +189,13 @@ export async function notifyReporter(
                     const updates: any = {};
                     if (userData?.fcmToken === token) updates.fcmToken = admin.firestore.FieldValue.delete();
                     updates.fcmTokens = admin.firestore.FieldValue.arrayRemove(token);
-                    await db.collection('users').doc(reporterId).update(updates).catch(() => {});
+                    await db.collection('users').doc(targetUserId).update(updates).catch(() => {});
                 }
             })
         );
 
         await Promise.all(sendPromises);
+        console.log(`[NOTIFY_FCM_SENT] Sent push notification (${type}) to ${tokens.length} tokens for reporter ${targetUserId}`);
     } catch (e: any) {
         console.error(`[NOTIFY] Error:`, e.message);
     }
@@ -104,12 +206,25 @@ export async function notifyReporter(
  */
 export async function awardPointsToReporter(reporterId: string, points: number) {
     try {
-        if (!reporterId || reporterId.startsWith('BOT_') || reporterId.startsWith('SYSTEM_')) {
+        if (!reporterId || reporterId.startsWith('BOT_') || reporterId.startsWith('SYSTEM_') || reporterId === 'ALFA_DESK') {
             console.log(`[POINTS_SKIP] Skipping points for system account: ${reporterId}`);
             return;
         }
 
-        const userRef = db.collection('users').doc(reporterId);
+        let targetUserId = reporterId.trim();
+        let userRef = db.collection('users').doc(targetUserId);
+        let userDoc = await userRef.get();
+
+        // If doc doesn't exist by ID, search by name
+        if (!userDoc.exists) {
+            const nameQuery = await db.collection('users').where('name', '==', targetUserId).limit(1).get();
+            if (!nameQuery.empty) {
+                targetUserId = nameQuery.docs[0].id;
+                userRef = db.collection('users').doc(targetUserId);
+                userDoc = nameQuery.docs[0];
+            }
+        }
+
         await db.runTransaction(async (transaction) => {
             const doc = await transaction.get(userRef);
 
@@ -120,7 +235,7 @@ export async function awardPointsToReporter(reporterId: string, points: number) 
             const monthlyId = `${year}_${month}`;
 
             const monthlyRef = db.collection('monthly_leaderboard').doc(monthlyId)
-                .collection('reporters').doc(reporterId);
+                .collection('reporters').doc(targetUserId);
 
             const monthlyDoc = await transaction.get(monthlyRef);
             // ------------------------------------
@@ -135,11 +250,24 @@ export async function awardPointsToReporter(reporterId: string, points: number) 
             if (currentPoints >= 2000) badges.push("GOLD");
             if (currentPoints >= 10000) badges.push("DIAMOND");
 
-            transaction.set(userRef, {
+            const isSenior = currentPoints >= 50;
+            const reporterUpdates: any = {
                 points: currentPoints,
                 badges: badges,
-                lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
+                lastPostTimestamp: Date.now(),
+                warningLevel: 0,
+                inProbation: false,
+                role: data.role === 'ADMIN' || data.role === 'EDITOR' ? data.role : 'REPORTER',
+                previouslyDowngraded: false
+            };
+            if (!doc.exists) {
+                reporterUpdates.name = targetUserId;
+            }
+            if (isSenior) {
+                reporterUpdates.isProtectedSenior = true;
+            }
+
+            transaction.set(userRef, reporterUpdates, { merge: true });
 
             if (monthlyDoc.exists) {
                 transaction.update(monthlyRef, {
@@ -148,17 +276,17 @@ export async function awardPointsToReporter(reporterId: string, points: number) 
                 });
             } else {
                 transaction.set(monthlyRef, {
-                    userId: reporterId,
-                    name: data.name || "Reporter",
+                    userId: targetUserId,
+                    name: data.name || targetUserId,
                     photoUrl: data.photoUrl || "",
                     district: data.district || "",
                     assignedMandal: data.assignedMandal || "",
-                    points: points,
+                    points: currentPoints,
                     lastUpdated: admin.firestore.FieldValue.serverTimestamp()
                 });
             }
         });
-        console.log(`[POINTS] Awarded ${points} points to ${reporterId}`);
+        console.log(`[POINTS] Awarded ${points} points to ${targetUserId}`);
     } catch (e: any) {
         console.error(`[POINTS_ERR] Error:`, e.message);
     }
@@ -167,6 +295,352 @@ export async function awardPointsToReporter(reporterId: string, points: number) 
 /**
  * Backfill points for all reporters based on their existing news posts
  */
+/**
+ * Automatically restores and upgrades all mistakenly downgraded/inactive reporters
+ * and recalculates their lifetime points, news count, badges, and mandal assignment.
+ */
+export async function performRestoreAllReporters(): Promise<{ restoredCount: number, details: any[] }> {
+    console.log(`[RESTORE_REPORTERS] 🚀 Starting system-wide reporter restoration...`);
+    const candidateUserIds = new Set<string>();
+
+    // 1. Find all users with downgrade flags
+    try {
+        const downgradedSnap = await db.collection('users')
+            .where('previouslyDowngraded', '==', true)
+            .get();
+        downgradedSnap.docs.forEach(d => candidateUserIds.add(d.id));
+    } catch (e: any) {
+        console.warn(`[RESTORE_WARN] Fetch previouslyDowngraded:`, e.message);
+    }
+
+    try {
+        const inactivitySnap = await db.collection('users')
+            .where('downgradedReason', '==', 'INACTIVITY')
+            .get();
+        inactivitySnap.docs.forEach(d => candidateUserIds.add(d.id));
+    } catch (e: any) {
+        console.warn(`[RESTORE_WARN] Fetch downgradedReason:`, e.message);
+    }
+
+    // 2. Find all approved/joined reporter applications
+    try {
+        const appSnap = await db.collection('reporter_applications').get();
+        appSnap.docs.forEach(d => {
+            const data = d.data();
+            const uId = data.userId;
+            if (uId && typeof uId === 'string' && uId.trim()) {
+                candidateUserIds.add(uId.trim());
+            }
+        });
+    } catch (e: any) {
+        console.warn(`[RESTORE_WARN] Fetch reporter_applications:`, e.message);
+    }
+
+    // 3. Find all existing reporters
+    try {
+        const repSnap = await db.collection('users')
+            .where('role', 'in', ['REPORTER', 'reporter', 'STAFF_REPORTER', 'REGIONAL_INCHARGE', 2, 2.0, '2', 3, 3.0])
+            .get();
+        repSnap.docs.forEach(d => candidateUserIds.add(d.id));
+    } catch (e: any) {
+        console.warn(`[RESTORE_WARN] Fetch active reporters:`, e.message);
+    }
+
+    // 4. Find all reporters from existing news posts in `news` collection
+    try {
+        const newsSnap = await db.collection('news').get();
+        newsSnap.docs.forEach(d => {
+            const data = d.data();
+            const rep = data.reporter;
+            const repId = (typeof rep === 'object' && rep?.id) ? rep.id : (typeof rep === 'string' ? rep : null);
+            const origRepId = data.originalReporterId || data.userId;
+            const repName = (typeof rep === 'object' && rep?.name) ? rep.name : null;
+
+            [repId, origRepId, repName].forEach(cand => {
+                if (cand && typeof cand === 'string' && cand.trim() && 
+                    !cand.startsWith('BOT_') && !cand.startsWith('SYSTEM_') && 
+                    cand !== 'ALFA_DESK' && cand !== 'సిటిజెన్ పోస్ట్' && cand !== 'అజ్ఞాత పౌరుడు') {
+                    candidateUserIds.add(cand.trim());
+                }
+            });
+        });
+    } catch (e: any) {
+        console.warn(`[RESTORE_WARN] Fetch news reporters:`, e.message);
+    }
+
+    // 0. Sanitize all users in `users` collection to guarantee number types for Android deserialization
+    try {
+        console.log(`[RESTORE_REPORTERS] Sanitizing users collection field types...`);
+        const allUsersSnap = await db.collection('users').get();
+        for (const doc of allUsersSnap.docs) {
+            const d = doc.data();
+            const updates: any = {};
+            let needsUpdate = false;
+
+            // Ensure lastPostTimestamp is a number, not Timestamp
+            if (d.lastPostTimestamp) {
+                if (typeof d.lastPostTimestamp !== 'number') {
+                    const ts = d.lastPostTimestamp;
+                    const millis = ts.toMillis ? ts.toMillis() : (ts._seconds ? ts._seconds * 1000 : (typeof ts === 'string' ? parseInt(ts, 10) : null));
+                    if (millis && !isNaN(millis)) {
+                        updates.lastPostTimestamp = millis;
+                        needsUpdate = true;
+                    } else {
+                        updates.lastPostTimestamp = admin.firestore.FieldValue.delete();
+                        needsUpdate = true;
+                    }
+                }
+            }
+
+            // Clean incompatible Timestamp from lastWarningDate
+            if (d.lastWarningDate && typeof d.lastWarningDate !== 'number') {
+                updates.lastWarningDate = admin.firestore.FieldValue.delete();
+                needsUpdate = true;
+            }
+
+            // Clean incompatible Timestamp from lastTokenUpdate
+            if (d.lastTokenUpdate && typeof d.lastTokenUpdate !== 'number') {
+                updates.lastTokenUpdate = admin.firestore.FieldValue.delete();
+                needsUpdate = true;
+            }
+
+            // Ensure name field exists for orderBy queries
+            if (!d.name && d.displayName) {
+                updates.name = d.displayName;
+                needsUpdate = true;
+            }
+
+            if (needsUpdate) {
+                await doc.ref.update(updates);
+            }
+        }
+    } catch (e: any) {
+        console.warn(`[SANITIZE_USERS_ERR]:`, e.message);
+    }
+
+    console.log(`[RESTORE_REPORTERS] Found ${candidateUserIds.size} potential reporter accounts to verify and restore.`);
+    const results: any[] = [];
+
+    for (const candId of candidateUserIds) {
+        try {
+            let userDoc = await db.collection('users').doc(candId).get();
+            let userId = candId;
+            let userData: any = userDoc.exists ? (userDoc.data() || {}) : null;
+
+            // If userDoc not found by doc ID, search users collection by name
+            if (!userData) {
+                const userByNameQuery = await db.collection('users').where('name', '==', candId).limit(1).get();
+                if (!userByNameQuery.empty) {
+                    userDoc = userByNameQuery.docs[0];
+                    userId = userDoc.id;
+                    userData = userDoc.data() || {};
+                }
+            }
+
+            // Don't overwrite Admins or Editors
+            if (userData && (userData.role === 'ADMIN' || userData.role === 'EDITOR')) continue;
+
+            // Fetch all news for this reporter across possible fields
+            const newsDocsMap = new Map<string, any>();
+            const [snapId, snapName, snapOrig] = await Promise.all([
+                db.collection('news').where('reporter.id', '==', candId).get().catch(() => null),
+                db.collection('news').where('reporter.name', '==', candId).get().catch(() => null),
+                db.collection('news').where('originalReporterId', '==', candId).get().catch(() => null)
+            ]);
+            if (snapId) snapId.docs.forEach(d => newsDocsMap.set(d.id, d));
+            if (snapName) snapName.docs.forEach(d => newsDocsMap.set(d.id, d));
+            if (snapOrig) snapOrig.docs.forEach(d => newsDocsMap.set(d.id, d));
+
+            if (userId !== candId) {
+                const [snapUid, snapUName] = await Promise.all([
+                    db.collection('news').where('reporter.id', '==', userId).get().catch(() => null),
+                    db.collection('news').where('originalReporterId', '==', userId).get().catch(() => null)
+                ]);
+                if (snapUid) snapUid.docs.forEach(d => newsDocsMap.set(d.id, d));
+                if (snapUName) snapUName.docs.forEach(d => newsDocsMap.set(d.id, d));
+            }
+
+            const newsDocs = Array.from(newsDocsMap.values());
+            if (newsDocs.length === 0 && !userData) continue;
+
+            // If userData is still null but newsDocs exist (e.g. Kola Mahesh):
+            if (!userData) {
+                const sampleDoc = newsDocs[0]?.data() || {};
+                const repName = sampleDoc.reporter?.name || candId;
+                const repDistrict = sampleDoc.district || (sampleDoc.categories && sampleDoc.categories.find((c: string) => !c.includes("వార్త") && c !== sampleDoc.category)) || "";
+                const repMandal = sampleDoc.location || sampleDoc.mandal || "";
+
+                userData = {
+                    name: repName,
+                    role: 'REPORTER',
+                    district: repDistrict,
+                    assignedMandal: repMandal,
+                    mandal: repMandal,
+                    points: 0,
+                    badges: []
+                };
+            }
+
+            // Find application info if mandal is missing
+            let appMandal = userData.assignedMandal || userData.mandal || userData.mandalam || "";
+            let appDistrict = userData.district || "";
+
+            if (!appMandal || !appDistrict) {
+                const appQuery = await db.collection('reporter_applications')
+                    .where('userId', '==', userId)
+                    .limit(1)
+                    .get();
+                if (!appQuery.empty) {
+                    const aData = appQuery.docs[0].data();
+                    if (!appMandal) appMandal = aData.mandal || aData.assignedMandal || aData.selectedMandal || "";
+                    if (!appDistrict) appDistrict = aData.district || aData.state_district || "";
+                }
+            }
+
+            if (!appMandal && newsDocs.length > 0) {
+                const sample = newsDocs[0].data() || {};
+                appMandal = sample.location || sample.mandal || "";
+            }
+            if (!appDistrict && newsDocs.length > 0) {
+                const sample = newsDocs[0].data() || {};
+                appDistrict = sample.district || (sample.categories && sample.categories.find((c: string) => !c.includes("వార్త") && c !== sample.category)) || "";
+            }
+
+            const cleanName = (userData.name || candId || "").trim().toUpperCase();
+            if (cleanName.includes("KOLA MAHESH") || cleanName.includes("KOLA MOHAN") || (cleanName.includes("KOLA") && (cleanName.includes("MAHESH") || cleanName.includes("MOHAN")))) {
+                appDistrict = "యాదాద్రి భువనగిరి";
+                appMandal = "సంస్థాన్ నారాయణపూర్";
+            } else if (cleanName === "K MOHAN" || cleanName === "K. MOHAN" || cleanName === "MOHAN" || (cleanName.includes("MOHAN") && !cleanName.includes("KOLA"))) {
+                if (!appDistrict || !appMandal || appDistrict === "N/A" || appMandal === "N/A") {
+                    appDistrict = "తిరుపతి";
+                    appMandal = "తిరుపతి అర్బన్";
+                }
+            }
+
+            let totalPoints = 0;
+            const monthlyPointsMap: { [key: string]: number } = {};
+            let latestNewsMillis = 0;
+
+            newsDocs.forEach(doc => {
+                const data = doc.data();
+                const mediaType = data.mediaType?.toUpperCase() || "";
+                const mediaTypes = (data.mediaTypes || []).map((t: string) => t.toUpperCase());
+                const isVideo = mediaType === 'VIDEO' || mediaTypes.includes('VIDEO');
+                const postPoints = isVideo ? 20 : 10;
+                totalPoints += postPoints;
+
+                const ts = data.timestamp || data.createdAt;
+                let date: Date;
+                if (ts && typeof ts.toDate === 'function') {
+                    date = ts.toDate();
+                } else if (ts && ts._seconds) {
+                    date = new Date(ts._seconds * 1000);
+                } else {
+                    date = new Date();
+                }
+
+                const postTime = date.getTime();
+                if (postTime > latestNewsMillis) {
+                    latestNewsMillis = postTime;
+                }
+
+                const monthId = `${date.getFullYear()}_${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+                monthlyPointsMap[monthId] = (monthlyPointsMap[monthId] || 0) + postPoints;
+
+                const longViews = data.longViews || 0;
+                const viewMilestones = Math.floor(longViews / MILESTONE_SIZE);
+                const viewPoints = (viewMilestones * POINTS_PER_MILESTONE);
+                totalPoints += viewPoints;
+                monthlyPointsMap[monthId] = (monthlyPointsMap[monthId] || 0) + viewPoints;
+            });
+
+            // Calculate badges
+            const badges: string[] = [];
+            if (totalPoints >= 100) badges.push("BRONZE");
+            if (totalPoints >= 500) badges.push("SILVER");
+            if (totalPoints >= 2000) badges.push("GOLD");
+            if (totalPoints >= 10000) badges.push("DIAMOND");
+
+            const isSenior = newsDocs.length >= 5 || totalPoints >= 50;
+
+            const userUpdates: any = {
+                name: userData.name || candId,
+                role: 'REPORTER',
+                points: totalPoints,
+                badges: badges,
+                warningLevel: 0,
+                inProbation: false,
+                previouslyDowngraded: false,
+                suspended: false,
+                isProtectedSenior: isSenior,
+                lastPostTimestamp: latestNewsMillis > 0 ? latestNewsMillis : Date.now(),
+                downgradedReason: admin.firestore.FieldValue.delete(),
+                downgradedAt: admin.firestore.FieldValue.delete(),
+                lastWarningDate: admin.firestore.FieldValue.delete(),
+                rejoinedAt: admin.firestore.FieldValue.serverTimestamp(),
+                roleUpdatedAt: admin.firestore.FieldValue.serverTimestamp()
+            };
+            if (appMandal) {
+                userUpdates.assignedMandal = appMandal;
+                userUpdates.mandal = appMandal;
+            }
+            if (appDistrict) {
+                userUpdates.district = appDistrict;
+            }
+
+            await db.collection('users').doc(userId).set(userUpdates, { merge: true });
+
+            // Sync Monthly Leaderboard
+            for (const [monthId, pts] of Object.entries(monthlyPointsMap)) {
+                const monthlyRef = db.collection('monthly_leaderboard').doc(monthId)
+                    .collection('reporters').doc(userId);
+
+                await monthlyRef.set({
+                    userId: userId,
+                    name: userData.name || candId,
+                    photoUrl: userData.photoUrl || "",
+                    district: appDistrict || userData.district || "",
+                    assignedMandal: appMandal || userData.assignedMandal || "",
+                    points: pts,
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            }
+
+            results.push({
+                userId,
+                name: userData.name || candId,
+                mandal: appMandal,
+                district: appDistrict,
+                points: totalPoints,
+                posts: newsDocs.length,
+                isProtectedSenior: isSenior
+            });
+        } catch (err: any) {
+            console.error(`[RESTORE_USER_ERR] ${candId}:`, err.message);
+        }
+    }
+
+    console.log(`[RESTORE_REPORTERS] ✅ Restored and updated ${results.length} reporters.`);
+    return { restoredCount: results.length, details: results };
+}
+
+/**
+ * Callable function to manually restore and upgrade all mistakenly downgraded reporters.
+ */
+export const restoreAllDowngradedReporters = onCall(async (request) => {
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+        throw new HttpsError('unauthenticated', 'మీరు లాగిన్ అవ్వాలి.');
+    }
+    const adminDoc = await db.collection('users').doc(auth.uid).get();
+    if (adminDoc.data()?.role !== 'ADMIN' && adminDoc.data()?.role !== 'EDITOR') {
+        throw new HttpsError('permission-denied', 'అడ్మిన్లకు మాత్రమే ఈ అనుమతి ఉంది.');
+    }
+
+    const res = await performRestoreAllReporters();
+    return { success: true, ...res };
+});
+
 export const backfillReporterPoints = onCall(async (request) => {
     // Only admins can trigger backfill
     const auth = request.auth;
@@ -179,96 +653,9 @@ export const backfillReporterPoints = onCall(async (request) => {
         throw new HttpsError('permission-denied', 'అడ్మిన్లకు మాత్రమే ఈ అనుమతి ఉంది.');
     }
 
-    console.log(`[BACKFILL] Starting points backfill...`);
-        const reportersSnapshot = await db.collection('users').where('role', '==', 'REPORTER').get();
-    const results = [];
-
-    for (const reporterDoc of reportersSnapshot.docs) {
-        const reporterId = reporterDoc.id;
-        const reporterData = reporterDoc.data();
-
-        // Fetch all approved news for this reporter
-        const newsSnapshot = await db.collection('news')
-            .where('reporter.id', '==', reporterId)
-            .where('approved', '==', true)
-            .get();
-
-        let totalPoints = 0;
-        const monthlyPointsMap: { [key: string]: number } = {};
-
-        newsSnapshot.docs.forEach(doc => {
-            const data = doc.data();
-            const mediaType = data.mediaType?.toUpperCase() || "";
-            const mediaTypes = (data.mediaTypes || []).map((t: string) => t.toUpperCase());
-            const isVideo = mediaType === 'VIDEO' || mediaTypes.includes('VIDEO');
-
-            const postPoints = isVideo ? 20 : 10;
-            totalPoints += postPoints;
-
-            // Calculate monthly points
-            const ts = data.timestamp;
-            let date: Date;
-            if (ts && typeof ts.toDate === 'function') {
-                date = ts.toDate();
-            } else if (ts && ts._seconds) {
-                date = new Date(ts._seconds * 1000);
-            } else {
-                date = new Date();
-            }
-
-            const monthId = `${date.getFullYear()}_${(date.getMonth() + 1).toString().padStart(2, '0')}`;
-            monthlyPointsMap[monthId] = (monthlyPointsMap[monthId] || 0) + postPoints;
-
-            // Reward for views (Legacy posts)
-            const longViews = data.longViews || 0;
-            const viewMilestones = Math.floor(longViews / MILESTONE_SIZE);
-            const viewPoints = (viewMilestones * POINTS_PER_MILESTONE);
-            totalPoints += viewPoints;
-            // Note: View points are typically awarded at the time of milestone,
-            // but for backfill we'll put them in the post's original month or current month.
-            // Let's put them in the post's original month for historical accuracy.
-            monthlyPointsMap[monthId] = (monthlyPointsMap[monthId] || 0) + viewPoints;
-        });
-
-        // Calculate badges
-        const badges: string[] = [];
-        if (totalPoints >= 100) badges.push("BRONZE");
-        if (totalPoints >= 500) badges.push("SILVER");
-        if (totalPoints >= 2000) badges.push("GOLD");
-        if (totalPoints >= 10000) badges.push("DIAMOND");
-
-        // Update reporter doc (Global points)
-        await db.collection('users').doc(reporterId).update({
-            points: totalPoints,
-            badges: badges,
-            lastPostTimestamp: newsSnapshot.empty ? null : newsSnapshot.docs[0].data().timestamp
-        });
-
-        // Update Monthly Leaderboards
-        for (const [monthId, points] of Object.entries(monthlyPointsMap)) {
-            const monthlyRef = db.collection('monthly_leaderboard').doc(monthId)
-                .collection('reporters').doc(reporterId);
-
-            await monthlyRef.set({
-                userId: reporterId,
-                name: reporterData.name || "Reporter",
-                photoUrl: reporterData.photoUrl || "",
-                district: reporterData.district || "",
-                assignedMandal: reporterData.assignedMandal || "",
-                points: points,
-                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
-        }
-
-        results.push({
-            name: reporterDoc.data()?.name || reporterId,
-            points: totalPoints,
-            posts: newsSnapshot.size
-        });
-    }
-
-    console.log(`[BACKFILL] Completed. Processed ${results.length} reporters.`);
-    return { success: true, processed: results.length, details: results };
+    console.log(`[BACKFILL] Starting points backfill & reporter restoration...`);
+    const restoreResult = await performRestoreAllReporters();
+    return { success: true, processed: restoreResult.restoredCount, details: restoreResult.details };
 });
 
 /**
@@ -354,8 +741,72 @@ export const processReporterSubmission = onCall(async (request) => {
         }
 
         if (postId) {
-            await db.collection('news').doc(postId).update(finalData);
-            return { success: true, postId: postId, message: "వార్త అప్‌డేట్ అవుతోంది (నేపథ్యంలో)..." };
+            const postRef = db.collection('news').doc(postId);
+            const existingSnap = await postRef.get();
+            if (!existingSnap.exists) {
+                throw new HttpsError('not-found', 'వార్త లభించలేదు.');
+            }
+            const existingData = existingSnap.data() || {};
+            const wasApproved = existingData.approved === true || (existingData.status || '').toUpperCase() === 'PUBLISHED';
+
+            if (wasApproved) {
+                // EDITING AN ALREADY PUBLISHED POST:
+                // Keep it published and live! Do NOT unpublish, do NOT trigger AI rewrite or video re-encoding!
+                const updatePayload: any = {
+                    ...postData,
+                    headline: {
+                        telugu: headline,
+                        english: postData?.headline?.english || existingData.headline?.english || ""
+                    },
+                    content: {
+                        telugu: content,
+                        english: postData?.content?.english || existingData.content?.english || ""
+                    },
+                    mediaUrl: mediaUrl || existingData.mediaUrl || "",
+                    mediaUrls: mediaUrls.length > 0 ? mediaUrls : (existingData.mediaUrls || (existingData.mediaUrl ? [existingData.mediaUrl] : [])),
+                    mediaType: postData?.mediaType || existingData.mediaType || "IMAGE",
+                    mediaTypes: postData?.mediaTypes || existingData.mediaTypes || ["IMAGE"],
+                    youtubeUrl: postData?.youtubeUrl !== undefined ? postData.youtubeUrl : (existingData.youtubeUrl || null),
+                    location: postData?.location || existingData.location || "",
+                    district: postData?.district || existingData.district || "State",
+                    state: postData?.state || existingData.state || "TS",
+                    category: postData?.category || existingData.category || "General News",
+                    categories: postData?.categories || existingData.categories || [],
+                    isGlobal: postData?.isGlobal !== undefined ? postData.isGlobal : (existingData.isGlobal || false),
+                    approved: true,
+                    status: "PUBLISHED",
+                    aiProcessed: true,
+                    videoProcessed: existingData.videoProcessed ?? true,
+                    timestamp: existingData.timestamp || admin.firestore.FieldValue.serverTimestamp(),
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                };
+
+                // Preserve user engagement metrics & reporter attribution
+                if (existingData.likes !== undefined) updatePayload.likes = existingData.likes;
+                if (existingData.comments !== undefined) updatePayload.comments = existingData.comments;
+                if (existingData.shares !== undefined) updatePayload.shares = existingData.shares;
+                if (existingData.views !== undefined) updatePayload.views = existingData.views;
+                if (existingData.longViews !== undefined) updatePayload.longViews = existingData.longViews;
+                if (existingData.reporter) updatePayload.reporter = existingData.reporter;
+                if (existingData.originalReporterId) updatePayload.originalReporterId = existingData.originalReporterId;
+                if (existingData.type) updatePayload.type = existingData.type;
+
+                await postRef.update(updatePayload);
+                console.log(`[REPORTER_EDIT_PUBLISHED] Post ${postId} updated directly without unpublishing.`);
+                return { success: true, postId: postId, message: "వార్త విజయవంతంగా నవీకరించబడింది." };
+            } else {
+                // Editing a PENDING or REJECTED post:
+                const updatePayload: any = {
+                    ...finalData,
+                    forceReprocess: true,
+                    rejectionReason: admin.firestore.FieldValue.delete(),
+                    error: admin.firestore.FieldValue.delete(),
+                    timestamp: existingData.timestamp || admin.firestore.FieldValue.serverTimestamp()
+                };
+                await postRef.update(updatePayload);
+                console.log(`[REPORTER_EDIT_PENDING] Post ${postId} updated and queued for re-processing.`);
+                return { success: true, postId: postId, message: "వార్త అప్‌డేట్ అవుతోంది (నేపథ్యంలో)..." };
+            }
         } else {
             const newDocRef = await db.collection('news').add(finalData);
             return { success: true, postId: newDocRef.id, message: "వార్త ప్రచురించబడుతోంది (నేపథ్యంలో)..." };
@@ -394,7 +845,12 @@ export async function checkMandalVacancy(district: string, mandal: string, exclu
         .get();
 
     if (!reporterQuery.empty) {
-        const activeReporters = reporterQuery.docs.filter(doc => doc.id !== excludeUserId);
+        const activeReporters = reporterQuery.docs.filter(doc => {
+            if (doc.id === excludeUserId) return false;
+            const repData = doc.data();
+            if (repData.suspended === true || repData.previouslyDowngraded === true) return false;
+            return true;
+        });
         if (activeReporters.length > 0) {
             const repData = activeReporters[0].data();
             return {
@@ -419,7 +875,12 @@ export async function checkMandalVacancy(district: string, mandal: string, exclu
         .get();
 
     if (!mandalQuery.empty) {
-        const activeReporters = mandalQuery.docs.filter(doc => doc.id !== excludeUserId);
+        const activeReporters = mandalQuery.docs.filter(doc => {
+            if (doc.id === excludeUserId) return false;
+            const repData = doc.data();
+            if (repData.suspended === true || repData.previouslyDowngraded === true) return false;
+            return true;
+        });
         if (activeReporters.length > 0) {
             const repData = activeReporters[0].data();
             return {
@@ -517,6 +978,263 @@ export async function notifyApplicantOfConflict(
         console.log(`[CONFLICT_NOTIF] 📩 Sent conflict notice to applicant ${userId} for ${mandal}`);
     } catch (e: any) {
         console.error("[CONFLICT_NOTIF] Failed to send conflict notification:", e.message);
+    }
+}
+
+export interface ReporterPerformanceAudit {
+    reporterId: string;
+    reporterName: string;
+    reporterPhone: string;
+    totalPostsThisMonth: number;
+    ownMandalPostsThisMonth: number;
+    monthlyTarget: number;
+    lastPostDate: Date | null;
+    daysSinceLastPost: number;
+    meetsBenchmark: boolean;
+    shortfall: number;
+    evaluationSummary: string;
+}
+
+/**
+ * Helper: Audits the performance of an existing reporter for a specific mandal.
+ * Checks whether the reporter has posted at least 20 news items for their own mandal in the current calendar month,
+ * their regularity of posting, and latest active date.
+ */
+export async function auditExistingReporterPerformance(
+    reporterId: string,
+    reporterName: string,
+    district: string,
+    mandal: string
+): Promise<ReporterPerformanceAudit> {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+    const monthlyTarget = 20;
+
+    let totalPostsThisMonth = 0;
+    let ownMandalPostsThisMonth = 0;
+    let latestPostDate: Date | null = null;
+    let reporterPhone = "";
+
+    try {
+        const userDoc = await db.collection('users').doc(reporterId).get();
+        if (userDoc.exists) {
+            const uData = userDoc.data() || {};
+            reporterPhone = uData.phone || "";
+            if (uData.lastPostTimestamp) {
+                const lp = uData.lastPostTimestamp;
+                if (typeof lp.toDate === 'function') latestPostDate = lp.toDate();
+                else if (lp instanceof Date) latestPostDate = lp;
+                else if (typeof lp === 'number') latestPostDate = new Date(lp > 1e11 ? lp : lp * 1000);
+            }
+        }
+    } catch (e: any) {
+        console.warn(`[PERF_AUDIT] User fetch warn for ${reporterId}:`, e.message);
+    }
+
+    // Query news collection for posts by this reporter created in current month
+    try {
+        const queryFields = ['reporter.id', 'originalReporterId'];
+        const processedDocIds = new Set<string>();
+
+        for (const field of queryFields) {
+            const snap = await db.collection('news')
+                .where(field, '==', reporterId)
+                .where('timestamp', '>=', startOfMonth)
+                .get()
+                .catch(() => null);
+
+            if (snap && !snap.empty) {
+                for (const doc of snap.docs) {
+                    if (processedDocIds.has(doc.id)) continue;
+                    processedDocIds.add(doc.id);
+
+                    const data = doc.data();
+                    if (data.status === 'rejected' || data.isPostRejected === true) continue;
+
+                    totalPostsThisMonth++;
+
+                    const postLocation = (data.location || data.mandal || data.assignedMandal || "").trim();
+                    const postDistrict = (data.district || "").trim();
+
+                    const isOwnMandal = areMandalsMatching(postLocation, mandal, district || postDistrict) ||
+                        postLocation.toLowerCase().includes(mandal.toLowerCase()) ||
+                        mandal.toLowerCase().includes(postLocation.toLowerCase());
+
+                    if (isOwnMandal) {
+                        ownMandalPostsThisMonth++;
+                    }
+
+                    const postDate = data.timestamp?.toDate ? data.timestamp.toDate() : (data.timestamp ? new Date(data.timestamp) : null);
+                    if (postDate && !isNaN(postDate.getTime())) {
+                        if (!latestPostDate || postDate.getTime() > latestPostDate.getTime()) {
+                            latestPostDate = postDate;
+                        }
+                    }
+                }
+            }
+        }
+    } catch (e: any) {
+        console.error(`[PERF_AUDIT] News scan error for reporter ${reporterId}:`, e.message);
+    }
+
+    const daysSinceLastPost = latestPostDate
+        ? Math.max(0, Math.floor((now.getTime() - latestPostDate.getTime()) / (1000 * 60 * 60 * 24)))
+        : 999;
+
+    const meetsBenchmark = ownMandalPostsThisMonth >= monthlyTarget && daysSinceLastPost <= 3;
+    const shortfall = Math.max(0, monthlyTarget - ownMandalPostsThisMonth);
+
+    let evaluationSummary = "";
+    if (meetsBenchmark) {
+        evaluationSummary = `ప్రస్తుత విలేకరి పనితీరు సంతృప్తికరంగా ఉంది (ఈ నెలలో ${ownMandalPostsThisMonth}/${monthlyTarget} సొంత మండల వార్తలు పోస్ట్ చేశారు, చివరి పోస్ట్: ${daysSinceLastPost === 0 ? 'ఈరోజే' : `${daysSinceLastPost} రోజుల క్రితం`}).`;
+    } else {
+        evaluationSummary = `ప్రస్తుత విలేకరి పనితీరు ఆశించిన స్థాయిలో లేదు (ఈ నెలలో కేవలం ${ownMandalPostsThisMonth}/${monthlyTarget} సొంత మండల వార్తలు మాత్రమే పోస్ట్ చేశారు, లక్ష్యానికి ఇంకా ${shortfall} వార్తలు తక్కువగా ఉన్నాయి, చివరి పోస్ట్: ${daysSinceLastPost >= 999 ? 'వార్తల సమాచారం లేదు' : `${daysSinceLastPost} రోజుల క్రితం`}).`;
+    }
+
+    console.log(`[PERF_AUDIT] 📊 Reporter ${reporterName} (${reporterId}) for ${district}-${mandal}: ownMandalPosts=${ownMandalPostsThisMonth}/${monthlyTarget}, totalPosts=${totalPostsThisMonth}, daysSinceLastPost=${daysSinceLastPost}, meetsBenchmark=${meetsBenchmark}`);
+
+    return {
+        reporterId,
+        reporterName,
+        reporterPhone,
+        totalPostsThisMonth,
+        ownMandalPostsThisMonth,
+        monthlyTarget,
+        lastPostDate: latestPostDate,
+        daysSinceLastPost,
+        meetsBenchmark,
+        shortfall,
+        evaluationSummary
+    };
+}
+
+/**
+ * Helper: Sends a wake-up / performance warning message from the News Desk to an existing reporter
+ * whose mandal has received a new application while their own monthly performance is deficient (< 20 own-mandal posts).
+ */
+export async function alertExistingReporterOfChallenger(
+    existingReporterId: string,
+    existingReporterName: string,
+    district: string,
+    mandal: string,
+    applicantName: string,
+    audit: ReporterPerformanceAudit
+) {
+    if (!existingReporterId) return;
+
+    try {
+        const alertTitle = `మీ పనితీరు మెరుగుపరచుకోవాలి - మండల విలేకరి అలర్ట్ ⚠️`;
+        const alertText = `నమస్కారం ${existingReporterName || 'మిత్రమా'}, Alfa News ఎడిటోరియల్ డెస్క్ నుండి అత్యవసర గమనిక.\n\nమీరు కేటాయించబడిన ${mandal} మండలానికి ఈ నెలలో ఆశించిన స్థాయిలో వార్తలు అందించడం లేదు. నిబంధనల ప్రకారం ప్రతినెలా కనీసం 20 సొంత మండల వార్తలను పోస్ట్ చేయాల్సి ఉండగా, ఈ నెలలో మీరు కేవలం ${audit.ownMandalPostsThisMonth} వార్తలు మాత్రమే పోస్ట్ చేశారు (ఇంకా ${audit.shortfall} వార్తల కొరత ఉంది).\n\nమీ మండల వార్తల కవరేజ్ తక్కువగా ఉన్నందున, మీ ${mandal} మండలానికి సంబంధించి ఇప్పటికే '${applicantName || 'కొత్త అభ్యర్థి'}' గారు విలేకరి పదవి కోసం దరఖాస్తు చేసుకున్నారు.\n\nదయచేసి మీ పనితీరును వెంటనే మెరుగుపరుచుకుని, ప్రతిరోజూ మీ మండల తాజా వార్తలను చురుగ్గా పోస్ట్ చేయండి. లేనియెడల సంస్థ నియమావళి ప్రకారం మీ స్థానంలో కొత్త విలేకరిని నియమించే అవకాశం ఉంది.\n\n- Alfa News Editorial Desk`;
+
+        const msgTimestamp = admin.firestore.FieldValue.serverTimestamp();
+
+        // 1. Add to 2-way reporter conversation for chat
+        await db.collection('reporter_conversations').doc(existingReporterId).collection('messages').add({
+            senderId: "SYSTEM_ADMIN",
+            senderName: "AlfaNews Editorial Desk",
+            senderRole: "ADMIN",
+            text: alertText,
+            type: "PERFORMANCE_ALERT",
+            read: false,
+            timestamp: msgTimestamp
+        });
+
+        await db.collection('reporter_conversations').doc(existingReporterId).set({
+            lastMessage: alertText,
+            lastMessageTime: msgTimestamp,
+            lastSenderRole: "ADMIN",
+            lastSenderId: "SYSTEM_ADMIN",
+            unreadCountForReporter: admin.firestore.FieldValue.increment(1),
+            updatedAt: msgTimestamp
+        }, { merge: true });
+
+        // 2. Add to user's general in-app messages list
+        await db.collection('users').doc(existingReporterId).collection('messages').add({
+            title: alertTitle,
+            body: alertText,
+            senderName: "AlfaNews Editorial Desk",
+            senderRole: "ADMIN",
+            read: false,
+            importance: "HIGH",
+            type: "REPORTER_PERFORMANCE_WARNING",
+            timestamp: msgTimestamp
+        });
+
+        // 3. Send FCM push notification
+        const userDoc = await db.collection('users').doc(existingReporterId).get();
+        const userData = userDoc.data() || {};
+        const tokens = [...(userData.fcmTokens || []), userData.fcmToken].filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
+        if (tokens.length > 0) {
+            const push = tokens.map(token => ({
+                token,
+                notification: {
+                    title: alertTitle,
+                    body: `${mandal} మండలానికి ఈ నెలలో వార్తల సంఖ్య (${audit.ownMandalPostsThisMonth}/20) తక్కువగా ఉంది. మరొకరు దరఖాస్తు చేసుకున్నారు. వెంటనే పనితీరు మెరుగుపరుచుకోండి!`
+                },
+                data: {
+                    type: "REPORTER_PERFORMANCE_WARNING",
+                    district: district,
+                    mandal: mandal
+                }
+            }));
+            await admin.messaging().sendEach(push).catch(() => {});
+        }
+
+        console.log(`[CHALLENGER_ALERT] ⚠️ Sent performance wake-up alert to existing reporter ${existingReporterId} (${existingReporterName}) for mandal ${mandal}.`);
+    } catch (e: any) {
+        console.error("[CHALLENGER_ALERT] Failed to send challenger alert to existing reporter:", e.message);
+    }
+}
+
+/**
+ * Helper: Sends in-app message & push notification to Admins notifying them of a challenger application
+ * where the existing reporter's performance is below benchmark.
+ */
+export async function sendAdminPerformanceAlert(
+    district: string,
+    mandal: string,
+    existingReporterName: string,
+    applicantName: string,
+    applicantPhone: string,
+    audit: ReporterPerformanceAudit
+) {
+    try {
+        const adminsSnapshot = await db.collection('users')
+            .where('role', 'in', ['ADMIN', 'admin', 5, 5.0, '5'])
+            .get();
+
+        if (adminsSnapshot.empty) return;
+
+        const title = `పోటీ దరఖాస్తు అలర్ట్: ${district} - ${mandal} ⚠️`;
+        const body = `ప్రస్తుత విలేకరి ${existingReporterName} పనితీరు తక్కువగా ఉంది (${audit.ownMandalPostsThisMonth}/20 వార్తలు). ${applicantName} (${applicantPhone}) కొత్తగా దరఖాస్తు చేసుకున్నారు. పరిశీలించండి.`;
+        const msgTimestamp = admin.firestore.FieldValue.serverTimestamp();
+
+        for (const adminDoc of adminsSnapshot.docs) {
+            await db.collection('users').doc(adminDoc.id).collection('messages').add({
+                title,
+                body,
+                senderName: "AlfaNews Editorial Desk",
+                senderRole: "SYSTEM",
+                read: false,
+                importance: "HIGH",
+                type: "REPORTER_COMPETITION_ALERT",
+                timestamp: msgTimestamp
+            }).catch(() => {});
+
+            const aData = adminDoc.data() || {};
+            const aTokens = [...(aData.fcmTokens || []), aData.fcmToken].filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
+            if (aTokens.length > 0) {
+                const push = aTokens.map(token => ({
+                    token,
+                    notification: { title, body },
+                    data: { type: "REPORTER_COMPETITION_ALERT", district, mandal }
+                }));
+                await admin.messaging().sendEach(push).catch(() => {});
+            }
+        }
+        console.log(`[ADMIN_PERF_ALERT] 📢 Notified ${adminsSnapshot.size} admins of challenger in ${district}-${mandal}.`);
+    } catch (e: any) {
+        console.error("[ADMIN_PERF_ALERT] Failed to notify admins:", e.message);
     }
 }
 
@@ -652,7 +1370,8 @@ export async function sendReporterApplicationEmail(
     shouldAutoApprove: boolean,
     isPreviouslyDowngraded: boolean,
     finalStatus: string,
-    conflictInfo?: { isConflict: boolean; existingReporterName?: string; existingReporterPhone?: string }
+    conflictInfo?: { isConflict: boolean; existingReporterName?: string; existingReporterPhone?: string },
+    performanceAudit?: ReporterPerformanceAudit
 ) {
     const {
         fullName,
@@ -690,7 +1409,7 @@ export async function sendReporterApplicationEmail(
     const existingRepPhone = conflictInfo?.existingReporterPhone || "";
 
     const emailContent = `
-        ${shouldAutoApprove ? '[AUTO-APPROVED - ఆటోమేటిక్ అప్రూవ్ అయింది]' : isConflict ? '[పోటీ దరఖాస్తు / అడ్మిన్ పరిశీలన]' : 'New Reporter Application:'}
+        ${shouldAutoApprove ? '[AUTO-APPROVED - ఆటోమేటిక్ అప్రూవ్ అయింది]' : isConflict ? (performanceAudit && !performanceAudit.meetsBenchmark ? '[పోటీ దరఖాస్తు - విలేకరి పనితీరు తక్కువ]' : '[పోటీ దరఖాస్తు / అడ్మిన్ పరిశీలన]') : 'New Reporter Application:'}
         -------------------------
         Status: ${finalStatus}
         Full Name: ${fullName || 'N/A'}
@@ -707,6 +1426,7 @@ export async function sendReporterApplicationEmail(
         Message: ${message || 'N/A'}
         User ID: ${userId || 'N/A'}
         ${isConflict ? `Existing Reporter: ${existingRepName} (${existingRepPhone})` : ''}
+        ${performanceAudit ? `Performance Audit: Own Mandal Posts This Month: ${performanceAudit.ownMandalPostsThisMonth}/${performanceAudit.monthlyTarget}, Total Posts: ${performanceAudit.totalPostsThisMonth}, Days Since Last Post: ${performanceAudit.daysSinceLastPost}, Meets Benchmark: ${performanceAudit.meetsBenchmark}` : ''}
     `;
 
     const htmlEmail = `
@@ -722,6 +1442,23 @@ export async function sendReporterApplicationEmail(
                         : shouldAutoApprove 
                             ? '<div style="background-color: #e8f5e9; border: 1px solid #4caf50; color: #2e7d32; padding: 12px; border-radius: 6px; margin-bottom: 16px; font-weight: bold; text-align: center;">✅ ఈ విలేకరి మండలానికి ఎవరూ లేనందున ఆటోమేటిక్‌గా అప్రూవ్ చేయబడ్డారు (Auto-Approved).</div>'
                             : ''}
+                
+                ${performanceAudit ? `
+                    <div style="background-color: ${performanceAudit.meetsBenchmark ? '#e8f5e9' : '#fff3e0'}; border: 1px solid ${performanceAudit.meetsBenchmark ? '#4caf50' : '#ff9800'}; padding: 14px; border-radius: 6px; margin-bottom: 16px;">
+                        <div style="font-weight: bold; font-size: 15px; color: ${performanceAudit.meetsBenchmark ? '#2e7d32' : '#e65100'}; margin-bottom: 8px;">
+                            📊 ప్రస్తుత మండల విలేకరి పనితీరు విశ్లేషణ (Performance Audit):
+                        </div>
+                        <div style="font-size: 13px; line-height: 1.6; color: #333;">
+                            <div><b>ప్రస్తుత విలేకరి:</b> ${performanceAudit.reporterName || existingRepName} (${performanceAudit.reporterPhone || existingRepPhone})</div>
+                            <div><b>ఈ నెల సొంత మండల వార్తలు:</b> <span style="font-weight: bold; color: ${performanceAudit.meetsBenchmark ? '#2e7d32' : '#d32f2f'};">${performanceAudit.ownMandalPostsThisMonth} / ${performanceAudit.monthlyTarget}</span> (కనీసం 20 వార్తలు ఉండాలి)</div>
+                            <div><b>ఈ నెల మొత్తం వార్తలు:</b> ${performanceAudit.totalPostsThisMonth}</div>
+                            <div><b>చివరి పోస్ట్:</b> ${performanceAudit.daysSinceLastPost >= 999 ? 'సమాచారం లేదు' : `${performanceAudit.daysSinceLastPost} రోజుల క్రితం`}</div>
+                            <div style="margin-top: 6px;"><b>నిర్ణయం:</b> ${performanceAudit.evaluationSummary}</div>
+                            ${!performanceAudit.meetsBenchmark ? '<div style="margin-top: 6px; color: #d32f2f; font-weight: bold;">⚠️ గమనిక: ప్రస్తుత విలేకరికి పనితీరు మెరుగుపరుచుకోవాలని మరియు పోటీదారు దరఖాస్తు చేసుకున్నారని న్యూస్ డెస్క్ నుండి అలర్ట్ సందేశం పంపబడింది.</div>' : ''}
+                        </div>
+                    </div>
+                ` : ''}
+
                 <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
                     <tr><td style="padding: 8px; font-weight: bold; width: 180px;">స్టేటస్ (Status):</td><td style="padding: 8px; font-weight: bold; color: ${shouldAutoApprove ? '#2e7d32' : '#f57c00'};">${finalStatus}</td></tr>
                     <tr style="background-color: #f9f9f9;"><td style="padding: 8px; font-weight: bold; width: 180px;">పేరు (Full Name):</td><td style="padding: 8px;">${fullName || 'N/A'}</td></tr>
@@ -745,7 +1482,9 @@ export async function sendReporterApplicationEmail(
     const emailSubject = isPreviouslyDowngraded
         ? `[గతంలో తొలగించబడిన విలేకరి మళ్లీ దరఖాస్తు] ${fullName || 'N/A'} (${district} - ${mandal})`
         : isConflict
-            ? `[పోటీ దరఖాస్తు / అడ్మిన్ పరిశీలన] ${fullName || 'N/A'} (${district} - ${mandal})`
+            ? (performanceAudit && !performanceAudit.meetsBenchmark)
+                ? `[పోటీ దరఖాస్తు - ప్రస్తుత విలేకరి పనితీరు తక్కువ] ${fullName || 'N/A'} (${district} - ${mandal})`
+                : `[పోటీ దరఖాస్తు / అడ్మిన్ పరిశీలన] ${fullName || 'N/A'} (${district} - ${mandal})`
             : shouldAutoApprove 
                 ? `[ఆటో-అప్రూవ్ అయింది] కొత్త రిపోర్టర్ చేరారు: ${fullName || 'N/A'} (${district} - ${mandal})`
                 : `రిపోర్టర్ దరఖాస్తు: ${fullName || 'N/A'} (${district} - ${mandal})`;
@@ -791,6 +1530,27 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
     const rawPhone = String(phone || data.phoneNumber || "").trim();
     const clean10 = rawPhone.replace(/\D/g, '').slice(-10);
 
+    const finalFullName = String(fullName || data.name || "").trim();
+    const finalFatherName = String(fatherName || "").trim();
+    const finalAddress = String(address || "").trim();
+    const finalInterestedArea = String(interestedArea || "").trim();
+    const finalEducation = String(education || "").trim();
+    const finalCurrentOrg = String(currentOrg || "").trim();
+
+    // Strict input validation
+    if (!finalFullName || finalFullName.length < 3) {
+        throw new HttpsError('invalid-argument', 'కనీసం 3 అక్షరాలతో పూర్తి పేరు నమోదు చేయాలి.');
+    }
+    if (!finalFatherName || finalFatherName.length < 3) {
+        throw new HttpsError('invalid-argument', 'కనీసం 3 అక్షరాలతో తండ్రి పేరు నమోదు చేయాలి.');
+    }
+    if (clean10.length !== 10 || !/^[6-9]\d{9}$/.test(clean10)) {
+        throw new HttpsError('invalid-argument', 'చెల్లుబాటు అయ్యే 10 అంకెల మొబైల్ నంబర్ తప్పనిసరి (6-9 తో ప్రారంభం కావాలి).');
+    }
+    if (!finalAddress || finalAddress.length < 6) {
+        throw new HttpsError('invalid-argument', 'కనీసం 6 అక్షరాలతో చిరునామా నమోదు చేయాలి.');
+    }
+
     // If userId or district/mandal is missing, look up user profile
     let existingUserData: any = {};
     if (userId) {
@@ -824,10 +1584,19 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
     }
 
     if (!trimmedDistrict || !trimmedMandal) {
-        throw new HttpsError('invalid-argument', 'జిల్లా మరియు మండలం తప్పనిసరి.');
+        throw new HttpsError('invalid-argument', 'జిల్లా మరియు మండలం తప్పనిసరిగా ఎంచుకోవాలి.');
+    }
+    if (!finalInterestedArea) {
+        throw new HttpsError('invalid-argument', 'ఆసక్తి ఉన్న కేటగిరీ తప్పనిసరి.');
+    }
+    if (!finalEducation) {
+        throw new HttpsError('invalid-argument', 'విద్యార్హత తప్పనిసరి.');
+    }
+    if (!finalCurrentOrg) {
+        throw new HttpsError('invalid-argument', 'ప్రస్తుత సంస్థ లేదా వృత్తి తప్పనిసరి.');
     }
 
-    console.log(`[REPORTER_APP] 📥 Processing application for ${fullName || 'N/A'} (District: ${trimmedDistrict}, Mandal: ${trimmedMandal}, UserId: ${userId || 'N/A'}, Phone: ${phone || 'N/A'})`);
+    console.log(`[REPORTER_APP] 📥 Processing application for ${finalFullName} (District: ${trimmedDistrict}, Mandal: ${trimmedMandal}, UserId: ${userId || 'N/A'}, Phone: ${clean10})`);
 
     // 1. Check vacancy for mandal in users collection
     const vacancyResult = await checkMandalVacancy(trimmedDistrict, trimmedMandal, userId);
@@ -865,6 +1634,13 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
     // Save application to Firestore
     const newAppRef = await db.collection('reporter_applications').add({
         ...data,
+        fullName: finalFullName,
+        fatherName: finalFatherName,
+        phone: clean10,
+        address: finalAddress,
+        interestedArea: finalInterestedArea,
+        education: finalEducation,
+        currentOrg: finalCurrentOrg,
         district: trimmedDistrict,
         mandal: trimmedMandal,
         userId: userId || data.userId || null,
@@ -909,15 +1685,101 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         }
 
         // Promote user role to REPORTER immediately
-        await promoteUserToReporter(userId, fullName || existingUserData.name || "", phone || existingUserData.phone || "", trimmedDistrict, trimmedMandal, "AUTO_APPROVAL_SYSTEM");
-    } else if (isConflict && userId) {
+        await promoteUserToReporter(userId, finalFullName, clean10, trimmedDistrict, trimmedMandal, "AUTO_APPROVAL_SYSTEM");
+    } else if (isConflict && existingRep) {
+        let perfAudit: ReporterPerformanceAudit | undefined;
+        try {
+            perfAudit = await auditExistingReporterPerformance(
+                existingRep.id,
+                existingRep.name,
+                trimmedDistrict,
+                trimmedMandal
+            );
+
+            // If existing reporter's performance is below benchmark (< 20 own-mandal news or inactive)
+            if (!perfAudit.meetsBenchmark) {
+                // 1. Alert existing reporter that a challenger applied and they must improve
+                await alertExistingReporterOfChallenger(
+                    existingRep.id,
+                    existingRep.name,
+                    trimmedDistrict,
+                    trimmedMandal,
+                    finalFullName,
+                    perfAudit
+                );
+
+                // 2. Alert Admins via in-app notification & push
+                await sendAdminPerformanceAlert(
+                    trimmedDistrict,
+                    trimmedMandal,
+                    existingRep.name,
+                    finalFullName,
+                    clean10,
+                    perfAudit
+                );
+            }
+        } catch (auditErr: any) {
+            console.error("[REPORTER_APP] Performance audit error:", auditErr.message);
+        }
+
         // Notify applicant that mandal is occupied and application is forwarded for Admin competition review
-        await notifyApplicantOfConflict(userId, fullName || existingUserData.name || "", trimmedDistrict, trimmedMandal, existingRep?.name || "విలేకరి");
+        if (userId) {
+            await notifyApplicantOfConflict(userId, finalFullName, trimmedDistrict, trimmedMandal, existingRep.name || "విలేకరి");
+        }
+
+        // Send notification email to admin with performance audit attached
+        await sendReporterApplicationEmail(
+            { 
+                ...data, 
+                fullName: finalFullName, 
+                fatherName: finalFatherName, 
+                phone: clean10, 
+                address: finalAddress, 
+                interestedArea: finalInterestedArea, 
+                education: finalEducation, 
+                currentOrg: finalCurrentOrg, 
+                district: trimmedDistrict, 
+                mandal: trimmedMandal, 
+                userId 
+            },
+            shouldAutoApprove,
+            isPreviouslyDowngraded,
+            finalStatus,
+            { isConflict, existingReporterName: existingRep.name, existingReporterPhone: existingRep.phone },
+            perfAudit
+        );
+
+        return { 
+            success: true, 
+            autoApproved: shouldAutoApprove, 
+            isPreviouslyDowngraded,
+            isConflict,
+            existingReporterName: existingRep.name || null,
+            existingReporterPerformance: perfAudit ? {
+                ownMandalPostsThisMonth: perfAudit.ownMandalPostsThisMonth,
+                totalPostsThisMonth: perfAudit.totalPostsThisMonth,
+                meetsBenchmark: perfAudit.meetsBenchmark,
+                shortfall: perfAudit.shortfall
+            } : null,
+            status: finalStatus 
+        };
     }
 
-    // Send notification email to admin
+    // Send notification email to admin (for non-conflict / auto-approved cases)
     await sendReporterApplicationEmail(
-        { ...data, district: trimmedDistrict, mandal: trimmedMandal, userId },
+        { 
+            ...data, 
+            fullName: finalFullName, 
+            fatherName: finalFatherName, 
+            phone: clean10, 
+            address: finalAddress, 
+            interestedArea: finalInterestedArea, 
+            education: finalEducation, 
+            currentOrg: finalCurrentOrg, 
+            district: trimmedDistrict, 
+            mandal: trimmedMandal, 
+            userId 
+        },
         shouldAutoApprove,
         isPreviouslyDowngraded,
         finalStatus,
@@ -989,6 +1851,26 @@ export const onReporterApplicationCreated = onDocumentCreated({
         if (!mandal) mandal = extracted.mandal;
     }
 
+    // Check if application has all mandatory fields completed
+    const isApplicationComplete = Boolean(
+        applicantName.length >= 3 &&
+        applicantName !== "No Name" &&
+        clean10.length === 10 &&
+        /^[6-9]\d{9}$/.test(clean10) &&
+        district &&
+        mandal
+    );
+
+    if (!isApplicationComplete) {
+        console.warn(`[REPORTER_APP_TRIGGER] ⚠️ Application ${appId} is incomplete (name: '${applicantName}', phone: '${clean10}', dist: '${district}', mandal: '${mandal}'). Flagging as INCOMPLETE and skipping auto-approval.`);
+        await event.data?.ref.update({
+            status: "INCOMPLETE",
+            autoApproved: false,
+            incompleteReason: "తప్పనిసరి వివరాలు (కనీసం 3 అక్షరాల పేరు, చెల్లుబాటు అయ్యే 10 అంకెల ఫోన్, జిల్లా, మండలం) లేవు."
+        });
+        return;
+    }
+
     // Check if user was previously downgraded/suspended
     let isPreviouslyDowngraded = data.previouslyDowngraded === true || data.isReapplication === true;
     if (!isPreviouslyDowngraded && userDocData) {
@@ -1043,7 +1925,41 @@ export const onReporterApplicationCreated = onDocumentCreated({
             "JOINED"
         );
     } else if (isConflict) {
-        console.log(`[REPORTER_APP_TRIGGER] ⚠️ Mandal ${mandal} in ${district} is occupied by ${existingRep?.name}. Keeping PENDING for competition review.`);
+        console.log(`[REPORTER_APP_TRIGGER] ⚠️ Mandal ${mandal} in ${district} is occupied by ${existingRep?.name}. Auditing existing reporter performance...`);
+
+        let perfAudit: ReporterPerformanceAudit | undefined;
+        if (existingRep?.id) {
+            try {
+                perfAudit = await auditExistingReporterPerformance(
+                    existingRep.id,
+                    existingRep.name || "Reporter",
+                    district,
+                    mandal
+                );
+
+                if (!perfAudit.meetsBenchmark) {
+                    await alertExistingReporterOfChallenger(
+                        existingRep.id,
+                        existingRep.name || "Reporter",
+                        district,
+                        mandal,
+                        applicantName,
+                        perfAudit
+                    );
+
+                    await sendAdminPerformanceAlert(
+                        district,
+                        mandal,
+                        existingRep.name || "Reporter",
+                        applicantName,
+                        rawPhone,
+                        perfAudit
+                    );
+                }
+            } catch (auditErr: any) {
+                console.error("[REPORTER_APP_TRIGGER] Audit error:", auditErr.message);
+            }
+        }
 
         await event.data?.ref.update({
             district,
@@ -1054,20 +1970,28 @@ export const onReporterApplicationCreated = onDocumentCreated({
             emailSentToAdmin: true,
             existingReporterName: existingRep?.name || null,
             existingReporterPhone: existingRep?.phone || null,
-            existingReporterId: existingRep?.id || null
+            existingReporterId: existingRep?.id || null,
+            existingReporterPerformance: perfAudit ? {
+                totalPostsThisMonth: perfAudit.totalPostsThisMonth,
+                ownMandalPostsThisMonth: perfAudit.ownMandalPostsThisMonth,
+                meetsBenchmark: perfAudit.meetsBenchmark,
+                shortfall: perfAudit.shortfall,
+                daysSinceLastPost: perfAudit.daysSinceLastPost
+            } : null
         });
 
         if (userId) {
             await notifyApplicantOfConflict(userId, applicantName, district, mandal, existingRep?.name || "విలేకరి");
         }
 
-        // Send email alert to admin
+        // Send email alert to admin with performance audit attached
         await sendReporterApplicationEmail(
             { ...data, district, mandal, fullName: applicantName, phone: rawPhone, userId },
             false,
             isPreviouslyDowngraded,
             "PENDING",
-            { isConflict: true, existingReporterName: existingRep?.name, existingReporterPhone: existingRep?.phone }
+            { isConflict: true, existingReporterName: existingRep?.name, existingReporterPhone: existingRep?.phone },
+            perfAudit
         );
     } else {
         // Missing location details or user account
@@ -2018,20 +2942,40 @@ export async function getAssignedReporter(district: string, mandalam: string): P
     try {
         if (!district || !mandalam) return null;
 
+        // 1. Direct query with role variations
         const reporters = await db.collection('users')
-            .where('role', '==', 'REPORTER')
+            .where('role', 'in', ['REPORTER', 'reporter', 'STAFF_REPORTER', 'REGIONAL_INCHARGE', 2, 2.0, '2', 3, 3.0])
             .where('district', '==', district)
             .where('assignedMandal', '==', mandalam)
             .limit(1)
             .get();
 
-        if (reporters.empty) return null;
- 
-        const data = reporters.docs[0].data();
-        return {
-            id: reporters.docs[0].id,
-            name: data.name || "Reporter"
-        };
+        if (!reporters.empty) {
+            const data = reporters.docs[0].data();
+            return {
+                id: reporters.docs[0].id,
+                name: data.name || "Reporter"
+            };
+        }
+
+        // 2. Flexible alias match across district reporters
+        const distReporters = await db.collection('users')
+            .where('role', 'in', ['REPORTER', 'reporter', 'STAFF_REPORTER', 'REGIONAL_INCHARGE', 2, 2.0, '2', 3, 3.0])
+            .where('district', '==', district)
+            .get();
+
+        for (const doc of distReporters.docs) {
+            const data = doc.data();
+            const repMandal = (data.assignedMandal || data.mandal || data.mandalam || "").trim();
+            if (repMandal && areMandalsMatching(mandalam, repMandal, district)) {
+                return {
+                    id: doc.id,
+                    name: data.name || "Reporter"
+                };
+            }
+        }
+
+        return null;
     } catch (e) {
         console.error(`[GET_ASSIGNED_REPORTER_ERR] ${district}/${mandalam}:`, e);
         return null;

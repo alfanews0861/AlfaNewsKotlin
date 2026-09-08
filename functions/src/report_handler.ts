@@ -53,30 +53,46 @@ export const reportNewsPost = onCall({ secrets: ["EMAIL_USER", "EMAIL_PASS"] }, 
             timestamp: admin.firestore.FieldValue.serverTimestamp()
         });
 
-        // 3. Atomically increment reportCount
-        await postRef.update({
+        // 3. Atomically increment reportCount (and authReportCount if logged in)
+        const isAuthUser = Boolean(request.auth?.uid);
+        const updatePayload: any = {
             reportCount: admin.firestore.FieldValue.increment(1),
             lastReportedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
+        };
+        if (isAuthUser) {
+            updatePayload.authReportCount = admin.firestore.FieldValue.increment(1);
+        }
+        await postRef.update(updatePayload);
 
         // 4. Check total reports
         const updatedDoc = await postRef.get();
         const updatedData = updatedDoc.data() || {};
         const totalReports = updatedData.reportCount || 1;
+        const authReports = updatedData.authReportCount || (isAuthUser ? 1 : 0);
 
-        console.log(`[NEWS_REPORT] Post ${postId} reported by ${userId}. Reason: ${reason}. Total reports: ${totalReports}`);
+        console.log(`[NEWS_REPORT] Post ${postId} reported by ${userId} (auth=${isAuthUser}). Reason: ${reason}. Total: ${totalReports}, Auth: ${authReports}`);
 
-        // 5. 3-Report Auto-Takedown Threshold Trigger
-        if (totalReports >= 3 && updatedData.approved !== false) {
-            console.warn(`[AUTO_TAKEDOWN] Post ${postId} reached ${totalReports} reports. Hiding post and notifying admin...`);
+        // 5. Auto-Takedown Guard: Only verified authenticated users (>=5) trigger instant takedown.
+        // If 3+ general reports, flag for urgent admin review while notifying admin.
+        const shouldAutoTakedown = authReports >= 5;
+        if (shouldAutoTakedown && updatedData.approved !== false) {
+            console.warn(`[AUTO_TAKEDOWN] Post ${postId} reached ${authReports} authenticated reports. Hiding post and notifying admin...`);
 
             // Hide immediately
             await postRef.update({
                 approved: false,
                 status: "REPORTED_HIDDEN",
                 reportedHiddenAt: admin.firestore.FieldValue.serverTimestamp(),
-                hiddenReason: `Received ${totalReports} user reports`
+                hiddenReason: `Received ${authReports} verified user reports`
             });
+        } else if (totalReports >= 3) {
+            await postRef.update({
+                needsAdminReview: true,
+                flaggedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
+
+        if (totalReports >= 3) {
 
             // Fetch report details for email
             const reportsSnapshot = await postRef.collection("reports").get();

@@ -94,6 +94,9 @@ data class NewsPost(
     val state: String? = null,
     val status: String? = null,
     val notificationTitle: String? = null,
+    val rejectionReason: String? = null,
+    val error: String? = null,
+    val isDuplicate: Boolean = false,
 
     // Survey & Poll fields
     val surveyQuestions: List<SurveyQuestion> = emptyList(),
@@ -167,9 +170,8 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
     
     val rawTimestamp = data["timestamp"]
     val postTimestamp = when {
-        rawTimestamp == null -> System.currentTimeMillis()
         rawTimestamp is Number -> rawTimestamp.toLong()
-        rawTimestamp::class.java.simpleName == "Timestamp" || rawTimestamp.javaClass.name.contains("Timestamp") -> {
+        rawTimestamp != null && (rawTimestamp::class.java.simpleName == "Timestamp" || rawTimestamp.javaClass.name.contains("Timestamp")) -> {
             try {
                 val toDateMethod = rawTimestamp.javaClass.getMethod("toDate")
                 val date = toDateMethod.invoke(rawTimestamp) as java.util.Date
@@ -179,7 +181,23 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
             }
         }
         rawTimestamp is java.util.Date -> rawTimestamp.time
-        else -> System.currentTimeMillis()
+        else -> {
+            val fallback = data["createdAt"] ?: data["publishedAt"]
+            when {
+                fallback is Number -> fallback.toLong()
+                fallback != null && (fallback::class.java.simpleName == "Timestamp" || fallback.javaClass.name.contains("Timestamp")) -> {
+                    try {
+                        val toDateMethod = fallback.javaClass.getMethod("toDate")
+                        val date = toDateMethod.invoke(fallback) as java.util.Date
+                        date.time
+                    } catch (e: Exception) {
+                        System.currentTimeMillis()
+                    }
+                }
+                fallback is java.util.Date -> fallback.time
+                else -> System.currentTimeMillis()
+            }
+        }
     }
 
     val type = data["type"]?.toString()
@@ -337,6 +355,9 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
         state = state,
         category = category,
         status = status,
-        notificationTitle = notificationTitle
+        notificationTitle = notificationTitle,
+        rejectionReason = data["rejectionReason"]?.toString(),
+        error = data["error"]?.toString() ?: data["lastProcessingError"]?.toString(),
+        isDuplicate = data["isDuplicate"] as? Boolean ?: false
     )
 }

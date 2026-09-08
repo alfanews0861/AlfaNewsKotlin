@@ -65,6 +65,14 @@ const ReporterProfileView: React.FC<ReporterProfileViewProps> = ({ reporterId, o
                         if (userSnap.exists()) {
                             resolvedReporter = { id: userSnap.id, ...userSnap.data() } as User;
                             setReporter(resolvedReporter);
+                        } else {
+                            const nameQuery = query(collection(db, 'users'), where('name', '==', reporterId), limit(1));
+                            const nameSnap = await getDocs(nameQuery);
+                            if (!nameSnap.empty) {
+                                const d = nameSnap.docs[0];
+                                resolvedReporter = { id: d.id, ...d.data() } as User;
+                                setReporter(resolvedReporter);
+                            }
                         }
                     } catch (uErr) {
                         console.warn("Error fetching user doc:", uErr);
@@ -113,15 +121,27 @@ const ReporterProfileView: React.FC<ReporterProfileViewProps> = ({ reporterId, o
                 fetchedPosts.sort((a: NewsPost, b: NewsPost) => b.timestamp - a.timestamp);
                 setPosts(fetchedPosts);
 
-                // Fallback reporter details if not found in database
+                let calculatedPoints = 0;
+                fetchedPosts.forEach((p: any) => {
+                    const isVideo = p.mediaType === 'video' || p.mediaType === 'VIDEO' || (Array.isArray(p.mediaTypes) && p.mediaTypes.includes('VIDEO'));
+                    calculatedPoints += isVideo ? 20 : 10;
+                });
+
+                // Fallback reporter details if not found in database or points are 0
                 if (!resolvedReporter) {
                     const repName = fetchedPosts[0]?.reporter?.name || reporterId;
                     setReporter({
                         id: reporterId,
                         name: repName,
                         role: UserRole.REPORTER,
+                        points: calculatedPoints,
                         photoUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(repName)}&background=random`
                     } as User);
+                } else if (!resolvedReporter.points && calculatedPoints > 0) {
+                    setReporter({
+                        ...resolvedReporter,
+                        points: calculatedPoints
+                    });
                 }
             } catch (e) {
                 console.error("Error fetching reporter profile:", e);
@@ -156,6 +176,7 @@ const ReporterProfileView: React.FC<ReporterProfileViewProps> = ({ reporterId, o
                 <p className="text-sm font-semibold text-red-600 bg-red-50 px-3 py-1 rounded-full uppercase tracking-wider mb-2">{reporter?.role}</p>
                 <div className="flex gap-8 mt-6 border-t border-gray-100 pt-4 w-full justify-center">
                     <div className="text-center"><span className="block font-bold text-xl text-gray-900">{posts.length}</span><span className="text-xs text-gray-500 uppercase">పోస్ట్లు</span></div>
+                    <div className="text-center"><span className="block font-bold text-xl text-pink-600">{reporter?.points ?? (posts.length * 10)}</span><span className="text-xs text-gray-500 uppercase">పాయింట్లు</span></div>
                 </div>
             </div>
             <div className="p-2">
