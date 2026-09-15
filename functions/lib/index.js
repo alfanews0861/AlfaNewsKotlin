@@ -581,8 +581,8 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
     }
 });
 // YouTube Auth Flow (Keep in index for simple management)
-const { google } = require('googleapis');
 exports.youtubeAuthStart = (0, https_1.onRequest)({ secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"] }, (req, res) => {
+    const { google } = require('googleapis');
     const youtubeAuth = new google.auth.OAuth2(process.env.YOUTUBE_CLIENT_ID, process.env.YOUTUBE_CLIENT_SECRET, `https://${utils_1.REGION}-alfa-news-31bf7.cloudfunctions.net/youtubeAuthCallback`);
     res.redirect(youtubeAuth.generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: ['https://www.googleapis.com/auth/youtube.upload'] }));
 });
@@ -592,6 +592,7 @@ exports.youtubeAuthCallback = (0, https_1.onRequest)({ secrets: ["YOUTUBE_CLIENT
         res.status(400).send("Code missing.");
         return;
     }
+    const { google } = require('googleapis');
     const youtubeAuth = new google.auth.OAuth2(process.env.YOUTUBE_CLIENT_ID, process.env.YOUTUBE_CLIENT_SECRET, `https://${utils_1.REGION}-alfa-news-31bf7.cloudfunctions.net/youtubeAuthCallback`);
     try {
         const { tokens } = await youtubeAuth.getToken(code);
@@ -607,4 +608,3 @@ exports.youtubeAuthCallback = (0, https_1.onRequest)({ secrets: ["YOUTUBE_CLIENT
         res.status(500).send(`Error: ${e.message}`);
     }
 });
-//# sourceMappingURL=index.js.map

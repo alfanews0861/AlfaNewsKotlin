@@ -27,7 +27,7 @@ export async function notifyReporter(
     reporterId: string,
     postId: string,
     headline: string,
-    type: 'SUCCESS' | 'INTERNAL_ERROR' | 'POLICY_VIOLATION' | 'DUPLICATE',
+    type: 'SUCCESS' | 'INTERNAL_ERROR' | 'POLICY_VIOLATION' | 'DUPLICATE' | 'YOUTUBE_POLICY_VIOLATION',
     imageUrl?: string,
     specificReason?: string
 ) {
@@ -62,6 +62,7 @@ export async function notifyReporter(
         const toHumanEditorialReason = (rawReason?: string): string => {
             if (!rawReason || rawReason.trim().length === 0) {
                 if (type === 'DUPLICATE') return "ఈ వార్తాంశం గత కొన్ని గంటల్లో మీ మండలంలో ఇప్పటికే మన యాప్‌లో ప్రచురితమైంది.";
+                if (type === 'YOUTUBE_POLICY_VIOLATION') return "యూట్యూబ్ కమ్యూనిటీ నిబంధనల ప్రకారం తీవ్ర రక్తపాతం లేదా భయానక దృశ్యాలు కలిగిన వీడియోలను యూట్యూబ్‌లో ప్రసారం చేయడం నిషేధం. మన ఛానల్ భద్రత దృష్ట్యా ఈ వీడియో వార్తను నిలిపివేయడం జరిగింది.";
                 if (type === 'POLICY_VIOLATION') return "వార్తలోని అంశాలు మా ఎడిటోరియల్ మార్గదర్శకాలకు అనుగుణంగా లేనందున ప్రచురించలేకపోయాము.";
                 if (type === 'INTERNAL_ERROR') return "సర్వర్ లేదా నెట్‌వర్క్ అంతరాయం వల్ల ఈ వార్త ప్రచురణ తాత్కాలికంగా నిలిచింది.";
                 return "";
@@ -81,6 +82,10 @@ export async function notifyReporter(
                 return "సర్వర్ నెట్‌వర్క్ అంతరాయం వల్ల ప్రచురణ ప్రక్రియ నిలిచిపోయింది. దయచేసి కాసేపటి తర్వాత మళ్ళీ ప్రయత్నించండి.";
             }
 
+            if (type === 'YOUTUBE_POLICY_VIOLATION' || lower.includes('youtube') || lower.includes('యూట్యూబ్') || lower.includes('భయానక') || lower.includes('రక్తపాత')) {
+                return "యూట్యూబ్ కమ్యూనిటీ నిబంధనల ప్రకారం తీవ్ర రక్తపాతం లేదా భయానక దృశ్యాలు కలిగిన వీడియోలను యూట్యూబ్‌లో ప్రసారం చేయడం నిషేధం. మన ఛానల్ భద్రత దృష్ట్యా ఈ వీడియో వార్తను నిలిపివేయడం జరిగింది. దయచేసి భవిష్యత్తులో ఇటువంటి దృశ్యాలను బ్లర్ చేసి పంపగలరు.";
+            }
+
             if (rawReason.includes("గత 6 గంటల్లో") || rawReason.includes("డూప్లికేట్")) {
                 return "ఈ వార్తాంశం గత కొన్ని గంటల్లో మీ మండలంలో ఇప్పటికే మన యాప్‌లో ప్రచురితమైంది. ఒకే వార్త పాఠకులకు పునరావృతం కాకుండా ఉండేందుకు దీనిని ఆమోదించలేకపోయాము.";
             }
@@ -95,6 +100,8 @@ export async function notifyReporter(
         let body = "";
         let chatText = "";
 
+        const isYouTubeCase = type === 'YOUTUBE_POLICY_VIOLATION' || (specificReason && (specificReason.includes('యూట్యూబ్') || specificReason.toLowerCase().includes('youtube')));
+
         if (type === 'SUCCESS') {
             title = 'మీ వార్త లైవ్ అయ్యింది! 📰';
             body = `నమస్కారం! మీరు పంపిన "${truncatedHeadline}" వార్త విజయవంతంగా ప్రచురించబడింది.`;
@@ -105,6 +112,11 @@ export async function notifyReporter(
             body = `నమస్కారం! "${truncatedHeadline}" వార్తాంశం మీ మండలంలో ఇప్పటికే కవర్ అయింది.`;
 
             chatText = `నమస్కారం ${reporterName} గారు,\n\nమీరు పంపిన వార్త: "${headline}"\n\nఎడిటోరియల్ డెస్క్ పరిశీలన:\nఈ వార్తాంశం మీ మండలంలో గత కొన్ని గంటల్లోనే ఇప్పటికే మన యాప్‌లో ప్రచురితమైంది. ఒకే వార్త పాఠకులకు పునరావృతం కాకుండా చూసేందుకు ఎడిటోరియల్ టీమ్ దీనిని ఆమోదించలేకపోయింది.\n\nదయచేసి మీ ప్రాంతంలోని ఇతర తాజా ప్రజా సమస్యలు లేదా కొత్త వార్తలను పంపగలరు. ధన్యవాదాలు!\n\n- ఎడిటోరియల్ డెస్క్ (ఆల్ఫా న్యూస్)`;
+        } else if (isYouTubeCase) {
+            title = 'యూట్యూబ్ నిబంధనల పరిశీలన ⚠️';
+            body = `"${truncatedHeadline}" వీడియో యూట్యూబ్ నిబంధనల ప్రకారం ప్రచురించబడలేదు. డెస్క్ చాట్ చూడండి.`;
+
+            chatText = `నమస్కారం ${reporterName} గారు,\n\nమీరు పంపిన వీడియో వార్త: "${headline}"\n\nఎడిటోరియల్ డెస్క్ & AI సేఫ్టీ పరిశీలన:\nయూట్యూబ్ కమ్యూనిటీ నిబంధనలు (YouTube Community Guidelines) మరియు పబ్లిక్ సేఫ్టీ నిబంధనల ప్రకారం తీవ్ర రక్తపాతం, భయానక ప్రమాదాలు లేదా హింసాత్మక దృశ్యాలు కలిగిన వీడియోలను యూట్యూబ్‌లో ప్రసారం చేయడం నిషిద్ధం. మన అధికారిక ఛానల్ భద్రత మరియు అకౌంట్ నిబంధనల దృష్ట్యా ఈ వీడియో వార్తను నిలిపివేయడం జరిగింది.\n\nభవిష్యత్తులో ఇటువంటి సంఘటనలు కవర్ చేసేటప్పుడు భయానక దృశ్యాలు లేకుండా లేదా బాధితుల వివరాలు/రక్తపు మరకలను బ్లర్ చేసి పంపగలరు. మీ సహకారానికి ధన్యవాదాలు!\n\n- ఆల్ఫా న్యూస్ ఎడిటోరియల్ డెస్క్`;
         } else if (type === 'POLICY_VIOLATION') {
             title = 'ఎడిటోరియల్ డెస్క్ పరిశీలన ⚠️';
             body = `"${truncatedHeadline}" వార్త ఎడిటోరియల్ నిబంధనల ప్రకారం ప్రచురించబడలేదు. డెస్క్ చాట్ చూడండి.`;

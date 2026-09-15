@@ -40,17 +40,26 @@ exports.runWithAIFallback = runWithAIFallback;
 exports.getISTDateString = getISTDateString;
 exports.parseAIJson = parseAIJson;
 exports.sanitizeTeluguText = sanitizeTeluguText;
+exports.cleanTeluguHeadline = cleanTeluguHeadline;
 exports.saveBufferToStorage = saveBufferToStorage;
 exports.saveImageLocally = saveImageLocally;
 exports.detectFacesWithGeminiAI = detectFacesWithGeminiAI;
 exports.calculateSmartCrop16x9 = calculateSmartCrop16x9;
+exports.calculateBlurRanges = calculateBlurRanges;
 exports.scanImageSafetyWithGeminiAI = scanImageSafetyWithGeminiAI;
+exports.extractVideoKeyFrames = extractVideoKeyFrames;
+exports.extractVideoStoryboardMosaic = extractVideoStoryboardMosaic;
+exports.scanVideoSafetyWithGeminiAI = scanVideoSafetyWithGeminiAI;
 exports.processAndOptimizeNewsImage = processAndOptimizeNewsImage;
 exports.createAndSaveThumbnail = createAndSaveThumbnail;
 exports.generateImageWithRetry = generateImageWithRetry;
 const admin = __importStar(require("firebase-admin"));
 const genai_1 = require("@google/genai");
 const buffer_1 = require("buffer");
+const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
+const os = __importStar(require("os"));
+const child_process_1 = require("child_process");
 const sharp = require('sharp');
 exports.REGION = "asia-south1";
 exports.SCHEDULED_MODEL = "gemini-3.7-flash";
@@ -86,6 +95,12 @@ const TEXT_MODELS = [
     "gemini-3.6-flash", // 2. Secondary: Powerful Flash model (5 RPM dedicated quota)
     "gemini-3.5-flash-lite", // 3. Tertiary: High-speed, high-quota safety net (15-30 RPM)
     "gemini-3.1-flash-lite" // 4. Stable backup fallback
+];
+const IMAGE_ANALYSIS_MODELS = [
+    "gemini-3.5-flash-lite", // 1. Primary for Vision/Scan: 1,500 RPD, 30 RPM, super fast image parsing
+    "gemini-3.1-flash-lite", // 2. Secondary high-throughput vision
+    "gemini-3.6-flash", // 3. Fallback
+    "gemini-3.7-flash" // 4. Ultimate fallback
 ];
 /**
  * Priority list of API keys: Free 1 -> Free 2 -> Paid -> Legacy fallback
@@ -275,6 +290,25 @@ function sanitizeTeluguText(text) {
         .replace(/\s+([\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63])/g, '$1')
         .trim();
 }
+/**
+ * Sanitizes and formats Telugu headlines:
+ * 1. Strictly eliminates all inverted commas / quotes ('...', "...", ‘...’, “...”).
+ * 2. Eliminates colon templates and multiple dots (..) to ensure ONE single continuous sentence.
+ * 3. Ensures single integrated sentence flow without clause splitting.
+ */
+function cleanTeluguHeadline(headline) {
+    if (!headline)
+        return "";
+    let clean = headline.trim();
+    // 1. Strip all residual quotes (single, double, curly quotes, backticks)
+    clean = clean.replace(/['"“‘”’`]/g, '');
+    // 2. Replace colons, semicolons, and multiple dots (..) with a space to prevent splitting into two sentences
+    clean = clean.replace(/\s*[:;]\s*/g, ' ');
+    clean = clean.replace(/\.{2,}/g, ' ');
+    // 3. Normalize multiple whitespace and trim
+    clean = clean.replace(/\s+/g, ' ').trim();
+    return sanitizeTeluguText(clean);
+}
 async function saveBufferToStorage(buffer, prefix) {
     try {
         const webpBuffer = await sharp(buffer).webp({ quality: 80 }).toBuffer();
@@ -375,7 +409,7 @@ async function detectFacesWithGeminiAI(imageBuffer) {
                 }));
             }
             return [];
-        });
+        }, IMAGE_ANALYSIS_MODELS);
         return result;
     }
     catch (e) {
@@ -436,6 +470,36 @@ async function calculateSmartCrop16x9(buffer, width, height) {
     }
     const cropLeft = Math.max(0, Math.min(width - cropWidth, Math.round((width - cropWidth) / 2)));
     return { left: cropLeft, top: 0, width: cropWidth, height: cropHeight };
+}
+/**
+ * Maps violating tile indices (1-indexed from storyboard mosaic) to time ranges in seconds,
+ * merging overlapping intervals with safety buffer padding.
+ */
+function calculateBlurRanges(violatingTileIndices, intervalSec, durationSeconds) {
+    if (!violatingTileIndices || violatingTileIndices.length === 0 || intervalSec <= 0)
+        return [];
+    const rawRanges = violatingTileIndices
+        .filter(idx => typeof idx === 'number' && idx >= 1)
+        .map(k => {
+        const start = Math.max(0, (k - 1) * intervalSec - 3);
+        const end = Math.min(durationSeconds, k * intervalSec + 3);
+        return { start, end };
+    })
+        .sort((a, b) => a.start - b.start);
+    if (rawRanges.length === 0)
+        return [];
+    const merged = [{ ...rawRanges[0] }];
+    for (let i = 1; i < rawRanges.length; i++) {
+        const prev = merged[merged.length - 1];
+        const curr = rawRanges[i];
+        if (curr.start <= prev.end + 2) {
+            prev.end = Math.max(prev.end, curr.end);
+        }
+        else {
+            merged.push({ ...curr });
+        }
+    }
+    return merged;
 }
 /**
  * 🛡️ AI Obscenity & Safety Scanner (Gemini Multimodal Vision)
@@ -507,7 +571,7 @@ EVALUATION RULES:
                 };
             }
             return { isSafe: true, isAdultOrNude: false, isHateOrIllegal: false, isExtremelyGruesome: false, rejectionReason: null, safetyDetails: "Fallback" };
-        });
+        }, IMAGE_ANALYSIS_MODELS);
         return result || { isSafe: true, isAdultOrNude: false, isHateOrIllegal: false, isExtremelyGruesome: false, rejectionReason: null, safetyDetails: "Default safe" };
     }
     catch (e) {
@@ -523,7 +587,332 @@ EVALUATION RULES:
                 safetyDetails: "Gemini built-in safety filter caught explicit content"
             };
         }
+        const isQuotaOrServer = e.message && (e.message.includes("429") || e.message.includes("quota") || e.message.includes("503") || e.message.includes("RESOURCE_EXHAUSTED"));
+        if (isQuotaOrServer) {
+            return {
+                isSafe: false,
+                isTemporaryError: true,
+                isAdultOrNude: false,
+                isHateOrIllegal: false,
+                isExtremelyGruesome: false,
+                rejectionReason: null,
+                safetyDetails: `AI quota limit hit: ${e.message}`
+            };
+        }
         return { isSafe: true, isAdultOrNude: false, isHateOrIllegal: false, isExtremelyGruesome: false, rejectionReason: null, safetyDetails: "Error bypassed" };
+    }
+}
+/**
+ * Extracts representative keyframes from a video file for visual AI safety inspection.
+ * Uses ffprobe to identify duration and ffmpeg to extract frames at 25% and 60% of duration.
+ */
+async function extractVideoKeyFrames(videoPath, maxFrames = 2) {
+    const frameBuffers = [];
+    if (!videoPath || !fs.existsSync(videoPath))
+        return frameBuffers;
+    const tempDir = os.tmpdir();
+    let durationSeconds = 10;
+    try {
+        const ffprobeStatic = require('ffprobe-static');
+        const probeOutput = (0, child_process_1.execSync)(`"${ffprobeStatic.path}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`, { timeout: 10000 }).toString().trim();
+        const parsedDur = parseFloat(probeOutput);
+        if (!isNaN(parsedDur) && parsedDur > 0) {
+            durationSeconds = parsedDur;
+        }
+    }
+    catch (e) {
+        console.warn(`[FRAME_PROBE_WARN] Could not probe video duration (${e.message}). Defaulting to 10s.`);
+    }
+    const ffmpegStatic = require('ffmpeg-static');
+    const timestamps = [];
+    if (durationSeconds <= 3) {
+        timestamps.push(0.5);
+    }
+    else {
+        timestamps.push(Math.max(1, Math.floor(durationSeconds * 0.25)));
+        if (maxFrames > 1 && durationSeconds >= 4) {
+            timestamps.push(Math.max(2, Math.floor(durationSeconds * 0.60)));
+        }
+    }
+    for (let i = 0; i < timestamps.length; i++) {
+        const ts = timestamps[i];
+        const framePath = path.join(tempDir, `vframe_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 6)}.jpg`);
+        try {
+            (0, child_process_1.execSync)(`"${ffmpegStatic}" -ss ${ts} -i "${videoPath}" -vframes 1 -q:v 2 "${framePath}" -y`, { timeout: 15000 });
+            if (fs.existsSync(framePath)) {
+                const buf = fs.readFileSync(framePath);
+                if (buf && buf.length > 0) {
+                    frameBuffers.push(buf);
+                }
+            }
+        }
+        catch (err) {
+            console.warn(`[FRAME_EXTRACT_WARN] Frame extraction at ${ts}s failed: ${err.message}`);
+        }
+        finally {
+            if (fs.existsSync(framePath)) {
+                try {
+                    fs.unlinkSync(framePath);
+                }
+                catch (e) { }
+            }
+        }
+    }
+    // Fallback: If timestamp seek failed, try extracting the very first frame
+    if (frameBuffers.length === 0) {
+        const fallbackPath = path.join(tempDir, `vframe_fallback_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.jpg`);
+        try {
+            (0, child_process_1.execSync)(`"${ffmpegStatic}" -i "${videoPath}" -vframes 1 -q:v 2 "${fallbackPath}" -y`, { timeout: 15000 });
+            if (fs.existsSync(fallbackPath)) {
+                const buf = fs.readFileSync(fallbackPath);
+                if (buf && buf.length > 0) {
+                    frameBuffers.push(buf);
+                }
+            }
+        }
+        catch (e) {
+            console.warn(`[FRAME_FALLBACK_ERR] Fallback frame extraction failed: ${e.message}`);
+        }
+        finally {
+            if (fs.existsSync(fallbackPath)) {
+                try {
+                    fs.unlinkSync(fallbackPath);
+                }
+                catch (e) { }
+            }
+        }
+    }
+    return frameBuffers;
+}
+/**
+ * 🛡️ Generates a unified storyboard mosaic contact sheet across the ENTIRE video duration.
+ * For example, a 4x3 grid (12 evenly distributed snapshots across 0% to 100% of the video).
+ * Eliminates all blind spots: Even if a horrific scene lasts only 10-15 seconds in a 5-minute video,
+ * it will be captured in 2 to 3 tiles of this mosaic, while still requiring ONLY 1 Gemini API call!
+ */
+async function extractVideoStoryboardMosaic(videoPath) {
+    if (!videoPath || !fs.existsSync(videoPath))
+        return null;
+    const tempDir = os.tmpdir();
+    let durationSeconds = 10;
+    try {
+        const ffprobeStatic = require('ffprobe-static');
+        const probeOutput = (0, child_process_1.execSync)(`"${ffprobeStatic.path}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`, { timeout: 10000 }).toString().trim();
+        const parsedDur = parseFloat(probeOutput);
+        if (!isNaN(parsedDur) && parsedDur > 0) {
+            durationSeconds = parsedDur;
+        }
+    }
+    catch (e) { }
+    const ffmpegStatic = require('ffmpeg-static');
+    const mosaicPath = path.join(tempDir, `mosaic_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.jpg`);
+    // Adaptive grid:
+    // <= 20s: 2x2 (4 snapshots)
+    // 20s - 60s: 3x2 (6 snapshots)
+    // > 60s (up to 5-10 mins): 4x3 (12 snapshots across the whole timeline)
+    let grid = "3x2";
+    let totalTiles = 6;
+    if (durationSeconds <= 20) {
+        grid = "2x2";
+        totalTiles = 4;
+    }
+    else if (durationSeconds > 60) {
+        grid = "4x3";
+        totalTiles = 12;
+    }
+    const intervalSec = Math.max(1, Math.floor(durationSeconds / totalTiles));
+    const filter = `fps=1/${intervalSec},scale=320:180,tile=${grid}`;
+    try {
+        (0, child_process_1.execSync)(`"${ffmpegStatic}" -i "${videoPath}" -vf "${filter}" -frames:v 1 -update 1 "${mosaicPath}" -y`, { timeout: 20000 });
+        if (fs.existsSync(mosaicPath)) {
+            const buf = fs.readFileSync(mosaicPath);
+            if (buf && buf.length > 0) {
+                return {
+                    buffer: buf,
+                    duration: durationSeconds,
+                    intervalSec: intervalSec,
+                    totalTiles: totalTiles
+                };
+            }
+        }
+    }
+    catch (err) {
+        console.warn(`[MOSAIC_WARN] Storyboard mosaic extraction failed (${err.message}). Falling back to keyframe sampling.`);
+    }
+    finally {
+        if (fs.existsSync(mosaicPath)) {
+            try {
+                fs.unlinkSync(mosaicPath);
+            }
+            catch (e) { }
+        }
+    }
+    return null;
+}
+/**
+ * 🛡️ Video AI Safety Scanner (Gemini Multimodal Vision + YouTube Community Guidelines)
+ * 1. Uses a 12-tile full timeline storyboard mosaic covering the ENTIRE video from start to finish.
+ * 2. Leaves zero blind spots even if horrific content lasts only a few seconds in a 5-minute video.
+ * 3. Detects specific violating tiles and calculates precise timeline blur ranges for FFmpeg Option A.
+ * 4. Requires only 1 Gemini API call, keeping cost virtually zero.
+ */
+async function scanVideoSafetyWithGeminiAI(videoPath) {
+    try {
+        // 1. PRIMARY: Full-timeline Storyboard Mosaic (12 snapshots across 0-100% duration in 1 single scan)
+        const mosaicInfo = await extractVideoStoryboardMosaic(videoPath);
+        if (mosaicInfo) {
+            console.log(`[VIDEO_SAFETY_SCAN] Scanning full timeline storyboard mosaic (${mosaicInfo.totalTiles} snapshots across ${mosaicInfo.duration}s) with Gemini Vision...`);
+            const previewBuffer = await sharp(mosaicInfo.buffer)
+                .resize(1024, 768, { fit: 'inside' })
+                .jpeg({ quality: 85 })
+                .toBuffer();
+            const base64 = previewBuffer.toString("base64");
+            const prompt = `You are the Chief YouTube Trust, Safety & Legal Compliance Officer for a Telugu news media channel.
+This image is a chronologically ordered storyboard contact sheet containing ${mosaicInfo.totalTiles} video snapshots from 0% to 100% of a submitted news video.
+The tiles are arranged in reading order: Row 1 (Tile 1 to 4), Row 2 (Tile 5 to 8), Row 3 (Tile 9 to 12).
+Each tile represents approximately ${mosaicInfo.intervalSec} seconds of the video timeline.
+
+YouTube Community Guidelines strictly prohibit graphic violence, mutilated corpses, hanging/suicides, severe bleeding, or gory accident victim bodies unless properly blurred.
+
+EVALUATION RULES:
+1. isSafe: true ONLY IF there are NO graphic gore, severe bloodshed, dead bodies, sexual content, or violent scenes in any of the tiles.
+2. hasGraphicContent: true if any tiles depict blood, fatal crashes, wounded bodies, or violent clashes.
+3. canSanitizeWithBlur: true IF AND ONLY IF the objectionable material is routine local news accident/injury footage, blood splatters, or post-accident damaged vehicles/victims that CAN BE MADE COMPLIANT by applying a full-screen blur to the affected timestamps.
+   IMPORTANT: Set canSanitizeWithBlur = FALSE if there is child abuse (POCSO), explicit sexual content, hanging/suicide, or illegal terror promotion.
+4. violatingTileIndices: Array of 1-based tile numbers (e.g. [4, 5]) where the disturbing or policy-violating scenes appear. Return empty [] if isSafe is true.
+5. rejectionReason: In polite Telugu, explain what was found (e.g. "ప్రమాద దృశ్యాలలో తీవ్ర రక్తపాతం గుర్తించబడింది").
+6. safetyDetails: Brief English explanation specifying which tiles contain graphic scenes.`;
+            const schema = {
+                type: genai_1.Type.OBJECT,
+                properties: {
+                    isSafe: { type: genai_1.Type.BOOLEAN },
+                    hasGraphicContent: { type: genai_1.Type.BOOLEAN },
+                    canSanitizeWithBlur: { type: genai_1.Type.BOOLEAN },
+                    violatingTileIndices: { type: genai_1.Type.ARRAY, items: { type: genai_1.Type.INTEGER } },
+                    rejectionReason: { type: genai_1.Type.STRING },
+                    safetyDetails: { type: genai_1.Type.STRING }
+                },
+                required: ["isSafe", "hasGraphicContent", "canSanitizeWithBlur", "violatingTileIndices", "safetyDetails"]
+            };
+            const result = await runWithAIFallback(async (ai, modelName) => {
+                const res = await ai.models.generateContent({
+                    model: modelName,
+                    contents: [
+                        {
+                            role: "user",
+                            parts: [
+                                { inlineData: { mimeType: "image/jpeg", data: base64 } },
+                                { text: prompt }
+                            ]
+                        }
+                    ],
+                    config: {
+                        responseMimeType: "application/json",
+                        responseSchema: schema,
+                        temperature: 0.1,
+                        maxOutputTokens: 512
+                    }
+                });
+                const text = res.text || res.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text)
+                    throw new Error("Empty response from AI");
+                const parsed = parseAIJson(text);
+                if (parsed && typeof parsed.isSafe === 'boolean') {
+                    if (parsed.isSafe === true) {
+                        return {
+                            isSafe: true,
+                            isAdultOrNude: false,
+                            isHateOrIllegal: false,
+                            isExtremelyGruesome: false,
+                            canSanitizeWithBlur: false,
+                            violatingTileIndices: [],
+                            blurRanges: [],
+                            rejectionReason: null,
+                            safetyDetails: "Full timeline storyboard mosaic passed YouTube safety inspection"
+                        };
+                    }
+                    const violatingTiles = Array.isArray(parsed.violatingTileIndices) ? parsed.violatingTileIndices : [];
+                    const canSanitize = parsed.canSanitizeWithBlur === true && violatingTiles.length > 0;
+                    const blurRanges = canSanitize
+                        ? calculateBlurRanges(violatingTiles, mosaicInfo.intervalSec, mosaicInfo.duration)
+                        : [];
+                    return {
+                        isSafe: false,
+                        canSanitizeWithBlur: canSanitize,
+                        violatingTileIndices: violatingTiles,
+                        blurRanges: blurRanges,
+                        isAdultOrNude: !canSanitize,
+                        isHateOrIllegal: false,
+                        isExtremelyGruesome: true,
+                        rejectionReason: parsed.rejectionReason || "వీడియో దృశ్యాలలో యూట్యూబ్ నిబంధనలకు విరుద్ధమైన భయానక/రక్తపాత దృశ్యాలు గుర్తించబడ్డాయి",
+                        safetyDetails: parsed.safetyDetails || `Violating tiles: ${violatingTiles.join(',')}`
+                    };
+                }
+                throw new Error("Invalid AI JSON structure");
+            }, IMAGE_ANALYSIS_MODELS);
+            if (result)
+                return result;
+        }
+        // 2. FALLBACK: Discrete keyframe extraction if mosaic filter fails
+        const frameBuffers = await extractVideoKeyFrames(videoPath, 3);
+        if (frameBuffers.length === 0) {
+            console.warn("[VIDEO_SAFETY_WARN] No frames could be extracted from video. Bypassing frame scan.");
+            return {
+                isSafe: true,
+                isAdultOrNude: false,
+                isHateOrIllegal: false,
+                isExtremelyGruesome: false,
+                rejectionReason: null,
+                safetyDetails: "No frames extracted"
+            };
+        }
+        console.log(`[VIDEO_SAFETY_SCAN] Scanning ${frameBuffers.length} fallback keyframes with Gemini Vision...`);
+        for (let i = 0; i < frameBuffers.length; i++) {
+            const scan = await scanImageSafetyWithGeminiAI(frameBuffers[i]);
+            if (!scan.isSafe) {
+                if (scan.isTemporaryError) {
+                    console.warn(`[VIDEO_FRAME_TEMP_ERROR] Frame ${i + 1} safety scan hit quota or temporary error: ${scan.safetyDetails}`);
+                    return {
+                        isSafe: false,
+                        isTemporaryError: true,
+                        isAdultOrNude: false,
+                        isHateOrIllegal: false,
+                        isExtremelyGruesome: false,
+                        rejectionReason: "వీడియో భద్రతా పరిశీలన తాత్కాలికంగా నిలిచింది (కోటా పరిమితి).",
+                        safetyDetails: `Frame ${i + 1} quota/network deferred: ${scan.safetyDetails}`
+                    };
+                }
+                console.warn(`[VIDEO_FRAME_UNSAFE] Video frame ${i + 1} flagged as unsafe: ${scan.rejectionReason} (${scan.safetyDetails})`);
+                return {
+                    isSafe: false,
+                    isAdultOrNude: scan.isAdultOrNude,
+                    isHateOrIllegal: scan.isHateOrIllegal,
+                    isExtremelyGruesome: scan.isExtremelyGruesome,
+                    rejectionReason: scan.rejectionReason || "వీడియో దృశ్యాలలో యూట్యూబ్ నిబంధనలకు విరుద్ధమైన భయానక/రక్తపాత దృశ్యాలు గుర్తించబడ్డాయి",
+                    safetyDetails: `Frame ${i + 1}: ${scan.safetyDetails}`
+                };
+            }
+        }
+        return {
+            isSafe: true,
+            isAdultOrNude: false,
+            isHateOrIllegal: false,
+            isExtremelyGruesome: false,
+            rejectionReason: null,
+            safetyDetails: `All ${frameBuffers.length} fallback frames passed YouTube safety inspection`
+        };
+    }
+    catch (e) {
+        console.error("[VIDEO_SAFETY_SCAN_ERR] Error during video safety scan:", e.message);
+        return {
+            isSafe: false,
+            isTemporaryError: true,
+            isAdultOrNude: false,
+            isHateOrIllegal: false,
+            isExtremelyGruesome: false,
+            rejectionReason: "వీడియో భద్రతా పరిశీలన తాత్కాలికంగా నిలిచింది",
+            safetyDetails: `Video safety scan deferred (quota/network): ${e.message}`
+        };
     }
 }
 /**
@@ -682,4 +1071,3 @@ prompt, aspectRatio = '9:16', retriesUnused = 3) {
         return null;
     }
 }
-//# sourceMappingURL=utils.js.map

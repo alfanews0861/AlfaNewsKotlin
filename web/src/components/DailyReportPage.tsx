@@ -6,10 +6,61 @@ import {
     Calendar, Trash2, Edit2, X, ChevronLeft, ChevronRight, BarChart2, 
     Users, Folder, Phone, MessageSquare, AlertTriangle, CheckCircle, 
     Clock, Search, ArrowUpDown, Filter, Sparkles, Send, ExternalLink, ShieldAlert,
-    UserMinus, UserX
+    UserMinus, UserX, Smartphone, UserCheck, UserPlus, Radio, RefreshCw, Eye, Activity, Flame
 } from 'lucide-react';
 
-const { collection, query, orderBy, getDocs, doc, deleteDoc, updateDoc, Timestamp, where, limit } = _firestore as any;
+const { collection, query, orderBy, getDocs, doc, deleteDoc, updateDoc, Timestamp, where, limit, getCountFromServer } = _firestore as any;
+
+const parseTimestampToMs = (ts: any): number | null => {
+    if (!ts) return null;
+    if (typeof ts.toMillis === 'function') {
+        return ts.toMillis();
+    }
+    if (typeof ts.toDate === 'function') {
+        return ts.toDate().getTime();
+    }
+    if (typeof ts === 'number') {
+        return ts > 1e11 ? ts : ts * 1000;
+    }
+    if (typeof ts === 'string') {
+        const parsed = Date.parse(ts);
+        return isNaN(parsed) ? null : parsed;
+    }
+    if (ts.seconds !== undefined) {
+        return ts.seconds * 1000 + Math.floor((ts.nanoseconds || 0) / 1000000);
+    }
+    if (ts._seconds !== undefined) {
+        return ts._seconds * 1000 + Math.floor((ts._nanoseconds || 0) / 1000000);
+    }
+    return null;
+};
+
+const formatTimeOnly = (timestampMs: number | null | undefined): string => {
+    if (!timestampMs) return 'సమయం లేదు';
+    try {
+        const d = new Date(timestampMs);
+        return d.toLocaleTimeString('te-IN', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: 'Asia/Kolkata'
+        });
+    } catch {
+        return 'సమయం లేదు';
+    }
+};
+
+const formatTimeAgo = (timestampMs: number): string => {
+    const diffMs = Date.now() - timestampMs;
+    if (diffMs < 0) return 'ఇప్పుడే';
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    if (diffMins < 1) return 'ఇప్పుడే';
+    if (diffMins < 60) return `${diffMins} నిమిషాల క్రితం`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours} గంటల క్రితం`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays} రోజుల క్రితం`;
+};
 
 const getMsFromTimestamp = (ts: any): number => {
     if (!ts) return Date.now();
@@ -90,6 +141,10 @@ export interface DistrictReporterStats {
     isNewlyJoined: boolean; // joined <= 14 days ago
     daysSinceJoined: number;
     lastPostTimestamp: number | null;
+    lastActiveTimestamp: number | null;
+    firstOpenTimestamp?: number | null;
+    todayOpenCount?: number;
+    todayDate?: string | null;
     daysInactive: number;
     todayNewsCount: number;
     lastWeekNewsCount: number;
@@ -142,6 +197,20 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
     const [activeFilterType, setActiveFilterType] = useState<'all' | 'category' | 'reporter' | 'reporter_all_time' | null>(null);
     const [activeFilterValue, setActiveFilterValue] = useState<string | null>(null);
     const [loadingPopupPosts, setLoadingPopupPosts] = useState(false);
+
+    // App Usage & Activity Tracking State (నేటి యాప్ వినియోగం)
+    const [guestCount, setGuestCount] = useState<number>(0);
+    const [subscriberCount, setSubscriberCount] = useState<number>(0);
+    const [totalSubscribersCount, setTotalSubscribersCount] = useState<number>(0);
+    const [newUsersCount, setNewUsersCount] = useState<number>(0);
+    const [loadingUsageStats, setLoadingUsageStats] = useState<boolean>(false);
+    const [usageStatsError, setUsageStatsError] = useState<string>('');
+    const [usageLastRefreshed, setUsageLastRefreshed] = useState<string>('');
+
+    // Reporter App Open Tracker Filters
+    const [reporterOpenTab, setReporterOpenTab] = useState<'OPENED' | 'NOT_OPENED' | 'ALL'>('OPENED');
+    const [reporterOpenSearch, setReporterOpenSearch] = useState<string>('');
+    const [reporterOpenDistrict, setReporterOpenDistrict] = useState<string>('ALL');
 
     // 1. Fetch Registered District Reporters from Firestore `users`
     const fetchRegisteredReporters = useCallback(async () => {
@@ -278,6 +347,11 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
                         deadlineStatus = 'CRITICAL_DEADLINE';
                     }
 
+                    const activeTs = parseTimestampToMs(u.lastActive) || parseTimestampToMs((u as any).lastLogin);
+                    const firstOpenTs = parseTimestampToMs((u as any).todayFirstOpen);
+                    const todayDate = (u as any).todayDate || null;
+                    const todayOpenCount = Number((u as any).todayOpenCount || 0);
+
                     return {
                         id: u.id,
                         name: u.name || 'పేరు లేదు',
@@ -290,6 +364,10 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
                         isNewlyJoined,
                         daysSinceJoined,
                         lastPostTimestamp: latestPostMs,
+                        lastActiveTimestamp: activeTs,
+                        firstOpenTimestamp: firstOpenTs,
+                        todayOpenCount,
+                        todayDate,
                         daysInactive,
                         todayNewsCount: todayCount,
                         lastWeekNewsCount: lastWeekCount,
@@ -410,6 +488,194 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
         fetchPostsForDay(selectedDate);
     }, [selectedDate, fetchPostsForDay]);
 
+    // Helper to calculate target day bounds in Asia/Kolkata (IST) timezone
+    const getTargetDayRange = useCallback((dateStr: string) => {
+        const startOfDay = new Date(`${dateStr}T00:00:00+05:30`);
+        const endOfDay = new Date(`${dateStr}T23:59:59.999+05:30`);
+        
+        let startMs = startOfDay.getTime();
+        let endMs = endOfDay.getTime();
+        
+        if (isNaN(startMs)) {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            const s = new Date(y, m - 1, d, 0, 0, 0, 0);
+            const e = new Date(y, m - 1, d, 23, 59, 59, 999);
+            startMs = s.getTime();
+            endMs = e.getTime();
+        }
+        return { startMs, endMs };
+    }, []);
+
+    // Fetch Guest, Subscriber, and New User activity counts for selected date
+    const fetchAppUsageStats = useCallback(async (targetDate: string) => {
+        setLoadingUsageStats(true);
+        setUsageStatsError('');
+        try {
+            const { startMs, endMs } = getTargetDayRange(targetDate);
+            const startTs = Timestamp ? Timestamp.fromMillis(startMs) : null;
+            const endTs = Timestamp ? Timestamp.fromMillis(endMs) : null;
+
+            // 1. Fetch Guest / Anonymous Devices Count
+            let guests = 0;
+            try {
+                const anonRef = collection(db, 'anonymous_devices');
+                if (startTs && endTs && getCountFromServer) {
+                    try {
+                        const qAnon = query(anonRef, where('lastActive', '>=', startTs), where('lastActive', '<=', endTs));
+                        const snap = await getCountFromServer(qAnon);
+                        guests = snap.data().count;
+                    } catch (e1) {
+                        try {
+                            const qAnonNum = query(anonRef, where('lastActive', '>=', startMs), where('lastActive', '<=', endMs));
+                            const snapNum = await getCountFromServer(qAnonNum);
+                            guests = snapNum.data().count;
+                        } catch (e2) {
+                            const qLimit = query(anonRef, limit(500));
+                            const snapLimit = await getDocs(qLimit);
+                            guests = snapLimit.docs.filter((d: any) => {
+                                const ts = parseTimestampToMs(d.data().lastActive);
+                                return ts !== null && ts >= startMs && ts <= endMs;
+                            }).length;
+                        }
+                    }
+                } else {
+                    const qLimit = query(anonRef, limit(500));
+                    const snapLimit = await getDocs(qLimit);
+                    guests = snapLimit.docs.filter((d: any) => {
+                        const ts = parseTimestampToMs(d.data().lastActive);
+                        return ts !== null && ts >= startMs && ts <= endMs;
+                    }).length;
+                }
+            } catch (errAnon) {
+                console.warn("Could not query anonymous_devices count:", errAnon);
+            }
+            setGuestCount(guests);
+
+            // 2. Fetch New Users Count (createdAt on target date)
+            let newUsers = 0;
+            try {
+                const usersRef = collection(db, 'users');
+                if (startTs && endTs && getCountFromServer) {
+                    try {
+                        const qNew = query(usersRef, where('createdAt', '>=', startTs), where('createdAt', '<=', endTs));
+                        const snapNew = await getCountFromServer(qNew);
+                        newUsers = snapNew.data().count;
+                    } catch (e1) {
+                        try {
+                            const qNewNum = query(usersRef, where('createdAt', '>=', startMs), where('createdAt', '<=', endMs));
+                            const snapNewNum = await getCountFromServer(qNewNum);
+                            newUsers = snapNewNum.data().count;
+                        } catch (e2) {
+                            const qLimit = query(usersRef, orderBy('createdAt', 'desc'), limit(500));
+                            const snapLimit = await getDocs(qLimit);
+                            newUsers = snapLimit.docs.filter((d: any) => {
+                                const ts = parseTimestampToMs(d.data().createdAt);
+                                return ts !== null && ts >= startMs && ts <= endMs;
+                            }).length;
+                        }
+                    }
+                } else {
+                    const qLimit = query(usersRef, limit(500));
+                    const snapLimit = await getDocs(qLimit);
+                    newUsers = snapLimit.docs.filter((d: any) => {
+                        const ts = parseTimestampToMs(d.data().createdAt);
+                        return ts !== null && ts >= startMs && ts <= endMs;
+                    }).length;
+                }
+            } catch (errNew) {
+                console.warn("Could not query new users count:", errNew);
+            }
+            setNewUsersCount(newUsers);
+
+            // 3. Fetch Active Subscribers Count
+            let subscribers = 0;
+            try {
+                const usersRef = collection(db, 'users');
+                const activeUserDocs = new Map<string, any>();
+
+                // Query lastActive as Timestamp
+                if (startTs && endTs) {
+                    try {
+                        const qActiveTs = query(usersRef, where('lastActive', '>=', startTs), where('lastActive', '<=', endTs), limit(500));
+                        const snap = await getDocs(qActiveTs);
+                        snap.docs.forEach((d: any) => activeUserDocs.set(d.id, d.data()));
+                    } catch (e) { }
+                }
+
+                // Query lastActive as number
+                try {
+                    const qActiveNum = query(usersRef, where('lastActive', '>=', startMs), where('lastActive', '<=', endMs), limit(500));
+                    const snap = await getDocs(qActiveNum);
+                    snap.docs.forEach((d: any) => activeUserDocs.set(d.id, d.data()));
+                } catch (e) { }
+
+                // Query lastLogin as Timestamp or number
+                if (startTs && endTs) {
+                    try {
+                        const qLoginTs = query(usersRef, where('lastLogin', '>=', startTs), where('lastLogin', '<=', endTs), limit(500));
+                        const snap = await getDocs(qLoginTs);
+                        snap.docs.forEach((d: any) => activeUserDocs.set(d.id, d.data()));
+                    } catch (e) { }
+                }
+                try {
+                    const qLoginNum = query(usersRef, where('lastLogin', '>=', startMs), where('lastLogin', '<=', endMs), limit(500));
+                    const snap = await getDocs(qLoginNum);
+                    snap.docs.forEach((d: any) => activeUserDocs.set(d.id, d.data()));
+                } catch (e) { }
+
+                // Also check createdAt on target date - any subscriber created on target date was active!
+                if (startTs && endTs) {
+                    try {
+                        const qCreatedTs = query(usersRef, where('createdAt', '>=', startTs), where('createdAt', '<=', endTs), limit(500));
+                        const snap = await getDocs(qCreatedTs);
+                        snap.docs.forEach((d: any) => activeUserDocs.set(d.id, d.data()));
+                    } catch (e) { }
+                }
+                try {
+                    const qCreatedNum = query(usersRef, where('createdAt', '>=', startMs), where('createdAt', '<=', endMs), limit(500));
+                    const snap = await getDocs(qCreatedNum);
+                    snap.docs.forEach((d: any) => activeUserDocs.set(d.id, d.data()));
+                } catch (e) { }
+
+                // Filter to only normal subscribers/citizens (exclude reporters, admins, staff)
+                activeUserDocs.forEach((uData) => {
+                    const role = String(uData.role || '').toUpperCase();
+                    const isStaffOrReporter = role.includes('REPORTER') || role.includes('INCHARGE') || role.includes('ADMIN') || role.includes('EDITOR');
+                    if (!isStaffOrReporter) {
+                        subscribers++;
+                    }
+                });
+            } catch (errSub) {
+                console.warn("Could not query active subscribers:", errSub);
+            }
+            setSubscriberCount(subscribers);
+
+            // Fetch total registered subscribers count for context
+            try {
+                const usersRef = collection(db, 'users');
+                if (getCountFromServer) {
+                    const qSubTotal = query(usersRef, where('role', '==', 'SUBSCRIBER'));
+                    const snapSubTotal = await getCountFromServer(qSubTotal);
+                    setTotalSubscribersCount(snapSubTotal.data().count);
+                }
+            } catch (e) {
+                console.warn("Could not get total subscribers count:", e);
+            }
+
+            const now = new Date();
+            setUsageLastRefreshed(now.toLocaleTimeString('te-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }));
+        } catch (e: any) {
+            console.error("Error fetching app usage stats:", e);
+            setUsageStatsError('యాప్ వినియోగ వివరాలు లోడ్ చేయడంలో సమస్య ఏర్పడింది.');
+        } finally {
+            setLoadingUsageStats(false);
+        }
+    }, [getTargetDayRange]);
+
+    useEffect(() => {
+        fetchAppUsageStats(selectedDate);
+    }, [selectedDate, fetchAppUsageStats]);
+
     // Handle single post delete from both database and local state
     const handleDeletePost = async (postId: string) => {
         if (!window.confirm("ఈ వార్తను శాశ్వతంగా తొలగించాలా?")) return;
@@ -478,12 +744,12 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
 
     // Helper to check if a post is written by a real human district reporter
     const isDistrictReporterPost = useCallback((post: NewsPost): boolean => {
-        const repId = (post.reporter?.id || '').trim().toLowerCase();
+        const repId = (post.reporter?.id || (post as any).originalReporterId || '').trim().toLowerCase();
         if (!repId || MACHINE_SCRAPER_IDS.has(repId)) {
             return false;
         }
 
-        if (reportersMap.has(post.reporter?.id)) {
+        if (reportersMap.has(post.reporter?.id) || ((post as any).originalReporterId && reportersMap.has((post as any).originalReporterId))) {
             return true;
         }
 
@@ -491,7 +757,7 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
             return true;
         }
 
-        const repName = (post.reporter?.name || '').trim().toLowerCase();
+        const repName = ((post.reporter as any)?.originalReporterName || post.reporter?.name || '').trim().toLowerCase();
         if (repName && reportersMap.has(`name:${repName}`)) {
             return true;
         }
@@ -543,11 +809,12 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
                 return; // Exclude scraper/machine posts!
             }
 
-            const repId = post.reporter?.id;
+            const repId = (post as any).originalReporterId || post.reporter?.id;
             if (!repId) return;
 
-            const repUser = reportersMap.get(repId) || reportersMap.get(`name:${(post.reporter?.name || '').trim().toLowerCase()}`);
-            const repName = repUser?.name || post.reporter?.name || 'జిల్లా రిపోర్టర్';
+            const originalName = (post.reporter as any)?.originalReporterName;
+            const repUser = reportersMap.get(repId) || (originalName ? reportersMap.get(`name:${originalName.trim().toLowerCase()}`) : null) || reportersMap.get(`name:${(post.reporter?.name || '').trim().toLowerCase()}`);
+            const repName = repUser?.name || originalName || post.reporter?.name || 'జిల్లా రిపోర్టర్';
             const repPhone = repUser?.phone || (repUser as any)?.phoneNumber || '';
             const repDist = repUser?.district || post.district || post.location || 'జిల్లా';
             const repMandal = (repUser as any)?.assignedMandal || (repUser as any)?.mandal || '';
@@ -572,7 +839,7 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
         });
 
         return Object.values(counts).sort((a, b) => b.count - a.count);
-    }, [posts, isDistrictReporterPost, reportersMap]);
+    }, [posts, isDistrictReporterPost, reportersMap, allReportersStats]);
 
     // Date Shift Helpers
     const shiftDate = (days: number) => {
@@ -706,6 +973,155 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
             zeroPosts
         };
     }, [allReportersStats]);
+
+    // APP USAGE & REPORTER APP-OPEN ANALYTICS
+    const isSelectedDateToday = useMemo(() => {
+        const todayStr = getPostLocalDateString(Date.now());
+        return selectedDate === todayStr;
+    }, [selectedDate]);
+
+    const reporterAppOpenStats = useMemo(() => {
+        const { startMs, endMs } = getTargetDayRange(selectedDate);
+        
+        // Filter human reporters only (scrapers excluded)
+        const validReporters = allReportersStats.filter(r => !MACHINE_SCRAPER_IDS.has(r.id.toLowerCase()));
+        
+        // Build a fast lookup map of news posts on selectedDate grouped by reporter ID and reporter name
+        const repPostsMap = new Map<string, { count: number; latestTimestamp: number }>();
+        posts.forEach(post => {
+            if (!isDistrictReporterPost(post)) return;
+            const rId = (post as any).originalReporterId || post.reporter?.id;
+            const postTime = post.timestamp ? getMsFromTimestamp(post.timestamp) : 0;
+            if (rId) {
+                const cur = repPostsMap.get(rId) || { count: 0, latestTimestamp: 0 };
+                cur.count += 1;
+                if (postTime > cur.latestTimestamp) cur.latestTimestamp = postTime;
+                repPostsMap.set(rId, cur);
+            }
+            const rName = ((post.reporter as any)?.originalReporterName || post.reporter?.name || '').trim().toLowerCase();
+            if (rName) {
+                const key = `name:${rName}`;
+                const cur = repPostsMap.get(key) || { count: 0, latestTimestamp: 0 };
+                cur.count += 1;
+                if (postTime > cur.latestTimestamp) cur.latestTimestamp = postTime;
+                repPostsMap.set(key, cur);
+            }
+        });
+
+        const openedReporters: (DistrictReporterStats & { 
+            openTimeFormatted: string; 
+            timeAgoFormatted: string; 
+            effectiveActiveTime: number;
+            firstOpenFormatted: string;
+            openCountToday: number;
+        })[] = [];
+        const notOpenedReporters: DistrictReporterStats[] = [];
+
+        validReporters.forEach(rep => {
+            const newsData = repPostsMap.get(rep.id) || (rep.name ? repPostsMap.get(`name:${rep.name.trim().toLowerCase()}`) : null);
+            const dateNewsCount = newsData?.count || 0;
+            const latestNewsPostMs = newsData && newsData.latestTimestamp > 0 ? newsData.latestTimestamp : null;
+
+            // Check if rep.lastPostTimestamp falls within target date range
+            const lastPostOnDate = (rep.lastPostTimestamp && rep.lastPostTimestamp >= startMs && rep.lastPostTimestamp <= endMs)
+                ? rep.lastPostTimestamp
+                : null;
+
+            // Check if rep.lastActiveTimestamp falls within target date range
+            const lastActiveOnDate = (rep.lastActiveTimestamp && rep.lastActiveTimestamp >= startMs && rep.lastActiveTimestamp <= endMs)
+                ? rep.lastActiveTimestamp
+                : null;
+
+            // Check firstOpenTimestamp for target date
+            const isTodayMatch = rep.todayDate === selectedDate;
+            const firstOpenOnDate = (isTodayMatch && rep.firstOpenTimestamp && rep.firstOpenTimestamp >= startMs && rep.firstOpenTimestamp <= endMs)
+                ? rep.firstOpenTimestamp
+                : null;
+            const openCountToday = isTodayMatch ? (rep.todayOpenCount || 1) : 1;
+
+            const candidates = [firstOpenOnDate, latestNewsPostMs, lastPostOnDate, lastActiveOnDate]
+                .filter((t): t is number => typeof t === 'number' && t >= startMs && t <= endMs);
+
+            if (candidates.length > 0 || dateNewsCount > 0) {
+                const bestTs = candidates.length > 0 ? Math.max(...candidates) : startMs;
+                const earliestTs = firstOpenOnDate || (candidates.length > 0 ? Math.min(...candidates) : bestTs);
+                openedReporters.push({
+                    ...rep,
+                    todayNewsCount: dateNewsCount > 0 ? dateNewsCount : rep.todayNewsCount,
+                    effectiveActiveTime: bestTs,
+                    openTimeFormatted: formatTimeOnly(bestTs),
+                    firstOpenFormatted: formatTimeOnly(earliestTs),
+                    openCountToday,
+                    timeAgoFormatted: formatTimeAgo(bestTs)
+                });
+            } else {
+                notOpenedReporters.push({
+                    ...rep,
+                    todayNewsCount: 0
+                });
+            }
+        });
+
+        // Sort opened reporters by effective active time DESCENDING (most recently active first)
+        openedReporters.sort((a, b) => (b.effectiveActiveTime || 0) - (a.effectiveActiveTime || 0));
+
+        // Sort not opened reporters by daysInactive DESCENDING (most inactive first)
+        notOpenedReporters.sort((a, b) => b.daysInactive - a.daysInactive);
+
+        const totalReporters = validReporters.length;
+        const openedCount = openedReporters.length;
+        const notOpenedCount = notOpenedReporters.length;
+        const openedPercent = totalReporters > 0 ? Math.round((openedCount / totalReporters) * 100) : 0;
+
+        return {
+            totalReporters,
+            openedCount,
+            notOpenedCount,
+            openedPercent,
+            openedReporters,
+            notOpenedReporters,
+            allReporters: validReporters
+        };
+    }, [allReportersStats, selectedDate, posts, isDistrictReporterPost, getTargetDayRange]);
+
+    // Total Daily App Opens / Active Users
+    const totalDailyAppOpens = useMemo(() => {
+        return guestCount + subscriberCount + newUsersCount + reporterAppOpenStats.openedCount;
+    }, [guestCount, subscriberCount, newUsersCount, reporterAppOpenStats.openedCount]);
+
+    // Filtered reporters for the App Open tracker list
+    const filteredOpenReporters = useMemo(() => {
+        let list: (DistrictReporterStats & { openTimeFormatted?: string; timeAgoFormatted?: string })[] = [];
+        
+        if (reporterOpenTab === 'OPENED') {
+            list = reporterAppOpenStats.openedReporters;
+        } else if (reporterOpenTab === 'NOT_OPENED') {
+            list = reporterAppOpenStats.notOpenedReporters;
+        } else {
+            list = reporterAppOpenStats.allReporters.map(r => {
+                const found = reporterAppOpenStats.openedReporters.find(op => op.id === r.id);
+                return found || r;
+            });
+        }
+
+        // District filter
+        if (reporterOpenDistrict !== 'ALL') {
+            list = list.filter(r => (r.district || '').trim() === reporterOpenDistrict.trim());
+        }
+
+        // Search query filter (name, phone, mandal, district)
+        if (reporterOpenSearch.trim()) {
+            const queryClean = reporterOpenSearch.trim().toLowerCase();
+            list = list.filter(r => 
+                (r.name && r.name.toLowerCase().includes(queryClean)) ||
+                (r.phone && r.phone.includes(queryClean)) ||
+                (r.mandal && r.mandal.toLowerCase().includes(queryClean)) ||
+                (r.district && r.district.toLowerCase().includes(queryClean))
+            );
+        }
+
+        return list;
+    }, [reporterOpenTab, reporterOpenDistrict, reporterOpenSearch, reporterAppOpenStats]);
 
     const getCleanPhone = (phone: string): string => {
         return phone.replace(/[^0-9]/g, '');
@@ -956,6 +1372,406 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
                                                     </button>
                                                 </div>
                                             ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* ========================================================================= */}
+                            {/* SECTION: TODAY'S APP USAGE & REPORTER APP-OPEN ACTIVITY DASHBOARD         */}
+                            {/* ========================================================================= */}
+                            <div className="border border-indigo-100 bg-gradient-to-b from-slate-50/70 to-white rounded-3xl p-5 md:p-6 shadow-sm space-y-6 mt-8">
+                                {/* Dashboard Section Header */}
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-4 border-b border-gray-200/80 gap-3">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-md shadow-indigo-100 shrink-0">
+                                            <Smartphone size={22} />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-xl md:text-2xl font-black text-gray-900 font-ramabhadra flex items-center gap-2 flex-wrap">
+                                                <span>{isSelectedDateToday ? 'నేటి' : selectedDate} యాప్ వినియోగం & యాక్టివిటీ డ్యాష్‌బోర్డ్</span>
+                                                <span className="bg-indigo-100 text-indigo-800 text-[11px] font-sans font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                                                    Live
+                                                </span>
+                                            </h3>
+                                            <p className="text-xs text-gray-500 font-semibold mt-0.5">
+                                                యాప్ ఓపెన్ చేసిన రిపోర్టర్లు, సబ్‌స్క్రైబర్లు, కొత్త యూజర్లు & గెస్ట్‌ల సమగ్ర వివరాలు
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-3 self-end sm:self-center">
+                                        {usageLastRefreshed && (
+                                            <span className="text-[11px] text-gray-400 font-sans hidden sm:inline">
+                                                చివరిగా: {usageLastRefreshed}
+                                            </span>
+                                        )}
+                                        <button
+                                            onClick={() => {
+                                                fetchAppUsageStats(selectedDate);
+                                                fetchRegisteredReporters();
+                                            }}
+                                            disabled={loadingUsageStats || loadingReporters}
+                                            className="flex items-center gap-1.5 bg-white hover:bg-indigo-50 text-indigo-700 hover:text-indigo-900 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs border border-indigo-200 active:scale-95 disabled:opacity-50 cursor-pointer"
+                                            title="డేటా రీఫ్రెష్ చేయండి"
+                                        >
+                                            <RefreshCw size={13} className={loadingUsageStats || loadingReporters ? 'animate-spin text-indigo-600' : ''} />
+                                            <span>రీఫ్రెష్</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {usageStatsError && (
+                                    <div className="bg-amber-50 text-amber-800 p-3.5 rounded-xl text-xs font-bold border border-amber-200 flex items-center gap-2">
+                                        <AlertTriangle size={16} className="shrink-0" />
+                                        <span>{usageStatsError}</span>
+                                    </div>
+                                )}
+
+                                {/* KPI Metrics Grid (5 Cards) */}
+                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+                                    {/* CARD 1: REPORTERS OPENED */}
+                                    <div className="bg-gradient-to-br from-teal-50/80 to-emerald-50/60 border border-teal-200/80 rounded-2xl p-4 shadow-xs flex flex-col justify-between transition-transform hover:-translate-y-0.5">
+                                        <div className="flex justify-between items-start">
+                                            <span className="text-xs font-bold text-teal-800 uppercase tracking-wider">✍️ రిపోర్టర్లు</span>
+                                            <span className="w-7 h-7 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center">
+                                                <UserCheck size={16} />
+                                            </span>
+                                        </div>
+                                        <div className="mt-2.5">
+                                            <div className="flex items-baseline gap-1.5">
+                                                <h4 className="text-2xl lg:text-3xl font-black text-teal-950 font-sans">
+                                                    {reporterAppOpenStats.openedCount}
+                                                </h4>
+                                                <span className="text-xs text-gray-500 font-sans font-bold">
+                                                    / {reporterAppOpenStats.totalReporters}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center justify-between mt-1 text-[11px]">
+                                                <span className="text-teal-700 font-bold font-sans">
+                                                    {reporterAppOpenStats.openedPercent}% యాక్టివ్
+                                                </span>
+                                                <span className="text-gray-400">గ్రౌండ్ టీమ్</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* CARD 2: SUBSCRIBERS OPENED */}
+                                    <div className="bg-gradient-to-br from-blue-50/80 to-sky-50/60 border border-blue-200/80 rounded-2xl p-4 shadow-xs flex flex-col justify-between transition-transform hover:-translate-y-0.5">
+                                        <div className="flex justify-between items-start">
+                                            <span className="text-xs font-bold text-blue-800 uppercase tracking-wider">👤 సబ్‌స్క్రైబర్లు</span>
+                                            <span className="w-7 h-7 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                                                <Smartphone size={16} />
+                                            </span>
+                                        </div>
+                                        <div className="mt-2.5">
+                                            <div className="flex items-baseline gap-1.5">
+                                                <h4 className="text-2xl lg:text-3xl font-black text-blue-950 font-sans">
+                                                    {loadingUsageStats ? '...' : subscriberCount}
+                                                </h4>
+                                                {totalSubscribersCount > 0 && (
+                                                    <span className="text-xs text-gray-500 font-sans font-bold">
+                                                        / {totalSubscribersCount}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center justify-between mt-1 text-[11px]">
+                                                <span className="text-blue-700 font-bold">నమోదిత యూజర్లు</span>
+                                                <span className="text-gray-400">యాప్ ఓపెన్</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* CARD 3: NEW USERS TODAY */}
+                                    <div className="bg-gradient-to-br from-purple-50/80 to-indigo-50/60 border border-purple-200/80 rounded-2xl p-4 shadow-xs flex flex-col justify-between transition-transform hover:-translate-y-0.5">
+                                        <div className="flex justify-between items-start">
+                                            <span className="text-xs font-bold text-purple-800 uppercase tracking-wider">🆕 కొత్త యూజర్లు</span>
+                                            <span className="w-7 h-7 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                                                <UserPlus size={16} />
+                                            </span>
+                                        </div>
+                                        <div className="mt-2.5">
+                                            <h4 className="text-2xl lg:text-3xl font-black text-purple-950 font-sans">
+                                                {loadingUsageStats ? '...' : newUsersCount}
+                                            </h4>
+                                            <div className="flex items-center justify-between mt-1 text-[11px]">
+                                                <span className="text-purple-700 font-bold">నేడు చేరినవారు</span>
+                                                <span className="text-gray-400">కొత్త రిజిస్ట్రేషన్</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* CARD 4: GUEST USERS */}
+                                    <div className="bg-gradient-to-br from-amber-50/80 to-orange-50/60 border border-amber-200/80 rounded-2xl p-4 shadow-xs flex flex-col justify-between transition-transform hover:-translate-y-0.5">
+                                        <div className="flex justify-between items-start">
+                                            <span className="text-xs font-bold text-amber-800 uppercase tracking-wider">🕵️ గెస్ట్ యూజర్లు</span>
+                                            <span className="w-7 h-7 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+                                                <Radio size={16} />
+                                            </span>
+                                        </div>
+                                        <div className="mt-2.5">
+                                            <h4 className="text-2xl lg:text-3xl font-black text-amber-950 font-sans">
+                                                {loadingUsageStats ? '...' : guestCount}
+                                            </h4>
+                                            <div className="flex items-center justify-between mt-1 text-[11px]">
+                                                <span className="text-amber-700 font-bold">లాగిన్ లేనివారు</span>
+                                                <span className="text-gray-400">డివైజ్‌లు</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* CARD 5: TOTAL APP OPENS */}
+                                    <div className="col-span-2 sm:col-span-1 bg-gradient-to-br from-rose-50/90 to-red-50/70 border border-rose-200/80 rounded-2xl p-4 shadow-xs flex flex-col justify-between transition-transform hover:-translate-y-0.5">
+                                        <div className="flex justify-between items-start">
+                                            <span className="text-xs font-bold text-rose-800 uppercase tracking-wider">🚀 మొత్తం యాక్టివ్</span>
+                                            <span className="w-7 h-7 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center">
+                                                <Activity size={16} />
+                                            </span>
+                                        </div>
+                                        <div className="mt-2.5">
+                                            <h4 className="text-2xl lg:text-3xl font-black text-rose-950 font-sans">
+                                                {loadingUsageStats ? '...' : totalDailyAppOpens}
+                                            </h4>
+                                            <div className="flex items-center justify-between mt-1 text-[11px]">
+                                                <span className="text-rose-700 font-bold">నేటి మొత్తం ఓపెన్స్</span>
+                                                <span className="text-gray-400">యూజర్లు</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Reporter App Open Detailed Tracking Section */}
+                                <div className="bg-white border border-gray-200/90 rounded-2xl p-4 md:p-5 shadow-xs space-y-4">
+                                    {/* Filter Bar & Controls */}
+                                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3 pb-3 border-b border-gray-100">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 text-xs font-bold">
+                                                <button
+                                                    onClick={() => setReporterOpenTab('OPENED')}
+                                                    className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+                                                        reporterOpenTab === 'OPENED'
+                                                            ? 'bg-emerald-600 text-white shadow-xs'
+                                                            : 'text-gray-700 hover:text-emerald-700'
+                                                    }`}
+                                                >
+                                                    <span className="w-2 h-2 rounded-full bg-emerald-300"></span>
+                                                    <span>యాప్ ఓపెన్ చేసినవారు ({reporterAppOpenStats.openedCount})</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => setReporterOpenTab('NOT_OPENED')}
+                                                    className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+                                                        reporterOpenTab === 'NOT_OPENED'
+                                                            ? 'bg-rose-600 text-white shadow-xs'
+                                                            : 'text-gray-700 hover:text-rose-700'
+                                                    }`}
+                                                >
+                                                    <span className="w-2 h-2 rounded-full bg-rose-300"></span>
+                                                    <span>ఇంకా ఓపెన్ చేయనివారు ({reporterAppOpenStats.notOpenedCount})</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => setReporterOpenTab('ALL')}
+                                                    className={`px-3 py-1.5 rounded-lg transition-colors ${
+                                                        reporterOpenTab === 'ALL'
+                                                            ? 'bg-gray-800 text-white shadow-xs'
+                                                            : 'text-gray-700 hover:text-gray-900'
+                                                    }`}
+                                                >
+                                                    మొత్తం ({reporterAppOpenStats.totalReporters})
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Search & District Filter Controls */}
+                                        <div className="flex items-center gap-2 w-full lg:w-auto flex-wrap sm:flex-nowrap">
+                                            <div className="relative flex-1 sm:w-56">
+                                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                                <input
+                                                    type="text"
+                                                    value={reporterOpenSearch}
+                                                    onChange={(e) => setReporterOpenSearch(e.target.value)}
+                                                    placeholder="రిపోర్టర్ పేరు, మండలం, ఫోన్..."
+                                                    className="w-full pl-8 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold outline-none focus:border-indigo-500 focus:bg-white transition-colors"
+                                                />
+                                            </div>
+
+                                            <select
+                                                value={reporterOpenDistrict}
+                                                onChange={(e) => setReporterOpenDistrict(e.target.value)}
+                                                className="bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold px-2.5 py-1.5 outline-none focus:border-indigo-500 text-gray-700 cursor-pointer shrink-0"
+                                            >
+                                                <option value="ALL">అన్ని జిల్లాలు ({allReportersStats.length})</option>
+                                                <optgroup label="తెలంగాణ (TS)">
+                                                    {TS_DISTRICTS.map(d => (
+                                                        <option key={d} value={d}>{d}</option>
+                                                    ))}
+                                                </optgroup>
+                                                <optgroup label="ఆంధ్రప్రదేశ్ (AP)">
+                                                    {AP_DISTRICTS.map(d => (
+                                                        <option key={d} value={d}>{d}</option>
+                                                    ))}
+                                                </optgroup>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    {/* Reporters List */}
+                                    {filteredOpenReporters.length === 0 ? (
+                                        <div className="py-12 text-center text-gray-400 font-bold bg-gray-50/50 rounded-xl border border-dashed border-gray-200">
+                                            {reporterOpenTab === 'OPENED' ? (
+                                                <p>ఈ తేదీన ఎంచుకున్న ఫిల్టర్‌కు అనుగుణంగా యాప్ ఓపెన్ చేసిన రిపోర్టర్లు ఎవరూ లేరు.</p>
+                                            ) : reporterOpenTab === 'NOT_OPENED' ? (
+                                                <p className="text-emerald-700">🎉 అభినందనలు! ఈ తేదీన రిపోర్టర్లందరూ యాప్ ఓపెన్ చేశారు.</p>
+                                            ) : (
+                                                <p>రిపోర్టర్లు ఎవరూ కనిపించలేదు.</p>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="divide-y divide-gray-100 max-h-[520px] overflow-y-auto custom-scrollbar pr-1">
+                                            {filteredOpenReporters.map((rep) => {
+                                                const isOpenedOnDate = rep.openTimeFormatted !== undefined;
+                                                const cleanPhone = getCleanPhone(rep.phone);
+
+                                                return (
+                                                    <div 
+                                                        key={rep.id}
+                                                        className="py-3 px-2 hover:bg-indigo-50/30 rounded-xl transition-colors flex flex-col md:flex-row justify-between items-start md:items-center gap-3"
+                                                    >
+                                                        {/* Left: Avatar, Name, Role, Location */}
+                                                        <div className="flex items-center gap-3 min-w-0">
+                                                            <div className="relative shrink-0">
+                                                                {rep.photoUrl ? (
+                                                                    <img 
+                                                                        src={rep.photoUrl} 
+                                                                        alt={rep.name} 
+                                                                        className="w-10 h-10 rounded-full object-cover border border-gray-200"
+                                                                    />
+                                                                ) : (
+                                                                    <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-100 to-teal-100 text-indigo-900 font-bold text-sm flex items-center justify-center font-sans border border-indigo-200">
+                                                                        {rep.name ? rep.name.charAt(0).toUpperCase() : 'R'}
+                                                                    </div>
+                                                                )}
+                                                                <span 
+                                                                    className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${
+                                                                        isOpenedOnDate ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'
+                                                                    }`}
+                                                                    title={isOpenedOnDate ? 'యాప్ ఓపెన్ చేశారు' : 'యాప్ ఇంకా ఓపెన్ చేయలేదు'}
+                                                                ></span>
+                                                            </div>
+
+                                                            <div className="min-w-0">
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    <span className="font-bold text-gray-900 text-base leading-tight truncate">
+                                                                        {rep.name}
+                                                                    </span>
+                                                                    {rep.role && (
+                                                                        <span className="text-[10px] bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded font-sans font-semibold">
+                                                                            {rep.role === UserRole.REGIONAL_INCHARGE || rep.role === 'REGIONAL_INCHARGE' 
+                                                                                ? 'ఇన్‌ఛార్జ్' 
+                                                                                : rep.role === UserRole.STAFF_REPORTER || rep.role === 'STAFF_REPORTER'
+                                                                                ? 'స్టాఫ్ రిపోర్టర్'
+                                                                                : 'రిపోర్టర్'}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+
+                                                                <div className="flex items-center gap-2 text-xs text-gray-600 mt-1 flex-wrap">
+                                                                    <span className="bg-slate-100 text-slate-700 font-semibold px-2 py-0.5 rounded text-[11px]">
+                                                                        📍 {rep.district} {rep.mandal ? `• ${rep.mandal}` : ''}
+                                                                    </span>
+                                                                    {rep.phone && (
+                                                                        <span className="font-mono text-gray-500 text-[11px]">
+                                                                            📞 {rep.phone}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Center: App Open Time & News Status */}
+                                                        <div className="flex items-center gap-3 flex-wrap md:flex-nowrap shrink-0 self-stretch md:self-auto justify-between md:justify-end">
+                                                            {/* App Open Time Badge */}
+                                                            {isOpenedOnDate ? (
+                                                                <div className="bg-emerald-50 border border-emerald-200/80 rounded-xl px-3 py-1.5 flex items-center gap-2">
+                                                                    <Clock size={14} className="text-emerald-600 shrink-0" />
+                                                                    <div>
+                                                                        <div className="text-xs font-black text-emerald-900 font-sans flex items-center gap-1.5">
+                                                                            <span>{(rep as any).firstOpenFormatted || rep.openTimeFormatted}</span>
+                                                                            <span className="text-[10px] bg-emerald-200/80 text-emerald-900 px-1.5 py-0.2 rounded font-medium">
+                                                                                {rep.timeAgoFormatted}
+                                                                            </span>
+                                                                        </div>
+                                                                        <span className="text-[10px] text-emerald-700 font-semibold block">
+                                                                            {(rep as any).firstOpenFormatted && (rep as any).firstOpenFormatted !== rep.openTimeFormatted
+                                                                                ? `మొదటి ఓపెన్ (చివరిగా: ${rep.openTimeFormatted})`
+                                                                                : 'మొదటిసారి యాప్ ఓపెన్'}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="bg-rose-50 border border-rose-200/80 rounded-xl px-3 py-1.5 flex items-center gap-2">
+                                                                    <Clock size={14} className="text-rose-600 shrink-0" />
+                                                                    <div>
+                                                                        <span className="text-xs font-bold text-rose-800 block">
+                                                                            ఇంకా ఓపెన్ చేయలేదు
+                                                                        </span>
+                                                                        <span className="text-[10px] text-gray-500 font-semibold block">
+                                                                            {rep.daysInactive === 0 ? 'గత లాగిన్: ఈ రోజు' : `గత లాగిన్: ${rep.daysInactive} రోజుల క్రితం`}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+
+                                                            {/* News Posted Badge */}
+                                                            <div className="min-w-28">
+                                                                {rep.todayNewsCount > 0 ? (
+                                                                    <span className="inline-flex items-center gap-1 bg-green-100 text-green-800 text-xs font-bold px-2.5 py-1 rounded-lg">
+                                                                        <CheckCircle size={12} />
+                                                                        <span>{rep.todayNewsCount} వార్తలు</span>
+                                                                    </span>
+                                                                ) : isOpenedOnDate ? (
+                                                                    <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-[11px] font-bold px-2 py-1 rounded-lg" title="వార్తలు పెట్టకపోయినా యాప్ ఓపెన్ చేసి అలర్ట్‌గా ఉన్నారు">
+                                                                        <Eye size={12} />
+                                                                        <span>వార్తలు లేవు (అలర్ట్)</span>
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-[11px] font-bold px-2 py-1 rounded-lg">
+                                                                        <AlertTriangle size={11} />
+                                                                        <span>వార్తలు లేవు</span>
+                                                                    </span>
+                                                                )}
+                                                            </div>
+
+                                                            {/* Right: Quick Action Buttons (Call & WhatsApp) */}
+                                                            {cleanPhone && (
+                                                                <div className="flex items-center gap-1">
+                                                                    <a
+                                                                        href={`tel:${cleanPhone}`}
+                                                                        className="p-2 rounded-xl bg-gray-100 hover:bg-teal-100 text-gray-700 hover:text-teal-800 transition-colors"
+                                                                        title="ఫోన్ కాల్ చేయండి"
+                                                                    >
+                                                                        <Phone size={14} />
+                                                                    </a>
+                                                                    <a
+                                                                        href={`https://wa.me/91${cleanPhone}?text=${encodeURIComponent(
+                                                                            isOpenedOnDate && rep.todayNewsCount === 0
+                                                                                ? `నమస్కారం ${rep.name} గారు, మీరు ఈ రోజు ఉదయం ${(rep as any).firstOpenFormatted || rep.openTimeFormatted} కి AlfaNews యాప్ ఓపెన్ చేసి చూశారు. మీ ప్రాంత తాజా వార్తలు ఏవైనా ఉంటే వెంటనే AlfaNews లో అప్‌లోడ్ చేయగలరు.`
+                                                                                : isOpenedOnDate && rep.todayNewsCount > 0
+                                                                                ? `నమస్కారం ${rep.name} గారు, AlfaNews డెస్క్ నుండి... నేడు మీరు పంపిన ${rep.todayNewsCount} వార్తలకు ధన్యవాదాలు. మీ ప్రాంత తాజా వార్తలను ఎప్పటికప్పుడు అందిస్తూ ఉండగలరు.`
+                                                                                : `నమస్కారం ${rep.name} గారు, ఈ రోజు మీరు AlfaNews యాప్ ని ఇంకా ఓపెన్ చేయలేదు. దయచేసి యాప్ ఓపెన్ చేసి మీ ప్రాంత తాజా వార్తలు మరియు అప్‌డేట్స్‌ను పరిశీలించండి.`
+                                                                        )}`}
+                                                                        target="_blank"
+                                                                        rel="noreferrer"
+                                                                        className="p-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-800 transition-colors"
+                                                                        title="వాట్సాప్ సందేశం"
+                                                                    >
+                                                                        <MessageSquare size={14} />
+                                                                    </a>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     )}
                                 </div>

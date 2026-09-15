@@ -580,9 +580,8 @@ export const shareNews = onRequest(async (req, res) => {
 });
 
 // YouTube Auth Flow (Keep in index for simple management)
-const { google } = require('googleapis');
-
 export const youtubeAuthStart = onRequest({ secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"] }, (req, res) => {
+    const { google } = require('googleapis');
     const youtubeAuth = new google.auth.OAuth2(process.env.YOUTUBE_CLIENT_ID, process.env.YOUTUBE_CLIENT_SECRET, `https://${REGION}-alfa-news-31bf7.cloudfunctions.net/youtubeAuthCallback`);
     res.redirect(youtubeAuth.generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: ['https://www.googleapis.com/auth/youtube.upload'] }));
 });
@@ -593,6 +592,7 @@ export const youtubeAuthCallback = onRequest({ secrets: ["YOUTUBE_CLIENT_ID", "Y
         res.status(400).send("Code missing.");
         return;
     }
+    const { google } = require('googleapis');
     const youtubeAuth = new google.auth.OAuth2(process.env.YOUTUBE_CLIENT_ID, process.env.YOUTUBE_CLIENT_SECRET, `https://${REGION}-alfa-news-31bf7.cloudfunctions.net/youtubeAuthCallback`);
     try {
         const { tokens } = await youtubeAuth.getToken(code as string);

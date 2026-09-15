@@ -254,6 +254,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         startAppConfigListener()
         ensureDefaultSubscriptions()
         syncUserFcmToken(FirebaseService.auth.currentUser?.uid)
+        recordAppOpen(FirebaseService.auth.currentUser?.uid)
     }
 
     private fun startAppConfigListener() {
@@ -343,6 +344,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private var lastInAppNotificationTime: Long = 0L
+
     private fun startNewsListener() {
         newsListener?.remove()
         newsListener = FirebaseService.db.collection("news")
@@ -358,15 +361,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (post.timestamp <= appStartTime) return@addSnapshotListener
                 if (_newNewsNotification.value?.id == post.id) return@addSnapshotListener
 
+                // 🛡️ 15-నిమిషాల కూల్‌డౌన్: యూజర్ వార్తలు చదువుతున్నప్పుడు మాటిమాటికీ బ్యానర్ రాకుండా నియంత్రణ
+                val now = System.currentTimeMillis()
+                if (now - lastInAppNotificationTime < 15 * 60 * 1000L) return@addSnapshotListener
+
                 val userDist = _currentUser.value?.district ?: prefs.getEffectiveDistrict()
                 val isDistrictSpecific = Constants.ALL_DISTRICTS.contains(post.district)
                 
                 if (isDistrictSpecific) {
                     if (post.district == userDist) {
                         _newNewsNotification.value = post
+                        lastInAppNotificationTime = now
                     }
                 } else {
                     _newNewsNotification.value = post
+                    lastInAppNotificationTime = now
                 }
             }
     }
@@ -504,6 +513,85 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
         } catch (e: Exception) {
             Log.w("MainViewModel", "Could not get FCM token: ${e.message}")
+        }
+    }
+
+    private var lastRecordedAppOpenMs = 0L
+
+    /**
+     * యాప్ ఓపెన్ అయినప్పుడు యూజర్ లేదా గెస్ట్ యొక్క మొదటి ఓపెన్ సమయం, చివరి యాక్టివ్ సమయం, డైలీ యాక్టివిటీని ఫైర్‌స్టోర్‌లో నమోదు చేస్తుంది.
+     */
+    fun recordAppOpen(userId: String? = null) {
+        val now = System.currentTimeMillis()
+        // 3 నిమిషాల థ్రోట్లింగ్ (రిపీటెడ్ స్క్రీన్ రెస్యూమ్‌లలో అనవసర ఫైర్‌స్టోర్ రైట్స్ తగ్గించడానికి)
+        if (now - lastRecordedAppOpenMs < 3 * 60 * 1000L) {
+            return
+        }
+        lastRecordedAppOpenMs = now
+
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val uid = userId ?: FirebaseService.auth.currentUser?.uid ?: prefs.userId
+                val isGuest = uid.isNullOrBlank() || uid == "guest"
+
+                val istFormatter = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("Asia/Kolkata")
+                }
+                val todayDateStr = istFormatter.format(java.util.Date(now))
+
+                if (!isGuest) {
+                    val userDocRef = FirebaseService.db.collection("users").document(uid!!)
+                    
+                    val userSnap = try { userDocRef.get().await() } catch (e: Exception) { null }
+                    val currentTodayDate = userSnap?.getString("todayDate")
+                    val isFirstOpenToday = (currentTodayDate != todayDateStr)
+
+                    val updates = mutableMapOf<String, Any>(
+                        "lastActive" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                        "todayDate" to todayDateStr,
+                        "todayOpenCount" to com.google.firebase.firestore.FieldValue.increment(1)
+                    )
+                    if (isFirstOpenToday) {
+                        updates["todayFirstOpen"] = com.google.firebase.firestore.FieldValue.serverTimestamp()
+                    }
+
+                    userDocRef.set(updates, com.google.firebase.firestore.SetOptions.merge()).await()
+
+                    // రోజువారీ చరిత్ర కోసం daily_activity సబ్-కలెక్షన్‌లో రికార్డ్
+                    val dailyActivityDoc = userDocRef.collection("daily_activity").document(todayDateStr)
+                    val dailyUpdates = mutableMapOf<String, Any>(
+                        "date" to todayDateStr,
+                        "lastOpenTime" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                        "openCount" to com.google.firebase.firestore.FieldValue.increment(1)
+                    )
+                    if (isFirstOpenToday) {
+                        dailyUpdates["firstOpenTime"] = com.google.firebase.firestore.FieldValue.serverTimestamp()
+                    }
+                    dailyActivityDoc.set(dailyUpdates, com.google.firebase.firestore.SetOptions.merge()).await()
+
+                    Log.d("MainViewModel", "Updated app open for user $uid (firstOpen: $isFirstOpenToday, date: $todayDateStr)")
+                } else {
+                    val installId = prefs.getOrCreateInstallId()
+                    val guestData = mutableMapOf<String, Any>(
+                        "installId" to installId,
+                        "isAnonymous" to true,
+                        "lastActive" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                        "platform" to "android",
+                        "appVersion" to com.alfanews.telugu.BuildConfig.VERSION_NAME
+                    )
+                    prefs.selectedDistrict?.let { guestData["district"] = it }
+                    prefs.detectedDistrict?.let { guestData["detectedDistrict"] = it }
+                    prefs.localPlace?.let { guestData["place"] = it }
+
+                    FirebaseService.db.collection("anonymous_devices").document(installId).set(
+                        guestData,
+                        com.google.firebase.firestore.SetOptions.merge()
+                    ).await()
+                    Log.d("MainViewModel", "Updated lastActive for guest $installId on app open")
+                }
+            } catch (e: Exception) {
+                Log.w("MainViewModel", "recordAppOpen failed: ${e.message}")
+            }
         }
     }
 
@@ -680,39 +768,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * ✅ NEW: User Firestore categoryScores బట్టి cat_* FCM topics కి auto-subscribe చేస్తుంది.
+     * ✅ User Firestore categoryScores బట్టి cat_* FCM topics కి auto-subscribe చేస్తుంది.
      * Backend scheduler (notification_engine.ts) మరియు breaking news ఇవే topics వాడతాయి.
      * 
-     * Example: user రాజకీయం articles చదివితే → cat_politics subscribe అవుతుంది
-     * → Backend రాజకీయం breaking news పంపినప్పుడు ఆ user కి వస్తుంది.
-     *
-     * Score > 0 అయిన top 5 categories కి subscribe చేస్తాం.
-     * Score ≤ 0 అయిన categories unsubscribe అవుతాయి.
+     * నోటిఫికేషన్ బరస్ట్ (spam) నివారించడానికి కేవలం టాప్ 2 కేటగిరీలకు మాత్రమే సబ్‌స్క్రయిబ్ చేస్తాం.
+     * మిగిలిన పాత కేటగిరీలు అన్‌సబ్‌స్క్రయిబ్ అవుతాయి.
      */
     private fun updateCategoryTopicSubscriptions(oldCategories: Set<String>, newCategories: Set<String>) {
         val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
 
         viewModelScope.launch {
             try {
-                // Remove చేయబడిన categories → unsubscribe
-                (oldCategories - newCategories).forEach { category ->
-                    val topic = categoryTopicMap[category] ?: return@forEach
-                    messaging.unsubscribeFromTopic(topic).await()
-                    android.util.Log.d("MainViewModel", "Cat unsubscribed: $topic")
-                }
-                // కొత్తగా వచ్చిన categories → subscribe (top 5 మాత్రమే)
                 val user = _currentUser.value
                 val topCategories = user?.categoryScores
                     ?.filter { it.value > 0 }
                     ?.entries
                     ?.sortedByDescending { it.value }
-                    ?.take(5)
+                    ?.take(2)
                     ?.map { it.key }
-                    ?.toSet() ?: newCategories.take(5).toSet()
+                    ?.toSet() ?: newCategories.take(2).toSet()
 
+                // టాప్ 2 పరిధిలో లేని అన్ని పాత కేటగిరీలను అన్‌సబ్‌స్క్రయిబ్ చేయడం
+                val toUnsubscribe = (oldCategories + newCategories) - topCategories
+                toUnsubscribe.forEach { category ->
+                    val topic = categoryTopicMap[category] ?: return@forEach
+                    try { messaging.unsubscribeFromTopic(topic).await() } catch (e: Exception) {}
+                    android.util.Log.d("MainViewModel", "Cat unsubscribed: $topic")
+                }
+
+                // టాప్ 2 కేటగిరీలకు మాత్రమే సబ్‌స్క్రయిబ్ చేయడం
                 topCategories.forEach { category ->
                     val topic = categoryTopicMap[category] ?: return@forEach
-                    messaging.subscribeToTopic(topic).await()
+                    try { messaging.subscribeToTopic(topic).await() } catch (e: Exception) {}
                     android.util.Log.d("MainViewModel", "Cat subscribed: $topic")
                 }
             } catch (e: Exception) {
@@ -726,7 +813,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
             val user = _currentUser.value
             val district = user?.district ?: prefs.getEffectiveDistrict()
-            val interests: Set<String> = user?.categoryScores?.keys ?: emptySet()
+            // నోటిఫికేషన్ బరస్ట్ రాకుండా గరిష్టంగా టాప్ 2 కేటగిరీలు మాత్రమే
+            val interests: Set<String> = user?.categoryScores
+                ?.filter { it.value > 0 }
+                ?.entries
+                ?.sortedByDescending { it.value }
+                ?.take(2)
+                ?.map { it.key }
+                ?.toSet() ?: emptySet()
             
             try {
                 if (enabled) {

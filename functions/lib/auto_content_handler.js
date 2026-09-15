@@ -733,4 +733,3 @@ exports.cleanupOldNews = (0, scheduler_1.onSchedule)({
         console.error("[CLEANUP] Error during cleanup:", error.message);
     }
 });
-//# sourceMappingURL=auto_content_handler.js.map

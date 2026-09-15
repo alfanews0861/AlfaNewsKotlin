@@ -337,14 +337,23 @@ export const sendPersonalizedNotification = onSchedule({
 
     // --- 3. Category Notification — 8 AM & 18 PM slots కి category-wise push ---
     if (istHour === 8 || istHour === 18) {
+        const topNewsCat = topNews?.category || "";
+        const topNewsCats = Array.isArray(topNews?.categories) ? topNews.categories : [];
+
         for (const [teluguCat, topicName] of Object.entries(CATEGORY_TOPICS)) {
+            // 🛡️ ఒకవేళ ఈ స్లాట్ లో General ప్రధాన వార్తగా ఇప్పటికే ఈ కేటగిరీ వార్త వెళ్తే, అదే కేటగిరీ టాపిక్ కి మళ్లీ నోటిఫికేషన్ వెళ్లకుండా రక్షణ
+            if (topNewsCat === teluguCat || topNewsCats.includes(teluguCat)) {
+                continue;
+            }
+
             const catKey = topicName;
 
             // ఆ category లో ఇంతకుముందు general గాని category గాని పంపని best news కనుక్కోవడం
             const catNews = allNews.find((n: any) =>
                 (n.category === teluguCat || (Array.isArray(n.categories) && n.categories.includes(teluguCat))) &&
                 lastSentMap['general'] !== n.id &&
-                lastSentMap[catKey] !== n.id
+                lastSentMap[catKey] !== n.id &&
+                n.id !== topNews?.id
             );
 
             if (!catNews) continue;

@@ -13,7 +13,9 @@ import {
     runWithAIFallback,
     parseAIJson,
     sanitizeTeluguText,
+    cleanTeluguHeadline,
     processAndOptimizeNewsImage,
+    scanVideoSafetyWithGeminiAI,
     FLASH_MODEL,
     REGION,
     createAndSaveThumbnail
@@ -294,7 +296,7 @@ function normalizeSingleStory(aiRes: any, actualPostData: any): any {
         aiRes.telugu?.headline || aiRes.telugu?.headlineTe ||
         aiRes.telugu_version?.headline || aiRes.telugu_version?.title ||
         aiRes.title || aiRes.generated_telugu_headline || aiRes.generatedTeluguHeadline || "";
-    finalHeadline = sanitizeTeluguText(finalHeadline);
+    finalHeadline = cleanTeluguHeadline(finalHeadline);
 
     const finalHeadlineEn = aiRes.headlineEn || aiRes.headline_en ||
         aiRes.english?.headline || aiRes.english?.headlineEn ||
@@ -308,7 +310,7 @@ function normalizeSingleStory(aiRes: any, actualPostData: any): any {
         finalNotificationTitle.toLowerCase() === "false") {
         finalNotificationTitle = "";
     } else {
-        finalNotificationTitle = sanitizeTeluguText(finalNotificationTitle);
+        finalNotificationTitle = cleanTeluguHeadline(finalNotificationTitle);
     }
 
     let isDuplicate = aiRes.isDuplicate === true;
@@ -995,25 +997,6 @@ export const onNewsPostCreated = onDocumentWritten({
                 const finalIsCitizen = isCitizen;
                 const isDuplicateStory = aiProcessedData.isDuplicate === true;
 
-                // ACCIDENT & CRIME SHIELD:
-                // Never reject accident/crime stories because of graphic/injury mentions; instead convert image to B&W/Grayscale and publish!
-                const rawRejection = (aiProcessedData.rejectionReason || "").trim();
-                const isAccidentOrInjury = rawRejection.includes("ప్రమాదం") ||
-                    rawRejection.includes("రక్తపాతం") ||
-                    rawRejection.includes("గాయాలు") ||
-                    rawRejection.includes("దృశ్యం") ||
-                    rawRejection.includes("మరణం") ||
-                    rawRejection.includes("మృతి");
-
-                if (isAccidentOrInjury && !isDuplicateStory) {
-                    console.log(`[ACCIDENT_SHIELD] Post ${targetPostId}: Overriding rejection for accident/injury story. Enabling isGraphicOrBloody to apply B&W/blur.`);
-                    aiProcessedData.rejectionReason = null;
-                    aiProcessedData.isGraphicOrBloody = true;
-                    aiProcessedData.isBreaking = true;
-                }
-
-                const isRejected = (aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0) || isDuplicateStory;
-
                 const mTypes = (latestData.mediaTypes || []).map((t: string) => t.toUpperCase());
                 const rawMediaUrl = latestData.mediaUrl || "";
                 const rawMediaUrls = Array.isArray(latestData.mediaUrls) ? latestData.mediaUrls : [];
@@ -1024,6 +1007,32 @@ export const onNewsPostCreated = onDocumentWritten({
                 const hasVideo = mTypes.includes('VIDEO') || latestData.mediaType?.toUpperCase() === 'VIDEO' || isDirectYoutube;
                 const isAlreadyVideoReady = latestData.videoProcessed === true || isDirectYoutube;
                 const shouldWaitForVideoUpload = hasVideo && !isAlreadyVideoReady;
+
+                // ACCIDENT & CRIME SHIELD:
+                // Never reject accident/crime stories for text/photo articles; instead convert image to B&W/Grayscale and publish!
+                // CRITICAL SAFETY: For video posts destined for YouTube, NEVER bypass YouTube Community Guidelines!
+                const rawRejection = (aiProcessedData.rejectionReason || "").trim();
+                const isAccidentOrInjury = rawRejection.includes("ప్రమాదం") ||
+                    rawRejection.includes("రక్తపాతం") ||
+                    rawRejection.includes("గాయాలు") ||
+                    rawRejection.includes("దృశ్యం") ||
+                    rawRejection.includes("మరణం") ||
+                    rawRejection.includes("మృతి");
+
+                const isYouTubeUnsafe = hasVideo && aiProcessedData.isSafeForYouTube === false;
+
+                if (isAccidentOrInjury && !isDuplicateStory && !isYouTubeUnsafe) {
+                    console.log(`[ACCIDENT_SHIELD] Post ${targetPostId}: Overriding rejection for accident/injury story. Enabling isGraphicOrBloody to apply B&W/blur.`);
+                    aiProcessedData.rejectionReason = null;
+                    aiProcessedData.isGraphicOrBloody = true;
+                    aiProcessedData.isBreaking = true;
+                } else if (isYouTubeUnsafe) {
+                    console.warn(`[YOUTUBE_SAFETY_SHIELD] Post ${targetPostId}: Video flagged unsafe for YouTube (isSafeForYouTube=false). Blocking video and keeping rejection.`);
+                    aiProcessedData.rejectionReason = aiProcessedData.rejectionReason || "యూట్యూబ్ కమ్యూనిటీ నిబంధనల ప్రకారం తీవ్ర రక్తపాతం లేదా భయానక దృశ్యాలు అనుమతించబడవు.";
+                    aiProcessedData.isGraphicOrBloody = true;
+                }
+
+                const isRejected = (aiProcessedData.rejectionReason && aiProcessedData.rejectionReason.length > 0) || isDuplicateStory || isYouTubeUnsafe;
 
                 const updatePayload: any = {
                     ...aiProcessedData,
@@ -1099,7 +1108,7 @@ export const onNewsPostCreated = onDocumentWritten({
 
                 // Notifications & Rewards (Send to both registered reporters and citizen journalists)
                 if (isPostRejected && originalReporterId && i === 0) {
-                    const notifyType = isDuplicateStory ? 'DUPLICATE' : 'POLICY_VIOLATION';
+                    const notifyType = isDuplicateStory ? 'DUPLICATE' : (isYouTubeUnsafe ? 'YOUTUBE_POLICY_VIOLATION' : 'POLICY_VIOLATION');
                     const specificReason = updatePayload.rejectionReason || aiProcessedData.rejectionReason || "";
                     await notifyReporter(
                         originalReporterId,
@@ -1250,6 +1259,41 @@ export const onNewsPostCreated = onDocumentWritten({
             return;
         }
 
+        // 🛡️ GATEKEEPER 1: AI text-level YouTube Safety verification
+        if (data.isSafeForYouTube === false || latestData.isSafeForYouTube === false) {
+            console.warn(`[YOUTUBE_GATEKEEPER] ${postId} blocked from YouTube processing: isSafeForYouTube is false.`);
+            if (videoUrl && videoUrl.includes('firebasestorage.googleapis.com')) {
+                try {
+                    const decodedUrl = decodeURIComponent(videoUrl);
+                    const pathParts = decodedUrl.split('/o/');
+                    if (pathParts.length >= 2) {
+                        const rawStoragePath = pathParts[1].split('?')[0];
+                        await admin.storage().bucket().file(rawStoragePath).delete();
+                    }
+                } catch (delErr: any) {}
+            }
+            const ytRejectionReason = data.rejectionReason || latestData.rejectionReason || "యూట్యూబ్ కమ్యూనిటీ నిబంధనల ప్రకారం తీవ్ర రక్తపాతం లేదా భయానక దృశ్యాలు అనుమతించబడవు.";
+            await db.collection('news').doc(postId).update({
+                status: "REJECTED",
+                approved: false,
+                videoProcessed: false,
+                isSafeForYouTube: false,
+                rejectionReason: ytRejectionReason,
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+            });
+            if (originalReporterId) {
+                await notifyReporter(
+                    originalReporterId,
+                    postId,
+                    data.headline?.telugu || "వీడియో వార్త",
+                    'YOUTUBE_POLICY_VIOLATION' as any,
+                    "",
+                    ytRejectionReason
+                );
+            }
+            return;
+        }
+
         console.log(`[VIDEO_START] ${postId}. URL: ${videoUrl.substring(0, 50)}...`);
 
         // LOCK immediately
@@ -1304,6 +1348,62 @@ export const onNewsPostCreated = onDocumentWritten({
                 await pipeline(videoRes.body, fs.createWriteStream(videoPath));
             } else {
                 await pipeline(Readable.fromWeb(videoRes.body as any), fs.createWriteStream(videoPath));
+            }
+
+            // 🛡️ GATEKEEPER 2: Video AI Visual Safety Scan (Keyframe Analysis via Gemini Vision)
+            console.log(`[VIDEO_SAFETY_CHECK] Scanning keyframes for ${postId} against YouTube Community Guidelines...`);
+            const videoSafety = await scanVideoSafetyWithGeminiAI(videoPath);
+            let appliedBlurRanges: Array<{ start: number; end: number }> = [];
+
+            if (!videoSafety.isSafe) {
+                if (videoSafety.isTemporaryError) {
+                    console.warn(`[YOUTUBE_SCAN_TEMPORARY_HOLD] Post ${postId}: AI safety scan could not verify video due to quota/temporary error. Holding for automated retry.`);
+                    throw new Error(`Video AI safety scan deferred due to quota or server response: ${videoSafety.safetyDetails}`);
+                }
+
+                // 🌟 OPTION A: Automatic Timeline Full-Screen Blur for Graphic / Accident Scenes
+                if (videoSafety.canSanitizeWithBlur && videoSafety.blurRanges && videoSafety.blurRanges.length > 0) {
+                    console.log(`[YOUTUBE_TIMELINE_BLUR_APPLIED] Post ${postId}: Graphic scenes detected in tiles ${JSON.stringify(videoSafety.violatingTileIndices)}. Sanitizing with timeline blur for ranges: ${JSON.stringify(videoSafety.blurRanges)}`);
+                    appliedBlurRanges = videoSafety.blurRanges;
+                } else {
+                    console.warn(`[YOUTUBE_SAFETY_BLOCKED] Post ${postId}: Video visual content permanently blocked from YouTube: ${videoSafety.rejectionReason} (${videoSafety.safetyDetails})`);
+
+                    // Clean up raw storage file immediately to save storage and avoid hosting illegal/dangerous content
+                    if (videoUrl && videoUrl.includes('firebasestorage.googleapis.com')) {
+                        try {
+                            const decodedUrl = decodeURIComponent(videoUrl);
+                            const pathParts = decodedUrl.split('/o/');
+                            if (pathParts.length >= 2) {
+                                const rawStoragePath = pathParts[1].split('?')[0];
+                                await admin.storage().bucket().file(rawStoragePath).delete();
+                            }
+                        } catch (delErr: any) {}
+                    }
+
+                    const blockReason = videoSafety.rejectionReason || "వీడియో దృశ్యాలలో యూట్యూబ్ నిబంధనలకు విరుద్ధమైన భయానక/రక్తపాత దృశ్యాలు గుర్తించబడ్డాయి.";
+                    await db.collection('news').doc(postId).update({
+                        status: "REJECTED",
+                        approved: false,
+                        videoProcessed: false,
+                        isSafeForYouTube: false,
+                        rejectionReason: blockReason,
+                        safetyDetails: videoSafety.safetyDetails,
+                        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    if (originalReporterId) {
+                        await notifyReporter(
+                            originalReporterId,
+                            postId,
+                            data.headline?.telugu || "వీడియో వార్త",
+                            'YOUTUBE_POLICY_VIOLATION' as any,
+                            "",
+                            blockReason
+                        );
+                    }
+
+                    return;
+                }
             }
 
             let teluguVocal = data.vocalContent || teluguNews;
@@ -1498,18 +1598,33 @@ export const onNewsPostCreated = onDocumentWritten({
                             cmd.input(logoPath);
                             const simpleFilter: any[] = [
                                 { filter: 'scale', options: `${logoWidth}:-2`, inputs: '2:v', outputs: 'logo' },
-                                { filter: 'overlay', options: 'W-w-25:25', inputs: ['0:v', 'logo'], outputs: 'vf' }
+                                { filter: 'overlay', options: 'W-w-25:25', inputs: ['0:v', 'logo'], outputs: 'vf_logo' }
                             ];
+                            if (appliedBlurRanges && appliedBlurRanges.length > 0) {
+                                const enableExpr = appliedBlurRanges.map(r => `between(t,${r.start.toFixed(1)},${r.end.toFixed(1)})`).join('+');
+                                simpleFilter.push({ filter: 'boxblur', options: `30:enable='${enableExpr}'`, inputs: 'vf_logo', outputs: 'vf' });
+                            } else {
+                                simpleFilter.push({ filter: 'null', inputs: 'vf_logo', outputs: 'vf' });
+                            }
                             cmd.complexFilter(simpleFilter)
                                 .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', '-map', '[vf]', '-map', '1:a:0', '-ar', '44100', '-ac', '2', '-shortest'])
                                 .save(outputPath)
                                 .on('end', () => resolve(true))
                                 .on('error', (err: any) => reject(err));
                         } else {
-                            cmd.outputOptions(['-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0', '-shortest'])
-                                .save(outputPath)
-                                .on('end', () => resolve(true))
-                                .on('error', (err: any) => reject(err));
+                            if (appliedBlurRanges && appliedBlurRanges.length > 0) {
+                                const enableExpr = appliedBlurRanges.map(r => `between(t,${r.start.toFixed(1)},${r.end.toFixed(1)})`).join('+');
+                                cmd.complexFilter([{ filter: 'boxblur', options: `30:enable='${enableExpr}'`, inputs: '0:v:0', outputs: 'vf' }])
+                                    .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', '-map', '[vf]', '-map', '1:a:0', '-shortest'])
+                                    .save(outputPath)
+                                    .on('end', () => resolve(true))
+                                    .on('error', (err: any) => reject(err));
+                            } else {
+                                cmd.outputOptions(['-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0', '-shortest'])
+                                    .save(outputPath)
+                                    .on('end', () => resolve(true))
+                                    .on('error', (err: any) => reject(err));
+                            }
                         }
                         return;
                     }
@@ -1553,6 +1668,20 @@ export const onNewsPostCreated = onDocumentWritten({
                         filterGraph.push({ filter: 'null', inputs: '0:v', outputs: 'vlogo_raw' });
                     }
 
+                    // 1.1 Apply Timeline Full-Screen Blur for graphic/sensitive scenes if flagged (Option A)
+                    let mainVideoLabel = 'vlogo_raw';
+                    if (appliedBlurRanges && appliedBlurRanges.length > 0) {
+                        const enableExpr = appliedBlurRanges.map(r => `between(t,${r.start.toFixed(1)},${r.end.toFixed(1)})`).join('+');
+                        console.log(`[FFMPEG_TIMELINE_BLUR] Injecting boxblur=30 with timeline enable: ${enableExpr}`);
+                        filterGraph.push({
+                            filter: 'boxblur',
+                            options: `30:enable='${enableExpr}'`,
+                            inputs: 'vlogo_raw',
+                            outputs: 'vblurred'
+                        });
+                        mainVideoLabel = 'vblurred';
+                    }
+
                     // 2. Audio Processing (Voiceover TTS + Muted/Ducked Original Video Audio)
                     let mainAudioLabel = 'outa';
                     if (hasAudioStream) {
@@ -1594,7 +1723,7 @@ export const onNewsPostCreated = onDocumentWritten({
                         const scalePadOpt = `${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p`;
 
                         filterGraph.push({ filter: 'scale', options: scalePadOpt, inputs: `${introInputIdx}:v`, outputs: 'vintro' });
-                        filterGraph.push({ filter: 'scale', options: scalePadOpt, inputs: 'vlogo_raw', outputs: 'vmain' });
+                        filterGraph.push({ filter: 'scale', options: scalePadOpt, inputs: mainVideoLabel, outputs: 'vmain' });
                         filterGraph.push({ filter: 'scale', options: scalePadOpt, inputs: `${outroInputIdx}:v`, outputs: 'voutro' });
 
                         filterGraph.push({ filter: 'aformat', options: { sample_fmts: 'fltp', sample_rates: 44100, channel_layouts: 'stereo' }, inputs: `${introInputIdx}:a`, outputs: 'aintro' });
@@ -1614,7 +1743,7 @@ export const onNewsPostCreated = onDocumentWritten({
                             .on('end', () => resolve(true))
                             .on('error', (err: any) => reject(err));
                     } else {
-                        filterGraph.push({ filter: 'format', options: 'yuv420p', inputs: 'vlogo_raw', outputs: 'vf' });
+                        filterGraph.push({ filter: 'format', options: 'yuv420p', inputs: mainVideoLabel, outputs: 'vf' });
                         cmd.complexFilter(filterGraph)
                             .outputOptions(['-c:v', 'libx264', '-preset', 'ultrafast', '-map', '[vf]', '-map', `[${mainAudioLabel}]`, '-ar', '44100', '-ac', '2'])
                             .save(outputPath)
@@ -1635,6 +1764,15 @@ export const onNewsPostCreated = onDocumentWritten({
             };
 
             await renderVideoWithFFmpeg();
+
+            // Final pre-upload safety check
+            if (data.isSafeForYouTube === false && appliedBlurRanges.length === 0) {
+                throw new Error("Pre-upload abort: Video is marked isSafeForYouTube === false");
+            }
+
+            if (appliedBlurRanges.length > 0) {
+                description += `[గమనిక: ఈ వీడియోలోని సున్నితమైన ప్రమాద దృశ్యాలు నిబంధనల ప్రకారం బ్లర్ చేయబడ్డాయి / Sensitive scenes blurred]\n\n`;
+            }
 
             const ytSettings = await db.collection('settings').doc('youtube').get();
             const refreshToken = ytSettings.exists ? ytSettings.data()?.refreshToken : process.env.YOUTUBE_REFRESH_TOKEN;
@@ -1668,7 +1806,7 @@ export const onNewsPostCreated = onDocumentWritten({
                 }
             }
 
-            await db.collection('news').doc(postId).update({
+            const updateDocPayload: any = {
                 youtubeUrl: `https://www.youtube.com/watch?v=${ytVideoId}`,
                 mediaUrl: ytThumbnail,
                 mediaUrls: [ytThumbnail],
@@ -1676,7 +1814,12 @@ export const onNewsPostCreated = onDocumentWritten({
                 videoProcessed: true,
                 status: "published",
                 approved: true
-            });
+            };
+            if (appliedBlurRanges.length > 0) {
+                updateDocPayload.videoBlurred = true;
+                updateDocPayload.blurRanges = appliedBlurRanges;
+            }
+            await db.collection('news').doc(postId).update(updateDocPayload);
 
             // Award points to ORIGINAL reporter for video publication
             if (isReporter && originalReporterId) {

@@ -15,8 +15,9 @@ function testAPI(url) {
 }
 
 async function run() {
-  const v1 = await testAPI('https://generativelanguage.googleapis.com/v1/models?key=AIzaSyA8-YNKtCIRWLyGo6cnRTzblpD4fBBVdo0');
-  const v1beta = await testAPI('https://generativelanguage.googleapis.com/v1beta/models?key=AIzaSyA8-YNKtCIRWLyGo6cnRTzblpD4fBBVdo0');
+  const apiKey = process.env.GEMINI_API_KEY || '';
+  const v1 = await testAPI(`https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`);
+  const v1beta = await testAPI(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
   
   console.log('v1 flash models:', v1);
   console.log('v1beta flash models:', v1beta);

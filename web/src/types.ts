@@ -39,6 +39,7 @@ export interface User {
   badges?: string[];
   createdAt?: number;
   lastLogin?: number;
+  lastActive?: any;
   totalNewsCount?: number;
   todayNewsCount?: number;
 }

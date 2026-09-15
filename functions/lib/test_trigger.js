@@ -50,4 +50,3 @@ async function run() {
     console.log("Done.");
 }
 run().catch(console.error);
-//# sourceMappingURL=test_trigger.js.map

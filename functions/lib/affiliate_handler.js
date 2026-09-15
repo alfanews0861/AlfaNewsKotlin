@@ -174,4 +174,3 @@ exports.scheduleDailyAffiliateDeals = (0, scheduler_1.onSchedule)({
         }
     }
 });
-//# sourceMappingURL=affiliate_handler.js.map

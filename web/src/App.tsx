@@ -139,14 +139,15 @@ const App: React.FC = () => {
               photoUrl: firebaseUser.photoURL || '',
               role: targetRole,
               createdAt: Date.now(),
-              lastLogin: Date.now()
+              lastLogin: Date.now(),
+              lastActive: Date.now()
             });
           } else {
             const existingData = docSnap.data();
             if (isAdminEmail && existingData.role !== UserRole.ADMIN) {
-              await setDoc(userRef, { lastLogin: Date.now(), role: UserRole.ADMIN }, { merge: true });
+              await setDoc(userRef, { lastLogin: Date.now(), lastActive: Date.now(), role: UserRole.ADMIN }, { merge: true });
             } else {
-              await setDoc(userRef, { lastLogin: Date.now() }, { merge: true });
+              await setDoc(userRef, { lastLogin: Date.now(), lastActive: Date.now() }, { merge: true });
             }
           }
         } catch (e) {

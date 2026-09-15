@@ -1,5 +1,6 @@
 async function testModel(modelName, version) {
-  const url = `https://generativelanguage.googleapis.com/${version}/models/${modelName}:generateContent?key=AIzaSyA8-YNKtCIRWLyGo6cnRTzblpD4fBBVdo0`;
+  const apiKey = process.env.GEMINI_API_KEY;
+  const url = `https://generativelanguage.googleapis.com/${version}/models/${modelName}:generateContent?key=${apiKey}`;
   try {
     const res = await fetch(url, {
       method: 'POST',

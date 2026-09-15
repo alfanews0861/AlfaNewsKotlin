@@ -452,6 +452,9 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
+            val GROUP_KEY_ALFA_NEWS = "com.alfanews.telugu.NEWS_NOTIFICATIONS"
+            val SUMMARY_NOTIFICATION_ID = 1001
+
             val notificationBuilder = NotificationCompat.Builder(this@MyFirebaseMessagingService, channelId)
                 .setSmallIcon(R.drawable.app_icon_new)
                 .setContentTitle(title)
@@ -460,6 +463,8 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 .setContentIntent(pendingIntent)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setGroup(GROUP_KEY_ALFA_NEWS)
+                .setOnlyAlertOnce(true)
                 .addAction(R.drawable.ic_launcher_foreground, "చదవండి", pendingIntent)
                 .addAction(R.drawable.ic_launcher_foreground, "షేర్ చేయండి", sharePendingIntent)
 
@@ -514,10 +519,21 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 notificationBuilder.priority = priority
             }
 
-            // ✅ Main thread లో notify చేయాలి
+            // ✅ Main thread లో notify చేయాలి + గ్రూప్ సమ్మరీ నోటిఫికేషన్ ద్వారా ఒకే కార్డ్ లో బండిల్ చేయడం
             withContext(Dispatchers.Main) {
                 val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 notificationManager.notify(notificationId, notificationBuilder.build())
+
+                val summaryNotification = NotificationCompat.Builder(this@MyFirebaseMessagingService, channelId)
+                    .setSmallIcon(R.drawable.app_icon_new)
+                    .setContentTitle("Alfa News")
+                    .setContentText("తాజా వార్తలు")
+                    .setGroup(GROUP_KEY_ALFA_NEWS)
+                    .setGroupSummary(true)
+                    .setAutoCancel(true)
+                    .setOnlyAlertOnce(true)
+                    .build()
+                notificationManager.notify(SUMMARY_NOTIFICATION_ID, summaryNotification)
             }
         }
     }

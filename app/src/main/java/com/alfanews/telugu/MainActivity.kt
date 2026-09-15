@@ -123,6 +123,7 @@ class MainActivity : ComponentActivity() {
 
         // ఆండ్రాయిడ్ 13+ కోసం నోటిఫికేషన్ పర్మిషన్ అడగడం
         askNotificationPermission()
+        mainViewModel.recordAppOpen(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
 
         // Preload news - if intent contains a postId (notification or deep link),
         // pass initialPostId immediately so fast path loads the target post at index 0 without delay.
@@ -305,6 +306,7 @@ class MainActivity : ComponentActivity() {
         if (isEnabled) {
             mainViewModel.syncUserFcmToken(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
         }
+        mainViewModel.recordAppOpen(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
 
         try {
             appUpdateManager.appUpdateInfo.addOnSuccessListener { appUpdateInfo ->

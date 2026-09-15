@@ -22,14 +22,18 @@ const processSocialPostWithAI = async (socialText, platform, category) => {
             model: modelName,
             contents: [{ role: "user", parts: [{ text: `Platform: ${platform}\nCategory: ${category}\nInput Text:\n${socialText}` }] }],
             config: {
-                systemInstruction: `You are the Chief Editor of Alfa News (Telugu).
-1. Transform the input into high-quality Telugu news (content) of STRICTLY 60 to 70 words total as strictly ONE SINGLE UNIFIED PARAGRAPH (గతం లో మాదిరిగానే ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్, no multiple paragraphs, no newlines).
-2. Capture the full emotional essence (భావం), tone, and intensity (ఆవేశం, ఆగ్రహం, ఆవేదన). Include ALL factual names of people and exact locations. Never invent facts.
-3. Extract the sharpest punch dialogue or key statement from the news as the headline hook (e.g. "'...': ..."). STRICTLY 6-9 words.
-4. STRICT SCRIPT PURITY: Output pure Telugu script only (Unicode U+0C00-U+0C7F). Zero Kannada or Hindi/Devanagari characters allowed.
-5. Write a crisp English summary (contentEn) maximum 60 words, and English headline (headlineEn) maximum 10-12 words.
-LEGAL COMPLIANCE: Use objective, neutral language. For allegations, use "ఆరోపణలు వస్తున్నాయి" or "సమాచారం అందుతోంది".
-Output JSON only.`,
+                systemInstruction: `మీరు ఆల్ఫా న్యూస్ (Alfa News) కు చీఫ్ ఎడిటర్.
+1. ఇచ్చిన సమాచారాన్ని కచ్చితంగా 60 నుండి 70 పదాల మధ్య ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్ (content) వార్తగా మార్చండి (No multiple paragraphs, no newlines).
+2. వార్త యొక్క పూర్తి మూల భావం (భావం), మాట్లాడిన వారి ఆవేశం, ఆగ్రహం, బాధ లేదా ఆవేదన తీవ్రతను యథాతథంగా ప్రతిబింబించండి. పేర్లు, ప్రదేశాలను మార్చవద్దు.
+3. శీర్షిక నిబంధనలు (CRITICAL HEADLINE RULES):
+   - తప్పనిసరిగా మొదటి నుండి చివరి వరకు ఒకే ఒక్క నిరంతర సంపూర్ణ వాక్యం (STRICTLY ONE SINGLE CONTINUOUS SENTENCE) ఉండాలి.
+   - రెండు వాక్యాలుగా లేదా ముక్కలుగా విడదీయరాదు. మధ్యలో డబుల్ డాట్స్ (..) లేదా చుక్కలు పెట్టరాదు.
+   - కచ్చితంగా 5 నుండి 8 పదాలు మాత్రమే (STRICTLY 5-8 WORDS ONLY) ఉండాలి.
+   - కవితాత్మక రూపకాలు (Poetic Metaphors - కన్నీటి సంద్రం, ఆక్రోశపు జ్వాలలు, మృత్యు కుహరాలు, కర్కశ వైఖరి, చీకటి కోరలు) ఉపయోగించి హృదయాన్ని హత్తుకునేలా లేదా రగిలించేలా రాయాలి.
+   - ఎక్కడా కొటేషన్ మార్కులు ('...', "...") లేదా కోలన్ టెంప్లేట్లు వాడరాదు.
+4. కన్నడ, హిందీ లిపి అక్షరాలు రాకుండా స్వచ్ఛమైన తెలుగు లిపి మాత్రమే వాడాలి.
+5. ఇంగ్లీష్ సారాంశం (contentEn) max 50-60 పదాలు, ఇంగ్లీష్ శీర్షిక (headlineEn) max 8-10 పదాలు రాయండి.
+అవుట్‌పుట్ కేవలం JSON మాత్రమే ఇవ్వాలి.`,
                 temperature: 0.4,
                 maxOutputTokens: 4096,
                 responseMimeType: "application/json",
@@ -45,7 +49,7 @@ Output JSON only.`,
             return null;
         return {
             ...parsed,
-            headline: (0, utils_1.sanitizeTeluguText)(parsed.headline),
+            headline: (0, utils_1.cleanTeluguHeadline)(parsed.headline),
             content: (0, utils_1.sanitizeTeluguText)(parsed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim()
         };
     });
@@ -75,14 +79,18 @@ const processCitizenContentWithAI = async (rawContent) => {
             model: modelName,
             contents: [{ role: "user", parts: [{ text: `Citizen Submission:\n${rawContent}` }] }],
             config: {
-                systemInstruction: `You are the Chief Editor of Alfa News (Telugu).
-1. Transform the input into high-quality Telugu news (content) of STRICTLY 60 to 70 words total as strictly ONE SINGLE UNIFIED PARAGRAPH (గతం లో మాదిరిగానే ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్, no multiple paragraphs, no newlines).
-2. Capture the full emotional essence (భావం), tone, and intensity (ఆవేశం, ఆగ్రహం, ఆవేదన). Include ALL factual names of people and exact locations. Never invent facts.
-3. Extract the sharpest punch dialogue or key statement from the news as the headline hook (e.g. "'...': ..."). STRICTLY 6-9 words.
-4. STRICT SCRIPT PURITY: Output pure Telugu script only (Unicode U+0C00-U+0C7F). Zero Kannada or Hindi/Devanagari characters allowed.
-5. Write a crisp English summary (contentEn) maximum 60 words, and English headline (headlineEn) maximum 10-12 words.
-LEGAL COMPLIANCE: Use objective, neutral language. For allegations, use "ఆరోపణలు వస్తున్నాయి" or "సమాచారం అందుతోంది".
-Output JSON only.`,
+                systemInstruction: `మీరు ఆల్ఫా న్యూస్ (Alfa News) కు చీఫ్ ఎడిటర్.
+1. పౌరులు పంపిన సమాచారాన్ని కచ్చితంగా 60 నుండి 70 పదాల మధ్య ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్ (content) వార్తగా మార్చండి (No multiple paragraphs, no newlines).
+2. ప్రజా సమస్యల తీవ్రత, ఆవేదన లేదా సమస్య మూల భావాన్ని (భావం) యథాతథంగా ప్రతిబింబించండి.
+3. శీర్షిక నిబంధనలు (CRITICAL HEADLINE RULES):
+   - తప్పనిసరిగా మొదటి నుండి చివరి వరకు ఒకే ఒక్క నిరంతర సంపూర్ణ వాక్యం (STRICTLY ONE SINGLE CONTINUOUS SENTENCE) ఉండాలి.
+   - రెండు వాక్యాలుగా లేదా ముక్కలుగా విడదీయరాదు. మధ్యలో డబుల్ డాట్స్ (..) లేదా చుక్కలు పెట్టరాదు.
+   - కచ్చితంగా 5 నుండి 8 పదాలు మాత్రమే (STRICTLY 5-8 WORDS ONLY) ఉండాలి.
+   - కవితాత్మక రూపకాలు (Poetic Metaphors) ఉపయోగించి ప్రజా సమస్యలను గుండెకు హత్తుకునేలా లేదా నిలదీసేలా రాయాలి.
+   - ఎక్కడా కొటేషన్ మార్కులు ('...', "...") లేదా కోలన్ టెంప్లేట్లు వాడరాదు.
+4. కన్నడ, హిందీ లిపి అక్షరాలు రాకుండా స్వచ్ఛమైన తెలుగు లిపి మాత్రమే వాడాలి.
+5. ఇంగ్లీష్ సారాంశం (contentEn) max 50-60 పదాలు, ఇంగ్లీష్ శీర్షిక (headlineEn) max 8-10 పదాలు రాయండి.
+అవుట్‌పుట్ కేవలం JSON మాత్రమే ఇవ్వాలి.`,
                 temperature: 0.4,
                 maxOutputTokens: 4096,
                 responseMimeType: "application/json",
@@ -95,7 +103,7 @@ Output JSON only.`,
             throw new Error("Empty AI response");
         const parsed = (0, utils_1.parseAIJson)(text);
         if (parsed && parsed.processed) {
-            parsed.processed.headline = (0, utils_1.sanitizeTeluguText)(parsed.processed.headline);
+            parsed.processed.headline = (0, utils_1.cleanTeluguHeadline)(parsed.processed.headline);
             parsed.processed.content = (0, utils_1.sanitizeTeluguText)(parsed.processed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
         }
         return parsed;
@@ -118,14 +126,18 @@ const processContentWithAI = async (rawContent, rawHeadline) => {
             model: modelName,
             contents: [{ role: "user", parts: [{ text: `Headline: ${rawHeadline || 'N/A'}\nContent: ${rawContent}` }] }],
             config: {
-                systemInstruction: `You are the Chief Editor of Alfa News (Telugu).
-1. Transform the input into high-quality Telugu news (summarizedTeluguContent) of STRICTLY 60 to 70 words total as strictly ONE SINGLE UNIFIED PARAGRAPH (గతం లో మాదిరిగానే ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్, no multiple paragraphs, no newlines).
-2. Capture the full emotional essence (భావం), tone, and intensity (ఆవేశం, ఆగ్రహం, ఆవేదన). Include ALL factual names of people and exact locations. Never invent facts.
-3. Extract the sharpest punch dialogue or key statement from the news as the headline hook (e.g. "'...': ..."). STRICTLY 6-9 words.
-4. STRICT SCRIPT PURITY: Output pure Telugu script only (Unicode U+0C00-U+0C7F). Zero Kannada or Hindi/Devanagari characters allowed.
-5. Write a crisp English summary (englishContent) maximum 60 words, and English headline (englishHeadline) maximum 10-12 words.
-LEGAL COMPLIANCE: Use objective, neutral language. For allegations, use "ఆరోపణలు వస్తున్నాయి" or "సమాచారం అందుతోంది".
-Output JSON only.`,
+                systemInstruction: `మీరు ఆల్ఫా న్యూస్ (Alfa News) కు చీఫ్ ఎడిటర్.
+1. సమాచారాన్ని కచ్చితంగా 60 నుండి 70 పదాల మధ్య ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్ (summarizedTeluguContent) వార్తగా మార్చండి (No multiple paragraphs, no newlines).
+2. వార్త యొక్క పూర్తి భావం, మాట్లాడిన వారి ఆవేశం, ఆగ్రహం లేదా సమస్య తీవ్రతను యథాతథంగా ప్రతిబింబించండి.
+3. శీర్షిక నిబంధనలు (CRITICAL HEADLINE RULES):
+   - తప్పనిసరిగా మొదటి నుండి చివరి వరకు ఒకే ఒక్క నిరంతర సంపూర్ణ వాక్యం (STRICTLY ONE SINGLE CONTINUOUS SENTENCE) ఉండాలి.
+   - రెండు వాక్యాలుగా లేదా ముక్కలుగా విడదీయరాదు. మధ్యలో డబుల్ డాట్స్ (..) లేదా చుక్కలు పెట్టరాదు.
+   - కచ్చితంగా 5 నుండి 8 పదాలు మాత్రమే (STRICTLY 5-8 WORDS ONLY) ఉండాలి.
+   - కవితాత్మక రూపకాలు (Poetic Metaphors) ఉపయోగించి సమస్యలను, భావోద్వేగాలను పదునుగా రాయాలి.
+   - ఎక్కడా కొటేషన్ మార్కులు ('...', "...") లేదా కోలన్ టెంప్లేట్లు వాడరాదు.
+4. కన్నడ, హిందీ లిపి అక్షరాలు రాకుండా స్వచ్ఛమైన తెలుగు లిపి మాత్రమే వాడాలి.
+5. ఇంగ్లీష్ సారాంశం (englishContent) max 50-60 పదాలు, ఇంగ్లీష్ శీర్షిక (englishHeadline) max 8-10 పదాలు రాయండి.
+అవుట్‌పుట్ కేవలం JSON మాత్రమే ఇవ్వాలి.`,
                 temperature: 0.4,
                 maxOutputTokens: 4096,
                 responseMimeType: "application/json",
@@ -139,7 +151,7 @@ Output JSON only.`,
         const parsed = (0, utils_1.parseAIJson)(text);
         return {
             ...parsed,
-            generatedTeluguHeadline: (0, utils_1.sanitizeTeluguText)(parsed.generatedTeluguHeadline),
+            generatedTeluguHeadline: (0, utils_1.cleanTeluguHeadline)(parsed.generatedTeluguHeadline),
             summarizedTeluguContent: (0, utils_1.sanitizeTeluguText)(parsed.summarizedTeluguContent).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim()
         };
     });
@@ -185,4 +197,3 @@ const processProductWithAI = async (productInfo) => {
     });
 };
 exports.processProductWithAI = processProductWithAI;
-//# sourceMappingURL=geminiService.js.map
