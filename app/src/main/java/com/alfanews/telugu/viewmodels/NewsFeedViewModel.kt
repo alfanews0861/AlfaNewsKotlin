@@ -16,6 +16,7 @@ import com.alfanews.telugu.services.WeatherService
 import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.PreferenceManager
+import com.alfanews.telugu.utils.NotificationHelper
 import com.alfanews.telugu.utils.Constants
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -943,7 +944,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         is com.google.firebase.Timestamp -> fallback.toDate().time
                         is Number -> fallback.toLong()
                         is java.util.Date -> fallback.time
-                        else -> doc.createTime?.toDate()?.time ?: System.currentTimeMillis()
+                        else -> System.currentTimeMillis()
                     }
                 }
             }
