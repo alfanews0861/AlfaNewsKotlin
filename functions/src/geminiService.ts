@@ -15,6 +15,8 @@ export const processSocialPostWithAI = async (
     headlineEn: string;
     contentEn: string;
     category: string;
+    fullStoryTe?: string;
+    fullStoryEn?: string;
 } | null> => {
     const schema = {
         type: Type.OBJECT,
@@ -22,8 +24,10 @@ export const processSocialPostWithAI = async (
             isNewsFound: { type: Type.BOOLEAN },
             headline: { type: Type.STRING },
             content: { type: Type.STRING },
+            fullStoryTe: { type: Type.STRING, description: "Senior editor comprehensive full story in Telugu, 200-250 words" },
             headlineEn: { type: Type.STRING },
             contentEn: { type: Type.STRING },
+            fullStoryEn: { type: Type.STRING, description: "Senior editor full story in English, 150-200 words" },
             category: { type: Type.STRING }
         },
         required: ["isNewsFound", "headline", "content", "headlineEn", "contentEn", "category"],
@@ -36,7 +40,7 @@ export const processSocialPostWithAI = async (
             config: {
                 systemInstruction: `మీరు ఆల్ఫా న్యూస్ (Alfa News) కు చీఫ్ ఎడిటర్.
 1. ఇచ్చిన సమాచారాన్ని కచ్చితంగా 60 నుండి 70 పదాల మధ్య ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్ (content) వార్తగా మార్చండి (No multiple paragraphs, no newlines).
-2. వార్త యొక్క పూర్తి మూల భావం (భావం), మాట్లాడిన వారి ఆవేశం, ఆగ్రహం, బాధ లేదా ఆవేదన తీవ్రతను యథాతథంగా ప్రతిబింబించండి. పేర్లు, ప్రదేశాలను మార్చవద్దు.
+2. fullStoryTe: ఒక సీనియర్ ఎడిటర్ శైలిలో సమగ్రమైన 200 నుండి 250 పదాల పూర్తి కథనాన్ని రాయండి. అసలు మూల భావం, మాట్లాడిన వారి ఆవేశం లేదా ఆవేదన తీవ్రత తగ్గకూడదు. వ్యక్తులు, ప్రదేశాల పేర్లు మార్చవద్దు. అసలు టెక్స్ట్ చిన్నదైతే లేనివి ఊహించవద్దు.
 3. శీర్షిక నిబంధనలు (CRITICAL HEADLINE RULES):
    - తప్పనిసరిగా మొదటి నుండి చివరి వరకు ఒకే ఒక్క నిరంతర సంపూర్ణ వాక్యం (STRICTLY ONE SINGLE CONTINUOUS SENTENCE) ఉండాలి.
    - రెండు వాక్యాలుగా లేదా ముక్కలుగా విడదీయరాదు. మధ్యలో డబుల్ డాట్స్ (..) లేదా చుక్కలు పెట్టరాదు.
@@ -44,7 +48,7 @@ export const processSocialPostWithAI = async (
    - కవితాత్మక రూపకాలు (Poetic Metaphors - కన్నీటి సంద్రం, ఆక్రోశపు జ్వాలలు, మృత్యు కుహరాలు, కర్కశ వైఖరి, చీకటి కోరలు) ఉపయోగించి హృదయాన్ని హత్తుకునేలా లేదా రగిలించేలా రాయాలి.
    - ఎక్కడా కొటేషన్ మార్కులు ('...', "...") లేదా కోలన్ టెంప్లేట్లు వాడరాదు.
 4. కన్నడ, హిందీ లిపి అక్షరాలు రాకుండా స్వచ్ఛమైన తెలుగు లిపి మాత్రమే వాడాలి.
-5. ఇంగ్లీష్ సారాంశం (contentEn) max 50-60 పదాలు, ఇంగ్లీష్ శీర్షిక (headlineEn) max 8-10 పదాలు రాయండి.
+5. ఇంగ్లీష్ సారాంశం (contentEn) max 50-60 పదాలు, ఇంగ్లీష్ శీర్షిక (headlineEn) max 8-10 పదాలు, ఇంగ్లీష్ పూర్తి కథనం (fullStoryEn) 150-200 పదాలు రాయండి.
 అవుట్‌పుట్ కేవలం JSON మాత్రమే ఇవ్వాలి.`,
                 temperature: 0.4,
                 maxOutputTokens: 4096,
@@ -58,10 +62,13 @@ export const processSocialPostWithAI = async (
         if (!text) return null;
         const parsed = parseAIJson(text);
         if (!parsed || !parsed.isNewsFound) return null;
+        const cleanedContent = sanitizeTeluguText(parsed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
         return {
             ...parsed,
             headline: cleanTeluguHeadline(parsed.headline),
-            content: sanitizeTeluguText(parsed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim()
+            content: cleanedContent,
+            fullStoryTe: parsed.fullStoryTe ? sanitizeTeluguText(parsed.fullStoryTe).trim() : cleanedContent,
+            fullStoryEn: parsed.fullStoryEn ? parsed.fullStoryEn.trim() : (parsed.contentEn || "")
         };
     });
 };
@@ -74,8 +81,10 @@ export const processCitizenContentWithAI = async (
     processed?: {
         headline: string;
         content: string;
+        fullStoryTe?: string;
         headlineEn: string;
         contentEn: string;
+        fullStoryEn?: string;
         category: string;
     };
 }> => {
@@ -89,8 +98,10 @@ export const processCitizenContentWithAI = async (
                 properties: {
                     headline: { type: Type.STRING },
                     content: { type: Type.STRING },
+                    fullStoryTe: { type: Type.STRING, description: "Senior editor full story in Telugu, 200-250 words" },
                     headlineEn: { type: Type.STRING },
                     contentEn: { type: Type.STRING },
+                    fullStoryEn: { type: Type.STRING, description: "Senior editor full story in English, 150-200 words" },
                     category: { type: Type.STRING }
                 }
             }
@@ -105,7 +116,7 @@ export const processCitizenContentWithAI = async (
             config: {
                 systemInstruction: `మీరు ఆల్ఫా న్యూస్ (Alfa News) కు చీఫ్ ఎడిటర్.
 1. పౌరులు పంపిన సమాచారాన్ని కచ్చితంగా 60 నుండి 70 పదాల మధ్య ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్ (content) వార్తగా మార్చండి (No multiple paragraphs, no newlines).
-2. ప్రజా సమస్యల తీవ్రత, ఆవేదన లేదా సమస్య మూల భావాన్ని (భావం) యథాతథంగా ప్రతిబింబించండి.
+2. fullStoryTe: ప్రజా సమస్యల తీవ్రత, ఆవేదన లేదా సమస్య మూల భావాన్ని తగ్గించకుండా, సీనియర్ ఎడిటర్ శైలిలో 200 నుండి 250 పదాల సమగ్ర కథనం రాయండి. లేని విషయాలు కల్పించవద్దు.
 3. శీర్షిక నిబంధనలు (CRITICAL HEADLINE RULES):
    - తప్పనిసరిగా మొదటి నుండి చివరి వరకు ఒకే ఒక్క నిరంతర సంపూర్ణ వాక్యం (STRICTLY ONE SINGLE CONTINUOUS SENTENCE) ఉండాలి.
    - రెండు వాక్యాలుగా లేదా ముక్కలుగా విడదీయరాదు. మధ్యలో డబుల్ డాట్స్ (..) లేదా చుక్కలు పెట్టరాదు.
@@ -113,7 +124,7 @@ export const processCitizenContentWithAI = async (
    - కవితాత్మక రూపకాలు (Poetic Metaphors) ఉపయోగించి ప్రజా సమస్యలను గుండెకు హత్తుకునేలా లేదా నిలదీసేలా రాయాలి.
    - ఎక్కడా కొటేషన్ మార్కులు ('...', "...") లేదా కోలన్ టెంప్లేట్లు వాడరాదు.
 4. కన్నడ, హిందీ లిపి అక్షరాలు రాకుండా స్వచ్ఛమైన తెలుగు లిపి మాత్రమే వాడాలి.
-5. ఇంగ్లీష్ సారాంశం (contentEn) max 50-60 పదాలు, ఇంగ్లీష్ శీర్షిక (headlineEn) max 8-10 పదాలు రాయండి.
+5. ఇంగ్లీష్ సారాంశం (contentEn) max 50-60 పదాలు, ఇంగ్లీష్ శీర్షిక (headlineEn) max 8-10 పదాలు, ఇంగ్లీష్ పూర్తి కథనం (fullStoryEn) 150-200 పదాలు రాయండి.
 అవుట్‌పుట్ కేవలం JSON మాత్రమే ఇవ్వాలి.`,
                 temperature: 0.4,
                 maxOutputTokens: 4096,
@@ -127,8 +138,11 @@ export const processCitizenContentWithAI = async (
         if (!text) throw new Error("Empty AI response");
         const parsed = parseAIJson(text);
         if (parsed && parsed.processed) {
+            const cleanContent = sanitizeTeluguText(parsed.processed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
             parsed.processed.headline = cleanTeluguHeadline(parsed.processed.headline);
-            parsed.processed.content = sanitizeTeluguText(parsed.processed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+            parsed.processed.content = cleanContent;
+            parsed.processed.fullStoryTe = parsed.processed.fullStoryTe ? sanitizeTeluguText(parsed.processed.fullStoryTe).trim() : cleanContent;
+            parsed.processed.fullStoryEn = parsed.processed.fullStoryEn ? parsed.processed.fullStoryEn.trim() : (parsed.processed.contentEn || "");
         }
         return parsed;
     });
@@ -142,14 +156,18 @@ export const processContentWithAI = async (
     generatedTeluguHeadline: string;
     englishHeadline: string;
     englishContent: string;
+    fullStoryTe?: string;
+    fullStoryEn?: string;
 }> => {
     const schema = {
         type: Type.OBJECT,
         properties: {
             summarizedTeluguContent: { type: Type.STRING },
             generatedTeluguHeadline: { type: Type.STRING },
+            fullStoryTe: { type: Type.STRING, description: "Senior editor comprehensive full story in Telugu, 200-250 words" },
             englishHeadline: { type: Type.STRING },
             englishContent: { type: Type.STRING },
+            fullStoryEn: { type: Type.STRING, description: "Senior editor full story in English, 150-200 words" },
         },
         required: ["summarizedTeluguContent", "generatedTeluguHeadline", "englishHeadline", "englishContent"],
     };
@@ -161,7 +179,7 @@ export const processContentWithAI = async (
             config: {
                 systemInstruction: `మీరు ఆల్ఫా న్యూస్ (Alfa News) కు చీఫ్ ఎడిటర్.
 1. సమాచారాన్ని కచ్చితంగా 60 నుండి 70 పదాల మధ్య ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్ (summarizedTeluguContent) వార్తగా మార్చండి (No multiple paragraphs, no newlines).
-2. వార్త యొక్క పూర్తి భావం, మాట్లాడిన వారి ఆవేశం, ఆగ్రహం లేదా సమస్య తీవ్రతను యథాతథంగా ప్రతిబింబించండి.
+2. fullStoryTe: సీనియర్ ఎడిటర్ శైలిలో సమగ్రమైన 200 నుండి 250 పదాల పూర్తి కథనాన్ని రాయండి. అసలు మూల భావం, మాట్లాడిన వారి ఆవేశం లేదా ఆవేదన తీవ్రత తగ్గకూడదు. వ్యక్తులు, ప్రదేశాల పేర్లు మార్చవద్దు. అసలు టెక్స్ట్ చిన్నదైతే లేనివి ఊహించవద్దు.
 3. శీర్షిక నిబంధనలు (CRITICAL HEADLINE RULES):
    - తప్పనిసరిగా మొదటి నుండి చివరి వరకు ఒకే ఒక్క నిరంతర సంపూర్ణ వాక్యం (STRICTLY ONE SINGLE CONTINUOUS SENTENCE) ఉండాలి.
    - రెండు వాక్యాలుగా లేదా ముక్కలుగా విడదీయరాదు. మధ్యలో డబుల్ డాట్స్ (..) లేదా చుక్కలు పెట్టరాదు.
@@ -169,7 +187,7 @@ export const processContentWithAI = async (
    - కవితాత్మక రూపకాలు (Poetic Metaphors) ఉపయోగించి సమస్యలను, భావోద్వేగాలను పదునుగా రాయాలి.
    - ఎక్కడా కొటేషన్ మార్కులు ('...', "...") లేదా కోలన్ టెంప్లేట్లు వాడరాదు.
 4. కన్నడ, హిందీ లిపి అక్షరాలు రాకుండా స్వచ్ఛమైన తెలుగు లిపి మాత్రమే వాడాలి.
-5. ఇంగ్లీష్ సారాంశం (englishContent) max 50-60 పదాలు, ఇంగ్లీష్ శీర్షిక (englishHeadline) max 8-10 పదాలు రాయండి.
+5. ఇంగ్లీష్ సారాంశం (englishContent) max 50-60 పదాలు, ఇంగ్లీష్ శీర్షిక (englishHeadline) max 8-10 పదాలు, ఇంగ్లీష్ పూర్తి కథనం (fullStoryEn) 150-200 పదాలు రాయండి.
 అవుట్‌పుట్ కేవలం JSON మాత్రమే ఇవ్వాలి.`,
                 temperature: 0.4,
                 maxOutputTokens: 4096,
@@ -182,10 +200,13 @@ export const processContentWithAI = async (
         const text = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!text) throw new Error("Empty AI response");
         const parsed = parseAIJson(text);
+        const cleanContent = sanitizeTeluguText(parsed.summarizedTeluguContent).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
         return {
             ...parsed,
             generatedTeluguHeadline: cleanTeluguHeadline(parsed.generatedTeluguHeadline),
-            summarizedTeluguContent: sanitizeTeluguText(parsed.summarizedTeluguContent).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim()
+            summarizedTeluguContent: cleanContent,
+            fullStoryTe: parsed.fullStoryTe ? sanitizeTeluguText(parsed.fullStoryTe).trim() : cleanContent,
+            fullStoryEn: parsed.fullStoryEn ? parsed.fullStoryEn.trim() : (parsed.englishContent || "")
         };
     });
 };

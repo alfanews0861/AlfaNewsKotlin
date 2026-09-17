@@ -410,6 +410,22 @@ function normalizeSingleStory(aiRes, actualPostData) {
         aiRes.english?.content || aiRes.english?.contentEn || aiRes.english?.summary ||
         aiRes.english_version?.content || aiRes.english_version?.summary ||
         aiRes.summaryEn || aiRes.summarized_english_content || aiRes.englishContent || "";
+    let finalFullStoryTe = aiRes.fullStoryTe || aiRes.full_story_te || aiRes.fullStory || aiRes.full_story ||
+        aiRes.telugu?.fullStory || aiRes.telugu_version?.fullStory || "";
+    if (finalFullStoryTe && typeof finalFullStoryTe === 'string' && finalFullStoryTe.trim().length > 0) {
+        finalFullStoryTe = (0, utils_1.sanitizeTeluguText)(finalFullStoryTe).trim();
+    }
+    else {
+        finalFullStoryTe = finalContent;
+    }
+    let finalFullStoryEn = aiRes.fullStoryEn || aiRes.full_story_en ||
+        aiRes.english?.fullStory || aiRes.english_version?.fullStory || "";
+    if (finalFullStoryEn && typeof finalFullStoryEn === 'string' && finalFullStoryEn.trim().length > 0) {
+        finalFullStoryEn = finalFullStoryEn.trim();
+    }
+    else {
+        finalFullStoryEn = finalContentEn;
+    }
     const normalizedEntities = {
         people: Array.isArray(aiRes.entities?.people) ? aiRes.entities.people : [],
         organizations: Array.isArray(aiRes.entities?.organizations) ? aiRes.entities.organizations : [],
@@ -439,6 +455,7 @@ function normalizeSingleStory(aiRes, actualPostData) {
     return {
         headline: { telugu: finalHeadline || "", english: finalHeadlineEn || "" },
         content: { telugu: finalContent || "", english: finalContentEn || "" },
+        fullStory: { telugu: finalFullStoryTe || "", english: finalFullStoryEn || "" },
         notificationTitle: finalNotificationTitle,
         location: aiRes.location || actualPostData?.location || "",
         category: primaryCategory,
@@ -487,6 +504,7 @@ async function performAIProcessing(headline, content, actualPostData, recentStor
                     return [{
                             headline: { telugu: headline, english: "" },
                             content: { telugu: content, english: "" },
+                            fullStory: { telugu: content, english: "" },
                             notificationTitle: "",
                             location: actualPostData?.location || recent.location || "",
                             category: "జిల్లా వార్త",
@@ -519,8 +537,10 @@ async function performAIProcessing(headline, content, actualPostData, recentStor
         properties: {
             headline: { type: genai_1.Type.STRING },
             content: { type: genai_1.Type.STRING },
+            fullStoryTe: { type: genai_1.Type.STRING, description: "Senior Editor comprehensive full story in Telugu, strictly 200-250 words" },
             headlineEn: { type: genai_1.Type.STRING },
             contentEn: { type: genai_1.Type.STRING },
+            fullStoryEn: { type: genai_1.Type.STRING, description: "Senior Editor comprehensive full story in English, 150-200 words" },
             location: { type: genai_1.Type.STRING },
             storyFingerprint: { type: genai_1.Type.STRING },
             refinedCategory: { type: genai_1.Type.STRING },

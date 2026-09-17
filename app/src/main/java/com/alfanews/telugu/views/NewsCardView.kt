@@ -125,6 +125,7 @@ fun NewsCardView(
     var isLiked by remember(post.id) { mutableStateOf(false) }
     var showComments by remember(post.id) { mutableStateOf(false) }
     var showReportDialog by remember(post.id) { mutableStateOf(false) }
+    var showFullStorySheet by remember(post.id) { mutableStateOf(false) }
     
     // 🚀 key(post.id) ensures scroll state properly resets for each different post
     val scrollState = key(post.id) { rememberScrollState() }
@@ -158,6 +159,17 @@ fun NewsCardView(
         contentText.split(Regex("(?:\r?\n\\s*)+"))
             .map { it.trim() }
             .filter { it.isNotEmpty() }
+    }
+
+    val hasSubstantialFullStory = remember(language, post.fullStory, post.content) {
+        val storyText = if (language == Language.ENGLISH) post.fullStory.english else post.fullStory.telugu
+        val shortText = if (language == Language.ENGLISH) post.content.english else post.content.telugu
+        if (storyText.isBlank()) {
+            false
+        } else {
+            val words = storyText.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+            words.size >= 100 && storyText.trim() != shortText.trim()
+        }
     }
 
     var isSharing by remember { mutableStateOf(false) }
@@ -534,6 +546,46 @@ fun NewsCardView(
                                     )
                                 }
                             }
+
+                            // 🌟 "పూర్తి వార్త" (Full Story) Button - Only shown when story has >= 100 words
+                            if (hasSubstantialFullStory) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(18.dp),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.09f),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)),
+                                    modifier = Modifier
+                                        .clickable { showFullStorySheet = true }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MenuBook,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Text(
+                                            text = if (language == Language.TELUGU) "పూర్తి వార్త చదవండి" else "Read Full Story",
+                                            style = TextStyle(
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = if (language == Language.TELUGU) Mallanna else Poppins,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowDown,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
                             
                             if (post.surveyQuestions.isNotEmpty()) {
                                 InlineMicroPoll(
@@ -659,6 +711,14 @@ fun NewsCardView(
             }
         }
         
+        if (showFullStorySheet) {
+            FullStoryBottomSheet(
+                post = post,
+                language = language,
+                onDismissRequest = { showFullStorySheet = false }
+            )
+        }
+
         if (showReportDialog) {
             ReportNewsDialog(
                 postId = post.id,
@@ -1855,6 +1915,217 @@ fun InlineMicroPoll(
                         ) {
                             Text(text = option.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FullStoryBottomSheet(
+    post: NewsPost,
+    language: Language,
+    onDismissRequest: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val isEnglish = language == Language.ENGLISH
+    val headlineText = if (isEnglish) {
+        post.headline.english.ifBlank { post.headline.telugu }
+    } else {
+        post.headline.telugu.ifBlank { post.headline.english }
+    }
+
+    val fullStoryRaw = if (isEnglish) {
+        post.fullStory.english.ifBlank { post.content.english.ifBlank { post.fullStory.telugu } }
+    } else {
+        post.fullStory.telugu.ifBlank { post.content.telugu.ifBlank { post.fullStory.english } }
+    }
+
+    val englishRegex = remember { Regex("[a-zA-Z]") }
+    val headlineFontFamily = remember(isEnglish, headlineText) {
+        if (isEnglish || (headlineText.isNotBlank() && headlineText.contains(englishRegex))) Poppins else Ramabhadra
+    }
+    val contentFontFamily = remember(isEnglish, fullStoryRaw) {
+        if (isEnglish || (fullStoryRaw.isNotBlank() && fullStoryRaw.contains(englishRegex))) Poppins else Mallanna
+    }
+
+    val paragraphs = remember(fullStoryRaw) {
+        fullStoryRaw.split(Regex("(?:\r?\n\\s*)+"))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    }
+
+    val formattedTimestamp = remember(post.timestamp) {
+        DateTimeUtils.formatTimestamp(post.timestamp, "dd-MM-yy, hh:mm a", Locale.forLanguageTag("en-IN"))
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        sheetState = sheetState,
+        modifier = Modifier.fillMaxHeight(0.9f),
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        dragHandle = {
+            BottomSheetDefaults.DragHandle()
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 20.dp)
+        ) {
+            // Top Bar: Category & Close Button
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val catText = post.category?.takeIf { it.isNotBlank() && it != "General News" }
+                        ?: post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" }
+                        ?: if (isEnglish) "Special Story" else "ప్రత్యేక కథనం"
+
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = catText,
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            ),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+
+                    if (post.location.isNotBlank()) {
+                        Text(
+                            text = "• ${post.location}",
+                            style = TextStyle(
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = onDismissRequest,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // Scrollable Story Content
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 24.dp)
+            ) {
+                // Headline
+                Text(
+                    text = headlineText,
+                    style = TextStyle(
+                        fontSize = if (isEnglish) 20.sp else 22.sp,
+                        lineHeight = if (isEnglish) 28.sp else 30.sp,
+                        fontFamily = headlineFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        platformStyle = PlatformTextStyle(includeFontPadding = false)
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Meta Info (Reporter & Time)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val reporterName = post.reporter.name.ifBlank { "Alfa News Desk" }
+                    Text(
+                        text = reporterName,
+                        style = TextStyle(
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                    Text(
+                        text = "|",
+                        style = TextStyle(fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                    )
+                    Text(
+                        text = formattedTimestamp,
+                        style = TextStyle(fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                DottedLine()
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Full Story Paragraphs
+                paragraphs.forEach { paragraph ->
+                    Text(
+                        text = paragraph,
+                        style = TextStyle(
+                            fontSize = if (isEnglish) 16.sp else 18.sp,
+                            lineHeight = if (isEnglish) 24.sp else 27.sp,
+                            fontFamily = contentFontFamily,
+                            platformStyle = PlatformTextStyle(includeFontPadding = false)
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Editorial Verification Badge
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Verified,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = if (isEnglish) "Alfa News Verified Comprehensive Story" else "ఆల్ఫా న్యూస్ ఎడిటోరియల్ సమగ్ర కథనం",
+                            style = TextStyle(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                fontFamily = if (isEnglish) Poppins else Mallanna,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        )
                     }
                 }
             }

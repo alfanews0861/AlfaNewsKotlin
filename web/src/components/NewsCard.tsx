@@ -4,7 +4,7 @@ import CommentSection from './CommentSection';
 import html2canvas from 'html2canvas';
 import { logAnalyticsEvent } from '../services/analyticsService';
 import { updateInterests } from '../services/interestService';
-import { Heart, MessageCircle, Share2 } from 'lucide-react';
+import { Heart, MessageCircle, Share2, BookOpen, ChevronDown, X, CheckCircle2 } from 'lucide-react';
 
 export const getReadNewsIds = (): Set<string> => {
   try {
@@ -71,6 +71,7 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
   const [commentCount, setCommentCount] = useState(post.comments || 0);
   const [isLiked, setIsLiked] = useState(false);
   const [showComments, setShowComments] = useState(false);
+  const [showFullStory, setShowFullStory] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [isRead, setIsRead] = useState<boolean>(() => getReadNewsIds().has(post.id));
   
@@ -83,6 +84,13 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
 
   const headline = language === Language.TELUGU ? (post.headline?.telugu || '') : (post.headline?.english || '');
   const content = language === Language.TELUGU ? (post.content?.telugu || '') : (post.content?.english || '');
+
+  const fullStoryText = (language === Language.TELUGU ? post.fullStory?.telugu : post.fullStory?.english) || '';
+  const hasSubstantialFullStory = Boolean(
+    fullStoryText.trim() &&
+    fullStoryText.trim().split(/\s+/).filter(Boolean).length >= 100 &&
+    fullStoryText.trim() !== content.trim()
+  );
 
   // Extract YouTube ID if present in youtubeUrl, mediaUrl, or mediaUrls
   const youtubeCandidate = post.youtubeUrl || 
@@ -442,9 +450,25 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
                 onScroll={handleScroll}
                 className="flex-1 overflow-y-auto no-scrollbar pr-1 pb-24"
               >
-                <p className={`font-mallanna text-base md:text-lg leading-[1.4] whitespace-pre-wrap mb-4 transition-colors ${isRead ? 'text-gray-400' : 'text-gray-200'}`}>
+                <p className={`font-mallanna text-base md:text-lg leading-[1.4] whitespace-pre-wrap mb-3 transition-colors ${isRead ? 'text-gray-400' : 'text-gray-200'}`}>
                   {content}
                 </p>
+
+                {/* Full Story Pill Button - Only shown when story has >= 100 words */}
+                {hasSubstantialFullStory && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowFullStory(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 mb-4 rounded-full bg-red-600/10 hover:bg-red-600/20 border border-red-500/30 text-red-400 text-xs font-bold transition-all cursor-pointer shadow-sm"
+                  >
+                    <BookOpen className="w-3.5 h-3.5" />
+                    <span>{language === Language.TELUGU ? "పూర్తి వార్త చదవండి" : "Read Full Story"}</span>
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 
                 {/* Tags & Entities Section */}
                 {(post.tags?.length || post.entities?.people?.length || post.entities?.organizations?.length) && (
@@ -522,6 +546,60 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
           onCommentPosted={() => {}}
           onLoginRequest={onProfileClick}
         />
+      )}
+
+      {showFullStory && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end justify-center animate-fade-in"
+          onClick={() => setShowFullStory(false)}
+        >
+          <div 
+            className="w-full max-w-lg h-[90vh] bg-zinc-950 border-t border-white/10 rounded-t-2xl flex flex-col overflow-hidden shadow-2xl animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Top Bar / Drag Handle */}
+            <div className="flex flex-col items-center pt-2 pb-1 px-4 border-b border-white/10">
+              <div className="w-10 h-1 rounded-full bg-white/20 mb-3"></div>
+              <div className="w-full flex items-center justify-between pb-2">
+                <div className="flex items-center gap-2">
+                  <span className="bg-red-600/20 text-red-400 border border-red-500/30 text-[10px] font-bold px-2 py-0.5 rounded">
+                    {post.category || (language === Language.TELUGU ? "ప్రత్యేక కథనం" : "Special Story")}
+                  </span>
+                  {post.location && (
+                    <span className="text-gray-400 text-xs font-mallanna">• {post.location}</span>
+                  )}
+                </div>
+                <button 
+                  onClick={() => setShowFullStory(false)}
+                  className="p-1.5 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Scrollable Story Content */}
+            <div className="flex-1 overflow-y-auto p-5 text-gray-100">
+              <h1 className="font-ramabhadra text-xl md:text-2xl leading-tight mb-3 text-white">
+                {headline}
+              </h1>
+              <div className="flex items-center gap-2 text-xs text-gray-400 pb-3 mb-3 border-b border-white/10 font-mallanna">
+                <span className="text-red-400 font-bold">{post.reporter?.name || "Alfa News Desk"}</span>
+                <span>|</span>
+                <span>{formattedDate} {formattedTime}</span>
+              </div>
+              <div className="font-mallanna text-base md:text-lg leading-[1.6] space-y-3 text-gray-200 whitespace-pre-wrap">
+                {post.fullStory && ((language === Language.TELUGU ? post.fullStory.telugu : post.fullStory.english) || '').trim().length > 0
+                  ? (language === Language.TELUGU ? post.fullStory.telugu : post.fullStory.english)
+                  : content}
+              </div>
+              <div className="mt-8 p-3 rounded-lg bg-white/5 border border-white/10 flex items-center gap-2 text-xs text-gray-400">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{language === Language.TELUGU ? "ఆల్ఫా న్యూస్ ఎడిటోరియల్ సమగ్ర కథనం" : "Alfa News Verified Comprehensive Story"}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

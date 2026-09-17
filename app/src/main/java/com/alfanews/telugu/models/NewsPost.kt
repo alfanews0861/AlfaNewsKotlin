@@ -29,6 +29,14 @@ data class Content(
 )
 
 /**
+ * తెలుగు మరియు ఆంగ్ల భాషలలో పూర్తి వార్తను (250 పదాల సమగ్ర వార్త) కలిగి ఉంటుంది.
+ */
+data class FullStory(
+    val telugu: String = "",
+    val english: String = ""
+)
+
+/**
  * వార్తను నివేదించిన రిపోర్టర్ వివరాలు.
  */
 data class Reporter(
@@ -59,6 +67,7 @@ data class NewsPost(
     val id: String = "",
     val headline: Headline = Headline(),
     val content: Content = Content(),
+    val fullStory: FullStory = FullStory(),
     val mediaUrl: String = "",
     val mediaType: MediaType = MediaType.IMAGE,
     val mediaUrls: List<String> = emptyList(),
@@ -154,6 +163,11 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
     val content = Content(
         telugu = contentMap?.get("telugu")?.toString() ?: data["content"]?.toString() ?: "",
         english = contentMap?.get("english")?.toString() ?: ""
+    )
+    val fullStoryMap = data["fullStory"] as? Map<*, *>
+    val fullStory = FullStory(
+        telugu = fullStoryMap?.get("telugu")?.toString() ?: data["fullStory"]?.toString() ?: content.telugu,
+        english = fullStoryMap?.get("english")?.toString() ?: content.english
     )
     val mediaUrl = data["mediaUrl"]?.toString() ?: ""
     val mediaType = if (data["mediaType"]?.toString() == "VIDEO") MediaType.VIDEO else MediaType.IMAGE
@@ -317,6 +331,7 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
         id = id,
         headline = headline,
         content = content,
+        fullStory = fullStory,
         mediaUrl = mediaUrl,
         mediaType = mediaType,
         youtubeUrl = youtubeUrl,

@@ -1663,6 +1663,16 @@ async function processSingleWebSource(doc) {
      * Capture the complete meaning/soul (భావం) of the news faithfully.
      * Modulate and preserve the true emotional tone and intensity (ఆవేశం, ఆగ్రహం, బాధ, పోరాట పటిమ, లేదా ప్రజా సమస్య తీవ్రత).
      * Include ALL key people's names (వ్యక్తుల పేర్లు) and exact locations/districts/mandals (ప్రాంతాలు). Never omit names or locations!
+3.1. SENIOR EDITOR FULL STORY (పూర్తి వార్తా కథనం - STRICTLY 200 TO 250 WORDS):
+   - 'fullStoryTe': ఇచ్చిన సమాచారాన్ని ఒక సీనియర్ ఎడిటర్ లాగా సమగ్రమైన, శుభ్రమైన, చక్కగా చదవగలిగే 200 నుండి 250 పదాల పూర్తి కథనంగా (full story) తీర్చిదిద్దాలి.
+   - నిబంధనలు (CRITICAL RULES FOR FULL STORY):
+     * పదాల పరిమితి: గరిష్టంగా 200 నుండి 250 తెలుగు పదాలు మాత్రమే ఉండాలి.
+     * భావం & తీవ్రత (Tone & Intensity): వార్త యొక్క మూల భావం, మాట్లాడిన వారి ఆవేశం, ఆగ్రహం, బాధ లేదా ప్రజా సమస్య తీవ్రత అస్సలు తగ్గకూడదు.
+     * కల్పితాలు వద్దు (NO HALLUCINATIONS): అసలు సమాచారంలో 150-200 పదాలే ఉంటే లేనిపోనివి ఊహించి రాయవద్దు. ఉన్న సమాచారాన్నే పరిశుభ్రమైన భాషలో, చక్కటి పేరాగ్రాఫ్‌లుగా రాయండి.
+     * వాస్తవాల రక్షణ: వ్యక్తుల పేర్లు, సంస్థలు, ప్రాంతాలు, పదవులు, తేదీలు, అంకెలను ఎట్టిపరిస్థితుల్లోనూ మార్చవద్దు, మిస్ చేయవద్దు.
+     * పునరావృతం వద్దు: వాక్యాలు లేదా పదాలు అనవసరంగా రిపీట్ కాకుండా సీనియర్ జర్నలిస్ట్ శైలిలో సూటిగా, స్పష్టంగా రాయాలి.
+     * చిన్న వార్తల నిబంధన (SHORT NEWS): ఒకవేళ మూల సమాచారం 70-80 పదాల లోపే ఉండి, వార్తలో ఇతర వివరాలు ఏమీ లేనప్పుడు, బలవంతంగా 200 పదాలు పూర్తి చేయడానికి లేనివి ఊహించవద్దు. అటువంటి చిన్న వార్తలకు fullStoryTe ను content కు సమానంగా ఉంచండి.
+   - 'fullStoryEn': English Full Story (strictly 150 to 200 words) maintaining the same journalistic depth, emotion, and facts. For short news, keep equal to contentEn.
 4. PUNCH DIALOGUE AS HEADLINE (పంచ్ డైలాగ్ లేదా ఘాటైన వాక్యాన్నే హెడ్‌లైన్‌గా పెట్టు):
    - Extract the speaker's sharpest punch dialogue, quote, rhetorical question, or fiery statement from the news as the headline hook.
    - Format: Lead with the punch dialogue in quotes, followed by context:
@@ -1688,7 +1698,7 @@ async function processSingleWebSource(doc) {
    - tags: 3-5 Telugu keywords.
    - entities: { "people": [], "organizations": [], "locations": [] }.
 10. Output JSON only:
-{"isRelevant": true, "headline": "Telugu Title", "content": "Telugu Summary", "headlineEn": "English Title", "contentEn": "English Summary", "location": "Location", "storyFingerprint": "finger-print", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "hasLogo": false, "mediaUrl": "${extracted.image || ''}", "mediaType": "image|video", "isWide": true|false}`;
+{"isRelevant": true, "headline": "Telugu Title", "content": "Telugu Summary", "fullStoryTe": "Telugu Full Story (200-250 words)", "headlineEn": "English Title", "contentEn": "English Summary", "fullStoryEn": "English Full Story (150-200 words)", "location": "Location", "storyFingerprint": "finger-print", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "hasLogo": false, "mediaUrl": "${extracted.image || ''}", "mediaType": "image|video", "isWide": true|false}`;
 
                 const aiResult = await processWithGemini(extracted.body, prompt, extracted.image);
                 if (!aiResult) {
@@ -1790,11 +1800,17 @@ async function processSingleWebSource(doc) {
                     // Enforce pure Telugu script & Single Paragraph
                     const cleanedHeadline = sanitizeTeluguText(parsed.headline);
                     const cleanedContent = sanitizeTeluguText(parsed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+                    let cleanedFullStoryTe = sanitizeTeluguText(parsed.fullStoryTe || parsed.content || '').trim();
+                    let cleanedFullStoryEn = (parsed.fullStoryEn || parsed.contentEn || '').trim();
+                    if (!cleanedFullStoryTe) {
+                        cleanedFullStoryTe = cleanedContent;
+                    }
 
                     const docRef = db.collection('news').doc();
                     const newsPayload = sanitizeFirestoreData({
                         headline: { telugu: cleanedHeadline, english: parsed.headlineEn || '' },
                         content: { telugu: cleanedContent, english: parsed.contentEn || '' },
+                        fullStory: { telugu: cleanedFullStoryTe, english: cleanedFullStoryEn },
                         sourceUrl: link,
                         originalUrl: link,
                         sourceName: source.siteName,
@@ -2332,20 +2348,25 @@ async function processSingleTwitterFeed(doc) {
                 const district = feed.district || '';
                 const designation = feed.designation || feed.role || feed.party || '';
 
-                const prompt = `You are a Senior Telugu Journalist and Political News Editor for Alfa News network.
-Evaluate this official social media post from a political leader / government representative:
+                const prompt = `You are a Senior Telugu Journalist and News Editor for Alfa News network.
+Read, understand, and transform the following social media post into an accurate, high-impact news story.
 
-POST METADATA & AUTHOR ATTRIBUTION:
-- AUTHOR / LEADER: ${authorDisplayName} (${handleTag})
-- DISTRICT / REGION: ${district || "Andhra Pradesh / Telangana"}
-${designation ? `- DESIGNATION / ROLE: ${designation}` : ""}
+CONTEXT / REGION: ${district || "Andhra Pradesh / Telangana"}
 
-CRITICAL AUTHOR ATTRIBUTION RULES:
-1. This post is published directly by "${authorDisplayName}" (${handleTag}).
-2. ALL first-person statements, verbs, and declarations in the post (e.g., "నేను", "పాల్గొన్నాను", "వెల్లడించాను", "వెల్లడించాము", "సందర్శించాను", "మా ప్రభుత్వం", "చర్యలు చేపడతాం", "కోరుతున్నాను", "సవాల్ చేస్తున్నాను") MUST be explicitly attributed to "${authorDisplayName}"!
-   - Examples: "${authorDisplayName} వెల్లడించారు", "${authorDisplayName} పేర్కొన్నారు", "${authorDisplayName} స్పష్టం చేశారు".
-3. STRICTLY FORBIDDEN: DO NOT use anonymous or generic placeholders like "ప్రముఖ నాయకులు", "నేతలు", "ఒక నేత", or "నాయకులు వెల్లడించారు". When the author is known, you MUST use "${authorDisplayName}"!
-4. You MUST include "${authorDisplayName}" in the "entities.people" array and add "#${authorDisplayName.replace(/\s+/g, '_')}" in the "tags" array.
+CRITICAL RULES - MATTER COMPREHENSION & SOURCE PROHIBITION:
+1. STRICTLY FORBIDDEN - ZERO SOURCE NAMES (సోర్స్ పేర్లు పూర్తిగా నిషిద్ధం):
+   - Sources can be news aggregators/curators (e.g. Telugu Scribe, Great Andhra, ANI, AP7AM) or official administrative accounts (e.g. DPRO, Collectorate, Police SP Office / Commissionerate, I&PR, CMO).
+   - NEVER mention or attribute the news to the source/handle name anywhere in the headline, content, or tags! (e.g., DO NOT write "తెలుగు స్క్రైబ్ తెలిపింది", "తెలుగు స్క్రైబ్ వీరంగం", "DPRO వెల్లడించింది", "కలెక్టరేట్ పేర్కొంది", "పోలీస్ కార్యాలయం తెలిపింది").
+   - In our short news format, there is zero space for publishing source names.
+
+2. READ THE MATTER & IDENTIFY THE ACTUAL SUBJECT / SPEAKER (వార్తలోని అసలు విషయాన్ని, మాట్లాడిన వారిని గుర్తించు):
+   - Carefully read and understand the entire matter inside the post.
+   - Identify WHO actually said or did what (e.g., specific political leader, MLA, MP, minister, official, court, police officer, or incident).
+   - If the post quotes or mentions a specific person (e.g. preceded by "-", "—", in quotes, or names like "రంపచోడవరం టీడీపీ ఎమ్మెల్యే శిరీషదేవి", "మంత్రి నారా లోకేష్"), the statement, quotes, and actions MUST be attributed directly to THAT specific person!
+   - If the post is an administrative/public announcement or incident without a specific named individual (e.g., road accident, weather alert, crime bust, welfare funds release), report the incident or department directly without inventing or attributing to the social media handle.
+
+3. PRESERVE ORIGINAL TONE, FIGHTING SPIRIT & INTENSITY (వార్త టోన్, తీవ్రత, ఆవేశం ఏమాత్రం మారకూడదు):
+   - Preserve the original emotional intensity, sharpness, fighting spirit, anger, grief, or urgency of the incident or speaker (ఆవేశం, ఆగ్రహం, బాధ, పోరాట పటిమ, లేదా ఘాటు విమర్శ తీవ్రత తగ్గకూడదు).
 
 EDITORIAL FILTER RULES:
 1. ACCEPT & PRIORITIZE (Set "isRelevant": true):
@@ -2367,9 +2388,10 @@ WRITING RULES (CRITICAL EDITORIAL STYLE):
 2. POLITICAL ATTACKS & INTENSITY (రాజకీయ విమర్శలు, ఘాటు వ్యాఖ్యలు):
    - If the post is a political fight, criticism, or challenge, preserve the leader's fighting spirit, intensity, and sharpness (ఘాటు విమర్శ, ఆగ్రహం, నిలదీత, సవాల్, ఆవేదన).
 3. HEADLINE (శీర్షిక - కచ్చితంగా 7 నుండి 8 పదాల పంచ్ డైలాగ్ మాత్రమే):
-   - Format: Must lead with the sharpest punch dialogue, quote, or biggest decision in quotes, followed by the leader's action/statement.
+   - Format: Must lead with the sharpest punch dialogue, quote, or biggest decision in quotes, followed by the leader's/subject's action/statement.
    - Length: STRICTLY 7 to 8 words only (కచ్చితంగా 7 నుండి 8 పదాలు మాత్రమే ఉండాలి). High-impact, punchy Telugu.
    - Examples:
+     * "'తాట తీస్తా.. నాపైనే ఫిర్యాదు చేస్తారా?': ఎమ్మెల్యే శిరీషదేవి ఫైర్"
      * "'తిరుమల భక్తులకు ఉచిత భీమా': మంత్రి ఆనం వెల్లడి"
      * "'సూపర్ సిక్స్ ఏమైంది?.. ప్రజలను దగా చేశారు': జగన్ ఫైర్"
      * "'నోరు అదుపులో పెట్టుకోకపోతే ఖబడ్దార్!': లోకేష్ స్ట్రాంగ్ వార్నింగ్"
@@ -2377,8 +2399,18 @@ WRITING RULES (CRITICAL EDITORIAL STYLE):
      * "'ఎస్వీ మ్యూజియంకు రూ.104 కోట్లు': మంత్రి ఆనం కీలక ప్రకటన"
 4. SUMMARY (సారాంశం - కచ్చితంగా 60 నుండి 70 పదాలు మాత్రమే):
    - Length: STRICTLY 60 to 70 words only (కచ్చితంగా 60 నుండి 70 పదాల మధ్య మాత్రమే ఉండాలి, 70 పదాలు దాటకూడదు).
-   - Crisp, powerful Telugu preserving the core arguments, punch points, leader's name, key decisions/numbers, and context.
+   - Crisp, powerful Telugu preserving the core arguments, punch points, leader's/speaker's name, key decisions/numbers, and context.
    - Strictly ONE continuous single unified paragraph. DO NOT split into multiple paragraphs, DO NOT use newlines.
+4.1. SENIOR EDITOR FULL STORY (పూర్తి వార్తా కథనం - STRICTLY 200 TO 250 WORDS):
+   - 'fullStoryTe': ఇచ్చిన సమాచారాన్ని ఒక సీనియర్ ఎడిటర్ లాగా సమగ్రమైన, శుభ్రమైన, చక్కగా చదవగలిగే 200 నుండి 250 పదాల పూర్తి కథనంగా (full story) తీర్చిదిద్దాలి.
+   - నిబంధనలు (CRITICAL RULES FOR FULL STORY):
+     * పదాల పరిమితి: గరిష్టంగా 200 నుండి 250 తెలుగు పదాలు మాత్రమే ఉండాలి.
+     * భావం & తీవ్రత (Tone & Intensity): వార్త యొక్క మూల భావం, మాట్లాడిన వారి ఆవేశం, ఆగ్రహం, బాధ లేదా ప్రజా సమస్య తీవ్రత అస్సలు తగ్గకూడదు.
+     * కల్పితాలు వద్దు (NO HALLUCINATIONS): అసలు సమాచారంలో వివరాలు తక్కువగా ఉంటే లేనిపోనివి ఊహించి రాయవద్దు. ఉన్న సమాచారాన్నే పరిశుభ్రమైన భాషలో రాయండి.
+     * వాస్తవాల రక్షణ: వ్యక్తుల పేర్లు, సంస్థలు, ప్రాంతాలు, పదవులు, తేదీలు, అంకెలను ఎట్టిపరిస్థితుల్లోనూ మార్చవద్దు, మిస్ చేయవద్దు.
+     * పునరావృతం వద్దు: వాక్యాలు లేదా పదాలు అనవసరంగా రిపీట్ కాకుండా సూటిగా రాయాలి.
+     * చిన్న ట్వీట్లు/వార్తల నిబంధన (SHORT NEWS / TWEETS): ఒకవేళ ట్వీట్/సమాచారం 70-80 పదాల లోపే ఉండి, వార్తలో అదనపు సమాచారం ఏమీ లేనప్పుడు, బలవంతంగా 200 పదాలు పూర్తి చేయడానికి ఏదీ కల్పించవద్దు. అటువంటి చిన్న వార్తలకు fullStoryTe ను content కు సమానంగా ఉంచండి.
+   - 'fullStoryEn': English Full Story (strictly 150 to 200 words) maintaining the same journalistic depth, emotion, and facts. For short news, keep equal to contentEn.
 5. STRICT TELUGU SCRIPT PURITY (స్వచ్ఛమైన తెలుగు లిపి మాత్రమే - NO FOREIGN SCRIPTS):
    - Output 100% pure Telugu script (Unicode U+0C00-U+0C7F) and English/Numbers for acronyms and amounts.
    - STRICTLY FORBIDDEN: NEVER mix or insert Kannada, Hindi/Devanagari, Urdu/Arabic, Tamil, or Malayalam characters anywhere!
@@ -2387,7 +2419,7 @@ WRITING RULES (CRITICAL EDITORIAL STYLE):
    - If media is purely a logo, channel icon, or brand card, set mediaUrl to "".
 
 Output JSON only:
-{"isRelevant": true|false, "headline": "Telugu Title", "content": "Telugu Summary", "headlineEn": "English Title", "contentEn": "English Summary", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "url", "mediaType": "image", "isWide": false}`;
+{"isRelevant": true|false, "headline": "Telugu Title", "content": "Telugu Summary", "fullStoryTe": "Telugu Full Story (200-250 words)", "headlineEn": "English Title", "contentEn": "English Summary", "fullStoryEn": "English Full Story (150-200 words)", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "url", "mediaType": "image", "isWide": false}`;
 
                 const aiResult = await processWithGemini(item.text, prompt, item.mediaUrl);
                 if (!aiResult) continue;
@@ -2450,21 +2482,24 @@ Output JSON only:
                     // Enforce pure Telugu script & Single Paragraph
                     const cleanedHeadline = sanitizeTeluguText(parsed.headline);
                     const cleanedContent = sanitizeTeluguText(parsed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
+                    let cleanedFullStoryTe = sanitizeTeluguText(parsed.fullStoryTe || parsed.content || '').trim();
+                    let cleanedFullStoryEn = (parsed.fullStoryEn || parsed.contentEn || '').trim();
+                    if (!cleanedFullStoryTe) {
+                        cleanedFullStoryTe = cleanedContent;
+                    }
 
-                    const safeAuthorTag = `#${authorDisplayName.replace(/[^\u0C00-\u0C7Fa-zA-Z0-9_]/g, '_')}`;
                     const cleanedTags = [...new Set([
                         ...(parsed.tags || []),
-                        safeAuthorTag,
                         feed.district ? `#${feed.district.replace(/\s+/g, '_')}` : null
                     ])].filter(Boolean);
 
                     const finalEntities = parsed.entities || { people: [], organizations: [], locations: [] };
-                    finalEntities.people = [...new Set([...(finalEntities.people || []), authorDisplayName])].filter(Boolean);
 
                     const docRef = db.collection('news').doc();
                     const newsPayload = sanitizeFirestoreData({
                         headline: { telugu: cleanedHeadline, english: parsed.headlineEn || '' },
                         content: { telugu: cleanedContent, english: parsed.contentEn || '' },
+                        fullStory: { telugu: cleanedFullStoryTe, english: cleanedFullStoryEn },
                         sourceUrl: item.url,
                         originalUrl: item.url,
                         sourceName: feed.sourceName || `X (@${handle})`,

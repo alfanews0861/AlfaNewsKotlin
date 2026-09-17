@@ -50,6 +50,10 @@ export interface NewsPost {
     telugu: string;
     english: string;
   };
+  fullStory?: {
+    telugu: string;
+    english: string;
+  };
   mediaUrl: string;
   mediaType: 'image' | 'video';
   mediaUrls?: string[];
