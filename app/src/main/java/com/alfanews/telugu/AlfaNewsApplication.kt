@@ -55,13 +55,13 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
             // 🛑 పాత వర్కర్లను ఆపడం (Billing costs తగ్గించడానికి)
             cancelRedundantWorkers()
 
-            // ఫైర్‌బేస్ యాప్ చెక్ - దీన్ని మరింత సేఫ్ గా మార్చాను
-            val firebaseAppCheck = FirebaseAppCheck.getInstance()
-            
-            // Play Integrity ని డిఫాల్ట్ గా వాడటం మంచిది
-            firebaseAppCheck.installAppCheckProviderFactory(
-                PlayIntegrityAppCheckProviderFactory.getInstance()
-            )
+            // 🛡️ ఫైర్‌బేస్ యాప్ చెక్:
+            // వెబ్ (web/src/services/firebase.ts) లో మాదిరిగానే, ఫైర్‌బేస్ కన్సోల్‌లో App Check ఎన్‌ఫోర్స్ చేయనప్పుడు
+            // డైరెక్ట్ APK అప్‌డేట్‌లలో Play Integrity అటెస్టేషన్ ఆలస్యం వల్ల ఫైర్‌స్టోర్ కాల్స్ స్టాల్ అవ్వకుండా నివారించాము.
+            // val firebaseAppCheck = FirebaseAppCheck.getInstance()
+            // firebaseAppCheck.installAppCheckProviderFactory(
+            //     PlayIntegrityAppCheckProviderFactory.getInstance()
+            // )
 
             // ఫైర్‌బేస్ అనలిటిక్స్
             FirebaseAnalytics.getInstance(this)
@@ -187,8 +187,20 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
         if (prefs.cacheVersion < currentCacheVersion) {
             scope.launch(Dispatchers.IO) {
                 try {
-                    // 1. కాష్ ఫోల్డర్‌ను పూర్తిగా డిలీట్ చేయడం (Safe for non-essential data)
-                    deleteDir(cacheDir)
+                    // 1. ఇమేజ్ కాష్ ఫోల్డర్‌ను క్లియర్ చేయడం (cacheDir రూట్‌ని ఎప్పుడూ డిలీట్ చేయకూడదు)
+                    val imageCache = cacheDir.resolve("image_cache")
+                    if (imageCache.exists()) {
+                        deleteDir(imageCache)
+                    }
+                    
+                    // cacheDir లోని కేవలం తాత్కాలిక ఇమేజ్ / కాయిల్ ఫైల్స్ మాత్రమే క్లియర్ చేయాలి (రూట్ ఫోల్డర్ అలాగే ఉంటుంది)
+                    cacheDir.listFiles()?.forEach { file ->
+                        if (file.name.contains("image", ignoreCase = true) ||
+                            file.name.contains("coil", ignoreCase = true) ||
+                            file.name.endsWith(".tmp", ignoreCase = true)) {
+                            deleteDir(file)
+                        }
+                    }
                     
                     // 2. 'files' ఫోల్డర్‌లో ఉండే అనవసర కాష్ ఫైల్స్ (avoiding active database files)
                     val filesDir = filesDir
@@ -243,8 +255,14 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
                         }
                     }
                     
-                    // 3. మిగిలిన కాష్ ని క్లియర్ చేయడం
-                    deleteDir(cacheDir)
+                    // 3. cacheDir లోని తాత్కాలిక ఫైల్స్ మాత్రమే తొలగించాలి (cacheDir రూట్ ఫోల్డర్ డిలీట్ చేయకూడదు)
+                    cacheDir.listFiles()?.forEach { file ->
+                        if (file.name.contains("image", ignoreCase = true) ||
+                            file.name.contains("coil", ignoreCase = true) ||
+                            file.name.endsWith(".tmp", ignoreCase = true)) {
+                            deleteDir(file)
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()

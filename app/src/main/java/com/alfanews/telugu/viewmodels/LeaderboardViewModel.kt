@@ -36,22 +36,8 @@ class LeaderboardViewModel(application: Application) : AndroidViewModel(applicat
                 var month = (calendar.get(Calendar.MONTH) + 1).toString().padStart(2, '0')
                 var monthlyId = "${year}_${month}"
 
-                var snapshot = FirebaseService.db.collection("monthly_leaderboard")
-                    .document(monthlyId)
-                    .collection("reporters")
-                    .orderBy("points", Query.Direction.DESCENDING)
-                    .limit(10)
-                    .get()
-                    .await()
-
-                // If current month is empty, try previous month
-                if (snapshot.isEmpty) {
-                    calendar.add(Calendar.MONTH, -1)
-                    year = calendar.get(Calendar.YEAR)
-                    month = (calendar.get(Calendar.MONTH) + 1).toString().padStart(2, '0')
-                    monthlyId = "${year}_${month}"
-                    
-                    snapshot = FirebaseService.db.collection("monthly_leaderboard")
+                var snapshot = kotlinx.coroutines.withTimeoutOrNull(7000L) {
+                    FirebaseService.db.collection("monthly_leaderboard")
                         .document(monthlyId)
                         .collection("reporters")
                         .orderBy("points", Query.Direction.DESCENDING)
@@ -60,7 +46,25 @@ class LeaderboardViewModel(application: Application) : AndroidViewModel(applicat
                         .await()
                 }
 
-                val entries = snapshot.documents.mapNotNull { doc ->
+                // If current month is empty, try previous month
+                if (snapshot == null || snapshot.isEmpty) {
+                    calendar.add(Calendar.MONTH, -1)
+                    year = calendar.get(Calendar.YEAR)
+                    month = (calendar.get(Calendar.MONTH) + 1).toString().padStart(2, '0')
+                    monthlyId = "${year}_${month}"
+                    
+                    snapshot = kotlinx.coroutines.withTimeoutOrNull(7000L) {
+                        FirebaseService.db.collection("monthly_leaderboard")
+                            .document(monthlyId)
+                            .collection("reporters")
+                            .orderBy("points", Query.Direction.DESCENDING)
+                            .limit(10)
+                            .get()
+                            .await()
+                    }
+                }
+
+                val entries = snapshot?.documents?.mapNotNull { doc ->
                     val data = doc.data ?: return@mapNotNull null
                     User(
                         id = doc.id,
@@ -70,7 +74,7 @@ class LeaderboardViewModel(application: Application) : AndroidViewModel(applicat
                         assignedMandal = data["assignedMandal"] as? String,
                         points = (data["points"] as? Number)?.toInt() ?: 0
                     )
-                }
+                } ?: emptyList()
                 _leaderboard.value = entries
             } catch (e: Exception) {
                 e.printStackTrace()

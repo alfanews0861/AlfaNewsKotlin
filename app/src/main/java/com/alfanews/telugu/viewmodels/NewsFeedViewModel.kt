@@ -105,11 +105,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     cachedList
                 } else {
                     Log.d("NewsFeedVM", "Fetching local ads from Firestore for $cacheKey")
-                    val snapshot = FirebaseService.db.collection("local_ads")
-                        .whereEqualTo("status", com.alfanews.telugu.models.AdStatus.ACTIVE.name)
-                        .get().await()
+                    val snapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                        FirebaseService.db.collection("local_ads")
+                            .whereEqualTo("status", com.alfanews.telugu.models.AdStatus.ACTIVE.name)
+                            .get().await()
+                    }
                     
-                    val ads = snapshot.documents.mapNotNull { com.alfanews.telugu.models.LocalAd.fromSnapshot(it) }
+                    val ads = snapshot?.documents?.mapNotNull { com.alfanews.telugu.models.LocalAd.fromSnapshot(it) } ?: emptyList()
                     Log.d("NewsFeedVM", "Firestore returned ${ads.size} active ads")
                     
                     // Empty అయినా cache చేయి కానీ timestamp set చేయొద్దు — తద్వారా తర్వాత retry చేస్తుంది
@@ -194,15 +196,19 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     // 🌐 UNIVERSAL DISTRICT IDENTIFIERS (Applicable to both Telangana & Andhra Pradesh)
     private val universalDistricts = listOf(
-        "National", "International", "India", "World", "General", "Global",
-        "భారతదేశం", "ప్రపంచం", "జాతీయం", "అంతర్జాతీయం"
+        "General", "State", "Sports", "Health", "Technology", "Business", "Entertainment", "Cinema",
+        "National", "International", "Crime", "Education", "Agriculture", "Devotional", "Lifestyle",
+        "India", "World", "Global", "జనరల్", "భారతదేశం", "ప్రపంచం", "జాతీయం", "అంతర్జాతీయం",
+        "సినిమా", "స్పోర్ట్స్", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "ఆరోగ్యం", "విద్య", "వ్యవసాయం", "భక్తి"
     )
 
     // 🌐 STRICTLY UNIVERSAL CATEGORIES (No state-specific politics or state-specific tags)
     private val strictlyGlobalKeywords = listOf(
         "సినిమా", "స్పోర్ట్స్", "క్రీడలు", "జాతీయం", "అంతర్జాతీయం", "వ్యాపారం", 
         "ఆరోగ్యం", "విద్య", "టెక్నాలజీ", "వ్యవసాయం", "భక్తి", 
-        "వినోదం", "ప్రపంచం", "లైఫ్ స్టైల్", "జనరల్", "భారతదేశం", "సినిమా వార్తలు"
+        "వినోదం", "ప్రపంచం", "లైఫ్ స్టైల్", "జనరల్", "భారతదేశం", "సినిమా వార్తలు",
+        "cinema", "sports", "health", "technology", "business", "entertainment",
+        "national", "international", "crime", "education", "agriculture", "devotional", "lifestyle"
     )
 
     private fun isGlobalCategory(category: String?): Boolean {
@@ -222,13 +228,18 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     /**
      * Firestore లో general news fetch చేసేందుకు ఆయా రాష్ట్రానికి సరిపోయే district ట్యాగ్‌లు
+     * (గరిష్టంగా 30 items - Firestore whereIn limit)
      */
     private fun getGeneralDistrictsForState(userState: String?): List<String> {
-        val universal = listOf("National", "International", "India", "World", "General", "Global", "భారతదేశం", "ప్రపంచం", "జాతీయం", "అంతర్జాతీయం")
+        val coreUniversal = listOf(
+            "General", "State", "Sports", "Health", "Technology", "Business", 
+            "Entertainment", "Cinema", "National", "International", "Crime", 
+            "Education", "Agriculture", "Devotional", "Lifestyle", "India", "World"
+        )
         return when (userState) {
-            "Telangana" -> (universal + listOf("Telangana", "Telangana State", "TS", "TG", "తెలంగాణ", "హైదరాబాద్", "Hyderabad", "State", "State News", "రాష్ట్రం", "రాష్ట్ర వార్తలు")).distinct()
-            "Andhra Pradesh" -> (universal + listOf("Andhra Pradesh", "AndhraPradesh", "AP", "Andhra", "ఆంధ్రప్రదేశ్", "ఆంధ్ర", "State", "State News", "రాష్ట్రం", "రాష్ట్ర వార్తలు")).distinct()
-            else -> (universal + listOf("State", "Telangana", "Andhra Pradesh", "TS", "AP", "తెలంగాణ", "ఆంధ్రప్రదేశ్", "హైదరాబాద్", "State News", "General")).distinct()
+            "Telangana" -> (coreUniversal + listOf("Telangana", "TS", "TG", "తెలంగాణ", "హైదరాబాద్", "Hyderabad", "State News", "జాతీయం", "సినిమా", "క్రీడలు")).distinct().take(30)
+            "Andhra Pradesh" -> (coreUniversal + listOf("Andhra Pradesh", "AndhraPradesh", "AP", "Andhra", "ఆంధ్రప్రదేశ్", "State News", "జాతీయం", "సినిమా", "క్రీడలు")).distinct().take(30)
+            else -> (coreUniversal + listOf("State", "Telangana", "Andhra Pradesh", "TS", "AP", "తెలంగాణ", "ఆంధ్రప్రదేశ్", "హైదరాబాద్", "జాతీయం", "సినిమా", "క్రీడలు")).distinct().take(30)
         }
     }
 
@@ -268,6 +279,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
           if (isFetching && initialPostId == null) return
           
           currentFetchJob?.cancel()
+          isFetching = false
 
           if (_news.value.isEmpty()) {
               _loading.value = true 
@@ -435,19 +447,21 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         finalPosts = (finalPosts + extraPosts).distinctBy { it.id }
                     }
 
-                    // 🚨 ZERO EMPTY FEED GUARERANTEE: If finalPosts is still empty, fallback directly to latest approved news!
+                    // 🚨 ZERO EMPTY FEED GUARANTEE: If finalPosts is still empty, fallback directly to latest approved news!
                     if (finalPosts.isEmpty()) {
                         try {
-                            val emergencySnapshot = FirebaseService.db.collection("news")
-                                .whereEqualTo("approved", true)
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(FETCH_LIMIT.toLong())
-                                .get().await()
-                            val emergencyList = emergencySnapshot.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                            val emergencySnapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                FirebaseService.db.collection("news")
+                                    .whereEqualTo("approved", true)
+                                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                                    .limit(FETCH_LIMIT.toLong())
+                                    .get().await()
+                            }
+                            val emergencyList = emergencySnapshot?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
                             if (emergencyList.isNotEmpty()) {
                                 finalPosts = emergencyList
-                                mainCursor = emergencySnapshot.documents.lastOrNull()
-                                _hasMore.value = emergencySnapshot.documents.size == FETCH_LIMIT
+                                mainCursor = emergencySnapshot?.documents?.lastOrNull()
+                                _hasMore.value = (emergencySnapshot?.documents?.size ?: 0) == FETCH_LIMIT
                             }
                         } catch (e: Exception) {
                             Log.e("NewsFeedVM", "Emergency fetch failed: ${e.message}")
@@ -599,8 +613,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             if (currentCursor != null) query = query.startAfter(currentCursor)
             
             try {
-                val snapshot = query.get().await()
-                if (snapshot.isEmpty) {
+                val snapshot = kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                    query.get().await()
+                }
+                if (snapshot == null || snapshot.isEmpty) {
                     // ✅ Fallback query కూడా userState filter apply చేయడం
                     var fallbackQuery = FirebaseService.db.collection("news")
                         .whereEqualTo("approved", true)
@@ -609,8 +625,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     
                     if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
                     
-                    val fallbackSnapshot = fallbackQuery.get().await()
-                    if (fallbackSnapshot.isEmpty) {
+                    val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                        fallbackQuery.get().await()
+                    }
+                    if (fallbackSnapshot == null || fallbackSnapshot.isEmpty) {
                         return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
                     }
                     
@@ -624,6 +642,25 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     mapDocumentToNewsPost(doc)
                 }.filter { post -> isPostAllowedForState(post, userState) }
                 currentCursor = snapshot.documents.lastOrNull()
+
+                // 🚀 CRUCIAL FIX: If snapshot had documents but ALL were filtered out by state filter,
+                // don't leave the batch empty! Fetch from general fallback query.
+                if (batch.isEmpty()) {
+                    var fallbackQuery = FirebaseService.db.collection("news")
+                        .whereEqualTo("approved", true)
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(limit.toLong())
+                    if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
+                    val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                        fallbackQuery.get().await()
+                    }
+                    if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {
+                        val fallbackBatch = fallbackSnapshot.documents.mapNotNull { doc -> mapDocumentToNewsPost(doc) }
+                            .filter { post -> isPostAllowedForState(post, userState) }
+                        return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(fallbackBatch, fallbackSnapshot.documents.lastOrNull())
+                    }
+                }
+
                 return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(batch, currentCursor)
             } catch (e: Exception) {
                 if (excludeDistricts) {
@@ -631,8 +668,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         var fallbackQuery = baseQuery.whereEqualTo("approved", true)
                             .orderBy("timestamp", Query.Direction.DESCENDING).limit(limit.toLong())
                         if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
-                        val fallbackSnapshot = fallbackQuery.get().await()
-                        if (!fallbackSnapshot.isEmpty) {
+                        val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                            fallbackQuery.get().await()
+                        }
+                        if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {
                             val batch = fallbackSnapshot.documents.mapNotNull { doc ->
                                 mapDocumentToNewsPost(doc)
                             }.filter { post -> isPostAllowedForState(post, userState) }
@@ -656,6 +695,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private fun isPostAllowedForState(post: NewsPost, userState: String?): Boolean {
         // రాష్ట్రం ఇంకా గుర్తించబడని కొత్త వినియోగదారులకు అన్నీ చూపించు
         if (userState.isNullOrBlank() || userState == "BOTH") return true
+
+        // 🌟 GLOBAL POST EXEMPTION: జాతీయ, అంతర్జాతీయ, సినిమా, క్రీడలు, బిజినెస్, టెక్నాలజీ లాంటి
+        // గ్లోబల్ వార్తలను రెండు రాష్ట్రాల ప్రజలకూ అనుమతించాలి!
+        if (isGlobalPost(post)) {
+            val postDistrictState = mapDistrictToState(post.district)
+            if (postDistrictState != null && postDistrictState != userState) {
+                return false
+            }
+            return true
+        }
 
         // 1. పోస్ట్ నేరుగా వేరొక రాష్ట్రానికి చెందినదిగా గుర్తిస్తే తిరస్కరించు
         val postState = inferStateFromPost(post)
@@ -837,8 +886,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             return@withContext cachedGreetingPost
         }
         try {
-            val snapshot = FirebaseService.db.collection("news").whereEqualTo("type", "greeting").whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(1).get().await()
-            val doc = snapshot.documents.firstOrNull() ?: return@withContext null
+            val snapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                FirebaseService.db.collection("news").whereEqualTo("type", "greeting").whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(1).get().await()
+            }
+            val doc = snapshot?.documents?.firstOrNull() ?: return@withContext null
             val post = mapDocumentToNewsPost(doc)
             if (post != null) {
                 cachedGreetingPost = post
@@ -860,14 +911,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             // NOTE: whereGreaterThan("timestamp") range filter తో composite index అవసరం
             // కానీ firestore.indexes.json లో లేదు కాబట్టి query fail అవుతుంది.
             // isExpired client-side check ఇప్పటికే expiry handle చేస్తుంది — server-side range filter అవసరం లేదు.
-            val snapshot = FirebaseService.db.collection("news")
-                .whereEqualTo("type", "survey")
-                .whereEqualTo("approved", true)
-                .orderBy("timestamp", Query.Direction.DESCENDING)
-                .limit(3) // 🚀 Optimized from limit(20) to limit(3) to save 17 reads per load
-                .get().await()
+            val snapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                FirebaseService.db.collection("news")
+                    .whereEqualTo("type", "survey")
+                    .whereEqualTo("approved", true)
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                    .limit(3) // 🚀 Optimized from limit(20) to limit(3) to save 17 reads per load
+                    .get().await()
+            }
             
-            val surveys = snapshot.documents.mapNotNull { mapDocumentToNewsPost(it) }
+            val surveys = snapshot?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
             
             val userState: String? = mapDistrictToState(currentDist)
 
@@ -1251,39 +1304,39 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
          val text = "${post.headline.telugu} ${post.headline.english} ${post.content.telugu} ${post.content.english}"
 
          val tsTerms = listOf(
-             // Leaders & Ministers
-             "రేవంత్", "రేవంత్‌రెడ్డి", "రేవంత్ రెడ్డి", "Revanth", "కేసీఆర్", "KCR", "కేటీఆర్", "KTR",
-             "హరీశ్ రావు", "హరీష్ రావు", "హరీష్‌రావు", "Harish Rao", "భట్టి విక్రమార్క", "విక్రమార్క",
-             "కోమటిరెడ్డి", "ఉత్తమ్ కుమార్", "పొంగులేటి", "ఈటల రాజేందర్", "ఈటల", "బండి సంజయ్",
-             "కిషన్ రెడ్డి", "ధర్మపురి అరవింద్", "సీతక్క", "పొన్నం ప్రభాకర్", "దామోదర రాజనర్సింహ",
-             "జూపల్లి", "తుమ్మల నాగేశ్వరరావు", "కవిత", "కల్వకుంట్ల", "కేకే",
-             // Parties, Orgs & Gov
-             "బీఆర్ఎస్", "బిఆర్ఎస్", "BRS", "TRS", "టిఆర్ఎస్", "టీఆర్ఎస్",
-             "తెలంగాణ కాంగ్రెస్", "TG కాంగ్రెస్", "TPCC", "టీపీసీసీ", "తెలంగాణ బీజేపీ",
-             "TSRTC", "TGSRTC", "హైడ్రా", "HYDRAA", "GHMC", "జీహెచ్ఎంసీ", "HMDA",
-             "కాళేశ్వరం", "సింగరేణి", "యాదాద్రి", "భద్రాచలం",
-             // State references
-             "తెలంగాణ", "తెలంగాణా", "Telangana", "TG ప్రభుత్వం", "తెలంగాణ ప్రభుత్వం",
-             "తెలంగాణ అసెంబ్లీ", "తెలంగాణ సచివాలయం", "తెలంగాణ వార్తలు"
-         )
+            // Leaders & Ministers
+            "రేవంత్", "రేవంత్‌రెడ్డి", "రేవంత్ రెడ్డి", "Revanth", "కేసీఆర్", "KCR", "కేటీఆర్", "KTR",
+            "హరీశ్ రావు", "హరీష్ రావు", "హరీష్‌రావు", "Harish Rao", "భట్టి విక్రమార్క", "విక్రమార్క",
+            "కోమటిరెడ్డి", "ఉత్తమ్ కుమార్", "పొంగులేటి", "ఈటల రాజేందర్", "ఈటల", "బండి సంజయ్",
+            "కిషన్ రెడ్డి", "ధర్మపురి అరవింద్", "సీతక్క", "పొన్నం ప్రభాకర్", "దామోదర రాజనర్సింహ",
+            "జూపల్లి", "తుమ్మల నాగేశ్వరరావు", "కల్వకుంట్ల కవిత", "ఎమ్మెల్సీ కవిత", "కల్వకుంట్ల", "కేశవరావు", "కే కేశవరావు",
+            // Parties, Orgs & Gov
+            "బీఆర్ఎస్", "బిఆర్ఎస్", "BRS", "TRS", "టిఆర్ఎస్", "టీఆర్ఎస్",
+            "తెలంగాణ కాంగ్రెస్", "TG కాంగ్రెస్", "TPCC", "టీపీసీసీ", "తెలంగాణ బీజేపీ",
+            "TSRTC", "TGSRTC", "హైడ్రా", "HYDRAA", "GHMC", "జీహెచ్ఎంసీ", "HMDA",
+            "కాళేశ్వరం", "సింగరేణి", "యాదాద్రి", "భద్రాచలం",
+            // State references
+            "తెలంగాణ", "తెలంగాణా", "Telangana", "TG ప్రభుత్వం", "తెలంగాణ ప్రభుత్వం",
+            "తెలంగాణ అసెంబ్లీ", "తెలంగాణ సచివాలయం", "తెలంగాణ వార్తలు"
+        )
 
-         val apTerms = listOf(
-             // Leaders & Ministers
-             "చంద్రబాబు", "చంద్రబాబు నాయుడు", "బాబు", "Chandrababu", "Naidu", "పవన్ కళ్యాణ్",
-             "పవన్‌కళ్యాణ్", "పవన్", "Pawan Kalyan", "నారా లోకేష్", "లోకేశ్", "లోకేష్", "Nara Lokesh",
-             "జగన్", "వైఎస్ జగన్", "జగన్ మోహన్ రెడ్డి", "Jagan", "YSRCP", "వైసీపీ", "వైసిపి",
-             "వంగలపూడి అనిత", "అనిత", "నాదెండ్ల మనోహర్", "అచ్చెన్నాయుడు", "పయ్యావుల కేశవ్",
-             "కొల్లు రవీంద్ర", "కందుల దుర్గారావు", "రోజా", "పేర్ని నాని", "కొడాలి నాని",
-             "విజయసాయి రెడ్డి", "వైవీ సుబ్బారెడ్డి", "సజ్జల", "బొత్స సత్యనారాయణ", "బొత్స",
-             // Parties, Orgs & Gov
-             "టీడీపీ", "టిడిపి", "TDP", "తెలుగుదేశం", "తెలుగు దేశం", "జనసేన", "Janasena", "JSP",
-             "ఏపీ కాంగ్రెస్", "APCC", "ఏపీపీసీసీ", "ఏపీ బీజేపీ",
-             "APSRTC", "ఏపీఎస్ ఆర్టీసీ", "తిరుమల", "TTD", "తిరుపతి దేవస్థానం",
-             "అమరావతి", "పోలవరం", "విశాఖ ఉక్కు",
-             // State references
-             "ఆంధ్రప్రదేశ్", "ఆంధ్ర ప్రదేశ్", "ఆంధ్ర", "Andhra Pradesh", "Andhra",
-             "ఏపీ ప్రభుత్వం", "ఆంధ్రప్రదేశ్ ప్రభుత్వం", "ఏపీ అసెంబ్లీ", "ఏపీ సచివాలయం", "ఆంధ్రప్రదేశ్ వార్తలు"
-         )
+        val apTerms = listOf(
+            // Leaders & Ministers
+            "చంద్రబాబు", "చంద్రబాబు నాయుడు", "నారా చంద్రబాబు", "Chandrababu", "పవన్ కళ్యాణ్",
+            "పవన్‌కళ్యాణ్", "Pawan Kalyan", "నారా లోకేష్", "లోకేశ్", "లోకేష్", "Nara Lokesh",
+            "జగన్", "వైఎస్ జగన్", "జగన్ మోహన్ రెడ్డి", "Jagan", "YSRCP", "వైసీపీ", "వైసిపి",
+            "వంగలపూడి అనిత", "హోంమంత్రి అనిత", "నాదెండ్ల మనోహర్", "అచ్చెన్నాయుడు", "పయ్యావుల కేశవ్",
+            "కొల్లు రవీంద్ర", "కందుల దుర్గారావు", "ఆర్కే రోజా", "రోజా సెల్వమణి", "పేర్ని నాని", "కొడాలి నాని",
+            "విజయసాయి రెడ్డి", "వైవీ సుబ్బారెడ్డి", "సజ్జల", "బొత్స సత్యనారాయణ", "బొత్స",
+            // Parties, Orgs & Gov
+            "టీడీపీ", "టిడిపి", "TDP", "తెలుగుదేశం", "తెలుగు దేశం", "జనసేన", "Janasena", "JSP",
+            "ఏపీ కాంగ్రెస్", "APCC", "ఏపీపీసీసీ", "ఏపీ బీజేపీ",
+            "APSRTC", "ఏపీఎస్ ఆర్టీసీ", "తిరుమల", "TTD", "తిరుపతి దేవస్థానం",
+            "అమరావతి", "పోలవరం", "విశాఖ ఉక్కు",
+            // State references
+            "ఆంధ్రప్రదేశ్", "ఆంధ్ర ప్రదేశ్", "ఆంధ్ర", "Andhra Pradesh", "Andhra",
+            "ఏపీ ప్రభుత్వం", "ఆంధ్రప్రదేశ్ ప్రభుత్వం", "ఏపీ అసెంబ్లీ", "ఏపీ సచివాలయం", "ఆంధ్రప్రదేశ్ వార్తలు"
+        )
 
          var tsScore = 0
          var apScore = 0

@@ -325,6 +325,48 @@ fun LocalNewsFeedView(
                     }
                 }
             }
+        } else if (news.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                    )
+                    Text(
+                        text = "ఈ ప్రాంతంలో వార్తలు అందుబాటులో లేవు",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontFamily = Ramabhadra,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Text(
+                        text = "దయచేసి మీ జిల్లాను మార్చండి లేదా రీఫ్రెష్ చేయండి.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        fontFamily = Ramabhadra
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(onClick = onDistrictClick) {
+                            Text(text = "జిల్లా మార్చండి", fontFamily = Ramabhadra)
+                        }
+                        Button(onClick = { viewModel.loadNews(language, currentUser) }) {
+                            Text(text = stringResource(R.string.retry), fontFamily = Ramabhadra)
+                        }
+                    }
+                }
+            }
         } else {
             VerticalPager(
                 state = pagerState,

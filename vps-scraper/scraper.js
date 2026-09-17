@@ -208,6 +208,46 @@ function sanitizeTeluguText(text) {
         .trim();
 }
 
+/**
+ * Sanitizes and cleans Telugu headlines:
+ * 1. Strictly eliminates all quotation marks ('...', "...", ‘...’, “...”, `...`, \", \').
+ * 2. Eliminates colon templates and multiple dots (..) to ensure ONE single continuous sentence.
+ * 3. Removes leading/trailing punctuation and trims whitespace.
+ * 4. Ensures 100% pure Telugu script purity via sanitizeTeluguText.
+ */
+function cleanTeluguHeadline(headline) {
+    if (!headline || typeof headline !== 'string') return "";
+    let clean = headline.trim();
+
+    // 1. Strip all quotation marks (single, double, smart/curly quotes, backticks, backslashes)
+    clean = clean.replace(/['"“‘”’`\\/]/g, '');
+
+    // 2. Replace colons, semicolons, and multiple dots (..) with a space to prevent split clauses
+    clean = clean.replace(/\s*[:;]\s*/g, ' ');
+    clean = clean.replace(/\.{2,}/g, ' ');
+
+    // 3. Remove leading or trailing hyphens, dashes, commas, dots, colons, or spaces
+    clean = clean.replace(/^[\s.,:;!?'"“”‘’\-\—]+|[\s.,:;!?'"“”‘’\-\—]+$/g, '');
+
+    // 4. Normalize multiple whitespace
+    clean = clean.replace(/\s+/g, ' ').trim();
+
+    return sanitizeTeluguText(clean);
+}
+
+/**
+ * Strips quotes and colons from English headline
+ */
+function cleanEnglishHeadline(headline) {
+    if (!headline || typeof headline !== 'string') return "";
+    let clean = headline.trim();
+    clean = clean.replace(/['"“‘”’`\\/]/g, '');
+    clean = clean.replace(/\s*[:;]\s*/g, ' ');
+    clean = clean.replace(/\.{2,}/g, ' ');
+    clean = clean.replace(/^[\s.,:;!?'"“”‘’\-\—]+|[\s.,:;!?'"“”‘’\-\—]+$/g, '');
+    return clean.replace(/\s+/g, ' ').trim();
+}
+
 // ============================================================================
 // ARTICLE LINK DETECTOR & FILTER
 // ============================================================================
@@ -1005,7 +1045,7 @@ async function prewarmScraperCache() {
             if (data.storyFingerprint) storyFingerprintMemoryCache.add(data.storyFingerprint);
             const teTitle = data.headline?.telugu || (typeof data.headline === 'string' ? data.headline : '');
             if (teTitle && teTitle.length > 5) {
-                recentHeadlinesMemoryCache.push(teTitle);
+                recentHeadlinesMemoryCache.push(cleanTeluguHeadline(teTitle));
             }
         });
 
@@ -1673,13 +1713,15 @@ async function processSingleWebSource(doc) {
      * పునరావృతం వద్దు: వాక్యాలు లేదా పదాలు అనవసరంగా రిపీట్ కాకుండా సీనియర్ జర్నలిస్ట్ శైలిలో సూటిగా, స్పష్టంగా రాయాలి.
      * చిన్న వార్తల నిబంధన (SHORT NEWS): ఒకవేళ మూల సమాచారం 70-80 పదాల లోపే ఉండి, వార్తలో ఇతర వివరాలు ఏమీ లేనప్పుడు, బలవంతంగా 200 పదాలు పూర్తి చేయడానికి లేనివి ఊహించవద్దు. అటువంటి చిన్న వార్తలకు fullStoryTe ను content కు సమానంగా ఉంచండి.
    - 'fullStoryEn': English Full Story (strictly 150 to 200 words) maintaining the same journalistic depth, emotion, and facts. For short news, keep equal to contentEn.
-4. PUNCH DIALOGUE AS HEADLINE (పంచ్ డైలాగ్ లేదా ఘాటైన వాక్యాన్నే హెడ్‌లైన్‌గా పెట్టు):
-   - Extract the speaker's sharpest punch dialogue, quote, rhetorical question, or fiery statement from the news as the headline hook.
-   - Format: Lead with the punch dialogue in quotes, followed by context:
-     Examples:
-     * "'ప్రజలను దగా చేశారు..': కూటమి సర్కార్‌పై జగన్ ఫైర్"
-     * "'అక్రమ అరెస్టులతో బెదిరించలేరు': హైదరాబాద్‌లో బీఆర్ఎస్ నేతల ఆగ్రహం"
-     * "'నోరు అదుపులో పెట్టుకోకపోతే ఖబడ్దార్!': టీడీపీ నేతల వార్నింగ్"
+4. HEADLINE (శీర్షిక - కొటేషన్ మార్కులు లేకుండా ఏకైక సంపూర్ణ వాక్యం):
+   - వార్తలోని సంచలన వ్యాఖ్యలు, ఘాటైన పంచ్ డైలాగ్ లేదా కీలక నిర్ణయాన్ని సహజమైన ఒకే వాక్యంగా రాయాలి.
+   - STRICTLY NO QUOTATION MARKS (కొటేషన్లు & కోలన్లు పూర్తిగా నిషిద్ధం): ఎక్కడా సింగిల్ కోట్స్ ('...'), డబుల్ కోట్స్ ("..."), వంపు కోట్స్ (‘...’, “...”) లేదా కోలన్లు (:) వాడరాదు!
+   - Format: Must be a single continuous sentence without any quotes or colons.
+   - Examples (No quotes):
+     * "ప్రజలను దగా చేశారంటూ కూటమి సర్కార్‌పై జగన్ తీవ్ర ఆగ్రహం"
+     * "అక్రమ అరెస్టులతో బెదిరించలేరంటూ హైదరాబాద్‌లో బీఆర్ఎస్ నేతల గర్జన"
+     * "నోరు అదుపులో పెట్టుకోకపోతే ఖబడ్దార్ అంటూ టీడీపీ నేతల వార్నింగ్"
+     * "తిరుమల భక్తులకు ఉచిత భీమా కల్పిస్తామన్న మంత్రి ఆనం"
    - Headline length: 6-10 words in Telugu.
 5. STRICT TELUGU SCRIPT PURITY (స్వచ్ఛమైన తెలుగు లిపి మాత్రమే - NO FOREIGN SCRIPTS):
    - Output 100% pure Telugu script (Unicode U+0C00-U+0C7F) and English/Numbers for acronyms (e.g. TDP, BRS, BJP, ₹).
@@ -1698,7 +1740,7 @@ async function processSingleWebSource(doc) {
    - tags: 3-5 Telugu keywords.
    - entities: { "people": [], "organizations": [], "locations": [] }.
 10. Output JSON only:
-{"isRelevant": true, "headline": "Telugu Title", "content": "Telugu Summary", "fullStoryTe": "Telugu Full Story (200-250 words)", "headlineEn": "English Title", "contentEn": "English Summary", "fullStoryEn": "English Full Story (150-200 words)", "location": "Location", "storyFingerprint": "finger-print", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "hasLogo": false, "mediaUrl": "${extracted.image || ''}", "mediaType": "image|video", "isWide": true|false}`;
+{"isRelevant": true, "headline": "Telugu Title (Strictly NO quotes)", "content": "Telugu Summary", "fullStoryTe": "Telugu Full Story (200-250 words)", "headlineEn": "English Title", "contentEn": "English Summary", "fullStoryEn": "English Full Story (150-200 words)", "location": "Location", "storyFingerprint": "finger-print", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "hasLogo": false, "mediaUrl": "${extracted.image || ''}", "mediaType": "image|video", "isWide": true|false}`;
 
                 const aiResult = await processWithGemini(extracted.body, prompt, extracted.image);
                 if (!aiResult) {
@@ -1709,6 +1751,16 @@ async function processSingleWebSource(doc) {
                 try {
                     const parsed = JSON.parse(aiResult.replace(/```json|```/g, '').trim());
                     if (!parsed.isRelevant || !parsed.headline || !parsed.content) {
+                        await markUrlAsProcessed(link);
+                        return;
+                    }
+
+                    // Clean headline immediately (strictly remove all quotes, colons, double-dots)
+                    parsed.headline = cleanTeluguHeadline(parsed.headline);
+                    if (parsed.headlineEn) {
+                        parsed.headlineEn = cleanEnglishHeadline(parsed.headlineEn);
+                    }
+                    if (!parsed.headline) {
                         await markUrlAsProcessed(link);
                         return;
                     }
@@ -1798,7 +1850,7 @@ async function processSingleWebSource(doc) {
                     }
 
                     // Enforce pure Telugu script & Single Paragraph
-                    const cleanedHeadline = sanitizeTeluguText(parsed.headline);
+                    const cleanedHeadline = parsed.headline;
                     const cleanedContent = sanitizeTeluguText(parsed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
                     let cleanedFullStoryTe = sanitizeTeluguText(parsed.fullStoryTe || parsed.content || '').trim();
                     let cleanedFullStoryEn = (parsed.fullStoryEn || parsed.contentEn || '').trim();
@@ -2387,16 +2439,17 @@ WRITING RULES (CRITICAL EDITORIAL STYLE):
      * Provide a clear, comprehensive, and professional news summary capturing the essence of each major decision announced.
 2. POLITICAL ATTACKS & INTENSITY (రాజకీయ విమర్శలు, ఘాటు వ్యాఖ్యలు):
    - If the post is a political fight, criticism, or challenge, preserve the leader's fighting spirit, intensity, and sharpness (ఘాటు విమర్శ, ఆగ్రహం, నిలదీత, సవాల్, ఆవేదన).
-3. HEADLINE (శీర్షిక - కచ్చితంగా 7 నుండి 8 పదాల పంచ్ డైలాగ్ మాత్రమే):
-   - Format: Must lead with the sharpest punch dialogue, quote, or biggest decision in quotes, followed by the leader's/subject's action/statement.
+3. HEADLINE (శీర్షిక - కచ్చితంగా 7 నుండి 8 పదాల పంచ్ వాక్యం, కొటేషన్ మార్కులు లేవు):
+   - STRICTLY NO QUOTATION MARKS (కొటేషన్లు & కోలన్లు పూర్తిగా నిషిద్ధం): ఎక్కడా సింగిల్ కోట్స్ ('...'), డబుల్ కోట్స్ ("..."), వంపు కోట్స్ (‘...’, “...”) లేదా కోలన్లు (:) వాడరాదు!
+   - Format: Leader's sharp punch, criticism, or biggest decision as a single continuous sentence without quotes.
    - Length: STRICTLY 7 to 8 words only (కచ్చితంగా 7 నుండి 8 పదాలు మాత్రమే ఉండాలి). High-impact, punchy Telugu.
-   - Examples:
-     * "'తాట తీస్తా.. నాపైనే ఫిర్యాదు చేస్తారా?': ఎమ్మెల్యే శిరీషదేవి ఫైర్"
-     * "'తిరుమల భక్తులకు ఉచిత భీమా': మంత్రి ఆనం వెల్లడి"
-     * "'సూపర్ సిక్స్ ఏమైంది?.. ప్రజలను దగా చేశారు': జగన్ ఫైర్"
-     * "'నోరు అదుపులో పెట్టుకోకపోతే ఖబడ్దార్!': లోకేష్ స్ట్రాంగ్ వార్నింగ్"
-     * "'హామీలు గాల్లో కలిపేశారు': రేవంత్ సర్కార్‌పై కేటీఆర్ ఆగ్రహం"
-     * "'ఎస్వీ మ్యూజియంకు రూ.104 కోట్లు': మంత్రి ఆనం కీలక ప్రకటన"
+   - Examples (No quotes):
+     * "తాట తీస్తానంటూ అధికారులపై ఎమ్మెల్యే శిరీషదేవి తీవ్ర ఫైర్"
+     * "తిరుమల భక్తులకు ఉచిత భీమా కల్పిస్తామన్న మంత్రి ఆనం"
+     * "ప్రజలను దగా చేశారంటూ కూటమి సర్కార్‌పై జగన్ ఫైర్"
+     * "నోరు అదుపులో పెట్టుకోవాలంటూ లోకేష్ స్ట్రాంగ్ వార్నింగ్"
+     * "హామీలు గాల్లో కలిపేశారంటూ రేవంత్ సర్కార్‌పై కేటీఆర్ ఆగ్రహం"
+     * "ఎస్వీ మ్యూజియం అభివృద్ధికి రూ.104 కోట్లు కేటాయింపు"
 4. SUMMARY (సారాంశం - కచ్చితంగా 60 నుండి 70 పదాలు మాత్రమే):
    - Length: STRICTLY 60 to 70 words only (కచ్చితంగా 60 నుండి 70 పదాల మధ్య మాత్రమే ఉండాలి, 70 పదాలు దాటకూడదు).
    - Crisp, powerful Telugu preserving the core arguments, punch points, leader's/speaker's name, key decisions/numbers, and context.
@@ -2419,7 +2472,7 @@ WRITING RULES (CRITICAL EDITORIAL STYLE):
    - If media is purely a logo, channel icon, or brand card, set mediaUrl to "".
 
 Output JSON only:
-{"isRelevant": true|false, "headline": "Telugu Title", "content": "Telugu Summary", "fullStoryTe": "Telugu Full Story (200-250 words)", "headlineEn": "English Title", "contentEn": "English Summary", "fullStoryEn": "English Full Story (150-200 words)", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "url", "mediaType": "image", "isWide": false}`;
+{"isRelevant": true|false, "headline": "Telugu Title (Strictly NO quotes)", "content": "Telugu Summary", "fullStoryTe": "Telugu Full Story (200-250 words)", "headlineEn": "English Title", "contentEn": "English Summary", "fullStoryEn": "English Full Story (150-200 words)", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "url", "mediaType": "image", "isWide": false}`;
 
                 const aiResult = await processWithGemini(item.text, prompt, item.mediaUrl);
                 if (!aiResult) continue;
@@ -2428,6 +2481,16 @@ Output JSON only:
                     const parsed = JSON.parse(aiResult.replace(/```json|```/g, '').trim());
                     if (!parsed.isRelevant || !parsed.headline || !parsed.content) {
                         console.log(`[TWITTER] ⏭️ Filtered out non-news/satirical post for @${handle}: "${(item.text || '').substring(0, 45).replace(/\n/g, ' ')}..."`);
+                        await markUrlAsProcessed(item.url);
+                        continue;
+                    }
+
+                    // Clean headline immediately (strictly remove all quotes, colons, double-dots)
+                    parsed.headline = cleanTeluguHeadline(parsed.headline);
+                    if (parsed.headlineEn) {
+                        parsed.headlineEn = cleanEnglishHeadline(parsed.headlineEn);
+                    }
+                    if (!parsed.headline) {
                         await markUrlAsProcessed(item.url);
                         continue;
                     }
@@ -2480,7 +2543,7 @@ Output JSON only:
                     }
 
                     // Enforce pure Telugu script & Single Paragraph
-                    const cleanedHeadline = sanitizeTeluguText(parsed.headline);
+                    const cleanedHeadline = parsed.headline;
                     const cleanedContent = sanitizeTeluguText(parsed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
                     let cleanedFullStoryTe = sanitizeTeluguText(parsed.fullStoryTe || parsed.content || '').trim();
                     let cleanedFullStoryEn = (parsed.fullStoryEn || parsed.contentEn || '').trim();

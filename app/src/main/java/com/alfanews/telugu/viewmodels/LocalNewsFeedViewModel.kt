@@ -237,14 +237,18 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     gson.fromJson<List<com.alfanews.telugu.models.LocalAd>>(cachedJson, type)
                 } else {
                     Log.d("LocalNewsFeedVM", "Fetching local ads from Firestore for $district")
-                    val snapshot = FirebaseService.db.collection("local_ads")
-                        .whereEqualTo("status", com.alfanews.telugu.models.AdStatus.ACTIVE.name)
-                        .get().await()
+                    val snapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                        FirebaseService.db.collection("local_ads")
+                            .whereEqualTo("status", com.alfanews.telugu.models.AdStatus.ACTIVE.name)
+                            .get().await()
+                    }
                     
-                    val ads = snapshot.documents.mapNotNull { com.alfanews.telugu.models.LocalAd.fromSnapshot(it) }
+                    val ads = snapshot?.documents?.mapNotNull { com.alfanews.telugu.models.LocalAd.fromSnapshot(it) } ?: emptyList()
                     
                     // Save to cache
-                    prefs.saveLocalAdsCache(district, gson.toJson(ads))
+                    if (ads.isNotEmpty()) {
+                        prefs.saveLocalAdsCache(district, gson.toJson(ads))
+                    }
                     ads
                 }
 
@@ -294,6 +298,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         }
         loadLocalAds(district) 
         loadJob?.cancel()
+        isFetching = false
         
         loadJob = viewModelScope.launch {
             if (isFetching) return@launch
@@ -327,8 +332,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         .orderBy("timestamp", Query.Direction.DESCENDING)
                         .limit(pageSize.toLong())
                     
-                    val snap = query.get().await()
-                    if (!snap.isEmpty) {
+                    val snap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                        query.get().await()
+                    }
+                    if (snap != null && !snap.isEmpty) {
                         snapshot = snap
                         posts = withContext(Dispatchers.Default) {
                             snap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
@@ -344,8 +351,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             .orderBy("timestamp", Query.Direction.DESCENDING)
                             .limit(pageSize.toLong())
                         
-                        val fallbackSnapshot = fallbackQuery.get().await()
-                        if (!fallbackSnapshot.isEmpty) {
+                        val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                            fallbackQuery.get().await()
+                        }
+                        if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {
                             snapshot = fallbackSnapshot
                             posts = withContext(Dispatchers.Default) {
                                 fallbackSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
@@ -368,11 +377,30 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             .orderBy("timestamp", Query.Direction.DESCENDING)
                             .limit(pageSize.toLong())
                         
-                        val stateSnapshot = stateQuery.get().await()
-                        if (!stateSnapshot.isEmpty) {
+                        val stateSnapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                            stateQuery.get().await()
+                        }
+                        if (stateSnapshot != null && !stateSnapshot.isEmpty) {
                             snapshot = stateSnapshot
                             posts = withContext(Dispatchers.Default) {
                                 stateSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                            }
+                        }
+                    }
+
+                    // 🚀 STEP 4: Emergency Fallback to latest approved news if local/state news is empty
+                    if (posts.isEmpty()) {
+                        val emergencySnapshot = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                            newsRef
+                                .whereEqualTo("approved", true)
+                                .orderBy("timestamp", Query.Direction.DESCENDING)
+                                .limit(pageSize.toLong())
+                                .get().await()
+                        }
+                        if (emergencySnapshot != null && !emergencySnapshot.isEmpty) {
+                            snapshot = emergencySnapshot
+                            posts = withContext(Dispatchers.Default) {
+                                emergencySnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
                             }
                         }
                     }
@@ -428,8 +456,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                          .startAfter(currentLastDoc)
                          .limit(pageSize.toLong())
                      
-                     val res = query.get().await()
-                     if (!res.isEmpty) {
+                     val res = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                         query.get().await()
+                     }
+                     if (res != null && !res.isEmpty) {
                          snap = res
                      } else {
                          // 🔄 FALLBACK: Try categories array with whereArrayContainsAny
@@ -440,8 +470,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                              .orderBy("timestamp", Query.Direction.DESCENDING)
                              .startAfter(currentLastDoc)
                              .limit(pageSize.toLong())
-                         val backupRes = backupQuery.get().await()
-                         if (!backupRes.isEmpty) {
+                         val backupRes = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                             backupQuery.get().await()
+                         }
+                         if (backupRes != null && !backupRes.isEmpty) {
                              snap = backupRes
                          }
                      }

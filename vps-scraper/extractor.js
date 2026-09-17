@@ -202,6 +202,46 @@ function sanitizeTeluguText(text) {
         .trim();
 }
 
+/**
+ * Sanitizes and cleans Telugu headlines:
+ * 1. Strictly eliminates all quotation marks ('...', "...", ‘...’, “...”, `...`, \", \').
+ * 2. Eliminates colon templates and multiple dots (..) to ensure ONE single continuous sentence.
+ * 3. Removes leading/trailing punctuation and trims whitespace.
+ * 4. Ensures 100% pure Telugu script purity via sanitizeTeluguText.
+ */
+function cleanTeluguHeadline(headline) {
+    if (!headline || typeof headline !== 'string') return "";
+    let clean = headline.trim();
+
+    // 1. Strip all quotation marks (single, double, smart/curly quotes, backticks, backslashes)
+    clean = clean.replace(/['"“‘”’`\\/]/g, '');
+
+    // 2. Replace colons, semicolons, and multiple dots (..) with a space to prevent split clauses
+    clean = clean.replace(/\s*[:;]\s*/g, ' ');
+    clean = clean.replace(/\.{2,}/g, ' ');
+
+    // 3. Remove leading or trailing hyphens, dashes, commas, dots, colons, or spaces
+    clean = clean.replace(/^[\s.,:;!?'"“”‘’\-\—]+|[\s.,:;!?'"“”‘’\-\—]+$/g, '');
+
+    // 4. Normalize multiple whitespace
+    clean = clean.replace(/\s+/g, ' ').trim();
+
+    return sanitizeTeluguText(clean);
+}
+
+/**
+ * Strips quotes and colons from English headline
+ */
+function cleanEnglishHeadline(headline) {
+    if (!headline || typeof headline !== 'string') return "";
+    let clean = headline.trim();
+    clean = clean.replace(/['"“‘”’`\\/]/g, '');
+    clean = clean.replace(/\s*[:;]\s*/g, ' ');
+    clean = clean.replace(/\.{2,}/g, ' ');
+    clean = clean.replace(/^[\s.,:;!?'"“”‘’\-\—]+|[\s.,:;!?'"“”‘’\-\—]+$/g, '');
+    return clean.replace(/\s+/g, ' ').trim();
+}
+
 // ============================================================================
 // ARTICLE LINK DETECTOR & FILTER
 // ============================================================================
@@ -946,6 +986,8 @@ module.exports = {
     isTruncatedTweetText,
     normalizeUrl,
     calculateTextSimilarity,
+    cleanTeluguHeadline,
+    cleanEnglishHeadline,
     extractThreadMarker,
     cleanThreadMarker,
     groupTweetsIntoThreads

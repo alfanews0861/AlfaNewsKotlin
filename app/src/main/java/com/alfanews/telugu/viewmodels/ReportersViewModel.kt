@@ -43,7 +43,7 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
         _sortOrder.value = order
     }
 
-    fun fetchReporters(currentUser: User, district: String? = null, mandal: String? = null) {
+    fun fetchReporters(currentUser: User?, district: String? = null, mandal: String? = null) {
         viewModelScope.launch {
             _loading.value = true
             try {
@@ -58,11 +58,13 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
                     query = query.whereEqualTo("assignedMandal", mandal)
                 }
 
-                val snapshot = query.get().await()
-                var list = snapshot.documents.mapNotNull { it.toUserObject() }
+                val snapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                    query.get().await()
+                }
+                var list = snapshot?.documents?.mapNotNull { it.toUserObject() } ?: emptyList()
 
                 // In-memory filter for REGIONAL_INCHARGE to avoid Firestore multiple 'whereIn' crash
-                if (currentUser.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {
+                if (currentUser?.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {
                     if (district == null) {
                         list = list.filter { user -> currentUser.assignedDistricts.contains(user.district) }
                     }
@@ -100,17 +102,19 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
             try {
                 // ✅ FIX #5: Single Timestamp query మాత్రమే చేయాలి.
                 // వేరే Long-format query duplicate docs వస్తాయి, counts 2× అవుతాయి.
-                val snapshot = FirebaseService.db.collection("news")
-                    .whereEqualTo("approved", true)
-                    .whereEqualTo("isReporter", true)
-                    .whereGreaterThanOrEqualTo("timestamp", com.google.firebase.Timestamp(weekStart))
-                    .get().await()
+                val snapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                    FirebaseService.db.collection("news")
+                        .whereEqualTo("approved", true)
+                        .whereEqualTo("isReporter", true)
+                        .whereGreaterThanOrEqualTo("timestamp", com.google.firebase.Timestamp(weekStart))
+                        .get().await()
+                }
                 
                 // Track post counts per reporter
                 val todayCounts = mutableMapOf<String, Int>()
                 val weekCounts = mutableMapOf<String, Int>()
 
-                snapshot.documents.forEach { doc ->
+                snapshot?.documents?.forEach { doc ->
                     val isRep = doc.getBoolean("isReporter") ?:
                                 (doc.getString("processingType") == "REPORTER_SUBMISSION")
                     if (!isRep) return@forEach
