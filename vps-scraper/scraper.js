@@ -178,31 +178,33 @@ function isGenericImage(url) {
 }
 
 /**
- * Sanitizes Telugu text by converting any bled Kannada Unicode characters (0x0C80-0x0CFF)
- * and Devanagari/Hindi Unicode characters (0x0900-0x097F) to Telugu, removing orphaned matras,
- * broken placeholder glyphs, and zero-width spaces, ensuring 100% pure Telugu script purity.
+ * Robustly sanitizes Telugu text to guarantee 100% pure Telugu script purity (Unicode U+0C00-U+0C7F).
+ * Completely strips Arabic/Urdu, Devanagari/Hindi, Kannada, Tamil, Malayalam, and all other non-Telugu Indic scripts,
+ * while preserving valid Telugu letters, ASCII alphanumeric characters, numbers, and standard punctuation.
  */
 function sanitizeTeluguText(text) {
     if (!text) return "";
     return text
-        // 1. Map any bled Kannada Unicode characters (0x0C80-0x0CFF) to Telugu Unicode (0x0C00-0x0C7F)
-        .replace(/[\u0C80-\u0CFF]/g, (char) => {
-            const code = char.charCodeAt(0) - 0x0080;
-            return (code >= 0x0C00 && code <= 0x0C7F) ? String.fromCharCode(code) : '';
-        })
-        // 2. Map any bled Devanagari / Hindi Unicode characters (0x0900-0x097F) to Telugu Unicode (0x0C00-0x0C7F)
-        .replace(/[\u0900-\u097F]/g, (char) => {
-            const code = char.charCodeAt(0) + 0x0300;
-            return (code >= 0x0C00 && code <= 0x0C7F) ? String.fromCharCode(code) : '';
-        })
-        // 3. Strip any residual unmapped Kannada or Hindi characters to guarantee 0% Kannada/Hindi
-        .replace(/[\u0900-\u097F\u0C80-\u0CFF]/g, '')
-        // 4. Remove dotted circle characters used as fallback for broken combining marks
-        .replace(/\u25CC/g, '')
-        // 5. Remove invisible zero-width spaces that break Telugu word joining
-        .replace(/[\u200B-\u200D\uFEFF]/g, '')
-        // 6. Fix spaces before Telugu combining vowel marks / virama
+        // 1. Strip Arabic / Urdu / Persian / Hebrew scripts completely
+        .replace(/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\u0590-\u05FF]/g, '')
+        
+        // 2. Strip all non-Telugu Indic scripts (Devanagari/Hindi, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Kannada, Malayalam, Sinhala, etc.)
+        .replace(/[\u0900-\u0BFF\u0C80-\u0DFF\u0E00-\u109F]/g, '')
+        
+        // 3. Remove dotted circle placeholder glyphs (U+25CC) and Unicode replacement characters (U+FFFD)
+        .replace(/[\u25CC\uFFFD]/g, '')
+        
+        // 4. Remove invisible zero-width spaces that break Telugu word joining
+        .replace(/[\u200B\uFEFF]/g, '')
+        
+        // 5. Clean up any orphaned Telugu combining marks/matras at word start or immediately following spaces/punctuation
+        .replace(/(?:^|[\s.,;:!?'"“”‘’\(\)\[\]\{\}\-\/])[\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63]+/g, ' ')
+        
+        // 6. Fix any accidental spaces before valid Telugu combining marks
         .replace(/\s+([\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63])/g, '$1')
+        
+        // 7. Normalize multi-spaces
+        .replace(/[ \t]+/g, ' ')
         .trim();
 }
 
@@ -596,6 +598,17 @@ function cleanTweetText(rawText) {
 }
 
 /**
+ * Detects if a tweet text is truncated by Twitter (e.g. ends with ellipsis or Show more).
+ * @param {string} text 
+ * @returns {boolean}
+ */
+function isTruncatedTweetText(text) {
+    if (!text) return false;
+    const clean = text.trim();
+    return clean.endsWith('…') || clean.endsWith('...') || /\bShow more\b/i.test(text) || /మరింత/i.test(text);
+}
+
+/**
  * Detects thread markers in a tweet such as:
  * "1/4", "(1/4)", "[1/4]", "1/n", "(1/n)", "1/1", "1/2", "1/3", "1/4", etc.
  * @param {string} text 
@@ -905,6 +918,7 @@ function groupTweetsIntoThreads(tweets) {
                     mediaUrl: mediaItem ? mediaItem.mediaUrl : current.mediaUrl,
                     mediaType: mediaItem ? mediaItem.mediaType : current.mediaType,
                     avatarUrl: current.avatarUrl,
+                    authorName: current.authorName,
                     date: current.date,
                     isThread: true,
                     threadCount: threadGroup.length
@@ -1039,13 +1053,12 @@ let lastGeminiRequestTime = 0;
 // Limit to <= 13.3 requests per minute (4500ms delay) to avoid free tier 429 quota exhaustion
 const MIN_DELAY_BETWEEN_GEMINI_REQUESTS = 4500; 
 
-// Resilient fallback chain for active models:
-// 1. Primary: gemini-3.5-flash-lite (high RPM/TPM free tier limits)
-// 2. Secondary: gemini-3.6-flash
-// 3. Fallbacks: gemini-3.1-flash-lite & gemini-flash-lite-latest
+// High Free-Tier Quota Lite Models ONLY (Maximum RPM/TPM Limits):
+// 1. Primary: gemini-3.5-flash-lite
+// 2. Secondary: gemini-3.1-flash-lite
+// 3. Fallback: gemini-flash-lite-latest
 const GEMINI_MODELS = [
     'gemini-3.5-flash-lite',
-    'gemini-3.6-flash',
     'gemini-3.1-flash-lite',
     'gemini-flash-lite-latest'
 ];
@@ -1099,45 +1112,78 @@ function findInstalledChrome() {
     const fs = require('fs');
     const path = require('path');
     const os = require('os');
+    const { execSync } = require('child_process');
     
+    // 1. Explicit env var
     if (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
         return process.env.PUPPETEER_EXECUTABLE_PATH;
     }
+
+    // 2. Common system binary paths across Linux distributions
     const systemPaths = [
-        '/usr/bin/google-chrome',
         '/usr/bin/google-chrome-stable',
+        '/usr/bin/google-chrome',
+        '/opt/google/chrome/google-chrome',
+        '/opt/google/chrome/chrome',
         '/usr/bin/chromium-browser',
-        '/usr/bin/chromium'
+        '/usr/bin/chromium',
+        '/snap/bin/chromium',
+        '/usr/lib/chromium-browser/chromium-browser',
+        '/usr/lib/chromium/chromium'
     ];
     for (const p of systemPaths) {
         if (fs.existsSync(p)) return p;
     }
-    
-    try {
-        const cacheBase = path.join(os.homedir(), '.cache', 'puppeteer', 'chrome');
-        if (fs.existsSync(cacheBase)) {
-            const findChromeRecursive = (dir, depth = 0) => {
-                if (depth > 4) return null;
-                const entries = fs.readdirSync(dir, { withFileTypes: true });
-                for (const entry of entries) {
-                    const fullPath = path.join(dir, entry.name);
-                    if (entry.isFile() && (entry.name === 'chrome' || entry.name === 'chrome.exe')) {
-                        return fullPath;
-                    }
-                    if (entry.isDirectory()) {
-                        const found = findChromeRecursive(fullPath, depth + 1);
-                        if (found) return found;
-                    }
+
+    // 3. Dynamic lookup via `which` command on Linux
+    if (os.platform() === 'linux') {
+        const candidates = ['google-chrome-stable', 'google-chrome', 'chromium-browser', 'chromium', 'chrome'];
+        for (const cmd of candidates) {
+            try {
+                const bin = execSync(`which ${cmd} 2>/dev/null`, { encoding: 'utf8' }).trim();
+                if (bin && fs.existsSync(bin)) {
+                    console.log(`[PUPPETEER] Found Chrome via which: ${bin}`);
+                    return bin;
                 }
-                return null;
-            };
-            const chromeBin = findChromeRecursive(cacheBase);
-            if (chromeBin) {
-                console.log(`[PUPPETEER] Auto-detected installed Chrome at: ${chromeBin}`);
-                return chromeBin;
-            }
+            } catch (e) {}
         }
-    } catch (e) {}
+    }
+    
+    // 4. Puppeteer cache locations (User home, PM2 alfanews0861 user, ~/chrome, and root fallback)
+    const cacheBases = [
+        path.join(os.homedir(), '.cache', 'puppeteer', 'chrome'),
+        path.join(os.homedir(), 'chrome'),
+        '/home/alfanews0861/chrome',
+        '/home/alfanews0861/.cache/puppeteer/chrome',
+        '/root/.cache/puppeteer/chrome'
+    ];
+
+    for (const cacheBase of cacheBases) {
+        try {
+            if (fs.existsSync(cacheBase)) {
+                const findChromeRecursive = (dir, depth = 0) => {
+                    if (depth > 4) return null;
+                    const entries = fs.readdirSync(dir, { withFileTypes: true });
+                    for (const entry of entries) {
+                        const fullPath = path.join(dir, entry.name);
+                        if (entry.isFile() && (entry.name === 'chrome' || entry.name === 'chrome.exe')) {
+                            return fullPath;
+                        }
+                        if (entry.isDirectory()) {
+                            const found = findChromeRecursive(fullPath, depth + 1);
+                            if (found) return found;
+                        }
+                    }
+                    return null;
+                };
+                const chromeBin = findChromeRecursive(cacheBase);
+                if (chromeBin) {
+                    console.log(`[PUPPETEER] Auto-detected installed Chrome at: ${chromeBin}`);
+                    return chromeBin;
+                }
+            }
+        } catch (e) {}
+    }
     return null;
 }
 
@@ -1165,13 +1211,18 @@ async function getSharedBrowser() {
                 '--disable-dev-shm-usage', 
                 '--disable-gpu', 
                 '--no-zygote', 
+                '--single-process',
+                '--disable-software-rasterizer',
                 '--disable-extensions'
             ],
             timeout: 30000
         };
 
         if (systemChrome) {
+            console.log(`[PUPPETEER] Launching browser using executable: ${systemChrome}`);
             launchOptions.executablePath = systemChrome;
+        } else {
+            console.warn("[PUPPETEER] No system Chrome path detected, falling back to bundled Puppeteer cache...");
         }
 
         sharedBrowser = await puppeteerExtra.launch(launchOptions);
@@ -1195,23 +1246,21 @@ async function closeSharedBrowser() {
 }
 
 async function fetchHtmlOptimized(url) {
-    // 1. First try fast HTTP fetch with realistic desktop browser headers
+    // 1. First try fast HTTP fetch via axios (handles brotli/gzip, 10x faster than browser)
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
-        const response = await fetch(url, {
+        const response = await axios.get(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.9,te;q=0.8',
                 'Referer': 'https://www.google.com/'
             },
-            signal: controller.signal
+            timeout: 12000,
+            maxRedirects: 5
         });
-        clearTimeout(timeoutId);
 
-        if (response.ok) {
-            return await response.text();
+        if (response.status === 200 && response.data && typeof response.data === 'string' && response.data.length > 500) {
+            return response.data;
         }
     } catch (e) {
         // Fall through to Puppeteer
@@ -1226,11 +1275,22 @@ async function fetchHtmlOptimized(url) {
         page = await browser.newPage();
         browserPageCount++;
 
-        // Block media and font downloads to save memory and network bandwidth
+        // Aggressively block images, fonts, media, stylesheets, and ad/tracking domains to prevent page timeouts
         await page.setRequestInterception(true);
         page.on('request', (req) => {
             const resourceType = req.resourceType();
-            if (['image', 'font', 'media'].includes(resourceType)) {
+            const reqUrl = req.url().toLowerCase();
+            if (['image', 'font', 'media', 'stylesheet'].includes(resourceType) ||
+                reqUrl.includes('google-analytics') || 
+                reqUrl.includes('googlesyndication') || 
+                reqUrl.includes('doubleclick') ||
+                reqUrl.includes('taboola') || 
+                reqUrl.includes('outbrain') ||
+                reqUrl.includes('scorecardresearch') ||
+                reqUrl.includes('adnxs') ||
+                reqUrl.includes('criteo') ||
+                reqUrl.includes('facebook') ||
+                reqUrl.includes('adsystem')) {
                 req.abort();
             } else {
                 req.continue();
@@ -1238,11 +1298,15 @@ async function fetchHtmlOptimized(url) {
         });
 
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
         const html = await page.content();
         return html;
     } catch (err) {
         console.error(`[PUPPETEER] Fetch failed for ${url}: ${err.message}`);
+        // If target closed or connection severed, recycle shared browser immediately so subsequent pages don't cascade fail
+        if (err.message.includes('Target closed') || err.message.includes('Protocol error') || err.message.includes('timeout')) {
+            await closeSharedBrowser();
+        }
         return null;
     } finally {
         if (page) {
@@ -1607,9 +1671,10 @@ async function processSingleWebSource(doc) {
      * "'అక్రమ అరెస్టులతో బెదిరించలేరు': హైదరాబాద్‌లో బీఆర్ఎస్ నేతల ఆగ్రహం"
      * "'నోరు అదుపులో పెట్టుకోకపోతే ఖబడ్దార్!': టీడీపీ నేతల వార్నింగ్"
    - Headline length: 6-10 words in Telugu.
-5. STRICT TELUGU SCRIPT PURITY (స్వచ్ఛమైన తెలుగు లిపి మాత్రమే):
-   - Output 100% pure Telugu script (Unicode U+0C00-U+0C7F).
-   - STRICTLY FORBIDDEN: NEVER mix Kannada (U+0C80-U+0CFF) or Hindi/Devanagari (U+0900-U+097F) letters into Telugu words. Zero Kannada or Hindi characters allowed in headlines or summary!
+5. STRICT TELUGU SCRIPT PURITY (స్వచ్ఛమైన తెలుగు లిపి మాత్రమే - NO FOREIGN SCRIPTS):
+   - Output 100% pure Telugu script (Unicode U+0C00-U+0C7F) and English/Numbers for acronyms (e.g. TDP, BRS, BJP, ₹).
+   - STRICTLY FORBIDDEN: NEVER mix or insert Kannada, Hindi/Devanagari, Urdu/Arabic, Tamil, or Malayalam characters anywhere in the headline, summary, or tags!
+   - Transliterate all Hindi/Urdu/other names purely into TELUGU (e.g. 'నరేంద్ర మోదీ', 'రాహుల్ గాంధీ', 'ఒవైసీ', 'వక్ఫ్'). Zero non-Telugu Indian or Arabic/Urdu characters allowed!
 6. STRICT IMAGE & LOGO EVALUATION (లోగోలు, లోగోలున్న ఇమేజ్‌లను పూర్తిగా తిరస్కరించు):
    - Inspect the candidate image attached: ${extracted.image || 'None'}.
    - If the image contains ANY channel logo (e.g. ETV, ETV Bharat, TV9, Sakshi, Eenadu, ABN, NTV, V6, T News, 10TV, HMTV, Mahaa, Zee, etc.), website logo, watermark, TV mic emblem, digital title card, or brand graphic:
@@ -1814,6 +1879,122 @@ async function processSingleWebSource(doc) {
 }
 
 // ============================================================================
+// TWITTER / X SYNDICATION API (Zero Browser, Zero Cost, 100% Reliable & Fast)
+// ============================================================================
+async function fetchTweetsSyndication(handle) {
+    try {
+        const timelineUrl = `https://syndication.twitter.com/srv/timeline-profile/screen-name/${handle}`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const res = await fetch(timelineUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Referer': 'https://platform.twitter.com/'
+            },
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (!res.ok) return [];
+
+        const html = await res.text();
+        const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+        if (!match) return [];
+
+        const data = JSON.parse(match[1]);
+        const entries = data?.props?.pageProps?.timeline?.entries || [];
+        const parsedTweets = [];
+
+        for (const entry of entries) {
+            if (entry.type !== 'tweet') continue;
+            const tweet = entry.content?.tweet;
+            if (!tweet) continue;
+
+            const tweetId = tweet.id_str;
+            // Support modern X Note Tweets / long form posts (prevents 280-char cutoff)
+            const rawText = tweet.note_tweet?.note_tweet_results?.result?.text
+                || tweet.note_tweet?.text
+                || tweet.note_tweet?.note_tweet_results?.result?.richtext?.text
+                || tweet.article?.article_results?.result?.text
+                || tweet.extended_tweet?.full_text
+                || tweet.full_text
+                || tweet.text
+                || '';
+            if (!tweetId || !rawText) continue;
+
+            // Extract media (photos / videos)
+            let mediaUrl = null;
+            let mediaType = 'image';
+            if (tweet.entities?.media && tweet.entities.media.length > 0) {
+                mediaUrl = tweet.entities.media[0].media_url_https;
+                if (tweet.entities.media[0].type === 'video' || tweet.entities.media[0].type === 'animated_gif') {
+                    mediaType = 'video';
+                }
+            } else if (tweet.photos && tweet.photos.length > 0) {
+                mediaUrl = tweet.photos[0].url;
+            } else if (tweet.video?.poster) {
+                mediaUrl = tweet.video.poster;
+            }
+
+            const avatarUrl = tweet.user?.profile_image_url_https?.replace('_normal.', '_400x400.') || null;
+            const authorName = tweet.user?.name || null;
+            const tweetDate = tweet.created_at ? new Date(tweet.created_at) : getTweetTimestamp(tweetId);
+            const cleanedText = cleanTweetText(rawText);
+
+            if (cleanedText && cleanedText.length >= 15) {
+                parsedTweets.push({
+                    id: tweetId,
+                    url: `https://x.com/${handle}/status/${tweetId}`,
+                    text: cleanedText,
+                    authorName: authorName,
+                    mediaUrl: mediaUrl,
+                    avatarUrl: avatarUrl,
+                    mediaType: mediaType,
+                    date: tweetDate
+                });
+            }
+            if (parsedTweets.length >= 15) break;
+        }
+
+        console.log(`[X-SYNDICATION] Successfully extracted ${parsedTweets.length} live tweets for @${handle}`);
+        return parsedTweets;
+    } catch (e) {
+        console.error(`[X-SYNDICATION] Failed for @${handle}:`, e.message);
+        return [];
+    }
+}
+
+/**
+ * Visits a single tweet status page to fetch complete un-truncated text for Note Tweets.
+ * @param {object} page Puppeteer page
+ * @param {string} tweetUrl Full tweet URL
+ * @returns {Promise<string|null>}
+ */
+async function fetchFullTweetTextFromStatus(page, tweetUrl) {
+    if (!page || !tweetUrl) return null;
+    try {
+        console.log(`[X-DIRECT] 🔍 Expanding full status text for long tweet: ${tweetUrl}`);
+        await page.goto(tweetUrl, { waitUntil: 'domcontentloaded', timeout: 12000 });
+        await page.waitForFunction(() => !!document.querySelector('[data-testid="tweetText"]'), { timeout: 6000 }).catch(() => {});
+
+        // Click show more on status page if present
+        await page.evaluate(() => {
+            const btn = document.querySelector('[data-testid="tweet-text-show-more-link"], [data-testid="tweetText"] [role="button"]');
+            if (btn) try { btn.click(); } catch (e) {}
+        });
+        await new Promise(r => setTimeout(r, 400));
+
+        const fullText = await page.evaluate(() => {
+            const el = document.querySelector('[data-testid="tweetText"]');
+            return el ? el.innerText.trim() : null;
+        });
+        return fullText;
+    } catch (e) {
+        return null;
+    }
+}
+
+// ============================================================================
 // DIRECT STEALTH TWITTER / X SCRAPING (Zero External API, Zero Cost)
 // ============================================================================
 async function fetchTweetsDirectStealth(handle) {
@@ -1825,12 +2006,42 @@ async function fetchTweetsDirectStealth(handle) {
         page = await browser.newPage();
         browserPageCount++;
 
+        // Aggressively block media, fonts, stylesheets, and tracking scripts to prevent X.com from timing out
+        await page.setRequestInterception(true);
+        page.on('request', (req) => {
+            const resourceType = req.resourceType();
+            const reqUrl = req.url().toLowerCase();
+            if (['image', 'font', 'media', 'stylesheet'].includes(resourceType) ||
+                reqUrl.includes('analytics') || 
+                reqUrl.includes('telemetry') || 
+                reqUrl.includes('doubleclick') ||
+                reqUrl.includes('ads-twitter')) {
+                req.abort();
+            } else {
+                req.continue();
+            }
+        });
+
         await page.setViewport({ width: 1280, height: 900 });
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
         
         console.log(`[X-DIRECT] Navigating stealthily to https://x.com/${handle}...`);
-        await page.goto(`https://x.com/${handle}`, { waitUntil: 'domcontentloaded', timeout: 25000 });
-        await page.waitForFunction(() => document.querySelectorAll('article').length > 0, { timeout: 12000 }).catch(() => {});
+        await page.goto(`https://x.com/${handle}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        await page.waitForFunction(() => document.querySelectorAll('article').length > 0, { timeout: 8000 }).catch(() => {});
+
+        // Expand all "Show more" / "మరింత చూపించు" buttons across the timeline to reveal full text of long tweets
+        await page.evaluate(() => {
+            const showMoreElements = document.querySelectorAll(
+                '[data-testid="tweet-text-show-more-link"], [data-testid="tweetText"] [role="button"], article [role="button"]'
+            );
+            for (const el of showMoreElements) {
+                const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                if (txt.includes('show more') || txt.includes('మరింత') || txt.includes('చూపించు')) {
+                    try { el.click(); } catch(e) {}
+                }
+            }
+        });
+        await new Promise(r => setTimeout(r, 600));
 
         const rawTweets = await page.$$eval('article', (articles, userHandle) => {
             const results = [];
@@ -1843,6 +2054,14 @@ async function fetchTweetsDirectStealth(handle) {
                 if (!match) continue;
                 const tweetId = match[1];
                 const tweetUrl = `https://x.com/${userHandle}/status/${tweetId}`;
+
+                // Extract author display name
+                let authorDisplayName = '';
+                const userNameEl = el.querySelector('[data-testid="User-Name"]');
+                if (userNameEl) {
+                    const firstSpan = userNameEl.querySelector('span');
+                    authorDisplayName = (firstSpan ? firstSpan.innerText : userNameEl.innerText).split('\n')[0].trim();
+                }
 
                 // Extract text
                 let text = '';
@@ -1901,6 +2120,7 @@ async function fetchTweetsDirectStealth(handle) {
                     id: tweetId,
                     url: tweetUrl,
                     text: text,
+                    authorName: authorDisplayName || null,
                     mediaUrl: mediaUrl,
                     avatarUrl: avatarUrl,
                     mediaType: mediaType
@@ -1911,24 +2131,43 @@ async function fetchTweetsDirectStealth(handle) {
             return results;
         }, handle);
 
-        const parsedTweets = rawTweets.map(item => {
+        const parsedTweets = [];
+        for (const item of rawTweets) {
             const tweetDate = getTweetTimestamp(item.id);
-            const cleanedText = cleanTweetText(item.text);
-            return {
-                id: item.id,
-                url: item.url,
-                text: cleanedText,
-                mediaUrl: item.mediaUrl,
-                avatarUrl: item.avatarUrl,
-                mediaType: item.mediaType,
-                date: tweetDate
-            };
-        }).filter(t => t.text && t.text.length >= 15);
+            let cleanedText = cleanTweetText(item.text);
+
+            // If text is still truncated (ends with ellipsis or is a truncated note tweet), visit status URL directly
+            if (isTruncatedTweetText(item.text) || cleanedText.endsWith('…') || cleanedText.endsWith('...')) {
+                try {
+                    const fullTextFromStatus = await fetchFullTweetTextFromStatus(page, item.url);
+                    if (fullTextFromStatus && fullTextFromStatus.length > cleanedText.length) {
+                        cleanedText = cleanTweetText(fullTextFromStatus);
+                    }
+                } catch (e) {}
+            }
+
+            if (cleanedText && cleanedText.length >= 15) {
+                parsedTweets.push({
+                    id: item.id,
+                    url: item.url,
+                    text: cleanedText,
+                    authorName: item.authorName || null,
+                    mediaUrl: item.mediaUrl,
+                    avatarUrl: item.avatarUrl,
+                    mediaType: item.mediaType,
+                    date: tweetDate
+                });
+            }
+        }
 
         console.log(`[X-DIRECT] Successfully extracted ${parsedTweets.length} primary direct tweets for @${handle}`);
         return parsedTweets;
     } catch (e) {
         console.error(`[X-DIRECT] Direct stealth crawl failed for @${handle}:`, e.message);
+        // If target closed or connection severed, recycle shared browser immediately so subsequent pages don't cascade fail
+        if (e.message.includes('Target closed') || e.message.includes('Protocol error') || e.message.includes('timeout')) {
+            await closeSharedBrowser();
+        }
         return [];
     } finally {
         if (page) {
@@ -1978,12 +2217,18 @@ async function fetchTweetsFromRapidAPI(handle) {
 
         const parsedTweets = [];
         for (const item of rawTweets) {
-            const text = item.text || item.full_text || item.tweet_text || '';
+            const text = item.note_tweet?.note_tweet_results?.result?.text 
+                || item.note_tweet?.text 
+                || item.full_text 
+                || item.text 
+                || item.tweet_text 
+                || '';
             const tweetId = item.tweet_id || item.id_str || item.id || '';
             if (!tweetId) continue;
 
             const tweetUrl = `https://x.com/${handle}/status/${tweetId}`;
             let date = item.created_at ? new Date(item.created_at) : getTweetTimestamp(tweetId);
+            const authorName = item.user?.name || null;
 
             let mediaUrl = null;
             let mediaType = 'image';
@@ -2002,6 +2247,7 @@ async function fetchTweetsFromRapidAPI(handle) {
             parsedTweets.push({
                 id: tweetId,
                 text: cleanTweetText(text),
+                authorName: authorName,
                 url: tweetUrl,
                 mediaUrl,
                 mediaType,
@@ -2035,10 +2281,15 @@ async function processSingleTwitterFeed(doc) {
 
     try {
         let batchCount = 0;
-        // 1. Primary Method: Direct Stealth Crawling (Zero API key, direct live tweets)
-        let fetchedItems = await fetchTweetsDirectStealth(handle);
+        // 1. Primary Method: Twitter Syndication (Zero browser, Zero RAM, ultra fast & reliable)
+        let fetchedItems = await fetchTweetsSyndication(handle);
 
-        // 2. Secondary Fallback: RapidAPI if configured and direct crawl had 0 items
+        // 2. Secondary Fallback: Direct Stealth Puppeteer (if syndication had 0 items)
+        if (fetchedItems.length === 0) {
+            fetchedItems = await fetchTweetsDirectStealth(handle);
+        }
+
+        // 3. Tertiary Fallback: RapidAPI if configured and direct crawl had 0 items
         if (fetchedItems.length === 0) {
             fetchedItems = await fetchTweetsFromRapidAPI(handle);
         }
@@ -2076,13 +2327,30 @@ async function processSingleTwitterFeed(doc) {
                 // If main URL or all thread parts were already scanned, skip
                 if (seenUrls.has(item.url) || (item.allUrls && item.allUrls.every(u => seenUrls.has(u)))) continue;
 
-                const prompt = `You are a Senior Telugu Journalist and Political News Editor for a reputed mainstream news network.
-Evaluate this social media post from a political leader or official handle:
+                const authorDisplayName = item.authorName || feed.sourceName || feed.authorName || feed.title || feed.name || `@${handle}`;
+                const handleTag = `@${handle}`;
+                const district = feed.district || '';
+                const designation = feed.designation || feed.role || feed.party || '';
+
+                const prompt = `You are a Senior Telugu Journalist and Political News Editor for Alfa News network.
+Evaluate this official social media post from a political leader / government representative:
+
+POST METADATA & AUTHOR ATTRIBUTION:
+- AUTHOR / LEADER: ${authorDisplayName} (${handleTag})
+- DISTRICT / REGION: ${district || "Andhra Pradesh / Telangana"}
+${designation ? `- DESIGNATION / ROLE: ${designation}` : ""}
+
+CRITICAL AUTHOR ATTRIBUTION RULES:
+1. This post is published directly by "${authorDisplayName}" (${handleTag}).
+2. ALL first-person statements, verbs, and declarations in the post (e.g., "నేను", "పాల్గొన్నాను", "వెల్లడించాను", "వెల్లడించాము", "సందర్శించాను", "మా ప్రభుత్వం", "చర్యలు చేపడతాం", "కోరుతున్నాను", "సవాల్ చేస్తున్నాను") MUST be explicitly attributed to "${authorDisplayName}"!
+   - Examples: "${authorDisplayName} వెల్లడించారు", "${authorDisplayName} పేర్కొన్నారు", "${authorDisplayName} స్పష్టం చేశారు".
+3. STRICTLY FORBIDDEN: DO NOT use anonymous or generic placeholders like "ప్రముఖ నాయకులు", "నేతలు", "ఒక నేత", or "నాయకులు వెల్లడించారు". When the author is known, you MUST use "${authorDisplayName}"!
+4. You MUST include "${authorDisplayName}" in the "entities.people" array and add "#${authorDisplayName.replace(/\s+/g, '_')}" in the "tags" array.
 
 EDITORIAL FILTER RULES:
 1. ACCEPT & PRIORITIZE (Set "isRelevant": true):
+   - Government decisions, cabinet meetings, review meetings, welfare schemes, development projects, official GOs, budget & funds.
    - Political Allegations & Counter-Allegations (రాజకీయ ఆరోపణలు, ప్రత్యారోపణలు, విమర్శలు, సవాళ్లు, కౌంటర్లు): Criticisms leveled by leaders against governments, rival parties, or policy decisions (e.g. corruption charges, budget/debts, scheme implementation, farmer issues, governance failures).
-   - Government decisions, cabinet meetings, welfare schemes, development projects, official GOs.
    - Public statements, press meets, crisis responses (floods, law & order, public welfare), or official party decisions.
 
 2. REJECT (Set "isRelevant": false) ONLY IF:
@@ -2092,24 +2360,30 @@ EDITORIAL FILTER RULES:
    - Commercial ads, product promotions, spam.
 
 WRITING RULES (CRITICAL EDITORIAL STYLE):
-1. PRESERVE ORIGINAL INTENSITY & EMOTION (ట్వీట్లోని భావాన్ని, ఇంటెన్సిటీని ఏమాత్రం తగ్గించవద్దు):
-   - Do NOT water down or dilute the leader's fighting spirit, anger, sarcasm, challenge, or intensity.
-   - Capture the exact emotion (ఘాటు విమర్శ, ఆగ్రహం, నిలదీత, సవాల్, ఆవేదన, హెచ్చరిక) faithfully in Telugu.
-2. PUNCH DIALOGUE IN HEADLINE (ట్వీట్లోని పంచ్ డైలాగ్‌నే హెడ్‌లైన్‌గా మార్చు):
-   - Identify the sharpest, most powerful punch line, quote, or rhetorical question from the tweet.
-   - Format the Telugu headline to lead with this punch dialogue in quotes or as the central hook:
-     Examples:
-     * "'సూపర్ సిక్స్ ఏమైంది?.. ప్రజలను దగా చేశారు': కూటమి సర్కార్‌పై జగన్ ఫైర్"
-     * "'నోరు అదుపులో పెట్టుకోకపోతే ఖబడ్దార్!': వైసీపీ నేతలకు లోకేష్ స్ట్రాంగ్ వార్నింగ్"
-     * "'హామీలు గాల్లో కలిపేశారు.. ఇదేనా మీ మార్పు?': రేవంత్ సర్కార్‌పై కేటీఆర్ ఘాటు వ్యాఖ్యలు"
-   - Headline length: 6-12 words in Telugu, high-voltage, sensational yet authentic to the tweet.
-3. SUMMARY (గతం లో మాదిరిగానే ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్):
-   - Approx 60-70 words in crisp, powerful Telugu preserving the exact arguments, punch points, people names, and context.
+1. POLICY DECISIONS, SCHEMES & DEVELOPMENT ANNOUNCEMENTS (కీలక నిర్ణయాలు, సంక్షేమ పథకాలు, నిధులు, ప్రాజెక్టులు):
+   - When the leader or minister announces government decisions, review meetings, developmental projects, or welfare funds:
+     * DO NOT omit specific decisions, figures, and key facts! Include all core decisions mentioned (e.g., ప్రాజెక్టుల పేర్లు, కేటాయించిన నిధులు రూ. కోట్లలో, భీమా/ఆర్థిక సాయం మొత్తం, కొత్త సదుపాయాలు).
+     * Provide a clear, comprehensive, and professional news summary capturing the essence of each major decision announced.
+2. POLITICAL ATTACKS & INTENSITY (రాజకీయ విమర్శలు, ఘాటు వ్యాఖ్యలు):
+   - If the post is a political fight, criticism, or challenge, preserve the leader's fighting spirit, intensity, and sharpness (ఘాటు విమర్శ, ఆగ్రహం, నిలదీత, సవాల్, ఆవేదన).
+3. HEADLINE (శీర్షిక - కచ్చితంగా 7 నుండి 8 పదాల పంచ్ డైలాగ్ మాత్రమే):
+   - Format: Must lead with the sharpest punch dialogue, quote, or biggest decision in quotes, followed by the leader's action/statement.
+   - Length: STRICTLY 7 to 8 words only (కచ్చితంగా 7 నుండి 8 పదాలు మాత్రమే ఉండాలి). High-impact, punchy Telugu.
+   - Examples:
+     * "'తిరుమల భక్తులకు ఉచిత భీమా': మంత్రి ఆనం వెల్లడి"
+     * "'సూపర్ సిక్స్ ఏమైంది?.. ప్రజలను దగా చేశారు': జగన్ ఫైర్"
+     * "'నోరు అదుపులో పెట్టుకోకపోతే ఖబడ్దార్!': లోకేష్ స్ట్రాంగ్ వార్నింగ్"
+     * "'హామీలు గాల్లో కలిపేశారు': రేవంత్ సర్కార్‌పై కేటీఆర్ ఆగ్రహం"
+     * "'ఎస్వీ మ్యూజియంకు రూ.104 కోట్లు': మంత్రి ఆనం కీలక ప్రకటన"
+4. SUMMARY (సారాంశం - కచ్చితంగా 60 నుండి 70 పదాలు మాత్రమే):
+   - Length: STRICTLY 60 to 70 words only (కచ్చితంగా 60 నుండి 70 పదాల మధ్య మాత్రమే ఉండాలి, 70 పదాలు దాటకూడదు).
+   - Crisp, powerful Telugu preserving the core arguments, punch points, leader's name, key decisions/numbers, and context.
    - Strictly ONE continuous single unified paragraph. DO NOT split into multiple paragraphs, DO NOT use newlines.
-4. STRICT TELUGU SCRIPT PURITY (స్వచ్ఛమైన తెలుగు లిపి మాత్రమే):
-   - Output 100% pure Telugu script (Unicode U+0C00-U+0C7F).
-   - STRICTLY FORBIDDEN: Zero Kannada (U+0C80-U+0CFF) or Hindi/Devanagari (U+0900-U+097F) letters allowed!
-5. STRICT LOGO REJECTION:
+5. STRICT TELUGU SCRIPT PURITY (స్వచ్ఛమైన తెలుగు లిపి మాత్రమే - NO FOREIGN SCRIPTS):
+   - Output 100% pure Telugu script (Unicode U+0C00-U+0C7F) and English/Numbers for acronyms and amounts.
+   - STRICTLY FORBIDDEN: NEVER mix or insert Kannada, Hindi/Devanagari, Urdu/Arabic, Tamil, or Malayalam characters anywhere!
+   - Transliterate all non-Telugu names purely into TELUGU (e.g. 'నరేంద్ర మోదీ', 'రాహుల్ గాంధీ', 'ఒవైసీ', 'వక్ఫ్').
+6. STRICT LOGO REJECTION:
    - If media is purely a logo, channel icon, or brand card, set mediaUrl to "".
 
 Output JSON only:
@@ -2177,6 +2451,16 @@ Output JSON only:
                     const cleanedHeadline = sanitizeTeluguText(parsed.headline);
                     const cleanedContent = sanitizeTeluguText(parsed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
 
+                    const safeAuthorTag = `#${authorDisplayName.replace(/[^\u0C00-\u0C7Fa-zA-Z0-9_]/g, '_')}`;
+                    const cleanedTags = [...new Set([
+                        ...(parsed.tags || []),
+                        safeAuthorTag,
+                        feed.district ? `#${feed.district.replace(/\s+/g, '_')}` : null
+                    ])].filter(Boolean);
+
+                    const finalEntities = parsed.entities || { people: [], organizations: [], locations: [] };
+                    finalEntities.people = [...new Set([...(finalEntities.people || []), authorDisplayName])].filter(Boolean);
+
                     const docRef = db.collection('news').doc();
                     const newsPayload = sanitizeFirestoreData({
                         headline: { telugu: cleanedHeadline, english: parsed.headlineEn || '' },
@@ -2186,8 +2470,8 @@ Output JSON only:
                         sourceName: feed.sourceName || `X (@${handle})`,
                         category: category,
                         categories: [...new Set([feed.sourceName || `X (@${handle})`, category, "Social", "రాజకీయం", "ముఖ్యాంశాలు"])].filter(Boolean),
-                        tags: parsed.tags || [],
-                        entities: parsed.entities || { people: [], organizations: [], locations: [] },
+                        tags: cleanedTags,
+                        entities: finalEntities,
                         district: finalDistrict || "General",
                         state: feed.state || null,
                         mandal: feed.mandal || null,
@@ -2264,6 +2548,38 @@ function isOperatingHours() {
 let isScraping = false;
 let lastScrapeStartTime = 0;
 
+// ✅ Daily reset: IST date మారినప్పుడు social_feeds + scraping_sources లో todayProcessedCount = 0 reset
+async function resetDailyCountersIfNeeded() {
+    try {
+        const todayIST = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }); // YYYY-MM-DD
+        const stateRef = db.collection('scraper_state').doc('daily_reset');
+        const stateDoc = await stateRef.get();
+        const lastResetDate = stateDoc.exists ? stateDoc.data().lastResetDate : null;
+
+        if (lastResetDate === todayIST) {
+            console.log(`[DAILY RESET] Already reset for ${todayIST}. Skipping.`);
+            return;
+        }
+
+        console.log(`[DAILY RESET] New day detected (${lastResetDate} → ${todayIST}). Resetting todayProcessedCount...`);
+
+        const [socialSnap, scrapingSnap] = await Promise.all([
+            db.collection('social_feeds').get(),
+            db.collection('scraping_sources').get()
+        ]);
+
+        const batchReset = db.batch();
+        socialSnap.docs.forEach(doc => batchReset.update(doc.ref, { todayProcessedCount: 0 }));
+        scrapingSnap.docs.forEach(doc => batchReset.update(doc.ref, { todayProcessedCount: 0 }));
+        await batchReset.commit();
+
+        await stateRef.set({ lastResetDate: todayIST, resetAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        console.log(`[DAILY RESET] ✅ Reset complete — ${socialSnap.size} social feeds + ${scrapingSnap.size} scraping sources.`);
+    } catch (err) {
+        console.error('[DAILY RESET] Error:', err.message);
+    }
+}
+
 async function runScraperQueue() {
     if (!isOperatingHours()) {
         const currentIST = new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" });
@@ -2284,6 +2600,8 @@ async function runScraperQueue() {
     isScraping = true;
     lastScrapeStartTime = Date.now();
     try {
+        // ✅ Daily counter reset (IST midnight దాటితే)
+        await resetDailyCountersIfNeeded();
         await prewarmScraperCache();
         console.log("Fetching active sources for interleaved scraping...");
         

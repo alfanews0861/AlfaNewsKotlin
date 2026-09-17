@@ -592,6 +592,17 @@ function cleanTweetText(rawText) {
 }
 
 /**
+ * Detects if a tweet text is truncated by Twitter (e.g. ends with ellipsis or Show more).
+ * @param {string} text 
+ * @returns {boolean}
+ */
+function isTruncatedTweetText(text) {
+    if (!text) return false;
+    const clean = text.trim();
+    return clean.endsWith('…') || clean.endsWith('...') || /\bShow more\b/i.test(text) || /మరింత/i.test(text);
+}
+
+/**
  * Detects thread markers in a tweet such as:
  * "1/4", "(1/4)", "[1/4]", "1/n", "(1/n)", "1/1", "1/2", "1/3", "1/4", etc.
  * @param {string} text 
@@ -932,6 +943,7 @@ module.exports = {
     sanitizeFirestoreData,
     getTweetTimestamp,
     cleanTweetText,
+    isTruncatedTweetText,
     normalizeUrl,
     calculateTextSimilarity,
     extractThreadMarker,

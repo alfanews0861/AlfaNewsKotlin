@@ -36,7 +36,7 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.getNewsCardImage = exports.sendContactEmail = exports.triggerPushBroadcast = exports.exchangeForPermanentToken = exports.initializeDistrictSocialConfigs = exports.manuallyTriggerSocialPost = exports.testDistrictSocialPost = exports.onNewsPostSocialAutoPost = exports.reportNewsPost = exports.broadcastToAllReporters = exports.sendAdminReporterMessage = exports.scheduleReprocessFailedReporterNews = exports.onNewsPostCreated = exports.processNewsPost = exports.restoreAllDowngradedReporters = exports.recordAppInstallReferral = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.runAutoApprovePendingBackfill = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
+exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.getNewsCardImage = exports.sendContactEmail = exports.triggerPushBroadcast = exports.exchangeForPermanentToken = exports.initializeDistrictSocialConfigs = exports.manuallyTriggerSocialPost = exports.testDistrictSocialPost = exports.onNewsPostSocialAutoPost = exports.reportNewsPost = exports.broadcastToAllReporters = exports.sendAdminReporterMessage = exports.recoverFalselyRejectedNewsHttp = exports.scheduleReprocessFailedReporterNews = exports.onNewsPostCreated = exports.processNewsPost = exports.restoreAllDowngradedReporters = exports.recordAppInstallReferral = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.runAutoApprovePendingBackfill = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
 /**
  * Alfa News - Cloud Functions v18.0 (Refactored & Modular)
  */
@@ -89,6 +89,7 @@ var news_handler_1 = require("./news_handler");
 Object.defineProperty(exports, "processNewsPost", { enumerable: true, get: function () { return news_handler_1.processNewsPost; } });
 Object.defineProperty(exports, "onNewsPostCreated", { enumerable: true, get: function () { return news_handler_1.onNewsPostCreated; } });
 Object.defineProperty(exports, "scheduleReprocessFailedReporterNews", { enumerable: true, get: function () { return news_handler_1.scheduleReprocessFailedReporterNews; } });
+Object.defineProperty(exports, "recoverFalselyRejectedNewsHttp", { enumerable: true, get: function () { return news_handler_1.recoverFalselyRejectedNewsHttp; } });
 // 4. Export Notification Engine
 __exportStar(require("./notification_engine"), exports);
 // 5. Export Reporter Monitoring
@@ -500,11 +501,13 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>&#8203;</title>
+    <title>${safeTitle} - Alfa News</title>
 
-    <!-- Open Graph (Full-Size Image Only Preview for WhatsApp) -->
-    <meta property="og:title" content="&#8203;">
-    <meta property="og:type" content="image.other">
+    <!-- Open Graph (WhatsApp, Facebook, Telegram Preview) -->
+    <meta property="og:site_name" content="Alfa News">
+    <meta property="og:title" content="${safeTitle}">
+    <meta property="og:description" content="${safeDesc}">
+    <meta property="og:type" content="article">
     <meta property="og:url" content="${postUrl}">
     <meta property="og:image" content="${safeImage}">
     <meta property="og:image:secure_url" content="${safeImage}">
@@ -514,6 +517,8 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="${safeTitle}">
+    <meta name="twitter:description" content="${safeDesc}">
     <meta name="twitter:image" content="${safeImage}">
 
     <!-- Android App Links & Smart App Banner -->
@@ -529,7 +534,7 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
         body { background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 16px; }
         .card { background: #1e293b; border-radius: 16px; max-width: 480px; width: 100%; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid #334155; }
         .media-container { width: 100%; height: 320px; background: #000; overflow: hidden; position: relative; }
-        .media-container img { width: 100%; height: 100%; object-fit: cover; }
+        .media-container img { width: 100%; height: 100%; object-fit: cover; cursor: pointer; }
         .badge { position: absolute; top: 12px; left: 12px; background: #ef4444; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
         .content { padding: 20px; }
         h1 { font-size: 18px; line-height: 1.4; color: #ffffff; margin-bottom: 12px; font-weight: 700; }
@@ -543,8 +548,10 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
 <body>
     <div class="card">
         <div class="media-container">
-            <img src="${safeImage}" alt="${safeTitle}">
-            <div class="badge">Alfa News</div>
+            <a href="${intentScheme}" style="display:block;width:100%;height:100%;text-decoration:none;">
+                <img src="${safeImage}" alt="${safeTitle}">
+                <div class="badge">Alfa News</div>
+            </a>
         </div>
         <div class="content">
             <h1>${safeTitle}</h1>

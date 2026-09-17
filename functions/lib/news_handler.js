@@ -33,9 +33,10 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.scheduleReprocessFailedReporterNews = exports.onNewsPostCreated = exports.processNewsPost = void 0;
+exports.recoverFalselyRejectedNewsHttp = exports.scheduleReprocessFailedReporterNews = exports.onNewsPostCreated = exports.processNewsPost = void 0;
 exports.calculateTextSimilarity = calculateTextSimilarity;
 exports.fetchRecentMandalNews = fetchRecentMandalNews;
+exports.isApprovalRemark = isApprovalRemark;
 exports.performAIProcessing = performAIProcessing;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
@@ -296,6 +297,52 @@ async function fetchRecentMandalNews(postData, currentPostId) {
     }
 }
 /**
+ * Helper: Checks if a rejectionReason string is actually an approval/acceptance remark produced by AI
+ * (e.g. "ప్రచురణకు ఆమోదించబడింది", "ఆమోదం", "approved", "null", "none")
+ */
+function isApprovalRemark(reason) {
+    if (!reason)
+        return false;
+    const r = reason.trim().toLowerCase();
+    if (!r)
+        return false;
+    // Explicit negative check first - real rejections MUST NOT be treated as approval!
+    if (r.includes("ఆమోదించబడలేదు") ||
+        r.includes("ఆమోదం కాదు") ||
+        r.includes("తిరస్కరించ") ||
+        r.includes("not approved") ||
+        r.includes("disapproved") ||
+        r.includes("unapproved")) {
+        return false;
+    }
+    const approvalPatterns = [
+        "ఆమోదించబడింది",
+        "ఆమోదించబడినది",
+        "ఆమోదం",
+        "ఆమోదయోగ్యం",
+        "ప్రచురణకు ఆమోద",
+        "ప్రచురణకు సిద్ధం",
+        "ప్రచురణకు యోగ్యం",
+        "ప్రచురణార్హం",
+        "ప్రచురణకు అర్హ",
+        "స్వీకరించబడింది",
+        "అర్హమైనది",
+        "యోగ్యమైనది",
+        "సరియైనది",
+        "approved",
+        "acceptable",
+        "eligible",
+        "passed",
+        "published",
+        "no rejection",
+        "null",
+        "none",
+        "n/a",
+        "false"
+    ];
+    return approvalPatterns.some(pattern => r.includes(pattern));
+}
+/**
  * Helper: Normalize a single AI-generated story object
  */
 function normalizeSingleStory(aiRes, actualPostData) {
@@ -327,6 +374,11 @@ function normalizeSingleStory(aiRes, actualPostData) {
     let isDuplicate = aiRes.isDuplicate === true;
     const dupPostId = (aiRes.duplicateOfPostId || "").trim();
     let rejectionReason = (aiRes.rejectionReason || "").trim();
+    // Critical Safeguard 0: If AI provided an approval remark (e.g. "ప్రచురణకు ఆమోదించబడింది", "approved"), clear it!
+    if (isApprovalRemark(rejectionReason)) {
+        console.log(`[AI_RECONCILE] Detected approval remark or null/none in rejectionReason ("${rejectionReason}"). Clearing to empty string.`);
+        rejectionReason = "";
+    }
     // Critical Safeguard 1: If AI flagged isDuplicate=true but did not provide a valid duplicateOfPostId,
     // it is a hallucination. Override isDuplicate to false!
     if (isDuplicate && (!dupPostId || dupPostId.toLowerCase() === "null" || dupPostId.toLowerCase() === "none")) {
@@ -344,6 +396,12 @@ function normalizeSingleStory(aiRes, actualPostData) {
     if (isDuplicate && (!rejectionReason || rejectionReason.toLowerCase() === "null" || rejectionReason.toLowerCase() === "none")) {
         rejectionReason = "ఈ మండలంలో గత 6 గంటల్లో ఇప్పటికే ప్రచురించబడిన వార్త (డూప్లికేట్).";
     }
+    if (rejectionReason.toLowerCase() === "null" ||
+        rejectionReason.toLowerCase() === "none" ||
+        rejectionReason.toLowerCase() === "n/a" ||
+        rejectionReason.toLowerCase() === "false") {
+        rejectionReason = "";
+    }
     const isRejected = (rejectionReason && rejectionReason.length > 0) || isDuplicate;
     if (!isRejected && (!finalContent || !finalHeadline)) {
         console.warn("[AI_FIELD_WARNING] AI story item missing Telugu fields:", JSON.stringify(aiRes).substring(0, 300));
@@ -352,12 +410,6 @@ function normalizeSingleStory(aiRes, actualPostData) {
         aiRes.english?.content || aiRes.english?.contentEn || aiRes.english?.summary ||
         aiRes.english_version?.content || aiRes.english_version?.summary ||
         aiRes.summaryEn || aiRes.summarized_english_content || aiRes.englishContent || "";
-    if (rejectionReason.toLowerCase() === "null" ||
-        rejectionReason.toLowerCase() === "none" ||
-        rejectionReason.toLowerCase() === "n/a" ||
-        rejectionReason.toLowerCase() === "false") {
-        rejectionReason = "";
-    }
     const normalizedEntities = {
         people: Array.isArray(aiRes.entities?.people) ? aiRes.entities.people : [],
         organizations: Array.isArray(aiRes.entities?.organizations) ? aiRes.entities.organizations : [],
@@ -474,7 +526,10 @@ async function performAIProcessing(headline, content, actualPostData, recentStor
             refinedCategory: { type: genai_1.Type.STRING },
             matchedImageIndex: { type: genai_1.Type.INTEGER },
             isSafeForYouTube: { type: genai_1.Type.BOOLEAN },
-            rejectionReason: { type: genai_1.Type.STRING },
+            rejectionReason: {
+                type: genai_1.Type.STRING,
+                description: "CRITICAL: Must be empty string \"\" if story is approved and should be published. ONLY provide a polite Telugu editorial reason if the story violates safety/editorial policies or is a duplicate."
+            },
             isDuplicate: { type: genai_1.Type.BOOLEAN },
             duplicateOfPostId: { type: genai_1.Type.STRING, nullable: true },
             tone: { type: genai_1.Type.STRING },
@@ -552,7 +607,11 @@ SUBMISSION METADATA:
 ${recentStoriesPrompt}
 
 EDITORIAL & REJECTION INSTRUCTIONS (CRITICAL):
-- rejectionReason MUST be phrased politely in professional Telugu as if written by a Human Chief Editor / News Desk. NEVER mention AI, algorithms, bots, or automated systems. Explain naturally like an editor (e.g. 'ఈ మండలంలో ఈ వార్తాంశం ఇప్పటికే ప్రచురితమైంది', 'వార్తలో ప్రజా ప్రయోజనం కొరవడింది లేదా వ్యక్తిగత ప్రచారం', 'చిత్రం ప్రచురణ ప్రమాణాలకు అనుగుణంగా లేదు').
+- IF THE STORY IS VALID & APPROVED FOR PUBLICATION (CRITICAL):
+  * You MUST set rejectionReason = "" (empty string).
+  * NEVER write approval statements like "ప్రచురణకు ఆమోదించబడింది", "ఆమోదం", or "approved" in rejectionReason! When approved, rejectionReason MUST BE AN EMPTY STRING "".
+- ONLY IF THE STORY VIOLATES EDITORIAL/SAFETY POLICIES OR IS A CONFIRMED DUPLICATE:
+  * rejectionReason MUST be phrased politely in professional Telugu as if written by a Human Chief Editor / News Desk. NEVER mention AI, algorithms, bots, or automated systems. Explain naturally like an editor (e.g. 'ఈ మండలంలో ఈ వార్తాంశం ఇప్పటికే ప్రచురితమైంది', 'వార్తలో ప్రజా ప్రయోజనం కొరవడింది లేదా వ్యక్తిగత ప్రచారం', 'చిత్రం ప్రచురణ ప్రమాణాలకు అనుగుణంగా లేదు').
 
 
 PROACTIVE MULTI-STORY BUNDLE DETECTION (CRITICAL):
@@ -971,6 +1030,12 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                 const hasVideo = mTypes.includes('VIDEO') || latestData.mediaType?.toUpperCase() === 'VIDEO' || isDirectYoutube;
                 const isAlreadyVideoReady = latestData.videoProcessed === true || isDirectYoutube;
                 const shouldWaitForVideoUpload = hasVideo && !isAlreadyVideoReady;
+                // CRITICAL APPROVAL SHIELD:
+                // If AI populated rejectionReason with an approval note (e.g. "ప్రచురణకు ఆమోదించబడింది", "approved"), clear it immediately!
+                if (isApprovalRemark(aiProcessedData.rejectionReason)) {
+                    console.log(`[APPROVAL_SHIELD] Post ${targetPostId}: rejectionReason contained approval phrase ("${aiProcessedData.rejectionReason}"). Clearing to null.`);
+                    aiProcessedData.rejectionReason = null;
+                }
                 // ACCIDENT & CRIME SHIELD:
                 // Never reject accident/crime stories for text/photo articles; instead convert image to B&W/Grayscale and publish!
                 // CRITICAL SAFETY: For video posts destined for YouTube, NEVER bypass YouTube Community Guidelines!
@@ -1751,6 +1816,36 @@ exports.scheduleReprocessFailedReporterNews = (0, scheduler_1.onSchedule)({
         const snapshot = await db.collection('news')
             .where('timestamp', '>=', admin.firestore.Timestamp.fromDate(fourHoursAgo))
             .get();
+        // 0. Auto-recover posts falsely marked REJECTED due to approval remarks
+        for (const doc of snapshot.docs) {
+            const d = doc.data();
+            const status = (d.status || "").toUpperCase();
+            if (status === "REJECTED" && isApprovalRemark(d.rejectionReason)) {
+                console.log(`[AUTO_RETRY_SCHEDULE] Recovering falsely rejected post: ${doc.id} ("${d.headline?.telugu || 'Untitled'}"). Old reason: ${d.rejectionReason}`);
+                const mTypes = (d.mediaTypes || []).map((t) => t.toUpperCase());
+                const hasVideo = mTypes.includes('VIDEO') || d.mediaType?.toUpperCase() === 'VIDEO';
+                const targetStatus = hasVideo && !d.videoProcessed ? "PROCESSING_VIDEO" : "PUBLISHED";
+                const targetApproved = targetStatus === "PUBLISHED";
+                await db.collection('news').doc(doc.id).update({
+                    status: targetStatus,
+                    approved: targetApproved,
+                    rejectionReason: admin.firestore.FieldValue.delete(),
+                    recoveredAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                if (targetApproved && d.reporter?.id && !d.pointsAwarded && !d.isCitizen && d.reporter?.name !== "సిటిజెన్ పోస్ట్") {
+                    try {
+                        await db.collection('users').doc(d.reporter.id).update({
+                            points: admin.firestore.FieldValue.increment(10)
+                        });
+                        await db.collection('news').doc(doc.id).update({ pointsAwarded: true });
+                        console.log(`[RECOVER_POINTS] Credited 10 points to reporter ${d.reporter.id} for post ${doc.id}`);
+                    }
+                    catch (pe) {
+                        console.warn(`[RECOVER_POINTS_ERR] Could not credit points: ${pe.message}`);
+                    }
+                }
+            }
+        }
         const retryCandidates = snapshot.docs.filter(doc => {
             const d = doc.data();
             const status = (d.status || "").toUpperCase();
@@ -1761,7 +1856,7 @@ exports.scheduleReprocessFailedReporterNews = (0, scheduler_1.onSchedule)({
             if ((d.reprocessCount || 0) >= 3)
                 return false;
             // 2. Filter real policy rejections and verified duplicates
-            const isRealPolicyRejection = status === "REJECTED" && !d.isDuplicate;
+            const isRealPolicyRejection = status === "REJECTED" && !d.isDuplicate && !isApprovalRemark(d.rejectionReason);
             const isRealDuplicate = d.isDuplicate === true && !!d.duplicateOfPostId;
             if (isRealPolicyRejection || isRealDuplicate)
                 return false;
@@ -1792,5 +1887,48 @@ exports.scheduleReprocessFailedReporterNews = (0, scheduler_1.onSchedule)({
     }
     catch (err) {
         console.error("[AUTO_RETRY_SCHEDULE_ERR] Error during 2-hour auto-retry schedule:", err.message);
+    }
+});
+/**
+ * 6.4 HTTP Endpoint to scan and recover any falsely rejected posts in the last 48 hours.
+ * Can be called via GET request to instantly publish falsely rejected stories.
+ */
+exports.recoverFalselyRejectedNewsHttp = (0, https_1.onRequest)({ region: utils_1.REGION }, async (req, res) => {
+    try {
+        const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+        const snapshot = await db.collection('news')
+            .where('timestamp', '>=', admin.firestore.Timestamp.fromDate(twoDaysAgo))
+            .get();
+        const recovered = [];
+        for (const doc of snapshot.docs) {
+            const d = doc.data();
+            const status = (d.status || "").toUpperCase();
+            if (status === "REJECTED" && isApprovalRemark(d.rejectionReason)) {
+                const mTypes = (d.mediaTypes || []).map((t) => t.toUpperCase());
+                const hasVideo = mTypes.includes('VIDEO') || d.mediaType?.toUpperCase() === 'VIDEO';
+                const targetStatus = hasVideo && !d.videoProcessed ? "PROCESSING_VIDEO" : "PUBLISHED";
+                const targetApproved = targetStatus === "PUBLISHED";
+                await db.collection('news').doc(doc.id).update({
+                    status: targetStatus,
+                    approved: targetApproved,
+                    rejectionReason: admin.firestore.FieldValue.delete(),
+                    recoveredAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                if (targetApproved && d.reporter?.id && !d.pointsAwarded && !d.isCitizen && d.reporter?.name !== "సిటిజెన్ పోస్ట్") {
+                    try {
+                        await db.collection('users').doc(d.reporter.id).update({
+                            points: admin.firestore.FieldValue.increment(10)
+                        });
+                        await db.collection('news').doc(doc.id).update({ pointsAwarded: true });
+                    }
+                    catch (pe) { }
+                }
+                recovered.push({ id: doc.id, headline: d.headline?.telugu, oldReason: d.rejectionReason, status: targetStatus });
+            }
+        }
+        res.status(200).json({ success: true, count: recovered.length, recovered });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err.message });
     }
 });

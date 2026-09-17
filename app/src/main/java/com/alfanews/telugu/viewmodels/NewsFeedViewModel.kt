@@ -309,16 +309,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    val fastBatchJob = async {
                        if (isColdStart) {
                            try {
-                               if (isGuestOrNew) {
-                                   val snap = FirebaseService.db.collection("news")
-                                       .whereEqualTo("approved", true)
-                                       .orderBy("timestamp", Query.Direction.DESCENDING)
-                                       .limit(5)
-                                       .get().await()
-                                   Pair(snap.documents.mapNotNull { mapDocumentToNewsPost(it) }, snap.documents.lastOrNull())
-                               } else {
-                                   fetchFilteredBatch(FirebaseService.db.collection("news"), null, district, excludeDistricts = true, limit = 5, userState = userState)
-                               }
+                               // ✅ FIX: Guest/new users కి కూడా district news exclude చేయాలి
+                               // excludeDistricts = true → general/national/state news మాత్రమే fast path లో వస్తాయి
+                               fetchFilteredBatch(FirebaseService.db.collection("news"), null, district, excludeDistricts = true, limit = 5, userState = userState)
                            } catch (e: Exception) { Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null) }
                        } else {
                            Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
@@ -391,7 +384,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                 FirebaseService.db.collection("news"),
                                 null,
                                 district,
-                                excludeDistricts = !district.isNullOrBlank(),
+                                // ✅ FIX: district null (guest/new user) అయినా excludeDistricts = true
+                                // Home feed లో district-specific news రాకుండా block చేస్తుంది
+                                // Local news → localBatch లో మాత్రమే వస్తుంది (district set అయినప్పుడు)
+                                excludeDistricts = true,
                                 userState = userState
                             )
                         } catch (e: Exception) { Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null) }
@@ -531,7 +527,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                   }
                   val mainBatchDeferred = async {
                       if (shouldFetchMain) {
-                          fetchFilteredBatch(FirebaseService.db.collection("news"), mainCursor, district, excludeDistricts = !district.isNullOrBlank(), userState = userState)
+                          // ✅ FIX: district null అయినా excludeDistricts = true — district news home feed లో రాదు
+                          fetchFilteredBatch(FirebaseService.db.collection("news"), mainCursor, district, excludeDistricts = true, userState = userState)
                       } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
                  }
 
@@ -587,7 +584,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
      private suspend fun fetchFilteredBatch(baseQuery: Query, cursor: DocumentSnapshot?, district: String?, excludeDistricts: Boolean, limit: Int = FETCH_LIMIT, userState: String? = null): Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?> {
             var currentCursor = cursor
             var query = baseQuery.whereEqualTo("approved", true)
-            if (excludeDistricts && !district.isNullOrBlank()) {
+            if (excludeDistricts) {
+                // ✅ FIX: district null (guest/unknown) అయినా whereIn filter apply చేయాలి
+                // getGeneralDistrictsForState(null) → universal + both-state general districts return చేస్తుంది
+                // ఇది district-specific news (జిల్లా వార్తలు) home feed లో రాకుండా block చేస్తుంది
                 val generalCats = getGeneralDistrictsForState(userState).take(30)
                 query = query.whereIn("district", generalCats)
             } else if (!district.isNullOrBlank()) {

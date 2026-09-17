@@ -5,7 +5,7 @@ import { db, app } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import * as _functions from 'firebase/functions';
 
-const { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, query, orderBy, Timestamp, where, limit } = _firestore as any;
+const { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, query, orderBy, Timestamp, where, limit, writeBatch } = _firestore as any;
 const { getFunctions, httpsCallable } = _functions as any;
 
 // Icons
@@ -92,84 +92,126 @@ const SocialMediaFeedsPage: React.FC = () => {
         } catch (error: any) { setStatusLog([`Error: ${error.message}`]); } finally { setIsProcessing(false); }
     };
 
+    const parseItemDate = (item: any): Date | null => {
+        const ts = item.timestamp || item.publishedAt || item.createdAt;
+        if (!ts) return null;
+        try {
+            if (typeof ts.toDate === 'function') return ts.toDate();
+            if (typeof ts.toMillis === 'function') return new Date(ts.toMillis());
+            if (ts._seconds !== undefined) return new Date(ts._seconds * 1000);
+            if (typeof ts === 'string' || typeof ts === 'number') {
+                const d = new Date(ts);
+                return isNaN(d.getTime()) ? null : d;
+            }
+        } catch (e) {}
+        return null;
+    };
+
+    const isItemFromToday = (item: any): boolean => {
+        const d = parseItemDate(item);
+        if (!d) return false;
+        const now = new Date();
+        return d.getDate() === now.getDate() && 
+               d.getMonth() === now.getMonth() && 
+               d.getFullYear() === now.getFullYear();
+    };
+
+    const formatItemDateTime = (item: any): string => {
+        const d = parseItemDate(item);
+        if (!d) return '';
+        try {
+            const timeStr = d.toLocaleTimeString('te-IN', { hour: '2-digit', minute: '2-digit' });
+            if (isItemFromToday(item)) {
+                return `నేడు, ${timeStr}`;
+            }
+            const dateStr = d.toLocaleDateString('te-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+            return `${dateStr}, ${timeStr}`;
+        } catch (e) {}
+        return '';
+    };
+
     const showTodayNews = async (sourceName?: string) => {
         setDetailFeed(sourceName || 'ALL');
         setLoadingDetails(true);
         setTodayNews([]);
         try {
-            const now = new Date();
-            now.setHours(0, 0, 0, 0);
-            const startOfToday = Timestamp.fromDate(now);
-
-            let q;
-            if (sourceName) {
-                q = query(
-                    collection(db, 'news'),
-                    where('categories', 'array-contains', sourceName),
-                    where('timestamp', '>=', startOfToday),
-                    orderBy('timestamp', 'desc')
-                );
-            } else {
-                q = query(
-                    collection(db, 'news'),
-                    where('categories', 'array-contains', 'Social'),
-                    where('timestamp', '>=', startOfToday),
-                    orderBy('timestamp', 'desc')
-                );
-            }
-            const snap = await getDocs(q);
-            let items = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
-
-            // Fallback 1: Query by direct sourceName if categories search yielded nothing
-            if (items.length === 0 && sourceName) {
+            let items: any[] = [];
+            
+            if (sourceName && sourceName !== 'ALL') {
+                // 1. Primary query: by categories array-contains sourceName ordered by timestamp desc
                 try {
-                    const qDirect = query(
-                        collection(db, 'news'),
-                        where('sourceName', '==', sourceName),
-                        where('timestamp', '>=', startOfToday),
-                        orderBy('timestamp', 'desc')
-                    );
-                    const snapDirect = await getDocs(qDirect);
-                    items = snapDirect.docs.map((d: any) => ({ id: d.id, ...d.data() }));
-                } catch (err) {
-                    console.warn("Direct sourceName query fallback skipped:", err);
-                }
-            }
-
-            // Fallback 2: If still empty for this feed, fetch the most recent posts for this source
-            if (items.length === 0 && sourceName) {
-                try {
-                    const qRecent = query(
+                    const q = query(
                         collection(db, 'news'),
                         where('categories', 'array-contains', sourceName),
                         orderBy('timestamp', 'desc'),
-                        limit(15)
+                        limit(30)
                     );
-                    const snapRecent = await getDocs(qRecent);
-                    items = snapRecent.docs.map((d: any) => ({ id: d.id, ...d.data() }));
-                } catch (err) {
-                    console.warn("Recent posts fallback skipped:", err);
+                    const snap = await getDocs(q);
+                    items = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+                } catch (e) {
+                    console.warn("Categories query failed:", e);
+                }
+
+                // 2. Fallback: by handle if sourceName yielded 0
+                if (items.length === 0) {
+                    const matchedFeed = feeds.find(f => f.sourceName === sourceName);
+                    const handle = matchedFeed?.url?.replace(/^@+/, '')?.trim();
+                    if (handle && handle !== sourceName) {
+                        try {
+                            const qHandle = query(
+                                collection(db, 'news'),
+                                where('categories', 'array-contains', `X (@${handle})`),
+                                orderBy('timestamp', 'desc'),
+                                limit(30)
+                            );
+                            const snapHandle = await getDocs(qHandle);
+                            items = snapHandle.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+                        } catch (err) {
+                            console.warn("Handle query failed:", err);
+                        }
+                    }
+                }
+            } else {
+                // ALL: Fetch recent 40 Social news
+                try {
+                    const qAll = query(
+                        collection(db, 'news'),
+                        where('categories', 'array-contains', 'Social'),
+                        orderBy('timestamp', 'desc'),
+                        limit(40)
+                    );
+                    const snapAll = await getDocs(qAll);
+                    items = snapAll.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+                } catch (e) {
+                    console.warn("All social query failed:", e);
                 }
             }
 
             setTodayNews(items);
         } catch (e) {
-            console.error("Error fetching today news:", e);
+            console.error("Error fetching news:", e);
         } finally {
             setLoadingDetails(false);
         }
     };
 
-    const formatItemTime = (item: any) => {
-        const ts = item.timestamp || item.publishedAt || item.createdAt;
-        if (!ts) return '';
+    const resetAllDailyCounts = async () => {
+        if (!window.confirm("అన్ని సోర్స్‌ల 'నేడు (Today)' కౌంటర్లను 0 కి రీసెట్ చేయాలా?\n(ఇది గత రోజుల నుండి మిగిలిపోయిన కౌంటర్లను క్లియర్ చేస్తుంది)")) return;
+        setIsFetching(true);
         try {
-            if (ts.toMillis) return new Date(ts.toMillis()).toLocaleTimeString('te-IN', { hour: '2-digit', minute: '2-digit' });
-            if (ts.toDate) return ts.toDate().toLocaleTimeString('te-IN', { hour: '2-digit', minute: '2-digit' });
-            if (ts._seconds) return new Date(ts._seconds * 1000).toLocaleTimeString('te-IN', { hour: '2-digit', minute: '2-digit' });
-            if (typeof ts === 'string' || typeof ts === 'number') return new Date(ts).toLocaleTimeString('te-IN', { hour: '2-digit', minute: '2-digit' });
-        } catch (e) {}
-        return '';
+            const batch = writeBatch(db);
+            feeds.forEach(f => {
+                batch.update(doc(db, 'social_feeds', f.id), { todayProcessedCount: 0 });
+            });
+            await batch.commit();
+            await fetchFeeds();
+            alert("అన్ని సోర్స్‌ల నేటి కౌంటర్లు విజయవంతంగా రీసెట్ అయ్యాయి!");
+        } catch (e: any) {
+            console.error("Error resetting daily counts:", e);
+            alert("రీసెట్ చేయడంలో సమస్య: " + e.message);
+        } finally {
+            setIsFetching(false);
+        }
     };
 
     const formatLastCheck = (ts: any) => {
@@ -193,55 +235,96 @@ const SocialMediaFeedsPage: React.FC = () => {
     return (
         <div className="font-mallanna text-black animate-fade-in relative">
             {/* Detail Modal */}
-            {detailFeed && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-                    <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden">
-                        <div className="p-6 border-b flex justify-between items-center bg-gray-50">
-                            <div>
-                                <h3 className="text-2xl font-ramabhadra text-gray-800">{detailFeed === 'ALL' ? 'నేటి సోషల్ వార్తలు' : detailFeed}</h3>
-                                <p className="text-sm font-bold text-blue-600 uppercase tracking-widest">
-                                    {todayNews.length > 0 ? `${todayNews.length} వార్తలు లభించాయి` : 'నేటి అప్‌డేట్స్'}
-                                </p>
-                            </div>
-                            <button onClick={() => setDetailFeed(null)} className="p-2 bg-white rounded-full shadow-sm hover:text-red-600 transition-colors">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
-                            </button>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                            {loadingDetails ? (
-                                <div className="py-20 flex flex-col items-center justify-center gap-4">
-                                    <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                                    <p className="text-gray-500 font-bold">వార్తలను సేకరిస్తున్నాము...</p>
+            {detailFeed && (() => {
+                const todayItems = todayNews.filter(isItemFromToday);
+                const hasToday = todayItems.length > 0;
+                const hasAny = todayNews.length > 0;
+
+                return (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+                        <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden">
+                            <div className="p-6 border-b flex justify-between items-center bg-gray-50">
+                                <div>
+                                    <h3 className="text-2xl font-ramabhadra text-gray-800">{detailFeed === 'ALL' ? 'సోషల్ మీడియా వార్తలు' : detailFeed}</h3>
+                                    <p className="text-sm font-bold uppercase tracking-widest mt-1">
+                                        {!hasAny ? (
+                                            <span className="text-gray-400">వార్తలు నమోదు కాలేదు</span>
+                                        ) : hasToday ? (
+                                            <span className="text-green-600 font-extrabold flex items-center gap-1">
+                                                ✓ ఈరోజు సేకరించినవి: {todayItems.length} వార్తలు (మొత్తం {todayNews.length})
+                                            </span>
+                                        ) : (
+                                            <span className="text-amber-700 font-bold flex items-center gap-1">
+                                                ℹ️ ఈరోజు కొత్త వార్తలు రాలేదు • గతంలో వచ్చినవి: {todayNews.length} వార్తలు
+                                            </span>
+                                        )}
+                                    </p>
                                 </div>
-                            ) : todayNews.length === 0 ? (
-                                <div className="py-20 text-center text-gray-400 italic">ఈరోజు ఇంకా ఏ వార్తలు నమోదు కాలేదు.</div>
-                            ) : (
-                                todayNews.map((item) => (
-                                    <div key={item.id} className="p-4 rounded-2xl bg-gray-50 border border-gray-100 hover:bg-blue-50 transition-colors">
-                                        <div className="flex justify-between items-start gap-3 mb-1">
-                                            <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest px-2 py-0.5 bg-blue-100/50 rounded-full">
-                                                {item.categories?.find((c: string) => c !== 'Social' && c !== 'Local' && c !== item.category) || 'SOCIAL'}
-                                            </span>
-                                            <span className="text-[10px] font-bold text-gray-400">
-                                                {formatItemTime(item)}
-                                            </span>
-                                        </div>
-                                        <h4 className="text-lg font-bold leading-tight text-gray-800">{item.headline?.telugu}</h4>
-                                        {item.originalUrl && (
-                                            <a href={item.originalUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-500 mt-2 block truncate max-w-full italic hover:underline">
-                                                {item.originalUrl}
-                                            </a>
+                                <button onClick={() => setDetailFeed(null)} className="p-2 bg-white rounded-full shadow-sm hover:text-red-600 transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                                {loadingDetails ? (
+                                    <div className="py-20 flex flex-col items-center justify-center gap-4">
+                                        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                                        <p className="text-gray-500 font-bold">వార్తలను సేకరిస్తున్నాము...</p>
+                                    </div>
+                                ) : !hasAny ? (
+                                    <div className="py-20 text-center space-y-3">
+                                        <div className="text-4xl">📭</div>
+                                        <p className="text-gray-600 font-bold text-lg">ఈ సోర్స్ నుండి ఇంకా ఏ వార్తలూ సేకరించబడలేదు.</p>
+                                        {detailFeed !== 'ALL' && feeds.find(f => f.sourceName === detailFeed)?.lastFetchTime && (
+                                            <p className="text-xs text-gray-500 font-bold">
+                                                చివరి చెక్ సమయం: {formatLastCheck(feeds.find(f => f.sourceName === detailFeed)?.lastFetchTime)}
+                                            </p>
                                         )}
                                     </div>
-                                ))
-                            )}
-                        </div>
-                        <div className="p-4 border-t bg-gray-50 text-center">
-                            <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">Alfa News Social Monitor v1.0</p>
+                                ) : (
+                                    todayNews.map((item: any) => {
+                                        const isToday = isItemFromToday(item);
+                                        return (
+                                            <div key={item.id} className={`p-4 rounded-2xl border transition-colors ${isToday ? 'bg-green-50/50 border-green-200' : 'bg-gray-50 border-gray-100 hover:bg-blue-50'}`}>
+                                                <div className="flex justify-between items-start gap-2 mb-1.5 flex-wrap">
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest px-2.5 py-0.5 bg-blue-100/70 rounded-full">
+                                                            {item.categories?.find((c: string) => c !== 'Social' && c !== 'Local' && c !== item.category) || item.sourceName || 'SOCIAL'}
+                                                        </span>
+                                                        {isToday ? (
+                                                            <span className="text-[9px] font-black text-green-700 uppercase tracking-wider px-2 py-0.5 bg-green-100 rounded-full border border-green-300">
+                                                                ✓ నేటి వార్త
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider px-2 py-0.5 bg-gray-200/80 rounded-full">
+                                                                {parseItemDate(item)?.toLocaleDateString('te-IN', { day: 'numeric', month: 'short' })} నాటిది
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <span className="text-[11px] font-bold text-gray-600 bg-white px-2 py-0.5 rounded-lg border border-gray-100">
+                                                        {formatItemDateTime(item)}
+                                                    </span>
+                                                </div>
+                                                <h4 className="text-lg font-bold leading-snug text-gray-800">{item.headline?.telugu || item.headline}</h4>
+                                                {item.content?.telugu && (
+                                                    <p className="text-sm text-gray-600 mt-1 line-clamp-2">{item.content.telugu}</p>
+                                                )}
+                                                {item.originalUrl && (
+                                                    <a href={item.originalUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-blue-500 mt-2 block truncate max-w-full font-mono hover:underline">
+                                                        🔗 {item.originalUrl}
+                                                    </a>
+                                                )}
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+                            <div className="p-4 border-t bg-gray-50 text-center">
+                                <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">Alfa News Social Monitor v1.0</p>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
             <div className="bg-blue-600 p-6 rounded-[2rem] mb-8 flex flex-col md:flex-row justify-between items-center shadow-xl shadow-blue-100 gap-4">
                 <div className="flex items-center gap-4">
@@ -347,9 +430,19 @@ const SocialMediaFeedsPage: React.FC = () => {
             </form>
 
             <div className="space-y-4 pb-24">
-                <div className="flex justify-between items-center px-2">
+                <div className="flex justify-between items-center px-2 flex-wrap gap-2">
                     <h3 className="font-ramabhadra text-2xl text-gray-800">యాక్టివ్ సోర్స్‌లు ({feeds.length})</h3>
-                    <button onClick={fetchFeeds} className="text-xs font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-4 py-2 rounded-full">Refresh Stats</button>
+                    <div className="flex items-center gap-2">
+                        <button 
+                            onClick={resetAllDailyCounts} 
+                            disabled={isFetching}
+                            className="text-xs font-black text-amber-700 uppercase tracking-widest bg-amber-50 hover:bg-amber-100 border border-amber-200 px-4 py-2 rounded-full transition-all"
+                            title="అన్ని సోర్స్‌ల నేటి (Today) కౌంటర్లను 0 కి రీసెట్ చేస్తుంది"
+                        >
+                            🔄 నేటి లెక్కలు రీసెట్ (Reset Today)
+                        </button>
+                        <button onClick={fetchFeeds} className="text-xs font-black text-blue-600 uppercase tracking-widest bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-full transition-all">Refresh Stats</button>
+                    </div>
                 </div>
                 
                 {isFetching && feeds.length === 0 ? (

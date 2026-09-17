@@ -58,7 +58,8 @@ export {
 export {
     processNewsPost,
     onNewsPostCreated,
-    scheduleReprocessFailedReporterNews
+    scheduleReprocessFailedReporterNews,
+    recoverFalselyRejectedNewsHttp
 } from "./news_handler";
 
 // 4. Export Notification Engine
@@ -498,11 +499,13 @@ export const shareNews = onRequest(async (req, res) => {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>&#8203;</title>
+    <title>${safeTitle} - Alfa News</title>
 
-    <!-- Open Graph (Full-Size Image Only Preview for WhatsApp) -->
-    <meta property="og:title" content="&#8203;">
-    <meta property="og:type" content="image.other">
+    <!-- Open Graph (WhatsApp, Facebook, Telegram Preview) -->
+    <meta property="og:site_name" content="Alfa News">
+    <meta property="og:title" content="${safeTitle}">
+    <meta property="og:description" content="${safeDesc}">
+    <meta property="og:type" content="article">
     <meta property="og:url" content="${postUrl}">
     <meta property="og:image" content="${safeImage}">
     <meta property="og:image:secure_url" content="${safeImage}">
@@ -512,6 +515,8 @@ export const shareNews = onRequest(async (req, res) => {
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="${safeTitle}">
+    <meta name="twitter:description" content="${safeDesc}">
     <meta name="twitter:image" content="${safeImage}">
 
     <!-- Android App Links & Smart App Banner -->
@@ -527,7 +532,7 @@ export const shareNews = onRequest(async (req, res) => {
         body { background: #0f172a; color: #f8fafc; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 16px; }
         .card { background: #1e293b; border-radius: 16px; max-width: 480px; width: 100%; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid #334155; }
         .media-container { width: 100%; height: 320px; background: #000; overflow: hidden; position: relative; }
-        .media-container img { width: 100%; height: 100%; object-fit: cover; }
+        .media-container img { width: 100%; height: 100%; object-fit: cover; cursor: pointer; }
         .badge { position: absolute; top: 12px; left: 12px; background: #ef4444; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
         .content { padding: 20px; }
         h1 { font-size: 18px; line-height: 1.4; color: #ffffff; margin-bottom: 12px; font-weight: 700; }
@@ -541,8 +546,10 @@ export const shareNews = onRequest(async (req, res) => {
 <body>
     <div class="card">
         <div class="media-container">
-            <img src="${safeImage}" alt="${safeTitle}">
-            <div class="badge">Alfa News</div>
+            <a href="${intentScheme}" style="display:block;width:100%;height:100%;text-decoration:none;">
+                <img src="${safeImage}" alt="${safeTitle}">
+                <div class="badge">Alfa News</div>
+            </a>
         </div>
         <div class="content">
             <h1>${safeTitle}</h1>
