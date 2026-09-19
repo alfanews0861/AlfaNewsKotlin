@@ -1367,7 +1367,7 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 4) {
     }
 
     const truncatedText = text ? text.substring(0, 2500) : "";
-    if (truncatedText.length < 100) return null;
+    if (truncatedText.length < 40) return null;
 
     let imagePart = null;
     if (imageUrl && !isGenericImage(imageUrl)) {
@@ -1703,26 +1703,59 @@ async function processSingleWebSource(doc) {
      * Capture the complete meaning/soul (భావం) of the news faithfully.
      * Modulate and preserve the true emotional tone and intensity (ఆవేశం, ఆగ్రహం, బాధ, పోరాట పటిమ, లేదా ప్రజా సమస్య తీవ్రత).
      * Include ALL key people's names (వ్యక్తుల పేర్లు) and exact locations/districts/mandals (ప్రాంతాలు). Never omit names or locations!
-3.1. SENIOR EDITOR FULL STORY (పూర్తి వార్తా కథనం - STRICTLY 200 TO 250 WORDS):
-   - 'fullStoryTe': ఇచ్చిన సమాచారాన్ని ఒక సీనియర్ ఎడిటర్ లాగా సమగ్రమైన, శుభ్రమైన, చక్కగా చదవగలిగే 200 నుండి 250 పదాల పూర్తి కథనంగా (full story) తీర్చిదిద్దాలి.
+3.1. SENIOR EDITOR FULL STORY (పూర్తి వార్తా కథనం - కనీసం 250 నుండి 320 పదాలు, 3-4 విడివిడి పేరాగ్రాఫ్‌లు):
+   - 'fullStoryTe': మూల సమాచారంలో తగినంత టెక్స్ట్ ఉన్నప్పుడు, ఒక సీనియర్ ఎడిటర్ శైలిలో కనీసం 250 నుండి 320 పదాల సమగ్రమైన పూర్తి వార్తా కథనం రాయాలి.
+   - 3-4 విడివిడి పేరాగ్రాఫ్‌లు తప్పనిసరి (STRICTLY 3-4 PARAGRAPHS SEPARATED BY \n\n):
+     * ❌ ఒకే ముద్దగా (single clump) రాయడం పూర్తిగా నిషిద్ధం!
+     * ✅ కథనాన్ని స్పష్టంగా 3 నుండి 4 పేరాగ్రాఫ్‌లుగా విభజించాలి. ప్రతి పేరాగ్రాఫ్‌ మధ్య రెండు న్యూలైన్‌లు (\n\n) తప్పనిసరిగా ఉండాలి.
+     * 1వ పేరా: వార్తలోని ప్రధాన సారాంశం, సంచలన ప్రకటన లేదా పంచ్ డైలాగ్, స్పష్టమైన ఆపాదింపుతో ప్రారంభం (~60-80 పదాలు).
+     * 2వ పేరా: నేపథ్యం, కీలక నిర్ణయాలు, సంఖ్యలు, లెక్కలు లేదా వివరాలు (~80-100 పదాలు).
+     * 3వ పేరా: రాజకీయ పరిణామాలు, ప్రత్యర్థులపై విమర్శలు, సవాళ్లు లేదా డిమాండ్లు (~70-90 పదాలు).
+     * 4వ పేరా: తాజా పరిస్థితి, ముగింపు లేదా భవిష్యత్ కార్యాచరణ (~50-70 పదాలు).
    - నిబంధనలు (CRITICAL RULES FOR FULL STORY):
-     * పదాల పరిమితి: గరిష్టంగా 200 నుండి 250 తెలుగు పదాలు మాత్రమే ఉండాలి.
+     * పదాల పరిమాణం: తగినంత సమాచారం ఉన్నప్పుడు కనీసం 250 పదాలు (250 నుండి 320 పదాలు) ఉండాలి. చిన్న వాక్యాలతో అరకొరగా ముగించవద్దు.
      * భావం & తీవ్రత (Tone & Intensity): వార్త యొక్క మూల భావం, మాట్లాడిన వారి ఆవేశం, ఆగ్రహం, బాధ లేదా ప్రజా సమస్య తీవ్రత అస్సలు తగ్గకూడదు.
-     * కల్పితాలు వద్దు (NO HALLUCINATIONS): అసలు సమాచారంలో 150-200 పదాలే ఉంటే లేనిపోనివి ఊహించి రాయవద్దు. ఉన్న సమాచారాన్నే పరిశుభ్రమైన భాషలో, చక్కటి పేరాగ్రాఫ్‌లుగా రాయండి.
+     * ఆపాదింపు నియమం (Attribution): ఎవరి వ్యాఖ్యలను వారికే ఆపాదించాలి. మనమే తీర్పులు ఇవ్వరాదు.
+     * కల్పితాలు వద్దు (NO HALLUCINATIONS): మూల సమాచారంలో లేని వివరాలను ఊహించవద్దు. ఉన్న సమాచారాన్నే లోతైన జర్నలిజం భాషలో, సమగ్రమైన పేరాగ్రాఫ్‌లుగా రాయండి.
      * వాస్తవాల రక్షణ: వ్యక్తుల పేర్లు, సంస్థలు, ప్రాంతాలు, పదవులు, తేదీలు, అంకెలను ఎట్టిపరిస్థితుల్లోనూ మార్చవద్దు, మిస్ చేయవద్దు.
-     * పునరావృతం వద్దు: వాక్యాలు లేదా పదాలు అనవసరంగా రిపీట్ కాకుండా సీనియర్ జర్నలిస్ట్ శైలిలో సూటిగా, స్పష్టంగా రాయాలి.
-     * చిన్న వార్తల నిబంధన (SHORT NEWS): ఒకవేళ మూల సమాచారం 70-80 పదాల లోపే ఉండి, వార్తలో ఇతర వివరాలు ఏమీ లేనప్పుడు, బలవంతంగా 200 పదాలు పూర్తి చేయడానికి లేనివి ఊహించవద్దు. అటువంటి చిన్న వార్తలకు fullStoryTe ను content కు సమానంగా ఉంచండి.
-   - 'fullStoryEn': English Full Story (strictly 150 to 200 words) maintaining the same journalistic depth, emotion, and facts. For short news, keep equal to contentEn.
-4. HEADLINE (శీర్షిక - కొటేషన్ మార్కులు లేకుండా ఏకైక సంపూర్ణ వాక్యం):
-   - వార్తలోని సంచలన వ్యాఖ్యలు, ఘాటైన పంచ్ డైలాగ్ లేదా కీలక నిర్ణయాన్ని సహజమైన ఒకే వాక్యంగా రాయాలి.
-   - STRICTLY NO QUOTATION MARKS (కొటేషన్లు & కోలన్లు పూర్తిగా నిషిద్ధం): ఎక్కడా సింగిల్ కోట్స్ ('...'), డబుల్ కోట్స్ ("..."), వంపు కోట్స్ (‘...’, “...”) లేదా కోలన్లు (:) వాడరాదు!
-   - Format: Must be a single continuous sentence without any quotes or colons.
-   - Examples (No quotes):
-     * "ప్రజలను దగా చేశారంటూ కూటమి సర్కార్‌పై జగన్ తీవ్ర ఆగ్రహం"
-     * "అక్రమ అరెస్టులతో బెదిరించలేరంటూ హైదరాబాద్‌లో బీఆర్ఎస్ నేతల గర్జన"
-     * "నోరు అదుపులో పెట్టుకోకపోతే ఖబడ్దార్ అంటూ టీడీపీ నేతల వార్నింగ్"
-     * "తిరుమల భక్తులకు ఉచిత భీమా కల్పిస్తామన్న మంత్రి ఆనం"
-   - Headline length: 6-10 words in Telugu.
+     * చిన్న వార్తల నిబంధన (SHORT NEWS): ఒకవేళ మూల సమాచారం 70-80 పదాల లోపే ఉండి, వార్తలో ఇతర వివరాలు ఏమీ లేనప్పుడు, బలవంతంగా 250 పదాలు పూర్తి చేయడానికి లేనివి ఊహించవద్దు. అటువంటి చిన్న వార్తలకు fullStoryTe ను content కు సమానంగా ఉంచండి.
+   - 'fullStoryEn': English Full Story (strictly 200 to 250 words across 3-4 paragraphs separated by \n\n) maintaining the same journalistic depth, emotion, and facts. For short news, keep equal to contentEn.
+ 3.2. MANDATORY ATTRIBUTION - ZERO EDITORIAL VERDICTS (ఆపాదింపు తప్పనిసరి - మనమే తీర్పులు ఇవ్వరాదు / ధ్రువీకరించరాదు):
+    - ఆల్ఫా న్యూస్ నిష్పాక్షిక వార్తా సంస్థ. ఏ రాజకీయ పార్టీ లేదా నాయకుడి విమర్శలు, ఆరోపణలను మన ఛానెల్ స్వయంగా నిర్ధారించినట్లు లేదా తీర్పు ఇచ్చినట్లు ఎప్పుడూ రాయరాదు!
+    - వార్తలోని ఆరోపణలు, విమర్శలు, సవాళ్లను కచ్చితంగా మాట్లాడిన వ్యక్తికి లేదా పార్టీకి ఆపాదించాలి (ఉదా: "...అన్న ఫలానా నేత", "ఫలానా పార్టీ ఆరోపించింది / పేర్కొంది").
+    - రాజకీయ పోస్టులకు "విశ్లేషకులు అంటున్నారు", "నివేదికలు స్పష్టం చేస్తున్నాయి" వంటి కల్పిత ధ్రువీకరణలను సృష్టించడం పూర్తిగా నిషిద్ధం.
+ 4. CONTEXT-AWARE HEADLINE (సందర్భానుసార శీర్షిక - కచ్చితంగా 7 నుండి 8 పదాలు, ఏకైక సంపూర్ణ వాక్యం, కొటేషన్లు లేవు):
+   - హెడ్‌లైన్ అనేది అన్ని వార్తలకూ ఒకే మూసలో ఉండకూడదు! వార్త యొక్క వాస్తవ స్వభావం, తీవ్రత మరియు సందర్భాన్ని బట్టి AI సరైన శైలిని ఎంచుకోవాలి:
+     * 1. రాజకీయ విమర్శలు, సవాళ్లు, ఆరోపణలు, ప్రెస్ మీట్లు:
+       - శైలి: ఘాటైన పంచ్ డైలాగ్ + స్పష్టమైన ఆపాదింపు (Attribution).
+       - నాయకుడు పలికిన అసలు పంచ్ వాక్యం/సవాలే శీర్షికలో రావాలి.
+       - ❌ చప్పని "స్పందన", "సమీక్ష" వంటి పదాలు పూర్తిగా నిషిద్ధం!
+       - ❌ మనమే తీర్పు ఇచ్చినట్లు రాయకూడదు.
+       - ఉదాహరణ: "ప్రజలను దగా చేశారంటూ కూటమి సర్కార్‌పై జగన్ తీవ్ర ఆగ్రహం"
+       - ఉదాహరణ: "ఏబీవీపీ విజయంతో సత్తా చాటిందన్న కేంద్ర మంత్రి కిరణ్ రిజిజు"
+     * 2. రైతాంగ వ్యథ, పేదల ఆవేదన, ప్రజా సమస్యలు, పల్లెసీమల కష్టాలు:
+       - శైలి: హృదయాన్ని కదిలించే కరుణ రసం / కవితాత్మక రూపకాలు (Poetic Metaphors - శ్రీశ్రీ, తిలక్ శైలిలో).
+       - పేదల బాధ, రైతన్న కన్నీరు, అధికారుల నిర్లక్ష్యం కళ్లకు కట్టేలా రాయాలి (ఇక్కడ పంచ్ డైలాగులు పెట్టరాదు).
+       - ఉదాహరణ: "ఆశల పందిరి కూలి కన్నీటి సంద్రమైన అన్నదాత బతుకు చిత్రం"
+       - ఉదాహరణ: "రోడ్లు లేక డోలీ మోతలతో రోదిస్తున్న అడవితల్లి ఆక్రోశం"
+     * 3. ప్రమాదాలు, విషాదాలు, విపత్తులు:
+       - శైలి: గంభీరమైన, వాస్తవికతతో కూడిన వార్తా శైలి (Grave, Impactful Reality).
+       - సంఘటన తీవ్రత, స్థలం, ప్రాణనష్టం స్పష్టంగా తెలపాలి (ఇక్కడ కవిత్వాలు, పంచ్ డైలాగులు పూర్తిగా నిషిద్ధం).
+       - ఉదాహరణ: "నెత్తురోడిన జాతీయ రహదారిపై లారీ ఢీకొని నలుగురు దుర్మరణం"
+       - ఉదాహరణ: "వరద ఉధృతిలో కొట్టుకుపోయిన కారు.. నదిలో ఇద్దరు గల్లంతు"
+     * 4. ప్రభుత్వ పథకాలు, అభివృద్ధి పనులు, నియామకాలు, శుభవార్తలు:
+       - శైలి: ఉత్తేజభరితమైన, సూటిగా ప్రయోజనాన్ని తెలిపే శైలి (Crisp, Direct, Uplifting Action).
+       - ఎవరికి ఏమి లభిస్తుంది, పథకం లబ్ధి ఏమిటనేది సూటిగా ప్రజలకు చేరాలి.
+       - ఉదాహరణ: "రైతుల ఖాతాల్లోకి నేడే రైతు భరోసా నిధుల జమ"
+       - ఉదాహరణ: "నిరుద్యోగులకు తీపి కబురు.. త్వరలోనే పదివేల ఉద్యోగాల భర్తీ"
+     * 5. నేరాలు, దోపిడీలు, పోలీస్ దాడులు, మోసాలు:
+       - శైలి: పదునైన క్రైమ్ రిపోర్టింగ్ (Sharp, Gripping Crime Reporting).
+       - ఉదాహరణ: "సికింద్రాబాద్‌లో సినీ ఫక్కీలో భారీ దోపిడీ.. అంతర్రాష్ట్ర ముఠా అరెస్ట్"
+   - కఠిన సార్వత్రిక నిబంధనలు (UNIVERSAL RULES FOR ALL HEADLINES):
+     1. ఖచ్చితంగా 7 నుండి 8 పదాలు మాత్రమే (STRICTLY 7 TO 8 WORDS ONLY).
+     2. మొదటి పదం నుండి చివరి పదం వరకు కేవలం ఒకే ఒక్క నిరంతర సంపూర్ణ వాక్యం (STRICTLY ONE CONTINUOUS SENTENCE).
+     3. కొటేషన్లు ('...', "...") మరియు కోలన్లు (:) పూర్తిగా నిషిద్ధం!
+
 5. STRICT TELUGU SCRIPT PURITY (స్వచ్ఛమైన తెలుగు లిపి మాత్రమే - NO FOREIGN SCRIPTS):
    - Output 100% pure Telugu script (Unicode U+0C00-U+0C7F) and English/Numbers for acronyms (e.g. TDP, BRS, BJP, ₹).
    - STRICTLY FORBIDDEN: NEVER mix or insert Kannada, Hindi/Devanagari, Urdu/Arabic, Tamil, or Malayalam characters anywhere in the headline, summary, or tags!
@@ -2398,24 +2431,39 @@ async function processSingleTwitterFeed(doc) {
                 const authorDisplayName = item.authorName || feed.sourceName || feed.authorName || feed.title || feed.name || `@${handle}`;
                 const handleTag = `@${handle}`;
                 const district = feed.district || '';
-                const designation = feed.designation || feed.role || feed.party || '';
+                const designation = feed.designation || feed.role || feed.party || feed.category || '';
 
                 const prompt = `You are a Senior Telugu Journalist and News Editor for Alfa News network.
 Read, understand, and transform the following social media post into an accurate, high-impact news story.
 
-CONTEXT / REGION: ${district || "Andhra Pradesh / Telangana"}
+POST ACCOUNT & CONTEXT METADATA:
+- Post Author / Account: ${authorDisplayName} (${handleTag})
+- Category / Designation / Party: ${designation || 'Political / Social Update'}
+- Context / Region: ${district || "Andhra Pradesh / Telangana"}
 
-CRITICAL RULES - MATTER COMPREHENSION & SOURCE PROHIBITION:
-1. STRICTLY FORBIDDEN - ZERO SOURCE NAMES (సోర్స్ పేర్లు పూర్తిగా నిషిద్ధం):
-   - Sources can be news aggregators/curators (e.g. Telugu Scribe, Great Andhra, ANI, AP7AM) or official administrative accounts (e.g. DPRO, Collectorate, Police SP Office / Commissionerate, I&PR, CMO).
-   - NEVER mention or attribute the news to the source/handle name anywhere in the headline, content, or tags! (e.g., DO NOT write "తెలుగు స్క్రైబ్ తెలిపింది", "తెలుగు స్క్రైబ్ వీరంగం", "DPRO వెల్లడించింది", "కలెక్టరేట్ పేర్కొంది", "పోలీస్ కార్యాలయం తెలిపింది").
-   - In our short news format, there is zero space for publishing source names.
+CRITICAL EDITORIAL RULES - ATTRIBUTION VS. EDITORIAL VERDICT (ఆపాదింపు తప్పనిసరి - మనమే తీర్పులు ఇవ్వడం / ధ్రువీకరించడం పూర్తిగా నిషిద్ధం):
 
-2. READ THE MATTER & IDENTIFY THE ACTUAL SUBJECT / SPEAKER (వార్తలోని అసలు విషయాన్ని, మాట్లాడిన వారిని గుర్తించు):
-   - Carefully read and understand the entire matter inside the post.
-   - Identify WHO actually said or did what (e.g., specific political leader, MLA, MP, minister, official, court, police officer, or incident).
-   - If the post quotes or mentions a specific person (e.g. preceded by "-", "—", in quotes, or names like "రంపచోడవరం టీడీపీ ఎమ్మెల్యే శిరీషదేవి", "మంత్రి నారా లోకేష్"), the statement, quotes, and actions MUST be attributed directly to THAT specific person!
-   - If the post is an administrative/public announcement or incident without a specific named individual (e.g., road accident, weather alert, crime bust, welfare funds release), report the incident or department directly without inventing or attributing to the social media handle.
+1. NEVER PASS EDITORIAL JUDGMENT OR CONFIRM CLAIMS AS OBJECTIVE TRUTH (తీర్పులు ఇవ్వరాదు / మనమే ధ్రువీకరించినట్లు రాయరాదు):
+   - Alfa News is an unbiased journalistic media house. NEVER write news as if Alfa News itself has passed a final judgment, certified political claims, or declared someone's defeat/failure as an absolute universal truth!
+   - DO NOT state a party's or politician's political attacks, allegations, criticisms, or claims as established facts certified by Alfa News.
+   - For example:
+     * ❌ STRICTLY FORBIDDEN: "భారత ఆర్థిక వ్యవస్థపై రాహుల్ గాంధీ ప్రచారం పూర్తిగా విఫలం", "కూటమి ప్రభుత్వం ప్రజలను నిలువునా ముంచేసింది", "ప్రతిపక్షాల ప్రచారం అట్టడుగు స్థాయికి పడిపోయింది". (This turns a party's attack into an editorial verdict!)
+     * ✅ MANDATORY: Attribute the claims directly to who said it: "రాహుల్ ప్రచారం విఫలమైందన్న బీజేపీ", "కూటమి ప్రభుత్వం మోసం చేసిందన్న వైఎస్సార్సీపీ", "బీజేపీ నేతలు విమర్శించారు".
+   - NEVER invent artificial validation or imaginary consensus!
+     * ❌ STRICTLY FORBIDDEN: Writing "నివేదికలు స్పష్టం చేస్తున్నాయి", "విశ్లేషకులు మండిపడుతున్నారు", "సర్వత్రా వ్యక్తమవుతోంది", "నిరూపితమైంది" when reporting a political post or claim.
+
+2. ACCOUNT CLASSIFICATION & ATTRIBUTION (ఎవరు పోస్ట్ చేశారు - ఆపాదింపు విధానం):
+   A) OFFICIAL POLITICAL PARTIES, POLITICIANS, MINISTERS & LEADERS (రాజకీయ పార్టీలు, ప్రజాప్రతినిధులు, మంత్రులు, నాయకులు):
+      - If the post is from an official party handle (e.g. BJP, TDP, YSRCP, BRS, Congress, JSP, etc.) or a political leader / minister / public representative (e.g. Narendra Modi, Chandrababu, Jagan, Pawan Kalyan, Revanth Reddy, KTR, Lokesh, etc.):
+      - The post IS THEIR OFFICIAL STATEMENT, OPINION, ALLEGATION, OR POLICY ANNOUNCEMENT.
+      - YOU MUST ATTRIBUTE THE STATEMENT DIRECTLY TO THEM:
+        * E.g. "బీజేపీ ప్రకటించింది", "బీజేపీ నేతలు వెల్లడించారు / విమర్శించారు / ఆగ్రహం వ్యక్తం చేశారు / ఎద్దేవా చేశారు"
+        * E.g. "టీడీపీ ధ్వజమెత్తింది", "వైసీపీ డిమాండ్ చేసింది", "కేటీఆర్ నిలదీశారు", "లోకేష్ స్పష్టం చేశారు".
+   B) 3RD-PARTY NEWS AGGREGATORS / CURATORS (న్యూస్ అగ్రిగేటర్లు - e.g. Telugu Scribe, Great Andhra, AP7AM, ANI, Gulte):
+      - NEVER attribute the news to the aggregator handle name! DO NOT write "తెలుగు స్క్రైబ్ తెలిపింది", "గ్రేట్ ఆంధ్ర వీరంగం", etc.
+      - Instead, read the text inside the post to identify the real leader, official, or event, and attribute to that actual person or incident.
+   C) ADMINISTRATIVE / OFFICIAL BODIES (పోలీస్, ఆర్టీసీ, విపత్తు నిర్వహణ, ప్రభుత్వం):
+      - Attribute as "పోలీసులు వెల్లడించారు", "ఆర్టీసీ అధికారులు తెలిపారు", "వాతావరణ శాఖ హెచ్చరించింది".
 
 3. PRESERVE ORIGINAL TONE, FIGHTING SPIRIT & INTENSITY (వార్త టోన్, తీవ్రత, ఆవేశం ఏమాత్రం మారకూడదు):
    - Preserve the original emotional intensity, sharpness, fighting spirit, anger, grief, or urgency of the incident or speaker (ఆవేశం, ఆగ్రహం, బాధ, పోరాట పటిమ, లేదా ఘాటు విమర్శ తీవ్రత తగ్గకూడదు).
@@ -2439,31 +2487,51 @@ WRITING RULES (CRITICAL EDITORIAL STYLE):
      * Provide a clear, comprehensive, and professional news summary capturing the essence of each major decision announced.
 2. POLITICAL ATTACKS & INTENSITY (రాజకీయ విమర్శలు, ఘాటు వ్యాఖ్యలు):
    - If the post is a political fight, criticism, or challenge, preserve the leader's fighting spirit, intensity, and sharpness (ఘాటు విమర్శ, ఆగ్రహం, నిలదీత, సవాల్, ఆవేదన).
-3. HEADLINE (శీర్షిక - కచ్చితంగా 7 నుండి 8 పదాల పంచ్ వాక్యం, కొటేషన్ మార్కులు లేవు):
+3. HEADLINE (శీర్షిక - కచ్చితంగా 7 నుండి 8 పదాల పంచ్ వాక్యం, కొటేషన్ మార్కులు లేవు, స్పష్టమైన ఆపాదింపు):
    - STRICTLY NO QUOTATION MARKS (కొటేషన్లు & కోలన్లు పూర్తిగా నిషిద్ధం): ఎక్కడా సింగిల్ కోట్స్ ('...'), డబుల్ కోట్స్ ("..."), వంపు కోట్స్ (‘...’, “...”) లేదా కోలన్లు (:) వాడరాదు!
    - Format: Leader's sharp punch, criticism, or biggest decision as a single continuous sentence without quotes.
+   - PUNCH DIALOGUE MANDATORY (నాయకుడు పలికిన అసలు పంచ్ డైలాగ్/సంచలన వ్యాఖ్య మాత్రమే శీర్షికలో రావాలి):
+     * ఎవరైనా నాయకుడు, మంత్రి లేదా ప్రముఖ వ్యక్తి మాట్లాడినప్పుడు వారు పలికిన ఘాటైన పంచ్ డైలాగ్, సంచలన వ్యాఖ్య లేదా కీలక ప్రకటన మాత్రమే శీర్షికలో రావాలి!
+     * ❌ చప్పని "స్పందన" శీర్షికలు పూర్తిగా నిషిద్ధం (STRICTLY FORBIDDEN):
+       - "ఫలానా అంశంపై ఫలానా నేత స్పందన", "స్పందించిన ఫలానా మంత్రి", "ఫలానా విషయంపై మాట్లాడిన నేత", "ఫలానా విజయంపై స్పందన" వంటి చప్పని లేబుల్ శీర్షికలు ఎట్టిపరిస్థితుల్లోనూ రాయకూడదు!
+       - ఉదాహరణకు: "డియూఎస్యు ఎన్నికల్లో ఏబీవీపీ ఘన విజయంపై కిరణ్ రిజిజు స్పందన" అని రాయడం పూర్తిగా నిషిద్ధం!
+     * ✅ నాయకుడు పలికిన అసలు పంచ్ వాక్యాన్ని ఆపాదిస్తూ రాయాలి:
+       - "ఏబీవీపీ అఖండ విజయంతో సత్తా చాటిందన్న కిరణ్ రిజిజు" (7 words)
+       - "డీయూలో ఏబీవీపీ తిరుగులేని శక్తిగా నిలిచిందన్న కిరణ్ రిజిజు" (7 words)
+   - MANDATORY ATTRIBUTION: For any political criticism, claim, or attack, the headline MUST attribute who said or claimed it:
+     * "రాహుల్ ప్రచారం విఫలమైందన్న బీజేపీ" (7 words)
+     * "భారత ఆర్థిక వ్యవస్థ దూసుకుపోతోందన్న బీజేపీ" (6 words)
+     * "తాట తీస్తానంటూ అధికారులపై ఎమ్మెల్యే శిరీషదేవి తీవ్ర ఫైర్" (7 words)
+     * "తిరుమల భక్తులకు ఉచిత భీమా కల్పిస్తామన్న మంత్రి ఆనం" (7 words)
+     * "ప్రజలను దగా చేశారంటూ కూటమి సర్కార్‌పై జగన్ ఫైర్" (7 words)
+     * "నోరు అదుపులో పెట్టుకోవాలంటూ లోకేష్ స్ట్రాంగ్ వార్నింగ్" (6 words)
+     * "హామీలు గాల్లో కలిపేశారంటూ రేవంత్ సర్కార్‌పై కేటీఆర్ ఆగ్రహం" (7 words)
+     * "ఎస్వీ మ్యూజియం అభివృద్ధికి రూ.104 కోట్లు కేటాయింపు" (6 words)
+   - NEVER write un-attributed partisan conclusions as headlines (e.g. NEVER write: "రాహుల్ గాంధీ ప్రచారం పూర్తిగా విఫలం" or "ప్రభుత్వం పూర్తిగా విఫలమైంది").
    - Length: STRICTLY 7 to 8 words only (కచ్చితంగా 7 నుండి 8 పదాలు మాత్రమే ఉండాలి). High-impact, punchy Telugu.
-   - Examples (No quotes):
-     * "తాట తీస్తానంటూ అధికారులపై ఎమ్మెల్యే శిరీషదేవి తీవ్ర ఫైర్"
-     * "తిరుమల భక్తులకు ఉచిత భీమా కల్పిస్తామన్న మంత్రి ఆనం"
-     * "ప్రజలను దగా చేశారంటూ కూటమి సర్కార్‌పై జగన్ ఫైర్"
-     * "నోరు అదుపులో పెట్టుకోవాలంటూ లోకేష్ స్ట్రాంగ్ వార్నింగ్"
-     * "హామీలు గాల్లో కలిపేశారంటూ రేవంత్ సర్కార్‌పై కేటీఆర్ ఆగ్రహం"
-     * "ఎస్వీ మ్యూజియం అభివృద్ధికి రూ.104 కోట్లు కేటాయింపు"
-4. SUMMARY (సారాంశం - కచ్చితంగా 60 నుండి 70 పదాలు మాత్రమే):
+4. SUMMARY (సారాంశం - కచ్చితంగా 60 నుండి 70 పదాలు మాత్రమే, ఆపాదింపు తప్పనిసరి):
    - Length: STRICTLY 60 to 70 words only (కచ్చితంగా 60 నుండి 70 పదాల మధ్య మాత్రమే ఉండాలి, 70 పదాలు దాటకూడదు).
    - Crisp, powerful Telugu preserving the core arguments, punch points, leader's/speaker's name, key decisions/numbers, and context.
+   - Frame the statements with proper journalistic attribution: "[నాయకుడు/పార్టీ] పేర్కొన్నారు / వెల్లడించారు / ఆరోపించారు / విమర్శించారు / డిమాండ్ చేశారు / స్పష్టం చేశారు".
    - Strictly ONE continuous single unified paragraph. DO NOT split into multiple paragraphs, DO NOT use newlines.
-4.1. SENIOR EDITOR FULL STORY (పూర్తి వార్తా కథనం - STRICTLY 200 TO 250 WORDS):
-   - 'fullStoryTe': ఇచ్చిన సమాచారాన్ని ఒక సీనియర్ ఎడిటర్ లాగా సమగ్రమైన, శుభ్రమైన, చక్కగా చదవగలిగే 200 నుండి 250 పదాల పూర్తి కథనంగా (full story) తీర్చిదిద్దాలి.
+4.1. SENIOR EDITOR FULL STORY (పూర్తి వార్తా కథనం - కనీసం 250 నుండి 320 పదాలు, 3-4 విడివిడి పేరాగ్రాఫ్‌లు):
+   - 'fullStoryTe': ఇచ్చిన సమాచారంలో తగినంత విషయం ఉన్నప్పుడు, సీనియర్ ఎడిటర్ లాగా కనీసం 250 నుండి 320 పదాల సమగ్రమైన పూర్తి కథనం రాయాలి.
+   - 3-4 విడివిడి పేరాగ్రాఫ్‌లు తప్పనిసరి (STRICTLY 3-4 PARAGRAPHS SEPARATED BY \n\n):
+     * ❌ ఒకే ముద్దగా (single clump) అస్సలు రాయకూడదు!
+     * ✅ కథనాన్ని స్పష్టంగా 3 నుండి 4 విడివిడి పేరాగ్రాఫ్‌లుగా విభజించాలి. ప్రతి పేరాగ్రాఫ్ మధ్య రెండు న్యూలైన్‌లు (\n\n) తప్పనిసరిగా ఉండాలి.
+     * 1వ పేరా: మూల సంఘటన, కీలక ప్రకటన లేదా పంచ్ డైలాగ్, స్పష్టమైన ఆపాదింపుతో కూడిన ప్రారంభం (~60-80 పదాలు).
+     * 2వ పేరా: నేపథ్యం, సంఖ్యలు, కేటాయింపులు లేదా నిర్ణయాల పూర్వాపరాలు (~80-100 పదాలు).
+     * 3వ పేరా: రాజకీయ విమర్శలు, సవాళ్లు, ప్రతిస్పందనలు లేదా డిమాండ్లు (~70-90 పదాలు).
+     * 4వ పేరా: పరిణామాలు, ప్రస్తుత పరిస్థితి లేదా భవిష్యత్ ప్రభావం (~50-70 పదాలు).
    - నిబంధనలు (CRITICAL RULES FOR FULL STORY):
-     * పదాల పరిమితి: గరిష్టంగా 200 నుండి 250 తెలుగు పదాలు మాత్రమే ఉండాలి.
+     * పదాల పరిమాణం: సమాచారం సరిపడా ఉన్నప్పుడు కనీసం 250 పదాలు (250 నుండి 320 పదాలు) సమగ్రంగా ఉండాలి. చిన్నగా తేల్చవద్దు.
      * భావం & తీవ్రత (Tone & Intensity): వార్త యొక్క మూల భావం, మాట్లాడిన వారి ఆవేశం, ఆగ్రహం, బాధ లేదా ప్రజా సమస్య తీవ్రత అస్సలు తగ్గకూడదు.
+     * ఆపాదింపు నియమం: కథనం మొత్తంలో ఎవరు ఏమి మాట్లాడారో స్పష్టంగా ఆపాదిస్తూ రాయాలి (ఉదా: "బీజేపీ నాయకులు పేర్కొన్నారు", "ఆరోపించారు"). మనమే తీర్పు ఇచ్చినట్లు రాయరాదు.
      * కల్పితాలు వద్దు (NO HALLUCINATIONS): అసలు సమాచారంలో వివరాలు తక్కువగా ఉంటే లేనిపోనివి ఊహించి రాయవద్దు. ఉన్న సమాచారాన్నే పరిశుభ్రమైన భాషలో రాయండి.
      * వాస్తవాల రక్షణ: వ్యక్తుల పేర్లు, సంస్థలు, ప్రాంతాలు, పదవులు, తేదీలు, అంకెలను ఎట్టిపరిస్థితుల్లోనూ మార్చవద్దు, మిస్ చేయవద్దు.
      * పునరావృతం వద్దు: వాక్యాలు లేదా పదాలు అనవసరంగా రిపీట్ కాకుండా సూటిగా రాయాలి.
-     * చిన్న ట్వీట్లు/వార్తల నిబంధన (SHORT NEWS / TWEETS): ఒకవేళ ట్వీట్/సమాచారం 70-80 పదాల లోపే ఉండి, వార్తలో అదనపు సమాచారం ఏమీ లేనప్పుడు, బలవంతంగా 200 పదాలు పూర్తి చేయడానికి ఏదీ కల్పించవద్దు. అటువంటి చిన్న వార్తలకు fullStoryTe ను content కు సమానంగా ఉంచండి.
-   - 'fullStoryEn': English Full Story (strictly 150 to 200 words) maintaining the same journalistic depth, emotion, and facts. For short news, keep equal to contentEn.
+     * చిన్న ట్వీట్లు/వార్తల నిబంధన (SHORT NEWS / TWEETS): ఒకవేళ ట్వీట్/సమాచారం 70-80 పదాల లోపే ఉండి, వార్తలో అదనపు సమాచారం ఏమీ లేనప్పుడు, బలవంతంగా 250 పదాలు పూర్తి చేయడానికి ఏదీ కల్పించవద్దు. అటువంటి చిన్న వార్తలకు fullStoryTe ను content కు సమానంగా ఉంచండి.
+   - 'fullStoryEn': English Full Story (strictly 200 to 250 words across 3-4 paragraphs separated by \n\n) maintaining the same journalistic depth, emotion, and facts. For short news, keep equal to contentEn.
 5. STRICT TELUGU SCRIPT PURITY (స్వచ్ఛమైన తెలుగు లిపి మాత్రమే - NO FOREIGN SCRIPTS):
    - Output 100% pure Telugu script (Unicode U+0C00-U+0C7F) and English/Numbers for acronyms and amounts.
    - STRICTLY FORBIDDEN: NEVER mix or insert Kannada, Hindi/Devanagari, Urdu/Arabic, Tamil, or Malayalam characters anywhere!
@@ -2472,9 +2540,10 @@ WRITING RULES (CRITICAL EDITORIAL STYLE):
    - If media is purely a logo, channel icon, or brand card, set mediaUrl to "".
 
 Output JSON only:
-{"isRelevant": true|false, "headline": "Telugu Title (Strictly NO quotes)", "content": "Telugu Summary", "fullStoryTe": "Telugu Full Story (200-250 words)", "headlineEn": "English Title", "contentEn": "English Summary", "fullStoryEn": "English Full Story (150-200 words)", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "url", "mediaType": "image", "isWide": false}`;
+{"isRelevant": true|false, "headline": "Telugu Title (Strictly NO quotes, With Attribution)", "content": "Telugu Summary (With Attribution)", "fullStoryTe": "Telugu Full Story (At least 250-320 words across 3-4 paragraphs separated by \\n\\n, With Attribution)", "headlineEn": "English Title", "contentEn": "English Summary", "fullStoryEn": "English Full Story (200-250 words in 3-4 paragraphs)", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "url", "mediaType": "image", "isWide": false}`;
 
-                const aiResult = await processWithGemini(item.text, prompt, item.mediaUrl);
+                const postInputText = `POST SOURCE / AUTHOR: ${authorDisplayName} (${handleTag})\nPOST TEXT:\n${item.text}`;
+                const aiResult = await processWithGemini(postInputText, prompt, item.mediaUrl);
                 if (!aiResult) continue;
 
                 try {

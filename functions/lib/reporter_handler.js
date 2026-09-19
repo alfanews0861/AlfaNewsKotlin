@@ -757,6 +757,10 @@ exports.processReporterSubmission = (0, https_1.onCall)(async (request) => {
                         telugu: content,
                         english: postData?.content?.english || existingData.content?.english || ""
                     },
+                    fullStory: postData?.fullStory || existingData.fullStory || {
+                        telugu: postData?.fullStory?.telugu || existingData.fullStory?.telugu || content,
+                        english: postData?.fullStory?.english || existingData.fullStory?.english || ""
+                    },
                     mediaUrl: mediaUrl || existingData.mediaUrl || "",
                     mediaUrls: mediaUrls.length > 0 ? mediaUrls : (existingData.mediaUrls || (existingData.mediaUrl ? [existingData.mediaUrl] : [])),
                     mediaType: postData?.mediaType || existingData.mediaType || "IMAGE",

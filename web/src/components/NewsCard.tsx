@@ -4,7 +4,7 @@ import CommentSection from './CommentSection';
 import html2canvas from 'html2canvas';
 import { logAnalyticsEvent } from '../services/analyticsService';
 import { updateInterests } from '../services/interestService';
-import { Heart, MessageCircle, Share2, BookOpen, ChevronDown, X, CheckCircle2 } from 'lucide-react';
+import { Heart, MessageCircle, Share2, BookOpen, ChevronDown, ChevronUp, X, CheckCircle2 } from 'lucide-react';
 
 export const getReadNewsIds = (): Set<string> => {
   try {
@@ -86,11 +86,93 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
   const content = language === Language.TELUGU ? (post.content?.telugu || '') : (post.content?.english || '');
 
   const fullStoryText = (language === Language.TELUGU ? post.fullStory?.telugu : post.fullStory?.english) || '';
+  const fullStoryWords = fullStoryText.trim().split(/\s+/).filter(Boolean).length;
+  const contentWords = content.trim().split(/\s+/).filter(Boolean).length;
+  const isReporterPost = post.isReporter === true || (Boolean(post.reporter) && post.reporter?.name !== 'సిటిజెన్ పోస్ట్');
+
   const hasSubstantialFullStory = Boolean(
-    fullStoryText.trim() &&
-    fullStoryText.trim().split(/\s+/).filter(Boolean).length >= 100 &&
-    fullStoryText.trim() !== content.trim()
+    (fullStoryWords >= 60 && fullStoryText.trim() !== content.trim()) ||
+    (fullStoryWords >= 80) ||
+    (isReporterPost && (fullStoryWords >= 45 || contentWords >= 50)) ||
+    (contentWords >= 70)
   );
+
+  const storyScrollRef = useRef<HTMLDivElement>(null);
+  const touchStartYRef = useRef<number>(0);
+  const touchStartXRef = useRef<number>(0);
+  const scrollStartTopRef = useRef<number>(0);
+  const isAtBottomStartRef = useRef<boolean>(false);
+  const isAtTopStartRef = useRef<boolean>(false);
+
+  const handleStoryTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    const touch = e.touches[0];
+    touchStartYRef.current = touch.clientY;
+    touchStartXRef.current = touch.clientX;
+    const el = storyScrollRef.current;
+    if (el) {
+      scrollStartTopRef.current = el.scrollTop;
+      isAtTopStartRef.current = el.scrollTop <= 15;
+      isAtBottomStartRef.current = el.scrollHeight - (el.scrollTop + el.clientHeight) <= 30;
+    }
+  };
+
+  const handleStoryTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    const touch = e.changedTouches[0];
+    const deltaY = touch.clientY - touchStartYRef.current;
+    const deltaX = touch.clientX - touchStartXRef.current;
+    const el = storyScrollRef.current;
+
+    // Check if vertical motion is dominant and exceeds minimum swipe threshold (45px)
+    if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 45) {
+      // 1. Swipe DOWN to close when at top
+      if (deltaY > 45 && (isAtTopStartRef.current || (el && el.scrollTop <= 15))) {
+        setShowFullStory(false);
+        return;
+      }
+
+      // 2. Swipe UP to close when at bottom (after reading through)
+      const isCurrentlyAtBottom = el ? el.scrollHeight - (el.scrollTop + el.clientHeight) <= 30 : false;
+      if (deltaY < -45 && (isAtBottomStartRef.current || isCurrentlyAtBottom)) {
+        setShowFullStory(false);
+        return;
+      }
+    }
+  };
+
+  // Split story into 3-4 clean, readable paragraphs
+  const getStoryParagraphs = (rawText: string): string[] => {
+    if (!rawText || !rawText.trim()) return [];
+
+    // 1. If text has explicit double newline / newline separation
+    const splitByNewlines = rawText
+      .split(/\n\s*\n+/)
+      .map(p => p.trim())
+      .filter(p => p.length > 0);
+
+    if (splitByNewlines.length >= 2) {
+      return splitByNewlines;
+    }
+
+    // 2. Fallback for single clump text (legacy/unformatted stories):
+    // Split cleanly at Telugu/English sentence boundaries (. ! ? ।)
+    const cleanText = rawText.replace(/\s+/g, ' ').trim();
+    const sentences = cleanText.split(/(?<=[.!?।])\s+/).filter(Boolean);
+
+    if (sentences.length <= 3) {
+      return [cleanText];
+    }
+
+    // Divide sentences across 3 to 4 paragraphs
+    const targetParagraphCount = sentences.length >= 8 ? 4 : 3;
+    const sentencesPerPara = Math.ceil(sentences.length / targetParagraphCount);
+    const paragraphs: string[] = [];
+
+    for (let i = 0; i < sentences.length; i += sentencesPerPara) {
+      paragraphs.push(sentences.slice(i, i + sentencesPerPara).join(' '));
+    }
+
+    return paragraphs.length > 0 ? paragraphs : [cleanText];
+  };
 
   // Extract YouTube ID if present in youtubeUrl, mediaUrl, or mediaUrls
   const youtubeCandidate = post.youtubeUrl || 
@@ -556,10 +638,25 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
           <div 
             className="w-full max-w-lg h-[90vh] bg-zinc-950 border-t border-white/10 rounded-t-2xl flex flex-col overflow-hidden shadow-2xl animate-slide-up"
             onClick={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.stopPropagation()}
+            onWheel={(e) => e.stopPropagation()}
           >
             {/* Top Bar / Drag Handle */}
-            <div className="flex flex-col items-center pt-2 pb-1 px-4 border-b border-white/10">
-              <div className="w-10 h-1 rounded-full bg-white/20 mb-3"></div>
+            <div 
+              className="flex flex-col items-center pt-2 pb-1 px-4 border-b border-white/10 select-none cursor-pointer"
+              onTouchStart={(e) => {
+                touchStartYRef.current = e.touches[0].clientY;
+                touchStartXRef.current = e.touches[0].clientX;
+              }}
+              onTouchEnd={(e) => {
+                const deltaY = e.changedTouches[0].clientY - touchStartYRef.current;
+                const deltaX = e.changedTouches[0].clientX - touchStartXRef.current;
+                if (Math.abs(deltaY) > Math.abs(deltaX) && deltaY > 35) {
+                  setShowFullStory(false);
+                }
+              }}
+            >
+              <div className="w-10 h-1 rounded-full bg-white/30 mb-3"></div>
               <div className="w-full flex items-center justify-between pb-2">
                 <div className="flex items-center gap-2">
                   <span className="bg-red-600/20 text-red-400 border border-red-500/30 text-[10px] font-bold px-2 py-0.5 rounded">
@@ -571,7 +668,8 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
                 </div>
                 <button 
                   onClick={() => setShowFullStory(false)}
-                  className="p-1.5 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                  className="p-1.5 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors cursor-pointer"
+                  title="Close"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -579,7 +677,12 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
             </div>
 
             {/* Scrollable Story Content */}
-            <div className="flex-1 overflow-y-auto p-5 text-gray-100">
+            <div 
+              ref={storyScrollRef}
+              onTouchStart={handleStoryTouchStart}
+              onTouchEnd={handleStoryTouchEnd}
+              className="flex-1 overflow-y-auto p-5 text-gray-100 no-scrollbar"
+            >
               <h1 className="font-ramabhadra text-xl md:text-2xl leading-tight mb-3 text-white">
                 {headline}
               </h1>
@@ -588,14 +691,94 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
                 <span>|</span>
                 <span>{formattedDate} {formattedTime}</span>
               </div>
-              <div className="font-mallanna text-base md:text-lg leading-[1.6] space-y-3 text-gray-200 whitespace-pre-wrap">
-                {post.fullStory && ((language === Language.TELUGU ? post.fullStory.telugu : post.fullStory.english) || '').trim().length > 0
-                  ? (language === Language.TELUGU ? post.fullStory.telugu : post.fullStory.english)
-                  : content}
+
+              {/* Media (Photo / Video) below Headline & Meta */}
+              {youtubeVideoId ? (
+                <div className="mb-4 rounded-xl overflow-hidden border border-white/10 bg-black aspect-video shadow-md">
+                  <iframe
+                    src={`https://www.youtube-nocookie.com/embed/${youtubeVideoId}?autoplay=0&mute=0&playsinline=1&rel=0&modestbranding=1`}
+                    title={headline || "YouTube Video"}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    className="w-full h-full border-0"
+                  />
+                </div>
+              ) : post.mediaType === 'video' && post.mediaUrl ? (
+                <div className="mb-4 rounded-xl overflow-hidden border border-white/10 bg-black shadow-md">
+                  <video src={post.mediaUrl} controls className="w-full max-h-72 object-cover" playsInline />
+                </div>
+              ) : post.mediaUrl ? (
+                <div className="mb-4 rounded-xl overflow-hidden border border-white/10 bg-zinc-900 shadow-md">
+                  <img 
+                    src={getOptimizedImageUrl(post.mediaUrl)} 
+                    alt={headline} 
+                    className="w-full max-h-72 object-cover object-top" 
+                    loading="lazy" 
+                    referrerPolicy="no-referrer" 
+                  />
+                  {sourceDisplay && (
+                    <div className="px-3 py-1.5 bg-black/70 text-[10px] text-gray-400 font-mallanna flex items-center justify-between">
+                      <span>మూలం: {sourceDisplay.label}</span>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
+              {/* Full Story Paragraphs (3-4 paragraphs) */}
+              <div className="font-mallanna text-base md:text-lg leading-[1.7] space-y-4 text-gray-200">
+                {getStoryParagraphs(
+                  post.fullStory && ((language === Language.TELUGU ? post.fullStory.telugu : post.fullStory.english) || '').trim().length > 0
+                    ? (language === Language.TELUGU ? post.fullStory.telugu : post.fullStory.english)
+                    : content
+                ).map((para, idx) => (
+                  <p key={idx} className="leading-relaxed">
+                    {para}
+                  </p>
+                ))}
               </div>
+
+              {/* Verified Editorial Badge */}
               <div className="mt-8 p-3 rounded-lg bg-white/5 border border-white/10 flex items-center gap-2 text-xs text-gray-400">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span>{language === Language.TELUGU ? "ఆల్ఫా న్యూస్ ఎడిటోరియల్ సమగ్ర కథనం" : "Alfa News Verified Comprehensive Story"}</span>
+              </div>
+
+              {/* AdMob Box Ad (Medium Rectangle 300x250) after story ends */}
+              <div className="mt-8 pt-2 pb-12 flex flex-col items-center justify-center select-none">
+                <div className="w-[300px] h-[250px] rounded-xl bg-zinc-900/90 border border-white/10 flex flex-col items-center justify-between p-3.5 relative overflow-hidden shadow-xl">
+                  {/* Background decoration */}
+                  <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-red-600/5 pointer-events-none" />
+                  
+                  {/* Top Bar with Ad Label */}
+                  <div className="w-full flex items-center justify-between z-10">
+                    <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-bold px-1.5 py-0.5 rounded tracking-wider uppercase">
+                      ప్రకటన • Ad
+                    </span>
+                    <span className="text-[10px] text-gray-500 font-mallanna">Google AdMob</span>
+                  </div>
+
+                  {/* Ad Body Content */}
+                  <div className="flex-1 flex flex-col items-center justify-center text-center px-2 py-1 z-10">
+                    <div className="w-12 h-12 rounded-full bg-red-600/15 border border-red-500/30 flex items-center justify-center mb-2 shadow-inner">
+                      <span className="text-red-500 font-bold text-sm tracking-tighter">ALFA</span>
+                    </div>
+                    <h3 className="text-white font-semibold text-xs mb-1">ఆల్ఫా న్యూస్ యాప్ ఇప్పుడే పొందండి</h3>
+                    <p className="text-gray-400 text-[11px] font-mallanna leading-tight">హైపర్-లోకల్ వార్తలు, లైవ్ అప్‌డేట్స్ మరియు బ్రేకింగ్ న్యూస్ క్షణాల్లో మీ మొబైల్‌లో!</p>
+                  </div>
+
+                  {/* Ad CTA Button */}
+                  <a
+                    href="https://play.google.com/store/apps/details?id=com.alfanews.telugu"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-2.5 px-3 rounded-lg bg-red-600 hover:bg-red-500 active:scale-[0.98] text-white text-xs font-bold text-center transition-all shadow-md z-10"
+                  >
+                    ఉచితంగా డౌన్‌లోడ్ చేసుకోండి (Install Free)
+                  </a>
+                </div>
+                <div className="flex items-center gap-1.5 mt-3 text-[10px] text-gray-500 font-mallanna">
+                  <span>ప్రకటన భాగస్వామ్యం • AdMob Network</span>
+                </div>
               </div>
             </div>
           </div>

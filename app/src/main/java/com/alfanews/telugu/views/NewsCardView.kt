@@ -47,6 +47,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalContext
@@ -161,14 +164,21 @@ fun NewsCardView(
             .filter { it.isNotEmpty() }
     }
 
-    val hasSubstantialFullStory = remember(language, post.fullStory, post.content) {
+    val hasSubstantialFullStory = remember(language, post.fullStory, post.content, post.isReporter) {
         val storyText = if (language == Language.ENGLISH) post.fullStory.english else post.fullStory.telugu
         val shortText = if (language == Language.ENGLISH) post.content.english else post.content.telugu
-        if (storyText.isBlank()) {
+        val effectiveStory = if (storyText.isNotBlank()) storyText else shortText
+        if (effectiveStory.isBlank()) {
             false
         } else {
-            val words = storyText.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
-            words.size >= 100 && storyText.trim() != shortText.trim()
+            val words = effectiveStory.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+            val isDiff = storyText.isNotBlank() && storyText.trim() != shortText.trim()
+            val hasLengthDelta = storyText.length > (shortText.length + 40)
+            val isReporterNews = post.isReporter
+
+            (words.size >= 70 && (isDiff || isReporterNews)) ||
+            (isReporterNews && words.size >= 45) ||
+            (hasLengthDelta && words.size >= 50)
         }
     }
 
@@ -1929,6 +1939,7 @@ fun FullStoryBottomSheet(
     language: Language,
     onDismissRequest: () -> Unit
 ) {
+    val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isEnglish = language == Language.ENGLISH
     val headlineText = if (isEnglish) {
@@ -1952,9 +1963,21 @@ fun FullStoryBottomSheet(
     }
 
     val paragraphs = remember(fullStoryRaw) {
-        fullStoryRaw.split(Regex("(?:\r?\n\\s*)+"))
+        val splitLines = fullStoryRaw.split(Regex("(?:\r?\n\\s*)+"))
             .map { it.trim() }
             .filter { it.isNotEmpty() }
+        if (splitLines.size >= 2) {
+            splitLines
+        } else {
+            val sentences = fullStoryRaw.trim().split(Regex("(?<=[.!?।])\\s+")).filter { it.isNotBlank() }
+            if (sentences.size > 3) {
+                val targetCount = if (sentences.size >= 8) 4 else 3
+                val perPara = kotlin.math.ceil(sentences.size.toDouble() / targetCount).toInt()
+                sentences.chunked(perPara).map { it.joinToString(" ") }
+            } else {
+                listOf(fullStoryRaw.trim())
+            }
+        }
     }
 
     val formattedTimestamp = remember(post.timestamp) {
@@ -2033,10 +2056,28 @@ fun FullStoryBottomSheet(
             }
 
             // Scrollable Story Content
+            val storyScrollState = rememberScrollState()
+            val nestedScrollConnection = remember {
+                object : NestedScrollConnection {
+                    override fun onPostScroll(
+                        consumed: Offset,
+                        available: Offset,
+                        source: NestedScrollSource
+                    ): Offset {
+                        // User scrolls/swipes up past the end of the full story
+                        if (available.y < -40f && storyScrollState.value >= storyScrollState.maxValue - 10) {
+                            onDismissRequest()
+                        }
+                        return Offset.Zero
+                    }
+                }
+            }
+
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .verticalScroll(rememberScrollState())
+                    .nestedScroll(nestedScrollConnection)
+                    .verticalScroll(storyScrollState)
                     .padding(bottom = 24.dp)
             ) {
                 // Headline
@@ -2083,6 +2124,27 @@ fun FullStoryBottomSheet(
                 DottedLine()
                 Spacer(modifier = Modifier.height(14.dp))
 
+                // Photo below Headline & Meta
+                if (post.mediaUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(post.mediaUrl)
+                            .crossfade(true)
+                            .allowHardware(true)
+                            .build(),
+                        fallback = painterResource(id = R.drawable.fallback_news_image),
+                        error = painterResource(id = R.drawable.fallback_news_image),
+                        contentDescription = headlineText,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 240.dp)
+                            .clip(RoundedCornerShape(12.dp)),
+                        contentScale = ContentScale.Crop,
+                        alignment = Alignment.TopCenter
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                }
+
                 // Full Story Paragraphs
                 paragraphs.forEach { paragraph ->
                     Text(
@@ -2128,6 +2190,11 @@ fun FullStoryBottomSheet(
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // AdMob Box Ad (Medium Rectangle 300x250)
+                AdMobBoxAd(modifier = Modifier.fillMaxWidth())
             }
         }
     }

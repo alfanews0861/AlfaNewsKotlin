@@ -788,20 +788,31 @@ async function processSingleTwitterFeed(doc) {
                 const prompt = `You are a Senior Journalist.
                 1. Evaluate if this social media post is a valid news update.
                 2. Constraints: వచ్చిన కంటెంట్ లోని వ్యక్తులు, ప్రాంతం మిస్ అవ్వకుండా, వార్త యొక్క భావం మారకుండా, ఒక సీనియర్ న్యూస్ ఎడిటర్ మాదిరిగా ఒకే పేరాగ్రాఫ్ లో వార్త రాయాలి. Content must be approximately 60 words in Telugu.
-                   CRITICAL TONE & PUNCH LOGIC (పంచ్ డైలాగ్స్ రూల్): వచ్చిన వార్త కంటెంట్ లో ఉన్న సంచలన వ్యాఖ్యలు, రాజకీయ విమర్శలు, నాయకులు వాడిన బలమైన లేదా ఘాటైన పంచ్ డైలాగులు (punchy political criticisms, emotional/sensational dialogues, and strong statements) ఎట్టి పరిస్థితుల్లోనూ వదిలిపెట్టవద్దు. వార్తను సాదాసీదాగా లేదా చప్పగా మార్చవద్దు! ఆ సంచలన పంచ్ డైలాగులను/వ్యాఖ్యలను వార్త సారాంశం (Telugu content summary) మరియు హెడ్లైన్ (headline) లలో చాలా స్పష్టంగా, ఉత్తేజకరంగా మరియు ఆకర్షణీయంగా ఉండేలా యథాతథంగా లేదా మరింత పదునుగా హైలైట్ చేయాలి. చదువరులను ఆకట్టుకునేలా వార్త ఘాటుగా ఉండాలి కానీ చప్పగా ఉండకూడదు.
-                CRITICAL: Write as if YOU are the reporter breaking the news. DO NOT use phrases like "ఈ పోస్ట్ ప్రకారం", "ఈ ట్వీట్ చెబుతోంది". State the facts directly.
-                3. Headline must be a PUNCHY single sentence around 6-10 words in Telugu.
-                4. Identify the primary location of the news. If no specific city is found, use a relevant state or 'General'.
-                5. Create a unique storyFingerprint based on the core fact. It must be EXACTLY 3 words joined by hyphens, focusing ONLY on the main subject and action.
-                6. Classification & Tagging:
-                   - refinedCategory: Classify into one of: Politics, Crime, Sports, Entertainment, Business, Health, Education, Technology, Agriculture, Local.
-                   - tags: Extract 3-5 relevant keywords in Telugu.
-                   - entities: Identify People, Organizations, and Locations mentioned.
-                7. CRITICAL REJECTION CRITERIA: 
-                   - If it's a personal/social meeting (e.g., meeting with family, casual greetings), it is NOT news.
-                   - If it's a repost or shared content without new value, it is NOT news.
-                8. Media: attached URL: ${mediaUrl || 'None'}. IF IT IS A LOGO, GENERIC ICON OR IRRELEVANT, SET mediaUrl TO "".
-                9. Output JSON only. Format as JSON: {"isRelevant": true, "headline": "Telugu Title", "content": "Telugu Summary", "headlineEn": "English Title", "contentEn": "English Summary", "location": "Location", "storyFingerprint": "finger-print-here", "refinedCategory": "Category", "tags": ["tag1", "tag2"], "entities": {"people": [], "organizations": [], "locations": []}, "mediaUrl": "url", "mediaType": "image|video"}`;
+                   CRITICAL TONE & PUNCH LOGIC (పంచ్ డైలాగ్స్ రూల్): వచ్చిన వార్త కంటెంట్ లో ఉన్న సంచలన వ్యాఖ్యలు, రాజకీయ విమర్శలు, నాయకులు వాడిన బలమైన లేదా ఘాటైన పంచ్ డైలాగులు ఎట్టి పరిస్థితుల్లోనూ వదిలిపెట్టవద్దు.
+                MANDATORY ATTRIBUTION & ANTI-JUDGMENT (ఆపాదింపు తప్పనిసరి - మనమే తీర్పులు ఇవ్వరాదు / ధ్రువీకరించరాదు):
+                   - Alfa News NEVER writes news as if certifying political allegations or passing an editorial verdict.
+                   - For political attacks, allegations, criticisms, or claims, DO NOT state them as undisputed facts or Alfa News's verdict.
+                   - Mandatory attribution: Headline and content MUST attribute who said or claimed it (e.g., "...అన్న బీజేపీ", "బీజేపీ పేర్కొంది / విమర్శించింది", "టీడీపీ నేతల డిమాండ్", "కేటీఆర్ ఆగ్రహం").
+                   - NEVER invent fake authority like "నివేదికలు స్పష్టం చేస్తున్నాయి" or "విశ్లేషకులు మండిపడుతున్నారు".
+                3. Headline must be a PUNCHY single sentence around 6-10 words in Telugu with proper attribution. Strictly NO quotes or colons.
+                   - PUNCH DIALOGUE MANDATORY: నాయకుడు పలికిన అసలు పంచ్ డైలాగ్/కీలక వాక్యమే శీర్షికలో రావాలి.
+                   - ❌ "ఫలానా అంశంపై ఫలానా నేత స్పందన" వంటి చప్పని శీర్షికలు పూర్తిగా నిషిద్ధం!
+                   - ✅ "ఏబీవీపీ విజయంతో సత్తా చాటిందన్న కిరణ్ రిజిజు" వంటి అసలు పంచ్ డైలాగ్‌తో కూడిన శీర్షికలు మాత్రమే రాయాలి.
+                 3.1. Full Story (కనీసం 250-320 పదాలు, 3-4 విడివిడి పేరాగ్రాఫ్‌లు):
+                    - 'fullStoryTe': తగినంత సమాచారం ఉన్నప్పుడు కనీసం 250 నుండి 320 పదాల పూర్తి కథనం రాయాలి.
+                    - ❌ ఒకే ముద్దగా రాయరాదు. కచ్చితంగా 3 నుండి 4 విడివిడి పేరాగ్రాఫ్‌లుగా విభజించాలి (separated by \n\n).
+                    - 'fullStoryEn': English Full Story (200-250 words in 3-4 paragraphs separated by \n\n).
+                 4. Identify the primary location of the news. If no specific city is found, use a relevant state or 'General'.
+                 5. Create a unique storyFingerprint based on the core fact. It must be EXACTLY 3 words joined by hyphens, focusing ONLY on the main subject and action.
+                 6. Classification & Tagging:
+                    - refinedCategory: Classify into one of: Politics, Crime, Sports, Entertainment, Business, Health, Education, Technology, Agriculture, Local.
+                    - tags: Extract 3-5 relevant keywords in Telugu.
+                    - entities: Identify People, Organizations, and Locations mentioned.
+                 7. CRITICAL REJECTION CRITERIA: 
+                    - If it's a personal/social meeting (e.g., meeting with family, casual greetings), it is NOT news.
+                    - If it's a repost or shared content without new value, it is NOT news.
+                 8. Media: attached URL: ${mediaUrl || 'None'}. IF IT IS A LOGO, GENERIC ICON OR IRRELEVANT, SET mediaUrl TO "".
+                 9. Output JSON only. Format as JSON: {"isRelevant": true, "headline": "Telugu Title", "content": "Telugu Summary", "fullStoryTe": "Telugu Full Story (At least 250-320 words across 3-4 paragraphs separated by \\n\\n)", "headlineEn": "English Title", "contentEn": "English Summary", "fullStoryEn": "English Full Story", "location": "Location", "storyFingerprint": "finger-print-here", "refinedCategory": "Category", "tags": ["tag1", "tag2"], "entities": {"people": [], "organizations": [], "locations": []}, "mediaUrl": "url", "mediaType": "image|video"}`;
                 
                 const aiResult = await processWithGemini(textContent, prompt);
                 
@@ -844,6 +855,7 @@ async function processSingleTwitterFeed(doc) {
                             await db.collection('news').add({
                                 headline: { telugu: parsed.headline, english: parsed.headlineEn || '' },
                                 content: { telugu: parsed.content, english: parsed.contentEn || '' },
+                                fullStory: { telugu: parsed.fullStoryTe || parsed.content, english: parsed.fullStoryEn || parsed.contentEn || '' },
                                 sourceUrl: tweetUrl,
                                 originalUrl: tweetUrl,
                                 sourceName: feed.sourceName || `X (@${handle})`,

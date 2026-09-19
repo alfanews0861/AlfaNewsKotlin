@@ -229,3 +229,47 @@ fun AdMobBannerAd(
         update = { }
     )
 }
+
+@Composable
+fun AdMobBoxAd(
+    modifier: Modifier = Modifier,
+    adUnitId: String = AdMobService.getBannerAdUnitId()
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .background(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                .padding(top = 8.dp, bottom = 8.dp, start = 8.dp, end = 8.dp)
+        ) {
+            Text(
+                text = "ప్రకటన • ADVERTISEMENT",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = Ramabhadra,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+            AndroidView(
+                modifier = Modifier.size(width = 300.dp, height = 250.dp),
+                factory = { context ->
+                    AdView(context).apply {
+                        setAdSize(AdSize.MEDIUM_RECTANGLE)
+                        this.adUnitId = adUnitId
+                        AdMobService.loadBannerAd(this)
+                    }
+                },
+                update = { }
+            )
+        }
+    }
+}
+

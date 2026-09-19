@@ -537,10 +537,10 @@ async function performAIProcessing(headline, content, actualPostData, recentStor
         properties: {
             headline: { type: genai_1.Type.STRING },
             content: { type: genai_1.Type.STRING },
-            fullStoryTe: { type: genai_1.Type.STRING, description: "Senior Editor comprehensive full story in Telugu, strictly 200-250 words" },
+            fullStoryTe: { type: genai_1.Type.STRING, description: "Senior Editor comprehensive full story in Telugu, at least 250-320 words across 3-4 paragraphs separated by \\n\\n" },
             headlineEn: { type: genai_1.Type.STRING },
             contentEn: { type: genai_1.Type.STRING },
-            fullStoryEn: { type: genai_1.Type.STRING, description: "Senior Editor comprehensive full story in English, 150-200 words" },
+            fullStoryEn: { type: genai_1.Type.STRING, description: "Senior Editor comprehensive full story in English, 200-250 words across 3-4 paragraphs separated by \\n\\n" },
             location: { type: genai_1.Type.STRING },
             storyFingerprint: { type: genai_1.Type.STRING },
             refinedCategory: { type: genai_1.Type.STRING },
@@ -632,7 +632,19 @@ EDITORIAL & REJECTION INSTRUCTIONS (CRITICAL):
   * NEVER write approval statements like "ప్రచురణకు ఆమోదించబడింది", "ఆమోదం", or "approved" in rejectionReason! When approved, rejectionReason MUST BE AN EMPTY STRING "".
 - ONLY IF THE STORY VIOLATES EDITORIAL/SAFETY POLICIES OR IS A CONFIRMED DUPLICATE:
   * rejectionReason MUST be phrased politely in professional Telugu as if written by a Human Chief Editor / News Desk. NEVER mention AI, algorithms, bots, or automated systems. Explain naturally like an editor (e.g. 'ఈ మండలంలో ఈ వార్తాంశం ఇప్పటికే ప్రచురితమైంది', 'వార్తలో ప్రజా ప్రయోజనం కొరవడింది లేదా వ్యక్తిగత ప్రచారం', 'చిత్రం ప్రచురణ ప్రమాణాలకు అనుగుణంగా లేదు').
-
+${actualPostData?.isReporter === true || actualPostData?.processingType === 'REPORTER_SUBMISSION' ? `
+REPORTER FULL STORY EXPANSION MANDATE (విలేకరుల వార్తలకు సమగ్ర కథనం - CRITICAL):
+- This news is submitted by an authorized field reporter (isReporter: true).
+- fullStoryTe MUST BE A RICH, COMPREHENSIVE JOURNALISTIC STORY OF AT LEAST 250 TO 320 TELUGU WORDS!
+- STRICTLY DIVIDE fullStoryTe INTO 3 TO 4 DISTINCT PARAGRAPHS SEPARATED BY \\n\\n (NEVER a single text clump).
+- Under NO circumstances leave fullStoryTe short or identical to the 60-70 word content!
+- Expand the reporter's notes systematically:
+  * Paragraph 1: Event/incident context, date/time, exact place, and root problem.
+  * Paragraph 2: Statements, quotations, heated remarks, or promises made by leaders/officials/witnesses.
+  * Paragraph 3: Local public reaction, victims' distress, previous background, and community demands.
+  * Paragraph 4: Required follow-up action by authorities, next steps, and Alfa News editorial observation.
+- fullStoryEn: Provide matching 200-250 English words across 3-4 paragraphs separated by \\n\\n.
+` : ''}
 
 PROACTIVE MULTI-STORY BUNDLE DETECTION (CRITICAL):
 - Proactively detect if the input text contains multiple distinct sub-stories or angles:
