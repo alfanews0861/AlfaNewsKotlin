@@ -171,14 +171,17 @@ fun NewsCardView(
         if (effectiveStory.isBlank()) {
             false
         } else {
-            val words = effectiveStory.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+            val storyWords = storyText.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.size
+            val contentWords = shortText.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.size
             val isDiff = storyText.isNotBlank() && storyText.trim() != shortText.trim()
-            val hasLengthDelta = storyText.length > (shortText.length + 40)
+            val hasLengthDelta = storyText.length > (shortText.length + 30)
             val isReporterNews = post.isReporter
 
-            (words.size >= 70 && (isDiff || isReporterNews)) ||
-            (isReporterNews && words.size >= 45) ||
-            (hasLengthDelta && words.size >= 50)
+            (storyWords >= 70) ||
+            (storyWords >= 55 && isDiff) ||
+            (isReporterNews && (storyWords >= 45 || contentWords >= 45)) ||
+            (contentWords >= 65) ||
+            (hasLengthDelta && storyWords >= 45)
         }
     }
 
@@ -595,7 +598,7 @@ fun NewsCardView(
                                             modifier = Modifier.size(15.dp)
                                         )
                                         Text(
-                                            text = if (language == Language.TELUGU) "పూర్తి వార్త చదవండి" else "Read Full Story",
+                                            text = if (language == Language.TELUGU) "పూర్తి కథనం చదవండి" else "Read Full Story",
                                             style = TextStyle(
                                                 fontSize = 13.sp,
                                                 fontWeight = FontWeight.Bold,
@@ -2084,8 +2087,8 @@ fun FullStoryBottomSheet(
                         available: Offset,
                         source: NestedScrollSource
                     ): Offset {
-                        // User scrolls/swipes up past the end of the full story
-                        if (available.y < -40f && storyScrollState.value >= storyScrollState.maxValue - 10) {
+                        // User deliberately swipes/flings up past the very end of the full story
+                        if (available.y < -120f && storyScrollState.maxValue > 0 && storyScrollState.value >= storyScrollState.maxValue - 5) {
                             onDismissRequest()
                         }
                         return Offset.Zero

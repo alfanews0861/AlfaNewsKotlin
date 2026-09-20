@@ -132,15 +132,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        val firebaseAuthUser = FirebaseService.auth.currentUser
         val cachedId = prefs.userId
         val cachedRole = prefs.userRole ?: "SUBSCRIBER"
-        if (cachedId != null) {
+        if (firebaseAuthUser != null && cachedId != null) {
             _currentUser.value = User(
                 id = cachedId,
-                name = prefs.userName ?: "User",
+                name = prefs.userName ?: firebaseAuthUser.displayName ?: "User",
                 role = UserRole.fromString(cachedRole),
-                district = prefs.userDistrict
+                district = prefs.userDistrict,
+                phone = firebaseAuthUser.phoneNumber,
+                email = firebaseAuthUser.email
             )
+        } else if (firebaseAuthUser == null) {
+            prefs.clearUserData()
+            _currentUser.value = null
         }
 
         authStateListener = com.google.firebase.auth.FirebaseAuth.AuthStateListener { auth ->
@@ -150,6 +156,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val firebaseUser = auth.currentUser
             if (firebaseUser == null) {
                 _currentUser.value = null
+                prefs.clearUserData()
                 AnalyticsService.onUserLogout()
                 startUnreadMessagesListener(null)
                 return@AuthStateListener
@@ -159,19 +166,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 .addSnapshotListener { snapshot, e ->
                     if (e != null) return@addSnapshotListener
 
+                    if (snapshot != null && !snapshot.exists()) {
+                        _currentUser.value = null
+                        prefs.clearUserData()
+                        return@addSnapshotListener
+                    }
+
                     if (snapshot != null && snapshot.exists()) {
                         val rawRole = snapshot.get("role")
                         val parsedRole = UserRole.fromStringSafe(rawRole) ?: _currentUser.value?.role ?: UserRole.SUBSCRIBER
 
+                        val nameFromDb = snapshot.getString("name")
+                        val phoneFromDb = snapshot.getString("phone")
+                        val effectiveName = nameFromDb?.ifBlank { null } ?: firebaseUser.displayName?.ifBlank { null } ?: "User"
+                        val effectivePhone = phoneFromDb?.ifBlank { null } ?: firebaseUser.phoneNumber
+
                         val userObj = try {
                             val baseUser = snapshot.toObject(User::class.java)
-                            baseUser?.copy(id = snapshot.id, role = parsedRole)
+                            baseUser?.copy(
+                                id = snapshot.id,
+                                role = parsedRole,
+                                name = effectiveName,
+                                phone = effectivePhone,
+                                email = snapshot.getString("email") ?: firebaseUser.email
+                            )
                         } catch (ex: Exception) {
                             User(
                                 id = snapshot.id,
-                                name = snapshot.getString("name") ?: "User",
-                                email = snapshot.getString("email"),
-                                phone = snapshot.getString("phone"),
+                                name = effectiveName,
+                                email = snapshot.getString("email") ?: firebaseUser.email,
+                                phone = effectivePhone,
                                 photoUrl = snapshot.getString("photoUrl"),
                                 role = parsedRole,
                                 address = snapshot.getString("address"),

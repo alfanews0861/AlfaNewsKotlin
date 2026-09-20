@@ -13,6 +13,7 @@ import {
     runWithAIFallback,
     parseAIJson,
     sanitizeTeluguText,
+    formatIntoParagraphs,
     cleanTeluguHeadline,
     processAndOptimizeNewsImage,
     scanVideoSafetyWithGeminiAI,
@@ -412,17 +413,17 @@ function normalizeSingleStory(aiRes: any, actualPostData: any): any {
     let finalFullStoryTe = aiRes.fullStoryTe || aiRes.full_story_te || aiRes.fullStory || aiRes.full_story ||
         aiRes.telugu?.fullStory || aiRes.telugu_version?.fullStory || "";
     if (finalFullStoryTe && typeof finalFullStoryTe === 'string' && finalFullStoryTe.trim().length > 0) {
-        finalFullStoryTe = sanitizeTeluguText(finalFullStoryTe).trim();
+        finalFullStoryTe = formatIntoParagraphs(sanitizeTeluguText(finalFullStoryTe));
     } else {
-        finalFullStoryTe = finalContent;
+        finalFullStoryTe = formatIntoParagraphs(finalContent);
     }
 
     let finalFullStoryEn = aiRes.fullStoryEn || aiRes.full_story_en ||
         aiRes.english?.fullStory || aiRes.english_version?.fullStory || "";
     if (finalFullStoryEn && typeof finalFullStoryEn === 'string' && finalFullStoryEn.trim().length > 0) {
-        finalFullStoryEn = finalFullStoryEn.trim();
+        finalFullStoryEn = formatIntoParagraphs(finalFullStoryEn.trim());
     } else {
-        finalFullStoryEn = finalContentEn;
+        finalFullStoryEn = formatIntoParagraphs(finalContentEn);
     }
 
     const normalizedEntities = {

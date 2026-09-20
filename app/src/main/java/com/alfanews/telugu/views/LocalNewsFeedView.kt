@@ -131,11 +131,7 @@ fun LocalNewsFeedView(
 
     LaunchedEffect(viewModelActiveDistrict) {
         if (viewModelActiveDistrict != null) {
-            if (news.isEmpty() && !loading) {
-                viewModel.loadNews(language, currentUser)
-            } else {
-                viewModel.refreshIfStale(language, currentUser)
-            }
+            viewModel.loadNews(language, currentUser)
         }
     }
 
@@ -336,45 +332,29 @@ fun LocalNewsFeedView(
                 }
             }
         } else if (news.isEmpty()) {
+            if (!loading) {
+                LaunchedEffect(Unit) {
+                    viewModel.loadNews(language, currentUser)
+                }
+            }
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.padding(32.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(40.dp),
+                        color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "ఈ ప్రాంతంలో వార్తలు అందుబాటులో లేవు",
-                        style = MaterialTheme.typography.headlineSmall,
+                        text = stringResource(R.string.news_preparing),
                         color = MaterialTheme.colorScheme.onBackground,
-                        fontFamily = Ramabhadra,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                    Text(
-                        text = "దయచేసి మీ జిల్లాను మార్చండి లేదా రీఫ్రెష్ చేయండి.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        style = MaterialTheme.typography.bodyLarge,
                         fontFamily = Ramabhadra
                     )
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        OutlinedButton(onClick = onDistrictClick) {
-                            Text(text = "జిల్లా మార్చండి", fontFamily = Ramabhadra)
-                        }
-                        Button(onClick = { viewModel.loadNews(language, currentUser) }) {
-                            Text(text = stringResource(R.string.retry), fontFamily = Ramabhadra)
-                        }
-                    }
                 }
             }
         } else {

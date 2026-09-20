@@ -547,7 +547,7 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
                     className="inline-flex items-center gap-1.5 px-3 py-1 mb-4 rounded-full bg-red-600/10 hover:bg-red-600/20 border border-red-500/30 text-red-400 text-xs font-bold transition-all cursor-pointer shadow-sm"
                   >
                     <BookOpen className="w-3.5 h-3.5" />
-                    <span>{language === Language.TELUGU ? "పూర్తి వార్త చదవండి" : "Read Full Story"}</span>
+                    <span>{language === Language.TELUGU ? "పూర్తి కథనం చదవండి" : "Read Full Story"}</span>
                     <ChevronDown className="w-3.5 h-3.5" />
                   </button>
                 )}

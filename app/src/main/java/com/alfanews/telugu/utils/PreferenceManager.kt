@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 class PreferenceManager(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("alfa_news_prefs", Context.MODE_PRIVATE)
 
-    private val _districtChanges = MutableSharedFlow<String?>(extraBufferCapacity = 1)
+    private val _districtChanges = MutableSharedFlow<String?>(extraBufferCapacity = 64, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
     val districtChanges: SharedFlow<String?> = _districtChanges.asSharedFlow()
 
     companion object {

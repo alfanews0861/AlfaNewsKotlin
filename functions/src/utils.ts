@@ -283,6 +283,44 @@ export function cleanTeluguHeadline(headline: string): string {
     return sanitizeTeluguText(clean);
 }
 
+/**
+ * Formats a story text into strictly 3 to 4 distinct paragraphs separated by \n\n.
+ * If already separated by paragraphs, preserves them.
+ * If provided as a single block or clump, intelligently splits by sentence boundaries
+ * into 3 to 4 balanced paragraphs.
+ */
+export function formatIntoParagraphs(text: string, targetCount: number = 3): string {
+    if (!text || !text.trim()) return "";
+    const clean = text.trim();
+
+    // 1. Check if already split by double newlines (\n\n)
+    const doubleNewlineParas = clean.split(/\r?\n\s*\r?\n/).map(p => p.trim()).filter(p => p.length > 0);
+    if (doubleNewlineParas.length >= 2) {
+        return doubleNewlineParas.join('\n\n');
+    }
+
+    // 2. Check if split by single newlines
+    const singleNewlineParas = clean.split(/\r?\n/).map(p => p.trim()).filter(p => p.length > 0);
+    if (singleNewlineParas.length >= 2) {
+        return singleNewlineParas.join('\n\n');
+    }
+
+    // 3. Single text clump: split into sentences and balance into 3 to 4 paragraphs
+    const sentences = clean.split(/(?<=[.!?।])\s+/).map(s => s.trim()).filter(s => s.length > 0);
+    if (sentences.length >= 3) {
+        const numParas = sentences.length >= 8 ? 4 : (sentences.length >= 4 ? 3 : 2);
+        const perPara = Math.ceil(sentences.length / numParas);
+        const chunks: string[] = [];
+        for (let i = 0; i < sentences.length; i += perPara) {
+            chunks.push(sentences.slice(i, i + perPara).join(' '));
+        }
+        return chunks.join('\n\n');
+    }
+
+    return clean;
+}
+
+
 
 export async function saveBufferToStorage(buffer: Buffer, prefix: string): Promise<string | null> {
     try {

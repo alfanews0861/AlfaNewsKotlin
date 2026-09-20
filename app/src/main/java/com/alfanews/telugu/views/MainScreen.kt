@@ -770,6 +770,7 @@ fun ProfileContainer(
             unreadMessagesCount = unreadMessagesCount,
             onNavigate = onNavigate,
             onLoginRequest = { showLogin = true },
+            onLogout = { viewModel.signOut() },
             onToggleNotifications = { viewModel.toggleNotifications(it) },
             onMenuClick = onMenuClick
         )

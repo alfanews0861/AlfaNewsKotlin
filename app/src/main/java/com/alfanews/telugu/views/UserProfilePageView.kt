@@ -61,6 +61,7 @@ fun UserProfilePageView(
     unreadMessagesCount: Int = 0,
     onNavigate: (String) -> Unit = {},
     onLoginRequest: (() -> Unit)? = null,
+    onLogout: (() -> Unit)? = null,
     onToggleNotifications: (Boolean) -> Unit = {},
     onMenuClick: (() -> Unit)? = null
 ) {
@@ -74,8 +75,8 @@ fun UserProfilePageView(
     val leaderboardEntries by leaderboardViewModel.leaderboard.collectAsStateWithLifecycle()
     val leaderboardLoading by leaderboardViewModel.loading.collectAsStateWithLifecycle()
 
-    val isGuest = user.id == "guest" || user.role == UserRole.GUEST
-    val isStaff = listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.REGIONAL_INCHARGE, UserRole.NEWS_DESK).contains(user.role)
+    val isGuest = FirebaseService.auth.currentUser == null || user.id.isBlank() || user.id == "guest" || user.role == UserRole.GUEST
+    val isStaff = !isGuest && listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.REGIONAL_INCHARGE, UserRole.NEWS_DESK).contains(user.role)
 
     var pushEnabled by remember { mutableStateOf(user.pushEnabled) }
 
@@ -120,7 +121,12 @@ fun UserProfilePageView(
 
     /** సైన్ అవుట్ ప్రక్రియను నిర్వహిస్తుంది. */
     fun handleLogout() {
-        FirebaseService.auth.signOut()
+        if (onLogout != null) {
+            onLogout.invoke()
+        } else {
+            FirebaseService.auth.signOut()
+            com.alfanews.telugu.utils.PreferenceManager.getInstance(context).clearUserData()
+        }
     }
 
     /** వినియోగదారు ఖాతాను తొలగిస్తుంది. */
@@ -131,7 +137,12 @@ fun UserProfilePageView(
                     .document(user.id)
                     .delete()
                     .await()
-                FirebaseService.auth.signOut()
+                if (onLogout != null) {
+                    onLogout.invoke()
+                } else {
+                    FirebaseService.auth.signOut()
+                    com.alfanews.telugu.utils.PreferenceManager.getInstance(context).clearUserData()
+                }
             } catch (e: Exception) {
                 Toast.makeText(context, context.getString(R.string.account_delete_error, e.message ?: ""), Toast.LENGTH_SHORT).show()
             }
@@ -200,14 +211,42 @@ fun UserProfilePageView(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Box(contentAlignment = Alignment.BottomEnd) {
-                        AsyncImage(
-                            model = user.photoUrl ?: "https://ui-avatars.com/api/?name=${URLEncoder.encode(user.name, "UTF-8")}&background=random",
-                            contentDescription = user.name,
-                            modifier = Modifier
-                                .size(110.dp)
-                                .clip(CircleShape)
-                                .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape)
-                        )
+                        val avatarUrl = if (!isGuest && !user.photoUrl.isNullOrBlank()) {
+                            user.photoUrl
+                        } else if (!isGuest && user.name.isNotBlank()) {
+                            "https://ui-avatars.com/api/?name=${URLEncoder.encode(user.name, "UTF-8")}&background=random"
+                        } else {
+                            null
+                        }
+
+                        if (avatarUrl != null) {
+                            AsyncImage(
+                                model = avatarUrl,
+                                contentDescription = user.name,
+                                modifier = Modifier
+                                    .size(110.dp)
+                                    .clip(CircleShape)
+                                    .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(110.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+                                    .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(60.dp),
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+
                         if (!isGuest) {
                             Surface(
                                 modifier = Modifier.size(32.dp).clickable { onNavigate("edit-profile") },
@@ -227,16 +266,46 @@ fun UserProfilePageView(
                     
                     Spacer(modifier = Modifier.height(16.dp))
                     
+                    val displayName = if (isGuest) {
+                        if (language == Language.TELUGU) "అతిథి వినియోగదారుడు" else "Guest User"
+                    } else {
+                        user.name.ifBlank {
+                            FirebaseService.auth.currentUser?.displayName?.ifBlank { null }
+                                ?: user.phone
+                                ?: FirebaseService.auth.currentUser?.phoneNumber
+                                ?: stringResource(R.string.user_default_name)
+                        }
+                    }
+
                     Text(
-                        user.name,
-                        fontSize = 28.sp,
+                        text = displayName,
+                        fontSize = 24.sp,
                         fontFamily = Ramabhadra,
                         color = MaterialTheme.colorScheme.onSurface,
                         textAlign = TextAlign.Center
                     )
+
+                    // లాగిన్ అయిన ఫోన్ నంబర్ లేదా ఈమెయిల్
+                    val contactInfo = if (!isGuest) {
+                        user.phone?.ifBlank { null }
+                            ?: FirebaseService.auth.currentUser?.phoneNumber
+                            ?: user.email?.ifBlank { null }
+                            ?: FirebaseService.auth.currentUser?.email
+                    } else null
+
+                    if (!contactInfo.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = contactInfo,
+                            fontSize = 14.sp,
+                            fontFamily = Poppins,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                     
                     Surface(
-                        modifier = Modifier.padding(top = 4.dp),
+                        modifier = Modifier.padding(top = 6.dp),
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                         shape = RoundedCornerShape(4.dp)
                     ) {
@@ -249,7 +318,7 @@ fun UserProfilePageView(
                                 user.role == UserRole.SUBSCRIBER -> stringResource(R.string.subscriber)
                                 else -> user.role.name
                             },
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
@@ -265,6 +334,8 @@ fun UserProfilePageView(
                             shape = MaterialTheme.shapes.medium,
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
+                            Icon(Icons.Default.Login, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(stringResource(R.string.login_signup), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                         }
                     } else {

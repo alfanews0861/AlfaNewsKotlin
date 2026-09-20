@@ -44,6 +44,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             prefs.districtChanges.collectLatest { district ->
                 if (district != _userDistrict.value) {
                     _userDistrict.value = district
+                    _news.value = emptyList()
+                    _loading.value = true
                     loadNews(Language.TELUGU, null)
                 }
             }
@@ -384,8 +386,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
       fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null) {
           currentLanguage = language
-          if (isFetching && initialPostId == null) return
-          
           currentFetchJob?.cancel()
           isFetching = false
 
@@ -761,18 +761,45 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 val generalCats = getGeneralDistrictsForState(userState).take(30)
                 query = query.whereIn("district", generalCats)
             } else if (!district.isNullOrBlank()) {
-                // 🚀 FIX: Use whereEqualTo("district", ...) instead of whereArrayContains("categories", ...)
-                // to avoid Firestore conflict when baseQuery already has an array filter (like whereArrayContainsAny).
-                query = query.whereEqualTo("district", district)
+                val districtAliases = getDistrictAliases(district)
+                val primaryAliases = districtAliases.take(30)
+                query = if (primaryAliases.size > 1) {
+                    query.whereIn("district", primaryAliases)
+                } else {
+                    query.whereEqualTo("district", primaryAliases.firstOrNull() ?: district)
+                }
             }
             query = query.orderBy("timestamp", Query.Direction.DESCENDING).limit(limit.toLong())
             if (currentCursor != null) query = query.startAfter(currentCursor)
             
             try {
-                val snapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                val snapshot = kotlinx.coroutines.withTimeoutOrNull(3500L) {
                     query.get().await()
                 }
                 if (snapshot == null || snapshot.isEmpty) {
+                    // 🚀 STEP 2: If district query by 'district' field returned empty, check categories array with category aliases
+                    if (!district.isNullOrBlank() && !excludeDistricts) {
+                        try {
+                            val categoryAliases = getDistrictAliases(district).take(10)
+                            var catQuery = FirebaseService.db.collection("news")
+                                .whereEqualTo("approved", true)
+                                .whereArrayContainsAny("categories", categoryAliases)
+                                .orderBy("timestamp", Query.Direction.DESCENDING)
+                                .limit(limit.toLong())
+                            if (currentCursor != null) catQuery = catQuery.startAfter(currentCursor)
+                            val catSnap = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                                catQuery.get().await()
+                            }
+                            if (catSnap != null && !catSnap.isEmpty) {
+                                val catBatch = catSnap.documents.mapNotNull { doc -> mapDocumentToNewsPost(doc) }
+                                    .filter { post -> isPostAllowedForState(post, userState) }
+                                if (catBatch.isNotEmpty()) {
+                                    return Pair(catBatch, catSnap.documents.lastOrNull() ?: currentCursor)
+                                }
+                            }
+                        } catch (e: Exception) { }
+                    }
+
                     // ✅ Fallback query కూడా userState filter apply చేయడం
                     var fallbackQuery = FirebaseService.db.collection("news")
                         .whereEqualTo("approved", true)
@@ -781,7 +808,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     
                     if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
                     
-                    val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                    val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
                         fallbackQuery.get().await()
                     }
                     if (fallbackSnapshot == null || fallbackSnapshot.isEmpty) {
@@ -807,7 +834,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         .orderBy("timestamp", Query.Direction.DESCENDING)
                         .limit(limit.toLong())
                     if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
-                    val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                    val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
                         fallbackQuery.get().await()
                     }
                     if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {
@@ -824,7 +851,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         var fallbackQuery = baseQuery.whereEqualTo("approved", true)
                             .orderBy("timestamp", Query.Direction.DESCENDING).limit(limit.toLong())
                         if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
-                        val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                        val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
                             fallbackQuery.get().await()
                         }
                         if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {

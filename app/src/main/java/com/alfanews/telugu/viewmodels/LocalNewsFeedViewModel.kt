@@ -43,6 +43,12 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             prefs.districtChanges.collectLatest { district ->
                 if (district != _activeDistrict.value) {
                     _activeDistrict.value = district
+                    _news.value = emptyList()
+                    _loading.value = true
+                    _hasMore.value = true
+                    currentStage = LocalFeedStage.DISTRICT
+                    lastDocument = null
+                    isFetching = false
                     loadNews(Language.TELUGU, null)
                 }
             }
@@ -474,7 +480,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         .orderBy("timestamp", Query.Direction.DESCENDING)
                         .limit(pageSize.toLong())
                     
-                    val snap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                    val snap = kotlinx.coroutines.withTimeoutOrNull(3500L) {
                         query.get().await()
                     }
                     if (snap != null && !snap.isEmpty) {
@@ -494,7 +500,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             .orderBy("timestamp", Query.Direction.DESCENDING)
                             .limit(pageSize.toLong())
                         
-                        val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                        val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
                             fallbackQuery.get().await()
                         }
                         if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {
@@ -508,11 +514,12 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                     // 🚀 STEP 3: State-Level Fallback if district has zero local news right now
                     if (posts.isEmpty()) {
-                        val isAP = Constants.AP_DISTRICTS.contains(district) || district.contains("నెల్లూరు") || district.contains("కడప")
+                        val isAP = Constants.AP_DISTRICTS.any { it.equals(district, ignoreCase = true) || district.contains(it) || it.contains(district) } ||
+                                   listOf("Andhra", "AP", "నెల్లూరు", "కడప", "విజయవాడ", "వైజాగ్", "గుంటూరు", "తిరుపతి", "Nellore", "Kadapa").any { district.contains(it, ignoreCase = true) }
                         val stateTags = if (isAP) {
-                            listOf("Andhra Pradesh", "ఆంధ్రప్రదేశ్", "AP", "State", "రాష్ట్రం")
+                            listOf("Andhra Pradesh", "AndhraPradesh", "AP", "Andhra", "ఆంధ్రప్రదేశ్", "ఆంధ్ర", "State News", "జాతీయం", "General", "State")
                         } else {
-                            listOf("Telangana", "తెలంగాణ", "TS", "State", "రాష్ట్రం")
+                            listOf("Telangana", "TS", "TG", "తెలంగాణ", "హైదరాబాద్", "Hyderabad", "State News", "జాతీయం", "General", "State")
                         }
                         
                         val stateQuery = newsRef
@@ -521,7 +528,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             .orderBy("timestamp", Query.Direction.DESCENDING)
                             .limit(pageSize.toLong())
                         
-                        val stateSnapshot = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                        val stateSnapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
                             stateQuery.get().await()
                         }
                         if (stateSnapshot != null && !stateSnapshot.isEmpty) {
@@ -535,7 +542,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                     // 🚀 STEP 4: Emergency Fallback to latest approved news if local/state news is empty
                     if (posts.isEmpty()) {
-                        val emergencySnapshot = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                        val emergencySnapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
                             newsRef
                                 .whereEqualTo("approved", true)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
@@ -550,6 +557,24 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             }
                         }
                     }
+
+                    // 🚀 STEP 5: Cache Fallback if network was slow or empty
+                    if (posts.isEmpty()) {
+                        try {
+                            val cachedSnap = newsRef
+                                .whereEqualTo("approved", true)
+                                .orderBy("timestamp", Query.Direction.DESCENDING)
+                                .limit(pageSize.toLong())
+                                .get(com.google.firebase.firestore.Source.CACHE)
+                                .await()
+                            if (!cachedSnap.isEmpty) {
+                                snapshot = cachedSnap
+                                posts = withContext(Dispatchers.Default) {
+                                    cachedSnap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                                }
+                            }
+                        } catch (_: Exception) { }
+                    }
                 } catch (e: Exception) {
                     android.util.Log.e("LocalNewsFeedViewModel", "News fetch failed for $district: ${e.message}")
                 }
@@ -563,7 +588,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 }
 
                 val wasEmpty = _news.value.isEmpty()
-                _news.value = rankedPosts
+                if (rankedPosts.isNotEmpty()) {
+                    _news.value = rankedPosts
+                }
                 // Scroll to top on fresh district news load only if feed was empty
                 if (rankedPosts.isNotEmpty()) {
                     val validIds = rankedPosts.filter { it.type == "news" }.map { it.id }

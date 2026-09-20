@@ -413,18 +413,18 @@ function normalizeSingleStory(aiRes, actualPostData) {
     let finalFullStoryTe = aiRes.fullStoryTe || aiRes.full_story_te || aiRes.fullStory || aiRes.full_story ||
         aiRes.telugu?.fullStory || aiRes.telugu_version?.fullStory || "";
     if (finalFullStoryTe && typeof finalFullStoryTe === 'string' && finalFullStoryTe.trim().length > 0) {
-        finalFullStoryTe = (0, utils_1.sanitizeTeluguText)(finalFullStoryTe).trim();
+        finalFullStoryTe = (0, utils_1.formatIntoParagraphs)((0, utils_1.sanitizeTeluguText)(finalFullStoryTe));
     }
     else {
-        finalFullStoryTe = finalContent;
+        finalFullStoryTe = (0, utils_1.formatIntoParagraphs)(finalContent);
     }
     let finalFullStoryEn = aiRes.fullStoryEn || aiRes.full_story_en ||
         aiRes.english?.fullStory || aiRes.english_version?.fullStory || "";
     if (finalFullStoryEn && typeof finalFullStoryEn === 'string' && finalFullStoryEn.trim().length > 0) {
-        finalFullStoryEn = finalFullStoryEn.trim();
+        finalFullStoryEn = (0, utils_1.formatIntoParagraphs)(finalFullStoryEn.trim());
     }
     else {
-        finalFullStoryEn = finalContentEn;
+        finalFullStoryEn = (0, utils_1.formatIntoParagraphs)(finalContentEn);
     }
     const normalizedEntities = {
         people: Array.isArray(aiRes.entities?.people) ? aiRes.entities.people : [],
