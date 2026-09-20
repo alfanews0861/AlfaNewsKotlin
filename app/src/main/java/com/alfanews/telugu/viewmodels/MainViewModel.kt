@@ -750,18 +750,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        userListener?.remove()
-        newsListener?.remove()
-        weatherAlertListener?.remove()
-        reporterConvListener?.remove()
-        userMessagesListener?.remove()
-        appConfigListener?.remove()
-        authStateListener?.let { FirebaseService.auth.removeAuthStateListener(it) }
-    }
-
-
     fun setActiveTab(tab: String) {
         _activeTab.value = tab
         AnalyticsService.logTabSelected(tab, _activeDistrict.value)

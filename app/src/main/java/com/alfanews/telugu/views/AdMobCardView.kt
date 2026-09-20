@@ -1,5 +1,6 @@
 package com.alfanews.telugu.views
 
+import android.app.Activity
 import android.view.LayoutInflater
 import android.widget.Button
 import android.widget.ImageView
