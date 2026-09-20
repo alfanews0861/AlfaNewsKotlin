@@ -80,6 +80,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         _shouldScrollToTop.value = false
     }
 
+    enum class LocalFeedStage { DISTRICT, STATE, GENERAL }
+    private var currentStage = LocalFeedStage.DISTRICT
+    private var pendingLoadMore = false
     private var lastDocument: DocumentSnapshot? = null
     private var lastRefreshTimeLong: Long = 0
     private val pageSize = 20
@@ -93,6 +96,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         _news.value = emptyList() // 🔄 Clear old news to avoid confusion when switching districts
         _loading.value = true     // 🔄 Show preparation screen
         _hasMore.value = true
+        currentStage = LocalFeedStage.DISTRICT
+        lastDocument = null
         prefs.selectedDistrict = district
         _activeDistrict.value = district
         AnalyticsService.logDistrictSelected(district, oldDistrict)
@@ -105,7 +110,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     @SuppressLint("MissingPermission")
     fun detectLocation(context: Context, currentUser: User?) {
         val savedDistrict = prefs.selectedDistrict ?: currentUser?.district ?: prefs.detectedDistrict
-        if (savedDistrict != null) {
+        // 🛡️ 48-Hour GPS Throttling: గత 48 గంటల్లో లొకేషన్ రికార్డ్ అయి ఉంటే మళ్లీ GPS ఆన్ చేయకుండా క్యాష్ చేసిన లొకేషన్ వాడతాము
+        if (savedDistrict != null && !prefs.isLocationDetectionStale()) {
             _activeDistrict.value = savedDistrict
             _isDetecting.value = false
             if (_news.value.isEmpty()) {
@@ -119,19 +125,20 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         
         viewModelScope.launch {
             try {
-                withTimeout(2000L) {
-                    val fusedLocationClient = LocationServices.getFusedLocationProviderClient(getApplication<Application>())
-                    val loc = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
-                    if (loc != null) {
-                        val detectedDistrict = getDistrictFromCoords(loc.latitude, loc.longitude)
-                        if (detectedDistrict != null) {
-                            updateDetectedDistrict(detectedDistrict, currentUser)
-                        } else {
-                            finalizeDetection()
-                        }
+                val fusedLocationClient = LocationServices.getFusedLocationProviderClient(getApplication<Application>())
+                val lastLoc = try { fusedLocationClient.lastLocation.await() } catch (e: Exception) { null }
+                val loc = lastLoc ?: kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                    fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null).await()
+                }
+                if (loc != null) {
+                    val detectedDistrict = getDistrictFromCoords(loc.latitude, loc.longitude)
+                    if (detectedDistrict != null) {
+                        updateDetectedDistrict(detectedDistrict, currentUser)
                     } else {
                         finalizeDetection()
                     }
+                } else {
+                    finalizeDetection()
                 }
             } catch (e: Exception) {
                 finalizeDetection()
@@ -147,16 +154,22 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     private suspend fun getDistrictFromCoords(lat: Double, lon: Double): String? {
         return withContext(Dispatchers.IO) {
             try {
-                val geocoder = Geocoder(getApplication(), Locale("te"))
-                @Suppress("DEPRECATION")
-                val addresses = geocoder.getFromLocation(lat, lon, 1)
+                prefs.lastLat = lat
+                prefs.lastLon = lon
+                prefs.lastLocationDetectionTime = System.currentTimeMillis()
+
+                val addresses = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                    try {
+                        val geocoder = Geocoder(getApplication(), Locale("te"))
+                        @Suppress("DEPRECATION")
+                        geocoder.getFromLocation(lat, lon, 1)
+                    } catch (e: Exception) { null }
+                }
                 if (!addresses.isNullOrEmpty()) {
                     val address = addresses[0]
                     val localityPlace = address.locality ?: address.subLocality ?: address.subAdminArea
                     if (localityPlace != null) {
                         prefs.localPlace = localityPlace
-                        prefs.lastLat = lat
-                        prefs.lastLon = lon
                     }
                     val adminArea = address.adminArea ?: ""
                     if (adminArea.contains("Andhra", ignoreCase = true) || adminArea.contains("Telangana", ignoreCase = true)) {
@@ -201,20 +214,133 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         if (district.isNullOrBlank()) return emptyList()
         val list = mutableListOf(district)
         when {
-            district.contains("నెల్లూరు") -> list.addAll(listOf("శ్రీ పొట్టి శ్రీరాములు నెల్లూరు", "నెల్లూరు", "Nellore", "SPSR Nellore"))
-            district.contains("కడప") -> list.addAll(listOf("వైఎస్ఆర్ కడప", "కడప", "YSR Kadapa", "Kadapa"))
-            district.contains("సత్యసాయి") -> list.addAll(listOf("శ్రీ సత్యసాయి", "సత్యసాయి", "Sri Sathya Sai"))
-            district.contains("అల్లూరి") -> list.addAll(listOf("అల్లూరి సీతారామరాజు", "అల్లూరి", "Alluri"))
-            district.contains("మన్యం") || district.contains("పార్వతీపురం") -> list.addAll(listOf("పార్వతీపురం మన్యం", "మన్యం", "పార్వతీపురం"))
-            district.contains("కొత్తగూడెం") -> list.addAll(listOf("భద్రాద్రి కొత్తగూడెం", "కొత్తగూడెం", "Bhadradri"))
-            district.contains("ఆసిఫాబాద్") -> list.addAll(listOf("కుమ్రం భీమ్ ఆసిఫాబాద్", "ఆసిఫాబాద్", "Asifabad"))
-            district.contains("భూపాలపల్లి") -> list.addAll(listOf("జయశంకర్ భూపాలపల్లి", "భూపాలపల్లి", "Bhupalpally"))
-            district.contains("గద్వాల") -> list.addAll(listOf("జోగులాంబ గద్వాల", "గద్వాల", "Gadwal"))
-            district.contains("సిరిసిల్ల") -> list.addAll(listOf("రాజన్న సిరిసిల్ల", "సిరిసిల్ల", "Sircilla"))
-            district.contains("భువనగిరి") -> list.addAll(listOf("యాదాద్రి భువనగిరి", "భువనగిరి", "Yadadri"))
-            district.contains("మేడ్చల్") -> list.addAll(listOf("మేడ్చల్ మల్కాజిగిరి", "మేడ్చల్", "Medchal"))
-            district.contains("హన్మకొండ") || district.contains("హనుమకొండ") -> list.addAll(listOf("హన్మకొండ", "హనుమకొండ", "వరంగల్ అర్బన్", "Hanamkonda"))
-            district.contains("వరంగల్") -> list.addAll(listOf("వరంగల్", "వరంగల్ రూరల్", "హన్మకొండ", "Warangal"))
+            // --- TELANGANA DISTRICTS ---
+            district.contains("ఆదిలాబాద్") || district.equals("Adilabad", ignoreCase = true) ->
+                list.addAll(listOf("ఆదిలాబాద్", "Adilabad"))
+            district.contains("కొత్తగూడెం") || district.contains("భద్రాద్రి") || district.contains("Kothagudem", ignoreCase = true) || district.contains("Bhadradri", ignoreCase = true) ->
+                list.addAll(listOf("భద్రాద్రి కొత్తగూడెం", "కొత్తగూడెం", "Bhadradri", "Kothagudem", "Bhadradri Kothagudem"))
+            district.contains("హన్మకొండ") || district.contains("హనుమకొండ") || district.contains("Hanamkonda", ignoreCase = true) || district.contains("Hanumakonda", ignoreCase = true) ->
+                list.addAll(listOf("హన్మకొండ", "హనుమకొండ", "వరంగల్ అర్బన్", "Hanamkonda", "Hanumakonda"))
+            district.contains("హైదరాబాద్") || district.contains("Hyderabad", ignoreCase = true) || district.equals("HYD", ignoreCase = true) ->
+                list.addAll(listOf("హైదరాబాద్", "Hyderabad", "HYD", "సైబరాబాద్", "Cyberabad", "సికింద్రాబాద్", "Secunderabad"))
+            district.contains("జగిత్యాల") || district.contains("Jagtial", ignoreCase = true) ->
+                list.addAll(listOf("జగిత్యాల", "Jagtial"))
+            district.contains("జనగాం") || district.contains("Jangaon", ignoreCase = true) ->
+                list.addAll(listOf("జనగాం", "Jangaon"))
+            district.contains("భూపాలపల్లి") || district.contains("జయశంకర్") || district.contains("Bhupalpally", ignoreCase = true) ->
+                list.addAll(listOf("జయశంకర్ భూపాలపల్లి", "భూపాలపల్లి", "Bhupalpally", "Jayashankar Bhupalpally"))
+            district.contains("గద్వాల") || district.contains("జోగులాంబ") || district.contains("Gadwal", ignoreCase = true) ->
+                list.addAll(listOf("జోగులాంబ గద్వాల", "గద్వాల", "Gadwal", "Jogulamba Gadwal"))
+            district.contains("కామారెడ్డి") || district.contains("Kamareddy", ignoreCase = true) ->
+                list.addAll(listOf("కామారెడ్డి", "Kamareddy"))
+            district.contains("కరీంనగర్") || district.contains("Karimnagar", ignoreCase = true) ->
+                list.addAll(listOf("కరీంనగర్", "Karimnagar"))
+            district.contains("ఖమ్మం") || district.contains("Khammam", ignoreCase = true) ->
+                list.addAll(listOf("ఖమ్మం", "Khammam"))
+            district.contains("ఆసిఫాబాద్") || district.contains("కుమ్రం") || district.contains("Asifabad", ignoreCase = true) ->
+                list.addAll(listOf("కుమ్రం భీమ్ ఆసిఫాబాద్", "ఆసిఫాబాద్", "Asifabad", "Komaram Bheem"))
+            district.contains("మహబూబాబాద్") || district.contains("Mahabubabad", ignoreCase = true) ->
+                list.addAll(listOf("మహబూబాబాద్", "Mahabubabad"))
+            district.contains("మహబూబ్") || district.contains("మహబూబ్‌నగర్") || district.contains("Mahabubnagar", ignoreCase = true) || district.contains("Mahboobnagar", ignoreCase = true) ->
+                list.addAll(listOf("మహబూబ్ నగర్", "మహబూబ్‌నగర్", "Mahabubnagar", "Mahboobnagar"))
+            district.contains("మంచిర్యాల") || district.contains("Mancherial", ignoreCase = true) ->
+                list.addAll(listOf("మంచిర్యాల", "Mancherial"))
+            district.contains("మెదక్") || district.contains("Medak", ignoreCase = true) ->
+                list.addAll(listOf("మెదక్", "Medak"))
+            district.contains("మేడ్చల్") || district.contains("మల్కాజిగిరి") || district.contains("Medchal", ignoreCase = true) || district.contains("Malkajgiri", ignoreCase = true) ->
+                list.addAll(listOf("మేడ్చల్ మల్కాజిగిరి", "మేడ్చల్", "మల్కాజిగిరి", "Medchal", "Malkajgiri", "Medchal-Malkajgiri"))
+            district.contains("ములుగు") || district.contains("Mulugu", ignoreCase = true) ->
+                list.addAll(listOf("ములుగు", "Mulugu"))
+            district.contains("నాగర్ కర్నూల్") || district.contains("నాగర్‌కర్నూల్") || district.contains("Nagarkurnool", ignoreCase = true) ->
+                list.addAll(listOf("నాగర్ కర్నూల్", "నాగర్‌కర్నూల్", "Nagarkurnool"))
+            district.contains("నల్గొండ") || district.contains("నల్లగొండ") || district.contains("Nalgonda", ignoreCase = true) ->
+                list.addAll(listOf("నల్గొండ", "నల్లగొండ", "Nalgonda"))
+            district.contains("నారాయణపేట") || district.contains("Narayanpet", ignoreCase = true) ->
+                list.addAll(listOf("నారాయణపేట", "Narayanpet"))
+            district.contains("నిర్మల్") || district.contains("Nirmal", ignoreCase = true) ->
+                list.addAll(listOf("నిర్మల్", "Nirmal"))
+            district.contains("నిజామాబాద్") || district.contains("Nizamabad", ignoreCase = true) ->
+                list.addAll(listOf("నిజామాబాద్", "Nizamabad"))
+            district.contains("పెద్దపల్లి") || district.contains("Peddapalli", ignoreCase = true) ->
+                list.addAll(listOf("పెద్దపల్లి", "Peddapalli"))
+            district.contains("సిరిసిల్ల") || district.contains("రాజన్న") || district.contains("Sircilla", ignoreCase = true) ->
+                list.addAll(listOf("రాజన్న సిరిసిల్ల", "సిరిసిల్ల", "Sircilla", "Rajanna Sircilla"))
+            district.contains("రంగారెడ్డి") || district.contains("Rangareddy", ignoreCase = true) ->
+                list.addAll(listOf("రంగారెడ్డి", "Rangareddy", "Ranga Reddy"))
+            district.contains("సంగారెడ్డి") || district.contains("Sangareddy", ignoreCase = true) ->
+                list.addAll(listOf("సంగారెడ్డి", "Sangareddy"))
+            district.contains("సిద్దిపేట") || district.contains("Siddipet", ignoreCase = true) ->
+                list.addAll(listOf("సిద్దిపేట", "Siddipet"))
+            district.contains("సూర్యాపేట") || district.contains("Suryapet", ignoreCase = true) ->
+                list.addAll(listOf("సూర్యాపేట", "Suryapet"))
+            district.contains("వికారాబాద్") || district.contains("Vikarabad", ignoreCase = true) ->
+                list.addAll(listOf("వికారాబాద్", "Vikarabad"))
+            district.contains("వనపర్తి") || district.contains("Wanaparthy", ignoreCase = true) ->
+                list.addAll(listOf("వనపర్తి", "Wanaparthy"))
+            district.contains("వరంగల్") || district.contains("Warangal", ignoreCase = true) ->
+                list.addAll(listOf("వరంగల్", "వరంగల్ రూరల్", "హన్మకొండ", "Warangal", "Warangal Rural"))
+            district.contains("భువనగిరి") || district.contains("యాదాద్రి") || district.contains("Bhuvanagiri", ignoreCase = true) || district.contains("Yadadri", ignoreCase = true) ->
+                list.addAll(listOf("యాదాద్రి భువనగిరి", "భువనగిరి", "Yadadri", "Bhuvanagiri", "Yadadri Bhuvanagiri"))
+
+            // --- ANDHRA PRADESH DISTRICTS ---
+            district.contains("అల్లూరి") || district.contains("పాడేరు") || district.contains("Alluri", ignoreCase = true) || district.contains("ASR", ignoreCase = true) || district.contains("Paderu", ignoreCase = true) ->
+                list.addAll(listOf("అల్లూరి సీతారామరాజు", "అల్లూరి", "పాడేరు", "Alluri", "ASR", "Alluri Sitharama Raju", "Paderu"))
+            district.contains("అనకాపల్లి") || district.contains("Anakapalli", ignoreCase = true) ->
+                list.addAll(listOf("అనకాపల్లి", "Anakapalli"))
+            district.contains("అనంతపురం") || district.contains("Anantapur", ignoreCase = true) ->
+                list.addAll(listOf("అనంతపురం", "అనంతపురము", "Anantapur", "Ananthapur"))
+            district.contains("అన్నమయ్య") || district.contains("రాయచోటి") || district.contains("Annamayya", ignoreCase = true) || district.contains("Rayachoti", ignoreCase = true) ->
+                list.addAll(listOf("అన్నమయ్య", "రాయచోటి", "Annamayya", "Rayachoti"))
+            district.contains("బాపట్ల") || district.contains("Bapatla", ignoreCase = true) ->
+                list.addAll(listOf("బాపట్ల", "Bapatla"))
+            district.contains("చిత్తూరు") || district.contains("Chittoor", ignoreCase = true) ->
+                list.addAll(listOf("చిత్తూరు", "Chittoor"))
+            district.contains("కోనసీమ") || district.contains("అమలాపురం") || district.contains("Konaseema", ignoreCase = true) || district.contains("Amalapuram", ignoreCase = true) ->
+                list.addAll(listOf("కోనసీమ", "డాక్టర్ బి.ఆర్. అంబేద్కర్ కోనసీమ", "అమలాపురం", "Konaseema", "Amalapuram", "Dr. B.R. Ambedkar Konaseema"))
+            district.contains("తూర్పు గోదావరి") || district.contains("రాజమండ్రి") || district.contains("East Godavari", ignoreCase = true) || district.contains("Rajahmundry", ignoreCase = true) ->
+                list.addAll(listOf("తూర్పు గోదావరి", "రాజమండ్రి", "రాజమహేంద్రవరం", "East Godavari", "Rajahmundry"))
+            district.contains("ఏలూరు") || district.contains("Eluru", ignoreCase = true) ->
+                list.addAll(listOf("ఏలూరు", "Eluru"))
+            district.contains("గుంటూరు") || district.contains("Guntur", ignoreCase = true) ->
+                list.addAll(listOf("గుంటూరు", "Guntur"))
+            district.contains("కాకినాడ") || district.contains("Kakinada", ignoreCase = true) ->
+                list.addAll(listOf("కాకినాడ", "Kakinada"))
+            district.contains("కృష్ణా") || district.contains("మచిలీపట్నం") || district.contains("Krishna", ignoreCase = true) || district.contains("Machilipatnam", ignoreCase = true) ->
+                list.addAll(listOf("కృష్ణా", "మచిలీపట్నం", "Krishna", "Machilipatnam"))
+            district.contains("కర్నూలు") || district.contains("Kurnool", ignoreCase = true) ->
+                list.addAll(listOf("కర్నూలు", "Kurnool"))
+            district.contains("నంద్యాల") || district.contains("Nandyal", ignoreCase = true) ->
+                list.addAll(listOf("నంద్యాల", "Nandyal"))
+            district.contains("ఎన్టీఆర్") || district.contains("విజయవాడ") || district.contains("NTR", ignoreCase = true) || district.contains("Vijayawada", ignoreCase = true) ->
+                list.addAll(listOf("ఎన్టీఆర్", "విజయవాడ", "NTR", "Vijayawada"))
+            district.contains("పల్నాడు") || district.contains("నరసరావుపేట") || district.contains("Palnadu", ignoreCase = true) || district.contains("Narasaraopeta", ignoreCase = true) ->
+                list.addAll(listOf("పల్నాడు", "నరసరావుపేట", "Palnadu", "Narasaraopeta"))
+            district.contains("మన్యం") || district.contains("పార్వతీపురం") || district.contains("Parvathipuram", ignoreCase = true) || district.contains("Manyam", ignoreCase = true) ->
+                list.addAll(listOf("పార్వతీపురం మన్యం", "మన్యం", "పార్వతీపురం", "Parvathipuram", "Manyam", "Parvathipuram Manyam"))
+            district.contains("ప్రకాశం") || district.contains("ఒంగోలు") || district.contains("Prakasam", ignoreCase = true) || district.contains("Ongole", ignoreCase = true) ->
+                list.addAll(listOf("ప్రకాశం", "ఒంగోలు", "Prakasam", "Ongole"))
+            district.contains("మార్కాపురం") || district.contains("Markapur", ignoreCase = true) ->
+                list.addAll(listOf("మార్కాపురం", "Markapur"))
+            district.contains("పోలవరం") || district.contains("Polavaram", ignoreCase = true) ->
+                list.addAll(listOf("పోలవరం", "Polavaram"))
+            district.contains("మదనపల్లె") || district.contains("Madanapalle", ignoreCase = true) ->
+                list.addAll(listOf("మదనపల్లె", "Madanapalle"))
+            district.contains("నెల్లూరు") || district.contains("Nellore", ignoreCase = true) ->
+                list.addAll(listOf("శ్రీ పొట్టి శ్రీరాములు నెల్లూరు", "నెల్లూరు", "Nellore", "SPSR Nellore", "Sri Potti Sriramulu Nellore"))
+            district.contains("సత్యసాయి") || district.contains("పుట్టపర్తి") || district.contains("Sathya Sai", ignoreCase = true) || district.contains("Puttaparthi", ignoreCase = true) ->
+                list.addAll(listOf("శ్రీ సత్యసాయి", "సత్యసాయి", "పుట్టపర్తి", "Sri Sathya Sai", "Sathya Sai", "Puttaparthi"))
+            district.contains("శ్రీకాకుళం") || district.contains("Srikakulam", ignoreCase = true) ->
+                list.addAll(listOf("శ్రీకాకుళం", "Srikakulam"))
+            district.contains("తిరుపతి") || district.contains("తిరుమల") || district.contains("Tirupati", ignoreCase = true) || district.contains("Tirumala", ignoreCase = true) ->
+                list.addAll(listOf("తిరుపతి", "తిరుమల", "Tirupati", "Tirumala"))
+            district.contains("విశాఖ") || district.contains("వైజాగ్") || district.contains("Visakhapatnam", ignoreCase = true) || district.contains("Vizag", ignoreCase = true) ->
+                list.addAll(listOf("విశాఖపట్నం", "విశాఖ", "వైజాగ్", "Visakhapatnam", "Vizag"))
+            district.contains("విజయనగరం") || district.contains("Vizianagaram", ignoreCase = true) ->
+                list.addAll(listOf("విజయనగరం", "Vizianagaram"))
+            district.contains("పశ్చిమ గోదావరి") || district.contains("భీమవరం") || district.contains("West Godavari", ignoreCase = true) || district.contains("Bhimavaram", ignoreCase = true) ->
+                list.addAll(listOf("పశ్చిమ గోదావరి", "భీమవరం", "West Godavari", "Bhimavaram"))
+            district.contains("కడప") || district.contains("వైఎస్ఆర్") || district.contains("Kadapa", ignoreCase = true) ->
+                list.addAll(listOf("వైఎస్ఆర్ కడప", "కడప", "YSR Kadapa", "Kadapa"))
         }
         return list.distinct()
     }
@@ -304,8 +430,28 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             if (isFetching) return@launch
             isFetching = true
             
+            val newsRef = FirebaseService.db.collection("news")
+            val districtAliases = getDistrictAliases(district)
+            val primaryAliases = districtAliases.take(30)
+
             if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
                 _isOnline.value = false
+                if (_news.value.isEmpty()) {
+                    // 📴 OFFLINE ONLY: Use local cache only when user has no internet connection
+                    try {
+                        val cachedSnap = newsRef
+                            .whereEqualTo("approved", true)
+                            .whereIn("district", primaryAliases)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(pageSize.toLong())
+                            .get(com.google.firebase.firestore.Source.CACHE)
+                            .await()
+                        val cachedPosts = cachedSnap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                        if (cachedPosts.isNotEmpty()) {
+                            _news.value = rankLocalNews(cachedPosts, district, currentUser)
+                        }
+                    } catch (e: Exception) { }
+                }
                 _loading.value = false
                 isFetching = false
                 return@launch
@@ -317,15 +463,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             consecutiveEmptyLoads = 0
             
             try {
-                val newsRef = FirebaseService.db.collection("news")
                 var posts: List<NewsPost> = emptyList()
                 var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
 
                 try {
-                    val districtAliases = getDistrictAliases(district)
-                    
                     // 🚀 STEP 1: Search by 'district' field directly with whereIn (Single Batch Query)
-                    val primaryAliases = districtAliases.take(30)
                     val query = newsRef
                         .whereEqualTo("approved", true)
                         .whereIn("district", primaryAliases)
@@ -336,6 +478,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         query.get().await()
                     }
                     if (snap != null && !snap.isEmpty) {
+                        currentStage = LocalFeedStage.DISTRICT
                         snapshot = snap
                         posts = withContext(Dispatchers.Default) {
                             snap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
@@ -351,10 +494,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             .orderBy("timestamp", Query.Direction.DESCENDING)
                             .limit(pageSize.toLong())
                         
-                        val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                        val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(6000L) {
                             fallbackQuery.get().await()
                         }
                         if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {
+                            currentStage = LocalFeedStage.DISTRICT
                             snapshot = fallbackSnapshot
                             posts = withContext(Dispatchers.Default) {
                                 fallbackSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
@@ -377,10 +521,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             .orderBy("timestamp", Query.Direction.DESCENDING)
                             .limit(pageSize.toLong())
                         
-                        val stateSnapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                        val stateSnapshot = kotlinx.coroutines.withTimeoutOrNull(6000L) {
                             stateQuery.get().await()
                         }
                         if (stateSnapshot != null && !stateSnapshot.isEmpty) {
+                            currentStage = LocalFeedStage.STATE
                             snapshot = stateSnapshot
                             posts = withContext(Dispatchers.Default) {
                                 stateSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
@@ -398,6 +543,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                                 .get().await()
                         }
                         if (emergencySnapshot != null && !emergencySnapshot.isEmpty) {
+                            currentStage = LocalFeedStage.GENERAL
                             snapshot = emergencySnapshot
                             posts = withContext(Dispatchers.Default) {
                                 emergencySnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
@@ -409,16 +555,22 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 }
                 
                 lastDocument = snapshot?.documents?.lastOrNull()
-                _hasMore.value = snapshot?.documents?.size == pageSize
+                // Keep hasMore = true so pagination advances to State and General news smoothly
+                _hasMore.value = true
                 
                 val rankedPosts = withContext(Dispatchers.Default) {
                     rankLocalNews(posts, district, currentUser)
                 }
 
+                val wasEmpty = _news.value.isEmpty()
                 _news.value = rankedPosts
-                // Scroll to top on fresh district news load
+                // Scroll to top on fresh district news load only if feed was empty
                 if (rankedPosts.isNotEmpty()) {
-                    _shouldScrollToTop.value = true 
+                    val validIds = rankedPosts.filter { it.type == "news" }.map { it.id }
+                    prefs.incrementPostViewCounts(validIds)
+                    if (wasEmpty) {
+                        _shouldScrollToTop.value = true
+                    }
                 }
                 _loading.value = false 
 
@@ -426,99 +578,165 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 lastRefreshTimeLong = currentTime
                 _lastRefreshTime.value = currentTime
             } catch (e: Exception) {
-                 _hasMore.value = false
+                 // Do not disable hasMore on network failure; allow user retry by swiping
             } finally {
                 _loading.value = false
                 isFetching = false
+                if (pendingLoadMore && _hasMore.value) {
+                    pendingLoadMore = false
+                    loadMore(currentLanguage, currentUser)
+                }
             }
         }
     }
     
     fun loadMore(language: Language, currentUser: User?) {
-         currentLanguage = language
-         val district = _activeDistrict.value ?: return
-         val currentLastDoc = lastDocument
-         if (!_hasMore.value || isFetching || currentLastDoc == null) return
-         
-         viewModelScope.launch {
-             isFetching = true
-             try {
-                 val newsRef = FirebaseService.db.collection("news")
-                 var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
-                 val districtAliases = getDistrictAliases(district)
-                 val newPosts = try {
-                     var snap: com.google.firebase.firestore.QuerySnapshot? = null
-                     val primaryAliases = districtAliases.take(30)
-                     val query = newsRef
-                         .whereEqualTo("approved", true)
-                         .whereIn("district", primaryAliases)
-                         .orderBy("timestamp", Query.Direction.DESCENDING)
-                         .startAfter(currentLastDoc)
-                         .limit(pageSize.toLong())
-                     
-                     val res = kotlinx.coroutines.withTimeoutOrNull(8000L) {
-                         query.get().await()
-                     }
-                     if (res != null && !res.isEmpty) {
-                         snap = res
-                     } else {
-                         // 🔄 FALLBACK: Try categories array with whereArrayContainsAny
-                         val categoryAliases = districtAliases.take(10)
-                         val backupQuery = newsRef
-                             .whereEqualTo("approved", true)
-                             .whereArrayContainsAny("categories", categoryAliases)
-                             .orderBy("timestamp", Query.Direction.DESCENDING)
-                             .startAfter(currentLastDoc)
-                             .limit(pageSize.toLong())
-                         val backupRes = kotlinx.coroutines.withTimeoutOrNull(8000L) {
-                             backupQuery.get().await()
-                         }
-                         if (backupRes != null && !backupRes.isEmpty) {
-                             snap = backupRes
-                         }
-                     }
-                     snapshot = snap
+        currentLanguage = language
+        val district = _activeDistrict.value ?: return
+        if (!_hasMore.value) return
+        if (isFetching) {
+            pendingLoadMore = true
+            return
+        }
 
-                     withContext(Dispatchers.Default) {
-                         snap?.documents?.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) } ?: emptyList()
-                     }
-                 } catch (e: Exception) {
-                     android.util.Log.e("LocalNewsFeedViewModel", "LoadMore query failed: ${e.message}")
-                     emptyList<NewsPost>()
-                 }
-                 
-                 if (newPosts.isNotEmpty()) {
-                     lastDocument = snapshot?.documents?.lastOrNull()
-                     _hasMore.value = (snapshot?.documents?.size ?: 0) == pageSize
-                     
-                     val currentIds = _news.value.map { it.id }.toSet()
-                     val uniqueNewPosts = newPosts.filter { post: NewsPost -> !currentIds.contains(post.id) }
-                     
-                     if (uniqueNewPosts.isNotEmpty()) {
-                         val rankedNewPosts = withContext(Dispatchers.Default) {
-                             rankLocalNews(uniqueNewPosts, district, currentUser)
-                         }
-                         _news.value = _news.value + rankedNewPosts
-                         consecutiveEmptyLoads = 0
-                     } else {
-                          consecutiveEmptyLoads++
-                          if (consecutiveEmptyLoads >= 3) {
-                              _hasMore.value = false
-                          }
-                      }
-                 } else {
-                     _hasMore.value = false
-                 }
-             } catch (e: Exception) {
-                 _hasMore.value = false
-             } finally {
-                 isFetching = false
-             }
-         }
-     }
+        viewModelScope.launch {
+            isFetching = true
+            try {
+                val newsRef = FirebaseService.db.collection("news")
+                val districtAliases = getDistrictAliases(district)
+                val isAP = Constants.AP_DISTRICTS.contains(district) || district.contains("నెల్లూరు") || district.contains("కడప")
+                val stateTags = if (isAP) {
+                    listOf("Andhra Pradesh", "ఆంధ్రప్రదేశ్", "AP", "State", "రాష్ట్రం")
+                } else {
+                    listOf("Telangana", "తెలంగాణ", "TS", "State", "రాష్ట్రం")
+                }
+
+                var attempts = 0
+                var appendedCount = 0
+
+                while (attempts < 3 && appendedCount == 0 && _hasMore.value) {
+                    attempts++
+                    var snap: com.google.firebase.firestore.QuerySnapshot? = null
+
+                    when (currentStage) {
+                        LocalFeedStage.DISTRICT -> {
+                            val primaryAliases = districtAliases.take(30)
+                            var q = newsRef
+                                .whereEqualTo("approved", true)
+                                .whereIn("district", primaryAliases)
+                                .orderBy("timestamp", Query.Direction.DESCENDING)
+                                .limit(pageSize.toLong())
+                            if (lastDocument != null) {
+                                q = q.startAfter(lastDocument!!)
+                            }
+                            val res = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                try { q.get().await() } catch (e: Exception) { null }
+                            }
+                            if (res != null && !res.isEmpty) {
+                                snap = res
+                            } else {
+                                // 🔄 Try category aliases fallback
+                                val categoryAliases = districtAliases.take(10)
+                                var backupQuery = newsRef
+                                    .whereEqualTo("approved", true)
+                                    .whereArrayContainsAny("categories", categoryAliases)
+                                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                                    .limit(pageSize.toLong())
+                                if (lastDocument != null) {
+                                    backupQuery = backupQuery.startAfter(lastDocument!!)
+                                }
+                                val backupRes = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                                    try { backupQuery.get().await() } catch (e: Exception) { null }
+                                }
+                                if (backupRes != null && !backupRes.isEmpty) {
+                                    snap = backupRes
+                                } else {
+                                    // District news exhausted! Transition smoothly to STATE news!
+                                    currentStage = LocalFeedStage.STATE
+                                    lastDocument = null
+                                    continue
+                                }
+                            }
+                        }
+                        LocalFeedStage.STATE -> {
+                            var stateQuery = newsRef
+                                .whereEqualTo("approved", true)
+                                .whereIn("district", stateTags)
+                                .orderBy("timestamp", Query.Direction.DESCENDING)
+                                .limit(pageSize.toLong())
+                            if (lastDocument != null) {
+                                stateQuery = stateQuery.startAfter(lastDocument!!)
+                            }
+                            val stateRes = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                try { stateQuery.get().await() } catch (e: Exception) { null }
+                            }
+                            if (stateRes != null && !stateRes.isEmpty) {
+                                snap = stateRes
+                            } else {
+                                // State news exhausted! Transition smoothly to GENERAL news!
+                                currentStage = LocalFeedStage.GENERAL
+                                lastDocument = null
+                                continue
+                            }
+                        }
+                        LocalFeedStage.GENERAL -> {
+                            var generalQuery = newsRef
+                                .whereEqualTo("approved", true)
+                                .orderBy("timestamp", Query.Direction.DESCENDING)
+                                .limit(pageSize.toLong())
+                            if (lastDocument != null) {
+                                generalQuery = generalQuery.startAfter(lastDocument!!)
+                            }
+                            val generalRes = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                try { generalQuery.get().await() } catch (e: Exception) { null }
+                            }
+                            if (generalRes != null && !generalRes.isEmpty) {
+                                snap = generalRes
+                            } else {
+                                // End of general news reached: reset cursor to loop / keep feed alive
+                                lastDocument = null
+                                _hasMore.value = true
+                                break
+                            }
+                        }
+                    }
+
+                    if (snap != null && !snap.isEmpty) {
+                        lastDocument = snap.documents.lastOrNull()
+                        val fetchedPosts = withContext(Dispatchers.Default) {
+                            snap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                        }
+
+                        val currentIds = _news.value.map { it.id }.toSet()
+                        val uniqueNewPosts = fetchedPosts.filter { post -> !currentIds.contains(post.id) }
+
+                        if (uniqueNewPosts.isNotEmpty()) {
+                            val rankedNewPosts = withContext(Dispatchers.Default) {
+                                rankLocalNews(uniqueNewPosts, district, currentUser)
+                            }
+                            _news.value = _news.value + rankedNewPosts
+                            appendedCount = rankedNewPosts.size
+                            val validIds = rankedNewPosts.filter { it.type == "news" }.map { it.id }
+                            if (validIds.isNotEmpty()) {
+                                prefs.incrementPostViewCounts(validIds)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("LocalNewsFeedViewModel", "LoadMore query failed: ${e.message}")
+            } finally {
+                isFetching = false
+                if (pendingLoadMore && _hasMore.value) {
+                    pendingLoadMore = false
+                    loadMore(language, currentUser)
+                }
+            }
+        }
+    }
     
     fun onAppResume(language: Language, currentUser: User?) {
-        loadNews(language, currentUser)
+        refreshIfStale(language, currentUser)
     }
 
     fun refreshIfStale(language: Language, currentUser: User?) {
@@ -529,10 +747,13 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
 
     /**
-     * 3-Tier ప్రాధాన్యత ఆర్డర్ లో జిల్లా వార్తలను ర్యాంక్ చేస్తుంది:
-     * 1. Tier 1 (టాప్ ప్రయారిటీ): యూజర్ ఎక్కువగా చదివే మండలం / GPS గుర్తించిన మండలం వార్తలు
-     * 2. Tier 2 (రెండవ ప్రయారిటీ): ఆ నియోజకవర్గంలోని (Assembly Constituency) ఇతర మండలాల వార్తలు
-     * 3. Tier 3 (మూడవ ప్రయారిటీ): చుట్టుపక్కల నియోజకవర్గాలు & జిల్లాలోని ఇతర వార్తలు
+     * 3-Tier ప్రాధాన్యత + యూజర్ ఆసక్తులు (Relevance Score) + తాజాదనం (Recency) ఆధారంగా జిల్లా వార్తలను ర్యాంక్ చేస్తుంది:
+     * 1. Tier 1: యూజర్ మండలం (100 pts)
+     * 2. Tier 2: నియోజకవర్గం (50 pts)
+     * 3. Tier 3: ఇతర జిల్లా ప్రాంతాలు (20 pts)
+     * + యూజర్ ఆసక్తుల బోనస్ (Relevance Score * 1.5)
+     * + తాజాదనపు బోనస్ (Recency Bonus up to 35 pts)
+     * + చదవని వార్తలకు ప్రథమ ప్రాధాన్యత (Unread first, Seen deprioritized)
      */
     private fun rankLocalNews(
         posts: List<NewsPost>,
@@ -543,41 +764,39 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
         // 1. యూజర్ యొక్క ప్రాథమిక మండలాన్ని (Primary Mandal) గుర్తించడం
         val primaryMandal = prefs.getEffectiveUserMandal(district, currentUser)
-        if (primaryMandal.isNullOrBlank()) {
-            // Cold start or no reading/GPS signal: తాజా క్రమం (Timestamp DESC)
-            return posts.sortedByDescending { it.timestamp }
-        }
-
-        // 2. ఆ మండలం చెందే అసెంబ్లీ నియోజకవర్గాన్ని (Constituency) గుర్తించడం
-        val constituency = com.alfanews.telugu.utils.LocationHierarchyManager.getConstituencyForMandal(district, primaryMandal)
+        val constituency = if (!primaryMandal.isNullOrBlank()) {
+            com.alfanews.telugu.utils.LocationHierarchyManager.getConstituencyForMandal(district, primaryMandal)
+        } else null
         val constituencyMandals = if (!constituency.isNullOrBlank()) {
             com.alfanews.telugu.utils.LocationHierarchyManager.getMandalsForConstituency(district, constituency)
         } else emptyList()
 
-        // 3. 3-Tier గ్రూపింగ్
-        val tier1Mandal = mutableListOf<NewsPost>()
-        val tier2Constituency = mutableListOf<NewsPost>()
-        val tier3District = mutableListOf<NewsPost>()
-
-        for (post in posts) {
+        fun computeLocalScore(post: NewsPost): Double {
             val postMandal = com.alfanews.telugu.utils.LocationHierarchyManager.extractMandalFromPost(post, district)
 
-            if (postMandal != null && isMandalMatch(postMandal, primaryMandal)) {
-                tier1Mandal.add(post)
-            } else if (postMandal != null && constituencyMandals.any { isMandalMatch(it, postMandal) }) {
-                tier2Constituency.add(post)
-            } else {
-                tier3District.add(post)
+            val tierScore = when {
+                !primaryMandal.isNullOrBlank() && postMandal != null && isMandalMatch(postMandal, primaryMandal) -> 100.0
+                postMandal != null && constituencyMandals.any { isMandalMatch(it, postMandal) } -> 50.0
+                else -> 20.0
             }
+
+            val relevanceScore = try { AnalyticsService.calculateRelevanceScore(post) } catch (e: Exception) { 0.0 }
+            val relevanceBonus = maxOf(-20.0, relevanceScore * 1.5)
+
+            val hoursOld = maxOf(0.0, (System.currentTimeMillis() - post.timestamp) / (1000.0 * 60 * 60))
+            val recencyBonus = 35.0 * Math.exp(-hoursOld / 24.0)
+
+            return tierScore + relevanceBonus + recencyBonus
         }
 
-        // ప్రతి గ్రూప్‌లో తాజా వార్తలకు ప్రాధాన్యత (Timestamp DESC)
-        tier1Mandal.sortByDescending { it.timestamp }
-        tier2Constituency.sortByDescending { it.timestamp }
-        tier3District.sortByDescending { it.timestamp }
+        // 2. చదివిన వార్తలను వెనక్కి నెట్టడం (Unread vs Seen)
+        val unreadPosts = posts.filter { prefs.getPostViewCount(it.id) < 2 }
+        val readPosts = posts.filter { it !in unreadPosts }
 
-        // బ్లెండింగ్: యూజర్ మండలం -> ఆ నియోజకవర్గం -> జిల్లాలోని మిగతా వార్తలు
-        return (tier1Mandal + tier2Constituency + tier3District).distinctBy { it.id }
+        val rankedUnread = unreadPosts.sortedByDescending { computeLocalScore(it) }
+        val rankedRead = readPosts.sortedByDescending { computeLocalScore(it) }
+
+        return (rankedUnread + rankedRead).distinctBy { it.id }
     }
 
     private fun isMandalMatch(m1: String, m2: String): Boolean {

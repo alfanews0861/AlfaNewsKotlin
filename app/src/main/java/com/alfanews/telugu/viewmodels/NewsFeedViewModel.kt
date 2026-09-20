@@ -183,6 +183,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private var currentFetchJob: kotlinx.coroutines.Job? = null
     private var lastRefreshTimeLong: Long = 0
     private var consecutiveEmptyLoads = 0
+    private var pendingLoadMore = false
 
     // 🚀 IN-MEMORY CACHES TO SAVE FIRESTORE READS
     private var cachedGreetingPost: NewsPost? = null
@@ -247,20 +248,127 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         if (district.isNullOrBlank()) return emptyList()
         val list = mutableListOf(district)
         when {
-            district.contains("నెల్లూరు") -> list.addAll(listOf("శ్రీ పొట్టి శ్రీరాములు నెల్లూరు", "నెల్లూరు", "Nellore", "SPSR Nellore"))
-            district.contains("కడప") -> list.addAll(listOf("వైఎస్ఆర్ కడప", "కడప", "YSR Kadapa", "Kadapa"))
-            district.contains("సత్యసాయి") -> list.addAll(listOf("శ్రీ సత్యసాయి", "సత్యసాయి", "Sri Sathya Sai"))
-            district.contains("అల్లూరి") -> list.addAll(listOf("అల్లూరి సీతారామరాజు", "అల్లూరి", "Alluri"))
-            district.contains("మన్యం") || district.contains("పార్వతీపురం") -> list.addAll(listOf("పార్వతీపురం మన్యం", "మన్యం", "పార్వతీపురం"))
-            district.contains("కొత్తగూడెం") -> list.addAll(listOf("భద్రాద్రి కొత్తగూడెం", "కొత్తగూడెం", "Bhadradri"))
-            district.contains("ఆసిఫాబాద్") -> list.addAll(listOf("కుమ్రం భీమ్ ఆసిఫాబాద్", "ఆసిఫాబాద్", "Asifabad"))
-            district.contains("భూపాలపల్లి") -> list.addAll(listOf("జయశంకర్ భూపాలపల్లి", "భూపాలపల్లి", "Bhupalpally"))
-            district.contains("గద్వాల") -> list.addAll(listOf("జోగులాంబ గద్వాల", "గద్వాల", "Gadwal"))
-            district.contains("సిరిసిల్ల") -> list.addAll(listOf("రాజన్న సిరిసిల్ల", "సిరిసిల్ల", "Sircilla"))
-            district.contains("భువనగిరి") -> list.addAll(listOf("యాదాద్రి భువనగిరి", "భువనగిరి", "Yadadri"))
-            district.contains("మేడ్చల్") -> list.addAll(listOf("మేడ్చల్ మల్కాజిగిరి", "మేడ్చల్", "Medchal"))
-            district.contains("హన్మకొండ") || district.contains("హనుమకొండ") -> list.addAll(listOf("హన్మకొండ", "హనుమకొండ", "వరంగల్ అర్బన్", "Hanamkonda"))
-            district.contains("వరంగల్") -> list.addAll(listOf("వరంగల్", "వరంగల్ రూరల్", "హన్మకొండ", "Warangal"))
+            // --- TELANGANA DISTRICTS ---
+            district.contains("ఆదిలాబాద్") || district.equals("Adilabad", ignoreCase = true) ->
+                list.addAll(listOf("ఆదిలాబాద్", "Adilabad"))
+            district.contains("కొత్తగూడెం") || district.contains("భద్రాద్రి") || district.contains("Kothagudem", ignoreCase = true) || district.contains("Bhadradri", ignoreCase = true) ->
+                list.addAll(listOf("భద్రాద్రి కొత్తగూడెం", "కొత్తగూడెం", "Bhadradri", "Kothagudem", "Bhadradri Kothagudem"))
+            district.contains("హన్మకొండ") || district.contains("హనుమకొండ") || district.contains("Hanamkonda", ignoreCase = true) || district.contains("Hanumakonda", ignoreCase = true) ->
+                list.addAll(listOf("హన్మకొండ", "హనుమకొండ", "వరంగల్ అర్బన్", "Hanamkonda", "Hanumakonda"))
+            district.contains("హైదరాబాద్") || district.contains("Hyderabad", ignoreCase = true) || district.equals("HYD", ignoreCase = true) ->
+                list.addAll(listOf("హైదరాబాద్", "Hyderabad", "HYD", "సైబరాబాద్", "Cyberabad", "సికింద్రాబాద్", "Secunderabad"))
+            district.contains("జగిత్యాల") || district.contains("Jagtial", ignoreCase = true) ->
+                list.addAll(listOf("జగిత్యాల", "Jagtial"))
+            district.contains("జనగాం") || district.contains("Jangaon", ignoreCase = true) ->
+                list.addAll(listOf("జనగాం", "Jangaon"))
+            district.contains("భూపాలపల్లి") || district.contains("జయశంకర్") || district.contains("Bhupalpally", ignoreCase = true) ->
+                list.addAll(listOf("జయశంకర్ భూపాలపల్లి", "భూపాలపల్లి", "Bhupalpally", "Jayashankar Bhupalpally"))
+            district.contains("గద్వాల") || district.contains("జోగులాంబ") || district.contains("Gadwal", ignoreCase = true) ->
+                list.addAll(listOf("జోగులాంబ గద్వాల", "గద్వాల", "Gadwal", "Jogulamba Gadwal"))
+            district.contains("కామారెడ్డి") || district.contains("Kamareddy", ignoreCase = true) ->
+                list.addAll(listOf("కామారెడ్డి", "Kamareddy"))
+            district.contains("కరీంనగర్") || district.contains("Karimnagar", ignoreCase = true) ->
+                list.addAll(listOf("కరీంనగర్", "Karimnagar"))
+            district.contains("ఖమ్మం") || district.contains("Khammam", ignoreCase = true) ->
+                list.addAll(listOf("ఖమ్మం", "Khammam"))
+            district.contains("ఆసిఫాబాద్") || district.contains("కుమ్రం") || district.contains("Asifabad", ignoreCase = true) ->
+                list.addAll(listOf("కుమ్రం భీమ్ ఆసిఫాబాద్", "ఆసిఫాబాద్", "Asifabad", "Komaram Bheem"))
+            district.contains("మహబూబాబాద్") || district.contains("Mahabubabad", ignoreCase = true) ->
+                list.addAll(listOf("మహబూబాబాద్", "Mahabubabad"))
+            district.contains("మహబూబ్") || district.contains("మహబూబ్‌నగర్") || district.contains("Mahabubnagar", ignoreCase = true) || district.contains("Mahboobnagar", ignoreCase = true) ->
+                list.addAll(listOf("మహబూబ్ నగర్", "మహబూబ్‌నగర్", "Mahabubnagar", "Mahboobnagar"))
+            district.contains("మంచిర్యాల") || district.contains("Mancherial", ignoreCase = true) ->
+                list.addAll(listOf("మంచిర్యాల", "Mancherial"))
+            district.contains("మెదక్") || district.contains("Medak", ignoreCase = true) ->
+                list.addAll(listOf("మెదక్", "Medak"))
+            district.contains("మేడ్చల్") || district.contains("మల్కాజిగిరి") || district.contains("Medchal", ignoreCase = true) || district.contains("Malkajgiri", ignoreCase = true) ->
+                list.addAll(listOf("మేడ్చల్ మల్కాజిగిరి", "మేడ్చల్", "మల్కాజిగిరి", "Medchal", "Malkajgiri", "Medchal-Malkajgiri"))
+            district.contains("ములుగు") || district.contains("Mulugu", ignoreCase = true) ->
+                list.addAll(listOf("ములుగు", "Mulugu"))
+            district.contains("నాగర్ కర్నూల్") || district.contains("నాగర్‌కర్నూల్") || district.contains("Nagarkurnool", ignoreCase = true) ->
+                list.addAll(listOf("నాగర్ కర్నూల్", "నాగర్‌కర్నూల్", "Nagarkurnool"))
+            district.contains("నల్గొండ") || district.contains("నల్లగొండ") || district.contains("Nalgonda", ignoreCase = true) ->
+                list.addAll(listOf("నల్గొండ", "నల్లగొండ", "Nalgonda"))
+            district.contains("నారాయణపేట") || district.contains("Narayanpet", ignoreCase = true) ->
+                list.addAll(listOf("నారాయణపేట", "Narayanpet"))
+            district.contains("నిర్మల్") || district.contains("Nirmal", ignoreCase = true) ->
+                list.addAll(listOf("నిర్మల్", "Nirmal"))
+            district.contains("నిజామాబాద్") || district.contains("Nizamabad", ignoreCase = true) ->
+                list.addAll(listOf("నిజామాబాద్", "Nizamabad"))
+            district.contains("పెద్దపల్లి") || district.contains("Peddapalli", ignoreCase = true) ->
+                list.addAll(listOf("పెద్దపల్లి", "Peddapalli"))
+            district.contains("సిరిసిల్ల") || district.contains("రాజన్న") || district.contains("Sircilla", ignoreCase = true) ->
+                list.addAll(listOf("రాజన్న సిరిసిల్ల", "సిరిసిల్ల", "Sircilla", "Rajanna Sircilla"))
+            district.contains("రంగారెడ్డి") || district.contains("Rangareddy", ignoreCase = true) || district.contains("Ranga Reddy", ignoreCase = true) ->
+                list.addAll(listOf("రంగారెడ్డి", "Rangareddy", "Ranga Reddy"))
+            district.contains("సంగారెడ్డి") || district.contains("Sangareddy", ignoreCase = true) ->
+                list.addAll(listOf("సంగారెడ్డి", "Sangareddy"))
+            district.contains("సిద్దిపేట") || district.contains("Siddipet", ignoreCase = true) ->
+                list.addAll(listOf("సిద్దిపేట", "Siddipet"))
+            district.contains("సూర్యాపేట") || district.contains("Suryapet", ignoreCase = true) ->
+                list.addAll(listOf("సూర్యాపేట", "Suryapet"))
+            district.contains("వికారాబాద్") || district.contains("Vikarabad", ignoreCase = true) ->
+                list.addAll(listOf("వికారాబాద్", "Vikarabad"))
+            district.contains("వనపర్తి") || district.contains("Wanaparthy", ignoreCase = true) ->
+                list.addAll(listOf("వనపర్తి", "Wanaparthy"))
+            district.contains("వరంగల్") || district.contains("Warangal", ignoreCase = true) ->
+                list.addAll(listOf("వరంగల్", "వరంగల్ రూరల్", "Warangal", "Warangal Rural"))
+            district.contains("భువనగిరి") || district.contains("యాదాద్రి") || district.contains("Yadadri", ignoreCase = true) || district.contains("Bhongir", ignoreCase = true) ->
+                list.addAll(listOf("యాదాద్రి భువనగిరి", "భువనగిరి", "యాదాద్రి", "Yadadri", "Bhongir", "Yadadri Bhuvanagiri"))
+
+            // --- ANDHRA PRADESH DISTRICTS ---
+            district.contains("అల్లూరి") || district.contains("సీతారామరాజు") || district.contains("Alluri", ignoreCase = true) ->
+                list.addAll(listOf("అల్లూరి సీతారామరాజు", "అల్లూరి", "Alluri", "ASR District"))
+            district.contains("అనకాపల్లి") || district.contains("Anakapalli", ignoreCase = true) ->
+                list.addAll(listOf("అనకాపల్లి", "Anakapalli"))
+            district.contains("అనంతపురం") || district.contains("Anantapur", ignoreCase = true) || district.contains("Ananthapur", ignoreCase = true) ->
+                list.addAll(listOf("అనంతపురం", "Anantapur", "Ananthapuramu"))
+            district.contains("అన్నమయ్య") || district.contains("రాజంపేట") || district.contains("రాయచోటి") || district.contains("Annamayya", ignoreCase = true) ->
+                list.addAll(listOf("అన్నమయ్య", "Annamayya", "Rayachoti"))
+            district.contains("బాపట్ల") || district.contains("Bapatla", ignoreCase = true) ->
+                list.addAll(listOf("బాపట్ల", "Bapatla"))
+            district.contains("చిత్తూరు") || district.contains("Chittoor", ignoreCase = true) ->
+                list.addAll(listOf("చిత్తూరు", "Chittoor"))
+            district.contains("కోనసీమ") || district.contains("అంబేడ్కర్") || district.contains("Konaseema", ignoreCase = true) ->
+                list.addAll(listOf("డాక్టర్ బి.ఆర్. అంబేద్కర్ కోనసీమ", "కోనసీమ", "Konaseema", "Dr. B.R. Ambedkar Konaseema"))
+            district.contains("తూర్పు గోదావరి") || district.contains("తూర్పుగోదావరి") || district.contains("East Godavari", ignoreCase = true) || district.contains("రాజమండ్రి") ->
+                list.addAll(listOf("తూర్పు గోదావరి", "తూర్పుగోదావరి", "East Godavari", "Rajahmundry"))
+            district.contains("ఏలూరు") || district.contains("Eluru", ignoreCase = true) ->
+                list.addAll(listOf("ఏలూరు", "Eluru"))
+            district.contains("గుంటూరు") || district.contains("Guntur", ignoreCase = true) ->
+                list.addAll(listOf("గుంటూరు", "Guntur"))
+            district.contains("కాకినాడ") || district.contains("Kakinada", ignoreCase = true) ->
+                list.addAll(listOf("కాకినాడ", "Kakinada"))
+            district.contains("కృష్ణా") || district.contains("మచిలీపట్నం") || district.contains("Krishna", ignoreCase = true) ->
+                list.addAll(listOf("కృష్ణా", "Krishna", "Machilipatnam"))
+            district.contains("కర్నూలు") || district.contains("Kurnool", ignoreCase = true) ->
+                list.addAll(listOf("కర్నూలు", "Kurnool"))
+            district.contains("నంద్యాల") || district.contains("Nandyal", ignoreCase = true) ->
+                list.addAll(listOf("నంద్యాల", "Nandyal"))
+            district.contains("ఎన్టీఆర్") || district.contains("విజయవాడ") || district.contains("NTR", ignoreCase = true) ->
+                list.addAll(listOf("ఎన్టీఆర్", "NTR", "Vijayawada", "NTR District"))
+            district.contains("పల్నాడు") || district.contains("నరసరావుపేట") || district.contains("Palnadu", ignoreCase = true) ->
+                list.addAll(listOf("పల్నాడు", "Palnadu", "Narasaraopet"))
+            district.contains("పార్వతీపురం") || district.contains("మన్యం") || district.contains("Parvathipuram", ignoreCase = true) || district.contains("Manyam", ignoreCase = true) ->
+                list.addAll(listOf("పార్వతీపురం మన్యం", "మన్యం", "పార్వతీపురం", "Parvathipuram", "Manyam"))
+            district.contains("ప్రకాశం") || district.contains("ఒంగోలు") || district.contains("Prakasam", ignoreCase = true) || district.contains("Ongole", ignoreCase = true) ->
+                list.addAll(listOf("ప్రకాశం", "ఒంగోలు", "Prakasam", "Ongole"))
+            district.contains("నెల్లూరు") || district.contains("శ్రీ పొట్టి శ్రీరాములు") || district.contains("Nellore", ignoreCase = true) || district.contains("SPSR", ignoreCase = true) ->
+                list.addAll(listOf("శ్రీ పొట్టి శ్రీరాములు నెల్లూరు", "నెల్లూరు", "Nellore", "SPSR Nellore"))
+            district.contains("సత్యసాయి") || district.contains("పుట్టపర్తి") || district.contains("Sri Sathya Sai", ignoreCase = true) ->
+                list.addAll(listOf("శ్రీ సత్యసాయి", "సత్యసాయి", "Sri Sathya Sai", "Puttaparthi"))
+            district.contains("శ్రీకాకుళం") || district.contains("Srikakulam", ignoreCase = true) ->
+                list.addAll(listOf("శ్రీకాకుళం", "Srikakulam"))
+            district.contains("తిరుపతి") || district.contains("Tirupati", ignoreCase = true) || district.contains("బాలాజీ") ->
+                list.addAll(listOf("తిరుపతి", "శ్రీ బాలాజీ", "Tirupati"))
+            district.contains("విశాఖపట్నం") || district.contains("విశాఖ") || district.contains("Visakhapatnam", ignoreCase = true) || district.contains("Vizag", ignoreCase = true) ->
+                list.addAll(listOf("విశాఖపట్నం", "విశాఖ", "వైజాగ్", "Visakhapatnam", "Vizag"))
+            district.contains("విజయనగరం") || district.contains("Vizianagaram", ignoreCase = true) ->
+                list.addAll(listOf("విజయనగరం", "Vizianagaram"))
+            district.contains("పశ్చిమ గోదావరి") || district.contains("పశ్చిమగోదావరి") || district.contains("West Godavari", ignoreCase = true) || district.contains("భీమవరం") ->
+                list.addAll(listOf("పశ్చిమ గోదావరి", "పశ్చిమగోదావరి", "West Godavari", "Bhimavaram"))
+            district.contains("కడప") || district.contains("వైఎస్ఆర్") || district.contains("Kadapa", ignoreCase = true) ->
+                list.addAll(listOf("వైఎస్ఆర్ కడప", "కడప", "YSR Kadapa", "Kadapa"))
         }
         return list.distinct()
     }
@@ -288,15 +396,33 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
            currentFetchJob = viewModelScope.launch {
               try {
-                  if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
-                      if (_news.value.isEmpty()) {
-                          _isOnline.value = false
-                          _loading.value = false
-                          isFetching = false
-                          return@launch
-                      }
-                  }
-                  _isOnline.value = true
+                   val district = prefs.selectedDistrict ?: currentUser?.district ?: prefs.detectedDistrict
+                   _userDistrict.value = district
+                   val userState = mapDistrictToState(district)
+
+                   if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
+                       if (_news.value.isEmpty()) {
+                           _isOnline.value = false
+                           // 📴 OFFLINE ONLY: Use local cache only when user has no internet connection
+                           try {
+                               val cachedSnap = FirebaseService.db.collection("news")
+                                   .whereEqualTo("approved", true)
+                                   .orderBy("timestamp", Query.Direction.DESCENDING)
+                                   .limit(FETCH_LIMIT.toLong())
+                                   .get(com.google.firebase.firestore.Source.CACHE)
+                                   .await()
+                               val cachedPosts = cachedSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                                   .filter { isPostAllowedForState(it, userState) }
+                               if (cachedPosts.isNotEmpty()) {
+                                   _news.value = cachedPosts
+                               }
+                           } catch (e: Exception) { }
+                           _loading.value = false
+                           isFetching = false
+                           return@launch
+                       }
+                   }
+                   _isOnline.value = true
 
                    // Always reset cursors on loadNews to avoid appending initialPostId to a subsequent page
                    prefCursor = null
@@ -304,72 +430,83 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    localCursor = null
                    _hasMore.value = true
                    consecutiveEmptyLoads = 0
-
-                   val district = prefs.selectedDistrict ?: currentUser?.district ?: prefs.detectedDistrict
-                   _userDistrict.value = district
-                   val userState = mapDistrictToState(district)
                    
                    // district null అయినా load చేయి — targetDistrict=="ALL" ads అందరికీ చూపించాలి
                    loadLocalAds(district)
 
-                   val isGuest = currentUser == null || currentUser.id.isBlank() || currentUser.id == "guest" || currentUser.role == com.alfanews.telugu.models.UserRole.GUEST
-                   val isNewUser = district.isNullOrBlank()
-                   val isGuestOrNew = isGuest || isNewUser
+                    val isGuest = currentUser == null || currentUser.id.isBlank() || currentUser.id == "guest" || currentUser.role == com.alfanews.telugu.models.UserRole.GUEST
+                    val isNewUser = district.isNullOrBlank()
+                    val isGuestOrNew = isGuest || isNewUser
 
-                   // 🚀 FAST PATH: Quick top 5 news to dismiss splash screen
-                   val isColdStart = _news.value.isEmpty()
-                   val fastBatchJob = async {
-                       if (isColdStart) {
-                           try {
-                               // ✅ FIX: Guest/new users కి కూడా district news exclude చేయాలి
-                               // excludeDistricts = true → general/national/state news మాత్రమే fast path లో వస్తాయి
-                               fetchFilteredBatch(FirebaseService.db.collection("news"), null, district, excludeDistricts = true, limit = 5, userState = userState)
-                           } catch (e: Exception) { Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null) }
-                       } else {
-                           Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
-                       }
-                   }
-                   
-                   val greetingBatchDeferred = async {
-                       if (initialPostId == null) {
-                           try { 
-                               val post = fetchGreetingPost()
-                               if (post != null && prefs.getPostViewCount(post.id) < 2) post else null
-                           } catch (e: Exception) { null }
-                       } else null
-                   }
+                    // 🚀 FAST PATH: Quick top 10 news via direct primary index query
+                    val isColdStart = _news.value.isEmpty()
+                    val fastBatchJob = async {
+                        if (isColdStart) {
+                            try {
+                                val snap = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                                    FirebaseService.db.collection("news")
+                                        .whereEqualTo("approved", true)
+                                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                                        .limit(10)
+                                        .get()
+                                        .await()
+                                }
+                                val posts = snap?.documents?.mapNotNull { mapDocumentToNewsPost(it) }
+                                    ?.filter { isPostAllowedForState(it, userState) } ?: emptyList()
+                                Pair(posts, snap?.documents?.lastOrNull())
+                            } catch (e: Exception) { Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null) }
+                        } else {
+                            Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
+                        }
+                    }
+                    
+                    val greetingBatchDeferred = async {
+                        if (initialPostId == null) {
+                            try { 
+                                val post = fetchGreetingPost()
+                                if (post != null && prefs.getPostViewCount(post.id) < 2) post else null
+                            } catch (e: Exception) { null }
+                        } else null
+                    }
 
-                   // 🚀 TARGET POST FAST PATH: When opening via deep link or notification, fetch target post IMMEDIATELY
-                   val initialPostDeferred = async {
-                       if (initialPostId != null) {
-                           try {
-                               val doc = FirebaseService.db.collection("news").document(initialPostId).get().await()
-                               if (doc.exists()) mapDocumentToNewsPost(doc) else null
-                           } catch (e: Exception) { null }
-                       } else null
-                   }
+                    // 🚀 TARGET POST FAST PATH: When opening via deep link or notification, fetch target post IMMEDIATELY
+                    val initialPostDeferred = async {
+                        if (initialPostId != null) {
+                            try {
+                                val doc = FirebaseService.db.collection("news").document(initialPostId).get().await()
+                                if (doc.exists()) mapDocumentToNewsPost(doc) else null
+                            } catch (e: Exception) { null }
+                        } else null
+                    }
 
-                   val fastBatch = fastBatchJob.await()
-                   val initialGreeting = greetingBatchDeferred.await()
-                   val initialTargetPost = initialPostDeferred.await()
-                   
-                   if (initialTargetPost != null || fastBatch.first.isNotEmpty() || initialGreeting != null) {
-                       val initialList = mutableListOf<NewsPost>()
-                       initialTargetPost?.let { initialList.add(it) }
-                       initialGreeting?.let { initialList.add(it) }
-                       initialList.addAll(fastBatch.first)
-                       
-                       // 🔄 FAST LOAD: If list is empty (cold start), set initial list with target post at index 0
-                       if (_news.value.isEmpty()) {
-                           _news.value = initialList.distinctBy { it.id }
-                           _loading.value = false 
-                       } else if (initialTargetPost != null) {
-                           // If news was already loaded (e.g. app already open / warm start),
-                           // prepend the target post right away so the user immediately sees it!
-                           _news.value = (listOf(initialTargetPost) + _news.value).distinctBy { it.id }
-                           _loading.value = false
-                       }
-                   }
+                    val initialTargetPost = initialPostDeferred.await()
+                    val fastBatch = fastBatchJob.await()
+                    
+                    if (initialTargetPost != null || fastBatch.first.isNotEmpty()) {
+                        val initialList = mutableListOf<NewsPost>()
+                        initialTargetPost?.let { initialList.add(it) }
+                        initialList.addAll(fastBatch.first)
+                        
+                        // 🔄 FAST LOAD: Display fresh news immediately without waiting for anything else
+                        if (_news.value.isEmpty()) {
+                            _news.value = initialList.distinctBy { it.id }
+                            _loading.value = false 
+                        } else if (initialTargetPost != null) {
+                            _news.value = (listOf(initialTargetPost) + _news.value).distinctBy { it.id }
+                            _loading.value = false
+                        } else if (fastBatch.first.isNotEmpty()) {
+                            _news.value = (initialList + _news.value).distinctBy { it.id }
+                            _loading.value = false
+                        }
+                    }
+
+                    // Greeting post is merged at top if available
+                    val initialGreeting = greetingBatchDeferred.await()
+                    if (initialGreeting != null) {
+                        if (_news.value.isNotEmpty() && _news.value.none { it.id == initialGreeting.id }) {
+                            _news.value = (listOf(initialGreeting) + _news.value).distinctBy { it.id }
+                        }
+                    }
 
                     // 🧠 BACKGROUND PROCESSING: Heavy 40/30/30 Mixing for ALL users (including guest and new users)
                     val preferredCats = try { AnalyticsService.getUserPreferredCategories().take(10) } catch (e: Exception) { emptyList<String>() }
@@ -450,7 +587,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     // 🚨 ZERO EMPTY FEED GUARANTEE: If finalPosts is still empty, fallback directly to latest approved news!
                     if (finalPosts.isEmpty()) {
                         try {
-                            val emergencySnapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                            val emergencySnapshot = kotlinx.coroutines.withTimeoutOrNull(3000L) {
                                 FirebaseService.db.collection("news")
                                     .whereEqualTo("approved", true)
                                     .orderBy("timestamp", Query.Direction.DESCENDING)
@@ -487,110 +624,129 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         }
                     }
 
-                    _news.value = finalPosts.distinctBy { it.id }
-                    
-                    // ✅ FIX (Bug 6): Initial load లో కూడా post view count increment చేయాలి
-                    // (loadMore() లో ఇది ఉంది, కానీ loadNews() లో missing గా ఉంది)
-                    if (finalPosts.isNotEmpty()) {
-                        finalPosts.forEach { post ->
-                            if (post.type == "news" || post.type == "greeting") {
-                                prefs.incrementPostViewCount(post.id)
-                            }
-                        }
+                    val currentDisplayed = _news.value
+                    if (currentDisplayed.isNotEmpty()) {
+                        val currentIds = currentDisplayed.map { it.id }.toSet()
+                        val newBlended = finalPosts.filter { it.id !in currentIds }
+                        _news.value = (currentDisplayed + newBlended).distinctBy { it.id }
+                    } else {
+                        _news.value = finalPosts.distinctBy { it.id }
                     }
-                    // ✅ FIX (Bug 1): logBulkCategoryViews ఇక్కడ నుండి తొలగించబడింది.
-                    // User చదవని posts categories కి score ఇవ్వడం wrong.
-                    // Actual engagement మాత్రమే track చేయాలి (logPostEngagement, logLongView).
+                    
+                    // ✅ FIX (Bug 6): Initial load లో కూడా post view count increment చేయాలి (బ్యాచ్ రూపంలో ఒకేసారి)
+                    if (finalPosts.isNotEmpty()) {
+                        val validIds = finalPosts.filter { it.type == "news" || it.type == "greeting" }.map { it.id }
+                        prefs.incrementPostViewCounts(validIds)
+                    }
 
-                   if (initialPostId == null) {
-                       _shouldScrollToTop.value = true
+                    // DO NOT forcefully scroll to top on background mixing completion
+                    lastRefreshTimeLong = System.currentTimeMillis()
+
+               } catch (e: Exception) {
+                   if (_news.value.isEmpty()) _hasMore.value = false
+               } finally {
+                   _loading.value = false
+                   isFetching = false
+                   if (pendingLoadMore && _hasMore.value) {
+                       pendingLoadMore = false
+                       loadMore(currentLanguage, currentUser)
                    }
-                   lastRefreshTimeLong = System.currentTimeMillis()
-
-              } catch (e: Exception) {
-                  if (_news.value.isEmpty()) _hasMore.value = false
-              } finally {
-                  _loading.value = false
-                  isFetching = false
-              }
-          }
-      }
+               }
+           }
+       }
 
     fun loadMore(language: Language, currentUser: User?) {
          currentLanguage = language
-         if (isFetching || !_hasMore.value) return
+         if (!_hasMore.value) return
+         if (isFetching) {
+             pendingLoadMore = true
+             return
+         }
          viewModelScope.launch {
              isFetching = true
              try {
                  val district = _userDistrict.value
                  val userState = mapDistrictToState(district)
                  val preferredCats = try { AnalyticsService.getUserPreferredCategories().take(10) } catch (e: Exception) { emptyList<String>() }
-                 val shouldFetchPref = preferredCats.isNotEmpty() && (prefCursor != null)
-                 val shouldFetchLocal = localCursor != null && !district.isNullOrBlank()
-                 val shouldFetchMain = mainCursor != null || (prefCursor == null && localCursor == null)
-                  
-                 val prefBatchDeferred = async {
-                      if (shouldFetchPref) {
-                          fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), prefCursor, null, excludeDistricts = false, userState = userState)
-                      } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
-                  }
-                  val localBatchDeferred = async {
-                      if (shouldFetchLocal) {
-                          fetchFilteredBatch(FirebaseService.db.collection("news"), localCursor, district, excludeDistricts = false, userState = userState)
-                      } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
-                  }
-                  val mainBatchDeferred = async {
-                      if (shouldFetchMain) {
-                          // ✅ FIX: district null అయినా excludeDistricts = true — district news home feed లో రాదు
-                          fetchFilteredBatch(FirebaseService.db.collection("news"), mainCursor, district, excludeDistricts = true, userState = userState)
-                      } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
-                 }
 
-                 val prefBatch = prefBatchDeferred.await()
-                 val localBatch = localBatchDeferred.await()
-                 val mainBatch = mainBatchDeferred.await()
+                 var attempts = 0
+                 var appendedCount = 0
 
-                 var newPosts = withContext(Dispatchers.Default) {
-                     rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first, isFirstPage = false)
-                 }
-
-                 if (newPosts.isEmpty() && (prefBatch.first.isNotEmpty() || mainBatch.first.isNotEmpty() || localBatch.first.isNotEmpty())) {
-                     val allRaw = (prefBatch.first + mainBatch.first + localBatch.first).distinctBy { it.id }
-                     newPosts = allRaw.filter { isPostAllowedForState(it, userState) }
-                 }
-
-                 newPosts.forEach { post ->
-                     if (post.type == "news" || post.type == "greeting") {
-                         prefs.incrementPostViewCount(post.id)
+                 while (attempts < 3 && appendedCount == 0 && _hasMore.value) {
+                     attempts++
+                     val shouldFetchPref = preferredCats.isNotEmpty() && (prefCursor != null)
+                     val shouldFetchLocal = localCursor != null && !district.isNullOrBlank()
+                     val shouldFetchMain = mainCursor != null || (prefCursor == null && localCursor == null)
+                      
+                     val prefBatchDeferred = async {
+                          if (shouldFetchPref) {
+                              fetchFilteredBatch(FirebaseService.db.collection("news").whereArrayContainsAny("categories", preferredCats), prefCursor, null, excludeDistricts = false, userState = userState)
+                          } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
+                      }
+                      val localBatchDeferred = async {
+                          if (shouldFetchLocal) {
+                              fetchFilteredBatch(FirebaseService.db.collection("news"), localCursor, district, excludeDistricts = false, userState = userState)
+                          } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
+                      }
+                      val mainBatchDeferred = async {
+                          if (shouldFetchMain) {
+                              fetchFilteredBatch(FirebaseService.db.collection("news"), mainCursor, district, excludeDistricts = true, userState = userState)
+                          } else Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
                      }
-                 }
 
-                 prefCursor = prefBatch.second
-                 localCursor = localBatch.second
-                 mainCursor = mainBatch.second
+                     val prefBatch = prefBatchDeferred.await()
+                     val localBatch = localBatchDeferred.await()
+                     val mainBatch = mainBatchDeferred.await()
 
-                 if (newPosts.isNotEmpty()) {
-                     val currentIds = _news.value.map { it.id }.toSet()
-                     val uniqueNewPosts = newPosts.filter { !currentIds.contains(it.id) }
-                     if (uniqueNewPosts.isNotEmpty()) {
-                         _news.value = _news.value + uniqueNewPosts
-                         consecutiveEmptyLoads = 0
-                     } else {
-                         consecutiveEmptyLoads += 1
-                         if (mainCursor == null && prefCursor == null && localCursor == null) {
-                             _hasMore.value = false
-                         } else if (consecutiveEmptyLoads >= 4) {
-                             _hasMore.value = false
+                     var newPosts = withContext(Dispatchers.Default) {
+                         rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first, isFirstPage = false)
+                     }
+
+                     if (newPosts.isEmpty() && (prefBatch.first.isNotEmpty() || mainBatch.first.isNotEmpty() || localBatch.first.isNotEmpty())) {
+                         val allRaw = (prefBatch.first + mainBatch.first + localBatch.first).distinctBy { it.id }
+                         newPosts = allRaw.filter { isPostAllowedForState(it, userState) }
+                     }
+
+                     if (prefBatch.second != null) prefCursor = prefBatch.second
+                     if (localBatch.second != null) localCursor = localBatch.second
+                     if (mainBatch.second != null) mainCursor = mainBatch.second
+
+                     if (newPosts.isNotEmpty()) {
+                         val currentIds = _news.value.map { it.id }.toSet()
+                         val uniqueNewPosts = newPosts.filter { !currentIds.contains(it.id) }
+                         if (uniqueNewPosts.isNotEmpty()) {
+                             _news.value = _news.value + uniqueNewPosts
+                             appendedCount = uniqueNewPosts.size
+                             val validIds = uniqueNewPosts.filter { it.type == "news" || it.type == "greeting" }.map { it.id }
+                             if (validIds.isNotEmpty()) {
+                                 prefs.incrementPostViewCounts(validIds)
+                             }
+                             consecutiveEmptyLoads = 0
+                         } else {
+                             consecutiveEmptyLoads += 1
+                             if (mainCursor == null && prefCursor == null && localCursor == null) {
+                                 // Cursors reached the end: reset mainCursor to allow circular / continuous feed
+                                 mainCursor = null
+                                 _hasMore.value = true
+                                 break
+                             }
                          }
-                     }
-                 } else {
-                     if (mainCursor == null && prefCursor == null && localCursor == null) {
-                         _hasMore.value = false
+                     } else {
+                         if (mainCursor == null && prefCursor == null && localCursor == null) {
+                             mainCursor = null
+                             _hasMore.value = true
+                             break
+                         }
                      }
                  }
              } catch (e: Exception) {
+                 android.util.Log.e("NewsFeedVM", "LoadMore failed: ${e.message}")
              } finally {
                  isFetching = false
+                 if (pendingLoadMore && _hasMore.value) {
+                     pendingLoadMore = false
+                     loadMore(currentLanguage, currentUser)
+                 }
              }
          }
      }
@@ -613,7 +769,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             if (currentCursor != null) query = query.startAfter(currentCursor)
             
             try {
-                val snapshot = kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                val snapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
                     query.get().await()
                 }
                 if (snapshot == null || snapshot.isEmpty) {
@@ -625,23 +781,23 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     
                     if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
                     
-                    val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                    val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(6000L) {
                         fallbackQuery.get().await()
                     }
                     if (fallbackSnapshot == null || fallbackSnapshot.isEmpty) {
-                        return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
+                        return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), currentCursor)
                     }
                     
                     // userState filter apply చేసి fallback batch filter చేయడం
                     val batch = fallbackSnapshot.documents.mapNotNull { doc -> mapDocumentToNewsPost(doc) }
                         .filter { post -> isPostAllowedForState(post, userState) }
-                    currentCursor = fallbackSnapshot.documents.lastOrNull()
+                    currentCursor = fallbackSnapshot.documents.lastOrNull() ?: currentCursor
                     return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(batch, currentCursor)
                 }
                 val batch = snapshot.documents.mapNotNull { doc ->
                     mapDocumentToNewsPost(doc)
                 }.filter { post -> isPostAllowedForState(post, userState) }
-                currentCursor = snapshot.documents.lastOrNull()
+                currentCursor = snapshot.documents.lastOrNull() ?: currentCursor
 
                 // 🚀 CRUCIAL FIX: If snapshot had documents but ALL were filtered out by state filter,
                 // don't leave the batch empty! Fetch from general fallback query.
@@ -651,13 +807,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         .orderBy("timestamp", Query.Direction.DESCENDING)
                         .limit(limit.toLong())
                     if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
-                    val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                    val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(6000L) {
                         fallbackQuery.get().await()
                     }
                     if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {
                         val fallbackBatch = fallbackSnapshot.documents.mapNotNull { doc -> mapDocumentToNewsPost(doc) }
                             .filter { post -> isPostAllowedForState(post, userState) }
-                        return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(fallbackBatch, fallbackSnapshot.documents.lastOrNull())
+                        return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(fallbackBatch, fallbackSnapshot.documents.lastOrNull() ?: currentCursor)
                     }
                 }
 
@@ -668,21 +824,21 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         var fallbackQuery = baseQuery.whereEqualTo("approved", true)
                             .orderBy("timestamp", Query.Direction.DESCENDING).limit(limit.toLong())
                         if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
-                        val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                        val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(6000L) {
                             fallbackQuery.get().await()
                         }
                         if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {
                             val batch = fallbackSnapshot.documents.mapNotNull { doc ->
                                 mapDocumentToNewsPost(doc)
                             }.filter { post -> isPostAllowedForState(post, userState) }
-                            currentCursor = fallbackSnapshot.documents.lastOrNull()
+                            currentCursor = fallbackSnapshot.documents.lastOrNull() ?: currentCursor
                             return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(batch, currentCursor)
                         }
                     } catch (ex: Exception) {
-                        // ignore and throw original exception
+                        // ignore and return current cursor
                     }
                 }
-                throw e
+                return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), currentCursor)
             }
         }
 
@@ -728,11 +884,12 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             var filteredMain = main.filter { prefs.getPostViewCount(it.id) < 2 }
             var filteredLocal = local.filter { prefs.getPostViewCount(it.id) < 2 }
 
-            // 🚀 ROBUSTNESS: If first page and unread count is low (< 5), take from raw posts so feed is rich and fresh
-            if (isFirstPage && (filteredPref.size + filteredMain.size + filteredLocal.size) < 5 && allRaw.isNotEmpty()) {
-                filteredPref = pref
-                filteredMain = main
-                filteredLocal = local
+            // 🚀 ROBUSTNESS: Unread వార్తలను ముందుంచి, చదివిన వాటిని వెనక్కి నెడతాం (పూర్తిగా డిలీట్ చేయము).
+            // అన్‌రీడ్ పోస్టులు తక్కువగా ఉంటే (< 8), రా-పోస్టులతో ఫీడ్‌ను నింపి ఎక్స్‌ట్రా నెట్‌వర్క్ రౌండ్‌ట్రిప్స్ మరియు ఖాళీ స్క్రీన్ ఆలస్యాన్ని నివారిస్తాము.
+            if ((filteredPref.size + filteredMain.size + filteredLocal.size) < 8 && allRaw.isNotEmpty()) {
+                filteredPref = if (filteredPref.size >= 3) filteredPref else pref
+                filteredMain = if (filteredMain.size >= 4) filteredMain else main
+                filteredLocal = if (filteredLocal.size >= 2) filteredLocal else local
             }
 
             val currentDist = _userDistrict.value
@@ -796,50 +953,89 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 }
             }
 
-           val totalToRank = normalNews.size
-           val freshCount = if (totalToRank > 0) maxOf(1, (totalToRank * 0.4).toInt()) else 0
-           val personalizedCount = if (totalToRank > 0) maxOf(1, (totalToRank * 0.3).toInt()) else 0
-           val discoveryCount = if (totalToRank > 0) maxOf(1, (totalToRank * 0.3).toInt()) else 0
-
            val preferredCategories = try { AnalyticsService.getUserPreferredCategories().toSet() } catch (e: Exception) { emptySet() }
 
-           // 🚀 1. Separate "Fresh" (General) and Local news
-           // Per user request: Everything except 'District News' category should be in the fresh section
-            val generalFreshNews = normalNews.filter { post ->
-                !post.categories.contains("జిల్లా వార్త")
-            }
-            
-            // 🚀 If generalFreshNews is empty (e.g. all posts are district news), don't drop district news! Use normalNews directly!
-            val freshCandidates = if (generalFreshNews.isNotEmpty()) generalFreshNews else normalNews
+           // 🚀 1. POOL SEPARATION
+           val localIds = local.map { it.id }.toSet()
+           val localCandidates = normalNews.filter { it.id in localIds || it.categories.contains("జిల్లా వార్త") }
+               .sortedByDescending { it.timestamp }
+               .toMutableList()
+           val localCandidateIds = localCandidates.map { it.id }.toSet()
 
-            // 🚀 2. Slots 2-6 (Index 1-5): Top 5 General Fresh News (Preferred categories prioritized)
-            val preferredGeneral = freshCandidates.filter { post -> post.categories.any { it in preferredCategories } }
-                .sortedByDescending { it.timestamp }
-            val otherGeneral = freshCandidates.filter { it !in preferredGeneral }
-                .sortedByDescending { it.timestamp }
-            
-            val top5Fresh = (preferredGeneral + otherGeneral).take(5)
-            val top5Ids = top5Fresh.map { it.id }.toSet()
+           val generalCandidates = normalNews.filter { it.id !in localCandidateIds }
 
-            // 🚀 3. Process remaining news for the rest of the feed
-            val remainingNormal = normalNews.filter { it.id !in top5Ids }
-            val freshCountAdjusted = if (freshCount > 5) freshCount - 5 else 0
-            
-            val freshNewsRemaining = remainingNormal.sortedByDescending { it.timestamp }.take(freshCountAdjusted)
-            val freshIdsTotal = (top5Ids + freshNewsRemaining.map { it.id }).toSet()
+           // 1. Personalized pool: Scored posts with positive relevance score, kept strictly in relevance order
+           val scoredPosts = generalCandidates.map { post ->
+               post to (try { AnalyticsService.calculateRelevanceScore(post) } catch (e: Exception) { 0.0 })
+           }.filter { it.second > 0.0 }
+            .sortedByDescending { it.second }
+            .map { it.first }
+            .toMutableList()
 
-            val scoredNews = remainingNormal.filter { it.id !in freshIdsTotal }.map { post ->
-                post to (try { AnalyticsService.calculateRelevanceScore(post) } catch (e: Exception) { 0.0 })
-            }.sortedByDescending { it.second }.take(personalizedCount).map { it.first }.sortedByDescending { it.timestamp }
-            val personalizedIds = scoredNews.map { it.id }.toSet()
+           // 2. Fresh pool: Newest general news by timestamp DESC (preferred categories given gentle boost in fresh slot)
+           val preferredGeneral = generalCandidates.filter { post -> post.categories.any { it in preferredCategories } }
+               .sortedByDescending { it.timestamp }
+           val otherGeneral = generalCandidates.filter { it !in preferredGeneral }
+               .sortedByDescending { it.timestamp }
+           val freshCandidates = (preferredGeneral + otherGeneral).toMutableList()
 
-            val discoveryNews = remainingNormal.filter { it.id !in freshIdsTotal && it.id !in personalizedIds }
-                .filter { post -> post.categories.none { it in preferredCategories } }.sortedByDescending { it.timestamp }.take(discoveryCount)
+           // 3. Discovery pool: Posts exploring categories not yet in user's top preferences
+           val discoveryCandidates = generalCandidates.filter { post ->
+               post.categories.none { it in preferredCategories }
+           }.sortedByDescending { it.timestamp }.toMutableList()
 
-            val blendedNews = (top5Fresh + freshNewsRemaining + scoredNews + discoveryNews).toMutableList()
-            if (blendedNews.isEmpty() && normalNews.isNotEmpty()) {
-                blendedNews.addAll(normalNews)
-            }
+           // 🚀 2. TRUE INTERLEAVED 40/30/30 BLENDING
+           val blendedNews = mutableListOf<NewsPost>()
+           val addedIds = mutableSetOf<String>()
+
+           fun pollNext(list: MutableList<NewsPost>): NewsPost? {
+               while (list.isNotEmpty()) {
+                   val item = list.removeAt(0)
+                   if (item.id !in addedIds) {
+                       addedIds.add(item.id)
+                       return item
+                   }
+               }
+               return null
+           }
+
+           // 🔄 Interleaved Cadence:
+           // Slot 0: Fresh #1 (Top Breaking)
+           // Slot 1: Personalized #1 (Top User Interest)
+           // Slot 2: Local #1 (District News)
+           // Slot 3: Fresh #2
+           // Slot 4: Personalized #2
+           // Slot 5: Discovery #1
+           val maxIterations = normalNews.size + 15
+           var loopCount = 0
+           while (addedIds.size < normalNews.size && loopCount < maxIterations) {
+               val cycle = loopCount % 6
+               val nextPost = when (cycle) {
+                   0 -> pollNext(freshCandidates) ?: pollNext(scoredPosts) ?: pollNext(localCandidates) ?: pollNext(discoveryCandidates)
+                   1 -> pollNext(scoredPosts) ?: pollNext(freshCandidates) ?: pollNext(localCandidates) ?: pollNext(discoveryCandidates)
+                   2 -> pollNext(localCandidates) ?: pollNext(freshCandidates) ?: pollNext(scoredPosts) ?: pollNext(discoveryCandidates)
+                   3 -> pollNext(freshCandidates) ?: pollNext(scoredPosts) ?: pollNext(discoveryCandidates) ?: pollNext(localCandidates)
+                   4 -> pollNext(scoredPosts) ?: pollNext(freshCandidates) ?: pollNext(discoveryCandidates) ?: pollNext(localCandidates)
+                   5 -> pollNext(discoveryCandidates) ?: pollNext(freshCandidates) ?: pollNext(localCandidates) ?: pollNext(scoredPosts)
+                   else -> pollNext(freshCandidates)
+               }
+               if (nextPost != null) {
+                   blendedNews.add(nextPost)
+               } else {
+                   val remaining = normalNews.firstOrNull { it.id !in addedIds }
+                   if (remaining != null) {
+                       addedIds.add(remaining.id)
+                       blendedNews.add(remaining)
+                   } else {
+                       break
+                   }
+               }
+               loopCount++
+           }
+
+           if (blendedNews.isEmpty() && normalNews.isNotEmpty()) {
+               blendedNews.addAll(normalNews)
+           }
 
            if (isFirstPage) {
                val activeSurvey = fetchActiveSurvey()
@@ -886,7 +1082,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             return@withContext cachedGreetingPost
         }
         try {
-            val snapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+            val snapshot = kotlinx.coroutines.withTimeoutOrNull(2000L) {
                 FirebaseService.db.collection("news").whereEqualTo("type", "greeting").whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(1).get().await()
             }
             val doc = snapshot?.documents?.firstOrNull() ?: return@withContext null
@@ -911,7 +1107,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             // NOTE: whereGreaterThan("timestamp") range filter తో composite index అవసరం
             // కానీ firestore.indexes.json లో లేదు కాబట్టి query fail అవుతుంది.
             // isExpired client-side check ఇప్పటికే expiry handle చేస్తుంది — server-side range filter అవసరం లేదు.
-            val snapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+            val snapshot = kotlinx.coroutines.withTimeoutOrNull(2000L) {
                 FirebaseService.db.collection("news")
                     .whereEqualTo("type", "survey")
                     .whereEqualTo("approved", true)
@@ -1121,12 +1317,24 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     @SuppressLint("MissingPermission")
     fun detectLocation(context: Context, currentUser: User?, language: Language = Language.TELUGU) {
+        // 🛡️ 48-Hour GPS Throttling: గత 48 గంటల్లో లొకేషన్ రికార్డ్ అయి ఉంటే మళ్లీ GPS ఆన్ చేయకుండా క్యాష్ చేసిన లొకేషన్ వాడతాము
+        if (!prefs.isLocationDetectionStale() && prefs.getEffectiveDistrict() != null && prefs.lastLat != 0.0 && prefs.lastLon != 0.0) {
+            return
+        }
+
         viewModelScope.launch {
             try {
-                // 🚀 INCREASED TIMEOUT: 5 seconds for better GPS reliability
-                kotlinx.coroutines.withTimeout(5000L) {
-                    val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
-                    val location = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
+                val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+                // ⚡ 1. Fast check: Use last known location first (< 10ms)
+                val lastLoc = fusedLocationClient.lastLocation.await()
+                if (lastLoc != null) {
+                    val updated = processLocationUpdate(context, lastLoc.latitude, lastLoc.longitude, language, currentUser)
+                    if (updated) return@launch
+                }
+
+                // ⚡ 2. If no cached location, get current location with balanced accuracy (3s timeout)
+                kotlinx.coroutines.withTimeout(3000L) {
+                    val location = fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null).await()
                     if (location != null) { processLocationUpdate(context, location.latitude, location.longitude, language, currentUser) }
                 }
             } catch (e: Exception) { }
@@ -1137,12 +1345,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         return withContext(Dispatchers.IO) {
             try {
                 // ✅ FIX: Always save GPS coordinates immediately, regardless of geocoder result.
-                // Old code only saved coords if locality was found → rural areas never got coord-based weather!
                 prefs.lastLat = lat
                 prefs.lastLon = lon
+                prefs.lastLocationDetectionTime = System.currentTimeMillis()
 
-                val geocoder = Geocoder(context, Locale("te"))
-                val addresses = geocoder.getFromLocation(lat, lon, 1)
+                val addresses = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                    try {
+                        val geocoder = Geocoder(context, Locale("te"))
+                        geocoder.getFromLocation(lat, lon, 1)
+                    } catch (e: Exception) { null }
+                }
                 if (!addresses.isNullOrEmpty()) {
                     val address = addresses[0]
                     val locality = address.locality ?: address.subLocality ?: address.subAdminArea
@@ -1156,9 +1368,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     }
                     
                     if (mappedDistrict == null) {
-                        // Try English Geocoder fallback for better matching
-                        val engGeocoder = Geocoder(context, Locale.ENGLISH)
-                        val engAddresses = engGeocoder.getFromLocation(lat, lon, 1)
+                        // Try English Geocoder fallback for better matching with timeout
+                        val engAddresses = kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                            try {
+                                val engGeocoder = Geocoder(context, Locale.ENGLISH)
+                                engGeocoder.getFromLocation(lat, lon, 1)
+                            } catch (e: Exception) { null }
+                        }
                         val engName = engAddresses?.firstOrNull()?.let { it.subAdminArea ?: it.locality ?: it.adminArea }
                         if (engName != null) {
                             mappedDistrict = WeatherService.getTeluguNameForEnglish(engName)
@@ -1170,7 +1386,12 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         viewModelScope.launch {
                             NotificationHelper.syncDistrictTopic(getApplication(), prefs.getEffectiveDistrict())
                         }
-                        withContext(Dispatchers.Main) { _userDistrict.value = mappedDistrict; loadNews(language, currentUser) }
+                        withContext(Dispatchers.Main) { 
+                            _userDistrict.value = mappedDistrict
+                            if (prefs.selectedDistrict == null) {
+                                loadNews(language, currentUser) 
+                            }
+                        }
                         return@withContext true
                     }
                 }

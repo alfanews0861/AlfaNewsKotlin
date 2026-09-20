@@ -29,6 +29,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.tasks.await
 
 /**
@@ -44,9 +45,12 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
      */
     private enum class AppNotificationChannel(val id: String, val channelName: String, val importance: Int) {
         GENERAL("general_news_v2", "General News", NotificationManager.IMPORTANCE_HIGH),
+        GENERAL_LEGACY("general_news", "General News (Legacy)", NotificationManager.IMPORTANCE_HIGH),
         BREAKING("breaking_news", "Breaking News", NotificationManager.IMPORTANCE_HIGH),
         LOCAL("local_news_v2", "Local News", NotificationManager.IMPORTANCE_HIGH),
-        WEATHER("weather_alerts", "Weather Alerts", NotificationManager.IMPORTANCE_HIGH)
+        LOCAL_LEGACY("local_news", "Local News (Legacy)", NotificationManager.IMPORTANCE_HIGH),
+        WEATHER("weather_alerts", "Weather Alerts", NotificationManager.IMPORTANCE_HIGH),
+        ADMIN("admin_alerts", "Admin Alerts", NotificationManager.IMPORTANCE_HIGH)
     }
 
     override fun onCreate() {
@@ -64,13 +68,24 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         val title = remoteMessage.data["title"] ?: remoteMessage.notification?.title
         val body = remoteMessage.data["body"] ?: remoteMessage.notification?.body
         val actionUrl = remoteMessage.data["actionUrl"]
-        val imageUrl = remoteMessage.data["imageUrl"] ?: remoteMessage.data["image"] ?: remoteMessage.notification?.imageUrl?.toString()
+        val rawImageUrl = remoteMessage.data["imageUrl"] ?: remoteMessage.data["image"] ?: remoteMessage.notification?.imageUrl?.toString()
+        // 🛡️ Zero-Cost Edge Cache Proxy Interceptor:
+        // Ensures direct Firebase Storage URLs are routed through Cloudflare edge (wsrv.nl)
+        // Eliminates 100% of repetitive Firebase Storage egress bandwidth costs
+        val imageUrl = if (!rawImageUrl.isNullOrBlank() &&
+            (rawImageUrl.contains("firebasestorage.googleapis.com") || rawImageUrl.contains("firebasestorage.app") || rawImageUrl.contains("storage.googleapis.com")) &&
+            !rawImageUrl.contains("wsrv.nl")) {
+            "https://wsrv.nl/?url=${Uri.encode(rawImageUrl)}&w=640&output=webp&q=75"
+        } else {
+            rawImageUrl
+        }
         val rawChannelId = remoteMessage.data["channelId"] ?: remoteMessage.notification?.channelId ?: AppNotificationChannel.GENERAL.id
         val channelId = when (rawChannelId) {
             "general_news" -> AppNotificationChannel.GENERAL.id
             "local_news" -> AppNotificationChannel.LOCAL.id
             else -> rawChannelId
         }
+        val isSilent = remoteMessage.data["silent"] == "true"
         val badgeCount = remoteMessage.data["badge"]?.toIntOrNull() 
             ?: remoteMessage.data["unreadCount"]?.toIntOrNull() 
             ?: if (remoteMessage.data["type"] == "REPORTER_MESSAGE" || remoteMessage.data["type"] == "REPORTER_BROADCAST") 1 else 0
@@ -119,7 +134,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             }
         }
 
-        sendNotification(title ?: "Alfa News", body ?: "", channelId, actionUrl, imageUrl, badgeCount)
+        sendNotification(title ?: "Alfa News", body ?: "", channelId, actionUrl, imageUrl, badgeCount, isSilent)
     }
 
     /**
@@ -156,6 +171,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                         "fcmToken" to token,
                         "fcmTokens" to listOf(token),
                         "notificationsEnabled" to true,
+                        "pushEnabled" to true,
                         "lastActive" to com.google.firebase.firestore.FieldValue.serverTimestamp()
                     )
                     db.collection("users").document(uid).set(data, com.google.firebase.firestore.SetOptions.merge()).await()
@@ -172,6 +188,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                         "installId" to installId,
                         "isAnonymous" to true,
                         "notificationsEnabled" to true,
+                        "pushEnabled" to true,
                         "lastActive" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
                         "platform" to "android",
                         "appVersion" to com.alfanews.telugu.BuildConfig.VERSION_NAME
@@ -413,7 +430,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
      * @param actionUrl నోటిఫికేషన్ క్లిక్ చేసినప్పుడు తెరవవలసిన URL (ఉంటే).
      * @param imageUrl నోటిఫికేషన్‌లో చూపించాల్సిన చిత్రం URL.
      */
-    private fun sendNotification(title: String, messageBody: String, channelId: String, actionUrl: String?, imageUrl: String?, badgeCount: Int = 0) {
+    private fun sendNotification(title: String, messageBody: String, channelId: String, actionUrl: String?, imageUrl: String?, badgeCount: Int = 0, isSilent: Boolean = false) {
         // ✅ FIX: Image download తప్పనిసరిగా Background thread లో జరగాలి.
         // NetworkOnMainThreadException వల్ల notification అస్సలు రాకపోవడం fix అవుతుంది.
         serviceScope.launch {
@@ -437,18 +454,21 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            // 2. షేర్ బటన్ యాక్షన్
-            val shareIntent = Intent(this@MyFirebaseMessagingService, NotificationActionReceiver::class.java).apply {
-                action = "com.alfanews.telugu.ACTION_SHARE"
-                putExtra("title", title)
-                putExtra("body", messageBody)
-                putExtra("url", actionUrl ?: "https://play.google.com/store/apps/details?id=com.alfanews.telugu")
-                putExtra("newsId", newsId)
+            // 2. షేర్ బటన్ యాక్షన్ (Android 12+ Notification Trampoline Safe)
+            val shareUrl = actionUrl ?: "https://play.google.com/store/apps/details?id=com.alfanews.telugu"
+            val shareText = "🔴 $title\n\n$shareUrl"
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, shareText)
+                if (newsId.isNotEmpty()) {
+                    putExtra("newsId", newsId)
+                }
             }
-            val sharePendingIntent = PendingIntent.getBroadcast(
+            val chooserIntent = Intent.createChooser(sendIntent, "వార్తను షేర్ చేయండి")
+            val sharePendingIntent = PendingIntent.getActivity(
                 this@MyFirebaseMessagingService,
                 notificationId + 1, // unique requestCode
-                shareIntent,
+                chooserIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
@@ -461,30 +481,38 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 .setContentText(messageBody)
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setPriority(if (isSilent) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
                 .setGroup(GROUP_KEY_ALFA_NEWS)
                 .setOnlyAlertOnce(true)
                 .addAction(R.drawable.ic_launcher_foreground, "చదవండి", pendingIntent)
                 .addAction(R.drawable.ic_launcher_foreground, "షేర్ చేయండి", sharePendingIntent)
 
+            if (!isSilent) {
+                notificationBuilder.setDefaults(NotificationCompat.DEFAULT_ALL)
+            } else {
+                notificationBuilder.setSilent(true)
+            }
+
             if (badgeCount > 0) {
                 notificationBuilder.setNumber(badgeCount)
             }
 
-            // 🖼️ Rich Notification: ఫోటో ఉంటే Coil 3 ద్వారా Safe గా లోడ్ చేసి చూపిస్తాం
+            // 🖼️ Rich Notification: ఫోటో ఉంటే Coil 3 ద్వారా Safe గా లోడ్ చేసి చూపిస్తాం (4s Timeout + Disk Cache)
             if (!imageUrl.isNullOrBlank()) {
                 var bitmap: Bitmap? = null
                 try {
-                    val request = ImageRequest.Builder(this@MyFirebaseMessagingService)
-                        .data(imageUrl)
-                        .size(1024, 512)
-                        .allowHardware(false) // Notification view support requires software Bitmaps
-                        .memoryCachePolicy(CachePolicy.DISABLED)
-                        .build()
-                    val result = SingletonImageLoader.get(this@MyFirebaseMessagingService).execute(request)
-                    if (result is SuccessResult) {
-                        bitmap = result.image.toBitmap()
+                    withTimeoutOrNull(4000L) { // Max 4 seconds timeout so slow connections never hang notifications
+                        val request = ImageRequest.Builder(this@MyFirebaseMessagingService)
+                            .data(imageUrl)
+                            .size(1024, 512)
+                            .allowHardware(false) // Notification view support requires software Bitmaps
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .build()
+                        val result = SingletonImageLoader.get(this@MyFirebaseMessagingService).execute(request)
+                        if (result is SuccessResult) {
+                            bitmap = result.image.toBitmap()
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e("MyFirebaseMsgService", "Coil image load failed, showing text-only notification", e)

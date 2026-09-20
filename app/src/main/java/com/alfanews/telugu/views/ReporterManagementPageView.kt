@@ -180,26 +180,8 @@ fun ReporterManagementPageView(
                         }
                         val isExpired = timeMs > 0L && (now - timeMs) > TEN_DAYS_MS
                         !isExpired
-                    }
-
-                    if (expiredPendingApps.isNotEmpty()) {
-                        scope.launch {
-                            try {
-                                for (chunk in expiredPendingApps.chunked(400)) {
-                                    val batch = FirebaseService.db.batch()
-                                    for (app in chunk) {
-                                        val docId = app["id"] as? String ?: continue
-                                        batch.delete(FirebaseService.db.collection("reporter_applications").document(docId))
-                                    }
-                                    batch.commit().await()
-                                }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
-                        }
-                    }
-
-                    // Keep ALL valid fetched applications in state (sort newest first)
+                    // Keep ALL valid non-expired applications in state (sort newest first)
+                    // Note: Expired pending applications (>10 days) are safely pruned by the backend scheduled cleanup job
                     applications = validApps.sortedByDescending { doc ->
                         val ts = doc["timestamp"]
                         when (ts) {
@@ -411,9 +393,16 @@ fun ReporterManagementPageView(
                             scope.launch {
                                 isCleaningDuplicates = true
                                 try {
-                                    val deletedCount = cleanDuplicateApplicationsFromDb()
-                                    Toast.makeText(context, "$deletedCount డూప్లికేట్ దరఖాస్తులు తొలగించబడ్డాయి!", Toast.LENGTH_LONG).show()
-                                    fetchData()
+                                    val result = FirebaseFunctionsService.cleanDuplicateApplications()
+                                    if (result.isSuccess) {
+                                        val count = (result.getOrNull()?.get("deletedCount") as? Number)?.toInt() ?: 0
+                                        Toast.makeText(context, "$count డూప్లికేట్ దరఖాస్తులు తొలగించబడ్డాయి!", Toast.LENGTH_LONG).show()
+                                        fetchData()
+                                    } else {
+                                        val deletedCount = cleanDuplicateApplicationsFromDb()
+                                        Toast.makeText(context, "$deletedCount డూప్లికేట్ దరఖాస్తులు తొలగించబడ్డాయి!", Toast.LENGTH_LONG).show()
+                                        fetchData()
+                                    }
                                 } catch (e: Exception) {
                                     Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
                                 } finally {

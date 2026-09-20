@@ -95,6 +95,10 @@ object FirebaseFunctionsService {
     suspend fun restoreAllDowngradedReporters(): Result<Map<String, Any>> {
         return callFunction("restoreAllDowngradedReporters")
     }
+
+    suspend fun cleanDuplicateApplications(): Result<Map<String, Any>> {
+        return callFunction("cleanDuplicateApplications")
+    }
     
     
     suspend fun sendContactEmail(name: String, phone: String, message: String): Result<Map<String, Any>> {

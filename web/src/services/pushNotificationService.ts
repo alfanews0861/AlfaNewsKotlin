@@ -35,6 +35,7 @@ export const requestNotificationPermission = async (userId: string) => {
                 await updateDoc(userRef, {
                     fcmTokens: arrayUnion(token),
                     pushEnabled: true,
+                    notificationsEnabled: true,
                     lastTokenUpdate: Date.now()
                 });
 

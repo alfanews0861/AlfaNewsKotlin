@@ -31,9 +31,11 @@ export interface User {
   mandal?: string;
   assignedDistricts?: string[];
   pushEnabled?: boolean;
+  notificationsEnabled?: boolean;
   fcmTokens?: string[];
   lastTokenUpdate?: number;
   preferredCategories?: string[];
+  categoryScores?: { [key: string]: number };
   interests?: UserInterest;
   points?: number;
   badges?: string[];
@@ -616,4 +618,75 @@ export interface SocialAutoPostLog {
     instagramError?: string;
     timestamp: any;
 }
+
+export enum VoiceCallType {
+  INACTIVITY_FOLLOWUP = 'INACTIVITY_FOLLOWUP',
+  EVENT_CAMPAIGN = 'EVENT_CAMPAIGN',
+  INBOUND_SUPPORT = 'INBOUND_SUPPORT'
+}
+
+export enum VoiceCallStatus {
+  QUEUED = 'QUEUED',
+  RINGING = 'RINGING',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  BUSY = 'BUSY',
+  NO_ANSWER = 'NO_ANSWER',
+  FAILED = 'FAILED'
+}
+
+export interface VoiceCallTurn {
+  speaker: 'ai' | 'user';
+  text: string;
+  timestamp: number;
+}
+
+export interface VoiceCallIntent {
+  reasonForInactivity?: string;
+  promisedSubmissionTime?: string;
+  followUpRequired?: boolean;
+  followUpTimestamp?: any;
+  wantsAdKit?: boolean;
+  adLeadContact?: string;
+  notes?: string;
+  sentiment?: 'positive' | 'neutral' | 'negative';
+}
+
+export interface VoiceCallRecord {
+  id: string;
+  callType: VoiceCallType;
+  status: VoiceCallStatus;
+  reporterId?: string;
+  reporterName?: string;
+  phoneNumber: string;
+  mandal?: string;
+  district?: string;
+  campaignId?: string;
+  campaignTitle?: string;
+  startedAt?: any;
+  endedAt?: any;
+  durationSeconds?: number;
+  turns: VoiceCallTurn[];
+  extractedIntent?: VoiceCallIntent;
+  audioRecordingUrl?: string;
+  createdAt: any;
+  updatedAt: any;
+}
+
+export interface VoiceCampaign {
+  id: string;
+  title: string;
+  eventType: 'MLA_BIRTHDAY' | 'FESTIVAL' | 'LOCAL_EVENT' | 'CUSTOM';
+  targetDistricts?: string[];
+  targetMandals?: string[];
+  targetConstituencies?: string[];
+  eventDate?: string;
+  detailsPrompt: string;
+  adTariffDetails?: string;
+  status: 'DRAFT' | 'ACTIVE' | 'COMPLETED' | 'PAUSED';
+  totalReportersTargeted?: number;
+  callsCompleted?: number;
+  createdAt: any;
+}
+
 

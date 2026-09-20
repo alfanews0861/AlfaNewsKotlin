@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { onDocumentWritten, onDocumentCreated } from "firebase-functions/v2/firestore";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as nodemailer from "nodemailer";
 import { REGION } from "./utils";
 import { extractDistrictAndMandal, areMandalsMatching } from "./location_data";
@@ -157,7 +158,7 @@ export async function notifyReporter(
         }
 
         // 2. FCM PUSH NOTIFICATION:
-        if (userData && userData.notificationsEnabled === false) return;
+        if (userData && (userData.notificationsEnabled === false || userData.pushEnabled === false)) return;
 
         const tokens: string[] = [];
         if (userData?.fcmToken) tokens.push(userData.fcmToken);
@@ -172,13 +173,22 @@ export async function notifyReporter(
             return;
         }
 
+        const isStorageUrl = imageUrl && (imageUrl.includes('firebasestorage.googleapis.com') || imageUrl.includes('firebasestorage.app') || imageUrl.includes('storage.googleapis.com'));
+        const safeImageUrl = isStorageUrl
+            ? `https://wsrv.nl/?url=${encodeURIComponent(imageUrl)}&w=640&output=webp&q=75`
+            : (imageUrl || "");
+
         const message = {
-            notification: { title, body },
+            notification: { 
+                title, 
+                body,
+                ...(safeImageUrl ? { imageUrl: safeImageUrl } : {})
+            },
             android: {
                 priority: 'high' as const,
                 notification: {
-                    imageUrl: imageUrl || "",
-                    channelId: 'general_news',
+                    imageUrl: safeImageUrl,
+                    channelId: 'general_news_v2',
                     sound: 'default'
                 }
             },
@@ -188,9 +198,9 @@ export async function notifyReporter(
                 type: `REPORTER_SUBMISSION_${type}`,
                 title,
                 body,
-                channelId: 'general_news',
+                channelId: 'general_news_v2',
                 rejectionReason: specificReason || "",
-                imageUrl: imageUrl || ""
+                imageUrl: safeImageUrl
             }
         };
 
@@ -293,7 +303,7 @@ export async function awardPointsToReporter(reporterId: string, points: number) 
                     photoUrl: data.photoUrl || "",
                     district: data.district || "",
                     assignedMandal: data.assignedMandal || "",
-                    points: currentPoints,
+                    points: points,
                     lastUpdated: admin.firestore.FieldValue.serverTimestamp()
                 });
             }
@@ -1205,6 +1215,7 @@ export async function alertExistingReporterOfChallenger(
 /**
  * Helper: Sends in-app message & push notification to Admins notifying them of a challenger application
  * where the existing reporter's performance is below benchmark.
+ * Note: Disabled per user request to eliminate admin inbox clutter from reporter warnings/alerts.
  */
 export async function sendAdminPerformanceAlert(
     district: string,
@@ -1214,44 +1225,8 @@ export async function sendAdminPerformanceAlert(
     applicantPhone: string,
     audit: ReporterPerformanceAudit
 ) {
-    try {
-        const adminsSnapshot = await db.collection('users')
-            .where('role', 'in', ['ADMIN', 'admin', 5, 5.0, '5'])
-            .get();
-
-        if (adminsSnapshot.empty) return;
-
-        const title = `పోటీ దరఖాస్తు అలర్ట్: ${district} - ${mandal} ⚠️`;
-        const body = `ప్రస్తుత విలేకరి ${existingReporterName} పనితీరు తక్కువగా ఉంది (${audit.ownMandalPostsThisMonth}/20 వార్తలు). ${applicantName} (${applicantPhone}) కొత్తగా దరఖాస్తు చేసుకున్నారు. పరిశీలించండి.`;
-        const msgTimestamp = admin.firestore.FieldValue.serverTimestamp();
-
-        for (const adminDoc of adminsSnapshot.docs) {
-            await db.collection('users').doc(adminDoc.id).collection('messages').add({
-                title,
-                body,
-                senderName: "AlfaNews Editorial Desk",
-                senderRole: "SYSTEM",
-                read: false,
-                importance: "HIGH",
-                type: "REPORTER_COMPETITION_ALERT",
-                timestamp: msgTimestamp
-            }).catch(() => {});
-
-            const aData = adminDoc.data() || {};
-            const aTokens = [...(aData.fcmTokens || []), aData.fcmToken].filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
-            if (aTokens.length > 0) {
-                const push = aTokens.map(token => ({
-                    token,
-                    notification: { title, body },
-                    data: { type: "REPORTER_COMPETITION_ALERT", district, mandal }
-                }));
-                await admin.messaging().sendEach(push).catch(() => {});
-            }
-        }
-        console.log(`[ADMIN_PERF_ALERT] 📢 Notified ${adminsSnapshot.size} admins of challenger in ${district}-${mandal}.`);
-    } catch (e: any) {
-        console.error("[ADMIN_PERF_ALERT] Failed to notify admins:", e.message);
-    }
+    // Admin copy disabled: Warnings and performance alerts are sent strictly to reporters to prevent admin inbox overload.
+    return;
 }
 
 /**
@@ -1723,16 +1698,6 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
                     finalFullName,
                     perfAudit
                 );
-
-                // 2. Alert Admins via in-app notification & push
-                await sendAdminPerformanceAlert(
-                    trimmedDistrict,
-                    trimmedMandal,
-                    existingRep.name,
-                    finalFullName,
-                    clean10,
-                    perfAudit
-                );
             }
         } catch (auditErr: any) {
             console.error("[REPORTER_APP] Performance audit error:", auditErr.message);
@@ -1833,6 +1798,12 @@ export const onReporterApplicationCreated = onDocumentCreated({
     let mandal = String(data.mandal || data.selectedMandal || data.assignedMandal || data.mandalam || "").trim();
     let userId = String(data.userId || data.uid || data.user_id || "").trim();
     let rawStatus = String(data.status || "").trim().toUpperCase();
+
+    // Guard: If application is already approved / joined (e.g. by submitReporterApplication), skip duplicate execution!
+    if (data.autoApproved === true || rawStatus === "JOINED" || rawStatus === "APPROVED" || rawStatus === "REJECTED") {
+        console.log(`[REPORTER_APP_TRIGGER] Application ${appId} is already in state '${rawStatus}' (autoApproved: ${data.autoApproved}). Skipping duplicate trigger execution.`);
+        return;
+    }
 
     // 1. If userId is missing, search users collection by phone
     let userDocData: any = null;
@@ -1962,15 +1933,6 @@ export const onReporterApplicationCreated = onDocumentCreated({
                         applicantName,
                         perfAudit
                     );
-
-                    await sendAdminPerformanceAlert(
-                        district,
-                        mandal,
-                        existingRep.name || "Reporter",
-                        applicantName,
-                        rawPhone,
-                        perfAudit
-                    );
                 }
             } catch (auditErr: any) {
                 console.error("[REPORTER_APP_TRIGGER] Audit error:", auditErr.message);
@@ -2065,6 +2027,112 @@ export const autoApproveAllPendingApplications = onCall({ secrets: ["EMAIL_USER"
         throw new HttpsError('permission-denied', 'అడ్మిన్లకు మాత్రమే ఈ అనుమతి ఉంది.');
     }
     return await executeAutoApprovePendingBackfill();
+});
+
+/**
+ * Core helper to deduplicate reporter applications in the database (keeping the newest one).
+ */
+export async function executeCleanDuplicateApplications(): Promise<{ deletedCount: number }> {
+    const snapshot = await db.collection('reporter_applications').get();
+    const allDocs = snapshot.docs;
+
+    const groups = new Map<string, admin.firestore.QueryDocumentSnapshot[]>();
+    for (const doc of allDocs) {
+        const data = doc.data();
+        const phone = String(data.phone || data.phoneNumber || "");
+        const digits = phone.replace(/\D/g, "");
+        const clean10 = digits.length >= 10 ? digits.slice(-10) : "";
+        const email = String(data.email || "").trim().toLowerCase();
+        const userId = String(data.userId || "").trim();
+
+        const key = clean10 ? `phone:${clean10}` : (email ? `email:${email}` : (userId ? `user:${userId}` : null));
+        if (key) {
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key)!.push(doc);
+        }
+    }
+
+    const docsToDelete: admin.firestore.DocumentReference[] = [];
+    for (const [_, docs] of groups) {
+        if (docs.length > 1) {
+            const sortedDocs = docs.sort((a, b) => {
+                const tsA = a.data().timestamp?.toMillis?.() || a.data().timestamp?.toDate?.()?.getTime?.() || (typeof a.data().timestamp === 'number' ? a.data().timestamp : 0);
+                const tsB = b.data().timestamp?.toMillis?.() || b.data().timestamp?.toDate?.()?.getTime?.() || (typeof b.data().timestamp === 'number' ? b.data().timestamp : 0);
+                return tsB - tsA;
+            });
+            for (let i = 1; i < sortedDocs.length; i++) {
+                docsToDelete.push(sortedDocs[i].ref);
+            }
+        }
+    }
+
+    let deletedCount = 0;
+    for (let i = 0; i < docsToDelete.length; i += 400) {
+        const batch = db.batch();
+        const chunk = docsToDelete.slice(i, i + 400);
+        for (const ref of chunk) {
+            batch.delete(ref);
+        }
+        await batch.commit();
+        deletedCount += chunk.length;
+    }
+    console.log(`[CLEAN_DUPLICATE_APPS] Deleted ${deletedCount} duplicate applications.`);
+    return { deletedCount };
+}
+
+/**
+ * Callable function to clean duplicate reporter applications on demand (Admin only).
+ */
+export const cleanDuplicateApplications = onCall(async (request) => {
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+        throw new HttpsError('unauthenticated', 'మీరు లాగిన్ అవ్వాలి.');
+    }
+    const adminDoc = await db.collection('users').doc(auth.uid).get();
+    const role = String(adminDoc.data()?.role || '').toUpperCase();
+    if (!['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'].includes(role)) {
+        throw new HttpsError('permission-denied', 'అడ్మిన్లకు మాత్రమే ఈ అనుమతి ఉంది.');
+    }
+    return await executeCleanDuplicateApplications();
+});
+
+/**
+ * Core helper to safely delete expired pending applications older than 10 days.
+ */
+export async function executeCleanupExpiredApplications(): Promise<{ deletedCount: number }> {
+    const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
+    const tenDaysAgo = new Date(Date.now() - TEN_DAYS_MS);
+
+    const snapshot = await db.collection('reporter_applications')
+        .where('status', '==', 'PENDING')
+        .where('timestamp', '<', tenDaysAgo)
+        .get();
+
+    let deletedCount = 0;
+    for (let i = 0; i < snapshot.docs.length; i += 400) {
+        const batch = db.batch();
+        const chunk = snapshot.docs.slice(i, i + 400);
+        for (const doc of chunk) {
+            batch.delete(doc.ref);
+        }
+        await batch.commit();
+        deletedCount += chunk.length;
+    }
+    console.log(`[CLEANUP_EXPIRED_APPS] Deleted ${deletedCount} expired pending applications.`);
+    return { deletedCount };
+}
+
+/**
+ * Scheduled job running daily at 02:00 AM IST to clean up expired unapproved applications and duplicates.
+ */
+export const cleanupExpiredReporterApplications = onSchedule({
+    schedule: "0 2 * * *",
+    timeZone: "Asia/Kolkata",
+    memory: "256MiB",
+    timeoutSeconds: 300
+}, async () => {
+    await executeCleanupExpiredApplications();
+    await executeCleanDuplicateApplications();
 });
 
 /**
@@ -2762,7 +2830,7 @@ export async function executeReactivateFalselyDemotedReporters(dryRun: boolean =
                         ttl: 86400000,
                         directBootOk: true,
                         notification: {
-                            channelId: 'general_news',
+                            channelId: 'general_news_v2',
                             sound: 'default'
                         }
                     },
@@ -2774,7 +2842,7 @@ export async function executeReactivateFalselyDemotedReporters(dryRun: boolean =
                         type: "REPORTER_RESTORED",
                         title,
                         body,
-                        channelId: 'general_news'
+                        channelId: 'general_news_v2'
                     }
                 }));
                 await admin.messaging().sendEach(pushList).catch(() => {});
@@ -3048,7 +3116,7 @@ export const onUserCreated = onDocumentCreated({
                 },
                 data: {
                     type: 'WELCOME',
-                    channelId: 'general_news',
+                    channelId: 'general_news_v2',
                     title: title,
                     body: welcome.body,
                     click_action: 'OPEN_HOME',
@@ -3120,7 +3188,7 @@ export const onUserCreated = onDocumentCreated({
                             },
                             data: {
                                 type: 'REFERRAL_SUCCESS',
-                                channelId: 'general_news',
+                                channelId: 'general_news_v2',
                                 title,
                                 body,
                                 actionUrl: '',
@@ -3169,7 +3237,7 @@ export const onAnonymousDeviceCreated = onDocumentCreated({
             },
             data: {
                 type: 'WELCOME',
-                channelId: 'general_news',
+                channelId: 'general_news_v2',
                 title: welcome.title,
                 body: welcome.body,
                 click_action: 'OPEN_HOME',
@@ -3280,7 +3348,7 @@ export const recordAppInstallReferral = onCall(async (request) => {
                         },
                         data: {
                             type: 'REFERRAL_SUCCESS',
-                            channelId: 'general_news',
+                            channelId: 'general_news_v2',
                             title,
                             body,
                             actionUrl: '',

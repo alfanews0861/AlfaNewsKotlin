@@ -453,6 +453,8 @@ function normalizeSingleStory(aiRes: any, actualPostData: any): any {
         ])).filter(c => !!c && c !== "OTHER");
     }
 
+    const isPersonalPraise = aiRes.qualitySignals?.isPersonalPraise === true;
+
     return {
         headline: { telugu: finalHeadline || "", english: finalHeadlineEn || "" },
         content: { telugu: finalContent || "", english: finalContentEn || "" },
@@ -468,12 +470,12 @@ function normalizeSingleStory(aiRes: any, actualPostData: any): any {
         rejectionReason: rejectionReason,
         isDuplicate: isDuplicate,
         duplicateOfPostId: aiRes.duplicateOfPostId || null,
-        tone: aiRes.tone || "NORMAL",
+        tone: isPersonalPraise ? "SOFT" : (aiRes.tone || "NORMAL"),
         vocalContent: aiRes.vocalContent || finalContent || "",
         qualitySignals: aiRes.qualitySignals || { biasScore: 0.5, publicInterestScore: 0.5, investigativeScore: 0, isPersonalPraise: false },
         storyFingerprint: aiRes.storyFingerprint || `gen_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        isBreaking: aiRes.isBreaking === true,
-        notificationWorthy: aiRes.notificationWorthy !== false,
+        isBreaking: !isPersonalPraise && aiRes.isBreaking === true,
+        notificationWorthy: !isPersonalPraise && aiRes.notificationWorthy === true,
         isGraphicOrBloody: aiRes.isGraphicOrBloody === true,
         isSensitiveVictimOrMinor: aiRes.isSensitiveVictimOrMinor === true,
         aiProcessed: true,
@@ -669,11 +671,28 @@ PROACTIVE MULTI-STORY BUNDLE DETECTION (CRITICAL):
 - If strictly one single topic, return 1 story in the 'stories' array.
 - Assign 'matchedImageIndex' (0, 1, 2) matching which attached photo corresponds to each story.
 
-NOTIFICATION INSTRUCTIONS (CRITICAL):
-- isBreaking: true ONLY if the news is genuinely urgent and time-sensitive (accidents, deaths, natural disasters, major political decisions, crimes, emergency events).
-- notificationWorthy: true if the news is relevant to a broad audience and worth sending as a push notification.
-- notificationTitle: If isBreaking or notificationWorthy is true, generate an intriguing Telugu curiosity hook title (max 8-10 words).
+NOTIFICATION INSTRUCTIONS (CRITICAL - STRICT RELEVANCE & URGENCY):
+- isBreaking: MUST be true ONLY for genuine high-magnitude, urgent, time-sensitive emergencies of broad regional/state/national impact:
+  * Major disasters or fatal accidents with multiple casualties (బస్సు/రైలు ప్రమాదాలు, 2+ మరణాలు లేదా తీవ్ర విషాదాలు).
+  * Extreme weather / disaster red alerts (తీవ్ర తుఫాను, ఆకస్మిక వరదలు, పిడుగుపాటు హెచ్చరికలు, భారీ అగ్నిప్రమాదాలు, గ్యాస్ లీక్).
+  * Major government/state policy shifts or emergency announcements (ముఖ్యమంత్రి/ప్రభుత్వ కీలక నిర్ణయాలు, ఎన్నికల ఫలితాలు, బడ్జెట్, అత్యవసర సెలవులు).
+  * High-profile crimes/manhunts affecting general public safety.
+  * STRICTLY FALSE for: Single minor vehicle skids/minor injuries (ఒకరిద్దరికి స్వల్ప గాయాలు), petty local thefts, routine ward disputes, local party fights, ordinary local meetings.
+- notificationWorthy: Set true ONLY for stories with genuine broad public relevance and high public interest:
+  * Major welfare schemes / financial benefits impacting many citizens (రైతు భరోసా, పింఛన్లు, ఫీజు రీయింబర్స్‌మెంట్, కొత్త పథకాలు).
+  * Important public utility/safety alerts (విద్యుత్/నీటి సరఫరా నిలిపివేత, ప్రధాన రహదారుల మూసివేత, పరీక్షల షెడ్యూల్, ఉద్యోగ నోటిఫికేషన్లు).
+  * Inspiring human achievements, significant regional or state developments.
+  * STRICTLY FALSE for: Routine political statement battles ("నాయకుడి విమర్శలు-ప్రతివిమర్శలు"), routine photo-ops, birthday celebrations, shawl felicitations, personal praise/flattery (భజన వార్తలు), small ward drainage/street light complaints.
+- notificationTitle:
+  * If isBreaking is true: Generate a crisp, urgent, 100% FACTUAL Telugu title stating WHAT happened and WHERE (max 7-9 words). NEVER use clickbait questions or mystery teasers for tragic/breaking news!
+  * If notificationWorthy is true (and NOT breaking): Generate an engaging, intriguing Telugu curiosity hook title (max 7-9 words).
+  * If neither, leave as empty string "".
 - tone options: BREAKING | URGENT | IMPORTANT | NORMAL | SOFT
+  * BREAKING: Only for genuine high-magnitude breaking news matching isBreaking above.
+  * URGENT: Only for time-sensitive public alerts (e.g. disaster warning, exam deadline).
+  * IMPORTANT: For significant district/state developments without immediate emergency.
+  * NORMAL: For standard everyday news stories.
+  * SOFT: For human interest, lifestyle, devotional, or minor routine events.
 `;
 
     return await runWithAIFallback(async (ai, modelName) => {
@@ -886,7 +905,8 @@ export const onNewsPostCreated = onDocumentWritten({
 
     // 1. QUICK GUARD: Skip if document is already processed, approved, or published unless forceReprocess is set
     if (!data.forceReprocess) {
-        if (data.approved === true || data.status === "PUBLISHED" || data.status === "REJECTED" || data.status === "FAILED") {
+        const currentStatus = (data.status || "").toUpperCase();
+        if (data.approved === true || currentStatus === "PUBLISHED" || currentStatus === "REJECTED" || currentStatus === "FAILED" || currentStatus === "ARCHIVED") {
             return;
         }
         if (data.aiProcessed === true && (data.mediaType !== 'VIDEO' || data.videoProcessed === true)) {
@@ -1125,7 +1145,14 @@ export const onNewsPostCreated = onDocumentWritten({
                     console.log(`[ACCIDENT_SHIELD] Post ${targetPostId}: Overriding rejection for accident/injury story. Enabling isGraphicOrBloody to apply B&W/blur.`);
                     aiProcessedData.rejectionReason = null;
                     aiProcessedData.isGraphicOrBloody = true;
-                    aiProcessedData.isBreaking = true;
+                    // 🛡️ Do NOT blindly force isBreaking = true! Only elevate if fatal or major multi-casualty disaster
+                    const storyText = `${headline} ${content}`;
+                    const isFatalOrMajor = storyText.includes("మృతి") ||
+                        storyText.includes("మరణం") ||
+                        storyText.includes("దుర్మరణం") ||
+                        storyText.includes("ఘోర") ||
+                        storyText.includes("ప్రాణాలు కోల్పో");
+                    aiProcessedData.isBreaking = (aiProcessedData.isBreaking === true) || isFatalOrMajor;
                 } else if (isYouTubeUnsafe) {
                     console.warn(`[YOUTUBE_SAFETY_SHIELD] Post ${targetPostId}: Video flagged unsafe for YouTube (isSafeForYouTube=false). Blocking video and keeping rejection.`);
                     aiProcessedData.rejectionReason = aiProcessedData.rejectionReason || "యూట్యూబ్ కమ్యూనిటీ నిబంధనల ప్రకారం తీవ్ర రక్తపాతం లేదా భయానక దృశ్యాలు అనుమతించబడవు.";
@@ -1220,7 +1247,7 @@ export const onNewsPostCreated = onDocumentWritten({
                     );
                 }
 
-                if (updatePayload.status === "published" && !isPostRejected && originalReporterId) {
+                if ((updatePayload.status || "").toLowerCase() === "published" && !isPostRejected && originalReporterId) {
                     if (finalIsReporter) {
                         const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
                         await awardPointsToReporter(originalReporterId, points);

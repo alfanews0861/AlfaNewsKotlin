@@ -4,6 +4,7 @@ import { User, NewsPost, Language, UserRole, AnalyticsEventType } from '../types
 import { db } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import { logAnalyticsEvent } from '../services/analyticsService';
+import StarReporterCard from './StarReporterPoster';
 
 const { doc, getDoc, collection, query, where, orderBy, getDocs, Timestamp, limit } = _firestore as any;
 
@@ -156,7 +157,7 @@ const ReporterProfileView: React.FC<ReporterProfileViewProps> = ({ reporterId, o
         return <div className="h-full w-full bg-white flex items-center justify-center"><div className="w-8 h-8 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div></div>;
     }
 
-    if (!reporter && !loading) {
+    if (!reporter) {
         return <div className="h-full w-full bg-white flex flex-col items-center justify-center p-4"><p className="text-gray-500">Reporter profile not found.</p><button onClick={onBack} className="mt-4 text-blue-600 underline">Back</button></div>;
     }
 
@@ -179,6 +180,29 @@ const ReporterProfileView: React.FC<ReporterProfileViewProps> = ({ reporterId, o
                     <div className="text-center"><span className="block font-bold text-xl text-pink-600">{reporter?.points ?? (posts.length * 10)}</span><span className="text-xs text-gray-500 uppercase">పాయింట్లు</span></div>
                 </div>
             </div>
+
+            {/* Star Reporter Recognition & Social Poster */}
+            <div className="p-4 bg-white shadow-sm mb-2 rounded-2xl mx-2 border border-amber-200/60">
+                <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xl">🌟</span>
+                    <h3 className="text-base font-ramabhadra font-bold text-gray-900">
+                        స్టార్ విలేకరి గుర్తింపు కార్డ్ (Social Prestige)
+                    </h3>
+                </div>
+                <StarReporterCard
+                    data={{
+                        id: reporter.id,
+                        name: reporter.name || 'Alfa Reporter',
+                        photoUrl: reporter.photoUrl,
+                        role: reporter.role,
+                        district: (reporter as any).district || (reporter as any).state_district,
+                        mandal: (reporter as any).assignedMandal || (reporter as any).mandal || (reporter as any).mandalam,
+                        points: reporter.points ?? (posts.length * 10),
+                        totalStories: posts.length
+                    }}
+                />
+            </div>
+
             <div className="p-2">
                 <h3 className="text-lg font-bold text-gray-700 px-2 mb-2 font-ramabhadra border-b pb-1">వార్తలు (Stories)</h3>
                 <div className="grid grid-cols-2 gap-2">

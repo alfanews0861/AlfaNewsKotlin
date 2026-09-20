@@ -18,6 +18,7 @@ import GNewsPage from './GNewsPage';
 import SocialMediaFeedsPage from './SocialMediaFeedsPage';
 import WhatsappManagerPage from './WhatsappManagerPage';
 import SocialAutoPostPage from './SocialAutoPostPage';
+import VoiceAgentAdminPage from './VoiceAgentAdminPage';
 
 interface AdminPanelProps {
   user: User;
@@ -98,8 +99,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       ]
     },
     {
-      title: 'ఆటోమేషన్ & స్క్రాపింగ్ (Scraping Hub)',
+      title: 'ఆటోమేషన్ & AI వాయిస్ (Voice AI & Automation)',
       items: [
+        { id: 'voiceAgent', label: 'తెలుగు AI వాయిస్ డెస్క్ (Voice Agent)', icon: '🎙️', badge: 'AI', roles: [UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN] },
         { id: 'socialAutoPost', label: 'డిస్ట్రిక్ట్ సోషల్ ఆటో-పోస్ట్ (FB & Insta)', icon: '🚀', badge: 'NEW', roles: [UserRole.ADMIN] },
         { id: 'webScraping', label: 'వెబ్ స్క్రాపర్ (Web Scraper)', icon: '🌐', badge: 'RESTORED', roles: [UserRole.ADMIN] },
         { id: 'rssFeeds', label: 'RSS ఫీడ్స్ (RSS Feeds)', icon: '📡', roles: [UserRole.ADMIN] },
@@ -202,6 +204,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
         return <AppConfigPage />;
       case 'socialAutoPost':
         return <SocialAutoPostPage currentUser={user} />;
+      case 'voiceAgent':
+        return <VoiceAgentAdminPage currentUser={user} language={language} />;
       case 'webScraping':
         return <WebScrapingPage />;
       case 'rssFeeds':

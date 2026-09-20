@@ -5,7 +5,8 @@ import { MANDAL_DATA } from '../data/mandalData';
 import { app, db } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import * as _functions from 'firebase/functions';
-import { Phone, MessageSquare, AlertTriangle, CheckCircle, Clock, ShieldAlert, Sparkles, ArrowUpDown, Trash2, UserMinus, MapPin, RefreshCw } from 'lucide-react';
+import { Phone, MessageSquare, AlertTriangle, CheckCircle, Clock, ShieldAlert, Sparkles, ArrowUpDown, Trash2, UserMinus, MapPin, RefreshCw, Star } from 'lucide-react';
+import { StarReporterPosterModal } from './StarReporterPoster';
 
 const { collection, getDocs, query, orderBy, doc, updateDoc, setDoc, deleteDoc, where, onSnapshot } = _firestore as any;
 const { getFunctions, httpsCallable } = _functions as any;
@@ -75,6 +76,7 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
   const [editingLocationUser, setEditingLocationUser] = useState<ReporterWithCounts | null>(null);
   const [editLocDistrict, setEditLocDistrict] = useState('');
   const [editLocMandal, setEditLocMandal] = useState('');
+  const [posterModalUser, setPosterModalUser] = useState<ReporterWithCounts | null>(null);
 
   // Fetch Applications and Occupied Mandals
   const fetchApplications = useCallback(async () => {
@@ -150,107 +152,131 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
       startOfLastWeek.setHours(0, 0, 0, 0);
       const startOfLastWeekMs = startOfLastWeek.getTime();
 
-      const fetchedReporters = await Promise.all(querySnapshot.docs.map(async (userDoc: any) => {
+      // Single query for news from the past 7 days to calculate today and weekly activity
+      const newsSnap = await getDocs(
+        query(
+          collection(db, 'news'),
+          where('approved', '==', true),
+          where('isReporter', '==', true),
+          where('timestamp', '>=', new Date(startOfLastWeekMs))
+        )
+      ).catch(() => null);
+
+      const todayCounts: Record<string, number> = {};
+      const weekCounts: Record<string, number> = {};
+      const latestNewsTimestamps: Record<string, number> = {};
+
+      if (newsSnap && !newsSnap.empty) {
+        newsSnap.docs.forEach((d: any) => {
+          const nData = d.data();
+          const rId = nData.reporter?.id || nData.originalReporterId || (typeof nData.reporter === 'string' ? nData.reporter : null);
+          const rName = nData.reporter?.name;
+          if (!rId && !rName) return;
+
+          let dateMs: number | null = null;
+          if (nData.timestamp?.toMillis) {
+            dateMs = nData.timestamp.toMillis();
+          } else if (nData.timestamp?.toDate) {
+            dateMs = nData.timestamp.toDate().getTime();
+          } else if (typeof nData.timestamp === 'number') {
+            dateMs = nData.timestamp > 1e11 ? nData.timestamp : nData.timestamp * 1000;
+          }
+
+          if (dateMs) {
+            const keys = [rId, rName].filter(Boolean) as string[];
+            keys.forEach(k => {
+              if (!latestNewsTimestamps[k] || dateMs! > latestNewsTimestamps[k]) {
+                latestNewsTimestamps[k] = dateMs!;
+              }
+              if (dateMs! >= startOfTodayMs) {
+                todayCounts[k] = (todayCounts[k] || 0) + 1;
+              }
+              if (dateMs! >= startOfLastWeekMs && dateMs! < startOfTodayMs) {
+                weekCounts[k] = (weekCounts[k] || 0) + 1;
+              }
+            });
+          }
+        });
+      }
+
+      const fetchedReporters = querySnapshot.docs.map((userDoc: any) => {
         const data = userDoc.data();
         const userData = {
           id: userDoc.id,
           ...data
         } as ReporterWithCounts;
 
-        try {
-          const newsRef = collection(db, 'news');
-          const [snapId, snapName, snapOrig] = await Promise.all([
-            getDocs(query(newsRef, where('reporter.id', '==', userData.id))).catch(() => null),
-            userData.name ? getDocs(query(newsRef, where('reporter.name', '==', userData.name))).catch(() => null) : null,
-            getDocs(query(newsRef, where('originalReporterId', '==', userData.id))).catch(() => null)
-          ]);
+        const rId = userData.id;
+        const rName = userData.name || '';
 
-          const docMap = new Map<string, any>();
-          if (snapId) snapId.docs.forEach((d: any) => docMap.set(d.id, d.data()));
-          if (snapName) snapName.docs.forEach((d: any) => docMap.set(d.id, d.data()));
-          if (snapOrig) snapOrig.docs.forEach((d: any) => docMap.set(d.id, d.data()));
+        const todayCount = todayCounts[rId] || (rName ? todayCounts[rName] : 0) || 0;
+        const lastWeekCount = weekCounts[rId] || (rName ? weekCounts[rName] : 0) || 0;
 
-          userData.totalNewsCount = docMap.size;
+        // Parse last post timestamp from user doc, fallback to recent news timestamp
+        let userLastPostMs: number | null = null;
+        if (data.lastPostTimestamp?.toMillis) {
+          userLastPostMs = data.lastPostTimestamp.toMillis();
+        } else if (data.lastPostTimestamp?.toDate) {
+          userLastPostMs = data.lastPostTimestamp.toDate().getTime();
+        } else if (typeof data.lastPostTimestamp === 'number') {
+          userLastPostMs = data.lastPostTimestamp > 1e11 ? data.lastPostTimestamp : data.lastPostTimestamp * 1000;
+        }
 
-          let todayCount = 0;
-          let lastWeekCount = 0;
-          let latestMs: number | null = null;
-          let earliestMs: number | null = null;
+        const latestMs = userLastPostMs || latestNewsTimestamps[rId] || (rName ? latestNewsTimestamps[rName] : null) || null;
 
-          docMap.forEach((nData: any) => {
-            let dateMs: number | null = null;
-            if (nData.timestamp?.toMillis) {
-              dateMs = nData.timestamp.toMillis();
-            } else if (nData.timestamp?.toDate) {
-              dateMs = nData.timestamp.toDate().getTime();
-            } else if (typeof nData.timestamp === 'number') {
-              dateMs = nData.timestamp > 1e11 ? nData.timestamp : nData.timestamp * 1000;
-            }
+        // Estimate or read total news count from user stats / points
+        const totalPosts = data.totalNewsCount || data.stats?.totalApprovedNews || (typeof data.points === 'number' && data.points > 0 ? Math.floor(data.points / 10) : (todayCount + lastWeekCount));
+        userData.totalNewsCount = totalPosts;
 
-            if (dateMs) {
-              if (!latestMs || dateMs > latestMs) latestMs = dateMs;
-              if (!earliestMs || dateMs < earliestMs) earliestMs = dateMs;
-              if (dateMs >= startOfTodayMs) todayCount++;
-              if (dateMs >= startOfLastWeekMs && dateMs < startOfTodayMs) lastWeekCount++;
-            }
-          });
+        // Compute true join timestamp
+        const rawCreated = data.createdAt?.toMillis ? data.createdAt.toMillis() : (typeof data.createdAt === 'number' ? data.createdAt : null);
+        const rawPromoted = data.promotedAt?.toMillis ? data.promotedAt.toMillis() : (typeof data.promotedAt === 'number' ? data.promotedAt : null);
+        const rawJoined = data.joinedAt?.toMillis ? data.joinedAt.toMillis() : (typeof data.joinedAt === 'number' ? data.joinedAt : null);
+        const rawTimestamp = data.timestamp?.toMillis ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : null);
 
-          // Compute true join timestamp
-          const rawCreated = data.createdAt?.toMillis ? data.createdAt.toMillis() : (typeof data.createdAt === 'number' ? data.createdAt : null);
-          const rawPromoted = data.promotedAt?.toMillis ? data.promotedAt.toMillis() : (typeof data.promotedAt === 'number' ? data.promotedAt : null);
-          const rawJoined = data.joinedAt?.toMillis ? data.joinedAt.toMillis() : (typeof data.joinedAt === 'number' ? data.joinedAt : null);
-          const rawTimestamp = data.timestamp?.toMillis ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : null);
+        const validCandidateDates = [rawCreated, rawPromoted, rawJoined, rawTimestamp, latestMs]
+          .filter((t): t is number => typeof t === 'number' && t > 0 && t <= nowMs);
 
-          const validCandidateDates = [rawCreated, rawPromoted, rawJoined, rawTimestamp, earliestMs]
-            .filter((t): t is number => typeof t === 'number' && t > 0 && t <= nowMs);
+        const joinedTs = validCandidateDates.length > 0 ? Math.min(...validCandidateDates) : nowMs;
 
-          const joinedTs = validCandidateDates.length > 0 ? Math.min(...validCandidateDates) : nowMs;
+        userData.joinedAt = joinedTs;
+        userData.daysSinceJoined = Math.max(0, Math.floor((nowMs - joinedTs) / (1000 * 60 * 60 * 24)));
 
-          userData.joinedAt = joinedTs;
-          userData.daysSinceJoined = Math.max(0, Math.floor((nowMs - joinedTs) / (1000 * 60 * 60 * 24)));
+        const isSenior = totalPosts > 5 || data.isProtectedSenior === true || (latestMs !== null && (nowMs - latestMs) > 21 * 24 * 60 * 60 * 1000);
+        userData.isNewlyJoined = !isSenior && (userData.daysSinceJoined <= 21);
 
-          const isSenior = (userData.totalNewsCount || 0) > 5 || (earliestMs !== null && (nowMs - earliestMs) > 21 * 24 * 60 * 60 * 1000);
-          userData.isNewlyJoined = !isSenior && (userData.daysSinceJoined <= 21);
+        userData.todayNewsCount = todayCount;
+        userData.lastWeekNewsCount = lastWeekCount;
+        userData.lastPostTimestamp = latestMs;
 
-          userData.todayNewsCount = todayCount;
-          userData.lastWeekNewsCount = lastWeekCount;
-          userData.lastPostTimestamp = latestMs;
+        // Days inactive
+        let daysInactive = 0;
+        if (latestMs) {
+          daysInactive = Math.max(0, Math.floor((nowMs - latestMs) / (1000 * 60 * 60 * 24)));
+        } else {
+          daysInactive = userData.daysSinceJoined;
+        }
+        userData.daysInactive = daysInactive;
 
-          // Days inactive
-          let daysInactive = 0;
-          if (latestMs) {
-            daysInactive = Math.max(0, Math.floor((nowMs - latestMs) / (1000 * 60 * 60 * 24)));
-          } else {
-            daysInactive = userData.daysSinceJoined;
-          }
-          userData.daysInactive = daysInactive;
-
-          // Deadline Status
-          if (userData.totalNewsCount === 0 && userData.isNewlyJoined) {
-            userData.deadlineStatus = 'NEW_NO_POSTS';
-          } else if (userData.totalNewsCount === 0) {
-            userData.deadlineStatus = 'INACTIVE_ZERO';
-          } else if (daysInactive <= 1) {
-            userData.deadlineStatus = 'ACTIVE';
-          } else if (daysInactive <= 2) {
-            userData.deadlineStatus = 'NORMAL';
-          } else if (daysInactive >= 3 && daysInactive < 5) {
-            userData.deadlineStatus = 'ATTENTION';
-          } else if (daysInactive >= 5 && daysInactive < 7) {
-            userData.deadlineStatus = 'APPROACHING_DEADLINE';
-          } else {
-            userData.deadlineStatus = 'CRITICAL_DEADLINE';
-          }
-        } catch {
-          userData.totalNewsCount = 0;
-          userData.todayNewsCount = 0;
-          userData.lastWeekNewsCount = 0;
-          userData.daysInactive = 0;
+        // Deadline Status
+        if (totalPosts === 0 && userData.isNewlyJoined) {
+          userData.deadlineStatus = 'NEW_NO_POSTS';
+        } else if (totalPosts === 0) {
           userData.deadlineStatus = 'INACTIVE_ZERO';
+        } else if (daysInactive <= 1) {
+          userData.deadlineStatus = 'ACTIVE';
+        } else if (daysInactive <= 2) {
+          userData.deadlineStatus = 'NORMAL';
+        } else if (daysInactive >= 3 && daysInactive < 5) {
+          userData.deadlineStatus = 'ATTENTION';
+        } else if (daysInactive >= 5 && daysInactive < 7) {
+          userData.deadlineStatus = 'APPROACHING_DEADLINE';
+        } else {
+          userData.deadlineStatus = 'CRITICAL_DEADLINE';
         }
 
         return userData;
-      }));
+      });
 
       setReporters(fetchedReporters);
     } catch (error) {
@@ -941,9 +967,17 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
                           <td className="px-4 py-4 whitespace-nowrap text-right text-xs">
                             <div className="flex items-center justify-end gap-1.5">
                               <button
+                                onClick={() => setPosterModalUser(user)}
+                                className="bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold px-2 py-1.5 rounded-lg border border-amber-300 flex items-center gap-1 transition-colors"
+                                title="స్టార్ విలేకరి సోషల్ పోస్టర్ చూడండి / డౌన్‌లోడ్ చేయండి"
+                              >
+                                <Star size={13} className="fill-amber-500 text-amber-500" />
+                                <span>పోస్టర్</span>
+                              </button>
+                              <button
                                 onClick={() => handleDowngradeReporter(user.id, user.name || 'Reporter')}
                                 disabled={updatingReporters[user.id]}
-                                className="bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold px-2.5 py-1.5 rounded-lg border border-amber-200 flex items-center gap-1 transition-colors"
+                                className="bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold px-2 py-1.5 rounded-lg border border-amber-200 flex items-center gap-1 transition-colors"
                                 title="రిపోర్టర్ హోదా తొలగించి సబ్‌స్క్రైబర్‌గా మార్చు"
                               >
                                 <UserMinus size={13} />
@@ -1056,6 +1090,24 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
             </div>
           </div>
         </div>
+      )}
+
+      {/* Star Reporter Recognition & Social Poster Modal */}
+      {posterModalUser && (
+        <StarReporterPosterModal
+          data={{
+            id: posterModalUser.id,
+            name: posterModalUser.name || 'Reporter',
+            photoUrl: posterModalUser.photoUrl,
+            role: posterModalUser.role,
+            district: posterModalUser.district,
+            mandal: posterModalUser.assignedMandal || (posterModalUser as any).mandal,
+            points: posterModalUser.points ?? ((posterModalUser.totalNewsCount || 0) * 10),
+            totalStories: posterModalUser.totalNewsCount || 0
+          }}
+          isModal={true}
+          onClose={() => setPosterModalUser(null)}
+        />
       )}
     </div>
   );

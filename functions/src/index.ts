@@ -51,8 +51,20 @@ export {
     reactivateFalselyDemotedReporters,
     runReactivateDemotedReportersHttp,
     recordAppInstallReferral,
-    restoreAllDowngradedReporters
+    restoreAllDowngradedReporters,
+    cleanDuplicateApplications,
+    cleanupExpiredReporterApplications
 } from "./reporter_handler";
+
+// 2b. Export Reporter Operating Rhythm
+export {
+    morningReporterBeatNotification,
+    middayReporterReminder,
+    eveningReporterRoundup,
+    nightReporterLeaderboardAnnouncement,
+    triggerOperatingRhythmBeat
+} from "./reporter_operating_rhythm";
+
 
 // 3. Export Main News Functions
 export {
@@ -88,6 +100,14 @@ export {
     exchangeForPermanentToken
 } from './social_auto_post';
 
+// 9. Export AI Voice Agent Engine & Calling Handlers
+export {
+    triggerReporterVoiceCheck,
+    triggerVoiceCampaign,
+    simulateVoiceConversation,
+    handleTelephonyWebhook
+} from './voice_agent_handler';
+
 
 
 
@@ -117,7 +137,7 @@ export const triggerPushBroadcast = onCall(async (request) => {
         notification: { title, body },
         android: {
             notification: {
-                channelId: channelId || "general_news",
+                channelId: channelId || "general_news_v2",
                 priority: silent ? "low" : "high" as any,
                 defaultSound: !silent
             }
@@ -125,7 +145,7 @@ export const triggerPushBroadcast = onCall(async (request) => {
         data: {
             actionUrl: actionUrl || "",
             newsId: newsId || "",
-            channelId: channelId || "general_news",
+            channelId: channelId || "general_news_v2",
             title: title,
             body: body
         },
@@ -147,6 +167,40 @@ export const triggerPushBroadcast = onCall(async (request) => {
         return { success: true, messageId: response };
     } catch (error: any) {
         throw new HttpsError('internal', error.message || 'Failed to send notification');
+    }
+});
+
+/**
+ * 4. Web FCM Topic Subscription
+ * వెబ్ యూజర్లు నోటిఫికేషన్ టాపిక్స్ (all_users, etc.) కి సబ్‌స్క్రయిబ్ అవ్వడానికి ఉపయోగించే Cloud Function.
+ */
+export const subscribeToNewsTopic = onCall(async (request) => {
+    const { token, topic } = request.data || {};
+    if (!token || !topic) {
+        throw new HttpsError('invalid-argument', 'Token and Topic are required.');
+    }
+    try {
+        await admin.messaging().subscribeToTopic([token], topic);
+        console.log(`[FCM_TOPIC_SUB] Successfully subscribed token to ${topic}`);
+        return { success: true };
+    } catch (error: any) {
+        console.error(`[FCM_TOPIC_SUB_ERROR] Failed to subscribe to ${topic}:`, error.message);
+        throw new HttpsError('internal', error.message || 'Failed to subscribe to topic');
+    }
+});
+
+export const unsubscribeFromNewsTopic = onCall(async (request) => {
+    const { token, topic } = request.data || {};
+    if (!token || !topic) {
+        throw new HttpsError('invalid-argument', 'Token and Topic are required.');
+    }
+    try {
+        await admin.messaging().unsubscribeFromTopic([token], topic);
+        console.log(`[FCM_TOPIC_UNSUB] Successfully unsubscribed token from ${topic}`);
+        return { success: true };
+    } catch (error: any) {
+        console.error(`[FCM_TOPIC_UNSUB_ERROR] Failed to unsubscribe from ${topic}:`, error.message);
+        throw new HttpsError('internal', error.message || 'Failed to unsubscribe from topic');
     }
 });
 

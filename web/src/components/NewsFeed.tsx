@@ -11,8 +11,9 @@ import PreferencesModal from './PreferencesModal';
 
 const { collection, query, where, orderBy, limit, getDocs, Timestamp, startAfter, doc, getDoc } = _firestore as any;
 
-const rankPosts = (posts: NewsPost[], interests: UserInterest | undefined) => {
-    if (!interests || Object.keys(interests).length === 0) return posts;
+const rankPosts = (posts: NewsPost[], interests: UserInterest | undefined, categoryScores?: Record<string, number> | undefined) => {
+    const scores = categoryScores || interests;
+    if (!scores || Object.keys(scores).length === 0) return posts;
     
     // 1 point of interest equals +4 hours of effective "freshness"
     const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
@@ -22,7 +23,7 @@ const rankPosts = (posts: NewsPost[], interests: UserInterest | undefined) => {
             let score = 0;
             const features = [...(post.categories || []), ...(post.tags || []), ...(post.keywords || [])];
             features.forEach(feature => {
-                score += (interests[feature.toLowerCase()] || 0);
+                score += (scores[feature] || scores[feature.toLowerCase()] || 0);
             });
             return score;
         };
@@ -237,8 +238,9 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
 
   const userPrefs = React.useMemo(() => ({
       preferredCategories: currentUser?.preferredCategories,
-      interests: currentUser?.interests
-  }), [currentUser?.preferredCategories, currentUser?.interests]);
+      interests: currentUser?.interests,
+      categoryScores: currentUser?.categoryScores
+  }), [currentUser?.preferredCategories, currentUser?.interests, currentUser?.categoryScores]);
 
   const loadMixedFeed = useCallback(async (isInitial = false) => {
     if (fetchingRef.current || (!isInitial && !hasMoreRef.current)) return;
@@ -331,7 +333,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
             uniqueInBatch.forEach(p => uniqueMap.set(p.id, p));
             
             const newPosts = Array.from(uniqueMap.values());
-            const rankedNewPosts = rankPosts(newPosts, userPrefs.interests);
+            const rankedNewPosts = rankPosts(newPosts, userPrefs.interests, userPrefs.categoryScores);
             
             const finalNews = isInitial ? rankedNewPosts : [...prev, ...rankedNewPosts];
             

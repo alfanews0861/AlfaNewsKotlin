@@ -56,6 +56,11 @@ import com.android.installreferrer.api.ReferrerDetails
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import coil3.SingletonImageLoader
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.request.allowHardware
+import coil3.request.crossfade
 
 /**
  * ఆల్ఫా న్యూస్ అప్లికేషన్ యొక్క ప్రధాన యాక్టివిటీ (Activity).
@@ -180,6 +185,25 @@ class MainActivity : ComponentActivity() {
             if (showAnimatedSplash) {
                 val newsLoaded by newsFeedViewModel.news.collectAsState()
                 val isLoading by newsFeedViewModel.loading.collectAsState()
+
+                // 🚀 PRELOAD IMAGES DURING SPLASH ANIMATION:
+                // While splash screen animates (2-3 seconds), pre-fetch images for top 5 news into Coil cache
+                LaunchedEffect(newsLoaded) {
+                    if (newsLoaded.isNotEmpty()) {
+                        newsLoaded.take(5).forEach { post ->
+                            if (post.mediaUrl.isNotEmpty()) {
+                                val request = ImageRequest.Builder(this@MainActivity)
+                                    .data(post.mediaUrl)
+                                    .allowHardware(true)
+                                    .crossfade(false)
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .build()
+                                SingletonImageLoader.get(this@MainActivity).enqueue(request)
+                            }
+                        }
+                    }
+                }
                 
                 SplashScreenView(
                     isReady = newsLoaded.isNotEmpty() || !isLoading,

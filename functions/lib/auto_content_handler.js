@@ -667,23 +667,33 @@ exports.cleanupOldNews = (0, scheduler_1.onSchedule)({
         const BATCH_SIZE = 500;
         let totalCleanedDocs = 0;
         let totalDeletedFiles = 0;
+        let lastVisibleDoc = null;
         // Run in sub-batches to respect Free Tier and stay within memory limits
         for (let i = 0; i < MAX_CLEANUP; i += BATCH_SIZE) {
-            const oldNewsQuery = await db.collection('news')
+            let query = db.collection('news')
                 .where('approved', '==', true) // Only clean active news
                 .where('timestamp', '<', admin.firestore.Timestamp.fromDate(retentionDate))
                 .orderBy('timestamp', 'asc') // Start from oldest to newest
-                .limit(BATCH_SIZE)
-                .get();
+                .limit(BATCH_SIZE);
+            if (lastVisibleDoc) {
+                query = query.startAfter(lastVisibleDoc);
+            }
+            const oldNewsQuery = await query.get();
             if (oldNewsQuery.empty) {
                 console.log(`[CLEANUP] No more active news found for retention period.`);
                 break;
             }
+            lastVisibleDoc = oldNewsQuery.docs[oldNewsQuery.docs.length - 1];
             const deletePromises = oldNewsQuery.docs.map(async (doc) => {
                 const data = doc.data();
-                // Skip if already cleaned up
-                if (data.mediaDeleted === true)
-                    return null;
+                // If media already cleaned up, ensure doc is archived so it drops out of approved queries
+                if (data.mediaDeleted === true) {
+                    return db.collection('news').doc(doc.id).update({
+                        approved: false,
+                        status: "archived",
+                        lastCleanupAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                }
                 const mediaUrls = data.mediaUrls || [];
                 if (data.mediaUrl)
                     mediaUrls.push(data.mediaUrl);

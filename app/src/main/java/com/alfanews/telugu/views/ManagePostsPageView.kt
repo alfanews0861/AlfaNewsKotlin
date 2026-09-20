@@ -111,7 +111,7 @@ fun ManagePostsPageView(
                 val result = FirebaseFunctionsService.triggerPushBroadcast(
                     title = title,
                     body = post.headline.telugu,
-                    actionUrl = "#/s/${post.id}",
+                    actionUrl = "alfanews://news/${post.id}",
                     topic = "all_users",
                     silent = isSilent,
                     channelId = channelId

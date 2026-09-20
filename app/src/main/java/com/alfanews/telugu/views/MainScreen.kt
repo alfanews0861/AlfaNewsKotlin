@@ -715,9 +715,32 @@ fun ProfileContainer(
     val themeMode by viewModel.themeMode.collectAsState()
     val adminActivePage by viewModel.adminActivePage.collectAsState()
     val unreadMessagesCount by viewModel.unreadMessagesCount.collectAsState()
+    val unreadAdminNotices by viewModel.unreadAdminNotices.collectAsState()
     val user = currentUser
 
     val isStaff = user != null && (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.REGIONAL_INCHARGE || user.role == UserRole.REPORTER || user.role == UserRole.NEWS_DESK)
+
+    // విలేకరి/వినియోగదారు ప్రొఫైల్ ఓపెన్ చేయగానే అడ్మిన్ ముఖ్య సందేశాల In-App Popup
+    var isNoticeDismissed by remember(unreadAdminNotices) { mutableStateOf(false) }
+    val showNoticePopup = unreadAdminNotices.isNotEmpty() && !isNoticeDismissed && adminActivePage != "messages"
+
+    if (showNoticePopup) {
+        AdminNoticePopupDialog(
+            notices = unreadAdminNotices,
+            onOpenAllMessages = {
+                isNoticeDismissed = true
+                viewModel.markAllAdminMessagesRead()
+                if (isStaff) {
+                    viewModel.setAdminActivePage("messages")
+                } else {
+                    onNavigate("messages")
+                }
+            },
+            onDismiss = {
+                isNoticeDismissed = true
+            }
+        )
+    }
     
     if (isStaff && user != null) {
         AdminPanelView(

@@ -36,7 +36,8 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.getNewsCardImage = exports.sendContactEmail = exports.triggerPushBroadcast = exports.exchangeForPermanentToken = exports.initializeDistrictSocialConfigs = exports.manuallyTriggerSocialPost = exports.testDistrictSocialPost = exports.onNewsPostSocialAutoPost = exports.reportNewsPost = exports.broadcastToAllReporters = exports.sendAdminReporterMessage = exports.recoverFalselyRejectedNewsHttp = exports.scheduleReprocessFailedReporterNews = exports.onNewsPostCreated = exports.processNewsPost = exports.restoreAllDowngradedReporters = exports.recordAppInstallReferral = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.runAutoApprovePendingBackfill = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
+exports.sendContactEmail = exports.unsubscribeFromNewsTopic = exports.subscribeToNewsTopic = exports.triggerPushBroadcast = exports.handleTelephonyWebhook = exports.simulateVoiceConversation = exports.triggerVoiceCampaign = exports.triggerReporterVoiceCheck = exports.exchangeForPermanentToken = exports.initializeDistrictSocialConfigs = exports.manuallyTriggerSocialPost = exports.testDistrictSocialPost = exports.onNewsPostSocialAutoPost = exports.reportNewsPost = exports.broadcastToAllReporters = exports.sendAdminReporterMessage = exports.recoverFalselyRejectedNewsHttp = exports.scheduleReprocessFailedReporterNews = exports.onNewsPostCreated = exports.processNewsPost = exports.triggerOperatingRhythmBeat = exports.nightReporterLeaderboardAnnouncement = exports.eveningReporterRoundup = exports.middayReporterReminder = exports.morningReporterBeatNotification = exports.cleanupExpiredReporterApplications = exports.cleanDuplicateApplications = exports.restoreAllDowngradedReporters = exports.recordAppInstallReferral = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.runAutoApprovePendingBackfill = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
+exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.getNewsCardImage = void 0;
 /**
  * Alfa News - Cloud Functions v18.0 (Refactored & Modular)
  */
@@ -84,6 +85,15 @@ Object.defineProperty(exports, "reactivateFalselyDemotedReporters", { enumerable
 Object.defineProperty(exports, "runReactivateDemotedReportersHttp", { enumerable: true, get: function () { return reporter_handler_1.runReactivateDemotedReportersHttp; } });
 Object.defineProperty(exports, "recordAppInstallReferral", { enumerable: true, get: function () { return reporter_handler_1.recordAppInstallReferral; } });
 Object.defineProperty(exports, "restoreAllDowngradedReporters", { enumerable: true, get: function () { return reporter_handler_1.restoreAllDowngradedReporters; } });
+Object.defineProperty(exports, "cleanDuplicateApplications", { enumerable: true, get: function () { return reporter_handler_1.cleanDuplicateApplications; } });
+Object.defineProperty(exports, "cleanupExpiredReporterApplications", { enumerable: true, get: function () { return reporter_handler_1.cleanupExpiredReporterApplications; } });
+// 2b. Export Reporter Operating Rhythm
+var reporter_operating_rhythm_1 = require("./reporter_operating_rhythm");
+Object.defineProperty(exports, "morningReporterBeatNotification", { enumerable: true, get: function () { return reporter_operating_rhythm_1.morningReporterBeatNotification; } });
+Object.defineProperty(exports, "middayReporterReminder", { enumerable: true, get: function () { return reporter_operating_rhythm_1.middayReporterReminder; } });
+Object.defineProperty(exports, "eveningReporterRoundup", { enumerable: true, get: function () { return reporter_operating_rhythm_1.eveningReporterRoundup; } });
+Object.defineProperty(exports, "nightReporterLeaderboardAnnouncement", { enumerable: true, get: function () { return reporter_operating_rhythm_1.nightReporterLeaderboardAnnouncement; } });
+Object.defineProperty(exports, "triggerOperatingRhythmBeat", { enumerable: true, get: function () { return reporter_operating_rhythm_1.triggerOperatingRhythmBeat; } });
 // 3. Export Main News Functions
 var news_handler_1 = require("./news_handler");
 Object.defineProperty(exports, "processNewsPost", { enumerable: true, get: function () { return news_handler_1.processNewsPost; } });
@@ -108,6 +118,12 @@ Object.defineProperty(exports, "testDistrictSocialPost", { enumerable: true, get
 Object.defineProperty(exports, "manuallyTriggerSocialPost", { enumerable: true, get: function () { return social_auto_post_1.manuallyTriggerSocialPost; } });
 Object.defineProperty(exports, "initializeDistrictSocialConfigs", { enumerable: true, get: function () { return social_auto_post_1.initializeDistrictSocialConfigs; } });
 Object.defineProperty(exports, "exchangeForPermanentToken", { enumerable: true, get: function () { return social_auto_post_1.exchangeForPermanentToken; } });
+// 9. Export AI Voice Agent Engine & Calling Handlers
+var voice_agent_handler_1 = require("./voice_agent_handler");
+Object.defineProperty(exports, "triggerReporterVoiceCheck", { enumerable: true, get: function () { return voice_agent_handler_1.triggerReporterVoiceCheck; } });
+Object.defineProperty(exports, "triggerVoiceCampaign", { enumerable: true, get: function () { return voice_agent_handler_1.triggerVoiceCampaign; } });
+Object.defineProperty(exports, "simulateVoiceConversation", { enumerable: true, get: function () { return voice_agent_handler_1.simulateVoiceConversation; } });
+Object.defineProperty(exports, "handleTelephonyWebhook", { enumerable: true, get: function () { return voice_agent_handler_1.handleTelephonyWebhook; } });
 const types_1 = require("./types");
 /**
  * Push Broadcast Function (Manual Push - Admin Only)
@@ -130,7 +146,7 @@ exports.triggerPushBroadcast = (0, https_1.onCall)(async (request) => {
         notification: { title, body },
         android: {
             notification: {
-                channelId: channelId || "general_news",
+                channelId: channelId || "general_news_v2",
                 priority: silent ? "low" : "high",
                 defaultSound: !silent
             }
@@ -138,7 +154,7 @@ exports.triggerPushBroadcast = (0, https_1.onCall)(async (request) => {
         data: {
             actionUrl: actionUrl || "",
             newsId: newsId || "",
-            channelId: channelId || "general_news",
+            channelId: channelId || "general_news_v2",
             title: title,
             body: body
         },
@@ -159,6 +175,40 @@ exports.triggerPushBroadcast = (0, https_1.onCall)(async (request) => {
     }
     catch (error) {
         throw new https_1.HttpsError('internal', error.message || 'Failed to send notification');
+    }
+});
+/**
+ * 4. Web FCM Topic Subscription
+ * వెబ్ యూజర్లు నోటిఫికేషన్ టాపిక్స్ (all_users, etc.) కి సబ్‌స్క్రయిబ్ అవ్వడానికి ఉపయోగించే Cloud Function.
+ */
+exports.subscribeToNewsTopic = (0, https_1.onCall)(async (request) => {
+    const { token, topic } = request.data || {};
+    if (!token || !topic) {
+        throw new https_1.HttpsError('invalid-argument', 'Token and Topic are required.');
+    }
+    try {
+        await admin.messaging().subscribeToTopic([token], topic);
+        console.log(`[FCM_TOPIC_SUB] Successfully subscribed token to ${topic}`);
+        return { success: true };
+    }
+    catch (error) {
+        console.error(`[FCM_TOPIC_SUB_ERROR] Failed to subscribe to ${topic}:`, error.message);
+        throw new https_1.HttpsError('internal', error.message || 'Failed to subscribe to topic');
+    }
+});
+exports.unsubscribeFromNewsTopic = (0, https_1.onCall)(async (request) => {
+    const { token, topic } = request.data || {};
+    if (!token || !topic) {
+        throw new https_1.HttpsError('invalid-argument', 'Token and Topic are required.');
+    }
+    try {
+        await admin.messaging().unsubscribeFromTopic([token], topic);
+        console.log(`[FCM_TOPIC_UNSUB] Successfully unsubscribed token from ${topic}`);
+        return { success: true };
+    }
+    catch (error) {
+        console.error(`[FCM_TOPIC_UNSUB_ERROR] Failed to unsubscribe from ${topic}:`, error.message);
+        throw new https_1.HttpsError('internal', error.message || 'Failed to unsubscribe from topic');
     }
 });
 exports.sendContactEmail = (0, https_1.onCall)({ secrets: ["EMAIL_USER", "EMAIL_PASS"] }, async (request) => {

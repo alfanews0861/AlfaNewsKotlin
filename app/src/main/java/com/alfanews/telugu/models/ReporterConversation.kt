@@ -26,3 +26,15 @@ data class ReporterMessage(
     val read: Boolean = false,
     val timestamp: Long = 0L
 )
+
+data class AdminNotice(
+    val id: String = "",
+    val title: String = "",
+    val text: String = "",
+    val senderName: String = "ఆల్ఫా న్యూస్ ఎడిటోరియల్ డెస్క్",
+    val senderRole: String = "ADMIN",
+    val type: String = "NOTICE", // "WARNING" | "BROADCAST" | "DAILY_BEAT" | "REMINDER" | "NOTICE" | "CHAT"
+    val timestamp: Long = System.currentTimeMillis(),
+    val source: String = "REPORTER_CONV" // "REPORTER_CONV" | "USER_MSG"
+)
+

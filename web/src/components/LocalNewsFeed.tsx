@@ -175,7 +175,25 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
             setNews(prev => {
                 const seenIds = new Set(prev.map((p) => p.id));
                 const uniqueNew = fetchedPosts.filter((p: NewsPost) => !seenIds.has(p.id));
-                uniqueNew.sort((a: NewsPost, b: NewsPost) => b.timestamp - a.timestamp);
+                const userScores = currentUser?.categoryScores || currentUser?.interests;
+                if (userScores && Object.keys(userScores).length > 0) {
+                    const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+                    uniqueNew.sort((a: NewsPost, b: NewsPost) => {
+                        const getScore = (post: NewsPost) => {
+                            let score = 0;
+                            const features = [...(post.categories || []), ...(post.tags || []), ...(post.keywords || [])];
+                            features.forEach(f => {
+                                score += (userScores[f] || userScores[f.toLowerCase()] || 0);
+                            });
+                            return score;
+                        };
+                        const effA = a.timestamp + (getScore(a) * FOUR_HOURS_MS);
+                        const effB = b.timestamp + (getScore(b) * FOUR_HOURS_MS);
+                        return effB - effA;
+                    });
+                } else {
+                    uniqueNew.sort((a: NewsPost, b: NewsPost) => b.timestamp - a.timestamp);
+                }
                 
                 const finalNews = isInitial ? uniqueNew : [...prev, ...uniqueNew];
                 

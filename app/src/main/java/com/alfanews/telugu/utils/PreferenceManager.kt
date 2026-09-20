@@ -60,6 +60,8 @@ class PreferenceManager(context: Context) {
         private const val KEY_OPINION_VOTE_PREFIX = "key_opinion_vote_"
         private const val KEY_DETECTED_MANDAL = "key_detected_mandal"
         private const val KEY_MANDAL_SCORES_PREFIX = "key_mandal_scores_"
+        private const val KEY_LAST_LOCATION_DETECTION_TIME = "key_last_location_detection_time"
+        private const val KEY_VC_WRITE_COUNTER = "key_vc_write_counter"
 
         @Volatile
         private var INSTANCE: PreferenceManager? = null
@@ -216,7 +218,28 @@ class PreferenceManager(context: Context) {
      * జిల్లాను సులభంగా సేవ్ చేయడానికి (మొబైల్ డేటా/GPS డిటెక్షన్ తర్వాత వాడవచ్చు)
      */
     fun saveDetectedDistrict(district: String) {
-        prefs.edit().putString(KEY_DETECTED_DISTRICT, district).apply()
+        prefs.edit()
+            .putString(KEY_DETECTED_DISTRICT, district)
+            .putLong(KEY_LAST_LOCATION_DETECTION_TIME, System.currentTimeMillis())
+            .apply()
+    }
+
+    /** గతంలో GPS ద్వారా లొకేషన్ గుర్తించిన సమయం (Epoch Millis). */
+    var lastLocationDetectionTime: Long
+        get() = prefs.getLong(KEY_LAST_LOCATION_DETECTION_TIME, 0L)
+        set(value) {
+            prefs.edit().putLong(KEY_LAST_LOCATION_DETECTION_TIME, value).apply()
+        }
+
+    /**
+     * గత 48 గంటల్లో లొకేషన్ రికార్డ్ అయి ఉందో లేదో తనిఖీ చేస్తుంది.
+     * డిఫాల్ట్‌గా 48 గంటలు (48h) లోపు ఉంటే తిరిగి GPS ఆన్ చేయకుండా క్యాష్ చేసిన లొకేషన్‌ను ఉపయోగిస్తాము.
+     */
+    fun isLocationDetectionStale(maxAgeMillis: Long = 48L * 60L * 60L * 1000L): Boolean {
+        val lastTime = lastLocationDetectionTime
+        if (lastTime <= 0L) return true
+        val elapsed = System.currentTimeMillis() - lastTime
+        return elapsed < 0L || elapsed > maxAgeMillis
     }
 
     var newsInterests: Set<String>?
@@ -268,10 +291,34 @@ class PreferenceManager(context: Context) {
      * ఒక వార్త 2 సార్ల కంటే ఎక్కువ కనిపించకుండా చేయడానికి ఇది ఉపయోగపడుతుంది.
      */
     fun incrementPostViewCount(postId: String) {
+        if (postId.isBlank()) return
         val currentCount = prefs.getInt("vc_$postId", 0)
         // గరిష్టంగా 10 వరకు మాత్రమే స్టోర్ చేస్తాము (మెమరీ ఆదా కోసం)
         if (currentCount < 10) {
             prefs.edit().putInt("vc_$postId", currentCount + 1).apply()
+            cleanStaleViewCountsIfNeeded()
+        }
+    }
+
+    /**
+     * ఒకేసారి బహుళ పోస్టుల వ్యూ కౌంట్లను బ్యాచ్ రూపంలో సేవ్ చేస్తుంది.
+     * 20 వేర్వేరు .apply() కాల్స్ బదులు ఒకే ట్రాన్సాక్షన్‌లో రాస్తుంది (UI lag & ANR నివారణ).
+     */
+    fun incrementPostViewCounts(postIds: List<String>) {
+        if (postIds.isEmpty()) return
+        val editor = prefs.edit()
+        var hasChanges = false
+        for (postId in postIds) {
+            if (postId.isBlank()) continue
+            val currentCount = prefs.getInt("vc_$postId", 0)
+            if (currentCount < 10) {
+                editor.putInt("vc_$postId", currentCount + 1)
+                hasChanges = true
+            }
+        }
+        if (hasChanges) {
+            editor.apply()
+            cleanStaleViewCountsIfNeeded()
         }
     }
 
@@ -332,11 +379,34 @@ class PreferenceManager(context: Context) {
     }
 
     /** 
-     * పాత వ్యూ కౌంట్లను క్లియర్ చేయడానికి (ఐచ్ఛికం - మెమరీ మేనేజ్మెంట్ కోసం వాడవచ్చు)
+     * పాత వ్యూ కౌంట్లను ఆటోమేటిక్‌గా క్లియర్ చేస్తుంది.
+     * prefs లో 300 కీలు దాటితే పాత వాటిని తొలగించి XML సైజును సురక్షితంగా ఉంచుతుంది.
      */
-    fun clearOldViewCounts() {
-        // ఇక్కడ పాత కీలను తొలగించే లాజిక్ రాయవచ్చు, కానీ ప్రస్తుతానికి 
-        // తక్కువ సైజులో ఉండేలా కీ పేరు 'vc_' అని చిన్నగా పెట్టాను.
+    fun clearOldViewCounts(maxRetained: Int = 200) {
+        try {
+            val allEntries = prefs.all
+            val vcKeys = allEntries.keys.filter { it.startsWith("vc_") }
+            if (vcKeys.size > maxRetained) {
+                val editor = prefs.edit()
+                val toRemove = vcKeys.take(vcKeys.size - maxRetained)
+                for (key in toRemove) {
+                    editor.remove(key)
+                }
+                editor.apply()
+            }
+        } catch (_: Exception) {
+            // Ignore cleanup errors
+        }
+    }
+
+    private fun cleanStaleViewCountsIfNeeded() {
+        val counter = prefs.getInt(KEY_VC_WRITE_COUNTER, 0)
+        if (counter >= 30) {
+            prefs.edit().putInt(KEY_VC_WRITE_COUNTER, 0).apply()
+            clearOldViewCounts(200)
+        } else {
+            prefs.edit().putInt(KEY_VC_WRITE_COUNTER, counter + 1).apply()
+        }
     }
 
     // ==========================================

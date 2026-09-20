@@ -118,18 +118,48 @@ async function getActualLatestNewsDate(reporterId, reporterName) {
     const queryFields = ['reporter.id', 'originalReporterId', 'reporterId', 'userId'];
     for (const field of queryFields) {
         try {
-            const snap = await db.collection('news').where(field, '==', reporterId).get();
+            let snap;
+            try {
+                snap = await db.collection('news')
+                    .where(field, '==', reporterId)
+                    .orderBy('timestamp', 'desc')
+                    .limit(1)
+                    .get();
+            }
+            catch {
+                snap = await db.collection('news')
+                    .where(field, '==', reporterId)
+                    .limit(1)
+                    .get();
+            }
             if (!snap.empty) {
                 checkDocs(snap.docs);
+                if (latestDate)
+                    return latestDate;
             }
         }
         catch { }
     }
     if (reporterName) {
         try {
-            const nameSnap = await db.collection('news').where('reporter.name', '==', reporterName).get();
+            let nameSnap;
+            try {
+                nameSnap = await db.collection('news')
+                    .where('reporter.name', '==', reporterName)
+                    .orderBy('timestamp', 'desc')
+                    .limit(1)
+                    .get();
+            }
+            catch {
+                nameSnap = await db.collection('news')
+                    .where('reporter.name', '==', reporterName)
+                    .limit(1)
+                    .get();
+            }
             if (!nameSnap.empty) {
                 checkDocs(nameSnap.docs);
+                if (latestDate)
+                    return latestDate;
             }
         }
         catch { }
@@ -171,7 +201,7 @@ function calculateDaysInactive(reporter, now, actualNewsDate) {
     return 0;
 }
 /**
- * Core scanner function to evaluate reporter activity and send warnings / admin copies.
+ * Core scanner function to evaluate reporter activity and send warnings.
  */
 async function runReporterActivityScan() {
     console.log("[REPORTER_MONITOR] 🔍 Starting reporter activity scan...");
@@ -453,7 +483,7 @@ async function sendInternalMessage(userId, title, body, importance, userData, ms
         }
         // 3. Fetch tokens and send High-Priority FCM Push
         const data = userData || (await db.collection('users').doc(userId).get()).data();
-        if (data && data.notificationsEnabled === false)
+        if (data && (data.notificationsEnabled === false || data.pushEnabled === false))
             return;
         const rawTokens = [...(data?.fcmTokens || []), data?.fcmToken];
         const tokens = Array.from(new Set(rawTokens.filter((t) => typeof t === 'string' && t.trim().length > 0)));
@@ -465,7 +495,7 @@ async function sendInternalMessage(userId, title, body, importance, userData, ms
                     ttl: 86400000,
                     directBootOk: true,
                     notification: {
-                        channelId: 'general_news',
+                        channelId: 'general_news_v2',
                         sound: 'default'
                     }
                 },
@@ -478,7 +508,7 @@ async function sendInternalMessage(userId, title, body, importance, userData, ms
                     title,
                     body,
                     importance,
-                    channelId: 'general_news'
+                    channelId: 'general_news_v2'
                 }
             }));
             await admin.messaging().sendEach(messages).catch(err => console.error(`[FCM_ERROR] User ${userId}:`, err));

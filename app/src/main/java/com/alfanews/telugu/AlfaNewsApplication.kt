@@ -69,8 +69,13 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
             // అనలిటిక్స్ సర్వీస్
             AnalyticsService.initialize(this)
 
-            // పుష్ నోటిఫికేషన్లు
-            FirebaseMessaging.getInstance().subscribeToTopic("all_users")
+            // పుష్ నోటిఫికేషన్లు (యూజర్ ప్రిఫరెన్స్ ఆధారంగా మాత్రమే)
+            val prefs = PreferenceManager.getInstance(this)
+            if (prefs.isNotificationsEnabled) {
+                FirebaseMessaging.getInstance().subscribeToTopic("all_users")
+            } else {
+                FirebaseMessaging.getInstance().unsubscribeFromTopic("all_users")
+            }
             
             // నోటిఫికేషన్ ఛానెల్‌లను సృష్టించడం (ముఖ్యంగా ఆండ్రాయిడ్ 13+ కోసం)
             createNotificationChannels()
@@ -126,6 +131,11 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
                     vibrationPattern = longArrayOf(0, 250, 100, 250)
                     lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
                 },
+                NotificationChannel("general_news", "General News (Legacy)", NotificationManager.IMPORTANCE_HIGH).apply {
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 250, 100, 250)
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                },
                 NotificationChannel("breaking_news", "Breaking News", NotificationManager.IMPORTANCE_HIGH).apply {
                     enableVibration(true)
                     vibrationPattern = longArrayOf(0, 300, 150, 300)
@@ -136,7 +146,17 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
                     vibrationPattern = longArrayOf(0, 250, 100, 250)
                     lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
                 },
+                NotificationChannel("local_news", "Local News (Legacy)", NotificationManager.IMPORTANCE_HIGH).apply {
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 250, 100, 250)
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                },
                 NotificationChannel("weather_alerts", "Weather Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 250, 100, 250)
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                },
+                NotificationChannel("admin_alerts", "Admin Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
                     enableVibration(true)
                     vibrationPattern = longArrayOf(0, 250, 100, 250)
                     lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC

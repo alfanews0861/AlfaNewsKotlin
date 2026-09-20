@@ -199,8 +199,58 @@ fun NewsCardView(
     var shareCount by remember { mutableIntStateOf(initialShareCount) }
     var commentCount by remember { mutableIntStateOf(post.comments) }
 
-    LaunchedEffect(Unit) {
-        startTime = System.currentTimeMillis()
+    LaunchedEffect(isActive) {
+        if (isActive) {
+            startTime = System.currentTimeMillis()
+        } else if (startTime != null) {
+            val start = startTime ?: return@LaunchedEffect
+            val duration = (System.currentTimeMillis() - start) / 1000.0
+            startTime = null
+            if (duration < 2) {
+                AnalyticsService.logNegativeSignal(post)
+            } else if (duration > 4) {
+                AnalyticsService.logPostEngagement(post)
+                AnalyticsService.logNewsRead(post, duration, "card_view")
+
+                // ✅ PERSONALIZATION: User 4+ seconds చదివిన వార్త category track చేయాలి
+                val newsCategory = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                    ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                if (newsCategory != null) {
+                    try {
+                        val prefs = PreferenceManager.getInstance(context)
+                        prefs.trackCategoryRead(newsCategory)
+
+                        // ప్రతి 5 reads కి topic subscriptions update చేస్తాం
+                        val totalReads = prefs.getCategoryReadCounts().values.sum()
+                        if (totalReads % 5 == 0) {
+                            MyFirebaseMessagingService.updateCategorySubscriptions(prefs)
+                        }
+
+                        // 🔥 DAILY READING STREAK TRACKER
+                        val streakInfo = prefs.recordDailyReading()
+                        if (streakInfo.isNewDay && streakInfo.isMilestone && streakInfo.milestoneText != null) {
+                            Toast.makeText(context, streakInfo.milestoneText, Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Log.e("NewsCardView", "Category tracking failed", e)
+                    }
+                }
+
+                // 📍 MANDAL ENGAGEMENT TRACKING
+                try {
+                    val prefs = PreferenceManager.getInstance(context)
+                    val effectiveDist = district ?: post.district ?: prefs.getEffectiveDistrict()
+                    if (!effectiveDist.isNullOrBlank() && effectiveDist != "General" && effectiveDist != "State") {
+                        val mandal = com.alfanews.telugu.utils.LocationHierarchyManager.extractMandalFromPost(post, effectiveDist)
+                        if (!mandal.isNullOrBlank()) {
+                            prefs.trackMandalRead(mandal, effectiveDist, 1)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("NewsCardView", "Mandal tracking failed", e)
+                }
+            }
+        }
     }
 
     LaunchedEffect(scrollState) {
@@ -213,54 +263,14 @@ fun NewsCardView(
             }
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(post.id) {
         onDispose {
             startTime?.let { start ->
                 val duration = (System.currentTimeMillis() - start) / 1000.0
-                if (duration < 2) {
-                    AnalyticsService.logNegativeSignal(post)
-                } else if (duration > 4) {
+                startTime = null
+                if (duration > 4) {
                     AnalyticsService.logPostEngagement(post)
                     AnalyticsService.logNewsRead(post, duration, "card_view")
-
-                    // ✅ PERSONALIZATION: User 4+ seconds చదివిన వార్త category track చేయాలి
-                    // ఇది real engagement — fake likes/shares కాదు
-                    val newsCategory = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
-                        ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
-                    if (newsCategory != null) {
-                        try {
-                            val prefs = PreferenceManager.getInstance(context)
-                            prefs.trackCategoryRead(newsCategory)
-
-                            // ప్రతి 5 reads కి topic subscriptions update చేస్తాం
-                            val totalReads = prefs.getCategoryReadCounts().values.sum()
-                            if (totalReads % 5 == 0) {
-                                MyFirebaseMessagingService.updateCategorySubscriptions(prefs)
-                            }
-
-                            // 🔥 DAILY READING STREAK TRACKER
-                            val streakInfo = prefs.recordDailyReading()
-                            if (streakInfo.isNewDay && streakInfo.isMilestone && streakInfo.milestoneText != null) {
-                                Toast.makeText(context, streakInfo.milestoneText, Toast.LENGTH_SHORT).show()
-                            }
-                        } catch (e: Exception) {
-                            Log.e("NewsCardView", "Category tracking failed", e)
-                        }
-                    }
-
-                    // 📍 MANDAL ENGAGEMENT TRACKING
-                    try {
-                        val prefs = PreferenceManager.getInstance(context)
-                        val effectiveDist = district ?: post.district ?: prefs.getEffectiveDistrict()
-                        if (!effectiveDist.isNullOrBlank() && effectiveDist != "General" && effectiveDist != "State") {
-                            val mandal = com.alfanews.telugu.utils.LocationHierarchyManager.extractMandalFromPost(post, effectiveDist)
-                            if (!mandal.isNullOrBlank()) {
-                                prefs.trackMandalRead(mandal, effectiveDist, 1)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e("NewsCardView", "Mandal tracking failed", e)
-                    }
                 }
             }
         }
@@ -310,8 +320,11 @@ fun NewsCardView(
                                 )
                             } else {
                                 val imageUrl = url
+                                val imageRequest = remember(imageUrl) {
+                                    ImageRequest.Builder(context).data(imageUrl).crossfade(true).allowHardware(true).build()
+                                }
                                 AsyncImage(
-                                    model = ImageRequest.Builder(context).data(imageUrl).crossfade(true).allowHardware(true).build(),
+                                    model = imageRequest,
                                     fallback = painterResource(id = R.drawable.fallback_news_image),
                                     error = painterResource(id = R.drawable.fallback_news_image),
                                     contentDescription = headlineText,
@@ -418,8 +431,11 @@ fun NewsCardView(
                                     VideoPlayerView(videoUrl = url, autoPlay = isActive && pagerState.currentPage == page)
                                 } else {
                                     val imageUrl = url
+                                    val imageRequest = remember(imageUrl) {
+                                        ImageRequest.Builder(context).data(imageUrl).crossfade(true).allowHardware(true).build()
+                                    }
                                     AsyncImage(
-                                        model = ImageRequest.Builder(context).data(imageUrl).crossfade(true).allowHardware(true).build(),
+                                        model = imageRequest,
                                         fallback = painterResource(id = R.drawable.fallback_news_image),
                                         error = painterResource(id = R.drawable.fallback_news_image),
                                         contentDescription = headlineText,
@@ -975,16 +991,20 @@ private fun saveImageToCache(context: Context, bitmap: Bitmap): Uri? {
     val imagesFolder = File(context.cacheDir, "images")
     try {
         imagesFolder.mkdirs()
-        // Clean old share images older than 1 hour to prevent disk bloat
-        imagesFolder.listFiles()?.forEach { file ->
-            if (file.name.startsWith("news_share_") && (System.currentTimeMillis() - file.lastModified() > 3600000)) {
-                file.delete()
-            }
+        // Clean old share images: keep at most 2 previous images so disk storage is protected
+        val shareFiles = imagesFolder.listFiles()?.filter { it.name.startsWith("news_share_") } ?: emptyList()
+        if (shareFiles.size >= 3) {
+            shareFiles.sortedBy { it.lastModified() }
+                .take(shareFiles.size - 2)
+                .forEach { runCatching { it.delete() } }
         }
+        shareFiles.filter { System.currentTimeMillis() - it.lastModified() > 3600000 }
+            .forEach { runCatching { it.delete() } }
+
         val file = File(imagesFolder, "news_share_${System.currentTimeMillis()}.jpg")
-        val stream = FileOutputStream(file)
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
-        stream.close()
+        FileOutputStream(file).use { stream ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+        }
         return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     } catch (e: Exception) { 
         e.printStackTrace() 

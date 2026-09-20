@@ -12,7 +12,7 @@ async function getUserFcmTokens(userId: string): Promise<string[]> {
         const userDoc = await db.collection('users').doc(userId).get();
         if (!userDoc.exists) return [];
         const data = userDoc.data();
-        if (data && data.notificationsEnabled === false) return [];
+        if (data && (data.notificationsEnabled === false || data.pushEnabled === false)) return [];
 
         const rawTokens: any[] = [...(data?.fcmTokens || []), data?.fcmToken];
         return Array.from(new Set(rawTokens.filter((t): t is string => typeof t === 'string' && t.trim().length > 0)));
@@ -34,7 +34,7 @@ async function sendHighPriorityPush(tokens: string[], title: string, body: strin
             ttl: 86400000,
             directBootOk: true,
             notification: {
-                channelId: 'general_news',
+                channelId: 'general_news_v2',
                 sound: 'default'
             }
         },
@@ -46,7 +46,7 @@ async function sendHighPriorityPush(tokens: string[], title: string, body: strin
             type,
             title,
             body,
-            channelId: 'general_news',
+            channelId: 'general_news_v2',
             ...extraData
         }
     }));

@@ -87,8 +87,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _unreadMessagesCount = MutableStateFlow(0)
     val unreadMessagesCount: StateFlow<Int> = _unreadMessagesCount.asStateFlow()
 
+    private val _unreadAdminNotices = MutableStateFlow<List<AdminNotice>>(emptyList())
+    val unreadAdminNotices: StateFlow<List<AdminNotice>> = _unreadAdminNotices.asStateFlow()
+
     private var weatherAlertListener: ListenerRegistration? = null
     private var reporterConvListener: ListenerRegistration? = null
+    private var reporterUnreadMessagesListener: ListenerRegistration? = null
     private var userMessagesListener: ListenerRegistration? = null
     private var unreadConvCount = 0
     private var unreadUserMsgCount = 0
@@ -172,7 +176,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 role = parsedRole,
                                 address = snapshot.getString("address"),
                                 district = snapshot.getString("district"),
-                                pushEnabled = snapshot.getBoolean("pushEnabled") ?: true,
+                                pushEnabled = snapshot.getBoolean("pushEnabled") ?: snapshot.getBoolean("notificationsEnabled") ?: true,
                                 constituency = snapshot.getString("constituency"),
                                 state = snapshot.getString("state"),
                                 promotedBy = snapshot.getString("promotedBy"),
@@ -395,6 +399,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun startUnreadMessagesListener(user: User?) {
         reporterConvListener?.remove()
         reporterConvListener = null
+        reporterUnreadMessagesListener?.remove()
+        reporterUnreadMessagesListener = null
         userMessagesListener?.remove()
         userMessagesListener = null
         unreadConvCount = 0
@@ -402,6 +408,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         if (user == null || user.id.isBlank() || user.id == "guest") {
             _unreadMessagesCount.value = 0
+            _unreadAdminNotices.value = emptyList()
             return
         }
 
@@ -411,14 +418,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             UserRole.NEWS_DESK,
             UserRole.REGIONAL_INCHARGE
         ).contains(user.role)
-        val isReporter = user.role == UserRole.REPORTER
+        val isReporter = user.role == UserRole.REPORTER || user.role == UserRole.NEWS_DESK
 
         fun updateTotal() {
             _unreadMessagesCount.value = unreadConvCount + unreadUserMsgCount
         }
 
         // 1. Listen to reporter_conversations if Admin Staff or Reporter
-        if (isAdminStaff) {
+        if (isAdminStaff && !isReporter) {
             reporterConvListener = FirebaseService.db.collection("reporter_conversations")
                 .whereGreaterThan("unreadCountForAdmin", 0)
                 .addSnapshotListener { snapshot, e ->
@@ -437,6 +444,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     updateTotal()
                 }
+
+            // Real-time listener for incoming unread Admin messages to show In-App Popup
+            // 🎯 కేవలం అత్యవసర హెచ్చరికలు (WARNING) మరియు అధికారిక ప్రకటనలు (BROADCAST, NOTICE) మాత్రమే
+            reporterUnreadMessagesListener = FirebaseService.db.collection("reporter_conversations")
+                .document(user.id)
+                .collection("messages")
+                .whereEqualTo("read", false)
+                .whereEqualTo("senderRole", "ADMIN")
+                .addSnapshotListener { snapshot, e ->
+                    if (e != null || snapshot == null) return@addSnapshotListener
+                    val importantTypes = setOf("WARNING", "BROADCAST", "NOTICE")
+                    val notices = snapshot.documents.mapNotNull { doc ->
+                        try {
+                            val data = doc.data ?: return@mapNotNull null
+                            val rawType = (data["type"] as? String ?: "NOTICE").trim().uppercase()
+
+                            // DAILY_BEAT, REMINDER, CHAT లకు పాపప్ రాదు; కేవలం WARNING, BROADCAST, NOTICE లకు మాత్రమే వస్తుంది
+                            if (!importantTypes.contains(rawType)) return@mapNotNull null
+
+                            val fullText = data["text"] as? String ?: ""
+                            val senderName = data["senderName"] as? String ?: "ఆల్ఫా న్యూస్ ఎడిటోరియల్ డెస్క్"
+                            val ts = when (val t = data["timestamp"]) {
+                                is Timestamp -> t.toDate().time
+                                is Number -> t.toLong()
+                                else -> System.currentTimeMillis()
+                            }
+                            val (title, body) = if (fullText.contains("\n\n")) {
+                                val parts = fullText.split("\n\n", limit = 2)
+                                Pair(parts[0].trim(), parts[1].trim())
+                            } else {
+                                val fallbackTitle = when (rawType) {
+                                    "WARNING" -> "హెచ్చరిక సందేశం (Warning Notice)"
+                                    "BROADCAST" -> "బ్రాడ్‌కాస్ట్ ప్రకటన (Broadcast Announcement)"
+                                    else -> "ఎడిటోరియల్ డెస్క్ ముఖ్య ప్రకటన"
+                                }
+                                Pair(fallbackTitle, fullText)
+                            }
+                            AdminNotice(
+                                id = doc.id,
+                                title = title,
+                                text = body,
+                                senderName = senderName,
+                                senderRole = "ADMIN",
+                                type = rawType,
+                                timestamp = ts,
+                                source = "REPORTER_CONV"
+                            )
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }.sortedByDescending { it.timestamp }
+                    _unreadAdminNotices.value = notices
+                }
         }
 
         // 2. Also listen to users/{userId}/messages for personal messages/notices across all roles
@@ -445,12 +505,107 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .collection("messages")
             .addSnapshotListener { snapshot, e ->
                 if (e != null || snapshot == null) return@addSnapshotListener
-                unreadUserMsgCount = snapshot.documents.count { doc ->
-                    doc.getBoolean("read") != true
-                }
+                val unreadDocs = snapshot.documents.filter { it.getBoolean("read") != true }
+                unreadUserMsgCount = unreadDocs.size
                 updateTotal()
+
+                if (!isReporter && !isAdminStaff) {
+                    val importantTypes = setOf("WARNING", "BROADCAST", "NOTICE")
+                    val notices = unreadDocs.mapNotNull { doc ->
+                        try {
+                            val data = doc.data ?: return@mapNotNull null
+                            val rawType = (data["type"] as? String ?: "NOTICE").trim().uppercase()
+
+                            // కేవలం WARNING, BROADCAST, NOTICE లకు మాత్రమే పాపప్
+                            if (!importantTypes.contains(rawType)) return@mapNotNull null
+
+                            val title = data["title"] as? String ?: "ముఖ్య గమనిక"
+                            val body = data["body"] as? String ?: (data["text"] as? String ?: "")
+                            val senderName = data["senderName"] as? String ?: "ఆల్ఫా న్యూస్"
+                            val ts = when (val t = data["timestamp"]) {
+                                is Timestamp -> t.toDate().time
+                                is Number -> t.toLong()
+                                else -> System.currentTimeMillis()
+                            }
+                            AdminNotice(
+                                id = doc.id,
+                                title = title,
+                                text = body,
+                                senderName = senderName,
+                                senderRole = data["senderRole"] as? String ?: "ADMIN",
+                                type = rawType,
+                                timestamp = ts,
+                                source = "USER_MSG"
+                            )
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }.sortedByDescending { it.timestamp }
+                    _unreadAdminNotices.value = notices
+                }
             }
     }
+
+    /**
+     * విలేకరి లేదా వినియోగదారుడు అడ్మిన్ ముఖ్య సందేశాలను చదివినట్లు నిర్ధారించి,
+     * Firestore లో read: true చేసి, ప్రొఫైల్ ఐకాన్ మీది అన్‌రీడ్ బ్యాడ్జ్‌ను 0 చేస్తుంది.
+     */
+    fun markAllAdminMessagesRead() {
+        val user = _currentUser.value ?: return
+        if (user.id.isBlank() || user.id == "guest") return
+
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val isReporter = user.role == UserRole.REPORTER || user.role == UserRole.NEWS_DESK
+                if (isReporter) {
+                    FirebaseService.db.collection("reporter_conversations")
+                        .document(user.id)
+                        .update("unreadCountForReporter", 0)
+                        .await()
+
+                    val unreadMsgs = FirebaseService.db.collection("reporter_conversations")
+                        .document(user.id)
+                        .collection("messages")
+                        .whereEqualTo("read", false)
+                        .whereEqualTo("senderRole", "ADMIN")
+                        .get()
+                        .await()
+
+                    if (!unreadMsgs.isEmpty) {
+                        val batch = FirebaseService.db.batch()
+                        for (doc in unreadMsgs.documents) {
+                            batch.update(doc.reference, "read", true)
+                        }
+                        batch.commit().await()
+                    }
+                }
+
+                val unreadUserMsgs = FirebaseService.db.collection("users")
+                    .document(user.id)
+                    .collection("messages")
+                    .whereEqualTo("read", false)
+                    .get()
+                    .await()
+
+                if (!unreadUserMsgs.isEmpty) {
+                    val batch = FirebaseService.db.batch()
+                    for (doc in unreadUserMsgs.documents) {
+                        batch.update(doc.reference, "read", true)
+                    }
+                    batch.commit().await()
+                }
+
+                // In-memory state clean-up
+                unreadConvCount = 0
+                unreadUserMsgCount = 0
+                _unreadMessagesCount.value = 0
+                _unreadAdminNotices.value = emptyList()
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Error marking admin messages read: ${e.message}", e)
+            }
+        }
+    }
+
  
     fun syncUserFcmToken(userId: String?) {
         try {
@@ -847,10 +1002,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 prefs.isNotificationsEnabled = enabled
                 user?.id?.let { uid ->
-                    FirebaseService.db.collection("users").document(uid).update("pushEnabled", enabled).await()
+                    FirebaseService.db.collection("users").document(uid).update(
+                        mapOf(
+                            "pushEnabled" to enabled,
+                            "notificationsEnabled" to enabled
+                        )
+                    ).await()
                 }
             } catch (e: Exception) { }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        try {
+            newsListener?.remove()
+            newsListener = null
+            weatherAlertListener?.remove()
+            weatherAlertListener = null
+            userMessagesListener?.remove()
+            userMessagesListener = null
+            reporterConvListener?.remove()
+            reporterConvListener = null
+            reporterUnreadMessagesListener?.remove()
+            reporterUnreadMessagesListener = null
+            userListener?.remove()
+            userListener = null
+            appConfigListener?.remove()
+            appConfigListener = null
+            authStateListener?.let {
+                FirebaseService.auth.removeAuthStateListener(it)
+            }
+            authStateListener = null
+        } catch (_: Exception) {}
     }
 
     companion object {

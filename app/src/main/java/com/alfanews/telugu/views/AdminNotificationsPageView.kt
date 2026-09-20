@@ -129,7 +129,7 @@ fun AdminNotificationsPageView(showTitle: Boolean = true) {
                 }
                 
                 val finalBody = if (useCustomMessage) customBody else selectedPost?.headline?.telugu ?: ""
-                val actionUrl = if (useCustomMessage) "" else "#/s/${selectedPost?.id}"
+                val actionUrl = if (useCustomMessage) "" else "alfanews://news/${selectedPost?.id}"
                 val imageUrl = if (useCustomMessage) "" else selectedPost?.mediaUrl ?: ""
 
                 val result = FirebaseFunctionsService.triggerPushBroadcast(

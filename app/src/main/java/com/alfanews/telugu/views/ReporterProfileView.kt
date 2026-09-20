@@ -16,15 +16,20 @@ import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.content.Intent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -464,8 +469,267 @@ fun ReporterProfileView(
                         }
                     }
 
+                    // Star Reporter Recognition & Social Prestige Card
+                    item(span = { GridItemSpan(2) }) {
+                        val context = LocalContext.current
+                        val repName = reporter?.name?.ifEmpty { "ఆల్ఫా విలేకరి" } ?: "ఆల్ఫా విలేకరి"
+                        val repMandal = reporter?.assignedMandal ?: reporter?.address ?: "స్థానిక మండలం"
+                        val repDistrict = reporter?.district ?: "తెలుగు రాష్ట్రాలు"
+                        val storiesCount = posts.size
+                        val pts = reporter?.points ?: (storiesCount * 10)
+                        val repIdCode = "ALFA-${(reporter?.id ?: "").takeLast(6).uppercase()}"
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0D1B2A)),
+                            border = BorderStroke(1.5.dp, Color(0xFFFFD700).copy(alpha = 0.6f)),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                Color(0xFF0F172A),
+                                                Color(0xFF1E293B)
+                                            )
+                                        )
+                                    )
+                                    .padding(18.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                // Top Badge Header
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(24.dp)
+                                                .background(Color(0xFFDC2626), RoundedCornerShape(6.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "A",
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Black,
+                                                fontSize = 14.sp
+                                            )
+                                        }
+                                        Text(
+                                            text = "ఆల్ఫా న్యూస్",
+                                            fontFamily = Ramabhadra,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = Color(0xFFFFD700)
+                                        )
+                                    }
+
+                                    Surface(
+                                        color = Color(0xFFFFD700).copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, Color(0xFFFFD700).copy(alpha = 0.4f))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Star,
+                                                contentDescription = null,
+                                                tint = Color(0xFFFFD700),
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Text(
+                                                text = "స్టార్ విలేకరి",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = Ramabhadra,
+                                                color = Color(0xFFFFD700)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                // Mandal & District
+                                Text(
+                                    text = repName,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = Ramabhadra,
+                                    color = Color.White
+                                )
+
+                                Spacer(modifier = Modifier.height(4.dp))
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.LocationOn,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFF6B6B),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = "$repMandal • $repDistrict",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFFFFE082)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                Surface(
+                                    color = Color.White.copy(alpha = 0.08f),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        text = "ID: $repIdCode",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.LightGray,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                // Stats row in golden/amber tint
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Surface(
+                                        modifier = Modifier.weight(1f),
+                                        color = Color.Black.copy(alpha = 0.35f),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 6.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                text = "$storiesCount",
+                                                fontSize = 20.sp,
+                                                fontWeight = FontWeight.Black,
+                                                color = Color(0xFF60A5FA)
+                                            )
+                                            Text(
+                                                text = "వార్తా కథనాలు",
+                                                fontSize = 10.sp,
+                                                color = Color.Gray
+                                            )
+                                        }
+                                    }
+
+                                    Surface(
+                                        modifier = Modifier.weight(1f),
+                                        color = Color.Black.copy(alpha = 0.35f),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 6.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                text = "$pts",
+                                                fontSize = 20.sp,
+                                                fontWeight = FontWeight.Black,
+                                                color = Color(0xFFFFD700)
+                                            )
+                                            Text(
+                                                text = "స్టార్ పాయింట్లు",
+                                                fontSize = 10.sp,
+                                                color = Color.Gray
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // Citation text
+                                Text(
+                                    text = "“ప్రజల సమస్యలను వెలుగులోకి తెస్తూ నిష్పక్షపాత వార్తలతో మన మండల సేవలో నిలిచిన అధికారిక స్టార్ విలేకరి.”",
+                                    fontSize = 11.sp,
+                                    fontFamily = Mallanna,
+                                    color = Color(0xFFFFE082).copy(alpha = 0.85f),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                )
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                // Share Button
+                                Button(
+                                    onClick = {
+                                        val shareText = """
+                                            🌟 ఆల్ఫా న్యూస్ స్టార్ విలేకరి (Alfa News Star Reporter) 🌟
+                                            
+                                            👤 విలేకరి: $repName
+                                            📍 ప్రాంతం: $repMandal ($repDistrict)
+                                            📰 ప్రచురితమైన కథనాలు: $storiesCount
+                                            🏆 స్టార్ పాయింట్లు: $pts
+                                            🎖️ గుర్తింపు ID: $repIdCode
+                                            
+                                            ప్రజల పక్షాన నిరంతరం నిజమైన వార్తలను చేరవేస్తున్న మన స్థానిక విలేకరి!
+                                            
+                                            📲 ఆల్ఫా న్యూస్ యాప్‌ను ఇప్పుడే డౌన్‌లోడ్ చేసుకోండి:
+                                            https://alfanews.app
+                                        """.trimIndent()
+
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_SUBJECT, "ఆల్ఫా న్యూస్ స్టార్ విలేకరి - $repName")
+                                            putExtra(Intent.EXTRA_TEXT, shareText)
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "స్టార్ విలేకరి గుర్తింపును షేర్ చేయండి"))
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF10B981)
+                                    ),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Share,
+                                        contentDescription = "Share",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "వాట్సాప్ స్టేటస్ / సోషల్‌లో షేర్ చేయండి",
+                                        fontFamily = Ramabhadra,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     // Section Title Span
                     item(span = { GridItemSpan(2) }) {
+
                         Text(
                             text = if (language == Language.TELUGU) "వార్తలు (Stories)" else "Stories",
                             fontSize = 18.sp,

@@ -31,14 +31,17 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
   const [isEditModalOpen, setEditModalOpen] = useState(false);
   const [showIdCard, setShowIdCard] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [pushEnabled, setPushEnabled] = useState(user.pushEnabled !== false);
+  const [pushEnabled, setPushEnabled] = useState(user.pushEnabled !== false && user.notificationsEnabled !== false);
 
   const toggleNotifications = async () => {
     const newValue = !pushEnabled;
     setPushEnabled(newValue);
     try {
       const userRef = doc(db, 'users', user.id);
-      await updateDoc(userRef, { pushEnabled: newValue });
+      await updateDoc(userRef, {
+        pushEnabled: newValue,
+        notificationsEnabled: newValue
+      });
     } catch (e) {
       console.error("Failed to update push settings", e);
     }

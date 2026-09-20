@@ -57,7 +57,7 @@ fun DocumentSnapshot.toUserObject(): User? {
                 role = parsedRole,
                 address = this.getString("address"),
                 district = this.getString("district"),
-                pushEnabled = this.getBoolean("pushEnabled") ?: true,
+                pushEnabled = this.getBoolean("pushEnabled") ?: this.getBoolean("notificationsEnabled") ?: true,
                 constituency = this.getString("constituency"),
                 state = this.getString("state"),
                 promotedBy = this.getString("promotedBy"),

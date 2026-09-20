@@ -428,13 +428,31 @@ object AnalyticsService {
         firebaseAnalytics?.logEvent("notification_open", bundle)
     }
 
+    val NON_TOPICAL_CATEGORIES = setOf(
+        "జిల్లా వార్త", "General News", "General", "State", "National", "జనరల్",
+        "తాజా వార్తలు", "బ్రేకింగ్", "ముఖ్యాంశాలు", "వార్తలు", "News", "Greetings",
+        "Breaking News", "Latest", "Top News", "రాష్ట్రం", "జాతీయం"
+    )
+
+    fun isNonTopicalCategory(cat: String?): Boolean {
+        if (cat.isNullOrBlank()) return true
+        val trimmed = cat.trim()
+        if (NON_TOPICAL_CATEGORIES.any { it.equals(trimmed, ignoreCase = true) }) return true
+        if (com.alfanews.telugu.utils.Constants.ALL_DISTRICTS.any { it.equals(trimmed, ignoreCase = true) }) return true
+        return false
+    }
+
+    fun extractCleanCategories(post: NewsPost): List<String> {
+        val all = (post.categories + listOfNotNull(post.category)).map { it.trim() }.filter { it.isNotBlank() }
+        return all.filter { !isNonTopicalCategory(it) }.distinct()
+    }
+
     fun logCategoryViews(categories: List<String>, weight: Int = 1) {
-        if (categories.isEmpty()) return
+        val clean = categories.filter { !isNonTopicalCategory(it) }
+        if (clean.isEmpty()) return
         cachedPreferredCategories = null
-        categories.forEach { category ->
-            if (category.isNotBlank()) {
-                categoryScores[category] = (categoryScores[category] ?: 0) + weight
-            }
+        clean.forEach { category ->
+            categoryScores[category] = (categoryScores[category] ?: 0) + weight
         }
         saveToPrefs()
         syncToFirestore()
@@ -445,19 +463,18 @@ object AnalyticsService {
      * Reduces disk writes and Firestore sync overhead
      */
     fun logBulkCategoryViews(allCategories: List<List<String>>, weight: Int = 1) {
-        if (allCategories.isEmpty()) return
-        cachedPreferredCategories = null
-        
+        var updated = false
         allCategories.forEach { categories ->
-            categories.forEach { category ->
-                if (category.isNotBlank()) {
-                    categoryScores[category] = (categoryScores[category] ?: 0) + weight
-                }
+            categories.filter { !isNonTopicalCategory(it) }.forEach { category ->
+                categoryScores[category] = (categoryScores[category] ?: 0) + weight
+                updated = true
             }
         }
-
-        saveToPrefs()
-        syncToFirestore()
+        if (updated) {
+            cachedPreferredCategories = null
+            saveToPrefs()
+            syncToFirestore()
+        }
     }
 
     fun logReporterView(reporterId: String, weight: Int = 1) {
@@ -469,7 +486,7 @@ object AnalyticsService {
     
     fun logNewsScreenView(postId: String, title: String, categories: List<String>, district: String? = null) {
         val primaryCat = categories.firstOrNull { 
-            it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" && it != "National" 
+            it.isNotBlank() && !isNonTopicalCategory(it)
         } ?: categories.firstOrNull { it.isNotBlank() } ?: "General"
         val dist = district ?: "General"
         val state = extractState(dist)
@@ -502,9 +519,12 @@ object AnalyticsService {
     }
 
     fun logPostEngagement(post: NewsPost, weight: Int = 1) {
-        if (post.categories.isNotEmpty()) cachedPreferredCategories = null
-        post.categories.forEach { category ->
-            if (category.isNotBlank()) categoryScores[category] = (categoryScores[category] ?: 0) + weight
+        val cleanCats = extractCleanCategories(post)
+        if (cleanCats.isNotEmpty()) {
+            cachedPreferredCategories = null
+            cleanCats.forEach { category ->
+                categoryScores[category] = (categoryScores[category] ?: 0) + weight
+            }
         }
         if (post.reporter.id.isNotBlank()) {
             reporterScores[post.reporter.id] = (reporterScores[post.reporter.id] ?: 0) + weight
@@ -557,10 +577,15 @@ object AnalyticsService {
                 val keys = ArrayList(map.keys)
                 for (k in keys) {
                     val v = map[k] ?: continue
-                    val scaled = v / 2
-                    if (scaled == 0 && v <= 0) {
-                        map.remove(k)
-                    } else {
+                    if (v > 0) {
+                        val scaled = v / 2
+                        if (scaled == 0) {
+                            map.remove(k)
+                        } else {
+                            map[k] = scaled
+                        }
+                    } else if (v < 0) {
+                        val scaled = v / 2
                         map[k] = scaled
                     }
                 }
@@ -575,10 +600,13 @@ object AnalyticsService {
     }
 
     fun logNegativeSignal(post: NewsPost) {
-        if (post.categories.isNotEmpty()) cachedPreferredCategories = null
-        post.categories.forEach { category ->
-            val current = categoryScores[category] ?: 0
-            if (current > -20) categoryScores[category] = current - 1
+        val cleanCats = extractCleanCategories(post)
+        if (cleanCats.isNotEmpty()) {
+            cachedPreferredCategories = null
+            cleanCats.forEach { category ->
+                val current = categoryScores[category] ?: 0
+                if (current > -20) categoryScores[category] = current - 1
+            }
         }
         if (post.reporter.id.isNotBlank()) {
             val current = reporterScores[post.reporter.id] ?: 0
@@ -691,7 +719,7 @@ object AnalyticsService {
         return cachedPreferredCategories ?: synchronized(categoryScores) {
             cachedPreferredCategories ?: if (categoryScores.isEmpty()) emptyList<String>() else {
                 categoryScores.entries
-                    .filter { it.value > 0 }
+                    .filter { it.value > 0 && !isNonTopicalCategory(it.key) }
                     .sortedByDescending { it.value }
                     .take(15)
                     .map { it.key }
@@ -788,8 +816,9 @@ object AnalyticsService {
     fun calculateRelevanceScore(post: NewsPost): Double {
         var score = 0.0
 
-        // 1. కేటగిరీల ఆధారంగా స్కోర్
-        post.categories.forEach { cat ->
+        // 1. కేటగిరీల ఆధారంగా స్కోర్ (Clean topical categories only)
+        val cleanCats = extractCleanCategories(post)
+        cleanCats.forEach { cat ->
             score += (categoryScores[cat] ?: 0) * 1.0
         }
 
@@ -799,7 +828,7 @@ object AnalyticsService {
         }
 
         // 3. కీవర్డ్స్ (Tags) ఆధారంగా స్కోర్
-        post.tags.forEach { tag ->
+        post.tags.filter { !isNonTopicalCategory(it) }.forEach { tag ->
             score += (tagScores[tag] ?: 0) * 2.0
         }
 
@@ -818,14 +847,19 @@ object AnalyticsService {
             score += (locationScores[loc] ?: 0) * 1.2
         }
 
-        // తాజా వార్తలకు ప్రాధాన్యత (Recency Decay)
-        val hoursOld = (System.currentTimeMillis() - post.timestamp) / (1000.0 * 60 * 60)
-        val recencyMultiplier = Math.exp(-hoursOld / 48.0) // 48 గంటల తర్వాత ప్రాధాన్యత తగ్గుతుంది
+        // తాజా వార్తలకు ప్రాధాన్యత (Recency Decay) - 30 hours half-life
+        val hoursOld = maxOf(0.0, (System.currentTimeMillis() - post.timestamp) / (1000.0 * 60 * 60))
+        val recencyMultiplier = Math.exp(-hoursOld / 30.0)
 
         // సమయ ఆధారిత ప్రాధాన్యత (Time of Day Multiplier)
         val timeMultiplier = getTimeOfDayMultiplier(post)
 
-        return (score * recencyMultiplier) * timeMultiplier
+        return if (score >= 0) {
+            (score * recencyMultiplier) * timeMultiplier
+        } else {
+            // నెగెటివ్ స్కోర్ ఉన్నప్పుడు స్థిరమైన పెనాల్టీ ఉండాలి
+            score * (2.0 - recencyMultiplier)
+        }
     }
 
     private fun saveToPrefs() {
