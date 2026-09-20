@@ -180,6 +180,7 @@ fun ReporterManagementPageView(
                         }
                         val isExpired = timeMs > 0L && (now - timeMs) > TEN_DAYS_MS
                         !isExpired
+                    }
                     // Keep ALL valid non-expired applications in state (sort newest first)
                     // Note: Expired pending applications (>10 days) are safely pruned by the backend scheduled cleanup job
                     applications = validApps.sortedByDescending { doc ->
