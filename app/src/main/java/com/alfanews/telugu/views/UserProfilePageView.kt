@@ -75,8 +75,15 @@ fun UserProfilePageView(
     val leaderboardEntries by leaderboardViewModel.leaderboard.collectAsStateWithLifecycle()
     val leaderboardLoading by leaderboardViewModel.loading.collectAsStateWithLifecycle()
 
-    val isGuest = FirebaseService.auth.currentUser == null || user.id.isBlank() || user.id == "guest" || user.role == UserRole.GUEST
-    val isStaff = !isGuest && listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.REGIONAL_INCHARGE, UserRole.NEWS_DESK).contains(user.role)
+    val authUser = FirebaseService.auth.currentUser
+    val isGuest = authUser == null || user.id.isBlank() || user.id == "guest" || user.role == UserRole.GUEST
+    val isAdminUser = user.role == UserRole.ADMIN ||
+        user.phone?.contains("9173811009") == true ||
+        authUser?.phoneNumber?.contains("9173811009") == true ||
+        user.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
+        authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
+    val effectiveRole = if (isAdminUser) UserRole.ADMIN else user.role
+    val isStaff = !isGuest && (isAdminUser || listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.REGIONAL_INCHARGE, UserRole.NEWS_DESK).contains(user.role))
 
     var pushEnabled by remember { mutableStateOf(user.pushEnabled) }
 
@@ -213,6 +220,8 @@ fun UserProfilePageView(
                     Box(contentAlignment = Alignment.BottomEnd) {
                         val avatarUrl = if (!isGuest && !user.photoUrl.isNullOrBlank()) {
                             user.photoUrl
+                        } else if (!isGuest && authUser?.photoUrl != null) {
+                            authUser.photoUrl.toString()
                         } else if (!isGuest && user.name.isNotBlank()) {
                             "https://ui-avatars.com/api/?name=${URLEncoder.encode(user.name, "UTF-8")}&background=random"
                         } else {
@@ -312,11 +321,11 @@ fun UserProfilePageView(
                         Text(
                             text = when {
                                 isGuest -> stringResource(R.string.guest)
-                                user.role == UserRole.ADMIN -> stringResource(R.string.admin)
-                                user.role == UserRole.EDITOR -> stringResource(R.string.editor)
-                                user.role == UserRole.REPORTER -> stringResource(R.string.reporter)
-                                user.role == UserRole.SUBSCRIBER -> stringResource(R.string.subscriber)
-                                else -> user.role.name
+                                effectiveRole == UserRole.ADMIN -> stringResource(R.string.admin)
+                                effectiveRole == UserRole.EDITOR -> stringResource(R.string.editor)
+                                effectiveRole == UserRole.REPORTER -> stringResource(R.string.reporter)
+                                effectiveRole == UserRole.SUBSCRIBER -> stringResource(R.string.subscriber)
+                                else -> effectiveRole.name
                             },
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
                             fontSize = 12.sp,

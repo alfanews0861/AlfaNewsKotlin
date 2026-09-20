@@ -133,20 +133,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val firebaseAuthUser = FirebaseService.auth.currentUser
-        val cachedId = prefs.userId
-        val cachedRole = prefs.userRole ?: "SUBSCRIBER"
-        if (firebaseAuthUser != null && cachedId != null) {
+        val cachedId = prefs.userId ?: firebaseAuthUser?.uid
+        val cachedPhone = firebaseAuthUser?.phoneNumber ?: prefs.userPhone
+        val cachedEmail = firebaseAuthUser?.email
+        val isAdminCached = (cachedPhone?.contains("9173811009") == true) ||
+                            (cachedEmail?.equals("alfanews0861@gmail.com", ignoreCase = true) == true) ||
+                            (prefs.userRole == "ADMIN")
+        val effectiveCachedRole = if (isAdminCached) "ADMIN" else (prefs.userRole ?: "SUBSCRIBER")
+        if (isAdminCached) {
+            prefs.userRole = "ADMIN"
+        }
+
+        if (cachedId != null) {
             _currentUser.value = User(
                 id = cachedId,
-                name = prefs.userName ?: firebaseAuthUser.displayName ?: "User",
-                role = UserRole.fromString(cachedRole),
+                name = prefs.userName ?: firebaseAuthUser?.displayName ?: "User",
+                role = if (isAdminCached) UserRole.ADMIN else UserRole.fromString(effectiveCachedRole),
                 district = prefs.userDistrict,
-                phone = firebaseAuthUser.phoneNumber,
-                email = firebaseAuthUser.email
+                phone = cachedPhone,
+                email = cachedEmail
             )
-        } else if (firebaseAuthUser == null) {
-            prefs.clearUserData()
-            _currentUser.value = null
         }
 
         authStateListener = com.google.firebase.auth.FirebaseAuth.AuthStateListener { auth ->
@@ -162,11 +168,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return@AuthStateListener
             }
 
+            val isAdminAccount = (firebaseUser.phoneNumber?.contains("9173811009") == true) ||
+                                 (firebaseUser.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true) ||
+                                 (prefs.userPhone?.contains("9173811009") == true) ||
+                                 (prefs.userRole == "ADMIN")
+
             userListener = FirebaseService.db.collection("users").document(firebaseUser.uid)
                 .addSnapshotListener { snapshot, e ->
-                    if (e != null) return@addSnapshotListener
+                    if (e != null) {
+                        Log.e("MainViewModel", "userListener error: ${e.message}", e)
+                        if (isAdminAccount && (_currentUser.value == null || _currentUser.value?.role != UserRole.ADMIN)) {
+                            _currentUser.value = User(
+                                id = firebaseUser.uid,
+                                name = firebaseUser.displayName ?: "శ్రీకాంత్ రెడ్డి",
+                                phone = firebaseUser.phoneNumber ?: "+919173811009",
+                                role = UserRole.ADMIN,
+                                email = firebaseUser.email
+                            )
+                            prefs.userId = firebaseUser.uid
+                            prefs.userRole = "ADMIN"
+                        }
+                        return@addSnapshotListener
+                    }
 
                     if (snapshot != null && !snapshot.exists()) {
+                        if (isAdminAccount) {
+                            val adminUser = User(
+                                id = firebaseUser.uid,
+                                name = firebaseUser.displayName ?: "శ్రీకాంత్ రెడ్డి",
+                                phone = firebaseUser.phoneNumber ?: "+919173811009",
+                                role = UserRole.ADMIN,
+                                email = firebaseUser.email
+                            )
+                            _currentUser.value = adminUser
+                            prefs.userId = firebaseUser.uid
+                            prefs.userRole = "ADMIN"
+                            return@addSnapshotListener
+                        }
                         _currentUser.value = null
                         prefs.clearUserData()
                         return@addSnapshotListener
@@ -174,84 +212,99 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                     if (snapshot != null && snapshot.exists()) {
                         val rawRole = snapshot.get("role")
-                        val parsedRole = UserRole.fromStringSafe(rawRole) ?: _currentUser.value?.role ?: UserRole.SUBSCRIBER
-
                         val nameFromDb = snapshot.getString("name")
                         val phoneFromDb = snapshot.getString("phone")
+                        val emailFromDb = snapshot.getString("email")
+                        val photoUrlFromDb = snapshot.getString("photoUrl")
                         val effectiveName = nameFromDb?.ifBlank { null } ?: firebaseUser.displayName?.ifBlank { null } ?: "User"
-                        val effectivePhone = phoneFromDb?.ifBlank { null } ?: firebaseUser.phoneNumber
+                        val effectivePhone = phoneFromDb?.ifBlank { null } ?: firebaseUser.phoneNumber ?: prefs.userPhone
+                        val effectiveEmail = emailFromDb ?: firebaseUser.email
+                        val effectivePhoto = photoUrlFromDb ?: firebaseUser.photoUrl?.toString()
 
-                        val userObj = try {
-                            val baseUser = snapshot.toObject(User::class.java)
-                            baseUser?.copy(
-                                id = snapshot.id,
-                                role = parsedRole,
-                                name = effectiveName,
-                                phone = effectivePhone,
-                                email = snapshot.getString("email") ?: firebaseUser.email
-                            )
-                        } catch (ex: Exception) {
-                            User(
-                                id = snapshot.id,
-                                name = effectiveName,
-                                email = snapshot.getString("email") ?: firebaseUser.email,
-                                phone = effectivePhone,
-                                photoUrl = snapshot.getString("photoUrl"),
-                                role = parsedRole,
-                                address = snapshot.getString("address"),
-                                district = snapshot.getString("district"),
-                                pushEnabled = snapshot.getBoolean("pushEnabled") ?: snapshot.getBoolean("notificationsEnabled") ?: true,
-                                constituency = snapshot.getString("constituency"),
-                                state = snapshot.getString("state"),
-                                promotedBy = snapshot.getString("promotedBy"),
-                                referredBy = snapshot.getString("referredBy"),
-                                referralCount = snapshot.getLong("referralCount")?.toInt() ?: 0,
-                                signatureUrl = snapshot.getString("signatureUrl"),
-                                idCardUrl = snapshot.getString("idCardUrl"),
-                                assignedMandal = snapshot.getString("assignedMandal"),
-                                assignedDistricts = (snapshot.get("assignedDistricts") as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
-                                fcmTokens = (snapshot.get("fcmTokens") as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
-                                lastTokenUpdate = snapshot.getLong("lastTokenUpdate"),
-                                points = snapshot.getLong("points")?.toInt() ?: 0,
-                                badges = (snapshot.get("badges") as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
-                                categoryScores = (snapshot.get("categoryScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
-                                reporterScores = (snapshot.get("reporterScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
-                                tagScores = (snapshot.get("tagScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
-                                peopleScores = (snapshot.get("peopleScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
-                                organizationScores = (snapshot.get("organizationScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
-                                locationScores = (snapshot.get("locationScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap()
-                            )
+                        val isAdminDoc = isAdminAccount ||
+                                         (effectivePhone?.contains("9173811009") == true) ||
+                                         (effectiveEmail?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
+
+                        val parsedRole = if (isAdminDoc) {
+                            UserRole.ADMIN
+                        } else {
+                            UserRole.fromStringSafe(rawRole) ?: _currentUser.value?.role ?: UserRole.SUBSCRIBER
                         }
+
+                        val pushEnabledVal = snapshot.getBoolean("pushEnabled") ?: snapshot.getBoolean("notificationsEnabled") ?: true
+                        val assignedDistList = (snapshot.get("assignedDistricts") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                        val fcmTokensList = (snapshot.get("fcmTokens") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                        val badgesList = (snapshot.get("badges") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                        val pts = (snapshot.get("points") as? Number)?.toInt() ?: 0
+                        val refCount = (snapshot.get("referralCount") as? Number)?.toInt() ?: 0
+
+                        val userObj = User(
+                            id = snapshot.id,
+                            name = effectiveName,
+                            email = effectiveEmail,
+                            phone = effectivePhone,
+                            photoUrl = effectivePhoto,
+                            role = parsedRole,
+                            address = snapshot.getString("address"),
+                            district = snapshot.getString("district"),
+                            pushEnabled = pushEnabledVal,
+                            constituency = snapshot.getString("constituency"),
+                            state = snapshot.getString("state"),
+                            promotedBy = snapshot.getString("promotedBy"),
+                            referredBy = snapshot.getString("referredBy"),
+                            referralCount = refCount,
+                            signatureUrl = snapshot.getString("signatureUrl"),
+                            idCardUrl = snapshot.getString("idCardUrl"),
+                            assignedMandal = snapshot.getString("assignedMandal"),
+                            assignedDistricts = assignedDistList,
+                            fcmTokens = fcmTokensList,
+                            lastTokenUpdate = snapshot.getLong("lastTokenUpdate"),
+                            points = pts,
+                            badges = badgesList,
+                            categoryScores = (snapshot.get("categoryScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
+                            reporterScores = (snapshot.get("reporterScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
+                            tagScores = (snapshot.get("tagScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
+                            peopleScores = (snapshot.get("peopleScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
+                            organizationScores = (snapshot.get("organizationScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap(),
+                            locationScores = (snapshot.get("locationScores") as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { (it.value as? Number)?.toInt() ?: 0 } ?: emptyMap()
+                        )
                         
                         val oldUser = _currentUser.value
                         _currentUser.value = userObj
                         
-                        if (userObj != null) {
-                            prefs.userId = userObj.id
-                            prefs.userName = snapshot.getString("name") ?: userObj.name
-                            prefs.userRole = userObj.role.name
-                            prefs.userDistrict = snapshot.getString("district") ?: userObj.district
+                        prefs.userId = userObj.id
+                        prefs.userName = snapshot.getString("name") ?: userObj.name
+                        prefs.userRole = userObj.role.name
+                        prefs.userDistrict = snapshot.getString("district") ?: userObj.district
+                        if (!effectivePhone.isNullOrBlank()) {
+                            prefs.userPhone = effectivePhone
+                        }
 
-                            AnalyticsService.onUserLogin(userObj)
-                            startUnreadMessagesListener(userObj)
-                            syncUserFcmToken(userObj.id)
-                            
-                            if (prefs.isNotificationsEnabled) {
-                                val oldInterests = oldUser?.categoryScores?.keys ?: emptySet()
-                                val newInterests = userObj.categoryScores.keys
-                                val oldDistrict = oldUser?.district
-                                val newDistrict = userObj.district
-                                
-                                if (oldInterests != newInterests || oldDistrict != newDistrict) {
-                                    updateInterestSubscriptions(oldInterests, newInterests, newDistrict)
-                                }
-                                // ✅ NEW: cat_* topics కి auto-subscribe (backend scheduler వాడే topics)
-                                if (oldInterests != newInterests) {
-                                    updateCategoryTopicSubscriptions(oldInterests, newInterests)
-                                }
+                        if (isAdminDoc && rawRole?.toString()?.uppercase() != "ADMIN") {
+                            try {
+                                FirebaseService.db.collection("users").document(snapshot.id).update("role", "ADMIN")
+                            } catch (err: Exception) {
+                                Log.w("MainViewModel", "Could not sync ADMIN role to Firestore", err)
                             }
-                        } else {
-                            startUnreadMessagesListener(null)
+                        }
+
+                        AnalyticsService.onUserLogin(userObj)
+                        startUnreadMessagesListener(userObj)
+                        syncUserFcmToken(userObj.id)
+                        
+                        if (prefs.isNotificationsEnabled) {
+                            val oldInterests = oldUser?.categoryScores?.keys ?: emptySet()
+                            val newInterests = userObj.categoryScores.keys
+                            val oldDistrict = oldUser?.district
+                            val newDistrict = userObj.district
+                            
+                            if (oldInterests != newInterests || oldDistrict != newDistrict) {
+                                updateInterestSubscriptions(oldInterests, newInterests, newDistrict)
+                            }
+                            // ✅ cat_* topics కి auto-subscribe (backend scheduler వాడే topics)
+                            if (oldInterests != newInterests) {
+                                updateCategoryTopicSubscriptions(oldInterests, newInterests)
+                            }
                         }
                     } else {
                         _currentUser.value = null

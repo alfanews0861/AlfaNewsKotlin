@@ -29,7 +29,15 @@ fun AppDrawerContent(
     onPageSelected: (String) -> Unit,
     onLogout: () -> Unit
 ) {
-    val role = user?.role ?: UserRole.GUEST
+    val authUser = com.alfanews.telugu.services.FirebaseService.auth.currentUser
+    val isAdminUser = user != null && (
+        user.role == UserRole.ADMIN ||
+        user.phone?.contains("9173811009") == true ||
+        user.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
+        authUser?.phoneNumber?.contains("9173811009") == true ||
+        authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
+    )
+    val role = if (isAdminUser) UserRole.ADMIN else (user?.role ?: UserRole.GUEST)
 
     val allPages = listOf(
         AppPageConfig("profile", stringResource(R.string.profile), listOf(UserRole.GUEST, UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),

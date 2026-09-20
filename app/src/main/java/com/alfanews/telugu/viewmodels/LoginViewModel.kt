@@ -48,11 +48,16 @@ class LoginViewModel : ViewModel() {
         val prefs = PreferenceManager.getInstance(context)
         val referredBy = prefs.referredBy
 
+        val isAdmin = (user.phoneNumber?.contains("9173811009") == true) ||
+                      (user.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
+        val defaultRole = if (isAdmin) "ADMIN" else "SUBSCRIBER"
+        val defaultName = if (isAdmin) "శ్రీకాంత్ రెడ్డి" else context.getString(R.string.user_default_name)
+
         val userData = hashMapOf<String, Any?>(
-            "name" to name.ifEmpty { context.getString(R.string.user_default_name) },
+            "name" to name.ifEmpty { defaultName },
             "email" to user.email,
             "phone" to user.phoneNumber,
-            "role" to "SUBSCRIBER", // Only new users get this
+            "role" to defaultRole,
             "createdAt" to Timestamp.now()
         )
         if (!referredBy.isNullOrEmpty() && referredBy != user.uid) {
@@ -69,14 +74,18 @@ class LoginViewModel : ViewModel() {
                 val authResult = FirebaseService.auth.signInWithCredential(credential).await()
                 val user = authResult.user ?: throw Exception("అథెంటికేషన్ విఫలమైంది: యూజర్ దొరకలేదు.")
 
+                val phone = user.phoneNumber
+                val email = user.email
+                val isAdmin = (phone?.contains("9173811009") == true) ||
+                              (email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
+
                 val userRef = FirebaseService.db.collection("users").document(user.uid)
                 val existingUserDoc = userRef.get().await()
 
                 if (!existingUserDoc.exists()) {
                     // 🔍 RESILIENCE Check: Look for user by phone before creating new one
-                    val phone = user.phoneNumber
                     var foundLegacyUser = false
-                    var legacyRole = "SUBSCRIBER"
+                    var legacyRole = if (isAdmin) "ADMIN" else "SUBSCRIBER"
                     
                     if (!phone.isNullOrEmpty()) {
                         val legacyDocs = FirebaseService.db.collection("users")
@@ -84,16 +93,19 @@ class LoginViewModel : ViewModel() {
                             .get().await()
                         
                         if (!legacyDocs.isEmpty) {
-                        val legacyDoc = legacyDocs.documents.first()
-                        val legacyData = legacyDoc.data
-                        val rawLegacyRole = legacyData?.get("role")
-                        val parsedLegacyRole = UserRole.fromStringSafe(rawLegacyRole) ?: UserRole.SUBSCRIBER
-                        legacyRole = parsedLegacyRole.name
-                        
-                        val updatedLegacyData = legacyData?.toMutableMap() ?: mutableMapOf()
-                        updatedLegacyData["lastLogin"] = Timestamp.now()
-                        userRef.set(updatedLegacyData, com.google.firebase.firestore.SetOptions.merge()).await()
-                        foundLegacyUser = true
+                            val legacyDoc = legacyDocs.documents.first()
+                            val legacyData = legacyDoc.data
+                            val rawLegacyRole = legacyData?.get("role")
+                            val parsedLegacyRole = if (isAdmin) UserRole.ADMIN else (UserRole.fromStringSafe(rawLegacyRole) ?: UserRole.SUBSCRIBER)
+                            legacyRole = parsedLegacyRole.name
+                            
+                            val updatedLegacyData = legacyData?.toMutableMap() ?: mutableMapOf()
+                            updatedLegacyData["lastLogin"] = Timestamp.now()
+                            if (isAdmin) {
+                                updatedLegacyData["role"] = "ADMIN"
+                            }
+                            userRef.set(updatedLegacyData, com.google.firebase.firestore.SetOptions.merge()).await()
+                            foundLegacyUser = true
                         }
                     }
 
@@ -103,19 +115,21 @@ class LoginViewModel : ViewModel() {
                     
                     // 🚀 CACHE for offline persistence
                     prefs.userId = user.uid
-                    prefs.userName = user.displayName ?: "User"
+                    prefs.userName = user.displayName ?: (if (isAdmin) "శ్రీకాంత్ రెడ్డి" else "User")
                     prefs.userRole = legacyRole
+                    if (!phone.isNullOrEmpty()) prefs.userPhone = phone
 
                     _uiState.value = LoginUiState(isLoginSuccessful = true, isNewUser = true)
                 } else {
-                    // EXISTING USER: Only update metadata, NEVER touch the "role" field
+                    // EXISTING USER: Only update metadata, NEVER downgrade role
                     val rawRole = existingUserDoc.get("role")
-                    val roleFromDb = (UserRole.fromStringSafe(rawRole) ?: UserRole.SUBSCRIBER).name
+                    val roleFromDb = if (isAdmin) "ADMIN" else ((UserRole.fromStringSafe(rawRole) ?: UserRole.SUBSCRIBER).name)
                     
                     // 🚀 CACHE immediately for offline persistence
                     prefs.userId = user.uid
-                    prefs.userName = existingUserDoc.getString("name") ?: user.displayName ?: "User"
+                    prefs.userName = existingUserDoc.getString("name") ?: user.displayName ?: (if (isAdmin) "శ్రీకాంత్ రెడ్డి" else "User")
                     prefs.userRole = roleFromDb
+                    if (!phone.isNullOrEmpty()) prefs.userPhone = phone
                     val dist = existingUserDoc.getString("district")
                     prefs.userDistrict = dist
                     if (!dist.isNullOrBlank()) {
@@ -126,6 +140,9 @@ class LoginViewModel : ViewModel() {
                     val updateData = mutableMapOf<String, Any>(
                         "lastLogin" to Timestamp.now()
                     )
+                    if (isAdmin && rawRole?.toString()?.uppercase() != "ADMIN") {
+                        updateData["role"] = "ADMIN"
+                    }
                     
                     // Update profile info only if it was provided by the auth provider
                     user.phoneNumber?.let { if (it.isNotEmpty()) updateData["phone"] = it }

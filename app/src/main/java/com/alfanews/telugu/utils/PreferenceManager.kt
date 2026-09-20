@@ -265,6 +265,10 @@ class PreferenceManager(context: Context) {
         get() = prefs.getString(KEY_USER_DISTRICT, null)
         set(value) = prefs.edit().putString(KEY_USER_DISTRICT, value).apply()
 
+    var userPhone: String?
+        get() = prefs.getString("key_user_phone", null)
+        set(value) = prefs.edit().putString("key_user_phone", value).apply()
+
     var referredBy: String?
         get() = prefs.getString(KEY_REFERRED_BY, null)
         set(value) = prefs.edit().putString(KEY_REFERRED_BY, value).apply()
@@ -283,7 +287,7 @@ class PreferenceManager(context: Context) {
     }
 
     fun clearUserData() {
-        prefs.edit().remove(KEY_USER_ID).remove(KEY_USER_NAME).remove(KEY_USER_ROLE).remove(KEY_USER_DISTRICT).apply()
+        prefs.edit().remove(KEY_USER_ID).remove(KEY_USER_NAME).remove(KEY_USER_ROLE).remove(KEY_USER_DISTRICT).remove("key_user_phone").apply()
     }
 
     /** 

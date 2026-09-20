@@ -41,7 +41,18 @@ fun MainScreen(
     newsFeedViewModel: NewsFeedViewModel,
     completeUpdate: () -> Unit = {}
 ) {
-    val currentUser: User? by mainViewModel.currentUser.collectAsStateWithLifecycle()
+    val rawCurrentUser: User? by mainViewModel.currentUser.collectAsStateWithLifecycle()
+    val authUser = com.alfanews.telugu.services.FirebaseService.auth.currentUser
+    val isAdmin = rawCurrentUser?.role == UserRole.ADMIN ||
+        rawCurrentUser?.phone?.contains("9173811009") == true ||
+        rawCurrentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
+        authUser?.phoneNumber?.contains("9173811009") == true ||
+        authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
+    val currentUser = if (isAdmin && rawCurrentUser != null && rawCurrentUser!!.role != UserRole.ADMIN) {
+        rawCurrentUser!!.copy(role = UserRole.ADMIN)
+    } else {
+        rawCurrentUser
+    }
     val language: Language by mainViewModel.language.collectAsStateWithLifecycle()
     val activeTab: String by mainViewModel.activeTab.collectAsStateWithLifecycle()
     val adminActivePage by mainViewModel.adminActivePage.collectAsStateWithLifecycle()
@@ -716,9 +727,21 @@ fun ProfileContainer(
     val adminActivePage by viewModel.adminActivePage.collectAsState()
     val unreadMessagesCount by viewModel.unreadMessagesCount.collectAsState()
     val unreadAdminNotices by viewModel.unreadAdminNotices.collectAsState()
-    val user = currentUser
+    val authUser = com.alfanews.telugu.services.FirebaseService.auth.currentUser
+    val isAdmin = currentUser != null && (
+        currentUser.role == UserRole.ADMIN ||
+        currentUser.phone?.contains("9173811009") == true ||
+        currentUser.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
+        authUser?.phoneNumber?.contains("9173811009") == true ||
+        authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
+    )
+    val user = if (isAdmin && currentUser != null && currentUser.role != UserRole.ADMIN) {
+        currentUser.copy(role = UserRole.ADMIN)
+    } else {
+        currentUser
+    }
 
-    val isStaff = user != null && (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.REGIONAL_INCHARGE || user.role == UserRole.REPORTER || user.role == UserRole.NEWS_DESK)
+    val isStaff = user != null && (isAdmin || user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.REGIONAL_INCHARGE || user.role == UserRole.REPORTER || user.role == UserRole.NEWS_DESK)
 
     // విలేకరి/వినియోగదారు ప్రొఫైల్ ఓపెన్ చేయగానే అడ్మిన్ ముఖ్య సందేశాల In-App Popup
     var isNoticeDismissed by remember(unreadAdminNotices) { mutableStateOf(false) }
