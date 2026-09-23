@@ -61,9 +61,10 @@ fun ReporterManagementPageView(
 
     var selectedReporterIdForProfile by remember { mutableStateOf<String?>(null) }
 
-    if (selectedReporterIdForProfile != null) {
+    val profileReporterId = selectedReporterIdForProfile
+    if (profileReporterId != null) {
         ReporterProfileView(
-            reporterId = selectedReporterIdForProfile!!,
+            reporterId = profileReporterId,
             language = com.alfanews.telugu.models.Language.TELUGU,
             currentUser = currentUser,
             onBack = { selectedReporterIdForProfile = null }

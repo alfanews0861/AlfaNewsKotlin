@@ -187,10 +187,11 @@ class MainActivity : ComponentActivity() {
             if (showAnimatedSplash) {
                 val newsLoaded by newsFeedViewModel.news.collectAsState()
                 val isLoading by newsFeedViewModel.loading.collectAsState()
+                val localAds by newsFeedViewModel.localAds.collectAsState()
 
-                // 🚀 PRELOAD IMAGES DURING SPLASH ANIMATION:
-                // While splash screen animates (2-3 seconds), pre-fetch images for top 5 news into Coil cache
-                LaunchedEffect(newsLoaded) {
+                // 🚀 PRELOAD IMAGES & ADS DURING SPLASH ANIMATION:
+                // While splash screen animates (2-3 seconds), pre-fetch images for top 5 news + 5th card local ad into Coil cache
+                LaunchedEffect(newsLoaded, localAds) {
                     if (newsLoaded.isNotEmpty()) {
                         newsLoaded.take(5).forEach { post ->
                             if (post.mediaUrl.isNotEmpty()) {
@@ -202,6 +203,20 @@ class MainActivity : ComponentActivity() {
                                     .diskCachePolicy(CachePolicy.ENABLED)
                                     .build()
                                 SingletonImageLoader.get(this@MainActivity).enqueue(request)
+                            }
+                        }
+                    }
+                    if (localAds.isNotEmpty()) {
+                        localAds.take(2).forEach { ad ->
+                            if (ad.bannerUrl.isNotEmpty()) {
+                                val adRequest = ImageRequest.Builder(this@MainActivity)
+                                    .data(ad.bannerUrl)
+                                    .allowHardware(true)
+                                    .crossfade(false)
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .build()
+                                SingletonImageLoader.get(this@MainActivity).enqueue(adRequest)
                             }
                         }
                     }

@@ -449,6 +449,17 @@ object WeatherService {
         val minTemp: Double
     )
 
+    fun getCachedWeather(locationName: String, lat: Double? = null, lon: Double? = null): WeatherData? {
+        val validLat = if (lat != null && lat != 0.0) lat else null
+        val validLon = if (lon != null && lon != 0.0) lon else null
+        val cacheKey = if (validLat != null && validLon != null) "coords_${validLat}_${validLon}" else locationName.trim()
+        val cached = weatherCache[cacheKey]
+        if (cached != null && System.currentTimeMillis() - cached.fetchedAt < 5 * 60 * 1000L) {
+            return cached.data
+        }
+        return null
+    }
+
     suspend fun fetchWeather(locationName: String, lat: Double? = null, lon: Double? = null): WeatherData? {
         val validLat = if (lat != null && lat != 0.0) lat else null
         val validLon = if (lon != null && lon != 0.0) lon else null

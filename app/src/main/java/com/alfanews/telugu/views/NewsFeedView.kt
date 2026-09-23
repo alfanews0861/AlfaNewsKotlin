@@ -354,7 +354,7 @@ fun NewsFeedView(
                             val adState = preloadedAds[page]
                             val totalLocalCount = localAds.size
                             // 🚀 derivedStateOf → recompose only when actual active state changes
-                            val isCurrentPage by remember { derivedStateOf { pagerState.currentPage == page } }
+                            val isCurrentPage by remember(page) { derivedStateOf { pagerState.currentPage == page } }
                             
                             // 🚀 PRIORITY LOGIC:
                             // Slot 1 (Page 6) & Slot 2 (Page 12) -> Prefer Local Ads
@@ -406,7 +406,7 @@ fun NewsFeedView(
                                     )
                                 } else {
                                     // 🚀 derivedStateOf → no unnecessary recomposition during pager drag
-                                    val isActivePage by remember { derivedStateOf { pagerState.currentPage == page } }
+                                    val isActivePage by remember(page) { derivedStateOf { pagerState.currentPage == page } }
                                     NewsCardView(
                                         post = post,
                                         language = language,

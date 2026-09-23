@@ -154,9 +154,10 @@ fun ReporterProfileView(
                 }
             }
 
-            if ((querySnapshot == null || querySnapshot.isEmpty) && reporter != null) {
+            val currentRep = reporter
+            if ((querySnapshot == null || querySnapshot.isEmpty) && currentRep != null) {
                 try {
-                    querySnapshot = newsRef.whereEqualTo("reporter.id", reporter!!.id).get().await()
+                    querySnapshot = newsRef.whereEqualTo("reporter.id", currentRep.id).get().await()
                 } catch (e: Exception) {
                     // Ignore
                 }
@@ -195,7 +196,8 @@ fun ReporterProfileView(
                 if (effectivePoints >= 10000) badges.add("DIAMOND")
             }
 
-            if (reporter == null) {
+            val rep = reporter
+            if (rep == null) {
                 reporter = User(
                     id = targetId,
                     name = repName,
@@ -205,9 +207,9 @@ fun ReporterProfileView(
                     photoUrl = "https://ui-avatars.com/api/?name=${repName}&background=random"
                 )
             } else if (currentPoints == 0 && calculatedPoints > 0) {
-                reporter = reporter!!.copy(
+                reporter = rep.copy(
                     points = calculatedPoints,
-                    badges = if (reporter!!.badges.isEmpty()) badges else reporter!!.badges
+                    badges = if (rep.badges.isEmpty()) badges else rep.badges
                 )
             }
             

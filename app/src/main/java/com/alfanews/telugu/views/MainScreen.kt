@@ -47,11 +47,11 @@ fun MainScreen(
         rawCurrentUser?.phone?.contains("9173811009") == true ||
         rawCurrentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
         authUser?.phoneNumber?.contains("9173811009") == true ||
-        authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
-    val currentUser = if (isAdmin && rawCurrentUser != null && rawCurrentUser!!.role != UserRole.ADMIN) {
-        rawCurrentUser!!.copy(role = UserRole.ADMIN)
+    val user = rawCurrentUser
+    val currentUser = if (isAdmin && user != null && user.role != UserRole.ADMIN) {
+        user.copy(role = UserRole.ADMIN)
     } else {
-        rawCurrentUser
+        user
     }
     val language: Language by mainViewModel.language.collectAsStateWithLifecycle()
     val activeTab: String by mainViewModel.activeTab.collectAsStateWithLifecycle()

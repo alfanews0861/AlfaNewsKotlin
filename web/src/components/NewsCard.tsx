@@ -424,9 +424,23 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
     return (
       <>
         <div ref={cardRef} className="w-full h-full snap-start snap-always shrink-0 overflow-hidden text-white bg-black flex flex-col relative border-b border-white/5">
-          <div className="h-[45%] w-full relative shrink-0 overflow-hidden bg-zinc-900">
-            <img src={getOptimizedImageUrl(post.mediaUrl)} alt="History" className="w-full h-full object-cover object-top" loading="lazy" referrerPolicy="no-referrer" />
-            <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/80 to-transparent"></div>
+          <div className="h-[45%] w-full relative shrink-0 overflow-hidden bg-zinc-950 flex items-center justify-center">
+            <img 
+              src={getOptimizedImageUrl(post.mediaUrl)} 
+              alt="" 
+              aria-hidden="true" 
+              className="absolute inset-0 w-full h-full object-cover blur-xl opacity-30 pointer-events-none scale-110" 
+              loading="lazy" 
+              referrerPolicy="no-referrer" 
+            />
+            <img 
+              src={getOptimizedImageUrl(post.mediaUrl)} 
+              alt="History" 
+              className="w-full h-full object-cover md:object-contain object-center relative z-0" 
+              loading="lazy" 
+              referrerPolicy="no-referrer" 
+            />
+            <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-10"></div>
           </div>
           <div className="flex-1 flex flex-col p-6 relative bg-black">
             <div className="flex items-center gap-2 mb-1">
@@ -445,7 +459,7 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
     <>
       <div ref={cardRef} className="w-full h-full snap-start snap-always shrink-0 overflow-hidden text-white bg-black flex flex-col relative border-b border-white/5">
         {/* Top Media Section (45%) */}
-        <div className="h-[45%] w-full relative shrink-0 overflow-hidden bg-zinc-900">
+        <div className="h-[45%] w-full relative shrink-0 overflow-hidden bg-zinc-950 flex items-center justify-center">
           {youtubeVideoId ? (
             <div className="w-full h-full relative bg-black flex items-center justify-center">
               <iframe
@@ -457,12 +471,44 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
               />
             </div>
           ) : post.mediaType === 'video' ? (
-            <video ref={videoRef} src={post.mediaUrl} className="w-full h-full object-cover object-top" loop muted playsInline preload="none" />
+            <>
+              <video 
+                src={post.mediaUrl} 
+                className="absolute inset-0 w-full h-full object-cover blur-xl opacity-30 pointer-events-none scale-110" 
+                muted 
+                playsInline 
+              />
+              <video 
+                ref={videoRef} 
+                src={post.mediaUrl} 
+                className="w-full h-full object-cover md:object-contain object-center relative z-0" 
+                loop 
+                muted 
+                playsInline 
+                preload="none" 
+              />
+            </>
           ) : (
-            <img src={getOptimizedImageUrl(post.mediaUrl)} alt="News" className="w-full h-full object-cover object-top" loading="lazy" referrerPolicy="no-referrer" />
+            <>
+              <img 
+                src={getOptimizedImageUrl(post.mediaUrl)} 
+                alt="" 
+                aria-hidden="true" 
+                className="absolute inset-0 w-full h-full object-cover blur-xl opacity-30 pointer-events-none scale-110" 
+                loading="lazy" 
+                referrerPolicy="no-referrer" 
+              />
+              <img 
+                src={getOptimizedImageUrl(post.mediaUrl)} 
+                alt="News" 
+                className="w-full h-full object-cover md:object-contain object-center relative z-0" 
+                loading="lazy" 
+                referrerPolicy="no-referrer" 
+              />
+            </>
           )}
           {/* Subtle bottom shadow on image */}
-          <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/80 to-transparent pointer-events-none"></div>
+          <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-10"></div>
           {sourceDisplay && (
             <a 
               href={sourceDisplay.href} 

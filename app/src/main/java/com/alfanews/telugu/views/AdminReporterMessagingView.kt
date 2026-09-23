@@ -209,9 +209,10 @@ fun AdminReporterMessagingView(
     }
 
     // If chat is open with a reporter, show the 1-on-1 Chat Screen
-    if (activeChatReporter != null) {
+    val currentChatReporter = activeChatReporter
+    if (currentChatReporter != null) {
         AdminOneOnOneChatView(
-            reporter = activeChatReporter!!,
+            reporter = currentChatReporter,
             currentUser = currentUser,
             onBack = { activeChatReporter = null }
         )

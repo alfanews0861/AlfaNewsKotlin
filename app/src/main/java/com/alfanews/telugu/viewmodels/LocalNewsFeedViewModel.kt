@@ -654,10 +654,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                                 .whereIn("district", primaryAliases)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
                                 .limit(pageSize.toLong())
-                            if (lastDocument != null) {
-                                q = q.startAfter(lastDocument!!)
+                            val lastDocDistrict = lastDocument
+                            if (lastDocDistrict != null) {
+                                q = q.startAfter(lastDocDistrict)
                             }
-                            val res = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                            val res = kotlinx.coroutines.withTimeoutOrNull(3500L) {
                                 try { q.get().await() } catch (e: Exception) { null }
                             }
                             if (res != null && !res.isEmpty) {
@@ -670,10 +671,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                                     .whereArrayContainsAny("categories", categoryAliases)
                                     .orderBy("timestamp", Query.Direction.DESCENDING)
                                     .limit(pageSize.toLong())
-                                if (lastDocument != null) {
-                                    backupQuery = backupQuery.startAfter(lastDocument!!)
+                                val lastDocBackup = lastDocument
+                                if (lastDocBackup != null) {
+                                    backupQuery = backupQuery.startAfter(lastDocBackup)
                                 }
-                                val backupRes = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                                val backupRes = kotlinx.coroutines.withTimeoutOrNull(2500L) {
                                     try { backupQuery.get().await() } catch (e: Exception) { null }
                                 }
                                 if (backupRes != null && !backupRes.isEmpty) {
@@ -692,10 +694,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                                 .whereIn("district", stateTags)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
                                 .limit(pageSize.toLong())
-                            if (lastDocument != null) {
-                                stateQuery = stateQuery.startAfter(lastDocument!!)
+                            val lastDocState = lastDocument
+                            if (lastDocState != null) {
+                                stateQuery = stateQuery.startAfter(lastDocState)
                             }
-                            val stateRes = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                            val stateRes = kotlinx.coroutines.withTimeoutOrNull(3000L) {
                                 try { stateQuery.get().await() } catch (e: Exception) { null }
                             }
                             if (stateRes != null && !stateRes.isEmpty) {
@@ -712,10 +715,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                                 .whereEqualTo("approved", true)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
                                 .limit(pageSize.toLong())
-                            if (lastDocument != null) {
-                                generalQuery = generalQuery.startAfter(lastDocument!!)
+                            val lastDocGeneral = lastDocument
+                            if (lastDocGeneral != null) {
+                                generalQuery = generalQuery.startAfter(lastDocGeneral)
                             }
-                            val generalRes = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                            val generalRes = kotlinx.coroutines.withTimeoutOrNull(3000L) {
                                 try { generalQuery.get().await() } catch (e: Exception) { null }
                             }
                             if (generalRes != null && !generalRes.isEmpty) {

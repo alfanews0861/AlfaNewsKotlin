@@ -309,7 +309,7 @@ fun NewsCardView(
                 }
 
                 if (post.youtubeUrl != null && post.youtubeUrl.isNotEmpty()) {
-                    YouTubePlayerComponent(youtubeUrl = post.youtubeUrl)
+                    YouTubePlayerComponent(youtubeUrl = post.youtubeUrl, isActive = isActive)
                 } else if (mediaList.isNotEmpty()) {
                     val pagerState = rememberPagerState(pageCount = { mediaList.size })
                     Box(modifier = Modifier.fillMaxSize()) {
@@ -423,7 +423,7 @@ fun NewsCardView(
                     val mediaTypes = remember(post) { if (post.mediaTypes.isNotEmpty()) post.mediaTypes else listOf(post.mediaType) }
                     
                     if (post.youtubeUrl != null && post.youtubeUrl.isNotEmpty()) {
-                        YouTubePlayerComponent(youtubeUrl = post.youtubeUrl)
+                        YouTubePlayerComponent(youtubeUrl = post.youtubeUrl, isActive = isActive)
                     } else if (mediaList.isNotEmpty()) {
                         val pagerState = rememberPagerState(pageCount = { mediaList.size })
                         Box(modifier = Modifier.fillMaxSize()) {
@@ -1030,10 +1030,36 @@ fun ActionButton(icon: androidx.compose.ui.graphics.vector.ImageVector, count: S
 }
 
 @Composable
-fun YouTubePlayerComponent(youtubeUrl: String) {
+fun YouTubePlayerComponent(youtubeUrl: String, isActive: Boolean = true) {
     val videoId = extractYoutubeVideoId(youtubeUrl) ?: return
     var player by remember { mutableStateOf<YouTubePlayer?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
+
+    // 🛑 Stop background sound bleed: Pause YouTube video when swiped away or page inactive
+    LaunchedEffect(isActive) {
+        if (!isActive) {
+            try {
+                player?.pause()
+            } catch (_: Exception) {}
+        }
+    }
+
+    // 🔄 When videoId changes, cue the new video
+    LaunchedEffect(videoId, player) {
+        player?.let { p ->
+            try {
+                p.cueVideo(videoId, 0f)
+            } catch (_: Exception) {}
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            try {
+                player?.pause()
+            } catch (_: Exception) {}
+        }
+    }
 
     Box(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clickable { if (isPlaying) player?.pause() else player?.play() }, contentAlignment = Alignment.Center) {
         AndroidView(
@@ -1057,7 +1083,11 @@ fun YouTubePlayerComponent(youtubeUrl: String) {
                 }
             },
             modifier = Modifier.fillMaxSize(),
-            onRelease = { it.release() } // ♻️ Properly release player resources
+            onRelease = {
+                try {
+                    it.release()
+                } catch (_: Exception) {}
+            }
         )
         if (!isPlaying) {
             Box(modifier = Modifier.size(64.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape), contentAlignment = Alignment.Center) {

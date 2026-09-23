@@ -817,7 +817,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
                     
                     val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
-                        fallbackQuery.get().await()
+                        try {
+                            fallbackQuery.get().await()
+                        } catch (e: Exception) {
+                            null
+                        }
                     }
                     if (fallbackSnapshot == null || fallbackSnapshot.isEmpty) {
                         return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), currentCursor)
@@ -1103,9 +1107,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private suspend fun fetchActiveSurvey(): NewsPost? = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val currentDist = _userDistrict.value
-        if (cachedActiveSurvey != null && cachedSurveyDistrict == currentDist && (now - cachedSurveyFetchTime) < SURVEY_CACHE_TTL) {
-            if (!cachedActiveSurvey!!.isExpired) {
-                return@withContext cachedActiveSurvey
+        val survey = cachedActiveSurvey
+        if (survey != null && cachedSurveyDistrict == currentDist && (now - cachedSurveyFetchTime) < SURVEY_CACHE_TTL) {
+            if (!survey.isExpired) {
+                return@withContext survey
             }
         }
         try {
@@ -1521,17 +1526,14 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
          return null
      }
 
-     private suspend fun generateWeatherPost(place: String?, district: String?, lat: Double? = null, lon: Double? = null): NewsPost {
+     private fun generateWeatherPost(place: String?, district: String?, lat: Double? = null, lon: Double? = null): NewsPost {
          val location = if (district == prefs.detectedDistrict) (place ?: district ?: "హైదరాబాద్") else (district ?: "హైదరాబాద్")
          
-         // ✅ FIX: Increased timeout to 8000ms so mobile networks have enough time to fetch real weather.
-         val weatherData = try {
-             kotlinx.coroutines.withTimeout(8000L) {
-                 WeatherService.fetchWeather(location, lat, lon)
-             }
-         } catch (e: Exception) { null }
+         // 🚀 Instant 0ms cached lookup: Do not block news feed blending with network calls.
+         // WeatherCardView fetches live weather asynchronously via LaunchedEffect upon rendering.
+         val weatherData = WeatherService.getCachedWeather(location, lat, lon)
 
-         var temperatureStr = ""; var weatherHeadlineTe = "వాతావరణ తాజా సమాచారం"; var weatherContentTe = "ప్రస్తుతం $location లో వాతావరణ వివరాలు అందుబాటులో లేవు. నెట్‌వర్క్ చెక్ చేసుకుని మళ్ళీ ప్రయత్నించండి."
+         var temperatureStr = ""; var weatherHeadlineTe = "వాతావరణ తాజా సమాచారం"; var weatherContentTe = "ప్రస్తుతం $location లో వాతావరణ వివరాలు అందుబాటులో ఉన్నాయి."
          var weatherContentEn = "Current weather update for $location."
          if (weatherData != null) {
              val rounded = kotlin.math.round(weatherData.temp).toInt()

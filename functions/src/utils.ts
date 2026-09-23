@@ -39,10 +39,11 @@ export function getTopicName(prefix: string, value: string): string {
 }
 
 const TEXT_MODELS = [
-    "gemini-3.7-flash",       // 1. Primary: Latest flagship model (5 RPM dedicated quota)
-    "gemini-3.6-flash",       // 2. Secondary: Powerful Flash model (5 RPM dedicated quota)
-    "gemini-3.5-flash-lite",  // 3. Tertiary: High-speed, high-quota safety net (15-30 RPM)
-    "gemini-3.1-flash-lite"   // 4. Stable backup fallback
+    "gemini-2.5-flash",       // 1. Primary: High availability, reliable Google Search Grounding support
+    "gemini-3.7-flash",       // 2. Latest flagship model (5 RPM dedicated quota)
+    "gemini-3.6-flash",       // 3. Powerful Flash model (5 RPM dedicated quota)
+    "gemini-3.5-flash-lite",  // 4. High-speed, high-quota safety net (15-30 RPM)
+    "gemini-3.1-flash-lite"   // 5. Stable backup fallback
 ];
 
 const IMAGE_ANALYSIS_MODELS = [
@@ -281,6 +282,55 @@ export function cleanTeluguHeadline(headline: string): string {
     clean = clean.replace(/\s+/g, ' ').trim();
 
     return sanitizeTeluguText(clean);
+}
+
+/**
+ * Detects whether a headline or post is pure party flattery / sycophancy / verdict without attribution.
+ */
+export function isEditorialVerdictOrFlattery(headline: string, text: string = '', authorName: string = ''): boolean {
+    if (!headline || typeof headline !== 'string') return false;
+    const h = headline.trim();
+    const t = (text || '').trim();
+    const a = (authorName || '').trim();
+
+    // 1. Common flattery / self-praise / title phrases in headline
+    const flatteryPhrases = [
+        /ప్రజల పక్షాన నిలిచి? పోరాడే/i,
+        /ప్రజల పక్షాన నిలిచే నాయక/i,
+        /పేదల పెన్నిధి/i,
+        /పేదల ఆశాజ్యోతి/i,
+        /అభివృద్ధి ప్రదాత/i,
+        /రియల్ హీరో/i,
+        /ప్రజల కోసం ప్రశ్నించే గొంతు/i,
+        /మా నాయకుడే/i
+    ];
+
+    const hasFlatteryInHeadline = flatteryPhrases.some(pattern => pattern.test(h));
+
+    // Attribution markers in Telugu
+    const attributionWords = [
+        'అన్న', 'అని', 'పేర్కొన్న', 'చెప్పిన', 'విమర్శించిన', 'నిలదీసిన',
+        'డిమాండ్ చేసిన', 'స్పష్టం చేసిన', 'హెచ్చరించిన', 'ఆగ్రహం', 'ధ్వజం',
+        'సవాల్', 'వెల్లడి', 'ప్రకటన', 'ట్వీట్'
+    ];
+    const hasAttribution = attributionWords.some(w => h.includes(w));
+
+    // If headline contains praise/title and lacks attribution, it's an editorial verdict!
+    if (hasFlatteryInHeadline && !hasAttribution) {
+        return true;
+    }
+
+    // 2. Pure PR hype / promotional slogans from political party accounts
+    const isPartySource = /inc|tdp|ysrcp|brs|bjp|congress|jana\s*sena|వైసీపీ|టిడిపి|బిజెపి|కాంగ్రెస్/i.test(a) ||
+                          /inc|tdp|ysrcp|brs|bjp|congress/i.test(t);
+    const hasSycophancySlogans = /(?:ప్రశ్నించే గొంతు|పోరాడే నిబద్ధత|ప్రజల పక్షాన నిలిచే నాయకత్వం|మా నాయకుడే మా భవిష్యత్తు|నాయకత్వ పటిమ)/i.test(t);
+    const hasRealNewsKeywords = /(?:నిర్ణయం|పథకం|బడ్జెట్|కేటాయింపు|రూపాయల|కోట్ల|హామీ|సమీక్ష|అరెస్ట్|కేసు|దాడులు|ప్రమాదం|మృతి|మరణం|ఉత్తర్వులు|జీవో|నోటిఫికేషన్|పోలీస్|రైతు|ధరలు)/i.test(t);
+
+    if (isPartySource && hasSycophancySlogans && !hasRealNewsKeywords) {
+        return true;
+    }
+
+    return false;
 }
 
 /**

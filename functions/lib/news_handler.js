@@ -37,6 +37,7 @@ exports.recoverFalselyRejectedNewsHttp = exports.scheduleReprocessFailedReporter
 exports.calculateTextSimilarity = calculateTextSimilarity;
 exports.fetchRecentMandalNews = fetchRecentMandalNews;
 exports.isApprovalRemark = isApprovalRemark;
+exports.extractVideoAudioSpeechContext = extractVideoAudioSpeechContext;
 exports.performAIProcessing = performAIProcessing;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
@@ -482,6 +483,132 @@ function normalizeSingleStory(aiRes, actualPostData) {
     };
 }
 /**
+ * 🎙️ Helper: Extracts and comprehends Telugu speech from submitted news video using Gemini Multimodal Audio.
+ * - Extracts up to 120s of audio via FFmpeg (16kHz mono, ~250KB - 400KB MP3).
+ * - Leaves zero background tasks, terminates cleanly with 15s timeout.
+ * - If video has no speech or audio extraction fails, returns empty string gracefully.
+ */
+async function extractVideoAudioSpeechContext(videoUrl, postId) {
+    if (!videoUrl || typeof videoUrl !== 'string' || videoUrl.length < 5)
+        return "";
+    const lowerUrl = videoUrl.toLowerCase();
+    const isVideoFile = lowerUrl.includes('.mp4') || lowerUrl.includes('.mov') || lowerUrl.includes('.webm') || lowerUrl.includes('.mkv') || lowerUrl.includes('/videos%2f') || lowerUrl.includes('/video');
+    if (!isVideoFile)
+        return "";
+    const tempDir = os.tmpdir();
+    const safeId = postId.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 32);
+    const audioPath = path.join(tempDir, `speech_${safeId}_${Date.now()}.mp3`);
+    const videoLocalPath = path.join(tempDir, `input_${safeId}.mp4`);
+    try {
+        console.log(`[VIDEO_SPEECH] Extracting speech from video for post ${safeId}...`);
+        // Step 1: Ensure video file is accessible locally
+        // Check if /tmp/input_${safeId}.mp4 already exists
+        if (!fs.existsSync(videoLocalPath) || fs.statSync(videoLocalPath).size === 0) {
+            const filePath = getStoragePathFromUrl(videoUrl);
+            if (filePath) {
+                // Download directly from Firebase Storage bucket without public internet egress
+                try {
+                    await admin.storage().bucket().file(filePath).download({ destination: videoLocalPath });
+                }
+                catch (bErr) {
+                    console.warn(`[VIDEO_SPEECH] Storage bucket direct download failed: ${bErr.message}, falling back to fetch...`);
+                }
+            }
+            if (!fs.existsSync(videoLocalPath) || fs.statSync(videoLocalPath).size === 0) {
+                const videoRes = await fetch(videoUrl, { signal: AbortSignal.timeout(15000) });
+                if (!videoRes.ok || !videoRes.body) {
+                    console.warn(`[VIDEO_SPEECH] Fetch video failed: ${videoRes.status}`);
+                    return "";
+                }
+                const { pipeline } = require('stream/promises');
+                const { Readable } = require('stream');
+                if (typeof videoRes.body[Symbol.asyncIterator] === 'function') {
+                    await pipeline(videoRes.body, fs.createWriteStream(videoLocalPath));
+                }
+                else {
+                    await pipeline(Readable.fromWeb(videoRes.body), fs.createWriteStream(videoLocalPath));
+                }
+            }
+        }
+        if (!fs.existsSync(videoLocalPath) || fs.statSync(videoLocalPath).size === 0) {
+            return "";
+        }
+        // Step 2: Use FFmpeg to extract first 120s of audio as low-bitrate MP3 (16kHz mono, ~32kbps)
+        const { execSync } = require('child_process');
+        try {
+            execSync(`"${ffmpegPath}" -y -i "${videoLocalPath}" -t 120 -vn -ac 1 -ar 16000 -b:a 32k "${audioPath}"`, {
+                timeout: 10000,
+                stdio: ['ignore', 'ignore', 'ignore']
+            });
+        }
+        catch (ffErr) {
+            console.warn(`[VIDEO_SPEECH] FFmpeg audio extract failed (video might have no audio track):`, ffErr.message);
+            return "";
+        }
+        if (!fs.existsSync(audioPath) || fs.statSync(audioPath).size < 1000) {
+            console.log(`[VIDEO_SPEECH] No valid audio track extracted or audio file too small.`);
+            return "";
+        }
+        const audioBuffer = fs.readFileSync(audioPath);
+        const base64Audio = audioBuffer.toString("base64");
+        console.log(`[VIDEO_SPEECH] Audio extracted successfully (${audioBuffer.length} bytes). Sending to Gemini for speech comprehension...`);
+        // Step 3: Call Gemini Multimodal Audio to comprehend spoken words in Telugu
+        const speechPrompt = `మీరు తెలుగు వార్తా పరిశోధకులు మరియు చీఫ్ ఎడిటర్. ఈ ఆడియో ఒక తెలుగు వార్తా వీడియో నుండి సేకరించబడింది.
+ఈ ఆడియోను శ్రద్ధగా విని, మాట్లాడిన మాటలను పరిశీలించండి:
+1. మాట్లాడిన వ్యక్తి ఎవరు? (నాయకుడు, అధికారి, బాధితుడు, రైతు, మహిళ, లేదా విలేకరి?)
+2. వారు మాట్లాడిన అసలు ముఖ్యమైన మాటలు, తీవ్ర ఆరోపణలు, సవాళ్లు లేదా వెల్లడించిన సమస్యలు ఏమిటి?
+3. ఇందులో ఏవైనా నిర్దిష్ట లెక్కలు, తేదీలు, పథకాల పేర్లు, నష్టపరిహారం లేదా గణాంకాలు ప్రస్తావించబడ్డాయా?
+4. మాట్లాడిన వ్యక్తి ఏమైనా డిమాండ్లు లేదా హెచ్చరికలు చేశారా?
+
+పై అంశాలన్నింటినీ 3-5 ముఖ్యమైన బులెట్ పాయింట్లలో సమగ్రంగా తెలుగులో అందించండి.
+ఒకవేళ ఆడియోలో ఎలాంటి మాటలు లేకపోతే (కేవలం నేపథ్య శబ్దం/ట్రాఫిక్/మ్యూజిక్ ఉంటే లేదా అర్థం కాని శబ్దాలుంటే) కేవలం "NO_SPEECH" అని మాత్రమే సమాధానం ఇవ్వండి.`;
+        const speechResult = await (0, utils_1.runWithAIFallback)(async (ai, modelName) => {
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Audio AI timeout")), 15000));
+            const genPromise = ai.models.generateContent({
+                model: modelName,
+                contents: [
+                    {
+                        role: "user",
+                        parts: [
+                            { text: speechPrompt },
+                            {
+                                inlineData: {
+                                    mimeType: "audio/mp3",
+                                    data: base64Audio
+                                }
+                            }
+                        ]
+                    }
+                ],
+                config: {
+                    temperature: 0.2,
+                    maxOutputTokens: 1024
+                }
+            });
+            const res = await Promise.race([genPromise, timeoutPromise]);
+            const text = res?.text || res?.candidates?.[0]?.content?.parts?.[0]?.text;
+            return text ? text.trim() : "";
+        });
+        if (speechResult && !speechResult.includes("NO_SPEECH") && speechResult.length > 20) {
+            console.log(`[VIDEO_SPEECH_SUCCESS] Spoken content extracted (${speechResult.length} chars)`);
+            return speechResult;
+        }
+        return "";
+    }
+    catch (e) {
+        console.warn(`[VIDEO_SPEECH_NOTICE] Video speech processing skipped/failed: ${e?.message || e}`);
+        return "";
+    }
+    finally {
+        // ALWAYS clean up temporary speech audio file
+        try {
+            if (fs.existsSync(audioPath))
+                fs.unlinkSync(audioPath);
+        }
+        catch (_) { }
+    }
+}
+/**
  * Helper: Perform AI enhancement on news content (returns Array of 1 to 3 stories)
  */
 async function performAIProcessing(headline, content, actualPostData, recentStories = []) {
@@ -489,6 +616,20 @@ async function performAIProcessing(headline, content, actualPostData, recentStor
     // Only trigger for near-identical copy-paste (>88% similarity) and NOT for routine welfare/ward-level events or video coverage
     const mTypes = (actualPostData?.mediaTypes || []).map((t) => String(t).toUpperCase());
     const isVideoPost = actualPostData?.mediaType?.toUpperCase() === 'VIDEO' || mTypes.includes('VIDEO');
+    const rawMediaUrl = actualPostData?.mediaUrl || "";
+    const rawMediaUrls = Array.isArray(actualPostData?.mediaUrls) ? actualPostData.mediaUrls : [];
+    const videoUrl = (isVideoPost && (rawMediaUrl || rawMediaUrls.find((u) => typeof u === 'string' && (u.includes('.mp4') || u.includes('video'))))) || "";
+    // 🎙️ Extract speech context from video if present
+    let videoSpeechContext = "";
+    if (isVideoPost && videoUrl && !videoUrl.includes('youtube.com') && !videoUrl.includes('youtu.be')) {
+        try {
+            const targetId = actualPostData?.id || actualPostData?.postId || 'temp';
+            videoSpeechContext = await extractVideoAudioSpeechContext(videoUrl, targetId);
+        }
+        catch (e) {
+            console.warn(`[AI_SPEECH_SKIP] Failed to extract video speech context: ${e?.message || e}`);
+        }
+    }
     if (recentStories.length > 0 && !isVideoPost) {
         const isRoutineWelfareOrWard = (headline + " " + content).includes("పింఛన్") ||
             (headline + " " + content).includes("వార్డు") ||
@@ -626,7 +767,17 @@ SUBMISSION METADATA:
 - location: ${actualPostData?.location || 'Unknown'}${actualPostData?.socialPlatform ? `
 - socialPlatform: ${actualPostData.socialPlatform}` : ''}${actualPostData?.socialAuthorName ? `
 - Post Author (CRITICAL - MANDATORY ATTRIBUTION): ${actualPostData.socialAuthorName}
-  ⚠️ This content was posted by "${actualPostData.socialAuthorName}" on social media. ALL allegations, criticisms, and opinions expressed must be attributed to them using phrases like "అన్న ${actualPostData.socialAuthorName}", "అని ${actualPostData.socialAuthorName} అన్నారు", "అంటూ ${actualPostData.socialAuthorName} ట్వీట్ చేశారు". NEVER present their statements as Alfa News facts or our own verified conclusions. The headline MUST also clearly attribute to ${actualPostData.socialAuthorName}.` : ''}
+  ⚠️ This content was posted by "${actualPostData.socialAuthorName}" on social media. ALL allegations, criticisms, and opinions expressed must be attributed to them using phrases like "అన్న ${actualPostData.socialAuthorName}", "అని ${actualPostData.socialAuthorName} అన్నారు", "అంటూ ${actualPostData.socialAuthorName} ట్వీట్ చేశారు". NEVER present their statements as Alfa News facts or our own verified conclusions. The headline MUST also clearly attribute to ${actualPostData.socialAuthorName}.` : ''}${videoSpeechContext ? `
+
+[వీడియోలో మాట్లాడిన అసలు మాటలు & కీలక ప్రకటనలు / Spoken Speech & Statements in Video]:
+${videoSpeechContext}
+
+⚠️ వీడియో జర్నలిజం సమగ్ర కథన నిబంధనలు (CRITICAL VIDEO JOURNALISM MANDATE):
+- ఈ వార్త క్షేత్రస్థాయి వీడియో ఆధారంగా సమర్పించబడింది. పైన సేకరించిన [వీడియోలో మాట్లాడిన అసలు మాటలు] నుండి మాట్లాడిన వ్యక్తి వివరాలు, వారి అసలు ప్రకటనలు, ఆరోపణలు, సంఖ్యలు మరియు ప్రజా సమస్యలను తప్పనిసరిగా కథనంలో సమగ్రంగా చేర్చండి.
+- మాట్లాడిన మాటలను సదరు నేత/బాధితుడికే ఆపాదించాలి (ఉదా: "...అని వీడియోలో వెల్లడించిన ఫలానా నేత", "...అంటూ వాపోయిన బాధితులు").
+- సందర్భానుసార శీర్షిక (7-8 పదాలు): వీడియోలోని అత్యంత కీలకమైన ప్రకటన లేదా సవాలు ఆధారంగా శీర్షిక ఉండాలి.
+- 360° సమతుల్యత: వీడియోలో ఒక పక్షం ఘాటైన ఆరోపణలు చేస్తే, 3వ పేరాలో ఎదుటి పక్షం వివరణ లేదా ప్రభుత్వ/అధికారుల స్పందనను సమతుల్యంగా చేర్చండి.
+- స్వీయ ప్రచారం / భజన / పీఆర్ రీల్ అయితే: వీడియోలో ఎటువంటి వార్తా విలువ లేకుండా కేవలం నాయకుడి భజన, పొగడ్తలు ఉంటే తిరస్కరించండి (rejectionReason రాయండి).` : ''}
 
 ${recentStoriesPrompt}
 
@@ -1343,7 +1494,7 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
         let audioPath = "";
         let outputPath = "";
         try {
-            const teluguNews = data.content?.telugu || data.headline?.telugu || "";
+            const fullStoryText = data.fullStory?.telugu || data.fullStoryTe || data.content?.telugu || data.headline?.telugu || "";
             const reporterName = data.reporter?.name || "";
             // Build enhanced description with hashtags and entities
             const tags = Array.isArray(data.tags) ? data.tags : [];
@@ -1353,7 +1504,7 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
             let description = hashTags ? `${hashTags}\n\n` : "";
             if (reporterName)
                 description += `రిపోర్టర్: ${reporterName}\n\n`;
-            description += `${teluguNews}\n\n`;
+            description += `${fullStoryText}\n\n`;
             const people = data.entities?.people || [];
             const organizations = data.entities?.organizations || [];
             const locations = data.entities?.locations || [];
@@ -1372,20 +1523,25 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
             videoPath = path.join(tempDir, `input_${postId}.mp4`);
             audioPath = path.join(tempDir, `audio_${postId}.mp3`);
             outputPath = path.join(tempDir, `output_${postId}.mp4`);
-            // STREAMING DOWNLOAD to save memory and handle large files
-            console.log(`[VIDEO_DOWNLOAD] Downloading ${videoUrl.substring(0, 50)}...`);
-            const videoRes = await fetch(videoUrl);
-            if (!videoRes.ok)
-                throw new Error(`Video download failed: ${videoRes.statusText}`);
-            if (!videoRes.body)
-                throw new Error(`Video response body is null`);
-            const { pipeline } = require('stream/promises');
-            const { Readable } = require('stream');
-            if (typeof videoRes.body[Symbol.asyncIterator] === 'function') {
-                await pipeline(videoRes.body, fs.createWriteStream(videoPath));
+            // STREAMING DOWNLOAD to save memory and handle large files (reuse local file if already downloaded)
+            if (!fs.existsSync(videoPath) || fs.statSync(videoPath).size === 0) {
+                console.log(`[VIDEO_DOWNLOAD] Downloading ${videoUrl.substring(0, 50)}...`);
+                const videoRes = await fetch(videoUrl);
+                if (!videoRes.ok)
+                    throw new Error(`Video download failed: ${videoRes.statusText}`);
+                if (!videoRes.body)
+                    throw new Error(`Video response body is null`);
+                const { pipeline } = require('stream/promises');
+                const { Readable } = require('stream');
+                if (typeof videoRes.body[Symbol.asyncIterator] === 'function') {
+                    await pipeline(videoRes.body, fs.createWriteStream(videoPath));
+                }
+                else {
+                    await pipeline(Readable.fromWeb(videoRes.body), fs.createWriteStream(videoPath));
+                }
             }
             else {
-                await pipeline(Readable.fromWeb(videoRes.body), fs.createWriteStream(videoPath));
+                console.log(`[VIDEO_DOWNLOAD] Reusing existing local video ${videoPath} (${fs.statSync(videoPath).size} bytes).`);
             }
             // 🛡️ GATEKEEPER 2: Video AI Visual Safety Scan (Keyframe Analysis via Gemini Vision)
             console.log(`[VIDEO_SAFETY_CHECK] Scanning keyframes for ${postId} against YouTube Community Guidelines...`);

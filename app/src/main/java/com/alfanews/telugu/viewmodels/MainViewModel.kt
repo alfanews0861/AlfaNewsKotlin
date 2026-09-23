@@ -692,8 +692,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                             try {
                                 val isGuest = userId.isNullOrBlank() || userId == "guest"
-                                if (!isGuest) {
-                                    val uid = userId!!
+                                val uid = userId
+                                if (!isGuest && !uid.isNullOrBlank()) {
                                     try {
                                         FirebaseService.db.collection("users").document(uid).update(
                                             "fcmToken", token,
@@ -771,8 +771,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val todayDateStr = istFormatter.format(java.util.Date(now))
 
-                if (!isGuest) {
-                    val userDocRef = FirebaseService.db.collection("users").document(uid!!)
+                if (!isGuest && !uid.isNullOrBlank()) {
+                    val userDocRef = FirebaseService.db.collection("users").document(uid)
                     
                     val userSnap = try { userDocRef.get().await() } catch (e: Exception) { null }
                     val currentTodayDate = userSnap?.getString("todayDate")

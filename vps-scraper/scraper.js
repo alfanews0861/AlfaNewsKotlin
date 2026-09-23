@@ -249,6 +249,55 @@ function cleanEnglishHeadline(headline) {
 }
 
 /**
+ * Detects whether a headline or post is pure party flattery / sycophancy / verdict without attribution.
+ */
+function isEditorialVerdictOrFlattery(headline, text = '', authorName = '') {
+    if (!headline || typeof headline !== 'string') return false;
+    const h = headline.trim();
+    const t = (text || '').trim();
+    const a = (authorName || '').trim();
+
+    // 1. Common flattery / self-praise / title phrases in headline
+    const flatteryPhrases = [
+        /ప్రజల పక్షాన నిలిచి? పోరాడే/i,
+        /ప్రజల పక్షాన నిలిచే నాయక/i,
+        /పేదల పెన్నిధి/i,
+        /పేదల ఆశాజ్యోతి/i,
+        /అభివృద్ధి ప్రదాత/i,
+        /రియల్ హీరో/i,
+        /ప్రజల కోసం ప్రశ్నించే గొంతు/i,
+        /మా నాయకుడే/i
+    ];
+
+    const hasFlatteryInHeadline = flatteryPhrases.some(pattern => pattern.test(h));
+
+    // Attribution markers in Telugu
+    const attributionWords = [
+        'అన్న', 'అని', 'పేర్కొన్న', 'చెప్పిన', 'విమర్శించిన', 'నిలదీసిన',
+        'డిమాండ్ చేసిన', 'స్పష్టం చేసిన', 'హెచ్చరించిన', 'ఆగ్రహం', 'ధ్వజం',
+        'సవాల్', 'వెల్లడి', 'ప్రకటన', 'ట్వీట్'
+    ];
+    const hasAttribution = attributionWords.some(w => h.includes(w));
+
+    // If headline contains praise/title and lacks attribution, it's an editorial verdict!
+    if (hasFlatteryInHeadline && !hasAttribution) {
+        return true;
+    }
+
+    // 2. Pure PR hype / promotional slogans from political party accounts
+    const isPartySource = /inc|tdp|ysrcp|brs|bjp|congress|jana\s*sena|వైసీపీ|టిడిపి|బిజెపి|కాంగ్రెస్/i.test(a) ||
+                          /inc|tdp|ysrcp|brs|bjp|congress/i.test(t);
+    const hasSycophancySlogans = /(?:ప్రశ్నించే గొంతు|పోరాడే నిబద్ధత|ప్రజల పక్షాన నిలిచే నాయకత్వం|మా నాయకుడే మా భవిష్యత్తు|నాయకత్వ పటిమ)/i.test(t);
+    const hasRealNewsKeywords = /(?:నిర్ణయం|పథకం|బడ్జెట్|కేటాయింపు|రూపాయల|కోట్ల|హామీ|సమీక్ష|అరెస్ట్|కేసు|దాడులు|ప్రమాదం|మృతి|మరణం|ఉత్తర్వులు|జీవో|నోటిఫికేషన్|పోలీస్|రైతు|ధరలు)/i.test(t);
+
+    if (isPartySource && hasSycophancySlogans && !hasRealNewsKeywords) {
+        return true;
+    }
+
+    return false;
+}
+
+/**
  * Formats a story text into strictly 3 to 4 distinct paragraphs separated by \n\n.
  * If already separated by paragraphs, preserves them.
  * If provided as a single block or clump, intelligently splits by sentence boundaries
@@ -716,7 +765,66 @@ function cleanThreadMarker(text) {
 }
 
 /**
- * Identifies multi-part threaded tweets (e.g. 1/4, 2/4, 3/4, 4/4 or 1/1, 1/2, 1/3, 1/4)
+ * Extracts explicit statement giver / speaker from quote lines like:
+ * "— Dr. @sambitswaraj", "-- Shri @AmitShah", "— @RahulGandhi", "- మంత్రి నారాయణ", etc.
+ * @param {string} text 
+ * @returns {string|null}
+ */
+function extractSpeakerFromTweet(text) {
+    if (!text) return null;
+    const dashMatch = text.match(/(?:—|--|–|-)\s*(?:Dr\.|Shri|Smt\.|Smt|Sri|Hon'ble|మంత్రి|ఎంపీ|ఎమ్మెల్యే)?\s*([@\w\u0C00-\u0C7F\s.]+?)(?:\s*(?:Watch|http|\n|$))/i);
+    if (dashMatch && dashMatch[1]) {
+        let speaker = dashMatch[1].trim();
+        speaker = speaker.replace(/[.,:;]+$/, '').trim();
+        if (speaker.toLowerCase().includes('sambitswaraj')) return 'డాక్టర్ సంబిత్ పాత్రా (@sambitswaraj)';
+        if (speaker.toLowerCase().includes('amitshah')) return 'అమిత్ షా (@AmitShah)';
+        if (speaker.toLowerCase().includes('rahulgandhi')) return 'రాహుల్ గాంధీ (@RahulGandhi)';
+        if (speaker.toLowerCase().includes('narendramodi')) return 'నరేంద్ర మోదీ (@narendramodi)';
+        if (speaker.toLowerCase().includes('ncbn')) return 'నారా చంద్రబాబు నాయుడు (@ncbn)';
+        if (speaker.toLowerCase().includes('ysjagan')) return 'వైఎస్ జగన్ మోహన్ రెడ్డి (@ysjagan)';
+        if (speaker.toLowerCase().includes('naralokesh')) return 'నారా లోకేష్ (@naralokesh)';
+        if (speaker.toLowerCase().includes('pawankalyan')) return 'పవన్ కళ్యాణ్ (@PawanKalyan)';
+        if (speaker.toLowerCase().includes('ktrbrs')) return 'కేటీఆర్ (@KTRBRS)';
+        if (speaker.length >= 2 && speaker.length <= 40 && !speaker.startsWith('http')) {
+            return speaker;
+        }
+    }
+    return null;
+}
+
+/**
+ * Checks if a tweet ends abruptly or with continuation punctuation.
+ */
+function isSentenceIncomplete(text) {
+    if (!text) return false;
+    const trimmed = text.trim();
+    return trimmed.endsWith('...') || 
+           trimmed.endsWith('…') || 
+           trimmed.endsWith(',') || 
+           trimmed.endsWith('-') || 
+           trimmed.endsWith(':') || 
+           trimmed.endsWith('(') ||
+           !/[.!?।॥”"']$/.test(trimmed);
+}
+
+/**
+ * Checks if a tweet begins as a continuation of previous thought.
+ */
+function isContinuation(text) {
+    if (!text) return false;
+    const trimmed = text.trim();
+    return trimmed.startsWith('...') || 
+           trimmed.startsWith('…') || 
+           trimmed.startsWith('-') || 
+           trimmed.startsWith(',') ||
+           trimmed.startsWith('మరియు') ||
+           trimmed.startsWith('అలాగే') ||
+           /^[a-z]/.test(trimmed);
+}
+
+/**
+ * Identifies multi-part threaded tweets (explicit 1/4 markers, direct self-replies,
+ * sentence continuations with commas/dots, or consecutive related tweets within 15 mins)
  * posted by the same handle, and stitches them into a single comprehensive news story.
  * Preserves all constituent URLs so they are all marked as processed.
  * @param {Array} tweets 
@@ -725,7 +833,7 @@ function cleanThreadMarker(text) {
 function groupTweetsIntoThreads(tweets) {
     if (!tweets || tweets.length === 0) return [];
 
-    // Sort chronologically (oldest first so 1/4 -> 2/4 -> 3/4 -> 4/4)
+    // Sort chronologically (oldest first)
     const sorted = [...tweets].sort((a, b) => a.date.getTime() - b.date.getTime());
 
     const result = [];
@@ -736,57 +844,72 @@ function groupTweetsIntoThreads(tweets) {
 
         const current = sorted[i];
         const marker = extractThreadMarker(current.text);
+        const threadGroup = [current];
+        usedIndices.add(i);
 
-        if (marker) {
-            const threadGroup = [current];
-            usedIndices.add(i);
+        let lastTime = current.date.getTime();
+        let lastText = current.text;
+        let lastId = current.id;
+        let lastPart = marker ? marker.part : 1;
 
-            let lastTime = current.date.getTime();
-            let lastPart = marker.part;
+        for (let j = i + 1; j < sorted.length; j++) {
+            if (usedIndices.has(j)) continue;
+            const candidate = sorted[j];
+            const cMarker = extractThreadMarker(candidate.text);
+            const timeDiff = candidate.date.getTime() - lastTime;
 
-            for (let j = i + 1; j < sorted.length; j++) {
-                if (usedIndices.has(j)) continue;
-                const candidate = sorted[j];
-                const cMarker = extractThreadMarker(candidate.text);
-                const timeDiff = candidate.date.getTime() - lastTime;
+            let isThreadContinuation = false;
 
-                // Belong to same thread if within 45 minutes and has thread marker
-                if (timeDiff >= 0 && timeDiff <= 45 * 60 * 1000 && cMarker) {
-                    const isSequential = cMarker.part > lastPart || (marker.total && cMarker.total === marker.total);
-                    if (isSequential) {
-                        threadGroup.push(candidate);
-                        usedIndices.add(j);
-                        lastTime = candidate.date.getTime();
-                        lastPart = cMarker.part;
+            if (timeDiff >= 0 && timeDiff <= 30 * 60 * 1000) {
+                if (cMarker && marker) {
+                    if (cMarker.part > lastPart || (marker.total && cMarker.total === marker.total)) {
+                        isThreadContinuation = true;
+                    }
+                } else if (candidate.replyToId && (candidate.replyToId === lastId || candidate.replyToId === current.id)) {
+                    isThreadContinuation = true;
+                } else if (isSentenceIncomplete(lastText) || isContinuation(candidate.text)) {
+                    isThreadContinuation = true;
+                } else if (timeDiff <= 15 * 60 * 1000) {
+                    const bothHaveCabinet = (lastText.includes('క్యాబినెట్') || lastText.includes('మంత్రివర్గ')) && 
+                                           (candidate.text.includes('క్యాబినెట్') || candidate.text.includes('మంత్రివర్గ') || candidate.text.includes('పెట్టుబడుల') || candidate.text.includes('నిర్ణయాల'));
+                    if (bothHaveCabinet) {
+                        isThreadContinuation = true;
                     }
                 }
             }
 
-            if (threadGroup.length > 1) {
-                const allUrls = threadGroup.map(t => t.url);
-                const combinedText = threadGroup.map(t => cleanThreadMarker(t.text)).filter(Boolean).join('\n\n');
-                
-                // Pick best media across the thread (first valid image/video)
-                const mediaItem = threadGroup.find(t => t.mediaUrl && t.mediaUrl.startsWith('http'));
-
-                result.push({
-                    id: current.id,
-                    url: current.url, // Primary URL is part 1
-                    allUrls: allUrls, // All URLs in thread to mark as processed
-                    text: combinedText,
-                    mediaUrl: mediaItem ? mediaItem.mediaUrl : current.mediaUrl,
-                    mediaType: mediaItem ? mediaItem.mediaType : current.mediaType,
-                    avatarUrl: current.avatarUrl,
-                    date: current.date,
-                    isThread: true,
-                    threadCount: threadGroup.length
-                });
-                continue;
+            if (isThreadContinuation) {
+                threadGroup.push(candidate);
+                usedIndices.add(j);
+                lastTime = candidate.date.getTime();
+                lastText = candidate.text;
+                lastId = candidate.id;
+                if (cMarker) lastPart = cMarker.part;
             }
         }
 
-        // Single tweet
-        usedIndices.add(i);
+        if (threadGroup.length > 1) {
+            const allUrls = threadGroup.map(t => t.url);
+            const combinedText = threadGroup.map(t => cleanThreadMarker(t.text)).filter(Boolean).join('\n\n');
+            const mediaItem = threadGroup.find(t => t.mediaUrl && t.mediaUrl.startsWith('http'));
+
+            result.push({
+                id: current.id,
+                url: current.url, // Primary URL is part 1
+                allUrls: allUrls, // All URLs in thread to mark as processed
+                text: combinedText,
+                mediaUrl: mediaItem ? mediaItem.mediaUrl : current.mediaUrl,
+                mediaType: mediaItem ? mediaItem.mediaType : current.mediaType,
+                avatarUrl: current.avatarUrl,
+                authorName: current.authorName,
+                date: current.date,
+                isThread: true,
+                threadCount: threadGroup.length
+            });
+            continue;
+        }
+
+        // Single stand-alone tweet
         result.push({
             ...current,
             allUrls: [current.url],
@@ -795,7 +918,7 @@ function groupTweetsIntoThreads(tweets) {
         });
     }
 
-    // Return in reverse chronological order (newest first)
+    // Return newest first
     return result.sort((a, b) => b.date.getTime() - a.date.getTime());
 }
 
@@ -918,106 +1041,6 @@ function extractThreadMarker(text) {
     return null;
 }
 
-/**
- * Removes thread markers (e.g. 1/4, 2/4, [3/4]) from tweet text for clean news presentation.
- * @param {string} text 
- * @returns {string}
- */
-function cleanThreadMarker(text) {
-    if (!text) return '';
-    return text.replace(/(?:^|[\s\(\[\{])\d+\s*[/／]\s*(?:\d+|n)(?:[\s\)\]\}.,:]|$)/gi, ' ')
-               .replace(/\s+/g, ' ')
-               .trim();
-}
-
-/**
- * Groups multi-part tweets (e.g. 1/4, 2/4, 3/4, 4/4 or 1/1, 1/2, 1/3, 1/4) from the same author
- * posted within 45 minutes into a single unified news story.
- * Gathers all URLs into `allUrls` so all constituent tweets get marked as processed.
- * @param {Array<Object>} tweets 
- * @returns {Array<Object>}
- */
-function groupTweetsIntoThreads(tweets) {
-    if (!tweets || tweets.length === 0) return [];
-
-    // Sort chronologically (oldest first: 1/4 -> 2/4 -> 3/4 -> 4/4)
-    const sorted = [...tweets].sort((a, b) => a.date.getTime() - b.date.getTime());
-
-    const result = [];
-    const usedIndices = new Set();
-
-    for (let i = 0; i < sorted.length; i++) {
-        if (usedIndices.has(i)) continue;
-
-        const current = sorted[i];
-        const marker = extractThreadMarker(current.text);
-
-        if (marker) {
-            const threadGroup = [current];
-            usedIndices.add(i);
-
-            let lastTime = current.date.getTime();
-            let lastPart = marker.part;
-
-            for (let j = i + 1; j < sorted.length; j++) {
-                if (usedIndices.has(j)) continue;
-                const candidate = sorted[j];
-                const cMarker = extractThreadMarker(candidate.text);
-                const timeDiff = candidate.date.getTime() - lastTime;
-
-                // Belong to same thread if:
-                // 1. Candidate is within 45 minutes of previous part
-                // 2. Candidate has a thread marker
-                // 3. Candidate part number is greater (or next in sequence) OR same total
-                if (timeDiff >= 0 && timeDiff <= 45 * 60 * 1000 && cMarker) {
-                    const isSequential = cMarker.part > lastPart || (marker.total && cMarker.total === marker.total);
-                    if (isSequential) {
-                        threadGroup.push(candidate);
-                        usedIndices.add(j);
-                        lastTime = candidate.date.getTime();
-                        lastPart = cMarker.part;
-                    }
-                }
-            }
-
-            if (threadGroup.length > 1) {
-                // Multi-part thread detected! Combine all parts into single story
-                const allUrls = threadGroup.map(t => t.url);
-                const combinedText = threadGroup.map(t => cleanThreadMarker(t.text)).filter(Boolean).join('\n\n');
-                
-                // Pick best media across the thread (first image or video)
-                const mediaItem = threadGroup.find(t => t.mediaUrl && t.mediaUrl.startsWith('http'));
-
-                result.push({
-                    id: current.id,
-                    url: current.url, // Primary URL is part 1
-                    allUrls: allUrls, // All constituent URLs to mark as processed
-                    text: combinedText,
-                    mediaUrl: mediaItem ? mediaItem.mediaUrl : current.mediaUrl,
-                    mediaType: mediaItem ? mediaItem.mediaType : current.mediaType,
-                    avatarUrl: current.avatarUrl,
-                    authorName: current.authorName,
-                    date: current.date,
-                    isThread: true,
-                    threadCount: threadGroup.length
-                });
-                continue;
-            }
-        }
-
-        // Single stand-alone tweet
-        usedIndices.add(i);
-        result.push({
-            ...current,
-            allUrls: [current.url],
-            isThread: false,
-            threadCount: 1
-        });
-    }
-
-    // Return in reverse chronological order (newest first)
-    return result.sort((a, b) => b.date.getTime() - a.date.getTime());
-}
 
 puppeteerExtra.use(StealthPlugin());
 const rssParser = new Parser({
@@ -1131,14 +1154,12 @@ let lastGeminiRequestTime = 0;
 // Limit to <= 13.3 requests per minute (4500ms delay) to avoid free tier 429 quota exhaustion
 const MIN_DELAY_BETWEEN_GEMINI_REQUESTS = 4500; 
 
-// High Free-Tier Quota Lite Models ONLY (Maximum RPM/TPM Limits):
+// Strict Scraper Lite Models ONLY:
 // 1. Primary: gemini-3.5-flash-lite
-// 2. Secondary: gemini-3.1-flash-lite
-// 3. Fallback: gemini-flash-lite-latest
+// 2. Fallback: gemini-3.1-flash-lite (Used only if 3.5 fails)
 const GEMINI_MODELS = [
     'gemini-3.5-flash-lite',
-    'gemini-3.1-flash-lite',
-    'gemini-flash-lite-latest'
+    'gemini-3.1-flash-lite'
 ];
 let currentModelIndex = 0;
 
@@ -1405,7 +1426,7 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 4) {
     }
 
     const truncatedText = text ? text.substring(0, 2500) : "";
-    if (truncatedText.length < 40) return null;
+    if (truncatedText.length < 25) return null;
 
     let imagePart = null;
     if (imageUrl && !isGenericImage(imageUrl)) {
@@ -1726,92 +1747,128 @@ async function processSingleWebSource(doc) {
                     return;
                 }
 
-                const prompt = `You are a Senior Telugu News Editor.
-1. EVALUATE TIMELINESS & RELEVANCE:
-   - REJECT generic blog posts, relationship tips, horoscopes, evergreen general advice.
-   - EXCEPTION: Major political party formation days, national holidays, or public events ARE valid news.
-2. STRICT FOCUS ON PRIMARY CORE INCIDENT (ఏకైక ప్రధాన అంశం మాత్రమే):
-   - The input article text may contain side tickers, related news snippets, other party reactions, or unrelated temple/darshan items from the web layout.
-   - YOU MUST FOCUS STRICTLY ON THE MAIN/CORE INCIDENT ONLY.
-   - NEVER combine unrelated secondary events, side news, or multiple unrelated topics into this story!
-3. SINGLE UNIFIED PARAGRAPH (గతం లో మాదిరిగానే ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్):
-   - Summary ('content') MUST be strictly ONE continuous, unified single paragraph in Telugu (~60-70 words).
-   - DO NOT create multiple paragraphs. DO NOT insert newline characters (\\n) in the content.
-   - PRESERVE FULL ESSENCE, TONE & INTENSITY (వార్త భావం, టోన్, ఇంటెన్సిటీ ఏమాత్రం మిస్ కావద్దు):
-     * Capture the complete meaning/soul (భావం) of the news faithfully.
-     * Modulate and preserve the true emotional tone and intensity (ఆవేశం, ఆగ్రహం, బాధ, పోరాట పటిమ, లేదా ప్రజా సమస్య తీవ్రత).
-     * Include ALL key people's names (వ్యక్తుల పేర్లు) and exact locations/districts/mandals (ప్రాంతాలు). Never omit names or locations!
-3.1. SENIOR EDITOR FULL STORY (పూర్తి వార్తా కథనం - కనీసం 250 నుండి 320 పదాలు, 3-4 విడివిడి పేరాగ్రాఫ్‌లు):
-   - 'fullStoryTe': మూల సమాచారంలో తగినంత టెక్స్ట్ ఉన్నప్పుడు, ఒక సీనియర్ ఎడిటర్ శైలిలో కనీసం 250 నుండి 320 పదాల సమగ్రమైన పూర్తి వార్తా కథనం రాయాలి.
+                const prompt = `మీరు ఆల్ఫా న్యూస్ (Alfa News - తెలుగు ప్రముఖ హైపర్-లోకల్ న్యూస్ నెట్‌వర్క్) కు చీఫ్ ఎడిటర్ మరియు సీనియర్ జర్నలిస్ట్.
+వెబ్ కథనాల నుండి సేకరించిన సమాచారాన్ని ప్రజలను ఆకట్టుకునేలా, జర్నలిస్టిక్ విలువలతో, నిర్దిష్టమైన భావోద్వేగాలతో కూడిన ప్రామాణిక తెలుగు వార్తగా తీర్చిదిద్దడం మీ బాధ్యత.
+
+ముఖ్యమైన నిబంధనలు (CRITICAL EDITORIAL RULES):
+1. ఏకైక ప్రధాన అంశంపై దృష్టి & ఎడిటోరియల్ తిరస్కరణలు (PRIMARY CORE INCIDENT & EDITORIAL REJECTIONS):
+   - వెబ్ ఆర్టికల్ టెక్స్ట్ లో సైడ్ టిక్కర్లు, సంబంధం లేని ఇతర లింకులు, ప్రకటనలు ఉండవచ్చు. వాటిని పూర్తిగా విస్మరించి, ప్రధాన వార్తాంశంపై మాత్రమే దృష్టి పెట్టండి.
+   - తిరస్కరణలు (isRelevant: false - సున్నా వార్తా విలువ / ప్రజోపయోగం లేనివి):
+     * 🛑 స్వీయ ప్రచారం, భజన, సొంత డబ్బా, నాయకుల పొగడ్తలు, పీఆర్ ఆర్టికల్స్ (SELF-PRAISE, LEADER GLORIFICATION & SYCOPHANCY): ఏ నాయకుడి గురించైనా లేదా పార్టీ గురించైనా కేవలం పొగడ్తలు, ప్రశంసలు, భజన చేసే ఆర్టికల్స్ వార్తలు కావు. ఇందులో ప్రజలకు ఉపయోగపడే పాలసీ లేదా ప్రయోజనం ఏమీ ఉండదు. ఖచ్చితంగా తిరస్కరించాలి (isRelevant: false).
+     * సాధారణ బ్లాగ్ పోస్టులు, నిత్య జీవిత సలహాలు, రాశిఫలాలు, వ్యక్తిగత పుట్టినరోజు పోస్టులు వార్తలు కావు (isRelevant: false).
+   - ఆమోదం (isRelevant: true): ప్రభుత్వ నిర్ణయాలు, కొత్త సంక్షేమ పథకాలు, అభివృద్ధి ప్రాజెక్టులు, బడ్జెట్, నిర్దిష్ట రాజకీయ విమర్శలు/ప్రెస్ మీట్లు, ప్రజా సమస్యలు, ప్రమాదాలు, నేరాలు మాత్రమే వార్తలు.
+
+2. సారాంశం (STRICT 60 TO 70 TELUGU WORDS, ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్):
+   - 'content': వార్త మొత్తం కచ్చితంగా 60 నుండి 70 పదాల మధ్య మాత్రమే ఉండాలి.
+   - కచ్చితంగా ఒకే ఒక్క నిరంతర పేరాగ్రాఫ్ గా రాయాలి (No multiple paragraphs, no newlines \n).
+   - వార్త యొక్క పూర్తి మూల భావం (భావం), మాట్లాడిన వారి ఆవేశం, ఆగ్రహం, ఆవేదన లేదా ప్రజా సమస్య తీవ్రతను యథాతథంగా ప్రతిబింబించాలి.
+   - ముఖ్యమైన వ్యక్తుల పేర్లు, ఊరు/మండలం/జిల్లా పేర్లు తప్పక ఉండాలి. ఎట్టిపరిస్థితుల్లోనూ పేర్లు లేదా ప్రాంతాలను విడిచిపెట్టరాదు!
+
+3. సీనియర్ ఎడిటర్ పూర్తి వార్తా కథనం (SENIOR EDITOR FULL STORY - కనీసం 250 నుండి 320 పదాలు, 3-4 విడివిడి పేరాగ్రాఫ్‌లు):
+   - 'fullStoryTe': మూల సమాచారంలో తగినంత సమాచారం ఉన్నప్పుడు, ఒక సీనియర్ ఎడిటర్ శైలిలో కనీసం 250 నుండి 320 పదాల సమగ్రమైన పూర్తి వార్తా కథనం రాయాలి.
    - 3-4 విడివిడి పేరాగ్రాఫ్‌లు తప్పనిసరి (STRICTLY 3-4 PARAGRAPHS SEPARATED BY \n\n):
      * ❌ ఒకే ముద్దగా (single clump) రాయడం పూర్తిగా నిషిద్ధం!
      * ✅ కథనాన్ని స్పష్టంగా 3 నుండి 4 పేరాగ్రాఫ్‌లుగా విభజించాలి. ప్రతి పేరాగ్రాఫ్‌ మధ్య రెండు న్యూలైన్‌లు (\n\n) తప్పనిసరిగా ఉండాలి.
-     * 1వ పేరా: వార్తలోని ప్రధాన సారాంశం, సంచలన ప్రకటన లేదా పంచ్ డైలాగ్, స్పష్టమైన ఆపాదింపుతో ప్రారంభం (~60-80 పదాలు).
-     * 2వ పేరా: నేపథ్యం, కీలక నిర్ణయాలు, సంఖ్యలు, లెక్కలు లేదా వివరాలు (~80-100 పదాలు).
-     * 3వ పేరా: రాజకీయ పరిణామాలు, ప్రత్యర్థులపై విమర్శలు, సవాళ్లు లేదా డిమాండ్లు (~70-90 పదాలు).
-     * 4వ పేరా: తాజా పరిస్థితి, ముగింపు లేదా భవిష్యత్ కార్యాచరణ (~50-70 పదాలు).
-   - నిబంధనలు (CRITICAL RULES FOR FULL STORY):
-     * పదాల పరిమాణం: తగినంత సమాచారం ఉన్నప్పుడు కనీసం 250 పదాలు (250 నుండి 320 పదాలు) ఉండాలి. చిన్న వాక్యాలతో అరకొరగా ముగించవద్దు.
-     * భావం & తీవ్రత (Tone & Intensity): వార్త యొక్క మూల భావం, మాట్లాడిన వారి ఆవేశం, ఆగ్రహం, బాధ లేదా ప్రజా సమస్య తీవ్రత అస్సలు తగ్గకూడదు.
-     * ఆపాదింపు నియమం (Attribution): ఎవరి వ్యాఖ్యలను వారికే ఆపాదించాలి. మనమే తీర్పులు ఇవ్వరాదు.
+     * 1వ పేరా (ఆసక్తికర హుక్ & మూల సంఘటన - ~60-80 పదాలు): పాఠకుడిని వెంటనే కట్టిపడేసే ఓపెనింగ్, ప్రధాన సంఘటన/కీలక ప్రకటన/ఘాటైన పంచ్ డైలాగ్, మాట్లాడిన వ్యక్తికి స్పష్టమైన ఆపాదింపు.
+     * 2వ పేరా (నేపథ్యం, సంఖ్యలు & పూర్వాపరాలు - ~80-100 పదాలు): సంఘటన లేదా నిర్ణయం నేపథ్యం, గణాంకాలు, కేటాయింపులు, చారిత్రక లేదా గత పరిణామాలు.
+     * 3వ పేరా (360° సమతుల్యత & ప్రత్యర్థి వాదన / క్షేత్రస్థాయి వాస్తవాలు - ~70-90 పదాలు): రాజకీయ విమర్శల వార్త అయితే ఎదుటి పక్షం/ప్రతిపక్షం వివరణ, వారి సమర్థన లేదా ఆరోపణలను తిప్పికొట్టిన విధానం; ప్రభుత్వ పథకమైతే క్షేత్రస్థాయి సవాళ్లు లేదా ప్రజా సమస్య తీవ్రత.
+     * 4వ పేరా (తాజా పరిస్థితి & భవిష్యత్ పరిణామాలు - ~50-70 పదాలు): ప్రస్తుత పరిస్థితి, అధికారులు చేపట్టిన లేదా చేపట్టాల్సిన చర్యలు, తదుపరి పరిణామాలు లేదా ప్రజల డిమాండ్లు.
+   - నిబంధనలు:
      * కల్పితాలు వద్దు (NO HALLUCINATIONS): మూల సమాచారంలో లేని వివరాలను ఊహించవద్దు. ఉన్న సమాచారాన్నే లోతైన జర్నలిజం భాషలో, సమగ్రమైన పేరాగ్రాఫ్‌లుగా రాయండి.
      * వాస్తవాల రక్షణ: వ్యక్తుల పేర్లు, సంస్థలు, ప్రాంతాలు, పదవులు, తేదీలు, అంకెలను ఎట్టిపరిస్థితుల్లోనూ మార్చవద్దు, మిస్ చేయవద్దు.
-     * చిన్న వార్తల నిబంధన (SHORT NEWS): ఒకవేళ మూల సమాచారం 70-80 పదాల లోపే ఉండి, వార్తలో ఇతర వివరాలు ఏమీ లేనప్పుడు, బలవంతంగా 250 పదాలు పూర్తి చేయడానికి లేనివి ఊహించవద్దు. అటువంటి చిన్న వార్తలకు fullStoryTe ను content కు సమానంగా ఉంచండి.
-   - 'fullStoryEn': English Full Story (strictly 200 to 250 words across 3-4 paragraphs separated by \n\n) maintaining the same journalistic depth, emotion, and facts. For short news, keep equal to contentEn.
- 3.2. MANDATORY ATTRIBUTION - ZERO EDITORIAL VERDICTS (ఆపాదింపు తప్పనిసరి - మనమే తీర్పులు ఇవ్వరాదు / ధ్రువీకరించరాదు):
-    - ఆల్ఫా న్యూస్ నిష్పాక్షిక వార్తా సంస్థ. ఏ రాజకీయ పార్టీ లేదా నాయకుడి విమర్శలు, ఆరోపణలను మన ఛానెల్ స్వయంగా నిర్ధారించినట్లు లేదా తీర్పు ఇచ్చినట్లు ఎప్పుడూ రాయరాదు!
-    - వార్తలోని ఆరోపణలు, విమర్శలు, సవాళ్లను కచ్చితంగా మాట్లాడిన వ్యక్తికి లేదా పార్టీకి ఆపాదించాలి (ఉదా: "...అన్న ఫలానా నేత", "ఫలానా పార్టీ ఆరోపించింది / పేర్కొంది").
-    - రాజకీయ పోస్టులకు "విశ్లేషకులు అంటున్నారు", "నివేదికలు స్పష్టం చేస్తున్నాయి" వంటి కల్పిత ధ్రువీకరణలను సృష్టించడం పూర్తిగా నిషిద్ధం.
- 4. CONTEXT-AWARE HEADLINE (సందర్భానుసార శీర్షిక - కచ్చితంగా 7 నుండి 8 పదాలు, ఏకైక సంపూర్ణ వాక్యం, కొటేషన్లు లేవు):
-   - హెడ్‌లైన్ అనేది అన్ని వార్తలకూ ఒకే మూసలో ఉండకూడదు! వార్త యొక్క వాస్తవ స్వభావం, తీవ్రత మరియు సందర్భాన్ని బట్టి AI సరైన శైలిని ఎంచుకోవాలి:
-     * 1. రాజకీయ విమర్శలు, సవాళ్లు, ఆరోపణలు, ప్రెస్ మీట్లు:
-       - శైలి: ఘాటైన పంచ్ డైలాగ్ + స్పష్టమైన ఆపాదింపు (Attribution).
-       - నాయకుడు పలికిన అసలు పంచ్ వాక్యం/సవాలే శీర్షికలో రావాలి.
-       - ❌ చప్పని "స్పందన", "సమీక్ష" వంటి పదాలు పూర్తిగా నిషిద్ధం!
-       - ❌ మనమే తీర్పు ఇచ్చినట్లు రాయకూడదు.
-       - ఉదాహరణ: "ప్రజలను దగా చేశారంటూ కూటమి సర్కార్‌పై జగన్ తీవ్ర ఆగ్రహం"
-       - ఉదాహరణ: "ఏబీవీపీ విజయంతో సత్తా చాటిందన్న కేంద్ర మంత్రి కిరణ్ రిజిజు"
-     * 2. రైతాంగ వ్యథ, పేదల ఆవేదన, ప్రజా సమస్యలు, పల్లెసీమల కష్టాలు:
-       - శైలి: హృదయాన్ని కదిలించే కరుణ రసం / కవితాత్మక రూపకాలు (Poetic Metaphors - శ్రీశ్రీ, తిలక్ శైలిలో).
-       - పేదల బాధ, రైతన్న కన్నీరు, అధికారుల నిర్లక్ష్యం కళ్లకు కట్టేలా రాయాలి (ఇక్కడ పంచ్ డైలాగులు పెట్టరాదు).
-       - ఉదాహరణ: "ఆశల పందిరి కూలి కన్నీటి సంద్రమైన అన్నదాత బతుకు చిత్రం"
-       - ఉదాహరణ: "రోడ్లు లేక డోలీ మోతలతో రోదిస్తున్న అడవితల్లి ఆక్రోశం"
-     * 3. ప్రమాదాలు, విషాదాలు, విపత్తులు:
-       - శైలి: గంభీరమైన, వాస్తవికతతో కూడిన వార్తా శైలి (Grave, Impactful Reality).
-       - సంఘటన తీవ్రత, స్థలం, ప్రాణనష్టం స్పష్టంగా తెలపాలి (ఇక్కడ కవిత్వాలు, పంచ్ డైలాగులు పూర్తిగా నిషిద్ధం).
-       - ఉదాహరణ: "నెత్తురోడిన జాతీయ రహదారిపై లారీ ఢీకొని నలుగురు దుర్మరణం"
-       - ఉదాహరణ: "వరద ఉధృతిలో కొట్టుకుపోయిన కారు.. నదిలో ఇద్దరు గల్లంతు"
-     * 4. ప్రభుత్వ పథకాలు, అభివృద్ధి పనులు, నియామకాలు, శుభవార్తలు:
-       - శైలి: ఉత్తేజభరితమైన, సూటిగా ప్రయోజనాన్ని తెలిపే శైలి (Crisp, Direct, Uplifting Action).
-       - ఎవరికి ఏమి లభిస్తుంది, పథకం లబ్ధి ఏమిటనేది సూటిగా ప్రజలకు చేరాలి.
-       - ఉదాహరణ: "రైతుల ఖాతాల్లోకి నేడే రైతు భరోసా నిధుల జమ"
-       - ఉదాహరణ: "నిరుద్యోగులకు తీపి కబురు.. త్వరలోనే పదివేల ఉద్యోగాల భర్తీ"
-     * 5. నేరాలు, దోపిడీలు, పోలీస్ దాడులు, మోసాలు:
-       - శైలి: పదునైన క్రైమ్ రిపోర్టింగ్ (Sharp, Gripping Crime Reporting).
-       - ఉదాహరణ: "సికింద్రాబాద్‌లో సినీ ఫక్కీలో భారీ దోపిడీ.. అంతర్రాష్ట్ర ముఠా అరెస్ట్"
+     * సాధారణ చిన్న వార్తల నిబంధన: ఒకవేళ మూల సమాచారం 70-80 పదాల లోపే ఉండి, వార్తలో ఇతర వివరాలు ఏమీ లేనప్పుడు మాత్రమే fullStoryTe ను content కు సమానంగా ఉంచండి.
+   - 'fullStoryEn': English Full Story (strictly 200 to 250 words across 3-4 paragraphs separated by \n\n) maintaining the same journalistic depth, emotion, and facts.
+
+4. 🌟 ఆసక్తికర ప్రారంభం & నాన్‌-బోరింగ్ హుక్ (IMPACT-FIRST READER ENGAGEMENT):
+   - రొటీన్, యాంత్రికమైన బోరింగ్ ప్రారంభాలు పూర్తిగా నిషిద్ధం! (ఉదా: "ఫలానా చోట సమావేశం జరిగింది", "ఫలానా నేత మాట్లాడారు", "ఫలానా విషయాన్ని వెల్లడించారు" అని నీరసంగా మొదలుపెట్టరాదు).
+   - ప్రారంభ వాక్యమే పాఠకుడిని కట్టిపడేసేలా (Gripping Hook) అసలు ఏమి జరిగింది? ప్రజలపై దాని ప్రభావం ఏమిటి? ఆ ప్రకటన వెనుక ఉన్న తీవ్ర సంచలనం లేదా వివాదం ఏమిటి? అనే కీలక అంశంతో సూటిగా ప్రారంభం కావాలి.
+
+5. ⚖️ 360° సమతుల్యత & అందరి వాయిస్ (CONTEXTUAL MULTI-VOICE BALANCE & STRICT NEUTRALITY):
+   - ఆల్ఫా న్యూస్ నిష్పాక్షిక వార్తా సంస్థ. మన ఛానెల్ ఎవరి పక్షానా నిలబడదు. ఏ ఒక్క పక్షం ప్రచారానికో లేదా ఏకపక్ష ఆరోపణలకో పరిమితం కాకుండా అందరి గొంతులనూ (All Voices) నిష్పాక్షికంగా వినిపించాలి.
+   - ⚠️ సందర్భోచిత సమతుల్యత నిబంధన (CRITICAL APPLICABILITY):
+     * ✅ రాజకీయ విమర్శలు, సవాళ్లు, ఆరోపణలు, వివాదాస్పద అంశాల వార్తలకు మాత్రమే: 3వ పేరాలో తప్పనిసరిగా ఎదుటి పక్షం/ప్రతిపక్షం యొక్క వివరణ, వారి సమర్థన లేదా ప్రభుత్వం/అధికారుల వివరణను చేర్చి సమతుల్యతను తీసుకురావాలి.
+     * 🛑 వివాద రహిత అధికారిక వార్తలు (NO ARTIFICIAL DISPUTES): ప్రభుత్వ అధికారిక సంక్షేమ నిధుల విడుదల (రైతు భరోసా, పింఛన్లు), ఉద్యోగ నోటిఫికేషన్లు (డీఎస్సీ, గ్రూప్స్), అభివృద్ధి పనుల శంకుస్థాపనలు, క్రీడా విజయాలు, సహజ విపత్తులు/ప్రమాదాలు, లేదా సంతాప సందేశాలకు బలవంతంగా కృత్రిమ రాజకీయ వివాదాన్ని లేదా సంబంధం లేని విమర్శలను సృష్టించడం పూర్తిగా నిషిద్ధం! అటువంటి వాటికి ఆ పథకం లబ్ధి లేదా క్షేత్రస్థాయి వాస్తవాలనే 3వ పేరాలో నిష్పాక్షికంగా రాయాలి.
+
+5.1 🛡️ మీడియా మాఫియా పక్షపాత రక్షణ కవచం & హార్డ్ రికార్డులు (PARTISAN MEDIA BIAS SHIELD & HARD DATA ONLY):
+   - తెలుగు రాష్ట్రాల్లోని ప్రధాన మీడియా వర్గాలు (ఈనాడు, ఆంధ్రజ్యోతి/ABN, టీవీ5, సాక్షి మొదలైనవి) తీవ్ర రాజకీయ పక్షపాతంతో, ఒక వర్గానికి అనుకూలంగా కథనాలను పదేపదే ప్రచారం చేస్తాయి.
+   - గూగుల్ సెర్చ్ లేదా ఇంటర్నెట్‌లో ఒక పక్షం ఆరోపణలు ఎన్ని వేల వెబ్‌సైట్లలో కనిపించినా, వాటిని నిర్ధారిత సత్యాలుగా (Established Facts) భావించరాదు!
+   - హార్డ్ రికార్డులు మాత్రమే ఫ్యాక్ట్స్: ప్రభుత్వ జీవోలు (GOs), గెజిట్లు, బడ్జెట్ అంకెలు, కోర్టు ఆదేశాలు, ఈడీ/సిట్ ఎఫ్‌ఐఆర్ కాపీలు, ఎన్నికల సంఘం ఉత్తర్వులను మాత్రమే వాస్తవాలుగా పరిగణించాలి.
+   - పక్షపాత విశేషణాల బహిష్కరణ: "చరిత్రలోనే అతిపెద్ద స్కామ్", "ప్రజాగ్రహం కట్టలు తెంచుకుంది", "కుదేలైన సర్కార్", "నిలువునా ముంచేశారు" వంటి రాజకీయ అజెండా విశేషణాలను కథనంలో వాడరాదు.
+   - ద్వైపాక్షిక సమతుల్యత: మీడియాలో ఒక వర్గం ఆరోపణ ఎంత బలంగా ఉన్నా, 3వ పేరాలో తప్పనిసరిగా ఎదుటి పక్షం/ప్రభుత్వం/బాధితుల వివరణను లేదా కౌంటర్ వాదనను సమాన ప్రాధాన్యతతో చేర్చాలి. ఆల్ఫా న్యూస్ ఎవరికీ క్లీన్ చిట్ ఇవ్వదు, ఎవరినీ దోషిగా తేల్చదు.
+
+6. 🔥 వార్తా రస రక్షణ & భావోద్వేగ తీవ్రత (TONE & EMOTIONAL INTENSITY FIDELITY):
+   - వార్తలోని వాస్తవ రసాన్ని, తీవ్రతను, మూల భావోద్వేగాన్ని (Tone & Intensity) యథాతథంగా కాపాడాలి. వార్తను చప్పగా లేదా నిర్జీవంగా మార్చరాదు.
+   - రాజకీయ సవాళ్లు/పోరాటాల్లో ఆ వాడి, వేడి, ఘాటు అలాగే ఉండాలి.
+   - రైతుల కష్టాలు, పేదల ఆవేదన, బాధితుల గోడులో కరుణ రసం, వారి గుండెకోత, కన్నీటి వ్యథ ప్రతిధ్వనించాలి.
+   - ప్రమాదాలు, ప్రకృతి విపత్తుల్లో గంభీరమైన వాస్తవికత, ప్రాణనష్టం, క్షతగాత్రుల పరిస్థితి తీవ్రతను నిక్కచ్చిగా తెలపాలి.
+   - అవినీతి, మోసాలు, నేరాల్లో పదునైన పరిశోధనా శైలి ఉండాలి.
+
+7. ⚡ సజీవ జర్నలిస్టిక్ క్రియా పదాలు (DYNAMIC ACTION VERBS - BAN MONOTONY):
+   - ప్రతి వాక్యానికీ "అన్నారు... తెలిపారు... పేర్కొన్నారు" వంటి రొటీన్, యాంత్రిక క్రియా పదాలను పదేపదే వాడటం పూర్తిగా నిషిద్ధం!
+   - సందర్భానికి తగిన శక్తివంతమైన తెలుగు క్రియా పదాలను వాడాలి:
+     * ఘాటైన ఆరోపణలు/పోరాటం: "ధ్వజమెత్తారు", "నిలదీశారు", "తీవ్రస్థాయిలో విరుచుకుపడ్డారు", "మండిపడ్డారు", "ఆగ్రహం వ్యక్తం చేశారు".
+     * కరాఖండి నిర్ణయాలు/హెచ్చరికలు: "తేల్చిచెప్పారు", "హెచ్చరించారు", "స్పష్టం చేశారు", "సవాల్ విసిరారు", "ఖరాఖండీగా ప్రకటించారు".
+     * రైతాంగం/బాధితుల వేదన: "ఆవేదన వ్యక్తం చేశారు", "కన్నీటిపర్యంతమయ్యారు", "గోడు వెళ్లబోసుకున్నారు", "వాపోయారు".
+     * అధికారిక వివరణలు/రక్షణ: "స్పందించారు", "వివరణ ఇచ్చారు", "సమర్థించుకున్నారు", "స్పష్టతనిచ్చారు", "హామీ ఇచ్చారు".
+
+8. ఆపాదింపు తప్పనిసరి - మనమే తీర్పులు ఇవ్వరాదు / ధ్రువీకరించరాదు / బిరుదులు ఇవ్వరాదు (MANDATORY ATTRIBUTION - ZERO EDITORIAL VERDICTS & TITLES):
+   - ఆల్ఫా న్యూస్ నిష్పాక్షిక వార్తా సంస్థ. ఏ రాజకీయ నాయకుడిపై ప్రశంసలను గానీ, విమర్శలను గానీ మన ఛానెల్ స్వయంగా ఇచ్చినట్లు, ధ్రువీకరించినట్లు లేదా తీర్పు ఇచ్చినట్లు ఎప్పుడూ రాయరాదు!
+   - ❌ పొగడ్తలు/బిరుదుల తీర్పులు పూర్తిగా నిషిద్ధం (ZERO EDITORIAL TITLES / FLATTERY): "ప్రజల పక్షాన నిలిచి పోరాడే నాయకురాలు ఫలానా", "పేదల పెన్నిధి ఫలానా నేత", "అభివృద్ధి ప్రదాత ఫలానా నాయకుడు" అని రాయడం అత్యంత ఘోరమైన తప్పు! మన ఛానెల్ ఎవరికీ 'ప్రజల నాయకుడు/నాయకురాలు' అనే బిరుదులు ఇవ్వదు, సర్టిఫై చేయదు.
+   - ❌ విమర్శల తీర్పులు కూడా నిషిద్ధం: "కూటమి సర్కార్ ప్రజలను నిలువునా ముంచేసింది", "బీజేపీ విఫలమైంది" అని ఛానెల్ నిర్ధారించరాదు.
+   - ✅ తప్పనిసరి ఆపాదింపు: వార్తలోని ఆరోపణలు, విమర్శలు, సవాళ్లను కచ్చితంగా మాట్లాడిన వ్యక్తికి లేదా పార్టీకి ఆపాదించాలి (ఉదా: "...అన్న ఫలానా నేత", "ఫలానా పార్టీ ఆరోపించింది / పేర్కొంది").
+   - రాజకీయ పోస్టులకు "విశ్లేషకులు అంటున్నారు", "నివేదికలు స్పష్టం చేస్తున్నాయి", "సర్వత్రా వ్యక్తమవుతోంది" వంటి కల్పిత ధ్రువీకరణలను సృష్టించడం పూర్తిగా నిషిద్ధం.
+   - ⚠️ వ్యక్తుల మార్పిడి నిషిద్ధం (PERSON ATTRIBUTION SWAP - STRICTLY FORBIDDEN): వార్తలో ఒకరి గురించి రాస్తూ మరొకరు చెప్పిన మాటలు, వ్యాఖ్యలను మొదటి వ్యక్తికి ఆపాదించరాదు. ఎవరు అన్నారో వారి పేరే శీర్షికలో మరియు వార్తలో ఉండాలి.
+
+9. సందర్భానుసార శీర్షికా నైపుణ్యం (CONTEXT-AWARE HEADLINE MASTERY - STRICTLY 7 TO 9 WORDS, ONE SINGLE CONTINUOUS SENTENCE):
+   హెడ్‌లైన్ అనేది అన్ని వార్తలకూ ఒకే మూసలో ఉండకూడదు! వార్త యొక్క వాస్తవ స్వభావం, తీవ్రత మరియు సందర్భాన్ని బట్టి AI సరైన శైలిని ఎంచుకోవాలి:
+   * 1. రాజకీయ విమర్శలు, సవాళ్లు, ఆరోపణలు, ప్రెస్ మీట్లు:
+     - శైలి: ఘాటైన పంచ్ డైలాగ్ + స్పష్టమైన ఆపాదింపు (Attribution).
+     - నాయకుడు పలికిన అసలు పంచ్ వాక్యం/సవాలే శీర్షికలో రావాలి. చప్పని "స్పందన", "సమీక్ష" వంటి పదాలు పూర్తిగా నిషిద్ధం!
+     - ఉదాహరణ: "ప్రజలను దగా చేశారంటూ కూటమి సర్కార్‌పై జగన్ తీవ్ర ఆగ్రహం" (8 పదాలు)
+     - ఉదాహరణ: "ఏబీవీపీ విజయంతో సత్తా చాటిందన్న కేంద్ర మంత్రి కిరణ్ రిజిజు" (8 పదాలు)
+     - ఉదాహరణ: "అక్రమ కేసులతో బెదిరించలేరంటూ కాంగ్రెస్ సర్కార్‌కు కేటీఆర్ బహిరంగ సవాల్" (8 పదాలు)
+     - ఉదాహరణ: "రైతులను ఆదుకోవడంలో ప్రభుత్వం ఘోరంగా విఫలమైందన్న హరీష్ రావు" (7 పదాలు)
+   * 2. రైతాంగ వ్యథ, పేదల ఆవేదన, ప్రజా సమస్యలు, పల్లెసీమల కష్టాలు:
+     - శైలి: హృదయాన్ని కదిలించే కరుణ రసం / కవితాత్మక రూపకాలు (శ్రీశ్రీ, తిలక్ శైలిలో). పంచ్ డైలాగులు పెట్టరాదు.
+     - ఉదాహరణ: "ఆశల పందిరి కూలి కన్నీటి సంద్రమైన అన్నదాత బతుకు చిత్రం" (8 పదాలు)
+     - ఉదాహరణ: "రోడ్లు లేక డోలీ మోతలతో రోదిస్తున్న అడవితల్లి ఆక్రోశం" (7 పదాలు)
+     - ఉదాహరణ: "తాగునీరు లేక చుక్కల కోసం అల్లాడుతున్న పల్లెసీమల జనం" (7 పదాలు)
+   * 3. ప్రమాదాలు, విషాదాలు, విపత్తులు:
+     - శైలి: గంభీరమైన, వాస్తవికతతో కూడిన వార్తా శైలి (Grave, Impactful Reality). కవిత్వాలు, పంచ్ డైలాగులు పూర్తిగా నిషిద్ధం.
+     - ఉదాహరణ: "నెత్తురోడిన జాతీయ రహదారిపై లారీ ఢీకొని నలుగురు దుర్మరణం" (7 పదాలు)
+     - ఉదాహరణ: "వరద ఉధృతిలో కొట్టుకుపోయిన కారు.. నదిలో ఇద్దరు గల్లంతు" (7 పదాలు)
+     - ఉదాహరణ: "క్షణకాలం ఏమరుపాటుతో బావిలో పడి ప్రాణాలు కోల్పోయిన రైతు" (8 పదాలు)
+   * 4. ప్రభుత్వ పథకాలు, అభివృద్ధి పనులు, నియామకాలు, శుభవార్తలు:
+     - శైలి: ఉత్తేజభరితమైన, సూటిగా ప్రయోజనాన్ని తెలిపే శైలి (Crisp, Direct, Uplifting Action).
+     - ఉదాహరణ: "రైతుల ఖాతాల్లోకి నేడే రైతు భరోసా నిధుల జమ" (7 పదాలు)
+     - ఉదాహరణ: "నిరుద్యోగులకు తీపి కబురు.. త్వరలోనే పదివేల ఉద్యోగాల భర్తీ" (7 పదాలు)
+     - ఉదాహరణ: "గ్రామంలో కోటి రూపాయలతో నూతన రహదారుల నిర్మాణ పనులు" (7 పదాలు)
+   * 5. నేరాలు, దోపిడీలు, పోలీస్ దాడులు, మోసాలు:
+     - శైలి: పదునైన క్రైమ్ రిపోర్టింగ్ (Sharp, Gripping Crime Reporting).
+     - ఉదాహరణ: "సికింద్రాబాద్‌లో సినీ ఫక్కీలో భారీ దోపిడీ.. అంతర్రాష్ట్ర ముఠా అరెస్ట్" (8 పదాలు)
+     - ఉదాహరణ: "నకిలీ సర్టిఫికెట్ల రాకెట్ గుట్టురట్టు చేసిన టాస్క్‌ఫోర్స్ పోలీసులు" (7 పదాలు)
    - కఠిన సార్వత్రిక నిబంధనలు (UNIVERSAL RULES FOR ALL HEADLINES):
-     1. ఖచ్చితంగా 7 నుండి 8 పదాలు మాత్రమే (STRICTLY 7 TO 8 WORDS ONLY).
+     1. ఖచ్చితంగా 7 నుండి 9 పదాలు మాత్రమే, సంపూర్ణ అర్ధవంతమైన వాక్యం (STRICTLY 7 TO 9 WORDS, COMPLETE SENTENCE). వాక్యం అసంపూర్తిగా ముగియరాదు, చివర పూర్తి క్రియా పదం (మండిపడ్డారు, స్పష్టం చేశారు, ప్రకటించారు, అరెస్ట్, మృతి) తప్పనిసరి.
      2. మొదటి పదం నుండి చివరి పదం వరకు కేవలం ఒకే ఒక్క నిరంతర సంపూర్ణ వాక్యం (STRICTLY ONE CONTINUOUS SENTENCE).
      3. కొటేషన్లు ('...', "...") మరియు కోలన్లు (:) పూర్తిగా నిషిద్ధం!
 
-5. STRICT TELUGU SCRIPT PURITY (స్వచ్ఛమైన తెలుగు లిపి మాత్రమే - NO FOREIGN SCRIPTS):
-   - Output 100% pure Telugu script (Unicode U+0C00-U+0C7F) and English/Numbers for acronyms (e.g. TDP, BRS, BJP, ₹).
-   - STRICTLY FORBIDDEN: NEVER mix or insert Kannada, Hindi/Devanagari, Urdu/Arabic, Tamil, or Malayalam characters anywhere in the headline, summary, or tags!
-   - Transliterate all Hindi/Urdu/other names purely into TELUGU (e.g. 'నరేంద్ర మోదీ', 'రాహుల్ గాంధీ', 'ఒవైసీ', 'వక్ఫ్'). Zero non-Telugu Indian or Arabic/Urdu characters allowed!
-6. STRICT IMAGE & LOGO EVALUATION (లోగోలు, లోగోలున్న ఇమేజ్‌లను పూర్తిగా తిరస్కరించు):
-   - Inspect the candidate image attached: ${extracted.image || 'None'}.
-   - If the image contains ANY channel logo (e.g. ETV, ETV Bharat, TV9, Sakshi, Eenadu, ABN, NTV, V6, T News, 10TV, HMTV, Mahaa, Zee, etc.), website logo, watermark, TV mic emblem, digital title card, or brand graphic:
-     YOU MUST REJECT IT! Set "hasLogo": true, "mediaUrl": "".
-   - ONLY set "mediaUrl": "${extracted.image || ''}" and "hasLogo": false if the image is a genuine, authentic real-world news photograph (e.g. accident scene, real persons, meeting, protest, on-ground event) WITHOUT ANY prominent TV/news logo or watermark.
-   - When in doubt, REJECT the image ("hasLogo": true, "mediaUrl": "").
-7. Identify location: District name in Telugu if in TS/AP, state name, 'India', or 'World'.
-8. Generate deterministic storyFingerprint: EXACTLY 3-4 words joined by hyphens in English.
-9. Classification:
+10. స్వచ్ఛమైన తెలుగు లిపి (100% PURE TELUGU SCRIPT - NO FOREIGN SCRIPTS):
+   - అవుట్‌పుట్ 100% స్వచ్ఛమైన తెలుగు లిపిలో (Unicode U+0C00-U+0C7F) ఉండాలి. అబ్రివియేషన్లకు మాత్రమే ఇంగ్లీష్/నంబర్లు (ఉదా: TDP, BRS, BJP, ₹).
+   - కన్నడ, హిందీ/దేవనాగరి, ఉర్దూ, తమిళం లేదా మలయాళం అక్షరాలు ఎట్టిపరిస్థితుల్లోనూ రానివ్వకూడదు.
+   - హిందీ/ఇతర భాషల పేర్లను స్వచ్ఛమైన తెలుగులోకి లిప్యంతరీకరించాలి (ఉదా: 'నరేంద్ర మోదీ', 'రాహుల్ గాంధీ', 'ఒవైసీ', 'వక్ఫ్').
+
+11. చిత్రాలు & లోగోల పరిశీలన (STRICT LOGO REJECTION):
+   - చిత్రం: ${extracted.image || 'None'}.
+   - ఒకవేళ చిత్రంలో టీవీ ఛానల్ లోగో (ETV, TV9, Sakshi, Eenadu, ABN, NTV, V6, 10TV, HMTV, Zee మొదలైనవి), వెబ్‌సైట్ లోగో, వాటర్‌మార్క్, మైక్ చిహ్నం, డిజిటల్ టైటిల్ కార్డ్ ఉంటే తప్పనిసరిగా తిరస్కరించాలి! ("hasLogo": true, "mediaUrl": "").
+   - నిజమైన వాస్తవ సంఘటన ఫోటో అయితే మాత్రమే "hasLogo": false, "mediaUrl": "${extracted.image || ''}" ఇవ్వాలి.
+
+12. లొకేషన్ & వర్గీకరణ:
+   - location: తెలంగాణ/ఆంధ్రప్రదేశ్‌లోని జిల్లా పేరు (లేదా మండలం).
    - refinedCategory: Exactly one of [Politics, Crime, Sports, Cinema, Business, Health, Education, Technology, Agriculture, Local, National, International].
-   - tags: 3-5 Telugu keywords.
-   - entities: { "people": [], "organizations": [], "locations": [] }.
-10. Output JSON only:
-{"isRelevant": true|false, "headline": "Telugu Title (Strictly NO quotes, With Attribution)", "content": "Telugu Summary (With Attribution)", "fullStoryTe": "Telugu Full Story (At least 250-320 words across 3-4 paragraphs separated by \\n\\n, With Attribution)", "headlineEn": "English Title", "contentEn": "English Summary", "fullStoryEn": "English Full Story (200-250 words in 3-4 paragraphs separated by \\n\\n)", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "hasLogo": false, "mediaUrl": "${extracted.image || ''}", "mediaType": "image|video", "isWide": true|false}`;
+   - storyFingerprint: EXACTLY 3-4 words joined by hyphens in English (e.g. jagan-fires-alliance-govt).
+
+13. అవుట్‌పుట్ ఫార్మాట్ (Strict JSON only):
+{"isRelevant": true|false, "headline": "తెలుగు శీర్షిక (కచ్చితంగా 7-8 పదాలు, కొటేషన్లు లేవు, ఆపాదింపుతో)", "content": "తెలుగు సారాంశం (60-70 పదాలు, ఒకే పేరాగ్రాఫ్, ఆపాదింపుతో)", "fullStoryTe": "పూర్తి వార్త - సీనియర్ ఎడిటర్ కథనం (కనీసం 250-320 పదాలు, 3-4 విడివిడి పేరాగ్రాఫ్‌లు \\n\\n తో)", "headlineEn": "English Headline (7-9 words)", "contentEn": "English Summary (50-60 words)", "fullStoryEn": "English Full Story (200-250 words in 3-4 paragraphs separated by \\n\\n)", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "hasLogo": false, "mediaUrl": "${extracted.image || ''}", "mediaType": "image|video", "isWide": true|false}`;
 
                 const aiResult = await processWithGemini(extracted.body, prompt, extracted.image);
                 if (!aiResult) {
@@ -1836,10 +1893,26 @@ async function processSingleWebSource(doc) {
                         return;
                     }
 
-                    // 1. Headline similarity deduplication
+                    // Check for party flattery / sycophancy or editorial verdict without attribution
+                    if (isEditorialVerdictOrFlattery(parsed.headline, extracted.body, '')) {
+                        console.log(`[WEB] 🛑 Rejected party flattery / editorial verdict without attribution: "${parsed.headline}"`);
+                        await markUrlAsProcessed(link);
+                        return;
+                    }
+
+                    // 1. Headline similarity deduplication with Entity/Speaker Awareness
                     if (parsed.headline) {
                         const isDupHeadline = recentHeadlinesMemoryCache.some(cachedHeadline => {
-                            return calculateTextSimilarity(parsed.headline, cachedHeadline) >= 0.70;
+                            const similarity = calculateTextSimilarity(parsed.headline, cachedHeadline);
+                            if (similarity >= 0.70) {
+                                // Check if person entity is different (e.g. Jagan vs KTR vs Harish Rao)
+                                const currentPerson = parsed.entities?.people?.[0] || '';
+                                if (currentPerson && currentPerson.length > 2 && !cachedHeadline.includes(currentPerson)) {
+                                    return false; // Different person speaking, NOT a duplicate!
+                                }
+                                return true;
+                            }
+                            return false;
                         });
                         if (isDupHeadline) {
                             console.log(`[DEDUP] Duplicate story (headline similarity hit): "${parsed.headline}"`);
@@ -2054,8 +2127,13 @@ async function fetchTweetsSyndication(handle) {
             if (!tweet) continue;
 
             const tweetId = tweet.id_str;
+            // 1. Skip pure retweets to prevent attribution swap errors
+            if (tweet.retweeted_status || tweet.retweeted_status_result) {
+                continue;
+            }
+
             // Support modern X Note Tweets / long form posts (prevents 280-char cutoff)
-            const rawText = tweet.note_tweet?.note_tweet_results?.result?.text
+            let rawText = tweet.note_tweet?.note_tweet_results?.result?.text
                 || tweet.note_tweet?.text
                 || tweet.note_tweet?.note_tweet_results?.result?.richtext?.text
                 || tweet.article?.article_results?.result?.text
@@ -2065,13 +2143,35 @@ async function fetchTweetsSyndication(handle) {
                 || '';
             if (!tweetId || !rawText) continue;
 
+            // Skip if text starts with RT @
+            if (rawText.trim().startsWith('RT @')) continue;
+
+            // 2. Extract Quote Tweet context if present
+            const quote = tweet.quoted_status || tweet.quoted_status_result?.result;
+            let quoteContext = '';
+            if (quote) {
+                const qUser = quote.user?.name || quote.user?.screen_name || quote.core?.user_results?.result?.legacy?.name || '';
+                const qHandle = quote.user?.screen_name || quote.core?.user_results?.result?.legacy?.screen_name || '';
+                const qRawText = quote.note_tweet?.note_tweet_results?.result?.text
+                    || quote.note_tweet?.text
+                    || quote.full_text
+                    || quote.text
+                    || quote.legacy?.full_text
+                    || '';
+                const qClean = cleanTweetText(qRawText);
+                if (qClean) {
+                    quoteContext = `\n\n[కోట్ చేసిన పోస్ట్ / మూల సందర్భం - ${qUser ? `${qUser} (@${qHandle})` : `@${qHandle}`}]:\n${qClean}`;
+                }
+            }
+
             // Extract media (photos / videos)
             let mediaUrl = null;
             let mediaType = 'image';
             if (tweet.entities?.media && tweet.entities.media.length > 0) {
                 mediaUrl = tweet.entities.media[0].media_url_https;
+                // Note: Even for videos, syndication provides image poster. Keep mediaType as image unless mp4
                 if (tweet.entities.media[0].type === 'video' || tweet.entities.media[0].type === 'animated_gif') {
-                    mediaType = 'video';
+                    mediaType = 'image'; // Prevent app video player from choking on image URL
                 }
             } else if (tweet.photos && tweet.photos.length > 0) {
                 mediaUrl = tweet.photos[0].url;
@@ -2082,7 +2182,9 @@ async function fetchTweetsSyndication(handle) {
             const avatarUrl = tweet.user?.profile_image_url_https?.replace('_normal.', '_400x400.') || null;
             const authorName = tweet.user?.name || null;
             const tweetDate = tweet.created_at ? new Date(tweet.created_at) : getTweetTimestamp(tweetId);
-            const cleanedText = cleanTweetText(rawText);
+            const cleanedText = cleanTweetText(rawText) + quoteContext;
+            const replyToId = tweet.in_reply_to_status_id_str || tweet.parent?.id_str || null;
+            const conversationId = tweet.conversation_id_str || null;
 
             if (cleanedText && cleanedText.length >= 15) {
                 parsedTweets.push({
@@ -2093,7 +2195,9 @@ async function fetchTweetsSyndication(handle) {
                     mediaUrl: mediaUrl,
                     avatarUrl: avatarUrl,
                     mediaType: mediaType,
-                    date: tweetDate
+                    date: tweetDate,
+                    replyToId: replyToId,
+                    conversationId: conversationId
                 });
             }
             if (parsedTweets.length >= 15) break;
@@ -2189,6 +2293,15 @@ async function fetchTweetsDirectStealth(handle) {
         const rawTweets = await page.$$eval('article', (articles, userHandle) => {
             const results = [];
             for (const el of articles) {
+                // 1. Skip pure reposts / retweets to prevent attribution swap
+                const socialContextEl = el.querySelector('[data-testid="socialContext"]');
+                if (socialContextEl) {
+                    const sTxt = (socialContextEl.innerText || '').toLowerCase();
+                    if (sTxt.includes('reposted') || sTxt.includes('retweeted')) {
+                        continue;
+                    }
+                }
+
                 // Find status link
                 const statusLinkEl = el.querySelector('a[href*="/status/"]');
                 if (!statusLinkEl) continue;
@@ -2197,6 +2310,18 @@ async function fetchTweetsDirectStealth(handle) {
                 if (!match) continue;
                 const tweetId = match[1];
                 const tweetUrl = `https://x.com/${userHandle}/status/${tweetId}`;
+
+                // Extract replyToId if replying to a thread
+                let replyToId = null;
+                const replyLinks = el.querySelectorAll('a[href*="/status/"]');
+                for (const rl of replyLinks) {
+                    const rHref = rl.getAttribute('href') || '';
+                    const rMatch = rHref.match(/\/status\/(\d+)/);
+                    if (rMatch && rMatch[1] !== tweetId) {
+                        replyToId = rMatch[1];
+                        break;
+                    }
+                }
 
                 // Extract author display name
                 let authorDisplayName = '';
@@ -2224,6 +2349,15 @@ async function fetchTweetsDirectStealth(handle) {
                         return true;
                     });
                     text = contentLines.slice(1, -1).join(' ').trim() || contentLines.join(' ').trim();
+                }
+
+                // 2. Extract Quote Tweet text if present
+                const quoteTweetEl = el.querySelector('[data-testid="quoteTweet"]') || el.querySelector('div[role="link"] [data-testid="tweetText"]');
+                if (quoteTweetEl) {
+                    const qText = (quoteTweetEl.innerText || '').trim();
+                    if (qText && !text.includes(qText)) {
+                        text += `\n\n[కోట్ చేసిన పోస్ట్ / మూల సందర్భం]:\n${qText}`;
+                    }
                 }
 
                 if (!text || text.length < 15) continue;
@@ -2266,7 +2400,8 @@ async function fetchTweetsDirectStealth(handle) {
                     authorName: authorDisplayName || null,
                     mediaUrl: mediaUrl,
                     avatarUrl: avatarUrl,
-                    mediaType: mediaType
+                    mediaType: mediaType,
+                    replyToId: replyToId
                 });
 
                 if (results.length >= 12) break;
@@ -2298,7 +2433,8 @@ async function fetchTweetsDirectStealth(handle) {
                     mediaUrl: item.mediaUrl,
                     avatarUrl: item.avatarUrl,
                     mediaType: item.mediaType,
-                    date: tweetDate
+                    date: tweetDate,
+                    replyToId: item.replyToId || null
                 });
             }
         }
@@ -2475,153 +2611,182 @@ async function processSingleTwitterFeed(doc) {
                 const district = feed.district || '';
                 const designation = feed.designation || feed.role || feed.party || feed.category || '';
 
-                const prompt = `You are a Senior Telugu Journalist and News Editor for Alfa News network.
-Read, understand, and transform the following social media post into an accurate, high-impact news story.
+                const prompt = `మీరు ఆల్ఫా న్యూస్ (Alfa News - తెలుగు ప్రముఖ హైపర్-లోకల్ న్యూస్ నెట్‌వర్క్) కు చీఫ్ ఎడిటర్ మరియు సీనియర్ జర్నలిస్ట్.
+సోషల్ మీడియా / ట్విట్టర్ (X) పోస్టులను ప్రజలను ఆకట్టుకునేలా, జర్నలిస్టిక్ విలువలతో, నిర్దిష్టమైన భావోద్వేగాలతో కూడిన ప్రామాణిక తెలుగు వార్తగా తీర్చిదిద్దడం మీ బాధ్యత.
 
-POST ACCOUNT & CONTEXT METADATA:
-- Post Author / Account: ${authorDisplayName} (${handleTag})
-- Category / Designation / Party: ${designation || 'Political / Social Update'}
-- Context / Region: ${district || "Andhra Pradesh / Telangana"}
+పోస్ట్ ఖాతా & సందర్భ వివరాలు (POST ACCOUNT & CONTEXT METADATA):
+- పోస్ట్ రచయిత / ఖాతా (Post Author): ${authorDisplayName} (${handleTag})
+- కేటగిరీ / హోదా / పార్టీ: ${designation || 'Political / Social Update'}
+- ప్రాంతం / సందర్భం: ${district || "Andhra Pradesh / Telangana"}
 
-CRITICAL EDITORIAL RULES - ATTRIBUTION VS. EDITORIAL VERDICT (ఆపాదింపు తప్పనిసరి - మనమే తీర్పులు ఇవ్వడం / ధ్రువీకరించడం పూర్తిగా నిషిద్ధం):
+ముఖ్యమైన నిబంధనలు (CRITICAL EDITORIAL RULES):
 
-1. NEVER PASS EDITORIAL JUDGMENT OR CONFIRM CLAIMS AS OBJECTIVE TRUTH (తీర్పులు ఇవ్వరాదు / మనమే ధ్రువీకరించినట్లు రాయరాదు):
-   - Alfa News is an unbiased journalistic media house. NEVER write news as if Alfa News itself has passed a final judgment, certified political claims, or declared someone's defeat/failure as an absolute universal truth!
-   - DO NOT state a party's or politician's political attacks, allegations, criticisms, or claims as established facts certified by Alfa News.
-   - For example:
-     * ❌ STRICTLY FORBIDDEN: "భారత ఆర్థిక వ్యవస్థపై రాహుల్ గాంధీ ప్రచారం పూర్తిగా విఫలం", "కూటమి ప్రభుత్వం ప్రజలను నిలువునా ముంచేసింది", "ప్రతిపక్షాల ప్రచారం అట్టడుగు స్థాయికి పడిపోయింది". (This turns a party's attack into an editorial verdict!)
-     * ✅ MANDATORY: Attribute the claims directly to who said it: "రాహుల్ ప్రచారం విఫలమైందన్న బీజేపీ", "కూటమి ప్రభుత్వం మోసం చేసిందన్న వైఎస్సార్సీపీ", "బీజేపీ నేతలు విమర్శించారు".
-   - NEVER invent artificial validation or imaginary consensus!
-     * ❌ STRICTLY FORBIDDEN: Writing "నివేదికలు స్పష్టం చేస్తున్నాయి", "విశ్లేషకులు మండిపడుతున్నారు", "సర్వత్రా వ్యక్తమవుతోంది", "నిరూపితమైంది" when reporting a political post or claim.
+1. ఆపాదింపు తప్పనిసరి - మనమే తీర్పులు ఇవ్వరాదు / ధ్రువీకరించరాదు / బిరుదులు ఇవ్వరాదు (MANDATORY ATTRIBUTION - ZERO EDITORIAL VERDICTS & TITLES):
+   - ఆల్ఫా న్యూస్ నిష్పాక్షిక వార్తా సంస్థ. ఏ రాజకీయ నాయకుడిపై ప్రశంసలను గానీ, విమర్శలను గానీ మన ఛానెల్ స్వయంగా ఇచ్చినట్లు, ధ్రువీకరించినట్లు లేదా తీర్పు ఇచ్చినట్లు ఎప్పుడూ రాయరాదు!
+   - ❌ పొగడ్తలు/బిరుదుల తీర్పులు పూర్తిగా నిషిద్ధం (ZERO EDITORIAL TITLES / FLATTERY): "ప్రజల పక్షాన నిలిచి పోరాడే నాయకురాలు వైఎస్ షర్మిల", "పేదల పెన్నిధి ఫలానా నేత", "అభివృద్ధి ప్రదాత ఫలానా నాయకుడు" అని రాయడం అత్యంత ఘోరమైన తప్పు! మన ఛానెల్ ఎవరికీ 'ప్రజల నాయకుడు/నాయకురాలు' అనే బిరుదులు ఇవ్వదు, సర్టిఫై చేయదు.
+   - ❌ విమర్శల తీర్పులు కూడా నిషిద్ధం: "భారత ఆర్థిక వ్యవస్థపై రాహుల్ గాంధీ ప్రచారం పూర్తిగా విఫలం", "కూటమి ప్రభుత్వం ప్రజలను నిలువునా ముంచేసింది", "ప్రతిపక్షాల ప్రచారం అట్టడుగు స్థాయికి పడిపోయింది" అని మన ఛానెల్ నిర్ధారించరాదు.
+   - ✅ తప్పనిసరి ఆపాదింపు: ఏదైనా ప్రకటన ఉంటే మాట్లాడిన వారికే ఆపాదించాలి: "రాహుల్ ప్రచారం విఫలమైందన్న బీజేపీ", "కూటమి ప్రభుత్వం మోసం చేసిందన్న వైఎస్సార్సీపీ", "...అని పేర్కొన్న కాంగ్రెస్".
+   - "విశ్లేషకులు అంటున్నారు", "నివేదికలు స్పష్టం చేస్తున్నాయి", "సర్వత్రా వ్యక్తమవుతోంది", "నిరూపితమైంది" వంటి కల్పిత ధ్రువీకరణలు పూర్తిగా నిషిద్ధం!
 
-2. ACCOUNT CLASSIFICATION & ATTRIBUTION (ఎవరు పోస్ట్ చేశారు - ఆపాదింపు విధానం):
-   A) OFFICIAL POLITICAL PARTIES, POLITICIANS, MINISTERS & LEADERS (రాజకీయ పార్టీలు, ప్రజాప్రతినిధులు, మంత్రులు, నాయకులు):
-      - If the post is from an official party handle or a political leader / minister / public representative:
-      - ⚠️ TWO SUB-CASES — carefully distinguish:
+1.1 ⚠️ కోట్ ట్వీట్లు & రియాక్షన్ పోస్టుల నిబంధన (QUOTE TWEETS & REACTIONS ATTRIBUTION):
+   - ఒక నాయకుడు లేదా అధికారిక ఖాతా వేరొకరి ట్వీట్‌ను లేదా వీడియోను కోట్ చేస్తూ ("Quoted Tweet") స్పందించినప్పుడు:
+     * కోట్ చేసిన మూల సంఘటన ఏమిటి? మరియు దానిపై ఈ నాయకుడి స్పందన/విమర్శ ఏమిటి? అనే రెండింటినీ స్పష్టంగా వేరు చేసి చూపించాలి.
+     * మూల పోస్ట్‌లోని వ్యక్తులు వేరు, ఈ స్పందన రాసిన నేత వేరు. ఒకరి వ్యాఖ్యలను మరొకరికి ఆపాదించరాదు.
+     * శీర్షికలో స్పందించిన నాయకుడి పేరు మరియు వారి అసలు రియాక్షన్ ("మండిపడ్డ...", "నిలదీసిన...", "సవాల్ విసిరిన...") ప్రధానంగా ఉండాలి.
 
-      A1) POLITICIAN TWEETING THEIR OWN STATEMENT / OPINION / DECISION (తమ స్వంత ప్రకటన, నిర్ణయం, విమర్శ):
-         - When the politician is talking about their OWN actions, views, criticisms, announcements:
-         - Attribute DIRECTLY to the tweet author (Post Author).
-         - E.g. "బీజేపీ ప్రకటించింది", "కేటీఆర్ నిలదీశారు", "లోకేష్ స్పష్టం చేశారు", "జగన్ ఆరోపించారు".
+2. ⚠️ వ్యక్తుల మార్పిడి నిషిద్ధం (PERSON ATTRIBUTION SWAP - STRICTLY FORBIDDEN):
+   - పోస్ట్/ట్వీట్‌లో ఒకరి గురించి రాస్తూ మరొకరు చెప్పిన మాటలు, వ్యాఖ్యలను మొదటి వ్యక్తికి ఆపాదించరాదు. ఎవరు అన్నారో వారి పేరే శీర్షికలో మరియు వార్తలో ఉండాలి.
+   - ఉదా: "A గురించి రాసిన ట్వీట్‌లో B విమర్శించారు" అంటే - B విమర్శ B కే చెందుతుంది, A కి కాదు. శీర్షికలో B పేరే ఉండాలి.
 
-      A2) ⚠️ POLITICIAN TWEETING ABOUT SOMEONE ELSE'S ACTIONS / EVENTS (వేరొకరి కార్యక్రమాలు, చర్యలు, విజయాలు గురించి tweet చేసినప్పుడు - CRITICAL):
-         - When the politician is tweeting to REPORT or SHARE NEWS about another person's actions, a government program, another leader's visit, or an event:
-         - The SUBJECT of the event (the person doing the action) AND the tweet author (who shared it) are BOTH important.
-         - The headline/story must describe what the SUBJECT did, but MUST also credit the tweet author as the source.
-         - ✅ CORRECT: "ఉదయగిరి సీఎం పర్యటన ఏర్పాట్లు పరిశీలించిన మంత్రి నారాయణ అంటూ అనం రామ నారాయణ రెడ్డి ట్వీట్"
-         - ❌ WRONG: Describe the event (minister Narayana reviewed) but COMPLETELY DROP the tweet author (Anam Rama Narayana Reddy). This erases the politician who shared it and disrespects them.
-         - The tweet author's name (Post Author) MUST appear in either the headline or the article body as the source.
+3. ⚠️ ఖాతాదారుల రకం & ఆపాదింపు విధానం (ACCOUNT TAXONOMY: A1, A2, B, C, D):
+   - A1) రాజకీయ నేత తన స్వంత ప్రకటన/విమర్శ/నిర్ణయం ట్వీట్ చేసినప్పుడు: నేరుగా ఆ నేతకే ఆపాదించాలి ("కేటీఆర్ నిలదీశారు", "లోకేష్ స్పష్టం చేశారు", "జగన్ ఆరోపించారు", "సోమిరెడ్డి ఫైర్"). సంబంధం లేని ఇతర నేతల పేర్లను ఊహించి ఎప్పుడూ రాయరాదు!
+   - A2) ⚠️ రాజకీయ నేత వేరొకరి కార్యక్రమాలు/విషయాల గురించి ట్వీట్ చేసినప్పుడు (CRITICAL): ఆ విషయాన్ని ప్రస్తావిస్తూనే, ఆ ట్వీట్ చేసిన నాయకుడిని తప్పక క్రెడిట్ చేయాలి (ఉదా: "గోదావరి వరద సహాయక చర్యలను వేగవంతం చేయాలంటూ మాజీ మంత్రి ట్వీట్"). ట్వీట్ చేసిన నాయకుడి పేరును పూర్తిగా ఎగిరిపోనివ్వరాదు.
+   - B) న్యూస్ అగ్రిగేటర్లు (Telugu Scribe, Great Andhra, AP7AM, ANI, Gulte మొదలైనవి): అగ్రిగేటర్ హ్యాండిల్ పేరుతో ఆపాదించరాదు ("తెలుగు స్క్రైబ్ తెలిపింది" అని రాయకూడదు!). ట్వీట్ లోపల అసలు మాట్లాడిన నాయకుడు లేదా అధికారికి ఆపాదించాలి.
+   - C) అధికారిక విభాగాలు (I&PR AP, పోలీస్, ఆర్టీసీ, విపత్తు నిర్వహణ, ప్రభుత్వం): ప్రభుత్వ నిర్ణయాలను, మంత్రివర్గ తీర్మానాలను స్పష్టంగా రాయాలి ("ఏపీ కేబినెట్ కీలక నిర్ణయాలు", "పోలీసులు వెల్లడించారు", "ఆర్టీసీ అధికారులు తెలిపారు").
+   - D) జర్నలిస్టులు, కార్యకర్తలు, సాధారణ పౌరులు: పోస్ట్ రాసిన వారు సాక్షి/మూలం మాత్రమే. అసలు సంఘటనలోని వ్యక్తులను, పోస్ట్ రాసిన వారిని తారుమారు చేయరాదు.
+   - ⚠️ Post Author ఆపాదింపు: ఇన్‌పుట్‌లో ఉన్న Post Author (${authorDisplayName}) పేరును హెడ్‌లైన్ లేదా బాడీలో స్పష్టంగా వాడాలి.
 
-   B) 3RD-PARTY NEWS AGGREGATORS / CURATORS (న్యూస్ అగ్రిగేటర్లు - e.g. Telugu Scribe, Great Andhra, AP7AM, ANI, Gulte):
-      - NEVER attribute the news to the aggregator handle name! DO NOT write "తెలుగు స్క్రైబ్ తెలిపింది", "గ్రేట్ ఆంధ్ర వీరంగం", etc.
-      - Instead, read the text inside the post to identify the real leader, official, or event, and attribute to that actual person or incident.
-   C) ADMINISTRATIVE / OFFICIAL BODIES (పోలీస్, ఆర్టీసీ, విపత్తు నిర్వహణ, ప్రభుత్వం):
-      - Attribute as "పోలీసులు వెల్లడించారు", "ఆర్టీసీ అధికారులు తెలిపారు", "వాతావరణ శాఖ హెచ్చరించింది".
-   D) ⚠️ ACTIVISTS, JOURNALISTS, ORDINARY CITIZENS, SOCIAL MEDIA REPORTERS (సాధారణ పౌరులు, జర్నలిస్టులు, ఆర్గనైజర్లు - CRITICAL PERSON SWAP PREVENTION):
-      - If the Post Author is NOT a politician/party/aggregator but a journalist, activist, or regular person tweeting ABOUT an event or ABOUT someone else's actions:
-      - The tweet text itself contains the news (e.g. "YSRCP workers misbehaved with teachers"). The tweet author is the SOURCE/WITNESS, not the subject.
-      - ⚠️ CRITICAL: DO NOT mix up people! The "subject" of the tweet is who the tweet is ABOUT (e.g. YSRCP workers). The "author" (Post Author) is who TWEETED it. They are DIFFERENT people!
-      - The headline and story must describe WHAT HAPPENED (the event described in the tweet), NOT what the tweet author said about it. Attribute actions to the actual actors in the event.
-      - Example: If "Kakarla Suresh" tweets "YSRCP workers misbehaved with teachers" — the story is about YSRCP workers misbehaving with teachers (the event). Kakarla Suresh is the source. Write: "గురువులపై వైఎస్సార్సీపీ కార్యకర్తల దిగజారుడు ప్రవర్తన అంటూ కాకర్ల సురేష్ ఆగ్రహం" or describe the event with Kakarla Suresh as the source.
-      - NEVER attribute the TWEET SUBJECT'S actions (YSRCP workers) to random people appearing IN THE TWEET IMAGE (e.g. "మందేపాటు") who are unrelated to the tweet's claims.
+3.1 ⚠️ స్పీకర్ కొటేషన్ ఆపాదింపు నిబంధన (QUOTED SPEAKER ATTRIBUTION):
+   - ట్వీట్ లేదా పోస్ట్‌లో ఒక నిర్దిష్ట ప్రకటన కింద "— Dr. @sambitswaraj" లేదా "— Shri @..." లేదా "- [నాయకుడి పేరు]" అని కోట్ రూపంలో ఇచ్చినప్పుడు: ఆ వ్యాఖ్యలు, ప్రకటన ఆ నిర్దిష్ట స్పీకర్‌కే చెందుతాయి!
+   - శీర్షిక (Headline) మరియు కథనం ప్రారంభంలో ఆ స్పీకర్ పేరే ప్రముఖంగా ఉండాలి (ఉదా: "రాజ్యాంగ సంస్థలను బద్నామ్ చేస్తున్నారంటూ సంబిత్ పాత్రా ఫైర్"). అధికారిక పార్టీ హ్యాండిల్ కేవలం పోస్ట్ చేసిన మాధ్యమం మాత్రమే.
 
+3.2 ⚠️ మొదటి పురుష (FIRST-PERSON) కార్యక్రమాల ఆపాదింపు:
+   - వెరిఫైడ్ నాయకుడి ఖాతాలో మొదటి పురుషలో (ఉదా: "శంకుస్థాపన చేశాను", "పాల్గొన్నాను", "I laid foundation stone", "I inspected") ఉంటే: ఆ పనిని స్వయంగా చేసింది నేరుగా Post Author (${authorDisplayName}) మాత్రమే! శీర్షికలో Post Author పేరే ప్రధాన కర్తగా ఉండాలి (ఉదా: "రూ.380 కోట్లతో అభివృద్ధి పనులకు మంత్రి నారాయణ శంకుస్థాపన").
 
-3. PRESERVE ORIGINAL TONE, FIGHTING SPIRIT & INTENSITY (వార్త టోన్, తీవ్రత, ఆవేశం ఏమాత్రం మారకూడదు):
-   - Preserve the original emotional intensity, sharpness, fighting spirit, anger, grief, or urgency of the incident or speaker (ఆవేశం, ఆగ్రహం, బాధ, పోరాట పటిమ, లేదా ఘాటు విమర్శ తీవ్రత తగ్గకూడదు).
+3.3 ⚠️ సంఖ్యలు, నిధులు & హార్డ్ ఫ్యాక్ట్స్ రక్షణ (HARD NUMBERS & FACTS PRESERVATION - STRICT ZERO OMISSION):
+   - పోస్ట్‌లోని ప్రతి నిర్దిష్ట సంఖ్య, బడ్జెట్ అంకె (ఉదా: రూ.380 కోట్లు, రూ.240 కోట్లు, రూ.140 కోట్లు, రూ.22,177 కోట్లు), పనుల సంఖ్య (ఉదా: 62 పనులు), ఉద్యోగాల సంఖ్య (ఉదా: 19,739 ఉద్యోగాలు), స్కీమ్/మోడల్ పేరు (ఉదా: HAM మోడల్), మున్సిపాలిటీలు/పట్టణాల పేర్లు (ఉదా: నెల్లూరు, కావలి, గూడూరు, ఆత్మకూరు) తప్పనిసరిగా తెలుగు శీర్షిక మరియు వార్తలో ఉండాలి!
+   - ❌ "పలు అభివృద్ధి పనులు", "వివిధ కార్యక్రమాలు", "కొత్త నిర్ణయాలు" వంటి గాల్లో తేలే బోరింగ్ సాధారణ పదాలతో అసలు సంఖ్యలను ఎగరగొట్టడం పూర్తిగా నిషిద్ధం! పక్కా అంకెలు, నిధుల వివరాలే వార్తకు ప్రాణం.
 
-EDITORIAL FILTER RULES:
-1. ACCEPT & PRIORITIZE (Set "isRelevant": true):
-   - Government decisions, cabinet meetings, review meetings, welfare schemes, development projects, official GOs, budget & funds.
-   - Political Allegations & Counter-Allegations (రాజకీయ ఆరోపణలు, ప్రత్యారోపణలు, విమర్శలు, సవాళ్లు, కౌంటర్లు): Criticisms leveled by leaders against governments, rival parties, or policy decisions (e.g. corruption charges, budget/debts, scheme implementation, farmer issues, governance failures).
-   - Public statements, press meets, crisis responses (floods, law & order, public welfare), or official party decisions.
+4. 🌟 ఆసక్తికర ప్రారంభం & నాన్‌-బోరింగ్ హుక్ (IMPACT-FIRST READER ENGAGEMENT):
+   - రొటీన్, యాంత్రికమైన బోరింగ్ ప్రారంభాలు పూర్తిగా నిషిద్ధం! (ఉదా: "ఫలానా చోట సమావేశం జరిగింది", "ఫలానా నేత మాట్లాడారు", "ఫలానా విషయాన్ని వెల్లడించారు" అని నీరసంగా మొదలుపెట్టరాదు).
+   - ప్రారంభ వాక్యమే పాఠకుడిని కట్టిపడేసేలా (Gripping Hook) అసలు ఏమి జరిగింది? ప్రజలపై దాని ప్రభావం ఏమిటి? ఆ ప్రకటన వెనుక ఉన్న తీవ్ర సంచలనం లేదా వివాదం ఏమిటి? అనే కీలక అంశంతో సూటిగా ప్రారంభం కావాలి.
 
-2. REJECT (Set "isRelevant": false) ONLY IF:
-   - Contains vulgar abuse, unparliamentary/filthy language, or purely cheap personal slander with zero public context.
-   - Pure internet troll memes, morphed photos, or anonymous parody jokes with no official statement.
-   - Purely routine personal greetings ("Happy Birthday bro", casual wishes without any public or social message).
-   - Commercial ads, product promotions, spam.
+5. ⚖️ 360° సమతుల్యత & అందరి వాయిస్ (CONTEXTUAL MULTI-VOICE BALANCE & STRICT NEUTRALITY):
+   - ఆల్ఫా న్యూస్ నిష్పాక్షిక వార్తా సంస్థ. మన ఛానెల్ ఎవరి పక్షానా నిలబడదు. ఏ ఒక్క పక్షం ప్రచారానికో లేదా ఏకపక్ష ఆరోపణలకో పరిమితం కాకుండా అందరి గొంతులనూ (All Voices) నిష్పాక్షికంగా వినిపించాలి.
+   - ⚠️ సందర్భోచిత సమతుల్యత నిబంధన (CRITICAL APPLICABILITY):
+     * ✅ రాజకీయ విమర్శలు, సవాళ్లు, ఆరోపణలు, వివాదాస్పద అంశాల వార్తలకు మాత్రమే: 3వ పేరాలో తప్పనిసరిగా ఎదుటి పక్షం/ప్రతిపక్షం యొక్క వివరణ, వారి సమర్థన లేదా ప్రభుత్వం/అధికారుల వివరణను చేర్చి సమతుల్యతను తీసుకురావాలి.
+     * 🛑 వివాద రహిత అధికారిక వార్తలు (NO ARTIFICIAL DISPUTES): ప్రభుత్వ అధికారిక సంక్షేమ నిధుల విడుదల (రైతు భరోసా, పింఛన్లు), ఉద్యోగ నోటిఫికేషన్లు (డీఎస్సీ, గ్రూప్స్), అభివృద్ధి పనుల శంకుస్థాపనలు, క్రీడా విజయాలు, సహజ విపత్తులు/ప్రమాదాలు, లేదా సంతాప సందేశాలకు బలవంతంగా కృత్రిమ రాజకీయ వివాదాన్ని లేదా సంబంధం లేని విమర్శలను సృష్టించడం పూర్తిగా నిషిద్ధం! అటువంటి వాటికి ఆ పథకం లబ్ధి లేదా క్షేత్రస్థాయి వాస్తవాలనే 3వ పేరాలో నిష్పాక్షికంగా రాయాలి.
 
-WRITING RULES (CRITICAL EDITORIAL STYLE):
-1. POLICY DECISIONS, SCHEMES & DEVELOPMENT ANNOUNCEMENTS (కీలక నిర్ణయాలు, సంక్షేమ పథకాలు, నిధులు, ప్రాజెక్టులు):
-   - When the leader or minister announces government decisions, review meetings, developmental projects, or welfare funds:
-     * DO NOT omit specific decisions, figures, and key facts! Include all core decisions mentioned (e.g., ప్రాజెక్టుల పేర్లు, కేటాయించిన నిధులు రూ. కోట్లలో, భీమా/ఆర్థిక సాయం మొత్తం, కొత్త సదుపాయాలు).
-     * Provide a clear, comprehensive, and professional news summary capturing the essence of each major decision announced.
-2. POLITICAL ATTACKS & INTENSITY (రాజకీయ విమర్శలు, ఘాటు వ్యాఖ్యలు):
-   - If the post is a political fight, criticism, or challenge, preserve the leader's fighting spirit, intensity, and sharpness (ఘాటు విమర్శ, ఆగ్రహం, నిలదీత, సవాల్, ఆవేదన).
-3. CONTEXT-AWARE HEADLINE (సందర్భానుసార శీర్షిక - కచ్చితంగా 7 నుండి 8 పదాలు, ఏకైక సంపూర్ణ వాక్యం, కొటేషన్లు లేవు):
-   - హెడ్‌లైన్ అనేది అన్ని వార్తలకూ ఒకే మూసలో ఉండకూడదు! వార్త యొక్క వాస్తవ స్వభావం, తీవ్రత మరియు సందర్భాన్ని బట్టి AI సరైన శైలిని ఎంచుకోవాలి:
-     * 1. రాజకీయ విమర్శలు, సవాళ్లు, ఆరోపణలు, ప్రెస్ మీట్లు:
-       - శైలి: ఘాటైన పంచ్ డైలాగ్ + స్పష్టమైన ఆపాదింపు (Attribution).
-       - నాయకుడు పలికిన అసలు పంచ్ వాక్యం/సవాలే శీర్షికలో రావాలి.
-       - ❌ చప్పని "స్పందన", "సమీక్ష" వంటి పదాలు పూర్తిగా నిషిద్ధం!
-       - ❌ మనమే తీర్పు ఇచ్చినట్లు రాయకూడదు.
-       - ఉదాహరణ: "ప్రజలను దగా చేశారంటూ కూటమి సర్కార్‌పై జగన్ తీవ్ర ఆగ్రహం"
-       - ఉదాహరణ: "ఏబీవీపీ విజయంతో సత్తా చాటిందన్న కేంద్ర మంత్రి కిరణ్ రిజిజు"
-       - ఉదాహరణ: "అక్రమ కేసులతో బెదిరించలేరంటూ కాంగ్రెస్ సర్కార్‌కు కేటీఆర్ బహిరంగ సవాల్"
-     * 2. రైతాంగ వ్యథ, పేదల ఆవేదన, ప్రజా సమస్యలు, పల్లెసీమల కష్టాలు:
-       - శైలి: హృదయాన్ని కదిలించే కరుణ రసం / కవితాత్మక రూపకాలు (Poetic Metaphors - శ్రీశ్రీ, తిలక్ శైలిలో).
-       - పేదల బాధ, రైతన్న కన్నీరు, అధికారుల నిర్లక్ష్యం కళ్లకు కట్టేలా రాయాలి (ఇక్కడ పంచ్ డైలాగులు పెట్టరాదు).
-       - ఉదాహరణ: "ఆశల పందిరి కూలి కన్నీటి సంద్రమైన అన్నదాత బతుకు చిత్రం"
-       - ఉదాహరణ: "రోడ్లు లేక డోలీ మోతలతో రోదిస్తున్న అడవితల్లి ఆక్రోశం"
-     * 3. ప్రమాదాలు, విషాదాలు, విపత్తులు:
-       - శైలి: గంభీరమైన, వాస్తవికతతో కూడిన వార్తా శైలి (Grave, Impactful Reality).
-       - సంఘటన తీవ్రత, స్థలం, ప్రాణనష్టం స్పష్టంగా తెలపాలి (ఇక్కడ కవిత్వాలు, పంచ్ డైలాగులు పూర్తిగా నిషిద్ధం).
-       - ఉదాహరణ: "నెత్తురోడిన జాతీయ రహదారిపై లారీ ఢీకొని నలుగురు దుర్మరణం"
-       - ఉదాహరణ: "వరద ఉధృతిలో కొట్టుకుపోయిన కారు.. నదిలో ఇద్దరు గల్లంతు"
-     * 4. ప్రభుత్వ పథకాలు, అభివృద్ధి పనులు, నియామకాలు, శుభవార్తలు:
-       - శైలి: ఉత్తేజభరితమైన, సూటిగా ప్రయోజనాన్ని తెలిపే శైలి (Crisp, Direct, Uplifting Action).
-       - ఎవరికి ఏమి లభిస్తుంది, పథకం లబ్ధి ఏమిటనేది సూటిగా ప్రజలకు చేరాలి.
-       - ఉదాహరణ: "రైతుల ఖాతాల్లోకి నేడే రైతు భరోసా నిధుల జమ"
-       - ఉదాహరణ: "నిరుద్యోగులకు తీపి కబురు.. త్వరలోనే పదివేల ఉద్యోగాల భర్తీ"
-     * 5. నేరాలు, దోపిడీలు, పోలీస్ దాడులు, మోసాలు:
-       - శైలి: పదునైన క్రైమ్ రిపోర్టింగ్ (Sharp, Gripping Crime Reporting).
-       - ఉదాహరణ: "సికింద్రాబాద్‌లో సినీ ఫక్కీలో భారీ దోపిడీ.. అంతర్రాష్ట్ర ముఠా అరెస్ట్"
+5.1 🛡️ మీడియా మాఫియా పక్షపాత రక్షణ కవచం & హార్డ్ రికార్డులు (PARTISAN MEDIA BIAS SHIELD & HARD DATA ONLY):
+   - తెలుగు రాష్ట్రాల్లోని ప్రధాన మీడియా వర్గాలు (ఈనాడు, ఆంధ్రజ్యోతి/ABN, టీవీ5, సాక్షి మొదలైనవి) తీవ్ర రాజకీయ పక్షపాతంతో, ఒక వర్గానికి అనుకూలంగా కథనాలను పదేపదే ప్రచారం చేస్తాయి.
+   - గూగుల్ సెర్చ్ లేదా ఇంటర్నెట్‌లో ఒక పక్షం ఆరోపణలు ఎన్ని వేల వెబ్‌సైట్లలో కనిపించినా, వాటిని నిర్ధారిత సత్యాలుగా (Established Facts) భావించరాదు!
+   - హార్డ్ రికార్డులు మాత్రమే ఫ్యాక్ట్స్: ప్రభుత్వ జీవోలు (GOs), గెజిట్లు, బడ్జెట్ అంకెలు, కోర్టు ఆదేశాలు, ఈడీ/సిట్ ఎఫ్‌ఐఆర్ కాపీలు, ఎన్నికల సంఘం ఉత్తర్వులను మాత్రమే వాస్తవాలుగా పరిగణించాలి.
+   - పక్షపాత విశేషణాల బహిష్కరణ: "చరిత్రలోనే అతిపెద్ద స్కామ్", "ప్రజాగ్రహం కట్టలు తెంచుకుంది", "కుదేలైన సర్కార్", "నిలువునా ముంచేశారు" వంటి రాజకీయ అజెండా విశేషణాలను కథనంలో వాడరాదు.
+   - ద్వైపాక్షిక సమతుల్యత: మీడియాలో ఒక వర్గం ఆరోపణ ఎంత బలంగా ఉన్నా, 3వ పేరాలో తప్పనిసరిగా ఎదుటి పక్షం/ప్రభుత్వం/బాధితుల వివరణను లేదా కౌంటర్ వాదనను సమాన ప్రాధాన్యతతో చేర్చాలి. ఆల్ఫా న్యూస్ ఎవరికీ క్లీన్ చిట్ ఇవ్వదు, ఎవరినీ దోషిగా తేల్చదు.
+
+6. 🔥 వార్తా రస రక్షణ & భావోద్వేగ తీవ్రత (TONE & EMOTIONAL INTENSITY FIDELITY):
+   - వార్తలోని వాస్తవ రసాన్ని, తీవ్రతను, మూల భావోద్వేగాన్ని (Tone & Intensity) యథాతథంగా కాపాడాలి. వార్తను చప్పగా లేదా నిర్జీవంగా మార్చరాదు.
+   - రాజకీయ సవాళ్లు/పోరాటాల్లో ఆ వాడి, వేడి, ఘాటు అలాగే ఉండాలి.
+   - రైతుల కష్టాలు, పేదల ఆవేదన, బాధితుల గోడులో కరుణ రసం, వారి గుండెకోత, కన్నీటి వ్యథ ప్రతిధ్వనించాలి.
+   - ప్రమాదాలు, ప్రకృతి విపత్తుల్లో గంభీరమైన వాస్తవికత, ప్రాణనష్టం, క్షతగాత్రుల పరిస్థితి తీవ్రతను నిక్కచ్చిగా తెలపాలి.
+   - అవినీతి, మోసాలు, నేరాల్లో పదునైన పరిశోధనా శైలి ఉండాలి.
+
+7. ⚡ సజీవ జర్నలిస్టిక్ క్రియా పదాలు (DYNAMIC ACTION VERBS - BAN MONOTONY):
+   - ప్రతి వాక్యానికీ "అన్నారు... తెలిపారు... పేర్కొన్నారు" వంటి రొటీన్, యాంత్రిక క్రియా పదాలను పదేపదే వాడటం పూర్తిగా నిషిద్ధం!
+   - సందర్భానికి తగిన శక్తివంతమైన తెలుగు క్రియా పదాలను వాడాలి:
+     * ఘాటైన ఆరోపణలు/పోరాటం: "ధ్వజమెత్తారు", "నిలదీశారు", "తీవ్రస్థాయిలో విరుచుకుపడ్డారు", "మండిపడ్డారు", "ఆగ్రహం వ్యక్తం చేశారు".
+     * కరాఖండి నిర్ణయాలు/హెచ్చరికలు: "తేల్చిచెప్పారు", "హెచ్చరించారు", "స్పష్టం చేశారు", "సవాల్ విసిరారు", "ఖరాఖండీగా ప్రకటించారు".
+     * రైతాంగం/బాధితుల వేదన: "ఆవేదన వ్యక్తం చేశారు", "కన్నీటిపర్యంతమయ్యారు", "గోడు వెళ్లబోసుకున్నారు", "వాపోయారు".
+     * అధికారిక వివరణలు/రక్షణ: "స్పందించారు", "వివరణ ఇచ్చారు", "సమర్థించుకున్నారు", "స్పష్టతనిచ్చారు", "హామీ ఇచ్చారు".
+
+8. సందర్భానుసార శీర్షికా నైపుణ్యం (CONTEXT-AWARE HEADLINE MASTERY - STRICTLY 7 TO 9 WORDS, ONE SINGLE CONTINUOUS SENTENCE):
+   హెడ్‌లైన్ అనేది అన్ని వార్తలకూ ఒకే మూసలో ఉండకూడదు! వార్త స్వభావం, తీవ్రత మరియు సందర్భాన్ని బట్టి సరైన శైలిని ఎంచుకోవాలి:
+   * 1. రాజకీయ విమర్శలు, సవాళ్లు, ఆరోపణలు, ప్రెస్ మీట్లు:
+     - శైలి: ఘాటైన పంచ్ డైలాగ్ + స్పష్టమైన ఆపాదింపు (Attribution). నాయకుడు పలికిన అసలు పంచ్ వాక్యం/సవాలే శీర్షికలో రావాలి. చప్పని "స్పందన", "సమీక్ష" వంటి పదాలు నిషిద్ధం!
+     - ఉదాహరణ: "ప్రజలను దగా చేశారంటూ కూటమి సర్కార్‌పై జగన్ తీవ్ర ఆగ్రహం" (8 పదాలు)
+     - ఉదాహరణ: "ఏబీవీపీ విజయంతో సత్తా చాటిందన్న కేంద్ర మంత్రి కిరణ్ రిజిజు" (8 పదాలు)
+     - ఉదాహరణ: "అక్రమ కేసులతో బెదిరించలేరంటూ కాంగ్రెస్ సర్కార్‌కు కేటీఆర్ బహిరంగ సవాల్" (8 పదాలు)
+     - ఉదాహరణ: "రైతులను ఆదుకోవడంలో ప్రభుత్వం ఘోరంగా విఫలమైందన్న హరీష్ రావు" (7 పదాలు)
+   * 2. రైతాంగ వ్యథ, పేదల ఆవేదన, ప్రజా సమస్యలు, పల్లెసీమల కష్టాలు:
+     - శైలి: హృదయాన్ని కదిలించే కరుణ రసం / కవితాత్మక రూపకాలు (శ్రీశ్రీ, తిలక్ శైలిలో). పంచ్ డైలాగులు పెట్టరాదు.
+     - ఉదాహరణ: "ఆశల పందిరి కూలి కన్నీటి సంద్రమైన అన్నదాత బతుకు చిత్రం" (8 పదాలు)
+     - ఉదాహరణ: "రోడ్లు లేక డోలీ మోతలతో రోదిస్తున్న అడవితల్లి ఆక్రోశం" (7 పదాలు)
+     - ఉదాహరణ: "తాగునీరు లేక చుక్కల కోసం అల్లాడుతున్న పల్లెసీమల జనం" (7 పదాలు)
+   * 3. ప్రమాదాలు, విషాదాలు, విపత్తులు:
+     - శైలి: గంభీరమైన, వాస్తవికతతో కూడిన వార్తా శైలి (Grave, Impactful Reality). కవిత్వాలు, పంచ్ డైలాగులు పూర్తిగా నిషిద్ధం.
+     - ఉదాహరణ: "నెత్తురోడిన జాతీయ రహదారిపై లారీ ఢీకొని నలుగురు దుర్మరణం" (7 పదాలు)
+     - ఉదాహరణ: "వరద ఉధృతిలో కొట్టుకుపోయిన కారు.. నదిలో ఇద్దరు గల్లంతు" (7 పదాలు)
+   * 4. ప్రభుత్వ పథకాలు, అభివృద్ధి పనులు, నియామకాలు, శుభవార్తలు:
+     - శైలి: ఉత్తేజభరితమైన, సూటిగా ప్రయోజనాన్ని తెలిపే శైలి (Crisp, Direct, Uplifting Action).
+     - ఉదాహరణ: "రైతుల ఖాతాల్లోకి నేడే రైతు భరోసా నిధుల జమ" (7 పదాలు)
+     - ఉదాహరణ: "నిరుద్యోగులకు తీపి కబురు.. త్వరలోనే పదివేల ఉద్యోగాల భర్తీ" (7 పదాలు)
+     - ఉదాహరణ: "గ్రామంలో కోటి రూపాయలతో నూతన రహదారుల నిర్మాణ పనులు" (7 పదాలు)
+   * 5. నేరాలు, దోపిడీలు, పోలీస్ దాడులు, మోసాలు:
+     - శైలి: పదునైన క్రైమ్ రిపోర్టింగ్ (Sharp, Gripping Crime Reporting).
+     - ఉదాహరణ: "సికింద్రాబాద్‌లో సినీ ఫక్కీలో భారీ దోపిడీ.. అంతర్రాష్ట్ర ముఠా అరెస్ట్" (8 పదాలు)
+     - ఉదాహరణ: "నకిలీ సర్టిఫికెట్ల రాకెట్ గుట్టురట్టు చేసిన టాస్క్‌ఫోర్స్ పోలీసులు" (7 పదాలు)
    - కఠిన సార్వత్రిక నిబంధనలు (UNIVERSAL RULES FOR ALL HEADLINES):
-     1. ఖచ్చితంగా 7 నుండి 8 పదాలు మాత్రమే (STRICTLY 7 TO 8 WORDS ONLY).
+     1. ఖచ్చితంగా 7 నుండి 9 పదాలు మాత్రమే, సంపూర్ణ అర్ధవంతమైన వాక్యం (STRICTLY 7 TO 9 WORDS, COMPLETE SENTENCE). వాక్యం అసంపూర్తిగా ముగియరాదు, చివర పూర్తి క్రియా పదం (మండిపడ్డారు, స్పష్టం చేశారు, ప్రకటించారు, అరెస్ట్, మృతి) తప్పనిసరి.
      2. మొదటి పదం నుండి చివరి పదం వరకు కేవలం ఒకే ఒక్క నిరంతర సంపూర్ణ వాక్యం (STRICTLY ONE CONTINUOUS SENTENCE).
      3. కొటేషన్లు ('...', "...") మరియు కోలన్లు (:) పూర్తిగా నిషిద్ధం!
-4. SUMMARY (సారాంశం - కచ్చితంగా 60 నుండి 70 పదాలు మాత్రమే, ఆపాదింపు తప్పనిసరి):
-   - Length: STRICTLY 60 to 70 words only (కచ్చితంగా 60 నుండి 70 పదాల మధ్య మాత్రమే ఉండాలి, 70 పదాలు దాటకూడదు).
-   - Crisp, powerful Telugu preserving the core arguments, punch points, leader's/speaker's name, key decisions/numbers, and context.
-   - Frame the statements with proper journalistic attribution: "[నాయకుడు/పార్టీ] పేర్కొన్నారు / వెల్లడించారు / ఆరోపించారు / విమర్శించారు / డిమాండ్ చేశారు / స్పష్టం చేశారు".
-   - Strictly ONE continuous single unified paragraph. DO NOT split into multiple paragraphs, DO NOT use newlines.
-4.1. SENIOR EDITOR FULL STORY (పూర్తి వార్తా కథనం - కనీసం 250 నుండి 320 పదాలు, 3-4 విడివిడి పేరాగ్రాఫ్‌లు):
-   - 'fullStoryTe': ఇచ్చిన సమాచారంలో తగినంత విషయం ఉన్నప్పుడు, సీనియర్ ఎడిటర్ లాగా కనీసం 250 నుండి 320 పదాల సమగ్రమైన పూర్తి కథనం రాయాలి.
-   - 3-4 విడివిడి పేరాగ్రాఫ్‌లు తప్పనిసరి (STRICTLY 3-4 PARAGRAPHS SEPARATED BY \n\n):
-     * ❌ ఒకే ముద్దగా (single clump) అస్సలు రాయకూడదు!
-     * ✅ కథనాన్ని స్పష్టంగా 3 నుండి 4 విడివిడి పేరాగ్రాఫ్‌లుగా విభజించాలి. ప్రతి పేరాగ్రాఫ్ మధ్య రెండు న్యూలైన్‌లు (\n\n) తప్పనిసరిగా ఉండాలి.
-     * 1వ పేరా: మూల సంఘటన, కీలక ప్రకటన లేదా పంచ్ డైలాగ్, స్పష్టమైన ఆపాదింపుతో కూడిన ప్రారంభం (~60-80 పదాలు).
-     * 2వ పేరా: నేపథ్యం, సంఖ్యలు, కేటాయింపులు లేదా నిర్ణయాల పూర్వాపరాలు (~80-100 పదాలు).
-     * 3వ పేరా: రాజకీయ విమర్శలు, సవాళ్లు, ప్రతిస్పందనలు లేదా డిమాండ్లు (~70-90 పదాలు).
-     * 4వ పేరా: పరిణామాలు, ప్రస్తుత పరిస్థితి లేదా భవిష్యత్ ప్రభావం (~50-70 పదాలు).
-   - నిబంధనలు (CRITICAL RULES FOR FULL STORY):
-     * పదాల పరిమాణం: సమాచారం సరిపడా ఉన్నప్పుడు కనీసం 250 పదాలు (250 నుండి 320 పదాలు) సమగ్రంగా ఉండాలి. చిన్నగా తేల్చవద్దు.
-     * భావం & తీవ్రత (Tone & Intensity): వార్త యొక్క మూల భావం, మాట్లాడిన వారి ఆవేశం, ఆగ్రహం, బాధ లేదా ప్రజా సమస్య తీవ్రత అస్సలు తగ్గకూడదు.
-     * ఆపాదింపు నియమం: కథనం మొత్తంలో ఎవరు ఏమి మాట్లాడారో స్పష్టంగా ఆపాదిస్తూ రాయాలి (ఉదా: "బీజేపీ నాయకులు పేర్కొన్నారు", "ఆరోపించారు"). మనమే తీర్పు ఇచ్చినట్లు రాయరాదు.
-     * కల్పితాలు వద్దు (NO HALLUCINATIONS): అసలు సమాచారంలో వివరాలు తక్కువగా ఉంటే లేనిపోనివి ఊహించి రాయవద్దు. ఉన్న సమాచారాన్నే పరిశుభ్రమైన భాషలో రాయండి.
-     * వాస్తవాల రక్షణ: వ్యక్తుల పేర్లు, సంస్థలు, ప్రాంతాలు, పదవులు, తేదీలు, అంకెలను ఎట్టిపరిస్థితుల్లోనూ మార్చవద్దు, మిస్ చేయవద్దు.
-     * పునరావృతం వద్దు: వాక్యాలు లేదా పదాలు అనవసరంగా రిపీట్ కాకుండా సూటిగా రాయాలి.
-     * చిన్న ట్వీట్లు/వార్తల నిబంధన (SHORT NEWS / TWEETS): ఒకవేళ ట్వీట్/సమాచారం 70-80 పదాల లోపే ఉండి, వార్తలో అదనపు సమాచారం ఏమీ లేనప్పుడు, బలవంతంగా 250 పదాలు పూర్తి చేయడానికి ఏదీ కల్పించవద్దు. అటువంటి చిన్న వార్తలకు fullStoryTe ను content కు సమానంగా ఉంచండి.
-   - 'fullStoryEn': English Full Story (strictly 200 to 250 words across 3-4 paragraphs separated by \n\n) maintaining the same journalistic depth, emotion, and facts. For short news, keep equal to contentEn.
-5. STRICT TELUGU SCRIPT PURITY (స్వచ్ఛమైన తెలుగు లిపి మాత్రమే - NO FOREIGN SCRIPTS):
-   - Output 100% pure Telugu script (Unicode U+0C00-U+0C7F) and English/Numbers for acronyms and amounts.
-   - STRICTLY FORBIDDEN: NEVER mix or insert Kannada, Hindi/Devanagari, Urdu/Arabic, Tamil, or Malayalam characters anywhere!
-   - Transliterate all non-Telugu names purely into TELUGU (e.g. 'నరేంద్ర మోదీ', 'రాహుల్ గాంధీ', 'ఒవైసీ', 'వక్ఫ్').
-6. STRICT LOGO REJECTION:
-   - If media is purely a logo, channel icon, or brand card, set mediaUrl to "".
 
-Output JSON only:
-{"isRelevant": true|false, "headline": "Telugu Title (Strictly NO quotes, With Attribution)", "content": "Telugu Summary (With Attribution)", "fullStoryTe": "Telugu Full Story (At least 250-320 words across 3-4 paragraphs separated by \\n\\n, With Attribution)", "headlineEn": "English Title", "contentEn": "English Summary", "fullStoryEn": "English Full Story (200-250 words in 3-4 paragraphs)", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "url", "mediaType": "image", "isWide": false}`;
+9. సారాంశం (SUMMARY / CONTENT - STRICTLY 60 TO 70 WORDS, ఒకే సింగిల్ పేరాగ్రాఫ్):
+   - కచ్చితంగా 60 నుండి 70 పదాల మధ్య మాత్రమే ఉండాలి.
+   - ఒకే ఒక్క నిరంతర సింగిల్ పేరాగ్రాఫ్ (No multiple paragraphs, no newlines \n).
+   - మాట్లాడిన వారి పేరు, అసలు వాదనలు, కీలక నిర్ణయాలు, సంఖ్యలు, ఆపాదింపుతో కూడిన స్పష్టమైన వార్త.
 
-                const postInputText = `POST SOURCE / AUTHOR: ${authorDisplayName} (${handleTag})\nPOST TEXT:\n${item.text}`;
-                const aiResult = await processWithGemini(postInputText, prompt, item.mediaUrl);
+10. సీనియర్ ఎడిటర్ పూర్తి వార్తా కథనం (SENIOR EDITOR FULL STORY - వాస్తవికత & హాలూసినేషన్ రక్షణ):
+   - 'fullStoryTe': మూల ట్వీట్/పోస్ట్‌లోని వివరాలను బట్టి సమగ్రమైన వార్తా కథనం రాయాలి:
+     * A) వివరాలు పుష్కలంగా ఉన్న ట్వీట్లు / నోట్ ట్వీట్లు / థ్రెడ్లు: కనీసం 250 నుండి 320 పదాల పూర్తి కథనం 3-4 విడివిడి పేరాగ్రాఫ్‌లలో (\n\n తో) రాయాలి.
+     * B) పరిమిత సమాచారం ఉన్న చిన్న ట్వీట్లు (1-2 వాక్యాల సింగిల్ ప్రకటనలు): కల్పిత కథనాలు లేదా సంబంధం లేని గత చరిత్రను ఊహించి రాయడం పూర్తిగా నిషిద్ధం (STRICT ZERO HALLUCINATIONS)! ఉన్న వాస్తవాలనే స్పష్టంగా, నిక్కచ్చిగా 2 పేరాగ్రాఫ్‌లలో (~120 నుండి 150 పదాలు, \n\n తో) రాయండి. ఎట్టిపరిస్థితుల్లోనూ లేని విషయాలను లేదా ఎవరూ అనని మాటలను సృష్టించరాదు!
+   - 3-4 విడివిడి పేరాగ్రాఫ్‌ల విభజన (\n\n తప్పనిసరి, ❌ ఒకే ముద్దగా రాయడం నిషిద్ధం):
+     * 1వ పేరా (ఆసక్తికర హుక్ & మూల సంఘటన - ~60-80 పదాలు): ప్రధాన సంఘటన, కీలక ప్రకటన, మాట్లాడిన వ్యక్తికి స్పష్టమైన ఆపాదింపు.
+     * 2వ పేరా (నేపథ్యం, సంఖ్యలు & పూర్వాపరాలు - ~80-100 పదాలు): నిర్ణయం నేపథ్యం, గణాంకాలు, కేటాయింపులు, వాస్తవ వివరాలు.
+     * 3వ పేరా (సందర్భోచిత సమతుల్యత - ~70-90 పదాలు): రాజకీయ వివాదమైతే ప్రత్యర్థి వాదన/స్పందన; ప్రభుత్వ పథకమైతే క్షేత్రస్థాయి పరిశీలన.
+     * 4వ పేరా (తాజా పరిస్థితి & భవిష్యత్ పరిణామాలు - ~50-70 పదాలు): ప్రస్తుత పరిస్థితి, అధికారులు చేపట్టిన చర్యలు.
+   - 'fullStoryEn': English Full Story (strictly 150-250 words across 2-4 paragraphs separated by \n\n).
+
+11. ఎడిటోరియల్ ఫిల్టర్ నిబంధనలు (EDITORIAL FILTER RULES):
+   - ఆమోదం (isRelevant: true): ప్రభుత్వ అధికారిక నిర్ణయాలు, కొత్త సంక్షేమ పథకాలు, బడ్జెట్ కేటాయింపులు, అభివృద్ధి ప్రాజెక్టులు, నిర్దిష్ట ఆధారాలతో కూడిన రాజకీయ విమర్శలు, సవాళ్లు, ప్రెస్ మీట్ వివరాలు, ప్రజా సమస్యలు, ప్రమాదాలు, నేరాలు.
+   - తిరస్కరణ (isRelevant: false - సున్నా వార్తా విలువ / ప్రజోపయోగం లేనివి):
+     * 🛑 స్వీయ ప్రచారం, భజన, సొంత డబ్బా, నాయకుల పొగడ్తలు, పీఆర్ రీల్స్ (SELF-PRAISE, LEADER GLORIFICATION & PARTY SYCOPHANCY):
+       - ఒక పార్టీ లేదా నాయకుడు తమని తాము లేదా తమ అధినేతను పొగుడుకుంటూ వేసిన పోస్టులు/ట్వీట్లు/వీడియోలు (ఉదా: "ప్రజల కోసం ప్రశ్నించే గొంతు... ప్రజా సమస్యల కోసం పోరాడే నిబద్ధత... వైఎస్ షర్మిల రెడ్డి గారు — ప్రజల పక్షాన నిలిచే నాయకత్వం", "మా నాయకుడే మా భవిష్యత్తు", "పేదల ఆశాజ్యోతి ఫలానా నేత", ర్యాలీ విజువల్స్ పీఆర్ రీల్స్, పార్టీ గీతాలు, ప్రచార నినాదాలు).
+       - ఇటువంటి పోస్టులలో కొత్త ప్రభుత్వ నిర్ణయం, కొత్త పథకం, బడ్జెట్ లేదా పాలసీ సమాచారం ఏమీ ఉండదు. కేవలం సొంత భజన మాత్రమే. దీనిలో ప్రజలకు ఎలాంటి ఉపయోగం (Public Utility) గానీ, వార్తా ఆసక్తి (Public Interest) గానీ లేవు. అసలు దీనిని వార్తాంశంగా స్వీకరించాల్సిన పనేలేదు! ఖచ్చితంగా తిరస్కరించాలి (isRelevant: false).
+     * అసభ్యకరమైన తిట్లు, బూతులు, వ్యక్తిగత దూషణలు, ఇంటర్నెట్ ట్రోల్ మీమ్స్ (isRelevant: false).
+     * కేవలం క్యాజువల్ వ్యక్తిగత పుట్టినరోజు శుభాకాంక్షలు, రొటీన్ పండుగ విషెస్ (ఎటువంటి సేవా కార్యక్రమాలు లేదా అభివృద్ధి పనులు లేనివి) (isRelevant: false).
+     * కమర్షియల్ వ్యాపార ప్రకటనలు, ప్రమోషనల్ స్పాన్సర్డ్ లింకులు (isRelevant: false).
+
+11.1 📰 అధికారిక ప్రెస్ నోట్ / లెటర్ హెడ్ పరిశీలన (OFFICIAL PRESS NOTE OCR):
+   - ఒకవేళ జతచేసిన చిత్రంలో అధికారిక ప్రెస్ నోట్, ప్రభుత్వ జీవో లేదా లెటర్ హెడ్ ఉన్నట్లయితే: ఆ పత్రంలోని ముఖ్యాంశాలు, అంకెలు, ప్రకటనలను శ్రద్ధగా చదివి వార్తలో చేర్చండి.
+
+12. స్వచ్ఛమైన తెలుగు లిపి (100% PURE TELUGU SCRIPT - NO FOREIGN SCRIPTS):
+   - అవుట్‌పుట్ 100% స్వచ్ఛమైన తెలుగు లిపిలో (Unicode U+0C00-U+0C7F) ఉండాలి. అబ్రివియేషన్లకు మాత్రమే ఇంగ్లీష్/నంబర్లు (ఉదా: TDP, BRS, BJP, ₹).
+   - కన్నడ, హిందీ/దేవనాగరి, ఉర్దూ, తమిళం లేదా మలయాళం అక్షరాలు రాకూడదు.
+   - ఇతర భాషల పేర్లను స్వచ్ఛమైన తెలుగులోకి లిప్యంతరీకరించాలి (ఉదా: 'నరేంద్ర మోదీ', 'రాహుల్ గాంధీ', 'ఒవైసీ', 'వక్ఫ్').
+
+13. మీడియా & లోగోల తిరస్కరణ:
+   - మీడియా కేవలం లోగో, ఛానల్ చిహ్నం లేదా బ్రాండ్ కార్డ్ అయితే mediaUrl ని "" గా ఉంచాలి.
+
+14. అవుట్‌పుట్ ఫార్మాట్ (Strict JSON only):
+{"isRelevant": true|false, "headline": "తెలుగు శీర్షిక (కచ్చితంగా 7-9 పదాలు, సంపూర్ణ వాక్యం, కొటేషన్లు లేవు, ఆపాదింపుతో)", "content": "తెలుగు సారాంశం (60-70 పదాలు, ఒకే పేరాగ్రాఫ్, ఆపాదింపుతో)", "fullStoryTe": "పూర్తి వార్త - సీనియర్ ఎడిటర్ కథనం (వివరాలుంటే 250-320 పదాలు, చిన్న ట్వీట్లకు 120-150 పదాలు, విడివిడి పేరాగ్రాఫ్‌లు \\n\\n తో, ఆపాదింపుతో)", "headlineEn": "English Headline (7-9 words)", "contentEn": "English Summary (50-60 words)", "fullStoryEn": "English Full Story (150-250 words in 2-4 paragraphs separated by \\n\\n)", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "url", "mediaType": "image", "isWide": false}`;
+
+                const markItemUrls = async (tItem) => {
+                    const urls = tItem.allUrls && tItem.allUrls.length > 0 ? tItem.allUrls : [tItem.url];
+                    for (const u of urls) {
+                        await markUrlAsProcessed(u);
+                    }
+                };
+
+                const speakerFromText = extractSpeakerFromTweet(item.text);
+                let postInputText = `POST SOURCE / AUTHOR: ${authorDisplayName} (${handleTag})\n`;
+                if (speakerFromText) {
+                    postInputText += `MANDATORY SPEAKER / STATEMENT GIVER: ${speakerFromText}\n`;
+                }
+                postInputText += `POST TEXT:\n${item.text}`;
+
+                // Selective Vision OCR: If tweet text is very short (< 60 chars) but has an attached genuine image,
+                // it is likely an official press statement / letterhead / GO. Pass image to Gemini Vision!
+                // If tweet text is already long (> 60 chars) or media is just an avatar, pass null to prevent hallucinations.
+                const isShortTextWithImage = item.text.length < 60 && item.mediaUrl && !isGenericImage(item.mediaUrl) && !item.mediaUrl.includes('profile_images');
+                const imageToProcess = isShortTextWithImage ? item.mediaUrl : null;
+                const aiResult = await processWithGemini(postInputText, prompt, imageToProcess);
                 if (!aiResult) continue;
 
                 try {
                     const parsed = JSON.parse(aiResult.replace(/```json|```/g, '').trim());
                     if (!parsed.isRelevant || !parsed.headline || !parsed.content) {
                         console.log(`[TWITTER] ⏭️ Filtered out non-news/satirical post for @${handle}: "${(item.text || '').substring(0, 45).replace(/\n/g, ' ')}..."`);
-                        await markUrlAsProcessed(item.url);
+                        await markItemUrls(item);
                         continue;
                     }
 
@@ -2631,18 +2796,34 @@ Output JSON only:
                         parsed.headlineEn = cleanEnglishHeadline(parsed.headlineEn);
                     }
                     if (!parsed.headline) {
-                        await markUrlAsProcessed(item.url);
+                        await markItemUrls(item);
                         continue;
                     }
 
-                    // 1. Headline similarity deduplication
+                    // Check for party flattery / sycophancy or editorial verdict without attribution
+                    if (isEditorialVerdictOrFlattery(parsed.headline, item.text, authorDisplayName)) {
+                        console.log(`[TWITTER] 🛑 Rejected party flattery / editorial verdict without attribution for @${handle}: "${parsed.headline}"`);
+                        await markItemUrls(item);
+                        continue;
+                    }
+
+                    // 1. Headline similarity deduplication with Entity/Speaker Awareness
                     if (parsed.headline) {
                         const isDupHeadline = recentHeadlinesMemoryCache.some(cachedHeadline => {
-                            return calculateTextSimilarity(parsed.headline, cachedHeadline) >= 0.70;
+                            const similarity = calculateTextSimilarity(parsed.headline, cachedHeadline);
+                            if (similarity >= 0.70) {
+                                // Check if person entity is different (e.g. Jagan vs KTR vs Harish Rao)
+                                const currentPerson = parsed.entities?.people?.[0] || '';
+                                if (currentPerson && currentPerson.length > 2 && !cachedHeadline.includes(currentPerson)) {
+                                    return false; // Different person speaking, NOT a duplicate!
+                                }
+                                return true;
+                            }
+                            return false;
                         });
                         if (isDupHeadline) {
                             console.log(`[TWITTER] ⏭️ Duplicate story (headline similarity hit) for @${handle}: "${parsed.headline}"`);
-                            await markUrlAsProcessed(item.url);
+                            await markItemUrls(item);
                             continue;
                         }
                     }
@@ -2651,7 +2832,7 @@ Output JSON only:
                     if (parsed.storyFingerprint) {
                         if (storyFingerprintMemoryCache.has(parsed.storyFingerprint)) {
                             console.log(`[TWITTER] ⏭️ Duplicate story (memory hit): ${parsed.storyFingerprint}`);
-                            await markUrlAsProcessed(item.url);
+                            await markItemUrls(item);
                             continue;
                         }
 
@@ -2664,7 +2845,7 @@ Output JSON only:
                         if (!duplicate.empty) {
                             storyFingerprintMemoryCache.add(parsed.storyFingerprint);
                             console.log(`[TWITTER] ⏭️ Duplicate story (Firestore hit): ${parsed.storyFingerprint}`);
-                            await markUrlAsProcessed(item.url);
+                            await markItemUrls(item);
                             continue;
                         }
                         storyFingerprintMemoryCache.add(parsed.storyFingerprint);
@@ -2700,6 +2881,20 @@ Output JSON only:
 
                     const finalEntities = parsed.entities || { people: [], organizations: [], locations: [] };
 
+                    // Fix mediaType: Twitter syndication supplies static thumbnail JPGs for videos.
+                    // Keep mediaType as 'video' ONLY if the URL is an actual playable video stream (mp4/m3u8),
+                    // otherwise keep as 'image' to prevent app video player from choking on a static JPEG.
+                    let finalMediaType = 'image';
+                    if (item.mediaType === 'video' && item.mediaUrl && (item.mediaUrl.endsWith('.mp4') || item.mediaUrl.includes('.m3u8'))) {
+                        finalMediaType = 'video';
+                    }
+
+                    // Fix postFormat: 1:1 for profile avatars, 16:9 for landscape photos
+                    let postFormat = '16:9';
+                    if (!item.mediaUrl && item.avatarUrl) {
+                        postFormat = '1:1';
+                    }
+
                     const docRef = db.collection('news').doc();
                     const newsPayload = sanitizeFirestoreData({
                         headline: { telugu: cleanedHeadline, english: parsed.headlineEn || '' },
@@ -2718,8 +2913,8 @@ Output JSON only:
                         location: parsed.location || feed.district || 'General',
                         storyFingerprint: parsed.storyFingerprint || '',
                         mediaUrl: finalMediaUrl,
-                        mediaType: item.mediaType || 'image',
-                        postFormat: '16:9',
+                        mediaType: finalMediaType,
+                        postFormat: postFormat,
                         language: 'te',
                         type: 'news',
                         isGlobal: true,
