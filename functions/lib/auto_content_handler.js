@@ -196,6 +196,7 @@ exports.scheduleHistoryOfTheDay = (0, scheduler_1.onSchedule)({ schedule: "30 4 
                 type: 'history',
                 headline: { telugu: data.headlineTe, english: data.headlineEn },
                 content: { telugu: data.contentTe, english: data.contentEn },
+                fullStory: { telugu: (0, utils_1.formatIntoParagraphs)(data.contentTe), english: (0, utils_1.formatIntoParagraphs)(data.contentEn) },
                 mediaUrl,
                 category: 'చరిత్ర',
                 reporter: { id: 'system', name: 'AlfaNews Team' },

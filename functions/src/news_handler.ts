@@ -413,17 +413,29 @@ function normalizeSingleStory(aiRes: any, actualPostData: any): any {
     let finalFullStoryTe = aiRes.fullStoryTe || aiRes.full_story_te || aiRes.fullStory || aiRes.full_story ||
         aiRes.telugu?.fullStory || aiRes.telugu_version?.fullStory || "";
     if (finalFullStoryTe && typeof finalFullStoryTe === 'string' && finalFullStoryTe.trim().length > 0) {
-        finalFullStoryTe = formatIntoParagraphs(sanitizeTeluguText(finalFullStoryTe));
+        const rawStory = sanitizeTeluguText(finalFullStoryTe).trim();
+        const storyWords = rawStory.split(/\s+/).filter(Boolean).length;
+        if (storyWords >= 80 && rawStory !== finalContent) {
+            finalFullStoryTe = formatIntoParagraphs(rawStory);
+        } else {
+            finalFullStoryTe = "";
+        }
     } else {
-        finalFullStoryTe = formatIntoParagraphs(finalContent);
+        finalFullStoryTe = "";
     }
 
     let finalFullStoryEn = aiRes.fullStoryEn || aiRes.full_story_en ||
         aiRes.english?.fullStory || aiRes.english_version?.fullStory || "";
     if (finalFullStoryEn && typeof finalFullStoryEn === 'string' && finalFullStoryEn.trim().length > 0) {
-        finalFullStoryEn = formatIntoParagraphs(finalFullStoryEn.trim());
+        const rawStoryEn = finalFullStoryEn.trim();
+        const storyWordsEn = rawStoryEn.split(/\s+/).filter(Boolean).length;
+        if (storyWordsEn >= 80 && rawStoryEn !== finalContentEn) {
+            finalFullStoryEn = formatIntoParagraphs(rawStoryEn);
+        } else {
+            finalFullStoryEn = "";
+        }
     } else {
-        finalFullStoryEn = formatIntoParagraphs(finalContentEn);
+        finalFullStoryEn = "";
     }
 
     const normalizedEntities = {
@@ -663,7 +675,7 @@ export async function performAIProcessing(
                     return [{
                         headline: { telugu: headline, english: "" },
                         content: { telugu: content, english: "" },
-                        fullStory: { telugu: content, english: "" },
+                        fullStory: { telugu: "", english: "" },
                         notificationTitle: "",
                         location: actualPostData?.location || recent.location || "",
                         category: "జిల్లా వార్త",
@@ -697,10 +709,10 @@ export async function performAIProcessing(
         properties: {
             headline: { type: Type.STRING },
             content: { type: Type.STRING },
-            fullStoryTe: { type: Type.STRING, description: "Senior Editor comprehensive full story in Telugu, at least 250-320 words across 3-4 paragraphs separated by \\n\\n" },
+            fullStoryTe: { type: Type.STRING, description: "Senior Editor full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if source is brief (< 120 words)" },
             headlineEn: { type: Type.STRING },
             contentEn: { type: Type.STRING },
-            fullStoryEn: { type: Type.STRING, description: "Senior Editor comprehensive full story in English, 200-250 words across 3-4 paragraphs separated by \\n\\n" },
+            fullStoryEn: { type: Type.STRING, description: "Senior Editor full story in English across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if source is brief (< 120 words)" },
             location: { type: Type.STRING },
             storyFingerprint: { type: Type.STRING },
             refinedCategory: { type: Type.STRING },
@@ -752,7 +764,11 @@ export async function performAIProcessing(
         required: ["stories"]
     };
 
-    console.log(`[AI_START] Processing: ${headline.substring(0, 30)}... (Type: ${actualPostData?.isReporter ? 'Reporter' : 'Citizen'})`);
+    const rawInputText = `${headline || ''} ${content || ''} ${videoSpeechContext || ''}`.trim();
+    const sourceWords = rawInputText.split(/\s+/).filter(Boolean).length;
+    const hasSubstantialSource = sourceWords >= 120;
+
+    console.log(`[AI_START] Processing: ${headline.substring(0, 30)}... (Type: ${actualPostData?.isReporter ? 'Reporter' : 'Citizen'}, Source words: ${sourceWords})`);
 
     const recentStoriesPrompt = recentStories.length > 0
         ? `\nRECENT APPROVED NEWS IN THIS SAME MANDAL IN THE PAST 6 HOURS:\n` +
@@ -809,19 +825,24 @@ EDITORIAL & REJECTION INSTRUCTIONS (CRITICAL):
   * NEVER write approval statements like "ప్రచురణకు ఆమోదించబడింది", "ఆమోదం", or "approved" in rejectionReason! When approved, rejectionReason MUST BE AN EMPTY STRING "".
 - ONLY IF THE STORY VIOLATES EDITORIAL/SAFETY POLICIES OR IS A CONFIRMED DUPLICATE:
   * rejectionReason MUST be phrased politely in professional Telugu as if written by a Human Chief Editor / News Desk. NEVER mention AI, algorithms, bots, or automated systems. Explain naturally like an editor (e.g. 'ఈ మండలంలో ఈ వార్తాంశం ఇప్పటికే ప్రచురితమైంది', 'వార్తలో ప్రజా ప్రయోజనం కొరవడింది లేదా వ్యక్తిగత ప్రచారం', 'చిత్రం ప్రచురణ ప్రమాణాలకు అనుగుణంగా లేదు').
-${actualPostData?.isReporter === true || actualPostData?.processingType === 'REPORTER_SUBMISSION' ? `
-REPORTER FULL STORY EXPANSION MANDATE (విలేకరుల వార్తలకు సమగ్ర కథనం - CRITICAL):
-- This news is submitted by an authorized field reporter (isReporter: true).
-- fullStoryTe MUST BE A RICH, COMPREHENSIVE JOURNALISTIC STORY OF AT LEAST 250 TO 320 TELUGU WORDS!
-- STRICTLY DIVIDE fullStoryTe INTO 3 TO 4 DISTINCT PARAGRAPHS SEPARATED BY \\n\\n (NEVER a single text clump).
-- Under NO circumstances leave fullStoryTe short or identical to the 60-70 word content!
-- Expand the reporter's notes systematically:
-  * Paragraph 1: Event/incident context, date/time, exact place, and root problem.
-  * Paragraph 2: Statements, quotations, heated remarks, or promises made by leaders/officials/witnesses.
-  * Paragraph 3: Local public reaction, victims' distress, previous background, and community demands.
-  * Paragraph 4: Required follow-up action by authorities, next steps, and Alfa News editorial observation.
-- fullStoryEn: Provide matching 200-250 English words across 3-4 paragraphs separated by \\n\\n.
-` : ''}
+${hasSubstantialSource ? `
+FULL STORY INSTRUCTIONS (మూల సమాచారం 120+ పదాలు ఉన్నందున సమగ్ర కథనం):
+- The submitted material has substantial depth (${sourceWords} words, at least 120+ words).
+- Write a comprehensive full story in Telugu (fullStoryTe) structured into 3 to 4 distinct paragraphs separated by \\n\\n based strictly on the provided facts.
+- 3 to 4 distinct paragraphs separated by \\n\\n (NEVER a single text clump):
+  * Paragraph 1: Gripping hook, core incident context, date/time, exact place, and attribution (~60-80 words).
+  * Paragraph 2: Statements, quotations, heated remarks, or promises made by leaders/officials/witnesses (~80-100 words).
+  * Paragraph 3: Local public reaction, victims' distress, previous background, and community demands (~70-90 words).
+  * Paragraph 4: Required follow-up action by authorities, next steps, and Alfa News editorial observation (~50-70 words).
+- fullStoryEn: Provide matching English full story across 3-4 paragraphs separated by \\n\\n.
+- Under NO circumstances hallucinate or invent new facts not mentioned in the source material.
+` : `
+FULL STORY INSTRUCTIONS (చిన్న వార్తల నిబంధన - ZERO HALLUCINATIONS):
+- The submitted material is brief (${sourceWords} words, less than 120 words).
+- Do NOT imagine, invent, or hallucinate extra details to stretch the story (NO HALLUCINATIONS)!
+- Set fullStoryTe = "" (empty string) and fullStoryEn = "" (empty string).
+- Only provide the concise 60-70 word Telugu content (one single paragraph) and headline.
+`}
 
 PROACTIVE MULTI-STORY BUNDLE DETECTION (CRITICAL):
 - Proactively detect if the input text contains multiple distinct sub-stories or angles:
@@ -976,8 +997,8 @@ export const processNewsPost = onCall(async (request) => {
                         english: postData?.content?.english || existingData.content?.english || ""
                     },
                     fullStory: postData?.fullStory || existingData.fullStory || {
-                        telugu: postData?.fullStory?.telugu || existingData.fullStory?.telugu || content,
-                        english: postData?.fullStory?.english || existingData.fullStory?.english || ""
+                        telugu: (postData?.fullStory?.telugu !== undefined ? postData.fullStory.telugu : existingData.fullStory?.telugu) || "",
+                        english: (postData?.fullStory?.english !== undefined ? postData.fullStory.english : existingData.fullStory?.english) || ""
                     },
                     mediaUrl: mediaUrl || existingData.mediaUrl || "",
                     mediaUrls: mediaUrls.length > 0 ? mediaUrls : (existingData.mediaUrls || (existingData.mediaUrl ? [existingData.mediaUrl] : [])),

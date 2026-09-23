@@ -785,8 +785,8 @@ export const processReporterSubmission = onCall(async (request) => {
                         english: postData?.content?.english || existingData.content?.english || ""
                     },
                     fullStory: postData?.fullStory || existingData.fullStory || {
-                        telugu: postData?.fullStory?.telugu || existingData.fullStory?.telugu || content,
-                        english: postData?.fullStory?.english || existingData.fullStory?.english || ""
+                        telugu: (postData?.fullStory?.telugu !== undefined ? postData.fullStory.telugu : existingData.fullStory?.telugu) || "",
+                        english: (postData?.fullStory?.english !== undefined ? postData.fullStory.english : existingData.fullStory?.english) || ""
                     },
                     mediaUrl: mediaUrl || existingData.mediaUrl || "",
                     mediaUrls: mediaUrls.length > 0 ? mediaUrls : (existingData.mediaUrls || (existingData.mediaUrl ? [existingData.mediaUrl] : [])),

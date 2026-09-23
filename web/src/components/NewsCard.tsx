@@ -91,10 +91,10 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
   const isReporterPost = post.isReporter === true || (Boolean(post.reporter) && post.reporter?.name !== 'సిటిజెన్ పోస్ట్');
 
   const hasSubstantialFullStory = Boolean(
-    (fullStoryWords >= 60 && fullStoryText.trim() !== content.trim()) ||
-    (fullStoryWords >= 80) ||
-    (isReporterPost && (fullStoryWords >= 45 || contentWords >= 50)) ||
-    (contentWords >= 70)
+    fullStoryText.trim() &&
+    fullStoryWords >= 80 &&
+    fullStoryText.trim() !== content.trim() &&
+    fullStoryText.length > (content.length + 60)
   );
 
   const storyScrollRef = useRef<HTMLDivElement>(null);
@@ -156,22 +156,48 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
     // 2. Fallback for single clump text (legacy/unformatted stories):
     // Split cleanly at Telugu/English sentence boundaries (. ! ? ।)
     const cleanText = rawText.replace(/\s+/g, ' ').trim();
-    const sentences = cleanText.split(/(?<=[.!?।])\s+/).filter(Boolean);
+    const sentences = cleanText.split(/(?<=[.!?।])\s*/).map(s => s.trim()).filter(Boolean);
 
-    if (sentences.length <= 3) {
-      return [cleanText];
+    if (sentences.length >= 4) {
+      const k = 4;
+      const result: string[] = [];
+      const baseSize = Math.floor(sentences.length / k);
+      const remainder = sentences.length % k;
+      let start = 0;
+      for (let i = 0; i < k; i++) {
+        const chunkSize = baseSize + (i < remainder ? 1 : 0);
+        if (chunkSize > 0 && start < sentences.length) {
+          result.push(sentences.slice(start, start + chunkSize).join(' '));
+          start += chunkSize;
+        }
+      }
+      return result.length > 0 ? result : [cleanText];
+    } else if (sentences.length === 3) {
+      return sentences;
+    } else if (sentences.length === 2) {
+      return sentences;
+    } else if (sentences.length === 1 && sentences[0].length > 180) {
+      const clauses = sentences[0].split(/(?<=[,;—–])\s+/).map(c => c.trim()).filter(Boolean);
+      if (clauses.length >= 3) {
+        const k = 3;
+        const result: string[] = [];
+        const baseSize = Math.floor(clauses.length / k);
+        const remainder = clauses.length % k;
+        let start = 0;
+        for (let i = 0; i < k; i++) {
+          const chunkSize = baseSize + (i < remainder ? 1 : 0);
+          if (chunkSize > 0 && start < clauses.length) {
+            result.push(clauses.slice(start, start + chunkSize).join(' '));
+            start += chunkSize;
+          }
+        }
+        return result;
+      } else if (clauses.length === 2) {
+        return clauses;
+      }
     }
 
-    // Divide sentences across 3 to 4 paragraphs
-    const targetParagraphCount = sentences.length >= 8 ? 4 : 3;
-    const sentencesPerPara = Math.ceil(sentences.length / targetParagraphCount);
-    const paragraphs: string[] = [];
-
-    for (let i = 0; i < sentences.length; i += sentencesPerPara) {
-      paragraphs.push(sentences.slice(i, i + sentencesPerPara).join(' '));
-    }
-
-    return paragraphs.length > 0 ? paragraphs : [cleanText];
+    return [cleanText];
   };
 
   // Extract YouTube ID if present in youtubeUrl, mediaUrl, or mediaUrls
@@ -308,6 +334,38 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
       }
     } catch (e) {
       console.error("Share error:", e);
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  const handleFullStoryShare = async () => {
+    if (isSharing) return;
+    setIsSharing(true);
+    const storyParas = getStoryParagraphs(
+      post.fullStory && ((language === Language.TELUGU ? post.fullStory.telugu : post.fullStory.english) || '').trim().length > 0
+        ? (language === Language.TELUGU ? post.fullStory.telugu : post.fullStory.english)
+        : content
+    );
+    const fullStoryBody = storyParas.join("\n\n");
+    const deepLinkUrl = `https://alfanews.app/news/${post.id}`;
+    const footer = language === Language.TELUGU 
+      ? `📲 మరిన్ని తాజా స్థానిక వార్తలకు ఇప్పుడే డౌన్‌లోడ్ చేసుకోండి ఆల్ఫా న్యూస్:\n${deepLinkUrl}`
+      : `📲 For more latest local news, download Alfa News now:\n${deepLinkUrl}`;
+    const shareText = `🔴 ${headline}\n\n${fullStoryBody}\n\n${footer}`;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: headline,
+          text: shareText
+        });
+      } else {
+        await navigator.clipboard.writeText(shareText);
+        alert(language === Language.TELUGU ? "పూర్తి వార్త లింక్ కాపీ చేయబడింది!" : "Full story copied to clipboard!");
+      }
+    } catch (e) {
+      console.error("Full story share error:", e);
     } finally {
       setIsSharing(false);
     }
@@ -682,7 +740,7 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
           onClick={() => setShowFullStory(false)}
         >
           <div 
-            className="w-full max-w-lg h-[90vh] bg-zinc-950 border-t border-white/10 rounded-t-2xl flex flex-col overflow-hidden shadow-2xl animate-slide-up"
+            className="w-full max-w-lg h-[85vh] bg-zinc-950 border-t border-white/10 rounded-t-2xl flex flex-col overflow-hidden shadow-2xl animate-slide-up"
             onClick={(e) => e.stopPropagation()}
             onTouchMove={(e) => e.stopPropagation()}
             onWheel={(e) => e.stopPropagation()}
@@ -789,8 +847,19 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
                 <span>{language === Language.TELUGU ? "ఆల్ఫా న్యూస్ ఎడిటోరియల్ సమగ్ర కథనం" : "Alfa News Verified Comprehensive Story"}</span>
               </div>
 
+              {/* WhatsApp-styled Share Button */}
+              <button
+                onClick={handleFullStoryShare}
+                className="w-full mt-6 py-3 px-4 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] active:scale-[0.98] text-white font-bold flex items-center justify-center gap-2.5 shadow-lg transition-all"
+              >
+                <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                  <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01C17.18 3.03 14.69 2 12.04 2zm.01 1.67c2.2 0 4.26.86 5.82 2.42 1.55 1.56 2.41 3.63 2.41 5.83 0 4.54-3.7 8.23-8.24 8.23-1.48 0-2.93-.39-4.19-1.15l-.3-.17-3.12.82.83-3.04-.2-.32C4.24 14.99 3.8 13.47 3.8 11.91c.01-4.54 3.7-8.24 8.25-8.24zM8.53 7.33c-.16 0-.43.06-.66.31-.22.25-.87.86-.87 2.07 0 1.22.89 2.39 1.01 2.56.13.17 1.75 2.67 4.23 3.73.59.26 1.04.41 1.4.53.59.19 1.13.16 1.56.1.48-.07 1.48-.6 1.69-1.18.21-.58.21-1.07.15-1.18-.07-.1-.23-.16-.48-.28-.24-.13-1.44-.72-1.66-.8-.23-.08-.39-.12-.55.12-.17.25-.64.8-.79.96-.14.17-.29.19-.53.07-.24-.13-1.03-.38-1.96-1.21-.73-.65-1.22-1.45-1.36-1.69-.14-.25-.02-.38.11-.5.11-.12.25-.3.37-.44.12-.14.16-.24.24-.4.08-.17.04-.3-.02-.43-.06-.12-.55-1.32-.76-1.82-.2-.48-.41-.42-.56-.42-.15-.01-.32-.01-.56-.1z"/>
+                </svg>
+                <span>{language === Language.TELUGU ? "వాట్సాప్‌లో షేర్ చేయండి" : "Share on WhatsApp"}</span>
+              </button>
+
               {/* AdMob Box Ad (Medium Rectangle 300x250) after story ends */}
-              <div className="mt-8 pt-2 pb-12 flex flex-col items-center justify-center select-none">
+              <div className="mt-6 pt-2 pb-12 flex flex-col items-center justify-center select-none">
                 <div className="w-[300px] h-[250px] rounded-xl bg-zinc-900/90 border border-white/10 flex flex-col items-center justify-between p-3.5 relative overflow-hidden shadow-xl">
                   {/* Background decoration */}
                   <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-red-600/5 pointer-events-none" />

@@ -39,11 +39,10 @@ export function getTopicName(prefix: string, value: string): string {
 }
 
 const TEXT_MODELS = [
-    "gemini-2.5-flash",       // 1. Primary: High availability, reliable Google Search Grounding support
-    "gemini-3.7-flash",       // 2. Latest flagship model (5 RPM dedicated quota)
-    "gemini-3.6-flash",       // 3. Powerful Flash model (5 RPM dedicated quota)
-    "gemini-3.5-flash-lite",  // 4. High-speed, high-quota safety net (15-30 RPM)
-    "gemini-3.1-flash-lite"   // 5. Stable backup fallback
+    "gemini-3.7-flash",       // 1. Primary - Best Editorial Quality
+    "gemini-3.6-flash",       // 2. High-speed, high-quota safety net
+    "gemini-3.5-flash-lite",  // 3. Fallback
+    "gemini-3.5-flash"        // 4. Backup
 ];
 
 const IMAGE_ANALYSIS_MODELS = [
@@ -339,7 +338,7 @@ export function isEditorialVerdictOrFlattery(headline: string, text: string = ''
  * If provided as a single block or clump, intelligently splits by sentence boundaries
  * into 3 to 4 balanced paragraphs.
  */
-export function formatIntoParagraphs(text: string, targetCount: number = 3): string {
+export function formatIntoParagraphs(text: string, targetCount: number = 4): string {
     if (!text || !text.trim()) return "";
     const clean = text.trim();
 
@@ -355,16 +354,45 @@ export function formatIntoParagraphs(text: string, targetCount: number = 3): str
         return singleNewlineParas.join('\n\n');
     }
 
-    // 3. Single text clump: split into sentences and balance into 3 to 4 paragraphs
-    const sentences = clean.split(/(?<=[.!?।])\s+/).map(s => s.trim()).filter(s => s.length > 0);
-    if (sentences.length >= 3) {
-        const numParas = sentences.length >= 8 ? 4 : (sentences.length >= 4 ? 3 : 2);
-        const perPara = Math.ceil(sentences.length / numParas);
+    // 3. Single text clump: split into sentences and balance into 2, 3, or strictly 4 paragraphs
+    const sentences = clean.split(/(?<=[.!?।])\s*/).map(s => s.trim()).filter(s => s.length > 0);
+    if (sentences.length >= 4) {
+        const k = 4;
         const chunks: string[] = [];
-        for (let i = 0; i < sentences.length; i += perPara) {
-            chunks.push(sentences.slice(i, i + perPara).join(' '));
+        const baseSize = Math.floor(sentences.length / k);
+        const remainder = sentences.length % k;
+        let start = 0;
+        for (let i = 0; i < k; i++) {
+            const chunkSize = baseSize + (i < remainder ? 1 : 0);
+            if (chunkSize > 0 && start < sentences.length) {
+                chunks.push(sentences.slice(start, start + chunkSize).join(' '));
+                start += chunkSize;
+            }
         }
-        return chunks.join('\n\n');
+        return chunks.length > 0 ? chunks.join('\n\n') : clean;
+    } else if (sentences.length === 3) {
+        return sentences.join('\n\n');
+    } else if (sentences.length === 2) {
+        return sentences.join('\n\n');
+    } else if (sentences.length === 1 && sentences[0].length > 180) {
+        const clauses = sentences[0].split(/(?<=[,;—–])\s+/).map(c => c.trim()).filter(Boolean);
+        if (clauses.length >= 3) {
+            const k = 3;
+            const chunks: string[] = [];
+            const baseSize = Math.floor(clauses.length / k);
+            const remainder = clauses.length % k;
+            let start = 0;
+            for (let i = 0; i < k; i++) {
+                const chunkSize = baseSize + (i < remainder ? 1 : 0);
+                if (chunkSize > 0 && start < clauses.length) {
+                    chunks.push(clauses.slice(start, start + chunkSize).join(' '));
+                    start += chunkSize;
+                }
+            }
+            return chunks.join('\n\n');
+        } else if (clauses.length === 2) {
+            return clauses.join('\n\n');
+        }
     }
 
     return clean;

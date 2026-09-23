@@ -13,16 +13,15 @@ const EDITORIAL_SYSTEM_INSTRUCTION = `మీరు ఆల్ఫా న్యూ�
    - కచ్చితంగా 60 నుండి 70 పదాల మధ్య ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్ (No multiple paragraphs, no newlines).
    - వార్త పూర్తి మూల భావం, మాట్లాడిన వారి వాదన, భావోద్వేగం ఏమాత్రం తగ్గకూడదు. స్పష్టమైన ఆపాదింపు తప్పనిసరి.
 
-2. పూర్తి వార్తా కథనం (fullStoryTe - 250 నుండి 320 పదాలు, 3-4 విడివిడి పేరాగ్రాఫ్‌లు):
-   - సీనియర్ ఎడిటర్ శైలిలో కనీసం 250 నుండి 320 పదాల సమగ్రమైన కథనం రాయాలి.
-   - 3 నుండి 4 విడివిడి పేరాగ్రాఫ్‌లు తప్పనిసరి (STRICTLY 3-4 PARAGRAPHS SEPARATED BY \\n\\n):
+2. పూర్తి వార్తా కథనం (fullStoryTe - మూల సమాచారంలో 120+ పదాలు ఉన్నప్పుడు మాత్రమే):
+   - మూల సమాచారంలో తగినంత సమాచారం (120+ పదాలు) ఉన్నప్పుడు మాత్రమే సీనియర్ ఎడిటర్ శైలిలో 3 నుండి 4 విడివిడి పేరాగ్రాఫ్‌లలో (\\n\\n తో) సమగ్రమైన కథనం రాయాలి.
+   - ఒకవేళ మూల సమాచారం చిన్నదిగా (120 పదాల కంటే తక్కువ) ఉంటే, లేనివి ఊహించి రాయడం నిషిద్ధం (NO HALLUCINATIONS). అప్పుడు fullStoryTe: "" (పూర్తి ఖాళీ స్ట్రింగ్) మరియు fullStoryEn: "" గానే ఉంచాలి.
+   - 3 నుండి 4 విడివిడి పేరాగ్రాఫ్‌లు (\\n\\n తో):
      * ❌ ఒకే ముద్దగా (single clump) రాయరాదు!
-     * ✅ ప్రతి పేరాగ్రాఫ్ మధ్య రెండు న్యూలైన్‌లు (\\n\\n) తప్పనిసరిగా ఉండాలి.
-     * 1వ పేరా (ఆసక్తికర హుక్ & మూల సంఘటన - ~60-80 పదాలు): పాఠకుడిని వెంటనే కట్టిపడేసే ఓపెనింగ్, ప్రధాన సంఘటన/కీలక ప్రకటన/ఘాటైన పంచ్ డైలాగ్, మాట్లాడిన వ్యక్తికి స్పష్టమైన ఆపాదింపు.
-     * 2వ పేరా (నేపథ్యం, సంఖ్యలు & పూర్వాపరాలు - ~80-100 పదాలు): సంఘటన లేదా నిర్ణయం నేపథ్యం, గణాంకాలు, కేటాయింపులు, చారిత్రక లేదా గత పరిణామాలు.
-     * 3వ పేరా (360° సమతుల్యత & ప్రత్యర్థి వాదన / క్షేత్రస్థాయి వాస్తవాలు - ~70-90 పదాలు): రాజకీయ విమర్శల వార్త అయితే ఎదుటి పక్షం/ప్రతిపక్షం వివరణ, వారి సమర్థన లేదా ఆరోపణలను తిప్పికొట్టిన విధానం; ప్రభుత్వ పథకమైతే క్షేత్రస్థాయి సవాళ్లు లేదా ప్రజా సమస్య తీవ్రత.
-     * 4వ పేరా (తాజా పరిస్థితి & భవిష్యత్ పరిణామాలు - ~50-70 పదాలు): ప్రస్తుత పరిస్థితి, అధికారులు చేపట్టిన లేదా చేపట్టాల్సిన చర్యలు, తదుపరి పరిణామాలు లేదా ప్రజల డిమాండ్లు.
-   - చిన్న ట్వీట్లు/వార్తలకు వివరాలు తక్కువగా ఉంటే లేనివి ఊహించరాదు (NO HALLUCINATIONS). ఉన్న వాస్తవాలనే పరిశుభ్రమైన జర్నలిజం శైలిలో పేరాగ్రాఫ్‌లుగా రాయాలి.
+     * 1వ పేరా: హుక్ & మూల సంఘటన, మాట్లాడిన వ్యక్తికి స్పష్టమైన ఆపాదింపు.
+     * 2వ పేరా: నేపథ్యం, సంఖ్యలు & గణాంకాలు.
+     * 3వ పేరా: 360° సమతుల్యత & క్షేత్రస్థాయి వాస్తవాలు.
+     * 4వ పేరా: తాజా పరిస్థితి & అధికారులు చేపట్టిన చర్యలు.
 
 3. 🌟 ఆసక్తికర ప్రారంభం & నాన్‌-బోరింగ్ హుక్ (IMPACT-FIRST READER ENGAGEMENT):
    - రొటీన్, యాంత్రికమైన బోరింగ్ ప్రారంభాలు పూర్తిగా నిషిద్ధం! (ఉదా: "ఫలానా చోట సమావేశం జరిగింది", "ఫలానా నేత మాట్లాడారు", "ఫలానా విషయాన్ని వెల్లడించారు" అని నీరసంగా మొదలుపెట్టరాదు).
@@ -84,7 +83,7 @@ const EDITORIAL_SYSTEM_INSTRUCTION = `మీరు ఆల్ఫా న్యూ�
    - నిబంధనలు: కచ్చితంగా 7 నుండి 8 పదాలు మాత్రమే, మొదటి నుండి చివరి వరకు ఒకే ఒక్క నిరంతర వాక్యం, కొటేషన్లు ('...', "...") మరియు కోలన్లు (:) పూర్తిగా నిషిద్ధం!
 
 9. స్వచ్ఛమైన తెలుగు లిపి (NO FOREIGN SCRIPTS): కన్నడ, హిందీ/దేవనాగరి లిపి అక్షరాలు రాకూడదు. 100% తెలుగు లిపి వాడాలి.
-10. ఇంగ్లీష్ పూర్తి కథనం (fullStoryEn): 200-250 words strictly across 3-4 paragraphs separated by \\n\\n.
+10. ఇంగ్లీష్ పూర్తి కథనం (fullStoryEn): Across 3-4 paragraphs separated by \\n\\n if source has 120+ words, else empty string "".
 
 11. 🛑 ఎడిటోరియల్ తిరస్కరణ నిబంధనలు (EDITORIAL REJECTIONS - isNewsFound: false):
    - స్వీయ ప్రచారం, భజన, సొంత డబ్బా, నాయకుల పొగడ్తలు, పీఆర్ రీల్స్ (SELF-PRAISE, LEADER GLORIFICATION & PARTY SYCOPHANCY):
@@ -115,7 +114,7 @@ ${inputText}`;
     try {
         const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Grounding timeout")), 12000));
         const generatePromise = ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: PRIMARY_MODEL,
             contents: researchPrompt,
             config: {
                 tools: [{ googleSearch: {} }],
@@ -138,10 +137,10 @@ const processSocialPostWithAI = async (socialText, platform, category, authorNam
             isNewsFound: { type: genai_1.Type.BOOLEAN },
             headline: { type: genai_1.Type.STRING },
             content: { type: genai_1.Type.STRING },
-            fullStoryTe: { type: genai_1.Type.STRING, description: "Senior editor comprehensive full story in Telugu, at least 250-320 words across 3-4 paragraphs separated by \\n\\n" },
+            fullStoryTe: { type: genai_1.Type.STRING, description: "Senior editor comprehensive full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
             headlineEn: { type: genai_1.Type.STRING },
             contentEn: { type: genai_1.Type.STRING },
-            fullStoryEn: { type: genai_1.Type.STRING, description: "Senior editor full story in English, 200-250 words across 3-4 paragraphs separated by \\n\\n" },
+            fullStoryEn: { type: genai_1.Type.STRING, description: "Senior editor full story in English across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
             category: { type: genai_1.Type.STRING }
         },
         required: ["isNewsFound", "headline", "content", "fullStoryTe", "fullStoryEn", "headlineEn", "contentEn", "category"],
@@ -182,14 +181,18 @@ const processSocialPostWithAI = async (socialText, platform, category, authorNam
             return null;
         }
         const cleanedContent = (0, utils_1.sanitizeTeluguText)(parsed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
-        const rawStoryTe = parsed.fullStoryTe ? (0, utils_1.sanitizeTeluguText)(parsed.fullStoryTe) : cleanedContent;
-        const rawStoryEn = parsed.fullStoryEn ? String(parsed.fullStoryEn).trim() : (parsed.contentEn || "");
+        const rawStoryTe = parsed.fullStoryTe ? (0, utils_1.sanitizeTeluguText)(parsed.fullStoryTe).trim() : "";
+        const storyWordsTe = rawStoryTe ? rawStoryTe.split(/\s+/).filter(Boolean).length : 0;
+        const validStoryTe = (storyWordsTe >= 80 && rawStoryTe !== cleanedContent) ? (0, utils_1.formatIntoParagraphs)(rawStoryTe) : "";
+        const rawStoryEn = parsed.fullStoryEn ? String(parsed.fullStoryEn).trim() : "";
+        const storyWordsEn = rawStoryEn ? rawStoryEn.split(/\s+/).filter(Boolean).length : 0;
+        const validStoryEn = (storyWordsEn >= 80 && rawStoryEn !== (parsed.contentEn || "")) ? (0, utils_1.formatIntoParagraphs)(rawStoryEn) : "";
         return {
             ...parsed,
             headline: cleanedHeadline,
             content: cleanedContent,
-            fullStoryTe: (0, utils_1.formatIntoParagraphs)(rawStoryTe),
-            fullStoryEn: (0, utils_1.formatIntoParagraphs)(rawStoryEn)
+            fullStoryTe: validStoryTe,
+            fullStoryEn: validStoryEn
         };
     });
 };
@@ -205,10 +208,10 @@ const processCitizenContentWithAI = async (rawContent) => {
                 properties: {
                     headline: { type: genai_1.Type.STRING },
                     content: { type: genai_1.Type.STRING },
-                    fullStoryTe: { type: genai_1.Type.STRING, description: "Senior editor full story in Telugu, at least 250-320 words across 3-4 paragraphs separated by \\n\\n" },
+                    fullStoryTe: { type: genai_1.Type.STRING, description: "Senior editor comprehensive full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
                     headlineEn: { type: genai_1.Type.STRING },
                     contentEn: { type: genai_1.Type.STRING },
-                    fullStoryEn: { type: genai_1.Type.STRING, description: "Senior editor full story in English, 200-250 words across 3-4 paragraphs separated by \\n\\n" },
+                    fullStoryEn: { type: genai_1.Type.STRING, description: "Senior editor full story in English across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
                     category: { type: genai_1.Type.STRING }
                 },
                 required: ["headline", "content", "fullStoryTe", "fullStoryEn", "headlineEn", "contentEn", "category"]
@@ -243,12 +246,16 @@ const processCitizenContentWithAI = async (rawContent) => {
                 return { success: false, reason: "Rejected party flattery / sycophancy without news value" };
             }
             const cleanContent = (0, utils_1.sanitizeTeluguText)(parsed.processed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
-            const rawStoryTe = parsed.processed.fullStoryTe ? (0, utils_1.sanitizeTeluguText)(parsed.processed.fullStoryTe) : cleanContent;
-            const rawStoryEn = parsed.processed.fullStoryEn ? String(parsed.processed.fullStoryEn).trim() : (parsed.processed.contentEn || "");
+            const rawStoryTe = parsed.processed.fullStoryTe ? (0, utils_1.sanitizeTeluguText)(parsed.processed.fullStoryTe).trim() : "";
+            const storyWordsTe = rawStoryTe ? rawStoryTe.split(/\s+/).filter(Boolean).length : 0;
+            const validStoryTe = (storyWordsTe >= 80 && rawStoryTe !== cleanContent) ? (0, utils_1.formatIntoParagraphs)(rawStoryTe) : "";
+            const rawStoryEn = parsed.processed.fullStoryEn ? String(parsed.processed.fullStoryEn).trim() : "";
+            const storyWordsEn = rawStoryEn ? rawStoryEn.split(/\s+/).filter(Boolean).length : 0;
+            const validStoryEn = (storyWordsEn >= 80 && rawStoryEn !== (parsed.processed.contentEn || "")) ? (0, utils_1.formatIntoParagraphs)(rawStoryEn) : "";
             parsed.processed.headline = cleanedHeadline;
             parsed.processed.content = cleanContent;
-            parsed.processed.fullStoryTe = (0, utils_1.formatIntoParagraphs)(rawStoryTe);
-            parsed.processed.fullStoryEn = (0, utils_1.formatIntoParagraphs)(rawStoryEn);
+            parsed.processed.fullStoryTe = validStoryTe;
+            parsed.processed.fullStoryEn = validStoryEn;
         }
         return parsed;
     });
@@ -260,10 +267,10 @@ const processContentWithAI = async (rawContent, rawHeadline) => {
         properties: {
             summarizedTeluguContent: { type: genai_1.Type.STRING },
             generatedTeluguHeadline: { type: genai_1.Type.STRING },
-            fullStoryTe: { type: genai_1.Type.STRING, description: "Senior editor comprehensive full story in Telugu, at least 250-320 words across 3-4 paragraphs separated by \\n\\n" },
+            fullStoryTe: { type: genai_1.Type.STRING, description: "Senior editor comprehensive full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
             englishHeadline: { type: genai_1.Type.STRING },
             englishContent: { type: genai_1.Type.STRING },
-            fullStoryEn: { type: genai_1.Type.STRING, description: "Senior editor full story in English, 200-250 words across 3-4 paragraphs separated by \\n\\n" },
+            fullStoryEn: { type: genai_1.Type.STRING, description: "Senior editor full story in English across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
         },
         required: ["summarizedTeluguContent", "generatedTeluguHeadline", "fullStoryTe", "fullStoryEn", "englishHeadline", "englishContent"],
     };
@@ -290,14 +297,18 @@ const processContentWithAI = async (rawContent, rawHeadline) => {
             throw new Error("Empty AI response");
         const parsed = (0, utils_1.parseAIJson)(text);
         const cleanContent = (0, utils_1.sanitizeTeluguText)(parsed.summarizedTeluguContent).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
-        const rawStoryTe = parsed.fullStoryTe ? (0, utils_1.sanitizeTeluguText)(parsed.fullStoryTe) : cleanContent;
-        const rawStoryEn = parsed.fullStoryEn ? String(parsed.fullStoryEn).trim() : (parsed.englishContent || "");
+        const rawStoryTe = parsed.fullStoryTe ? (0, utils_1.sanitizeTeluguText)(parsed.fullStoryTe).trim() : "";
+        const storyWordsTe = rawStoryTe ? rawStoryTe.split(/\s+/).filter(Boolean).length : 0;
+        const validStoryTe = (storyWordsTe >= 80 && rawStoryTe !== cleanContent) ? (0, utils_1.formatIntoParagraphs)(rawStoryTe) : "";
+        const rawStoryEn = parsed.fullStoryEn ? String(parsed.fullStoryEn).trim() : "";
+        const storyWordsEn = rawStoryEn ? rawStoryEn.split(/\s+/).filter(Boolean).length : 0;
+        const validStoryEn = (storyWordsEn >= 80 && rawStoryEn !== (parsed.englishContent || "")) ? (0, utils_1.formatIntoParagraphs)(rawStoryEn) : "";
         return {
             ...parsed,
             generatedTeluguHeadline: (0, utils_1.cleanTeluguHeadline)(parsed.generatedTeluguHeadline),
             summarizedTeluguContent: cleanContent,
-            fullStoryTe: (0, utils_1.formatIntoParagraphs)(rawStoryTe),
-            fullStoryEn: (0, utils_1.formatIntoParagraphs)(rawStoryEn)
+            fullStoryTe: validStoryTe,
+            fullStoryEn: validStoryEn
         };
     });
 };

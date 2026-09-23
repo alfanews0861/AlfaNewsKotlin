@@ -164,24 +164,19 @@ fun NewsCardView(
             .filter { it.isNotEmpty() }
     }
 
-    val hasSubstantialFullStory = remember(language, post.fullStory, post.content, post.isReporter) {
+    val hasSubstantialFullStory = remember(language, post.fullStory, post.content) {
         val storyText = if (language == Language.ENGLISH) post.fullStory.english else post.fullStory.telugu
         val shortText = if (language == Language.ENGLISH) post.content.english else post.content.telugu
-        val effectiveStory = if (storyText.isNotBlank()) storyText else shortText
-        if (effectiveStory.isBlank()) {
+        if (storyText.isBlank()) {
             false
         } else {
             val storyWords = storyText.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.size
-            val contentWords = shortText.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.size
-            val isDiff = storyText.isNotBlank() && storyText.trim() != shortText.trim()
-            val hasLengthDelta = storyText.length > (shortText.length + 30)
-            val isReporterNews = post.isReporter
+            val isDiff = storyText.trim() != shortText.trim()
+            val hasLengthDelta = storyText.length > (shortText.length + 60)
 
-            (storyWords >= 70) ||
-            (storyWords >= 55 && isDiff) ||
-            (isReporterNews && (storyWords >= 45 || contentWords >= 45)) ||
-            (contentWords >= 65) ||
-            (hasLengthDelta && storyWords >= 45)
+            // 🌟 "పూర్తి వార్త చదవండి" బటన్: అసలు వార్తలో కనీసం 120+ పదాలుండి, పెద్ద కథనం (80+ పదాలు) రాసినప్పుడు మాత్రమే యాక్టివేట్ అవుతుంది.
+            // చిన్న వార్తలైతే బటన్ డీయాక్టివేట్ అయిపోతుంది (కార్డుపై ఉన్నదే పూర్తి వార్తగా భావిస్తారు).
+            storyWords >= 80 && isDiff && hasLengthDelta
         }
     }
 
@@ -322,7 +317,7 @@ fun NewsCardView(
                                     autoPlay = isActive && pagerState.currentPage == page
                                 )
                             } else {
-                                val imageUrl = url
+                                val imageUrl = getOptimizedImageUrl(url)
                                 val imageRequest = remember(imageUrl) {
                                     ImageRequest.Builder(context).data(imageUrl).crossfade(true).allowHardware(true).build()
                                 }
@@ -433,7 +428,7 @@ fun NewsCardView(
                                 if (type == MediaType.VIDEO) {
                                     VideoPlayerView(videoUrl = url, autoPlay = isActive && pagerState.currentPage == page)
                                 } else {
-                                    val imageUrl = url
+                                    val imageUrl = getOptimizedImageUrl(url)
                                     val imageRequest = remember(imageUrl) {
                                         ImageRequest.Builder(context).data(imageUrl).crossfade(true).allowHardware(true).build()
                                     }
@@ -897,7 +892,7 @@ private suspend fun fallbackGetNewsImageUri(context: Context, post: NewsPost, la
             if (post.mediaUrl.isNotBlank()) {
                 try {
                     val request = ImageRequest.Builder(context)
-                        .data(post.mediaUrl)
+                        .data(getOptimizedImageUrl(post.mediaUrl))
                         .size(1080, 1080)
                         .allowHardware(false)
                         .memoryCachePolicy(CachePolicy.DISABLED)
@@ -1993,6 +1988,8 @@ fun FullStoryBottomSheet(
     onDismissRequest: () -> Unit
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var isSharing by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isEnglish = language == Language.ENGLISH
     val headlineText = if (isEnglish) {
@@ -2022,13 +2019,60 @@ fun FullStoryBottomSheet(
         if (splitLines.size >= 2) {
             splitLines
         } else {
-            val sentences = fullStoryRaw.trim().split(Regex("(?<=[.!?।])\\s+")).filter { it.isNotBlank() }
-            if (sentences.size > 3) {
-                val targetCount = if (sentences.size >= 8) 4 else 3
-                val perPara = kotlin.math.ceil(sentences.size.toDouble() / targetCount).toInt()
-                sentences.chunked(perPara).map { it.joinToString(" ") }
-            } else {
-                listOf(fullStoryRaw.trim())
+            val sentences = fullStoryRaw.trim().split(Regex("(?<=[.!?।])\\s*")).map { it.trim() }.filter { it.isNotBlank() }
+            when {
+                sentences.size >= 4 -> {
+                    // Distribute evenly across strictly 4 balanced paragraphs
+                    val k = 4
+                    val result = ArrayList<String>(k)
+                    val baseSize = sentences.size / k
+                    val remainder = sentences.size % k
+                    var start = 0
+                    for (i in 0 until k) {
+                        val chunkSize = baseSize + if (i < remainder) 1 else 0
+                        if (chunkSize > 0 && start < sentences.size) {
+                            val end = (start + chunkSize).coerceAtMost(sentences.size)
+                            result.add(sentences.subList(start, end).joinToString(" "))
+                            start += chunkSize
+                        }
+                    }
+                    if (result.isNotEmpty()) result else listOf(fullStoryRaw.trim())
+                }
+                sentences.size == 3 -> {
+                    // Exactly 3 clean paragraphs for 3-sentence stories
+                    sentences
+                }
+                sentences.size == 2 -> {
+                    // Exactly 2 clean paragraphs for 2-sentence stories
+                    sentences
+                }
+                sentences.size == 1 && sentences[0].length > 180 -> {
+                    // Single long sentence: split at clause boundaries (, or ; or —) so it never shows as a single dense block
+                    val clauses = sentences[0].split(Regex("(?<=[,;—–])\\s+")).map { it.trim() }.filter { it.isNotBlank() }
+                    if (clauses.size >= 3) {
+                        val k = 3
+                        val result = ArrayList<String>(k)
+                        val baseSize = clauses.size / k
+                        val remainder = clauses.size % k
+                        var start = 0
+                        for (i in 0 until k) {
+                            val chunkSize = baseSize + if (i < remainder) 1 else 0
+                            if (chunkSize > 0 && start < clauses.size) {
+                                val end = (start + chunkSize).coerceAtMost(clauses.size)
+                                result.add(clauses.subList(start, end).joinToString(" "))
+                                start += chunkSize
+                            }
+                        }
+                        result
+                    } else if (clauses.size == 2) {
+                        clauses
+                    } else {
+                        listOf(sentences[0])
+                    }
+                }
+                else -> {
+                    if (sentences.isNotEmpty()) sentences else listOf(fullStoryRaw.trim())
+                }
             }
         }
     }
@@ -2040,7 +2084,7 @@ fun FullStoryBottomSheet(
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
-        modifier = Modifier.fillMaxHeight(0.9f),
+        modifier = Modifier.fillMaxHeight(0.85f),
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
@@ -2199,7 +2243,7 @@ fun FullStoryBottomSheet(
                 if (post.mediaUrl.isNotBlank()) {
                     AsyncImage(
                         model = ImageRequest.Builder(context)
-                            .data(post.mediaUrl)
+                            .data(getOptimizedImageUrl(post.mediaUrl))
                             .crossfade(true)
                             .allowHardware(true)
                             .build(),
@@ -2238,36 +2282,123 @@ fun FullStoryBottomSheet(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Share Button
-                FilledTonalButton(
+                // WhatsApp-styled Share Button (Shares headline + image + full story + deep link to any app)
+                Button(
                     onClick = {
-                        com.alfanews.telugu.utils.ShareUtil.shareNewsPost(
-                            context = context,
-                            postId = post.id,
-                            postTitle = headlineText
-                        )
+                        if (isSharing) return@Button
+                        coroutineScope.launch {
+                            isSharing = true
+                            try {
+                                val fullStoryText = paragraphs.joinToString("\n\n")
+                                val deepLinkUrl = "https://alfanews.app/news/${post.id}"
+                                val footer = if (isEnglish) {
+                                    "📲 For more latest local news, download Alfa News now:\n$deepLinkUrl"
+                                } else {
+                                    "📲 మరిన్ని తాజా స్థానిక వార్తలకు ఇప్పుడే డౌన్‌లోడ్ చేసుకోండి ఆల్ఫా న్యూస్:\n$deepLinkUrl"
+                                }
+                                val shareText = buildString {
+                                    append("🔴 ")
+                                    append(headlineText)
+                                    append("\n\n")
+                                    append(fullStoryText)
+                                    append("\n\n")
+                                    append(footer)
+                                }
+
+                                val imageUri = fallbackGetNewsImageUri(context, post, language)
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    if (imageUri != null) {
+                                        type = "image/jpeg"
+                                        putExtra(Intent.EXTRA_STREAM, imageUri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    } else {
+                                        type = "text/plain"
+                                    }
+                                    putExtra(Intent.EXTRA_TEXT, shareText)
+                                    putExtra(Intent.EXTRA_SUBJECT, headlineText)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+
+                                val chooser = Intent.createChooser(
+                                    shareIntent,
+                                    if (isEnglish) "Share News" else "వార్తను షేర్ చేయండి"
+                                ).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(chooser)
+
+                                try {
+                                    FirebaseService.db.collection("news").document(post.id)
+                                        .update("shares", FieldValue.increment(1))
+                                    AnalyticsService.logNewsShare(post)
+                                    AnalyticsService.logPostEngagement(post, weight = 4)
+                                } catch (_: Exception) {}
+                            } catch (e: Exception) {
+                                Log.e("FullStoryBottomSheet", "Share failed", e)
+                            } finally {
+                                isSharing = false
+                            }
+                        }
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF25D366),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Share,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isEnglish) "Share" else "షేర్ చెయ్యండి",
-                        style = TextStyle(
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            fontFamily = if (isEnglish) Poppins else Mallanna
+                    if (isSharing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
                         )
-                    )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isEnglish) "Preparing..." else "సిద్ధమవుతోంది...",
+                            style = TextStyle(
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White,
+                                fontFamily = if (isEnglish) Poppins else Ramabhadra
+                            )
+                        )
+                    } else {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_whatsapp),
+                            contentDescription = "Share",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isEnglish) "Share on WhatsApp" else "వాట్సాప్‌లో షేర్ చేయండి",
+                            style = TextStyle(
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                fontFamily = if (isEnglish) Poppins else Ramabhadra
+                            )
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
+}
+
+fun getOptimizedImageUrl(url: String): String {
+    if (url.isBlank()) return url
+    if (url.contains("firebasestorage.googleapis.com", ignoreCase = true) ||
+        url.contains("wsrv.nl", ignoreCase = true) ||
+        url.startsWith("file://") ||
+        url.startsWith("content://")
+    ) {
+        return url
+    }
+    return "https://wsrv.nl/?url=${Uri.encode(url)}&output=webp"
 }

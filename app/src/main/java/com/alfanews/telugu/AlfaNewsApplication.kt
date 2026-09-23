@@ -333,7 +333,7 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
             val originalRequest = chain.request()
             val url = originalRequest.url.toString()
 
-            val requestToProceed = if (url.contains("firebasestorage.googleapis.com", ignoreCase = true)) {
+            val requestToProceed = if (url.contains("firebasestorage.googleapis.com", ignoreCase = true) || url.contains("wsrv.nl", ignoreCase = true)) {
                 originalRequest
             } else {
                 val referer = when {
@@ -345,6 +345,7 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
                     url.contains("vaartha", ignoreCase = true) -> "https://www.vaartha.com/"
                     url.contains("greatandhra", ignoreCase = true) -> "https://www.greatandhra.com/"
                     url.contains("123telugu", ignoreCase = true) -> "https://www.123telugu.com/"
+                    url.contains("timesofindia", ignoreCase = true) || url.contains("indiatimes", ignoreCase = true) || url.contains("toiimg", ignoreCase = true) -> "https://timesofindia.indiatimes.com/"
                     else -> "https://www.google.com/"
                 }
 

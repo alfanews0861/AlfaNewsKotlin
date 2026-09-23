@@ -8,7 +8,8 @@ import {
     saveBufferToStorage,
     generateImageWithRetry,
     SCHEDULED_MODEL,
-    getTopicName
+    getTopicName,
+    formatIntoParagraphs
 } from "./utils";
 
 const db = admin.firestore();
@@ -177,6 +178,7 @@ export const scheduleHistoryOfTheDay = onSchedule({ schedule: "30 4 * * *", time
                 type: 'history',
                 headline: { telugu: data.headlineTe, english: data.headlineEn },
                 content: { telugu: data.contentTe, english: data.contentEn },
+                fullStory: { telugu: formatIntoParagraphs(data.contentTe), english: formatIntoParagraphs(data.contentEn) },
                 mediaUrl,
                 category: 'చరిత్ర',
                 reporter: { id: 'system', name: 'AlfaNews Team' },

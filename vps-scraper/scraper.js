@@ -303,7 +303,7 @@ function isEditorialVerdictOrFlattery(headline, text = '', authorName = '') {
  * If provided as a single block or clump, intelligently splits by sentence boundaries
  * into 3 to 4 balanced paragraphs.
  */
-function formatIntoParagraphs(text, targetCount = 3) {
+function formatIntoParagraphs(text, targetCount = 4) {
     if (!text || typeof text !== 'string' || !text.trim()) return "";
     const clean = text.trim();
 
@@ -319,16 +319,45 @@ function formatIntoParagraphs(text, targetCount = 3) {
         return singleNewlineParas.join('\n\n');
     }
 
-    // 3. Single text clump: split into sentences and balance into 3 to 4 paragraphs
-    const sentences = clean.split(/(?<=[.!?।])\s+/).map(s => s.trim()).filter(s => s.length > 0);
-    if (sentences.length >= 3) {
-        const numParas = sentences.length >= 8 ? 4 : (sentences.length >= 4 ? 3 : 2);
-        const perPara = Math.ceil(sentences.length / numParas);
+    // 3. Single text clump: split into sentences and balance into 2, 3, or strictly 4 paragraphs
+    const sentences = clean.split(/(?<=[.!?।])\s*/).map(s => s.trim()).filter(s => s.length > 0);
+    if (sentences.length >= 4) {
+        const k = 4;
         const chunks = [];
-        for (let i = 0; i < sentences.length; i += perPara) {
-            chunks.push(sentences.slice(i, i + perPara).join(' '));
+        const baseSize = Math.floor(sentences.length / k);
+        const remainder = sentences.length % k;
+        let start = 0;
+        for (let i = 0; i < k; i++) {
+            const chunkSize = baseSize + (i < remainder ? 1 : 0);
+            if (chunkSize > 0 && start < sentences.length) {
+                chunks.push(sentences.slice(start, start + chunkSize).join(' '));
+                start += chunkSize;
+            }
         }
-        return chunks.join('\n\n');
+        return chunks.length > 0 ? chunks.join('\n\n') : clean;
+    } else if (sentences.length === 3) {
+        return sentences.join('\n\n');
+    } else if (sentences.length === 2) {
+        return sentences.join('\n\n');
+    } else if (sentences.length === 1 && sentences[0].length > 180) {
+        const clauses = sentences[0].split(/(?<=[,;—–])\s+/).map(c => c.trim()).filter(Boolean);
+        if (clauses.length >= 3) {
+            const k = 3;
+            const chunks = [];
+            const baseSize = Math.floor(clauses.length / k);
+            const remainder = clauses.length % k;
+            let start = 0;
+            for (let i = 0; i < k; i++) {
+                const chunkSize = baseSize + (i < remainder ? 1 : 0);
+                if (chunkSize > 0 && start < clauses.length) {
+                    chunks.push(clauses.slice(start, start + chunkSize).join(' '));
+                    start += chunkSize;
+                }
+            }
+            return chunks.join('\n\n');
+        } else if (clauses.length === 2) {
+            return clauses.join('\n\n');
+        }
     }
 
     return clean;
@@ -1170,6 +1199,11 @@ const ALFA_NEWS_LOGO = "https://alfanews.app/logo.png";
 
 async function uploadMediaToStorage(url, folder = 'news-media') {
     if (!url || !url.startsWith('http')) return null;
+    let buffer = null;
+    let contentType = 'image/jpeg';
+    let extension = 'jpg';
+
+    // 1. First attempt: Direct fetch
     try {
         const response = await axios.get(url, { 
             responseType: 'arraybuffer',
@@ -1180,9 +1214,29 @@ async function uploadMediaToStorage(url, folder = 'news-media') {
                 'Referer': 'https://www.google.com/'
             }
         });
-        const buffer = Buffer.from(response.data, 'binary');
-        const contentType = response.headers['content-type'] || 'image/jpeg';
-        const extension = contentType.split('/')[1] || 'jpg';
+        buffer = Buffer.from(response.data, 'binary');
+        contentType = response.headers['content-type'] || 'image/jpeg';
+        extension = contentType.split('/')[1] || 'jpg';
+    } catch (directErr) {
+        // 2. Fallback: Proxy fetch via wsrv.nl to bypass 403/hotlink blocks (e.g. Times of India, Eenadu)
+        try {
+            const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(url)}&output=webp`;
+            const proxyRes = await axios.get(proxyUrl, {
+                responseType: 'arraybuffer',
+                timeout: 15000
+            });
+            buffer = Buffer.from(proxyRes.data, 'binary');
+            contentType = 'image/webp';
+            extension = 'webp';
+        } catch (proxyErr) {
+            console.error(`Failed to download media for storage (direct: ${directErr.message}, proxy: ${proxyErr.message})`);
+            return null;
+        }
+    }
+
+    if (!buffer) return null;
+
+    try {
         const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(7)}.${extension}`;
         const file = admin.storage().bucket().file(fileName);
 
@@ -1747,6 +1801,10 @@ async function processSingleWebSource(doc) {
                     return;
                 }
 
+                const rawBodyText = (extracted.body || '').trim();
+                const sourceWords = rawBodyText.split(/\s+/).filter(Boolean).length;
+                const hasSubstantialSource = sourceWords >= 120;
+
                 const prompt = `మీరు ఆల్ఫా న్యూస్ (Alfa News - తెలుగు ప్రముఖ హైపర్-లోకల్ న్యూస్ నెట్‌వర్క్) కు చీఫ్ ఎడిటర్ మరియు సీనియర్ జర్నలిస్ట్.
 వెబ్ కథనాల నుండి సేకరించిన సమాచారాన్ని ప్రజలను ఆకట్టుకునేలా, జర్నలిస్టిక్ విలువలతో, నిర్దిష్టమైన భావోద్వేగాలతో కూడిన ప్రామాణిక తెలుగు వార్తగా తీర్చిదిద్దడం మీ బాధ్యత.
 
@@ -1764,11 +1822,11 @@ async function processSingleWebSource(doc) {
    - వార్త యొక్క పూర్తి మూల భావం (భావం), మాట్లాడిన వారి ఆవేశం, ఆగ్రహం, ఆవేదన లేదా ప్రజా సమస్య తీవ్రతను యథాతథంగా ప్రతిబింబించాలి.
    - ముఖ్యమైన వ్యక్తుల పేర్లు, ఊరు/మండలం/జిల్లా పేర్లు తప్పక ఉండాలి. ఎట్టిపరిస్థితుల్లోనూ పేర్లు లేదా ప్రాంతాలను విడిచిపెట్టరాదు!
 
-3. సీనియర్ ఎడిటర్ పూర్తి వార్తా కథనం (SENIOR EDITOR FULL STORY - కనీసం 250 నుండి 320 పదాలు, 3-4 విడివిడి పేరాగ్రాఫ్‌లు):
-   - 'fullStoryTe': మూల సమాచారంలో తగినంత సమాచారం ఉన్నప్పుడు, ఒక సీనియర్ ఎడిటర్ శైలిలో కనీసం 250 నుండి 320 పదాల సమగ్రమైన పూర్తి వార్తా కథనం రాయాలి.
-   - 3-4 విడివిడి పేరాగ్రాఫ్‌లు తప్పనిసరి (STRICTLY 3-4 PARAGRAPHS SEPARATED BY \n\n):
+3. పూర్తి వార్తా కథన నిబంధన (FULL STORY RULES - మూల సమాచారం ఆధారంగా):
+${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో తగినంత సమాచారం (${sourceWords} పదాలు, 120+ కంటే ఎక్కువ) ఉంది కాబట్టి, సీనియర్ ఎడిటర్ శైలిలో 3 నుండి 4 విడివిడి పేరాగ్రాఫ్‌లలో (\\n\\n తో) పూర్తి కథనం రాయాలి.
+   - 3-4 విడివిడి పేరాగ్రాఫ్‌లు తప్పనిసరి (STRICTLY 3-4 PARAGRAPHS SEPARATED BY \\n\\n):
      * ❌ ఒకే ముద్దగా (single clump) రాయడం పూర్తిగా నిషిద్ధం!
-     * ✅ కథనాన్ని స్పష్టంగా 3 నుండి 4 పేరాగ్రాఫ్‌లుగా విభజించాలి. ప్రతి పేరాగ్రాఫ్‌ మధ్య రెండు న్యూలైన్‌లు (\n\n) తప్పనిసరిగా ఉండాలి.
+     * ✅ కథనాన్ని స్పష్టంగా 3 నుండి 4 పేరాగ్రాఫ్‌లుగా విభజించాలి. ప్రతి పేరాగ్రాఫ్‌ మధ్య రెండు న్యూలైన్‌లు (\\n\\n) తప్పనిసరిగా ఉండాలి.
      * 1వ పేరా (ఆసక్తికర హుక్ & మూల సంఘటన - ~60-80 పదాలు): పాఠకుడిని వెంటనే కట్టిపడేసే ఓపెనింగ్, ప్రధాన సంఘటన/కీలక ప్రకటన/ఘాటైన పంచ్ డైలాగ్, మాట్లాడిన వ్యక్తికి స్పష్టమైన ఆపాదింపు.
      * 2వ పేరా (నేపథ్యం, సంఖ్యలు & పూర్వాపరాలు - ~80-100 పదాలు): సంఘటన లేదా నిర్ణయం నేపథ్యం, గణాంకాలు, కేటాయింపులు, చారిత్రక లేదా గత పరిణామాలు.
      * 3వ పేరా (360° సమతుల్యత & ప్రత్యర్థి వాదన / క్షేత్రస్థాయి వాస్తవాలు - ~70-90 పదాలు): రాజకీయ విమర్శల వార్త అయితే ఎదుటి పక్షం/ప్రతిపక్షం వివరణ, వారి సమర్థన లేదా ఆరోపణలను తిప్పికొట్టిన విధానం; ప్రభుత్వ పథకమైతే క్షేత్రస్థాయి సవాళ్లు లేదా ప్రజా సమస్య తీవ్రత.
@@ -1776,8 +1834,10 @@ async function processSingleWebSource(doc) {
    - నిబంధనలు:
      * కల్పితాలు వద్దు (NO HALLUCINATIONS): మూల సమాచారంలో లేని వివరాలను ఊహించవద్దు. ఉన్న సమాచారాన్నే లోతైన జర్నలిజం భాషలో, సమగ్రమైన పేరాగ్రాఫ్‌లుగా రాయండి.
      * వాస్తవాల రక్షణ: వ్యక్తుల పేర్లు, సంస్థలు, ప్రాంతాలు, పదవులు, తేదీలు, అంకెలను ఎట్టిపరిస్థితుల్లోనూ మార్చవద్దు, మిస్ చేయవద్దు.
-     * సాధారణ చిన్న వార్తల నిబంధన: ఒకవేళ మూల సమాచారం 70-80 పదాల లోపే ఉండి, వార్తలో ఇతర వివరాలు ఏమీ లేనప్పుడు మాత్రమే fullStoryTe ను content కు సమానంగా ఉంచండి.
-   - 'fullStoryEn': English Full Story (strictly 200 to 250 words across 3-4 paragraphs separated by \n\n) maintaining the same journalistic depth, emotion, and facts.
+   - 'fullStoryEn': English Full Story across 3-4 paragraphs separated by \\n\\n.` : `   - మూల కథనం చిన్నదిగా ఉంది (${sourceWords} పదాలు, 120 పదాల లోపే). దీనిపై ఊహించుకుని, అదనపు వివరాలు కల్పించి లేదా పొడిగించి రాయవలసిన అవసరం ఏమాత్రం లేదు (NO HALLUCINATIONS)!
+   - అందువల్ల 'fullStoryTe': "" (పూర్తి ఖాళీ స్ట్రింగ్) గానే ఉంచాలి.
+   - అలాగే 'fullStoryEn': "" (పూర్తి ఖాళీ స్ట్రింగ్) గానే ఉంచాలి.
+   - కార్డు కోసం 'content' (60-70 పదాలు, ఒకే పేరా) మాత్రమే స్పష్టంగా రాస్తే సరిపోతుంది.`}
 
 4. 🌟 ఆసక్తికర ప్రారంభం & నాన్‌-బోరింగ్ హుక్ (IMPACT-FIRST READER ENGAGEMENT):
    - రొటీన్, యాంత్రికమైన బోరింగ్ ప్రారంభాలు పూర్తిగా నిషిద్ధం! (ఉదా: "ఫలానా చోట సమావేశం జరిగింది", "ఫలానా నేత మాట్లాడారు", "ఫలానా విషయాన్ని వెల్లడించారు" అని నీరసంగా మొదలుపెట్టరాదు).
@@ -1868,7 +1928,7 @@ async function processSingleWebSource(doc) {
    - storyFingerprint: EXACTLY 3-4 words joined by hyphens in English (e.g. jagan-fires-alliance-govt).
 
 13. అవుట్‌పుట్ ఫార్మాట్ (Strict JSON only):
-{"isRelevant": true|false, "headline": "తెలుగు శీర్షిక (కచ్చితంగా 7-8 పదాలు, కొటేషన్లు లేవు, ఆపాదింపుతో)", "content": "తెలుగు సారాంశం (60-70 పదాలు, ఒకే పేరాగ్రాఫ్, ఆపాదింపుతో)", "fullStoryTe": "పూర్తి వార్త - సీనియర్ ఎడిటర్ కథనం (కనీసం 250-320 పదాలు, 3-4 విడివిడి పేరాగ్రాఫ్‌లు \\n\\n తో)", "headlineEn": "English Headline (7-9 words)", "contentEn": "English Summary (50-60 words)", "fullStoryEn": "English Full Story (200-250 words in 3-4 paragraphs separated by \\n\\n)", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "hasLogo": false, "mediaUrl": "${extracted.image || ''}", "mediaType": "image|video", "isWide": true|false}`;
+{"isRelevant": true|false, "headline": "తెలుగు శీర్షిక (కచ్చితంగా 7-8 పదాలు, కొటేషన్లు లేవు, ఆపాదింపుతో)", "content": "తెలుగు సారాంశం (60-70 పదాలు, ఒకే పేరాగ్రాఫ్, ఆపాదింపుతో)", "fullStoryTe": "${hasSubstantialSource ? "పూర్తి వార్త - సీనియర్ ఎడిటర్ కథనం (3-4 విడివిడి పేరాగ్రాఫ్‌లు \\\\n\\\\n తో)" : ""}", "headlineEn": "English Headline (7-9 words)", "contentEn": "English Summary (50-60 words)", "fullStoryEn": "${hasSubstantialSource ? "English Full Story in 3-4 paragraphs separated by \\\\n\\\\n" : ""}", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "hasLogo": false, "mediaUrl": "${extracted.image || ''}", "mediaType": "image|video", "isWide": true|false}`;
 
                 const aiResult = await processWithGemini(extracted.body, prompt, extracted.image);
                 if (!aiResult) {
@@ -1979,16 +2039,13 @@ async function processSingleWebSource(doc) {
                             mediaType = 'video';
                             postFormat = parsed.isWide ? '16:9' : '9:16';
                         } else {
-                            if (parsed.isWide) {
-                                const uploadedUrl = await uploadMediaToStorage(chosenMediaUrl);
-                                if (uploadedUrl) {
-                                    finalMediaUrl = uploadedUrl;
-                                    postFormat = '16:9';
-                                } else {
-                                    finalMediaUrl = `https://wsrv.nl/?url=${encodeURIComponent(chosenMediaUrl)}&output=webp`;
-                                }
+                            const uploadedUrl = await uploadMediaToStorage(chosenMediaUrl);
+                            if (uploadedUrl) {
+                                finalMediaUrl = uploadedUrl;
+                                postFormat = parsed.isWide ? '16:9' : '9:16';
                             } else {
                                 finalMediaUrl = `https://wsrv.nl/?url=${encodeURIComponent(chosenMediaUrl)}&output=webp`;
+                                postFormat = parsed.isWide ? '16:9' : '9:16';
                             }
                         }
                     }
@@ -1996,13 +2053,23 @@ async function processSingleWebSource(doc) {
                     // Enforce pure Telugu script & Single Paragraph
                     const cleanedHeadline = parsed.headline;
                     const cleanedContent = sanitizeTeluguText(parsed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
-                    let cleanedFullStoryTe = sanitizeTeluguText(parsed.fullStoryTe || parsed.content || '').trim();
-                    let cleanedFullStoryEn = (parsed.fullStoryEn || parsed.contentEn || '').trim();
-                    if (!cleanedFullStoryTe) {
-                        cleanedFullStoryTe = cleanedContent;
+                    let cleanedFullStoryTe = "";
+                    let cleanedFullStoryEn = "";
+
+                    if (hasSubstantialSource && parsed.fullStoryTe) {
+                        const rawStory = sanitizeTeluguText(parsed.fullStoryTe).trim();
+                        const storyWords = rawStory.split(/\s+/).filter(Boolean).length;
+                        if (storyWords >= 80 && rawStory !== cleanedContent) {
+                            cleanedFullStoryTe = formatIntoParagraphs(rawStory);
+                        }
                     }
-                    cleanedFullStoryTe = formatIntoParagraphs(cleanedFullStoryTe);
-                    cleanedFullStoryEn = formatIntoParagraphs(cleanedFullStoryEn);
+
+                    if (hasSubstantialSource && parsed.fullStoryEn) {
+                        const rawStoryEn = String(parsed.fullStoryEn).trim();
+                        if (rawStoryEn.split(/\s+/).filter(Boolean).length >= 80) {
+                            cleanedFullStoryEn = formatIntoParagraphs(rawStoryEn);
+                        }
+                    }
 
                     const docRef = db.collection('news').doc();
                     const newsPayload = sanitizeFirestoreData({
@@ -2611,6 +2678,10 @@ async function processSingleTwitterFeed(doc) {
                 const district = feed.district || '';
                 const designation = feed.designation || feed.role || feed.party || feed.category || '';
 
+                const tweetText = (item.text || '').trim();
+                const tweetWords = tweetText.split(/\s+/).filter(Boolean).length;
+                const hasSubstantialTweet = tweetWords >= 120;
+
                 const prompt = `మీరు ఆల్ఫా న్యూస్ (Alfa News - తెలుగు ప్రముఖ హైపర్-లోకల్ న్యూస్ నెట్‌వర్క్) కు చీఫ్ ఎడిటర్ మరియు సీనియర్ జర్నలిస్ట్.
 సోషల్ మీడియా / ట్విట్టర్ (X) పోస్టులను ప్రజలను ఆకట్టుకునేలా, జర్నలిస్టిక్ విలువలతో, నిర్దిష్టమైన భావోద్వేగాలతో కూడిన ప్రామాణిక తెలుగు వార్తగా తీర్చిదిద్దడం మీ బాధ్యత.
 
@@ -2725,16 +2796,16 @@ async function processSingleTwitterFeed(doc) {
    - ఒకే ఒక్క నిరంతర సింగిల్ పేరాగ్రాఫ్ (No multiple paragraphs, no newlines \n).
    - మాట్లాడిన వారి పేరు, అసలు వాదనలు, కీలక నిర్ణయాలు, సంఖ్యలు, ఆపాదింపుతో కూడిన స్పష్టమైన వార్త.
 
-10. సీనియర్ ఎడిటర్ పూర్తి వార్తా కథనం (SENIOR EDITOR FULL STORY - వాస్తవికత & హాలూసినేషన్ రక్షణ):
-   - 'fullStoryTe': మూల ట్వీట్/పోస్ట్‌లోని వివరాలను బట్టి సమగ్రమైన వార్తా కథనం రాయాలి:
-     * A) వివరాలు పుష్కలంగా ఉన్న ట్వీట్లు / నోట్ ట్వీట్లు / థ్రెడ్లు: కనీసం 250 నుండి 320 పదాల పూర్తి కథనం 3-4 విడివిడి పేరాగ్రాఫ్‌లలో (\n\n తో) రాయాలి.
-     * B) పరిమిత సమాచారం ఉన్న చిన్న ట్వీట్లు (1-2 వాక్యాల సింగిల్ ప్రకటనలు): కల్పిత కథనాలు లేదా సంబంధం లేని గత చరిత్రను ఊహించి రాయడం పూర్తిగా నిషిద్ధం (STRICT ZERO HALLUCINATIONS)! ఉన్న వాస్తవాలనే స్పష్టంగా, నిక్కచ్చిగా 2 పేరాగ్రాఫ్‌లలో (~120 నుండి 150 పదాలు, \n\n తో) రాయండి. ఎట్టిపరిస్థితుల్లోనూ లేని విషయాలను లేదా ఎవరూ అనని మాటలను సృష్టించరాదు!
-   - 3-4 విడివిడి పేరాగ్రాఫ్‌ల విభజన (\n\n తప్పనిసరి, ❌ ఒకే ముద్దగా రాయడం నిషిద్ధం):
+10. పూర్తి వార్తా కథన నిబంధన (FULL STORY RULES - ట్వీట్ సమాచారం ఆధారంగా):
+${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పోస్ట్‌లో తగినంత విస్తృత సమాచారం (${tweetWords} పదాలు, 120+ కంటే ఎక్కువ) ఉంది కాబట్టి, ఉన్న వాస్తవాల ఆధారంగా మాత్రమే 3-4 విడివిడి పేరాగ్రాఫ్‌లలో (\\n\\n తో) పూర్తి కథనం రాయండి. కల్పితాలు వద్దు (NO HALLUCINATIONS).
+   - 3-4 విడివిడి పేరాగ్రాఫ్‌ల విభజన (\\n\\n తప్పనిసరి, ❌ ఒకే ముద్దగా రాయడం నిషిద్ధం):
      * 1వ పేరా (ఆసక్తికర హుక్ & మూల సంఘటన - ~60-80 పదాలు): ప్రధాన సంఘటన, కీలక ప్రకటన, మాట్లాడిన వ్యక్తికి స్పష్టమైన ఆపాదింపు.
      * 2వ పేరా (నేపథ్యం, సంఖ్యలు & పూర్వాపరాలు - ~80-100 పదాలు): నిర్ణయం నేపథ్యం, గణాంకాలు, కేటాయింపులు, వాస్తవ వివరాలు.
      * 3వ పేరా (సందర్భోచిత సమతుల్యత - ~70-90 పదాలు): రాజకీయ వివాదమైతే ప్రత్యర్థి వాదన/స్పందన; ప్రభుత్వ పథకమైతే క్షేత్రస్థాయి పరిశీలన.
      * 4వ పేరా (తాజా పరిస్థితి & భవిష్యత్ పరిణామాలు - ~50-70 పదాలు): ప్రస్తుత పరిస్థితి, అధికారులు చేపట్టిన చర్యలు.
-   - 'fullStoryEn': English Full Story (strictly 150-250 words across 2-4 paragraphs separated by \n\n).
+   - 'fullStoryEn': English Full Story across 3-4 paragraphs separated by \\n\\n.` : `   - మూల ట్వీట్ చిన్నదిగా ఉంది (${tweetWords} పదాలు, 120 పదాల లోపే). ఊహించుకుని లేదా వివరాలు కల్పించి కథనం రాయవలసిన అవసరం ఏమాత్రం లేదు (NO HALLUCINATIONS)!
+   - అందువల్ల 'fullStoryTe': "" (పూర్తి ఖాళీ స్ట్రింగ్) మరియు 'fullStoryEn': "" (పూర్తి ఖాళీ స్ట్రింగ్) గా ఉంచాలి.
+   - కార్డు కోసం 'content' (60-70 పదాలు, ఒకే పేరా) మాత్రమే స్పష్టంగా రాస్తే సరిపోతుంది.`}
 
 11. ఎడిటోరియల్ ఫిల్టర్ నిబంధనలు (EDITORIAL FILTER RULES):
    - ఆమోదం (isRelevant: true): ప్రభుత్వ అధికారిక నిర్ణయాలు, కొత్త సంక్షేమ పథకాలు, బడ్జెట్ కేటాయింపులు, అభివృద్ధి ప్రాజెక్టులు, నిర్దిష్ట ఆధారాలతో కూడిన రాజకీయ విమర్శలు, సవాళ్లు, ప్రెస్ మీట్ వివరాలు, ప్రజా సమస్యలు, ప్రమాదాలు, నేరాలు.
@@ -2758,7 +2829,7 @@ async function processSingleTwitterFeed(doc) {
    - మీడియా కేవలం లోగో, ఛానల్ చిహ్నం లేదా బ్రాండ్ కార్డ్ అయితే mediaUrl ని "" గా ఉంచాలి.
 
 14. అవుట్‌పుట్ ఫార్మాట్ (Strict JSON only):
-{"isRelevant": true|false, "headline": "తెలుగు శీర్షిక (కచ్చితంగా 7-9 పదాలు, సంపూర్ణ వాక్యం, కొటేషన్లు లేవు, ఆపాదింపుతో)", "content": "తెలుగు సారాంశం (60-70 పదాలు, ఒకే పేరాగ్రాఫ్, ఆపాదింపుతో)", "fullStoryTe": "పూర్తి వార్త - సీనియర్ ఎడిటర్ కథనం (వివరాలుంటే 250-320 పదాలు, చిన్న ట్వీట్లకు 120-150 పదాలు, విడివిడి పేరాగ్రాఫ్‌లు \\n\\n తో, ఆపాదింపుతో)", "headlineEn": "English Headline (7-9 words)", "contentEn": "English Summary (50-60 words)", "fullStoryEn": "English Full Story (150-250 words in 2-4 paragraphs separated by \\n\\n)", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "url", "mediaType": "image", "isWide": false}`;
+{"isRelevant": true|false, "headline": "తెలుగు శీర్షిక (కచ్చితంగా 7-9 పదాలు, సంపూర్ణ వాక్యం, కొటేషన్లు లేవు, ఆపాదింపుతో)", "content": "తెలుగు సారాంశం (60-70 పదాలు, ఒకే పేరాగ్రాఫ్, ఆపాదింపుతో)", "fullStoryTe": "${hasSubstantialTweet ? "పూర్తి వార్త - సీనియర్ ఎడిటర్ కథనం (3-4 విడివిడి పేరాగ్రాఫ్‌లు \\\\n\\\\n తో, ఆపాదింపుతో)" : ""}", "headlineEn": "English Headline (7-9 words)", "contentEn": "English Summary (50-60 words)", "fullStoryEn": "${hasSubstantialTweet ? "English Full Story in 2-4 paragraphs separated by \\\\n\\\\n" : ""}", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "url", "mediaType": "image", "isWide": false}`;
 
                 const markItemUrls = async (tItem) => {
                     const urls = tItem.allUrls && tItem.allUrls.length > 0 ? tItem.allUrls : [tItem.url];
@@ -2860,19 +2931,34 @@ async function processSingleTwitterFeed(doc) {
                                      ((item.avatarUrl && item.avatarUrl.startsWith('http')) ? item.avatarUrl : 
                                      ((parsed.mediaUrl && parsed.mediaUrl.startsWith('http')) ? parsed.mediaUrl : null));
                     if (rawMedia && !isGenericImage(rawMedia)) {
-                        finalMediaUrl = `https://wsrv.nl/?url=${encodeURIComponent(rawMedia)}&output=webp`;
+                        const uploadedUrl = await uploadMediaToStorage(rawMedia);
+                        if (uploadedUrl) {
+                            finalMediaUrl = uploadedUrl;
+                        } else {
+                            finalMediaUrl = `https://wsrv.nl/?url=${encodeURIComponent(rawMedia)}&output=webp`;
+                        }
                     }
 
                     // Enforce pure Telugu script & Single Paragraph
                     const cleanedHeadline = parsed.headline;
                     const cleanedContent = sanitizeTeluguText(parsed.content).replace(/\r?\n+/g, ' ').replace(/\s+/g, ' ').trim();
-                    let cleanedFullStoryTe = sanitizeTeluguText(parsed.fullStoryTe || parsed.content || '').trim();
-                    let cleanedFullStoryEn = (parsed.fullStoryEn || parsed.contentEn || '').trim();
-                    if (!cleanedFullStoryTe) {
-                        cleanedFullStoryTe = cleanedContent;
+                    let cleanedFullStoryTe = "";
+                    let cleanedFullStoryEn = "";
+
+                    if (hasSubstantialTweet && parsed.fullStoryTe) {
+                        const rawStory = sanitizeTeluguText(parsed.fullStoryTe).trim();
+                        const storyWords = rawStory.split(/\s+/).filter(Boolean).length;
+                        if (storyWords >= 80 && rawStory !== cleanedContent) {
+                            cleanedFullStoryTe = formatIntoParagraphs(rawStory);
+                        }
                     }
-                    cleanedFullStoryTe = formatIntoParagraphs(cleanedFullStoryTe);
-                    cleanedFullStoryEn = formatIntoParagraphs(cleanedFullStoryEn);
+
+                    if (hasSubstantialTweet && parsed.fullStoryEn) {
+                        const rawStoryEn = String(parsed.fullStoryEn).trim();
+                        if (rawStoryEn.split(/\s+/).filter(Boolean).length >= 80) {
+                            cleanedFullStoryEn = formatIntoParagraphs(rawStoryEn);
+                        }
+                    }
 
                     const cleanedTags = [...new Set([
                         ...(parsed.tags || []),

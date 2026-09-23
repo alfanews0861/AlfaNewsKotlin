@@ -243,7 +243,7 @@ fun AdMobBoxAd(
     adUnitId: String = AdMobService.getNativeAdUnitId()
 ) {
     val context = LocalContext.current
-    val activity = context as? Activity
+    val activity = remember(context) { context.findActivity() }
     var nativeAd by remember { mutableStateOf<NativeAd?>(null) }
     var adFailed by remember { mutableStateOf(false) }
 
