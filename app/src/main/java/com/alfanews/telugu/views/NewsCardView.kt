@@ -50,8 +50,6 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalContext
@@ -2009,19 +2007,13 @@ fun FullStoryBottomSheet(
         DateTimeUtils.formatTimestamp(post.timestamp, "dd-MM-yy, hh:mm a", Locale.forLanguageTag("en-IN"))
     }
 
-    // Fix 90% height: windowInsets(top) reserves 10% of screen at the top so the sheet never goes full screen
-    val configuration = LocalConfiguration.current
-    val screenHeightDp = configuration.screenHeightDp
-    val topInsetDp = (screenHeightDp * 0.10f).toInt()
-
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
-        modifier = Modifier.fillMaxHeight(),
+        modifier = Modifier.fillMaxHeight(0.9f),
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        windowInsets = WindowInsets(top = topInsetDp.dp),
         dragHandle = {
             BottomSheetDefaults.DragHandle()
         }
