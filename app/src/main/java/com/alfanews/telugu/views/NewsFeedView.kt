@@ -86,6 +86,16 @@ fun NewsFeedView(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            preloadedAds.values.forEach { adState ->
+                if (adState is AdState.Success) {
+                    try {
+                        adState.nativeAd.destroy()
+                    } catch (e: Exception) {
+                        // ignore
+                    }
+                }
+            }
+            preloadedAds.clear()
         }
     }
 

@@ -50,6 +50,9 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalContext
@@ -598,7 +601,7 @@ fun NewsCardView(
                                             modifier = Modifier.size(15.dp)
                                         )
                                         Text(
-                                            text = if (language == Language.TELUGU) "పూర్తి కథనం చదవండి" else "Read Full Story",
+                                            text = if (language == Language.TELUGU) "పూర్తి వార్త చదవండి" else "Read Full Story",
                                             style = TextStyle(
                                                 fontSize = 13.sp,
                                                 fontWeight = FontWeight.Bold,
@@ -2007,13 +2010,19 @@ fun FullStoryBottomSheet(
         DateTimeUtils.formatTimestamp(post.timestamp, "dd-MM-yy, hh:mm a", Locale.forLanguageTag("en-IN"))
     }
 
+    // Fix 90% height: windowInsets(top) reserves 10% of screen at the top so the sheet never goes full screen
+    val configuration = LocalConfiguration.current
+    val screenHeightDp = configuration.screenHeightDp
+    val topInsetDp = (screenHeightDp * 0.10f).toInt()
+
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
-        modifier = Modifier.fillMaxHeight(0.9f),
+        modifier = Modifier.fillMaxHeight(),
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        windowInsets = WindowInsets(top = topInsetDp.dp),
         dragHandle = {
             BottomSheetDefaults.DragHandle()
         }
@@ -2080,6 +2089,8 @@ fun FullStoryBottomSheet(
 
             // Scrollable Story Content
             val storyScrollState = rememberScrollState()
+            var accumulatedTopOverscroll by remember { mutableStateOf(0f) }
+            var accumulatedBottomOverscroll by remember { mutableStateOf(0f) }
             val nestedScrollConnection = remember {
                 object : NestedScrollConnection {
                     override fun onPostScroll(
@@ -2087,11 +2098,38 @@ fun FullStoryBottomSheet(
                         available: Offset,
                         source: NestedScrollSource
                     ): Offset {
-                        // User deliberately swipes/flings up past the very end of the full story
-                        if (available.y < -120f && storyScrollState.maxValue > 0 && storyScrollState.value >= storyScrollState.maxValue - 5) {
-                            onDismissRequest()
+                        // At TOP of content: swipe DOWN (pai nunchi krindaki -> available.y > 0) to close sheet
+                        if (available.y > 0f && storyScrollState.value == 0) {
+                            accumulatedTopOverscroll += available.y
+                            if (accumulatedTopOverscroll > 50f) {
+                                onDismissRequest()
+                            }
+                        } else if (available.y < 0f) {
+                            accumulatedTopOverscroll = 0f
+                        }
+
+                        // At BOTTOM of content: swipe UP past end (chivarana paiki -> available.y < 0) to close sheet
+                        if (available.y < 0f && storyScrollState.maxValue > 0 && storyScrollState.value >= storyScrollState.maxValue - 15) {
+                            accumulatedBottomOverscroll += available.y
+                            if (accumulatedBottomOverscroll < -50f) {
+                                onDismissRequest()
+                            }
+                        } else if (available.y > 0f) {
+                            accumulatedBottomOverscroll = 0f
                         }
                         return Offset.Zero
+                    }
+
+                    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                        // Fling down at top
+                        if (available.y > 150f && storyScrollState.value == 0) {
+                            onDismissRequest()
+                        }
+                        // Fling up at bottom
+                        if (available.y < -150f && storyScrollState.maxValue > 0 && storyScrollState.value >= storyScrollState.maxValue - 15) {
+                            onDismissRequest()
+                        }
+                        return super.onPostFling(consumed, available)
                     }
                 }
             }
@@ -2110,7 +2148,8 @@ fun FullStoryBottomSheet(
                         fontSize = if (isEnglish) 20.sp else 22.sp,
                         lineHeight = if (isEnglish) 28.sp else 30.sp,
                         fontFamily = headlineFontFamily,
-                        fontWeight = FontWeight.Bold,
+                        // Ramabhadra font is inherently bold — no extra FontWeight.Bold needed for Telugu
+                        fontWeight = if (isEnglish) FontWeight.Bold else FontWeight.Normal,
                         platformStyle = PlatformTextStyle(includeFontPadding = false)
                     ),
                     color = MaterialTheme.colorScheme.onSurface
@@ -2185,39 +2224,40 @@ fun FullStoryBottomSheet(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Editorial Verification Badge
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Verified,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = if (isEnglish) "Alfa News Verified Comprehensive Story" else "ఆల్ఫా న్యూస్ ఎడిటోరియల్ సమగ్ర కథనం",
-                            style = TextStyle(
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                fontFamily = if (isEnglish) Poppins else Mallanna,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
                 // AdMob Box Ad (Medium Rectangle 300x250)
                 AdMobBoxAd(modifier = Modifier.fillMaxWidth())
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Share Button
+                FilledTonalButton(
+                    onClick = {
+                        com.alfanews.telugu.utils.ShareUtil.shareNewsPost(
+                            context = context,
+                            postId = post.id,
+                            postTitle = headlineText
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isEnglish) "Share" else "షేర్ చెయ్యండి",
+                        style = TextStyle(
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            fontFamily = if (isEnglish) Poppins else Mallanna
+                        )
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }

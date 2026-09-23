@@ -960,18 +960,18 @@ fun JoinReporterPageView(
 
                                     if (autoApp && currentUid.isNotEmpty()) {
                                         val userRef = FirebaseService.db.collection("users").document(currentUid)
-                                        val updates = mapOf(
-                                            "role" to "REPORTER",
+                                        val safeProfileUpdates = mapOf(
                                             "district" to selectedDistrict.trim(),
-                                            "assignedMandal" to selectedMandal.trim(),
                                             "mandal" to selectedMandal.trim(),
-                                            "promotedBy" to "AUTO_APPROVAL_SYSTEM",
                                             "agreedToRules" to true,
-                                            "joinedAt" to com.google.firebase.Timestamp.now(),
                                             "name" to finalFullName,
                                             "phone" to finalPhone
                                         )
-                                        userRef.set(updates, com.google.firebase.firestore.SetOptions.merge()).await()
+                                        try {
+                                            userRef.set(safeProfileUpdates, com.google.firebase.firestore.SetOptions.merge()).await()
+                                        } catch (e: Exception) {
+                                            android.util.Log.w("JoinReporter", "Non-critical: user profile update in fallback: ${e.message}")
+                                        }
                                     } else if (isConflict && currentUid.isNotEmpty()) {
                                         val conflictText = "నమస్కారం ${finalFullName.ifEmpty { "మిత్రమా" }}, మీరు కోరిన ${selectedMandal} మండలానికి ఇప్పటికే క్రియాశీల విలేకరి ఉన్నారు.\n\nఅందువల్ల మీ దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు పంపబడింది. మా అడ్మిన్ టీమ్ పరిశీలించి త్వరలోనే మిమ్మల్ని సంప్రదిస్తారు. మీకు ఏవైనా సందేహాలున్నా లేదా మీ వివరాలు తెలియజేయాలన్నా ఇక్కడే అడ్మిన్‌కు నేరుగా మెసేజ్ / రిప్లై ఇవ్వవచ్చు. ధన్యవాదాలు!"
                                         val msgTimestamp = com.google.firebase.Timestamp.now()

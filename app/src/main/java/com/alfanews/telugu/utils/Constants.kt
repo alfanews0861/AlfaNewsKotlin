@@ -19,6 +19,62 @@ object Constants {
     )
 
     val ALL_DISTRICTS = TS_DISTRICTS + AP_DISTRICTS
+
+    val TS_IDENTIFIERS: Set<String> = setOf(
+        "Telangana", "Telangana State", "TS", "TG", "తెలంగాణ", "తెలంగాణా", "Telangana News", "తెలంగాణ వార్తలు",
+        "హైదరాబాద్", "Hyderabad", "సికింద్రాబాద్", "Secunderabad", "సైబరాబాద్", "Cyberabad",
+        "ఆదిలాబాద్", "Adilabad", "భద్రాద్రి కొత్తగూడెం", "కొత్తగూడెం", "Kothagudem", "Bhadradri",
+        "హన్మకొండ", "హనుమకొండ", "వరంగల్ అర్బన్", "Hanamkonda", "Hanumakonda",
+        "వరంగల్", "వరంగల్ రూరల్", "Warangal", "జగిత్యాల", "Jagtial", "జనగాం", "Jangaon",
+        "జయశంకర్ భూపాలపల్లి", "భూపాలపల్లి", "Bhupalpally", "జోగులాంబ గద్వాల", "గద్వాల", "Gadwal",
+        "కామారెడ్డి", "Kamareddy", "కరీంనగర్", "Karimnagar", "ఖమ్మం", "Khammam",
+        "కుమ్రం భీమ్ ఆసిఫాబాద్", "ఆసిఫాబాద్", "Asifabad", "మహబూబాబాద్", "Mahabubabad",
+        "మహబూబ్ నగర్", "మహబూబ్‌నగర్", "Mahabubnagar", "మంచిర్యాల", "Mancherial",
+        "మెదక్", "Medak", "మేడ్చల్ మల్కాజిగిరి", "మేడ్చల్", "మల్కాజిగిరి", "Malkajgiri", "Medchal",
+        "ములుగు", "Mulugu", "నాగర్ కర్నూల్", "నాగర్‌కర్నూల్", "Nagarkurnool",
+        "నల్గొండ", "Nalgonda", "నారాయణపేట", "Narayanpet", "నిర్మల్", "Nirmal",
+        "నిజామాబాద్", "Nizamabad", "పెద్దపల్లి", "Peddapalli", "రాజన్న సిరిసిల్ల", "సిరిసిల్ల", "Sircilla",
+        "రంగారెడ్డి", "Rangareddy", "Ranga Reddy", "సంగారెడ్డి", "Sangareddy",
+        "సిద్దిపేట", "Siddipet", "సూర్యాపేట", "Suryapet", "వికారాబాద్", "Vikarabad",
+        "వనపర్తి", "Wanaparthy", "యాదాద్రి భువనగిరి", "భువనగిరి", "Bhuvanagiri", "Yadadri"
+    )
+
+    val AP_IDENTIFIERS: Set<String> = setOf(
+        "Andhra Pradesh", "AndhraPradesh", "AP", "Andhra", "ఆంధ్రప్రదేశ్", "ఆంధ్ర ప్రదేశ్", "ఆంధ్ర", "AP News", "ఆంధ్రప్రదేశ్ వార్తలు", "ఆంధ్ర వార్తలు",
+        "అల్లూరి సీతారామరాజు", "అల్లూరి", "Alluri", "పాడేరు", "Paderu",
+        "అనకాపల్లి", "Anakapalli", "అనంతపురం", "అనంతపురము", "Anantapur", "Ananthapur",
+        "అన్నమయ్య", "Annamayya", "రాయచోటి", "Rayachoti", "బాపట్ల", "Bapatla",
+        "చిత్తూరు", "Chittoor", "కోనసీమ", "డాక్టర్ బి.ఆర్. అంబేద్కర్ కోనసీమ", "Amalapuram", "అమలాపురం",
+        "తూర్పు గోదావరి", "రాజమండ్రి", "రాజమహేంద్రవరం", "Rajahmundry", "Rajamahendravaram", "East Godavari",
+        "ఏలూరు", "Eluru", "గుంటూరు", "Guntur", "కాకినాడ", "Kakinada",
+        "కృష్ణా", "మచిలీపట్నం", "Krishna", "Machilipatnam", "కర్నూలు", "Kurnool",
+        "నంద్యాల", "Nandyal", "ఎన్టీఆర్", "విజయవాడ", "NTR", "Vijayawada",
+        "పల్నాడు", "నరసరావుపేట", "Palnadu", "Narasaraopeta",
+        "పార్వతీపురం మన్యం", "మన్యం", "పార్వతీపురం", "Parvathipuram", "Manyam",
+        "ప్రకాశం", "ఒంగోలు", "Prakasam", "Ongole", "మార్కాపురం", "Markapur",
+        "పోలవరం", "Polavaram", "మదనపల్లె", "Madanapalle",
+        "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు", "నెల్లూరు", "Nellore", "SPSR Nellore",
+        "శ్రీ సత్యసాయి", "సత్యసాయి", "పుట్టపర్తి", "Sri Sathya Sai", "Sathya Sai", "Puttaparthi",
+        "శ్రీకాకుళం", "Srikakulam", "తిరుపతి", "తిరుమల", "Tirupati",
+        "విశాఖపట్నం", "విశాఖ", "వైజాగ్", "Visakhapatnam", "Vizag",
+        "విజయనగరం", "Vizianagaram", "పశ్చిమ గోదావరి", "భీమవరం", "West Godavari", "Bhimavaram",
+        "వైఎస్ఆర్ కడప", "వైఎస్సార్ కడప", "కడప", "Kadapa", "YSR Kadapa", "అమరావతి", "Amaravati"
+    )
+
+    fun mapDistrictToState(district: String?): String? {
+        if (district.isNullOrBlank()) return null
+        val clean = district.trim()
+            .replace("జిల్లా", "")
+            .replace("డిస్ట్రిక్ట్", "")
+            .replace("District", "", ignoreCase = true)
+            .trim()
+
+        return when {
+            TS_IDENTIFIERS.any { clean.contains(it, ignoreCase = true) || it.contains(clean, ignoreCase = true) } -> "Telangana"
+            AP_IDENTIFIERS.any { clean.contains(it, ignoreCase = true) || it.contains(clean, ignoreCase = true) } -> "Andhra Pradesh"
+            else -> null
+        }
+    }
     
     val CATEGORIES = listOf(
         "జిల్లా వార్త", "రాజకీయం", "క్రైమ్", "వినోదం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "భక్తి", "వ్యవసాయం",

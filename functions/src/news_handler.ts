@@ -591,7 +591,7 @@ export async function performAIProcessing(
                 }
             }
         },
-        required: ["headline", "content", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory", "isSafeForYouTube", "rejectionReason", "isDuplicate", "tags", "entities", "tone", "vocalContent", "isBreaking", "notificationWorthy"]
+        required: ["headline", "content", "fullStoryTe", "fullStoryEn", "headlineEn", "contentEn", "location", "storyFingerprint", "refinedCategory", "isSafeForYouTube", "rejectionReason", "isDuplicate", "tags", "entities", "tone", "vocalContent", "isBreaking", "notificationWorthy"]
     };
 
     const schema = {
@@ -639,7 +639,10 @@ SUBMISSION METADATA:
 - isReporter: ${actualPostData?.isReporter === true}
 - isCitizen: ${actualPostData?.isCitizen === true}
 - district: ${actualPostData?.district || 'Unknown'}
-- location: ${actualPostData?.location || 'Unknown'}
+- location: ${actualPostData?.location || 'Unknown'}${actualPostData?.socialPlatform ? `
+- socialPlatform: ${actualPostData.socialPlatform}` : ''}${actualPostData?.socialAuthorName ? `
+- Post Author (CRITICAL - MANDATORY ATTRIBUTION): ${actualPostData.socialAuthorName}
+  ⚠️ This content was posted by "${actualPostData.socialAuthorName}" on social media. ALL allegations, criticisms, and opinions expressed must be attributed to them using phrases like "అన్న ${actualPostData.socialAuthorName}", "అని ${actualPostData.socialAuthorName} అన్నారు", "అంటూ ${actualPostData.socialAuthorName} ట్వీట్ చేశారు". NEVER present their statements as Alfa News facts or our own verified conclusions. The headline MUST also clearly attribute to ${actualPostData.socialAuthorName}.` : ''}
 
 ${recentStoriesPrompt}
 
@@ -814,6 +817,10 @@ export const processNewsPost = onCall(async (request) => {
                     content: {
                         telugu: content,
                         english: postData?.content?.english || existingData.content?.english || ""
+                    },
+                    fullStory: postData?.fullStory || existingData.fullStory || {
+                        telugu: postData?.fullStory?.telugu || existingData.fullStory?.telugu || content,
+                        english: postData?.fullStory?.english || existingData.fullStory?.english || ""
                     },
                     mediaUrl: mediaUrl || existingData.mediaUrl || "",
                     mediaUrls: mediaUrls.length > 0 ? mediaUrls : (existingData.mediaUrls || (existingData.mediaUrl ? [existingData.mediaUrl] : [])),

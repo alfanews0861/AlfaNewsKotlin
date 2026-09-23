@@ -64,8 +64,10 @@ class ClassifiedsViewModel : ViewModel() {
                 val query = if (userId != null) {
                     adsRef.whereEqualTo("userId", userId)
                         .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(50)
                 } else {
                     adsRef.orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(50)
                 }
                 listenerRegistration = query.addSnapshotListener { snapshot, error ->
                     if (error != null) {

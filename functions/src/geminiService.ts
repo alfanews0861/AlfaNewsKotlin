@@ -15,13 +15,15 @@ const EDITORIAL_SYSTEM_INSTRUCTION = `మీరు ఆల్ఫా న్యూ�
      * 1వ పేరా: ప్రధాన సారాంశం, కీలక ప్రకటన లేదా పంచ్ డైలాగ్, స్పష్టమైన ఆపాదింపుతో ప్రారంభం (~60-80 పదాలు).
      * 2వ పేరా: నేపథ్యం, సంఖ్యలు, కేటాయింపులు లేదా నిర్ణయాల పూర్వాపరాలు (~80-100 పదాలు).
      * 3వ పేరా: రాజకీయ విమర్శలు, సవాళ్లు, ప్రతిస్పందనలు లేదా ప్రజా సమస్య తీవ్రత (~70-90 పదాలు).
-     * 4వ పేరా: ప్రస్తుత పరిస్థితి, భవిష్యత్ పరిణామాలు లేదా చేపట్టాల్సిన చర్యలు (~50-70 పదాలు).
+     * 4వ పేరా: ప్రస్తుత పరిస్థితి, రాబోయే పరిణామాలు, స్థానిక ప్రజల డిమాండ్లు లేదా చేపట్టాల్సిన చర్యలు (~50-70 పదాలు).
    - చిన్న ట్వీట్లు/వార్తలకు వివరాలు తక్కువగా ఉంటే లేనివి ఊహించరాదు (NO HALLUCINATIONS).
 
-3. ఆపాదింపు తప్పనిసరి - మనమే తీర్పులు ఇవ్వరాదు (MANDATORY ATTRIBUTION - ZERO EDITORIAL VERDICTS):
+3. ⚠️ ఆపాదింపు తప్పనిసరి - మనమే తీర్పులు ఇవ్వరాదు (MANDATORY ATTRIBUTION - ZERO EDITORIAL VERDICTS) ⚠️:
    - ఆల్ఫా న్యూస్ నిష్పాక్షిక వార్తా సంస్థ. ఏ రాజకీయ నాయకుడు లేదా పార్టీ విమర్శలను మనమే ధ్రువీకరించినట్లు లేదా తీర్పు ఇచ్చినట్లు రాయకూడదు.
    - ఆరోపణలు, విమర్శలను కచ్చితంగా మాట్లాడిన వ్యక్తికి లేదా పార్టీకి ఆపాదించాలి (ఉదా: "...అన్న బీజేపీ", "...అంటూ వైసీపీ ధ్వజం").
    - "విశ్లేషకులు అంటున్నారు", "నివేదికలు స్పష్టం చేస్తున్నాయి" వంటి కల్పిత సమర్థనలు పూర్తిగా నిషిద్ధం.
+   - ⚠️ CRITICAL - వ్యక్తుల మార్పిడి నిషిద్ధం (PERSON ATTRIBUTION SWAP - STRICTLY FORBIDDEN): పోస్ట్/ట్వీట్‌లో ఒకరి గురించి రాస్తూ మరొకరు చెప్పిన మాటలు, వ్యాఖ్యలు ఆ ఒకరికి ఆపాదించరాదు. ఉదా: "A గురించి రాసిన ట్వీట్‌లో B అన్నారు" అంటే - B మాట B కే చెందుతుంది, A కి కాదు. శీర్షికలో కూడా ఎవరు అన్నారో వారి పేరే వాడాలి.
+   - ⚠️ SOCIAL MEDIA ATTRIBUTION RULE (CRITICAL): సోషల్ మీడియా పోస్ట్/ట్వీట్ ఆధారంగా వార్త రాసేటప్పుడు - input లో "Post Author" గా స్పష్టంగా ఇవ్వబడిన వ్యక్తి పేరుని వార్తలో మరియు headline లో తప్పనిసరిగా వాడాలి. "... అన్న [Author Name]", "... అని [Author Name] ట్వీట్ చేశారు", "... అంటూ [Author Name] ఆగ్రహం" వంటి ఆపాదింపు ఉండాలి. ఆ author చెప్పిన మాటలను మనమే fact గా confirm చేసినట్లు రాయరాదు - అది వారి వ్యక్తిగత అభిప్రాయం/ఆరోపణ మాత్రమే.
 
 4. సందర్భానుసార శీర్షిక (CONTEXT-AWARE HEADLINE - STRICTLY 7-8 WORDS, ONE SINGLE CONTINUOUS SENTENCE):
    హెడ్‌లైన్ అన్ని వార్తలకూ ఒకేలా ఉండకూడదు! వార్త స్వభావాన్ని బట్టి సరైన శైలిని ఎంచుకోవాలి:
@@ -39,7 +41,8 @@ Output must be strictly JSON format.`;
 export const processSocialPostWithAI = async (
     socialText: string,
     platform: string,
-    category: string
+    category: string,
+    authorName?: string
 ): Promise<{
     isNewsFound: boolean;
     headline: string;
@@ -62,13 +65,17 @@ export const processSocialPostWithAI = async (
             fullStoryEn: { type: Type.STRING, description: "Senior editor full story in English, 200-250 words across 3-4 paragraphs separated by \\n\\n" },
             category: { type: Type.STRING }
         },
-        required: ["isNewsFound", "headline", "content", "headlineEn", "contentEn", "category"],
+        required: ["isNewsFound", "headline", "content", "fullStoryTe", "fullStoryEn", "headlineEn", "contentEn", "category"],
     };
+
+    // Build the user prompt — include Post Author when available so AI can attribute correctly
+    const authorLine = authorName ? `Post Author: ${authorName}\n` : "";
+    const userPrompt = `Platform: ${platform}\nCategory: ${category}\n${authorLine}Input Text:\n${socialText}`;
 
     return await runWithAIFallback(async (ai, modelName) => {
         const response = await ai.models.generateContent({
             model: modelName,
-            contents: [{ role: "user", parts: [{ text: `Platform: ${platform}\nCategory: ${category}\nInput Text:\n${socialText}` }] }],
+            contents: [{ role: "user", parts: [{ text: userPrompt }] }],
             config: {
                 systemInstruction: EDITORIAL_SYSTEM_INSTRUCTION,
                 temperature: 0.4,
@@ -95,6 +102,7 @@ export const processSocialPostWithAI = async (
         };
     });
 };
+
 
 export const processCitizenContentWithAI = async (
     rawContent: string
@@ -126,7 +134,8 @@ export const processCitizenContentWithAI = async (
                     contentEn: { type: Type.STRING },
                     fullStoryEn: { type: Type.STRING, description: "Senior editor full story in English, 200-250 words across 3-4 paragraphs separated by \\n\\n" },
                     category: { type: Type.STRING }
-                }
+                },
+                required: ["headline", "content", "fullStoryTe", "fullStoryEn", "headlineEn", "contentEn", "category"]
             }
         },
         required: ["success"],
@@ -183,7 +192,7 @@ export const processContentWithAI = async (
             englishContent: { type: Type.STRING },
             fullStoryEn: { type: Type.STRING, description: "Senior editor full story in English, 200-250 words across 3-4 paragraphs separated by \\n\\n" },
         },
-        required: ["summarizedTeluguContent", "generatedTeluguHeadline", "englishHeadline", "englishContent"],
+        required: ["summarizedTeluguContent", "generatedTeluguHeadline", "fullStoryTe", "fullStoryEn", "englishHeadline", "englishContent"],
     };
 
     return await runWithAIFallback(async (ai, modelName) => {

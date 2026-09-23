@@ -854,6 +854,7 @@ fun AdminOneOnOneChatView(
             .document(reporterId)
             .collection("messages")
             .orderBy("timestamp", Query.Direction.ASCENDING)
+            .limitToLast(100)
 
         val listener: ListenerRegistration = messagesRef.addSnapshotListener { snapshot, error ->
             if (error != null) {

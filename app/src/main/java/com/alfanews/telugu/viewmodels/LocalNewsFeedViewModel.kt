@@ -631,7 +631,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             try {
                 val newsRef = FirebaseService.db.collection("news")
                 val districtAliases = getDistrictAliases(district)
-                val isAP = Constants.AP_DISTRICTS.contains(district) || district.contains("నెల్లూరు") || district.contains("కడప")
+                val mappedState = Constants.mapDistrictToState(district)
+                val isAP = mappedState == "Andhra Pradesh" || Constants.AP_DISTRICTS.contains(district) || district.contains("నెల్లూరు") || district.contains("కడప")
                 val stateTags = if (isAP) {
                     listOf("Andhra Pradesh", "ఆంధ్రప్రదేశ్", "AP", "State", "రాష్ట్రం")
                 } else {
@@ -720,9 +721,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             if (generalRes != null && !generalRes.isEmpty) {
                                 snap = generalRes
                             } else {
-                                // End of general news reached: reset cursor to loop / keep feed alive
+                                // End of general news reached: cleanly stop pagination to prevent endless re-fetch loop
                                 lastDocument = null
-                                _hasMore.value = true
+                                _hasMore.value = false
                                 break
                             }
                         }
@@ -768,7 +769,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
     fun refreshIfStale(language: Language, currentUser: User?) {
         val now = System.currentTimeMillis()
-        if (now - lastRefreshTimeLong > 300000 || _news.value.isEmpty()) {
+        if (now - lastRefreshTimeLong > 60000 || _news.value.isEmpty()) {
             loadNews(language, currentUser)
         }
     }

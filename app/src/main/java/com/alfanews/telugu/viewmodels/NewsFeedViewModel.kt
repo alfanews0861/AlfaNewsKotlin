@@ -382,7 +382,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         return aliases.any { it.equals(postDistrict, ignoreCase = true) || postDistrict.contains(it, ignoreCase = true) || it.contains(postDistrict, ignoreCase = true) }
     }
 
-    private val FETCH_LIMIT = 20 
+    private val FETCH_LIMIT = 50 // Increased to ensure enough posts survive client-side filtering
 
       fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null) {
           currentLanguage = language
@@ -672,7 +672,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                  var attempts = 0
                  var appendedCount = 0
 
-                 while (attempts < 3 && appendedCount == 0 && _hasMore.value) {
+                 // Reduced max attempts from 3 to 2 to prevent excessive latency during scroll
+                 while (attempts < 2 && appendedCount == 0 && _hasMore.value) {
                      attempts++
                      val shouldFetchPref = preferredCats.isNotEmpty() && (prefCursor != null)
                      val shouldFetchLocal = localCursor != null && !district.isNullOrBlank()
@@ -722,22 +723,29 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                  prefs.incrementPostViewCounts(validIds)
                              }
                              consecutiveEmptyLoads = 0
-                         } else {
-                             consecutiveEmptyLoads += 1
-                             if (mainCursor == null && prefCursor == null && localCursor == null) {
-                                 // Cursors reached the end: reset mainCursor to allow circular / continuous feed
-                                 mainCursor = null
-                                 _hasMore.value = true
-                                 break
-                             }
-                         }
-                     } else {
-                         if (mainCursor == null && prefCursor == null && localCursor == null) {
-                             mainCursor = null
-                             _hasMore.value = true
-                             break
-                         }
-                     }
+                          } else {
+                              consecutiveEmptyLoads += 1
+                              if (mainCursor == null && prefCursor == null && localCursor == null) {
+                                  // Cursors reached the end: cleanly stop pagination to prevent endless re-fetch loop
+                                  _hasMore.value = false
+                                  break
+                              }
+                              if (consecutiveEmptyLoads >= 2) {
+                                  _hasMore.value = false
+                                  break
+                              }
+                          }
+                      } else {
+                          if (mainCursor == null && prefCursor == null && localCursor == null) {
+                              _hasMore.value = false
+                              break
+                          }
+                          consecutiveEmptyLoads += 1
+                          if (consecutiveEmptyLoads >= 2) {
+                              _hasMore.value = false
+                              break
+                          }
+                      }
                  }
              } catch (e: Exception) {
                  android.util.Log.e("NewsFeedVM", "LoadMore failed: ${e.message}")
@@ -826,45 +834,12 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 }.filter { post -> isPostAllowedForState(post, userState) }
                 currentCursor = snapshot.documents.lastOrNull() ?: currentCursor
 
-                // 🚀 CRUCIAL FIX: If snapshot had documents but ALL were filtered out by state filter,
-                // don't leave the batch empty! Fetch from general fallback query.
-                if (batch.isEmpty()) {
-                    var fallbackQuery = FirebaseService.db.collection("news")
-                        .whereEqualTo("approved", true)
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(limit.toLong())
-                    if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
-                    val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
-                        fallbackQuery.get().await()
-                    }
-                    if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {
-                        val fallbackBatch = fallbackSnapshot.documents.mapNotNull { doc -> mapDocumentToNewsPost(doc) }
-                            .filter { post -> isPostAllowedForState(post, userState) }
-                        return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(fallbackBatch, fallbackSnapshot.documents.lastOrNull() ?: currentCursor)
-                    }
-                }
-
+                // 🚀 Removed invalid fallback query with conflicting cursors that caused timeouts.
+                // Returning empty list safely lets the while-loop fetch the next valid page.
+                
                 return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(batch, currentCursor)
             } catch (e: Exception) {
-                if (excludeDistricts) {
-                    try {
-                        var fallbackQuery = baseQuery.whereEqualTo("approved", true)
-                            .orderBy("timestamp", Query.Direction.DESCENDING).limit(limit.toLong())
-                        if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
-                        val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
-                            fallbackQuery.get().await()
-                        }
-                        if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {
-                            val batch = fallbackSnapshot.documents.mapNotNull { doc ->
-                                mapDocumentToNewsPost(doc)
-                            }.filter { post -> isPostAllowedForState(post, userState) }
-                            currentCursor = fallbackSnapshot.documents.lastOrNull() ?: currentCursor
-                            return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(batch, currentCursor)
-                        }
-                    } catch (ex: Exception) {
-                        // ignore and return current cursor
-                    }
-                }
+                // If the primary query times out, return the cursor to prevent endless loops.
                 return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), currentCursor)
             }
         }
@@ -984,7 +959,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
            // 🚀 1. POOL SEPARATION
            val localIds = local.map { it.id }.toSet()
-           val localCandidates = normalNews.filter { it.id in localIds || it.categories.contains("జిల్లా వార్త") }
+           val localCandidates = normalNews.filter { post ->
+               post.id in localIds ||
+               (post.categories.contains("జిల్లా వార్త") && currentDist != null && isDistrictMatch(post.district, currentDist))
+           }
                .sortedByDescending { it.timestamp }
                .toMutableList()
            val localCandidateIds = localCandidates.map { it.id }.toSet()
@@ -1442,69 +1420,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     fun refreshIfStale(language: Language, currentUser: User?) {
         val now = System.currentTimeMillis()
-        if (now - lastRefreshTimeLong > 300000 || _news.value.isEmpty()) { loadNews(language, currentUser) }
+        if (now - lastRefreshTimeLong > 60000 || _news.value.isEmpty()) { loadNews(language, currentUser) }
     }
 
      private fun mapDistrictToState(district: String?): String? {
-         if (district.isNullOrBlank()) return null
-         val clean = district.trim().replace("జిల్లా", "").replace("డిస్ట్రిక్ట్", "").replace("District", "", ignoreCase = true).trim()
-
-         val telanganaIdentifiers = setOf(
-             "Telangana", "Telangana State", "TS", "TG", "తెలంగాణ", "తెలంగాణా", "Telangana News", "తెలంగాణ వార్తలు",
-             "హైదరాబాద్", "Hyderabad", "సికింద్రాబాద్", "Secunderabad", "సైబరాబాద్", "Cyberabad",
-             "ఆదిలాబాద్", "Adilabad", "భద్రాద్రి కొత్తగూడెం", "కొత్తగూడెం", "Kothagudem", "Bhadradri",
-             "హన్మకొండ", "హనుమకొండ", "వరంగల్ అర్బన్", "Hanamkonda", "Hanumakonda",
-             "వరంగల్", "వరంగల్ రూరల్", "Warangal", "జగిత్యాల", "Jagtial", "జనగాం", "Jangaon",
-             "జయశంకర్ భూపాలపల్లి", "భూపాలపల్లి", "Bhupalpally", "జోగులాంబ గద్వాల", "గద్వాల", "Gadwal",
-             "కామారెడ్డి", "Kamareddy", "కరీంనగర్", "Karimnagar", "ఖమ్మం", "Khammam",
-             "కుమ్రం భీమ్ ఆసిఫాబాద్", "ఆసిఫాబాద్", "Asifabad", "మహబూబాబాద్", "Mahabubabad",
-             "మహబూబ్ నగర్", "మహబూబ్‌నగర్", "Mahabubnagar", "మంచిర్యాల", "Mancherial",
-             "మెదక్", "Medak", "మేడ్చల్ మల్కాజిగిరి", "మేడ్చల్", "మల్కాజిగిరి", "Malkajgiri", "Medchal",
-             "ములుగు", "Mulugu", "నాగర్ కర్నూల్", "నాగర్‌కర్నూల్", "Nagarkurnool",
-             "నల్గొండ", "Nalgonda", "నారాయణపేట", "Narayanpet", "నిర్మల్", "Nirmal",
-             "నిజామాబాద్", "Nizamabad", "పెద్దపల్లి", "Peddapalli", "రాజన్న సిరిసిల్ల", "సిరిసిల్ల", "Sircilla",
-             "రంగారెడ్డి", "Rangareddy", "Ranga Reddy", "సంగారెడ్డి", "Sangareddy",
-             "సిద్దిపేట", "Siddipet", "సూర్యాపేట", "Suryapet", "వికారాబాద్", "Vikarabad",
-             "వనపర్తి", "Wanaparthy", "యాదాద్రి భువనగిరి", "భువనగిరి", "Bhuvanagiri", "Yadadri"
-         )
-
-         val apIdentifiers = setOf(
-             "Andhra Pradesh", "AndhraPradesh", "AP", "Andhra", "ఆంధ్రప్రదేశ్", "ఆంధ్ర ప్రదేశ్", "ఆంధ్ర", "AP News", "ఆంధ్రప్రదేశ్ వార్తలు", "ఆంధ్ర వార్తలు",
-             "అల్లూరి సీతారామరాజు", "అల్లూరి", "Alluri", "పాడేరు", "Paderu",
-             "అనకాపల్లి", "Anakapalli", "అనంతపురం", "అనంతపురము", "Anantapur", "Ananthapur",
-             "అన్నమయ్య", "Annamayya", "రాయచోటి", "Rayachoti", "బాపట్ల", "Bapatla",
-             "చిత్తూరు", "Chittoor", "కోనసీమ", "డాక్టర్ బి.ఆర్. అంబేద్కర్ కోనసీమ", "Amalapuram", "అమలాపురం",
-             "తూర్పు గోదావరి", "రాజమండ్రి", "రాజమహేంద్రవరం", "Rajahmundry", "Rajamahendravaram", "East Godavari",
-             "ఏలూరు", "Eluru", "గుంటూరు", "Guntur", "కాకినాడ", "Kakinada",
-             "కృష్ణా", "మచిలీపట్నం", "Krishna", "Machilipatnam", "కర్నూలు", "Kurnool",
-             "నంద్యాల", "Nandyal", "ఎన్టీఆర్", "విజయవాడ", "NTR", "Vijayawada",
-             "పల్నాడు", "నరసరావుపేట", "Palnadu", "Narasaraopeta",
-             "పార్వతీపురం మన్యం", "మన్యం", "పార్వతీపురం", "Parvathipuram", "Manyam",
-             "ప్రకాశం", "ఒంగోలు", "Prakasam", "Ongole", "మార్కాపురం", "Markapur",
-             "పోలవరం", "Polavaram", "మదనపల్లె", "Madanapalle",
-             "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు", "నెల్లూరు", "Nellore", "SPSR Nellore",
-             "శ్రీ సత్యసాయి", "సత్యసాయి", "పుట్టపర్తి", "Sri Sathya Sai", "Sathya Sai", "Puttaparthi",
-             "శ్రీకాకుళం", "Srikakulam", "తిరుపతి", "తిరుమల", "Tirupati",
-             "విశాఖపట్నం", "విశాఖ", "వైజాగ్", "Visakhapatnam", "Vizag",
-             "విజయనగరం", "Vizianagaram", "పశ్చిమ గోదావరి", "భీమవరం", "West Godavari", "Bhimavaram",
-             "వైఎస్ఆర్ కడప", "వైఎస్సార్ కడప", "కడప", "Kadapa", "YSR Kadapa", "అమరావతి", "Amaravati"
-         )
-
-         if (telanganaIdentifiers.any { it.equals(clean, ignoreCase = true) || clean.contains(it, ignoreCase = true) }) {
-             return "Telangana"
-         }
-         if (apIdentifiers.any { it.equals(clean, ignoreCase = true) || clean.contains(it, ignoreCase = true) }) {
-             return "Andhra Pradesh"
-         }
-
-         if (Constants.TS_DISTRICTS.any { it.contains(clean, ignoreCase = true) || clean.contains(it, ignoreCase = true) }) {
-             return "Telangana"
-         }
-         if (Constants.AP_DISTRICTS.any { it.contains(clean, ignoreCase = true) || clean.contains(it, ignoreCase = true) }) {
-             return "Andhra Pradesh"
-         }
-
-         return null
+         return Constants.mapDistrictToState(district)
      }
 
      /**

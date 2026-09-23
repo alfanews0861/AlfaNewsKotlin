@@ -64,6 +64,7 @@ fun LocalNewsFeedView(
         factory = ViewModelFactory(context.applicationContext as Application)
     )
     val news by viewModel.news.collectAsStateWithLifecycle()
+    val preloadedAds = remember { mutableStateMapOf<Int, AdState>() }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -74,6 +75,16 @@ fun LocalNewsFeedView(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            preloadedAds.values.forEach { adState ->
+                if (adState is AdState.Success) {
+                    try {
+                        adState.nativeAd.destroy()
+                    } catch (e: Exception) {
+                        // ignore
+                    }
+                }
+            }
+            preloadedAds.clear()
         }
     }
     val loading by viewModel.loading.collectAsStateWithLifecycle()
@@ -83,7 +94,6 @@ fun LocalNewsFeedView(
     val isDetecting by viewModel.isDetecting.collectAsStateWithLifecycle()
     val shouldScrollToTop by viewModel.shouldScrollToTop.collectAsStateWithLifecycle()
     val localAds by viewModel.localAds.collectAsStateWithLifecycle()
-    val preloadedAds = remember { mutableStateMapOf<Int, AdState>() }
 
     var hasLocationPermission by remember {
         mutableStateOf(

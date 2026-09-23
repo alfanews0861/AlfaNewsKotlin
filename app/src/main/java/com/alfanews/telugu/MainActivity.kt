@@ -86,6 +86,7 @@ class MainActivity : ComponentActivity() {
 
     private val mainViewModel: MainViewModel by viewModels { ViewModelFactory(application) }
     private val newsFeedViewModel: NewsFeedViewModel by viewModels { ViewModelFactory(application) }
+    private var coldStartInitialPostId: String? = null
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -133,6 +134,7 @@ class MainActivity : ComponentActivity() {
         // Preload news - if intent contains a postId (notification or deep link),
         // pass initialPostId immediately so fast path loads the target post at index 0 without delay.
         val initialPostId = extractPostIdFromIntent(intent)
+        coldStartInitialPostId = initialPostId
         if (initialPostId != null) {
             newsFeedViewModel.setSharedPostId(initialPostId)
             mainViewModel.setActiveTab("home")
@@ -465,10 +467,13 @@ class MainActivity : ComponentActivity() {
                 // 🔗 CRITICAL: Set sharedPostId so UI knows to scroll to this post
                 newsFeedViewModel.setSharedPostId(postId)
                 mainViewModel.setActiveTab("home")
-                // Only load if the post isn't already the first item in the list
-                if (newsFeedViewModel.news.value.firstOrNull()?.id != postId) {
+                val alreadyLoadedFirst = newsFeedViewModel.news.value.firstOrNull()?.id == postId
+                val isAlreadyLoadingInitial = (postId == coldStartInitialPostId && newsFeedViewModel.loading.value)
+                // Only load if the post isn't already the first item in the list and not already being loaded from cold start
+                if (!alreadyLoadedFirst && !isAlreadyLoadingInitial) {
                     newsFeedViewModel.loadNews(mainViewModel.language.value, mainViewModel.currentUser.value, initialPostId = postId)
                 }
+                coldStartInitialPostId = null
             }
 
             if (reporterId != null) {

@@ -2496,16 +2496,35 @@ CRITICAL EDITORIAL RULES - ATTRIBUTION VS. EDITORIAL VERDICT (ఆపాదిం
 
 2. ACCOUNT CLASSIFICATION & ATTRIBUTION (ఎవరు పోస్ట్ చేశారు - ఆపాదింపు విధానం):
    A) OFFICIAL POLITICAL PARTIES, POLITICIANS, MINISTERS & LEADERS (రాజకీయ పార్టీలు, ప్రజాప్రతినిధులు, మంత్రులు, నాయకులు):
-      - If the post is from an official party handle (e.g. BJP, TDP, YSRCP, BRS, Congress, JSP, etc.) or a political leader / minister / public representative (e.g. Narendra Modi, Chandrababu, Jagan, Pawan Kalyan, Revanth Reddy, KTR, Lokesh, etc.):
-      - The post IS THEIR OFFICIAL STATEMENT, OPINION, ALLEGATION, OR POLICY ANNOUNCEMENT.
-      - YOU MUST ATTRIBUTE THE STATEMENT DIRECTLY TO THEM:
-        * E.g. "బీజేపీ ప్రకటించింది", "బీజేపీ నేతలు వెల్లడించారు / విమర్శించారు / ఆగ్రహం వ్యక్తం చేశారు / ఎద్దేవా చేశారు"
-        * E.g. "టీడీపీ ధ్వజమెత్తింది", "వైసీపీ డిమాండ్ చేసింది", "కేటీఆర్ నిలదీశారు", "లోకేష్ స్పష్టం చేశారు".
+      - If the post is from an official party handle or a political leader / minister / public representative:
+      - ⚠️ TWO SUB-CASES — carefully distinguish:
+
+      A1) POLITICIAN TWEETING THEIR OWN STATEMENT / OPINION / DECISION (తమ స్వంత ప్రకటన, నిర్ణయం, విమర్శ):
+         - When the politician is talking about their OWN actions, views, criticisms, announcements:
+         - Attribute DIRECTLY to the tweet author (Post Author).
+         - E.g. "బీజేపీ ప్రకటించింది", "కేటీఆర్ నిలదీశారు", "లోకేష్ స్పష్టం చేశారు", "జగన్ ఆరోపించారు".
+
+      A2) ⚠️ POLITICIAN TWEETING ABOUT SOMEONE ELSE'S ACTIONS / EVENTS (వేరొకరి కార్యక్రమాలు, చర్యలు, విజయాలు గురించి tweet చేసినప్పుడు - CRITICAL):
+         - When the politician is tweeting to REPORT or SHARE NEWS about another person's actions, a government program, another leader's visit, or an event:
+         - The SUBJECT of the event (the person doing the action) AND the tweet author (who shared it) are BOTH important.
+         - The headline/story must describe what the SUBJECT did, but MUST also credit the tweet author as the source.
+         - ✅ CORRECT: "ఉదయగిరి సీఎం పర్యటన ఏర్పాట్లు పరిశీలించిన మంత్రి నారాయణ అంటూ అనం రామ నారాయణ రెడ్డి ట్వీట్"
+         - ❌ WRONG: Describe the event (minister Narayana reviewed) but COMPLETELY DROP the tweet author (Anam Rama Narayana Reddy). This erases the politician who shared it and disrespects them.
+         - The tweet author's name (Post Author) MUST appear in either the headline or the article body as the source.
+
    B) 3RD-PARTY NEWS AGGREGATORS / CURATORS (న్యూస్ అగ్రిగేటర్లు - e.g. Telugu Scribe, Great Andhra, AP7AM, ANI, Gulte):
       - NEVER attribute the news to the aggregator handle name! DO NOT write "తెలుగు స్క్రైబ్ తెలిపింది", "గ్రేట్ ఆంధ్ర వీరంగం", etc.
       - Instead, read the text inside the post to identify the real leader, official, or event, and attribute to that actual person or incident.
    C) ADMINISTRATIVE / OFFICIAL BODIES (పోలీస్, ఆర్టీసీ, విపత్తు నిర్వహణ, ప్రభుత్వం):
       - Attribute as "పోలీసులు వెల్లడించారు", "ఆర్టీసీ అధికారులు తెలిపారు", "వాతావరణ శాఖ హెచ్చరించింది".
+   D) ⚠️ ACTIVISTS, JOURNALISTS, ORDINARY CITIZENS, SOCIAL MEDIA REPORTERS (సాధారణ పౌరులు, జర్నలిస్టులు, ఆర్గనైజర్లు - CRITICAL PERSON SWAP PREVENTION):
+      - If the Post Author is NOT a politician/party/aggregator but a journalist, activist, or regular person tweeting ABOUT an event or ABOUT someone else's actions:
+      - The tweet text itself contains the news (e.g. "YSRCP workers misbehaved with teachers"). The tweet author is the SOURCE/WITNESS, not the subject.
+      - ⚠️ CRITICAL: DO NOT mix up people! The "subject" of the tweet is who the tweet is ABOUT (e.g. YSRCP workers). The "author" (Post Author) is who TWEETED it. They are DIFFERENT people!
+      - The headline and story must describe WHAT HAPPENED (the event described in the tweet), NOT what the tweet author said about it. Attribute actions to the actual actors in the event.
+      - Example: If "Kakarla Suresh" tweets "YSRCP workers misbehaved with teachers" — the story is about YSRCP workers misbehaving with teachers (the event). Kakarla Suresh is the source. Write: "గురువులపై వైఎస్సార్సీపీ కార్యకర్తల దిగజారుడు ప్రవర్తన అంటూ కాకర్ల సురేష్ ఆగ్రహం" or describe the event with Kakarla Suresh as the source.
+      - NEVER attribute the TWEET SUBJECT'S actions (YSRCP workers) to random people appearing IN THE TWEET IMAGE (e.g. "మందేపాటు") who are unrelated to the tweet's claims.
+
 
 3. PRESERVE ORIGINAL TONE, FIGHTING SPIRIT & INTENSITY (వార్త టోన్, తీవ్రత, ఆవేశం ఏమాత్రం మారకూడదు):
    - Preserve the original emotional intensity, sharpness, fighting spirit, anger, grief, or urgency of the incident or speaker (ఆవేశం, ఆగ్రహం, బాధ, పోరాట పటిమ, లేదా ఘాటు విమర్శ తీవ్రత తగ్గకూడదు).
@@ -2529,28 +2548,38 @@ WRITING RULES (CRITICAL EDITORIAL STYLE):
      * Provide a clear, comprehensive, and professional news summary capturing the essence of each major decision announced.
 2. POLITICAL ATTACKS & INTENSITY (రాజకీయ విమర్శలు, ఘాటు వ్యాఖ్యలు):
    - If the post is a political fight, criticism, or challenge, preserve the leader's fighting spirit, intensity, and sharpness (ఘాటు విమర్శ, ఆగ్రహం, నిలదీత, సవాల్, ఆవేదన).
-3. HEADLINE (శీర్షిక - కచ్చితంగా 7 నుండి 8 పదాల పంచ్ వాక్యం, కొటేషన్ మార్కులు లేవు, స్పష్టమైన ఆపాదింపు):
-   - STRICTLY NO QUOTATION MARKS (కొటేషన్లు & కోలన్లు పూర్తిగా నిషిద్ధం): ఎక్కడా సింగిల్ కోట్స్ ('...'), డబుల్ కోట్స్ ("..."), వంపు కోట్స్ (‘...’, “...”) లేదా కోలన్లు (:) వాడరాదు!
-   - Format: Leader's sharp punch, criticism, or biggest decision as a single continuous sentence without quotes.
-   - PUNCH DIALOGUE MANDATORY (నాయకుడు పలికిన అసలు పంచ్ డైలాగ్/సంచలన వ్యాఖ్య మాత్రమే శీర్షికలో రావాలి):
-     * ఎవరైనా నాయకుడు, మంత్రి లేదా ప్రముఖ వ్యక్తి మాట్లాడినప్పుడు వారు పలికిన ఘాటైన పంచ్ డైలాగ్, సంచలన వ్యాఖ్య లేదా కీలక ప్రకటన మాత్రమే శీర్షికలో రావాలి!
-     * ❌ చప్పని "స్పందన" శీర్షికలు పూర్తిగా నిషిద్ధం (STRICTLY FORBIDDEN):
-       - "ఫలానా అంశంపై ఫలానా నేత స్పందన", "స్పందించిన ఫలానా మంత్రి", "ఫలానా విషయంపై మాట్లాడిన నేత", "ఫలానా విజయంపై స్పందన" వంటి చప్పని లేబుల్ శీర్షికలు ఎట్టిపరిస్థితుల్లోనూ రాయకూడదు!
-       - ఉదాహరణకు: "డియూఎస్యు ఎన్నికల్లో ఏబీవీపీ ఘన విజయంపై కిరణ్ రిజిజు స్పందన" అని రాయడం పూర్తిగా నిషిద్ధం!
-     * ✅ నాయకుడు పలికిన అసలు పంచ్ వాక్యాన్ని ఆపాదిస్తూ రాయాలి:
-       - "ఏబీవీపీ అఖండ విజయంతో సత్తా చాటిందన్న కిరణ్ రిజిజు" (7 words)
-       - "డీయూలో ఏబీవీపీ తిరుగులేని శక్తిగా నిలిచిందన్న కిరణ్ రిజిజు" (7 words)
-   - MANDATORY ATTRIBUTION: For any political criticism, claim, or attack, the headline MUST attribute who said or claimed it:
-     * "రాహుల్ ప్రచారం విఫలమైందన్న బీజేపీ" (7 words)
-     * "భారత ఆర్థిక వ్యవస్థ దూసుకుపోతోందన్న బీజేపీ" (6 words)
-     * "తాట తీస్తానంటూ అధికారులపై ఎమ్మెల్యే శిరీషదేవి తీవ్ర ఫైర్" (7 words)
-     * "తిరుమల భక్తులకు ఉచిత భీమా కల్పిస్తామన్న మంత్రి ఆనం" (7 words)
-     * "ప్రజలను దగా చేశారంటూ కూటమి సర్కార్‌పై జగన్ ఫైర్" (7 words)
-     * "నోరు అదుపులో పెట్టుకోవాలంటూ లోకేష్ స్ట్రాంగ్ వార్నింగ్" (6 words)
-     * "హామీలు గాల్లో కలిపేశారంటూ రేవంత్ సర్కార్‌పై కేటీఆర్ ఆగ్రహం" (7 words)
-     * "ఎస్వీ మ్యూజియం అభివృద్ధికి రూ.104 కోట్లు కేటాయింపు" (6 words)
-   - NEVER write un-attributed partisan conclusions as headlines (e.g. NEVER write: "రాహుల్ గాంధీ ప్రచారం పూర్తిగా విఫలం" or "ప్రభుత్వం పూర్తిగా విఫలమైంది").
-   - Length: STRICTLY 7 to 8 words only (కచ్చితంగా 7 నుండి 8 పదాలు మాత్రమే ఉండాలి). High-impact, punchy Telugu.
+3. CONTEXT-AWARE HEADLINE (సందర్భానుసార శీర్షిక - కచ్చితంగా 7 నుండి 8 పదాలు, ఏకైక సంపూర్ణ వాక్యం, కొటేషన్లు లేవు):
+   - హెడ్‌లైన్ అనేది అన్ని వార్తలకూ ఒకే మూసలో ఉండకూడదు! వార్త యొక్క వాస్తవ స్వభావం, తీవ్రత మరియు సందర్భాన్ని బట్టి AI సరైన శైలిని ఎంచుకోవాలి:
+     * 1. రాజకీయ విమర్శలు, సవాళ్లు, ఆరోపణలు, ప్రెస్ మీట్లు:
+       - శైలి: ఘాటైన పంచ్ డైలాగ్ + స్పష్టమైన ఆపాదింపు (Attribution).
+       - నాయకుడు పలికిన అసలు పంచ్ వాక్యం/సవాలే శీర్షికలో రావాలి.
+       - ❌ చప్పని "స్పందన", "సమీక్ష" వంటి పదాలు పూర్తిగా నిషిద్ధం!
+       - ❌ మనమే తీర్పు ఇచ్చినట్లు రాయకూడదు.
+       - ఉదాహరణ: "ప్రజలను దగా చేశారంటూ కూటమి సర్కార్‌పై జగన్ తీవ్ర ఆగ్రహం"
+       - ఉదాహరణ: "ఏబీవీపీ విజయంతో సత్తా చాటిందన్న కేంద్ర మంత్రి కిరణ్ రిజిజు"
+       - ఉదాహరణ: "అక్రమ కేసులతో బెదిరించలేరంటూ కాంగ్రెస్ సర్కార్‌కు కేటీఆర్ బహిరంగ సవాల్"
+     * 2. రైతాంగ వ్యథ, పేదల ఆవేదన, ప్రజా సమస్యలు, పల్లెసీమల కష్టాలు:
+       - శైలి: హృదయాన్ని కదిలించే కరుణ రసం / కవితాత్మక రూపకాలు (Poetic Metaphors - శ్రీశ్రీ, తిలక్ శైలిలో).
+       - పేదల బాధ, రైతన్న కన్నీరు, అధికారుల నిర్లక్ష్యం కళ్లకు కట్టేలా రాయాలి (ఇక్కడ పంచ్ డైలాగులు పెట్టరాదు).
+       - ఉదాహరణ: "ఆశల పందిరి కూలి కన్నీటి సంద్రమైన అన్నదాత బతుకు చిత్రం"
+       - ఉదాహరణ: "రోడ్లు లేక డోలీ మోతలతో రోదిస్తున్న అడవితల్లి ఆక్రోశం"
+     * 3. ప్రమాదాలు, విషాదాలు, విపత్తులు:
+       - శైలి: గంభీరమైన, వాస్తవికతతో కూడిన వార్తా శైలి (Grave, Impactful Reality).
+       - సంఘటన తీవ్రత, స్థలం, ప్రాణనష్టం స్పష్టంగా తెలపాలి (ఇక్కడ కవిత్వాలు, పంచ్ డైలాగులు పూర్తిగా నిషిద్ధం).
+       - ఉదాహరణ: "నెత్తురోడిన జాతీయ రహదారిపై లారీ ఢీకొని నలుగురు దుర్మరణం"
+       - ఉదాహరణ: "వరద ఉధృతిలో కొట్టుకుపోయిన కారు.. నదిలో ఇద్దరు గల్లంతు"
+     * 4. ప్రభుత్వ పథకాలు, అభివృద్ధి పనులు, నియామకాలు, శుభవార్తలు:
+       - శైలి: ఉత్తేజభరితమైన, సూటిగా ప్రయోజనాన్ని తెలిపే శైలి (Crisp, Direct, Uplifting Action).
+       - ఎవరికి ఏమి లభిస్తుంది, పథకం లబ్ధి ఏమిటనేది సూటిగా ప్రజలకు చేరాలి.
+       - ఉదాహరణ: "రైతుల ఖాతాల్లోకి నేడే రైతు భరోసా నిధుల జమ"
+       - ఉదాహరణ: "నిరుద్యోగులకు తీపి కబురు.. త్వరలోనే పదివేల ఉద్యోగాల భర్తీ"
+     * 5. నేరాలు, దోపిడీలు, పోలీస్ దాడులు, మోసాలు:
+       - శైలి: పదునైన క్రైమ్ రిపోర్టింగ్ (Sharp, Gripping Crime Reporting).
+       - ఉదాహరణ: "సికింద్రాబాద్‌లో సినీ ఫక్కీలో భారీ దోపిడీ.. అంతర్రాష్ట్ర ముఠా అరెస్ట్"
+   - కఠిన సార్వత్రిక నిబంధనలు (UNIVERSAL RULES FOR ALL HEADLINES):
+     1. ఖచ్చితంగా 7 నుండి 8 పదాలు మాత్రమే (STRICTLY 7 TO 8 WORDS ONLY).
+     2. మొదటి పదం నుండి చివరి పదం వరకు కేవలం ఒకే ఒక్క నిరంతర సంపూర్ణ వాక్యం (STRICTLY ONE CONTINUOUS SENTENCE).
+     3. కొటేషన్లు ('...', "...") మరియు కోలన్లు (:) పూర్తిగా నిషిద్ధం!
 4. SUMMARY (సారాంశం - కచ్చితంగా 60 నుండి 70 పదాలు మాత్రమే, ఆపాదింపు తప్పనిసరి):
    - Length: STRICTLY 60 to 70 words only (కచ్చితంగా 60 నుండి 70 పదాల మధ్య మాత్రమే ఉండాలి, 70 పదాలు దాటకూడదు).
    - Crisp, powerful Telugu preserving the core arguments, punch points, leader's/speaker's name, key decisions/numbers, and context.

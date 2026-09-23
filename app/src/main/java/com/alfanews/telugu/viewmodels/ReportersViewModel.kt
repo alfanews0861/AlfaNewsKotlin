@@ -106,6 +106,7 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
                     FirebaseService.db.collection("news")
                         .whereEqualTo("approved", true)
                         .whereEqualTo("isReporter", true)
+                        .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
                         .whereGreaterThanOrEqualTo("timestamp", com.google.firebase.Timestamp(weekStart))
                         .get().await()
                 }
