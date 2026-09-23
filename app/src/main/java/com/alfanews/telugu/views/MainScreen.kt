@@ -46,7 +46,7 @@ fun MainScreen(
     val isAdmin = rawCurrentUser?.role == UserRole.ADMIN ||
         rawCurrentUser?.phone?.contains("9173811009") == true ||
         rawCurrentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
-        authUser?.phoneNumber?.contains("9173811009") == true ||
+        authUser?.phoneNumber?.contains("9173811009") == true
     val user = rawCurrentUser
     val currentUser = if (isAdmin && user != null && user.role != UserRole.ADMIN) {
         user.copy(role = UserRole.ADMIN)
