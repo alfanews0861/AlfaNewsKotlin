@@ -50,7 +50,6 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.PlatformTextStyle
@@ -2118,18 +2117,6 @@ fun FullStoryBottomSheet(
                             accumulatedBottomOverscroll = 0f
                         }
                         return Offset.Zero
-                    }
-
-                    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                        // Fling down at top
-                        if (available.y > 150f && storyScrollState.value == 0) {
-                            onDismissRequest()
-                        }
-                        // Fling up at bottom
-                        if (available.y < -150f && storyScrollState.maxValue > 0 && storyScrollState.value >= storyScrollState.maxValue - 15) {
-                            onDismissRequest()
-                        }
-                        return super.onPostFling(consumed, available)
                     }
                 }
             }
