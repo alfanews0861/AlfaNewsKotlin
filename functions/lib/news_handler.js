@@ -33,12 +33,13 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.recoverFalselyRejectedNewsHttp = exports.scheduleReprocessFailedReporterNews = exports.onNewsPostCreated = exports.processNewsPost = void 0;
+exports.recoverFalselyRejectedNewsHttp = exports.reprocessUnprocessedNewsHttp = exports.scheduleReprocessFailedReporterNews = exports.onNewsPostCreated = exports.processNewsPost = void 0;
 exports.calculateTextSimilarity = calculateTextSimilarity;
 exports.fetchRecentMandalNews = fetchRecentMandalNews;
 exports.isApprovalRemark = isApprovalRemark;
 exports.extractVideoAudioSpeechContext = extractVideoAudioSpeechContext;
 exports.performAIProcessing = performAIProcessing;
+exports.runReprocessFailedAndUnprocessedNews = runReprocessFailedAndUnprocessedNews;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -1175,8 +1176,8 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
             lastProcessingStart: admin.firestore.FieldValue.serverTimestamp()
         });
         try {
-            const headline = latestData.headline?.telugu || "";
-            const content = latestData.content?.telugu || "";
+            const headline = latestData.headline?.telugu || (typeof latestData.headline === 'string' ? latestData.headline : "") || "";
+            const content = latestData.content?.telugu || (typeof latestData.content === 'string' ? latestData.content : "") || "";
             if (!headline || !content) {
                 await db.collection('news').doc(postId).update({ status: "FAILED", error: "Missing headline or content" });
                 return;
@@ -1304,6 +1305,8 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                     reporter: finalIsCitizen ? { id: latestData.reporter?.id || originalReporterId || "", name: "సిటిజెన్ పోస్ట్" } : (aiProcessedData.reporter || latestData.reporter),
                     status: isRejected ? "REJECTED" : (shouldWaitForVideoUpload ? "PROCESSING_VIDEO" : "PUBLISHED"),
                     approved: isRejected ? false : (shouldWaitForVideoUpload ? false : true),
+                    lastProcessingError: admin.firestore.FieldValue.delete(),
+                    error: admin.firestore.FieldValue.delete(),
                     ...(isAlreadyVideoReady ? { videoProcessed: true } : {})
                 };
                 // Smart Photo Matching:
@@ -2041,30 +2044,23 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
     }
 });
 /**
- * 6.3 Scheduled Auto-Retry for Failed Reporter News (Runs every 30 minutes)
- * Scans for reporter submissions from the last 4 hours that failed, remained pending, or were falsely rejected
- * and triggers automated reprocessing.
+ * 6.3 Scheduled Auto-Retry for Failed / Unprocessed Reporter News
+ * Scans for reporter submissions that failed, remained pending, or were published raw via fallback,
+ * and triggers automated AI reprocessing.
  */
-exports.scheduleReprocessFailedReporterNews = (0, scheduler_1.onSchedule)({
-    schedule: "*/30 * * * *",
-    timeZone: "Asia/Kolkata",
-    memory: "1GiB",
-    timeoutSeconds: 540,
-    region: utils_1.REGION,
-    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"]
-}, async (event) => {
-    console.log("[AUTO_RETRY_SCHEDULE] Starting 30-min scan for failed/pending reporter news...");
-    const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
+async function runReprocessFailedAndUnprocessedNews(hoursLookback = 24) {
+    console.log(`[AUTO_RETRY] Starting scan for failed/unprocessed reporter news (lookback: ${hoursLookback} hours)...`);
+    const lookbackTime = new Date(Date.now() - hoursLookback * 60 * 60 * 1000);
     try {
         const snapshot = await db.collection('news')
-            .where('timestamp', '>=', admin.firestore.Timestamp.fromDate(fourHoursAgo))
+            .where('timestamp', '>=', admin.firestore.Timestamp.fromDate(lookbackTime))
             .get();
         // 0. Auto-recover posts falsely marked REJECTED due to approval remarks
         for (const doc of snapshot.docs) {
             const d = doc.data();
             const status = (d.status || "").toUpperCase();
             if (status === "REJECTED" && isApprovalRemark(d.rejectionReason)) {
-                console.log(`[AUTO_RETRY_SCHEDULE] Recovering falsely rejected post: ${doc.id} ("${d.headline?.telugu || 'Untitled'}"). Old reason: ${d.rejectionReason}`);
+                console.log(`[AUTO_RETRY] Recovering falsely rejected post: ${doc.id} ("${d.headline?.telugu || 'Untitled'}"). Old reason: ${d.rejectionReason}`);
                 const mTypes = (d.mediaTypes || []).map((t) => t.toUpperCase());
                 const hasVideo = mTypes.includes('VIDEO') || d.mediaType?.toUpperCase() === 'VIDEO';
                 const targetStatus = hasVideo && !d.videoProcessed ? "PROCESSING_VIDEO" : "PUBLISHED";
@@ -2093,7 +2089,10 @@ exports.scheduleReprocessFailedReporterNews = (0, scheduler_1.onSchedule)({
             const d = doc.data();
             const status = (d.status || "").toUpperCase();
             const isReporter = d.isReporter === true || (d.reporter?.id && !d.isCitizen && d.reporter?.name !== "సిటిజెన్ పోస్ట్");
-            if (!isReporter || d.approved === true)
+            if (!isReporter)
+                return false;
+            // If already processed by AI successfully and approved, do NOT retry!
+            if (d.approved === true && d.aiProcessed === true)
                 return false;
             // 1. Loop prevention: Never retry if reprocessCount >= 3
             if ((d.reprocessCount || 0) >= 3)
@@ -2103,33 +2102,82 @@ exports.scheduleReprocessFailedReporterNews = (0, scheduler_1.onSchedule)({
             const isRealDuplicate = d.isDuplicate === true && !!d.duplicateOfPostId;
             if (isRealPolicyRejection || isRealDuplicate)
                 return false;
-            // 3. Check for AI failure, stuck pending, or false duplicate
+            // 3. Check for AI failure, stuck pending, false duplicate, or published raw without AI (fallback)
+            const isFallbackPublished = (status === "PUBLISHED" || d.approved === true) && d.aiProcessed !== true;
             const isFalseDuplicate = (status === "REJECTED" || d.isDuplicate === true) && !d.duplicateOfPostId;
-            const isFailedOrPendingAI = (status === "FAILED" || (status === "PENDING" && d.aiProcessed !== true) || status === "REVIEWING_CONTENT" || isFalseDuplicate);
+            const isFailedOrPendingAI = (status === "FAILED" || (status === "PENDING" && d.aiProcessed !== true) || status === "REVIEWING_CONTENT" || isFalseDuplicate || isFallbackPublished);
             // 4. Check for stuck video posts (PENDING_YOUTUBE_RETRY or interrupted video processing)
             const mTypes = (d.mediaTypes || []).map((t) => t.toUpperCase());
             const hasVideo = mTypes.includes('VIDEO') || d.mediaType?.toUpperCase() === 'VIDEO';
             const isStuckVideo = hasVideo && (status === "PENDING_YOUTUBE_RETRY" || status === "PROCESSING_VIDEO" || status === "PROCESSING_VIDEO_START") && d.videoProcessed !== true;
             return isFailedOrPendingAI || isStuckVideo;
         });
-        console.log(`[AUTO_RETRY_SCHEDULE] Found ${retryCandidates.length} failed/pending reporter posts from the last 2 hours to retry.`);
+        console.log(`[AUTO_RETRY] Found ${retryCandidates.length} failed/unprocessed reporter posts from the last ${hoursLookback} hours to retry.`);
+        const items = [];
         for (const doc of retryCandidates) {
             const postId = doc.id;
             const data = doc.data();
             const mTypes = (data.mediaTypes || []).map((t) => t.toUpperCase());
             const hasVideo = mTypes.includes('VIDEO') || data.mediaType?.toUpperCase() === 'VIDEO';
             const targetStatus = (data.aiProcessed && hasVideo) ? "PROCESSING_VIDEO" : "PENDING";
-            console.log(`[AUTO_RETRY_SCHEDULE] Retrying post: ${postId} (${data.headline?.telugu || 'Untitled'}) -> Target: ${targetStatus}, Attempts: ${(data.reprocessCount || 0) + 1}/2`);
+            console.log(`[AUTO_RETRY] Retrying post: ${postId} (${data.headline?.telugu || 'Untitled'}) -> Target: ${targetStatus}, Attempts: ${(data.reprocessCount || 0) + 1}/3`);
             await db.collection('news').doc(postId).update({
                 status: targetStatus,
                 forceReprocess: true,
                 reprocessCount: admin.firestore.FieldValue.increment(1),
                 lastReprocessAttempt: admin.firestore.FieldValue.serverTimestamp()
             });
+            items.push({
+                id: postId,
+                headline: data.headline?.telugu || (typeof data.headline === 'string' ? data.headline : 'Untitled'),
+                previousStatus: data.status,
+                aiProcessed: data.aiProcessed,
+                targetStatus,
+                attempts: (data.reprocessCount || 0) + 1
+            });
         }
+        return {
+            totalScanned: snapshot.size,
+            reprocessedCount: retryCandidates.length,
+            items
+        };
     }
     catch (err) {
-        console.error("[AUTO_RETRY_SCHEDULE_ERR] Error during 2-hour auto-retry schedule:", err.message);
+        console.error("[AUTO_RETRY_ERR] Error during reprocess scan:", err.message);
+        throw err;
+    }
+}
+exports.scheduleReprocessFailedReporterNews = (0, scheduler_1.onSchedule)({
+    schedule: "*/30 * * * *",
+    timeZone: "Asia/Kolkata",
+    memory: "1GiB",
+    timeoutSeconds: 540,
+    region: utils_1.REGION,
+    secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"]
+}, async (event) => {
+    try {
+        await runReprocessFailedAndUnprocessedNews(6);
+    }
+    catch (e) {
+        console.error("[SCHEDULE_REPROCESS_FAILED_ERR]", e.message);
+    }
+});
+/**
+ * 6.3b HTTP Endpoint to immediately scan and reprocess failed/unprocessed reporter news.
+ * Can be called via GET request to instantly trigger AI reprocessing for recent news.
+ */
+exports.reprocessUnprocessedNewsHttp = (0, https_1.onRequest)({
+    region: utils_1.REGION,
+    memory: "1GiB",
+    timeoutSeconds: 300
+}, async (req, res) => {
+    try {
+        const hours = parseInt(req.query.hours, 10) || 24;
+        const result = await runReprocessFailedAndUnprocessedNews(hours);
+        res.status(200).json({ success: true, hours, ...result });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 /**

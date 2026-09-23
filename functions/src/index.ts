@@ -71,7 +71,8 @@ export {
     processNewsPost,
     onNewsPostCreated,
     scheduleReprocessFailedReporterNews,
-    recoverFalselyRejectedNewsHttp
+    recoverFalselyRejectedNewsHttp,
+    reprocessUnprocessedNewsHttp
 } from "./news_handler";
 
 // 4. Export Notification Engine
