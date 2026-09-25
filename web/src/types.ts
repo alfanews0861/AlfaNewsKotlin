@@ -437,6 +437,7 @@ export interface ReporterMessage {
     timestamp: number;
     read: boolean;
     type?: string;
+    isManual?: boolean;
 }
 
 export interface AffiliateConfig {

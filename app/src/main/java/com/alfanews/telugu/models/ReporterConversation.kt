@@ -24,6 +24,7 @@ data class ReporterMessage(
     val text: String = "",
     val type: String = "CHAT",        // "CHAT" | "WARNING" | "BROADCAST" | "NOTICE"
     val read: Boolean = false,
+    val isManual: Boolean = false,
     val timestamp: Long = 0L
 )
 
@@ -34,6 +35,7 @@ data class AdminNotice(
     val senderName: String = "ఆల్ఫా న్యూస్ ఎడిటోరియల్ డెస్క్",
     val senderRole: String = "ADMIN",
     val type: String = "NOTICE", // "WARNING" | "BROADCAST" | "DAILY_BEAT" | "REMINDER" | "NOTICE" | "CHAT"
+    val isManual: Boolean = true,
     val timestamp: Long = System.currentTimeMillis(),
     val source: String = "REPORTER_CONV" // "REPORTER_CONV" | "USER_MSG"
 )

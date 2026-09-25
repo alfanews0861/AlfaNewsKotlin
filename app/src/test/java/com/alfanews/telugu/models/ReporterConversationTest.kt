@@ -62,9 +62,37 @@ class ReporterConversationTest {
             senderName = "Chief Editor",
             senderRole = "ADMIN",
             text = "అందరు రిపోర్టర్లు రేపటి అసెంబ్లీ సమావేశాల కవరేజ్ సిద్ధం చేయండి.",
-            type = "BROADCAST"
+            type = "BROADCAST",
+            isManual = true
         )
 
         assertEquals("BROADCAST", broadcastMsg.type)
+        assertTrue(broadcastMsg.isManual)
+    }
+
+    @Test
+    fun testManualAdminMessageAndNotice() {
+        val manualMsg = ReporterMessage(
+            id = "manual_001",
+            senderId = "real_admin_uid_99",
+            senderName = "Chief Editor",
+            senderRole = "ADMIN",
+            text = "ప్రత్యేక పరిశీలన సూచనలు",
+            type = "CHAT",
+            isManual = true
+        )
+        assertTrue(manualMsg.isManual)
+
+        val notice = AdminNotice(
+            id = "notice_001",
+            title = "ముఖ్య సందేశం",
+            text = "విలేకరి కోసం వ్యక్తిగత సందేశం",
+            senderName = "Chief Editor",
+            senderRole = "ADMIN",
+            type = "NOTICE",
+            isManual = true
+        )
+        assertTrue(notice.isManual)
+        assertEquals("Chief Editor", notice.senderName)
     }
 }

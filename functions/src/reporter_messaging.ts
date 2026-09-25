@@ -106,6 +106,7 @@ export const sendAdminReporterMessage = onCall(async (request) => {
         text: cleanText,
         type: type || 'CHAT', // 'CHAT' | 'WARNING' | 'BROADCAST' | 'NOTICE'
         read: false,
+        isManual: isAdmin,
         timestamp
     };
 
@@ -232,6 +233,7 @@ export const broadcastToAllReporters = onCall(async (request) => {
             text: `${title}\n\n${body}`,
             type: 'BROADCAST',
             read: false,
+            isManual: true,
             timestamp
         });
 

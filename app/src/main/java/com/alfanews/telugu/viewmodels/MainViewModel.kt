@@ -533,7 +533,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
             // B. Real-time listener for incoming unread Admin messages to show In-App Popup
-            // 🎯 అడ్మిన్ పంపిన అన్ని ముఖ్య సందేశాలు, హెచ్చరికలు, బ్రాడ్‌కాస్ట్‌లు పాపప్ అవుతాయి
+            // 🎯 అడ్మిన్ మాన్యువల్‌గా పంపిన ముఖ్య సందేశాలు, హెచ్చరికలు, బ్రాడ్‌కాస్ట్‌లు మాత్రమే పాపప్ అవుతాయి (ఆటోమేటెడ్ సిస్టమ్ మెసేజ్‌లు పాపప్ కావు)
             reporterUnreadMessagesListener = FirebaseService.db.collection("reporter_conversations")
                 .document(user.id)
                 .collection("messages")
@@ -544,6 +544,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     reporterNoticesList = snapshot.documents.mapNotNull { doc ->
                         try {
                             val data = doc.data ?: return@mapNotNull null
+                            if (!isManualAdminMessage(data)) return@mapNotNull null
+
                             val rawType = (data["type"] as? String ?: "NOTICE").trim().uppercase()
                             val fullText = data["text"] as? String ?: ""
                             if (fullText.isBlank()) return@mapNotNull null
@@ -573,6 +575,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 senderName = senderName,
                                 senderRole = "ADMIN",
                                 type = rawType,
+                                isManual = true,
                                 timestamp = ts,
                                 source = "REPORTER_CONV"
                             )
@@ -598,6 +601,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     userNoticesList = unreadDocs.mapNotNull { doc ->
                         try {
                             val data = doc.data ?: return@mapNotNull null
+                            if (!isManualAdminMessage(data)) return@mapNotNull null
+
                             val rawType = (data["type"] as? String ?: "NOTICE").trim().uppercase()
                             val title = data["title"] as? String ?: "ముఖ్య గమనిక"
                             val body = data["body"] as? String ?: (data["text"] as? String ?: "")
@@ -616,6 +621,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 senderName = senderName,
                                 senderRole = data["senderRole"] as? String ?: "ADMIN",
                                 type = rawType,
+                                isManual = true,
                                 timestamp = ts,
                                 source = "USER_MSG"
                             )
@@ -626,6 +632,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     updateNoticesAndBadge()
                 }
         }
+    }
+
+    /**
+     * కేవలం అడ్మిన్ లేదా ఎడిటోరియల్ స్టాఫ్ మాన్యువల్‌గా పంపిన ముఖ్య సందేశాలు/ప్రకటనలు మాత్రమే
+     * In-App Popup లాగా రావాలి. ఆటోమేటెడ్ బాట్/సిస్టమ్ మెసేజ్‌లు పాపప్ కాకూడదు.
+     */
+    private fun isManualAdminMessage(data: Map<String, Any?>): Boolean {
+        // 1. Explicit manual or automated flags
+        val isExplicitManual = data["isManual"] as? Boolean ?: (data["manual"] as? Boolean ?: false)
+        val isExplicitAutomated = data["isAutomated"] as? Boolean ?: (data["automated"] as? Boolean ?: (data["isAuto"] as? Boolean ?: false))
+        if (isExplicitAutomated) return false
+        if (isExplicitManual) return true
+
+        // 2. Sender role check (Must be ADMIN or editorial staff)
+        val senderRole = (data["senderRole"] as? String ?: "").trim().uppercase()
+        val adminRoles = setOf("ADMIN", "SUPER_ADMIN", "CHIEF_EDITOR", "EDITOR", "NEWS_DESK", "REGIONAL_INCHARGE")
+        if (senderRole.isNotEmpty() && senderRole !in adminRoles) {
+            return false
+        }
+
+        // 3. Sender ID check - filter out all automated bots and system handlers
+        val senderId = (data["senderId"] as? String ?: "").trim().uppercase()
+        val systemIdPrefixes = listOf("SYSTEM", "SYS_", "BOT_", "AUTO_", "CRON_", "AI_")
+        if (systemIdPrefixes.any { senderId.startsWith(it) }) {
+            return false
+        }
+
+        // 4. Message Type check - filter out automated system notification types
+        val rawType = (data["type"] as? String ?: "CHAT").trim().uppercase()
+        val automatedTypes = setOf(
+            "REPORTER_APP_PENDING",
+            "REPORTER_APPROVED",
+            "REPORTER_REJECTED",
+            "INACTIVITY_WARNING",
+            "ZERO_POSTS_WARNING",
+            "MANDAL_REVOCATION",
+            "AUTO_TIP",
+            "DAILY_BEAT_AUTO",
+            "NEWS_STATUS",
+            "NEWS_APPROVED",
+            "NEWS_REJECTED",
+            "SYSTEM_ALERT",
+            "SYSTEM_NOTICE"
+        )
+        if (rawType in automatedTypes) {
+            return false
+        }
+
+        // 5. Automated text heuristics to prevent legacy auto rejection/approval notifications from popping up
+        val text = (data["text"] as? String ?: (data["body"] as? String ?: "")).trim()
+        if (text.contains("మీరు పంపిన వార్త:") && text.contains("ఎడిటోరియల్ డెస్క్ పరిశీలన:")) return false
+        if (text.contains("వార్త ప్రచురణ సమాచారం") && text.contains("అంతరాయం ఏర్పడింది")) return false
+        if (text.contains("రిథమ్ రిమైండర్") || text.contains("దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు")) return false
+
+        return true
     }
 
     /**

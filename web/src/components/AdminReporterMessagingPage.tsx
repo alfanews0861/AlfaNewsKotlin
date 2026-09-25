@@ -283,7 +283,8 @@ const AdminReporterMessagingPage: React.FC<AdminReporterMessagingPageProps> = ({
           text: textToSend,
           type: currentType,
           timestamp: serverTimestamp ? serverTimestamp() : now,
-          read: false
+          read: false,
+          isManual: isAdmin
         });
 
         const convDocRef = doc(db, 'reporter_conversations', activeReporter.reporterId);
