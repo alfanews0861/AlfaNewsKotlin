@@ -61,6 +61,20 @@ object Constants {
         "వైఎస్ఆర్ కడప", "వైఎస్సార్ కడప", "కడప", "Kadapa", "YSR Kadapa", "అమరావతి", "Amaravati"
     )
 
+    val UNIVERSAL_IDENTIFIERS: Set<String> = setOf(
+        "General", "State", "State News", "Sports", "Health", "Technology", "Business", "Entertainment", "Cinema",
+        "National", "International", "Crime", "Education", "Agriculture", "Devotional", "Lifestyle",
+        "India", "World", "Global", "ALL", "జనరల్", "భారతదేశం", "ప్రపంచం", "జాతీయం", "అంతర్జాతీయం",
+        "సినిమా", "స్పోర్ట్స్", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "ఆరోగ్యం", "విద్య", "వ్యవసాయం", "భక్తి",
+        "రాష్ట్రం", "వార్తలు", "News", "వినోదం", "లైఫ్ స్టైల్"
+    )
+
+    fun isUniversalOrGeneral(districtOrCategory: String?): Boolean {
+        if (districtOrCategory.isNullOrBlank()) return false
+        val clean = districtOrCategory.trim()
+        return UNIVERSAL_IDENTIFIERS.any { it.equals(clean, ignoreCase = true) }
+    }
+
     fun mapDistrictToState(district: String?): String? {
         if (district.isNullOrBlank()) return null
         val clean = district.trim()
@@ -69,11 +83,192 @@ object Constants {
             .replace("District", "", ignoreCase = true)
             .trim()
 
-        return when {
-            TS_IDENTIFIERS.any { clean.contains(it, ignoreCase = true) || it.contains(clean, ignoreCase = true) } -> "Telangana"
-            AP_IDENTIFIERS.any { clean.contains(it, ignoreCase = true) || it.contains(clean, ignoreCase = true) } -> "Andhra Pradesh"
-            else -> null
+        if (isUniversalOrGeneral(clean)) return null
+
+        // 1. Exact match with Known State names
+        if (clean.equals("Telangana", ignoreCase = true) || clean.equals("తెలంగాణ", ignoreCase = true) ||
+            clean.equals("తెలంగాణా", ignoreCase = true) || clean.equals("TS", ignoreCase = true) ||
+            clean.equals("TG", ignoreCase = true)) {
+            return "Telangana"
         }
+        if (clean.equals("Andhra Pradesh", ignoreCase = true) || clean.equals("AndhraPradesh", ignoreCase = true) ||
+            clean.equals("ఆంధ్రప్రదేశ్", ignoreCase = true) || clean.equals("ఆంధ్ర ప్రదేశ్", ignoreCase = true) ||
+            clean.equals("ఆంధ్ర", ignoreCase = true) || clean.equals("AP", ignoreCase = true) ||
+            clean.equals("Andhra", ignoreCase = true)) {
+            return "Andhra Pradesh"
+        }
+
+        // 2. Exact match with district list or identifier
+        if (TS_DISTRICTS.any { it.equals(clean, ignoreCase = true) } ||
+            TS_IDENTIFIERS.any { it.equals(clean, ignoreCase = true) }) {
+            return "Telangana"
+        }
+        if (AP_DISTRICTS.any { it.equals(clean, ignoreCase = true) } ||
+            AP_IDENTIFIERS.any { it.equals(clean, ignoreCase = true) }) {
+            return "Andhra Pradesh"
+        }
+
+        // 3. Substring matching
+        for (tsId in TS_IDENTIFIERS) {
+            if (tsId.length >= 3 && clean.contains(tsId, ignoreCase = true)) return "Telangana"
+            if (clean.length >= 4 && tsId.contains(clean, ignoreCase = true) && !isUniversalOrGeneral(clean)) return "Telangana"
+        }
+        for (apId in AP_IDENTIFIERS) {
+            if (apId.length >= 3 && clean.contains(apId, ignoreCase = true)) return "Andhra Pradesh"
+            if (clean.length >= 4 && apId.contains(clean, ignoreCase = true) && !isUniversalOrGeneral(clean)) return "Andhra Pradesh"
+        }
+
+        return null
+    }
+
+    fun isTsDistrict(district: String?): Boolean {
+        return mapDistrictToState(district) == "Telangana"
+    }
+
+    fun isApDistrict(district: String?): Boolean {
+        return mapDistrictToState(district) == "Andhra Pradesh"
+    }
+
+    fun getDistrictAliases(district: String?): List<String> {
+        if (district.isNullOrBlank()) return emptyList()
+        val list = mutableListOf(district)
+        when {
+            // --- TELANGANA DISTRICTS ---
+            district.contains("ఆదిలాబాద్") || district.equals("Adilabad", ignoreCase = true) ->
+                list.addAll(listOf("ఆదిలాబాద్", "Adilabad"))
+            district.contains("కొత్తగూడెం") || district.contains("భద్రాద్రి") || district.contains("Kothagudem", ignoreCase = true) || district.contains("Bhadradri", ignoreCase = true) ->
+                list.addAll(listOf("భద్రాద్రి కొత్తగూడెం", "కొత్తగూడెం", "Bhadradri", "Kothagudem", "Bhadradri Kothagudem"))
+            district.contains("హన్మకొండ") || district.contains("హనుమకొండ") || district.contains("Hanamkonda", ignoreCase = true) || district.contains("Hanumakonda", ignoreCase = true) ->
+                list.addAll(listOf("హన్మకొండ", "హనుమకొండ", "వరంగల్ అర్బన్", "Hanamkonda", "Hanumakonda"))
+            district.contains("హైదరాబాద్") || district.contains("Hyderabad", ignoreCase = true) || district.equals("HYD", ignoreCase = true) ->
+                list.addAll(listOf("హైదరాబాద్", "Hyderabad", "HYD", "సైబరాబాద్", "Cyberabad", "సికింద్రాబాద్", "Secunderabad"))
+            district.contains("జగిత్యాల") || district.contains("Jagtial", ignoreCase = true) ->
+                list.addAll(listOf("జగిత్యాల", "Jagtial"))
+            district.contains("జనగాం") || district.contains("Jangaon", ignoreCase = true) ->
+                list.addAll(listOf("జనగాం", "Jangaon"))
+            district.contains("భూపాలపల్లి") || district.contains("జయశంకర్") || district.contains("Bhupalpally", ignoreCase = true) ->
+                list.addAll(listOf("జయశంకర్ భూపాలపల్లి", "భూపాలపల్లి", "Bhupalpally", "Jayashankar Bhupalpally"))
+            district.contains("గద్వాల") || district.contains("జోగులాంబ") || district.contains("Gadwal", ignoreCase = true) ->
+                list.addAll(listOf("జోగులాంబ గద్వాల", "గద్వాల", "Gadwal", "Jogulamba Gadwal"))
+            district.contains("కామారెడ్డి") || district.contains("Kamareddy", ignoreCase = true) ->
+                list.addAll(listOf("కామారెడ్డి", "Kamareddy"))
+            district.contains("కరీంనగర్") || district.contains("Karimnagar", ignoreCase = true) ->
+                list.addAll(listOf("కరీంనగర్", "Karimnagar"))
+            district.contains("ఖమ్మం") || district.contains("Khammam", ignoreCase = true) ->
+                list.addAll(listOf("ఖమ్మం", "Khammam"))
+            district.contains("ఆసిఫాబాద్") || district.contains("కుమ్రం") || district.contains("Asifabad", ignoreCase = true) ->
+                list.addAll(listOf("కుమ్రం భీమ్ ఆసిఫాబాద్", "ఆసిఫాబాద్", "Asifabad", "Komaram Bheem"))
+            district.contains("మహబూబాబాద్") || district.contains("Mahabubabad", ignoreCase = true) ->
+                list.addAll(listOf("మహబూబాబాద్", "Mahabubabad"))
+            district.contains("మహబూబ్") || district.contains("మహబూబ్‌నగర్") || district.contains("Mahabubnagar", ignoreCase = true) || district.contains("Mahboobnagar", ignoreCase = true) ->
+                list.addAll(listOf("మహబూబ్ నగర్", "మహబూబ్‌నగర్", "Mahabubnagar", "Mahboobnagar"))
+            district.contains("మంచిర్యాల") || district.contains("Mancherial", ignoreCase = true) ->
+                list.addAll(listOf("మంచిర్యాల", "Mancherial"))
+            district.contains("మెదక్") || district.contains("Medak", ignoreCase = true) ->
+                list.addAll(listOf("మెదక్", "Medak"))
+            district.contains("మేడ్చల్") || district.contains("మల్కాజిగిరి") || district.contains("Medchal", ignoreCase = true) || district.contains("Malkajgiri", ignoreCase = true) ->
+                list.addAll(listOf("మేడ్చల్ మల్కాజిగిరి", "మేడ్చల్", "మల్కాజిగిరి", "Medchal", "Malkajgiri", "Medchal-Malkajgiri"))
+            district.contains("ములుగు") || district.contains("Mulugu", ignoreCase = true) ->
+                list.addAll(listOf("ములుగు", "Mulugu"))
+            district.contains("నాగర్ కర్నూల్") || district.contains("నాగర్‌కర్నూల్") || district.contains("Nagarkurnool", ignoreCase = true) ->
+                list.addAll(listOf("నాగర్ కర్నూల్", "నాగర్‌కర్నూల్", "Nagarkurnool"))
+            district.contains("నల్గొండ") || district.contains("నల్లగొండ") || district.contains("Nalgonda", ignoreCase = true) ->
+                list.addAll(listOf("నల్గొండ", "నల్లగొండ", "Nalgonda"))
+            district.contains("నారాయణపేట") || district.contains("Narayanpet", ignoreCase = true) ->
+                list.addAll(listOf("నారాయణపేట", "Narayanpet"))
+            district.contains("నిర్మల్") || district.contains("Nirmal", ignoreCase = true) ->
+                list.addAll(listOf("నిర్మల్", "Nirmal"))
+            district.contains("నిజామాబాద్") || district.contains("Nizamabad", ignoreCase = true) ->
+                list.addAll(listOf("నిజామాబాద్", "Nizamabad"))
+            district.contains("పెద్దపల్లి") || district.contains("Peddapalli", ignoreCase = true) ->
+                list.addAll(listOf("పెద్దపల్లి", "Peddapalli"))
+            district.contains("సిరిసిల్ల") || district.contains("రాజన్న") || district.contains("Sircilla", ignoreCase = true) ->
+                list.addAll(listOf("రాజన్న సిరిసిల్ల", "సిరిసిల్ల", "Sircilla", "Rajanna Sircilla"))
+            district.contains("రంగారెడ్డి") || district.contains("Rangareddy", ignoreCase = true) || district.contains("Ranga Reddy", ignoreCase = true) ->
+                list.addAll(listOf("రంగారెడ్డి", "Rangareddy", "Ranga Reddy"))
+            district.contains("సంగారెడ్డి") || district.contains("Sangareddy", ignoreCase = true) ->
+                list.addAll(listOf("సంగారెడ్డి", "Sangareddy"))
+            district.contains("సిద్దిపేట") || district.contains("Siddipet", ignoreCase = true) ->
+                list.addAll(listOf("సిద్దిపేట", "Siddipet"))
+            district.contains("సూర్యాపేట") || district.contains("Suryapet", ignoreCase = true) ->
+                list.addAll(listOf("సూర్యాపేట", "Suryapet"))
+            district.contains("వికారాబాద్") || district.contains("Vikarabad", ignoreCase = true) ->
+                list.addAll(listOf("వికారాబాద్", "Vikarabad"))
+            district.contains("వనపర్తి") || district.contains("Wanaparthy", ignoreCase = true) ->
+                list.addAll(listOf("వనపర్తి", "Wanaparthy"))
+            district.contains("వరంగల్") || district.contains("Warangal", ignoreCase = true) ->
+                list.addAll(listOf("వరంగల్", "వరంగల్ రూరల్", "Warangal", "Warangal Rural"))
+            district.contains("భువనగిరి") || district.contains("యాదాద్రి") || district.contains("Yadadri", ignoreCase = true) || district.contains("Bhongir", ignoreCase = true) ->
+                list.addAll(listOf("యాదాద్రి భువనగిరి", "భువనగిరి", "యాదాద్రి", "Yadadri", "Bhongir", "Yadadri Bhuvanagiri"))
+
+            // --- ANDHRA PRADESH DISTRICTS ---
+            district.contains("అల్లూరి") || district.contains("సీతారామరాజు") || district.contains("పాడేరు") || district.contains("Alluri", ignoreCase = true) || district.contains("Paderu", ignoreCase = true) ->
+                list.addAll(listOf("అల్లూరి సీతారామరాజు", "అల్లూరి", "పాడేరు", "Alluri", "ASR District", "Alluri Sitharama Raju", "Paderu"))
+            district.contains("అనకాపల్లి") || district.contains("Anakapalli", ignoreCase = true) ->
+                list.addAll(listOf("అనకాపల్లి", "Anakapalli"))
+            district.contains("అనంతపురం") || district.contains("Anantapur", ignoreCase = true) || district.contains("Ananthapur", ignoreCase = true) ->
+                list.addAll(listOf("అనంతపురం", "అనంతపురము", "Anantapur", "Ananthapuramu", "Ananthapur"))
+            district.contains("అన్నమయ్య") || district.contains("రాజంపేట") || district.contains("రాయచోటి") || district.contains("Annamayya", ignoreCase = true) || district.contains("Rayachoti", ignoreCase = true) ->
+                list.addAll(listOf("అన్నమయ్య", "రాయచోటి", "Annamayya", "Rayachoti"))
+            district.contains("బాపట్ల") || district.contains("Bapatla", ignoreCase = true) ->
+                list.addAll(listOf("బాపట్ల", "Bapatla"))
+            district.contains("చిత్తూరు") || district.contains("Chittoor", ignoreCase = true) ->
+                list.addAll(listOf("చిత్తూరు", "Chittoor"))
+            district.contains("కోనసీమ") || district.contains("అంబేడ్కర్") || district.contains("అమలాపురం") || district.contains("Konaseema", ignoreCase = true) || district.contains("Amalapuram", ignoreCase = true) ->
+                list.addAll(listOf("డాక్టర్ బి.ఆర్. అంబేద్కర్ కోనసీమ", "కోనసీమ", "అమలాపురం", "Konaseema", "Amalapuram", "Dr. B.R. Ambedkar Konaseema"))
+            district.contains("తూర్పు గోదావరి") || district.contains("తూర్పుగోదావరి") || district.contains("East Godavari", ignoreCase = true) || district.contains("రాజమండ్రి") || district.contains("రాజమహేంద్రవరం") ->
+                list.addAll(listOf("తూర్పు గోదావరి", "తూర్పుగోదావరి", "East Godavari", "Rajahmundry", "రాజమండ్రి", "రాజమహేంద్రవరం"))
+            district.contains("ఏలూరు") || district.contains("Eluru", ignoreCase = true) ->
+                list.addAll(listOf("ఏలూరు", "Eluru"))
+            district.contains("గుంటూరు") || district.contains("Guntur", ignoreCase = true) ->
+                list.addAll(listOf("గుంటూరు", "Guntur"))
+            district.contains("కాకినాడ") || district.contains("Kakinada", ignoreCase = true) ->
+                list.addAll(listOf("కాకినాడ", "Kakinada"))
+            district.contains("కృష్ణా") || district.contains("మచిలీపట్నం") || district.contains("Krishna", ignoreCase = true) || district.contains("Machilipatnam", ignoreCase = true) ->
+                list.addAll(listOf("కృష్ణా", "మచిలీపట్నం", "Krishna", "Machilipatnam"))
+            district.contains("కర్నూలు") || district.contains("Kurnool", ignoreCase = true) ->
+                list.addAll(listOf("కర్నూలు", "Kurnool"))
+            district.contains("నంద్యాల") || district.contains("Nandyal", ignoreCase = true) ->
+                list.addAll(listOf("నంద్యాల", "Nandyal"))
+            district.contains("ఎన్టీఆర్") || district.contains("విజయవాడ") || district.contains("NTR", ignoreCase = true) || district.contains("Vijayawada", ignoreCase = true) ->
+                list.addAll(listOf("ఎన్టీఆర్", "విజయవాడ", "NTR", "Vijayawada", "NTR District"))
+            district.contains("పల్నాడు") || district.contains("నరసరావుపేట") || district.contains("Palnadu", ignoreCase = true) || district.contains("Narasaraopet", ignoreCase = true) ->
+                list.addAll(listOf("పల్నాడు", "నరసరావుపేట", "Palnadu", "Narasaraopet", "Narasaraopeta"))
+            district.contains("పార్వతీపురం") || district.contains("మన్యం") || district.contains("Parvathipuram", ignoreCase = true) || district.contains("Manyam", ignoreCase = true) ->
+                list.addAll(listOf("పార్వతీపురం మన్యం", "మన్యం", "పార్వతీపురం", "Parvathipuram", "Manyam", "Parvathipuram Manyam"))
+            district.contains("ప్రకాశం") || district.contains("ఒంగోలు") || district.contains("Prakasam", ignoreCase = true) || district.contains("Ongole", ignoreCase = true) ->
+                list.addAll(listOf("ప్రకాశం", "ఒంగోలు", "Prakasam", "Ongole"))
+            district.contains("మార్కాపురం") || district.contains("Markapur", ignoreCase = true) ->
+                list.addAll(listOf("మార్కాపురం", "Markapur"))
+            district.contains("పోలవరం") || district.contains("Polavaram", ignoreCase = true) ->
+                list.addAll(listOf("పోలవరం", "Polavaram"))
+            district.contains("మదనపల్లె") || district.contains("Madanapalle", ignoreCase = true) ->
+                list.addAll(listOf("మదనపల్లె", "Madanapalle"))
+            district.contains("నెల్లూరు") || district.contains("శ్రీ పొట్టి శ్రీరాములు") || district.contains("Nellore", ignoreCase = true) || district.contains("SPSR", ignoreCase = true) ->
+                list.addAll(listOf("శ్రీ పొట్టి శ్రీరాములు నెల్లూరు", "నెల్లూరు", "Nellore", "SPSR Nellore", "Sri Potti Sriramulu Nellore"))
+            district.contains("సత్యసాయి") || district.contains("పుట్టపర్తి") || district.contains("Sri Sathya Sai", ignoreCase = true) || district.contains("Puttaparthi", ignoreCase = true) ->
+                list.addAll(listOf("శ్రీ సత్యసాయి", "సత్యసాయి", "పుట్టపర్తి", "Sri Sathya Sai", "Sathya Sai", "Puttaparthi"))
+            district.contains("శ్రీకాకుళం") || district.contains("Srikakulam", ignoreCase = true) ->
+                list.addAll(listOf("శ్రీకాకుళం", "Srikakulam"))
+            district.contains("తిరుపతి") || district.contains("తిరుమల") || district.contains("Tirupati", ignoreCase = true) || district.contains("Tirumala", ignoreCase = true) || district.contains("బాలాజీ") ->
+                list.addAll(listOf("తిరుపతి", "తిరుమల", "శ్రీ బాలాజీ", "Tirupati", "Tirumala"))
+            district.contains("విశాఖపట్నం") || district.contains("విశాఖ") || district.contains("వైజాగ్") || district.contains("Visakhapatnam", ignoreCase = true) || district.contains("Vizag", ignoreCase = true) ->
+                list.addAll(listOf("విశాఖపట్నం", "విశాఖ", "వైజాగ్", "Visakhapatnam", "Vizag"))
+            district.contains("విజయనగరం") || district.contains("Vizianagaram", ignoreCase = true) ->
+                list.addAll(listOf("విజయనగరం", "Vizianagaram"))
+            district.contains("పశ్చిమ గోదావరి") || district.contains("పశ్చిమగోదావరి") || district.contains("West Godavari", ignoreCase = true) || district.contains("భీమవరం") ->
+                list.addAll(listOf("పశ్చిమ గోదావరి", "పశ్చిమగోదావరి", "West Godavari", "భీమవరం", "Bhimavaram"))
+            district.contains("కడప") || district.contains("వైఎస్ఆర్") || district.contains("వైఎస్సార్") || district.contains("Kadapa", ignoreCase = true) ->
+                list.addAll(listOf("వైఎస్ఆర్ కడప", "వైఎస్సార్ కడప", "కడప", "YSR Kadapa", "Kadapa"))
+        }
+        return list.distinct()
+    }
+
+    fun isDistrictMatch(postDistrict: String?, targetDistrict: String?): Boolean {
+        if (postDistrict.isNullOrBlank() || targetDistrict.isNullOrBlank()) return false
+        if (postDistrict.equals(targetDistrict, ignoreCase = true)) return true
+        val aliases = getDistrictAliases(targetDistrict)
+        return aliases.any { it.equals(postDistrict, ignoreCase = true) || postDistrict.contains(it, ignoreCase = true) || it.contains(postDistrict, ignoreCase = true) }
     }
     
     val CATEGORIES = listOf(
