@@ -16,40 +16,7 @@ if (typeof window !== 'undefined') {
   };
 }
 
-// --- MOBILE REDIRECT (Aggressive) ---
-// Redirects all mobile users to the App or Play Store. Web is for Desktop only.
-if (typeof window !== 'undefined') {
-  const ua = navigator.userAgent;
-  const isAndroid = /Android/i.test(ua);
-  const isIOS = /iPhone|iPad|iPod/i.test(ua);
-  const isPreview = window.location.hostname.includes('run.app') || window.location.hostname.includes('localhost') || window.location.hostname.includes('web.app') || window.location.hostname.includes('firebaseapp.com');
-  
-  if ((isAndroid || isIOS) && !isPreview) {
-    const path = window.location.pathname;
-    const hash = window.location.hash;
-    
-    // Check if it's a news link or home page
-    if ((path === '/' && !hash.includes('apply-reporter')) || path.includes('/news/') || hash.includes('/s/')) {
-      if (isAndroid) {
-        let postId = '';
-        if (path.includes('/news/')) postId = path.split('/news/')[1]?.split('/')[0] || '';
-        else if (hash.includes('/s/')) postId = hash.split('/s/')[1]?.split('/')[0] || '';
-        
-        // Intent scheme: Tries to open the app directly. 
-        // If not installed, redirects to S.browser_fallback_url (Play Store).
-        if (postId) {
-            const intentUrl = `intent://alfanews.app/news/${postId}#Intent;scheme=https;package=com.alfanews.telugu;S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.alfanews.telugu;end`;
-            window.location.replace(intentUrl);
-        } else {
-            window.location.replace("https://play.google.com/store/apps/details?id=com.alfanews.telugu");
-        }
-      } else {
-        // iOS or other mobile - direct to Play Store
-        window.location.replace("https://play.google.com/store/apps/details?id=com.alfanews.telugu");
-      }
-    }
-  }
-}
+
 
 import './index.css'; 
 import App from './App';

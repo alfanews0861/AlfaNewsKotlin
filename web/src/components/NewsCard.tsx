@@ -511,7 +511,7 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
             <img 
               src={getOptimizedImageUrl(post.mediaUrl)} 
               alt="History" 
-              className="w-full h-full object-cover md:object-contain object-center relative z-0" 
+              className="w-full h-full object-cover object-[50%_28%] relative z-0" 
               loading="lazy" 
               referrerPolicy="no-referrer" 
             />
@@ -556,7 +556,7 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
               <video 
                 ref={videoRef} 
                 src={post.mediaUrl} 
-                className="w-full h-full object-cover md:object-contain object-center relative z-0" 
+                className="w-full h-full object-cover object-[50%_28%] relative z-0" 
                 loop 
                 muted 
                 playsInline 
@@ -576,7 +576,7 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
               <img 
                 src={getOptimizedImageUrl(post.mediaUrl)} 
                 alt="News" 
-                className="w-full h-full object-cover md:object-contain object-center relative z-0" 
+                className="w-full h-full object-cover object-[50%_28%] relative z-0" 
                 loading="lazy" 
                 referrerPolicy="no-referrer" 
               />
@@ -833,7 +833,7 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
                   <img 
                     src={getOptimizedImageUrl(post.mediaUrl)} 
                     alt={headline} 
-                    className="w-full max-h-72 object-cover object-top" 
+                    className="w-full max-h-80 object-cover object-[50%_28%] mx-auto" 
                     loading="lazy" 
                     referrerPolicy="no-referrer" 
                   />

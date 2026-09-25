@@ -9,6 +9,8 @@ import com.google.android.gms.ads.AdView
 import com.google.android.gms.ads.LoadAdError
 import com.google.android.gms.ads.MobileAds
 import com.google.android.gms.ads.nativead.NativeAd
+import com.google.android.gms.ads.nativead.NativeAdOptions
+import com.google.android.gms.ads.VideoOptions
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -30,7 +32,7 @@ sealed interface AdState {
 object AdMobService {
     private const val TAG = "AdMobService"
     
-    // Production Native & Banner Ad Unit IDs
+    // Live Production Native & Banner Ad Unit IDs
     private const val NATIVE_AD_UNIT_ID = "ca-app-pub-5787901991150360/1972465675"
     private const val BANNER_AD_UNIT_ID = "ca-app-pub-5787901991150360/1972465675"
     
@@ -67,7 +69,13 @@ object AdMobService {
 
         Log.d(TAG, "Starting sequential preload for native ad. Current cache size: ${nativeAds.size}")
 
+        val adOptions = NativeAdOptions.Builder()
+            .setVideoOptions(VideoOptions.Builder().setStartMuted(true).build())
+            .setAdChoicesPlacement(NativeAdOptions.ADCHOICES_TOP_RIGHT)
+            .build()
+
         val adLoader = AdLoader.Builder(activity, NATIVE_AD_UNIT_ID)
+            .withNativeAdOptions(adOptions)
             .forNativeAd { ad: NativeAd ->
                 nativeAds.add(ad)
                 Log.d(TAG, "Native ad preloaded successfully. New cache size: ${nativeAds.size}")
@@ -95,7 +103,7 @@ object AdMobService {
     /**
      * లోడ్ అయిన నేటివ్ యాడ్ ను అందిస్తుంది. ఒకవేళ ఏదీ అందుబాటులో లేకపోతే కొత్తది లోడ్ చేస్తుంది (మరియు ఫెయిల్ అయితే ఆటో-రీట్రై చేస్తుంది).
      */
-    fun loadNativeAd(activity: Activity, retriesLeft: Int = 2, onAdLoaded: (NativeAd?) -> Unit) {
+    fun loadNativeAd(activity: Activity, retriesLeft: Int = 1, onAdLoaded: (NativeAd?) -> Unit) {
         if (activity.isFinishing || activity.isDestroyed) {
             onAdLoaded(null)
             return
@@ -114,7 +122,13 @@ object AdMobService {
 
         // కాష్ ఖాళీగా ఉంటే వెంటనే కొత్త యాడ్ లోడ్ చేయడం
         Log.d(TAG, "Ad cache empty. Loading a new native ad on demand. Retries left: $retriesLeft")
+        val adOptions = NativeAdOptions.Builder()
+            .setVideoOptions(VideoOptions.Builder().setStartMuted(true).build())
+            .setAdChoicesPlacement(NativeAdOptions.ADCHOICES_TOP_RIGHT)
+            .build()
+
         val adLoader = AdLoader.Builder(activity, NATIVE_AD_UNIT_ID)
+            .withNativeAdOptions(adOptions)
             .forNativeAd { loadedAd -> 
                 Log.d(TAG, "On-demand native ad loaded successfully.")
                 onAdLoaded(loadedAd) 
@@ -123,8 +137,9 @@ object AdMobService {
             .withAdListener(object : AdListener() {
                 override fun onAdFailedToLoad(error: LoadAdError) {
                     Log.e(TAG, "On-demand native ad failed to load: ${error.message} (Code: ${error.code})")
-                    if (retriesLeft > 0 && !activity.isFinishing && !activity.isDestroyed) {
-                        Log.d(TAG, "Retrying on-demand native ad load in 1.5 seconds...")
+                    // Do not delay retry on NO_FILL (code 3) or INVALID_REQUEST (code 1) - fast-fail to fallback
+                    if (error.code == LoadAdError.ERROR_CODE_NETWORK_ERROR && retriesLeft > 0 && !activity.isFinishing && !activity.isDestroyed) {
+                        Log.d(TAG, "Retrying on-demand native ad load in 1.5 seconds due to network error...")
                         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                             if (!activity.isFinishing && !activity.isDestroyed) {
                                 loadNativeAd(activity, retriesLeft - 1, onAdLoaded)
@@ -137,8 +152,6 @@ object AdMobService {
             })
             .build()
         adLoader.loadAd(AdRequest.Builder().build())
-
-        preloadNativeAds(activity)
     }
 
     /**

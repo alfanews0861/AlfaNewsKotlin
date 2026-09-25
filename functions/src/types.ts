@@ -75,6 +75,8 @@ export interface NewsPost {
   notificationTitle?: string; // High-engagement curiosity hook title for push notifications
   isCitizen?: boolean;
   isReporter?: boolean;
+  isSpecialStory?: boolean;
+  webOnly?: boolean;
 }
 
 export enum Language {

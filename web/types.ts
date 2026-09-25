@@ -64,6 +64,8 @@ export interface NewsPost {
   originalUrl?: string;
   isCitizen?: boolean;
   isReporter?: boolean;
+  isSpecialStory?: boolean;
+  webOnly?: boolean;
 }
 
 export enum Language {

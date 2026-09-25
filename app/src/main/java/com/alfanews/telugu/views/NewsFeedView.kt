@@ -186,7 +186,7 @@ fun NewsFeedView(
         postsToPreload.forEach { post: NewsPost ->
             if (post.mediaUrl.isNotEmpty()) {
                 val request = ImageRequest.Builder(context)
-                    .data(post.mediaUrl)
+                    .data(getOptimizedImageUrl(post.mediaUrl))
                     .allowHardware(true)
                     .crossfade(false)
                     .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
@@ -228,7 +228,7 @@ fun NewsFeedView(
                     val post = news[nextNewsIndex]
                     if (post.mediaUrl.isNotEmpty()) {
                         val request = ImageRequest.Builder(context)
-                            .data(post.mediaUrl)
+                            .data(getOptimizedImageUrl(post.mediaUrl))
                             .allowHardware(true)
                             .crossfade(false)
                             .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)

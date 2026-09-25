@@ -99,6 +99,8 @@ export interface NewsPost {
   isGlobal?: boolean;
   isCitizen?: boolean;
   isReporter?: boolean;
+  isSpecialStory?: boolean;
+  webOnly?: boolean;
   surveyQuestions?: SurveyQuestion[];
   votes?: Record<string, number>;
   realVotesCount?: number;

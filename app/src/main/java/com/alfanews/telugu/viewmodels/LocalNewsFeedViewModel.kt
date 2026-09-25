@@ -839,6 +839,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
     private fun convertToNewsPost(id: String, data: Map<String, Any?>): NewsPost? {
         return try {
+            if ((data["webOnly"] as? Boolean) == true) return null
             com.alfanews.telugu.models.mapMapToNewsPost(id, data, currentLanguage)
         } catch (e: Exception) {
             null

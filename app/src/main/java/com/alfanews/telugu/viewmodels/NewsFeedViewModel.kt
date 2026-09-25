@@ -1168,6 +1168,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private fun mapDocumentToNewsPost(doc: DocumentSnapshot): NewsPost? {
         return try {
             val data = doc.data ?: return null
+            if ((data["webOnly"] as? Boolean) == true) return null
             com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data, currentLanguage)
         } catch (e: Exception) { null }
     }

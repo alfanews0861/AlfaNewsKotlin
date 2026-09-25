@@ -106,6 +106,8 @@ data class NewsPost(
     val rejectionReason: String? = null,
     val error: String? = null,
     val isDuplicate: Boolean = false,
+    val webOnly: Boolean = false,
+    val isSpecialStory: Boolean = false,
 
     // Survey & Poll fields
     val surveyQuestions: List<SurveyQuestion> = emptyList(),
@@ -391,6 +393,8 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
         notificationTitle = notificationTitle,
         rejectionReason = data["rejectionReason"]?.toString(),
         error = data["error"]?.toString() ?: data["lastProcessingError"]?.toString(),
-        isDuplicate = data["isDuplicate"] as? Boolean ?: false
+        isDuplicate = data["isDuplicate"] as? Boolean ?: false,
+        webOnly = (data["webOnly"] as? Boolean) == true,
+        isSpecialStory = (data["isSpecialStory"] as? Boolean) == true
     )
 }

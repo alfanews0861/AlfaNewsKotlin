@@ -1,6 +1,8 @@
 package com.alfanews.telugu.views
 
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import android.view.LayoutInflater
 import android.widget.Button
 import android.widget.ImageView
@@ -241,68 +243,42 @@ fun AdMobBannerAd(
 }
 
 @Composable
-fun AdMobBoxAd(
+fun AdMobSquareAd(
     modifier: Modifier = Modifier,
-    adUnitId: String = AdMobService.getNativeAdUnitId(),
-    preloadedAd: NativeAd? = null
+    adUnitId: String = AdMobService.getNativeAdUnitId()
 ) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
-    var internalNativeAd by remember { mutableStateOf<NativeAd?>(null) }
-    var adFailed by remember { mutableStateOf(false) }
+    var nativeAd by remember { mutableStateOf<NativeAd?>(null) }
 
-    val nativeAd = preloadedAd ?: internalNativeAd
-
-    DisposableEffect(activity, preloadedAd) {
-        if (preloadedAd == null) {
-            if (activity != null && !activity.isFinishing && !activity.isDestroyed) {
-                AdMobService.loadNativeAd(activity) { ad ->
-                    if (ad != null) {
-                        internalNativeAd = ad
-                        adFailed = false
-                    } else {
-                        adFailed = true
-                    }
-                }
-            } else {
-                adFailed = true
+    DisposableEffect(activity) {
+        if (activity != null && !activity.isFinishing && !activity.isDestroyed) {
+            AdMobService.loadNativeAd(activity) { ad ->
+                nativeAd = ad
             }
-        } else {
-            adFailed = false
         }
-
         onDispose {
-            if (preloadedAd == null) {
-                internalNativeAd?.destroy()
-                internalNativeAd = null
-            }
+            nativeAd?.destroy()
+            nativeAd = null
         }
     }
-
-    // 🚀 ZERO EMPTY PLACEHOLDER: If ad fails to load or is not ready, completely hide the container
-    if (adFailed || nativeAd == null) {
-        return
-    }
-
-    val ad = nativeAd ?: return
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 12.dp),
-        contentAlignment = Alignment.Center
+            .padding(vertical = 12.dp)
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(14.dp)
+            )
+            .padding(8.dp)
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .background(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                .padding(8.dp)
-        ) {
+        val currentAd = nativeAd
+        if (currentAd != null) {
             AndroidView(
-                modifier = Modifier.size(width = 300.dp, height = 250.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight(),
                 factory = { ctx ->
                     LayoutInflater.from(ctx)
                         .inflate(R.layout.native_ad_box_layout, null) as NativeAdView
@@ -315,41 +291,64 @@ fun AdMobBoxAd(
                     adView.iconView = adView.findViewById(R.id.ad_app_icon)
 
                     (adView.headlineView as? TextView)?.apply {
-                        text = ad.headline
-                        visibility = if (ad.headline.isNullOrEmpty()) android.view.View.GONE else android.view.View.VISIBLE
+                        text = currentAd.headline
+                        visibility = if (currentAd.headline.isNullOrEmpty()) android.view.View.GONE else android.view.View.VISIBLE
                     }
 
                     (adView.bodyView as? TextView)?.apply {
-                        text = ad.body
-                        visibility = if (ad.body.isNullOrEmpty()) android.view.View.GONE else android.view.View.VISIBLE
+                        text = currentAd.body
+                        visibility = if (currentAd.body.isNullOrEmpty()) android.view.View.GONE else android.view.View.VISIBLE
                     }
 
                     (adView.callToActionView as? Button)?.apply {
-                        text = ad.callToAction
-                        visibility = if (ad.callToAction.isNullOrEmpty()) android.view.View.GONE else android.view.View.VISIBLE
+                        text = currentAd.callToAction
+                        visibility = if (currentAd.callToAction.isNullOrEmpty()) android.view.View.GONE else android.view.View.VISIBLE
                     }
 
                     (adView.iconView as? ImageView)?.apply {
-                        if (ad.icon?.drawable != null) {
-                            setImageDrawable(ad.icon?.drawable)
+                        if (currentAd.icon?.drawable != null) {
+                            setImageDrawable(currentAd.icon?.drawable)
                             visibility = android.view.View.VISIBLE
                         } else {
                             visibility = android.view.View.GONE
                         }
                     }
 
-                    ad.mediaContent?.let { media ->
+                    currentAd.mediaContent?.let { media ->
                         adView.mediaView?.setMediaContent(media)
                         adView.mediaView?.visibility = android.view.View.VISIBLE
                     } ?: run {
                         adView.mediaView?.visibility = android.view.View.GONE
                     }
 
-                    adView.setNativeAd(ad)
+                    adView.setNativeAd(currentAd)
                 }
             )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(300.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "ప్రకటన • ADVERTISEMENT",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = Ramabhadra,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+            }
         }
     }
+}
+
+@Composable
+fun AdMobBoxAd(
+    modifier: Modifier = Modifier,
+    adUnitId: String = AdMobService.getNativeAdUnitId()
+) {
+    AdMobSquareAd(modifier = modifier, adUnitId = adUnitId)
 }
 
 

@@ -6,7 +6,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.PointF
 import android.graphics.Rect
+import android.media.FaceDetector
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -43,8 +45,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -68,6 +73,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import coil3.compose.AsyncImage
@@ -137,6 +148,7 @@ fun NewsCardView(
     var showComments by remember(post.id) { mutableStateOf(false) }
     var showReportDialog by remember(post.id) { mutableStateOf(false) }
     var showFullStorySheet by remember(post.id) { mutableStateOf(false) }
+    var fullscreenImageUrl by remember(post.id) { mutableStateOf<String?>(null) }
     
     // 🚀 key(post.id) ensures scroll state properly resets for each different post
     val scrollState = key(post.id) { rememberScrollState() }
@@ -186,28 +198,6 @@ fun NewsCardView(
 
             // 🌟 "పూర్తి వార్త చదవండి" బటన్: కనీసం 90+ పదాలుండి, షార్ట్ న్యూస్ కంటే స్పష్టమైన వ్యత్యాసం ఉన్నప్పుడు మాత్రమే యాక్టివేట్ అవుతుంది.
             storyWords >= 90 && isDiff && hasLengthDelta && hasWordDelta
-        }
-    }
-
-    // 🚀 Proactive Preloading for Full Story AdMob Ad: Card active ఉన్నప్పుడే బ్యాక్‌గ్రౌండ్‌లో యాడ్ లోడ్ అవుతుంది
-    var preloadedFullStoryAd by remember(post.id) { mutableStateOf<NativeAd?>(null) }
-    LaunchedEffect(isActive, hasSubstantialFullStory) {
-        if (isActive && hasSubstantialFullStory && preloadedFullStoryAd == null) {
-            val activity = findActivity(context)
-            if (activity != null && !activity.isFinishing && !activity.isDestroyed) {
-                AdMobService.loadNativeAd(activity) { ad ->
-                    if (ad != null) {
-                        preloadedFullStoryAd = ad
-                    }
-                }
-            }
-        }
-    }
-
-    DisposableEffect(post.id) {
-        onDispose {
-            preloadedFullStoryAd?.destroy()
-            preloadedFullStoryAd = null
         }
     }
 
@@ -348,18 +338,11 @@ fun NewsCardView(
                                     autoPlay = isActive && pagerState.currentPage == page
                                 )
                             } else {
-                                val imageUrl = getOptimizedImageUrl(url)
-                                val imageRequest = remember(imageUrl) {
-                                    ImageRequest.Builder(context).data(imageUrl).crossfade(true).allowHardware(true).build()
-                                }
-                                AsyncImage(
-                                    model = imageRequest,
-                                    fallback = painterResource(id = R.drawable.fallback_news_image),
-                                    error = painterResource(id = R.drawable.fallback_news_image),
-                                    contentDescription = headlineText,
+                                SmartNewsImage(
+                                    url = url,
+                                    headlineText = headlineText,
                                     modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop,
-                                    alignment = Alignment.TopCenter
+                                    onClick = { fullscreenImageUrl = url }
                                 )
                             }
                         }
@@ -459,18 +442,11 @@ fun NewsCardView(
                                 if (type == MediaType.VIDEO) {
                                     VideoPlayerView(videoUrl = url, autoPlay = isActive && pagerState.currentPage == page)
                                 } else {
-                                    val imageUrl = getOptimizedImageUrl(url)
-                                    val imageRequest = remember(imageUrl) {
-                                        ImageRequest.Builder(context).data(imageUrl).crossfade(true).allowHardware(true).build()
-                                    }
-                                    AsyncImage(
-                                        model = imageRequest,
-                                        fallback = painterResource(id = R.drawable.fallback_news_image),
-                                        error = painterResource(id = R.drawable.fallback_news_image),
-                                        contentDescription = headlineText,
+                                    SmartNewsImage(
+                                        url = url,
+                                        headlineText = headlineText,
                                         modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop,
-                                        alignment = Alignment.TopCenter
+                                        onClick = { fullscreenImageUrl = url }
                                     )
                                 }
                             }
@@ -774,7 +750,6 @@ fun NewsCardView(
             FullStoryBottomSheet(
                 post = post,
                 language = language,
-                preloadedAd = preloadedFullStoryAd,
                 onDismissRequest = { showFullStorySheet = false }
             )
         }
@@ -785,6 +760,267 @@ fun NewsCardView(
                 headlineText = headlineText,
                 onDismissRequest = { showReportDialog = false }
             )
+        }
+
+        if (fullscreenImageUrl != null) {
+            FullscreenImageViewerDialog(
+                imageUrl = fullscreenImageUrl!!,
+                headlineText = headlineText,
+                onDismissRequest = { fullscreenImageUrl = null }
+            )
+        }
+    }
+}
+
+/**
+ * 👤 SmartFaceCropper: Fast Android Native Face Detection for News Images
+ * Detects face locations to position vertical news photos with perfect headroom
+ * and neck/chest visibility without requiring external AI/ML libraries.
+ */
+object SmartFaceCropper {
+    // Cache of url -> normalized focal Y (0.0f to 1.0f)
+    private val focalYCache = android.util.LruCache<String, Float>(200)
+
+    fun getFocalY(url: String): Float = focalYCache.get(url) ?: 0.28f
+
+    fun detectFocalY(bitmap: Bitmap, url: String): Float {
+        focalYCache.get(url)?.let { return it }
+
+        val origW = bitmap.width
+        val origH = bitmap.height
+        if (origW <= 0 || origH <= 0) return 0.28f
+
+        // Wide/landscape photos are already naturally framed; center them
+        if (origW.toFloat() / origH.toFloat() >= 1.25f) {
+            focalYCache.put(url, 0.40f)
+            return 0.40f
+        }
+
+        try {
+            // Downsample to width 256 for sub-10ms native face detection
+            val targetW = 256
+            val rawH = (targetW.toFloat() * origH / origW).toInt()
+            val targetH = if (rawH % 2 != 0) rawH + 1 else rawH
+
+            val rgb565Bitmap = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.RGB_565)
+            val canvas = android.graphics.Canvas(rgb565Bitmap)
+            val srcRect = Rect(0, 0, origW, origH)
+            val dstRect = Rect(0, 0, targetW, targetH)
+            val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+            canvas.drawBitmap(bitmap, srcRect, dstRect, paint)
+
+            val maxFaces = 3
+            val faces = arrayOfNulls<FaceDetector.Face>(maxFaces)
+            val detector = FaceDetector(targetW, targetH, maxFaces)
+            val count = detector.findFaces(rgb565Bitmap, faces)
+
+            if (count > 0) {
+                val point = PointF()
+                var weightedY = 0f
+                var totalWeight = 0f
+
+                for (i in 0 until count) {
+                    val face = faces[i] ?: continue
+                    face.getMidPoint(point)
+                    val eyesDist = face.eyesDistance()
+                    val confidence = face.confidence()
+                    if (confidence > 0.35f && eyesDist > 8f) {
+                        weightedY += point.y * eyesDist
+                        totalWeight += eyesDist
+                    }
+                }
+
+                if (totalWeight > 0f) {
+                    val avgFaceY = (weightedY / totalWeight) / targetH.toFloat()
+                    // Ensure focal point remains in a realistic human headroom range (20% to 55%)
+                    val finalFocalY = avgFaceY.coerceIn(0.20f, 0.55f)
+                    focalYCache.put(url, finalFocalY)
+                    return finalFocalY
+                }
+            }
+        } catch (e: Throwable) {
+            // Non-fatal fallback
+        }
+
+        // Golden portrait default: focal point at 28% leaves ~33% headroom above head and captures down to chest
+        val defaultFocalY = 0.28f
+        focalYCache.put(url, defaultFocalY)
+        return defaultFocalY
+    }
+}
+
+/**
+ * 📐 SmartCropAlignment: Aligns the vertical crop window so that:
+ * - Top ~33% has headroom above the head ("head pain konchem space")
+ * - Middle has the eyes and face
+ * - Bottom ~67% has the mouth, chin, neck, and upper chest ("meda krinda varaku")
+ * - Image fills 100% OF THE WIDTH so subjects appear large, bold, and clear.
+ */
+class SmartCropAlignment(private val focalYFraction: Float) : Alignment {
+    override fun align(size: IntSize, space: IntSize, layoutDirection: LayoutDirection): IntOffset {
+        val x = (space.width - size.width) / 2
+        val overflowY = size.height - space.height
+        if (overflowY <= 0) {
+            return IntOffset(x, 0)
+        }
+
+        val focalPixelY = size.height * focalYFraction
+        // Position focal point at 33% from the top of the visible card
+        val desiredTop = focalPixelY - (space.height * 0.33f)
+        val clampedTop = desiredTop.coerceIn(0f, overflowY.toFloat())
+
+        return IntOffset(x, -clampedTop.roundToInt())
+    }
+}
+
+/**
+ * 🖼️ SmartNewsImage: Headroom & Face-Aware Full-Width News Image Presenter
+ * 
+ * Fills the full card width and frames people with perfect headroom above the head
+ * and down to the neck/chest, ensuring faces are large, prominent, and never cut.
+ */
+@Composable
+fun SmartNewsImage(
+    url: String,
+    headlineText: String,
+    modifier: Modifier = Modifier,
+    fallbackResId: Int = R.drawable.fallback_news_image,
+    onClick: (() -> Unit)? = null
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val imageUrl = remember(url) { getOptimizedImageUrl(url) }
+    val imageRequest = remember(imageUrl) {
+        ImageRequest.Builder(context)
+            .data(imageUrl)
+            .crossfade(true)
+            .allowHardware(true)
+            .build()
+    }
+
+    var focalY by remember(imageUrl) { mutableStateOf(SmartFaceCropper.getFocalY(imageUrl)) }
+
+    Box(
+        modifier = modifier
+            .background(Color.Black)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        contentAlignment = Alignment.Center
+    ) {
+        AsyncImage(
+            model = imageRequest,
+            fallback = painterResource(id = fallbackResId),
+            error = painterResource(id = fallbackResId),
+            contentDescription = headlineText,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            alignment = remember(focalY) { SmartCropAlignment(focalY) },
+            onSuccess = { successState ->
+                val image = successState.result.image
+                if (image.height > image.width * 1.05f) {
+                    scope.launch(Dispatchers.Default) {
+                        try {
+                            val bitmap = image.toBitmap()
+                            val detectedFocalY = SmartFaceCropper.detectFocalY(bitmap, imageUrl)
+                            if (detectedFocalY != focalY) {
+                                focalY = detectedFocalY
+                            }
+                        } catch (e: Throwable) {
+                            // Non-fatal
+                        }
+                    }
+                }
+            }
+        )
+    }
+}
+
+/**
+ * 🔍 FullscreenImageViewerDialog: Clean Full-Screen Photo Viewer with Close Button & Headline
+ */
+@Composable
+fun FullscreenImageViewerDialog(
+    imageUrl: String,
+    headlineText: String,
+    onDismissRequest: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
+    ) {
+        val context = LocalContext.current
+        val optimizedUrl = remember(imageUrl) { getOptimizedImageUrl(imageUrl) }
+        val imageRequest = remember(optimizedUrl) {
+            ImageRequest.Builder(context)
+                .data(optimizedUrl)
+                .crossfade(true)
+                .allowHardware(true)
+                .build()
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .clickable(onClick = onDismissRequest),
+            contentAlignment = Alignment.Center
+        ) {
+            // Full Screen Image
+            AsyncImage(
+                model = imageRequest,
+                fallback = painterResource(id = R.drawable.fallback_news_image),
+                error = painterResource(id = R.drawable.fallback_news_image),
+                contentDescription = headlineText,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 4.dp, vertical = 40.dp),
+                contentScale = ContentScale.Fit,
+                alignment = Alignment.Center
+            )
+
+            // Top Close Button
+            IconButton(
+                onClick = onDismissRequest,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 28.dp, end = 16.dp)
+                    .size(42.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            // Bottom Headline (semi-transparent)
+            if (headlineText.isNotBlank()) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f))
+                            )
+                        )
+                        .padding(horizontal = 20.dp, vertical = 24.dp)
+                ) {
+                    Text(
+                        text = headlineText,
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontFamily = Ramabhadra,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }
@@ -2020,7 +2256,6 @@ fun InlineMicroPoll(
 fun FullStoryBottomSheet(
     post: NewsPost,
     language: Language,
-    preloadedAd: NativeAd? = null,
     onDismissRequest: () -> Unit
 ) {
     val context = LocalContext.current
@@ -2234,6 +2469,7 @@ fun FullStoryBottomSheet(
             val storyScrollState = rememberScrollState()
             var accumulatedTopOverscroll by remember { mutableStateOf(0f) }
             var accumulatedBottomOverscroll by remember { mutableStateOf(0f) }
+            var fullscreenStoryImage by remember(post.id) { mutableStateOf<String?>(null) }
             val nestedScrollConnection = remember {
                 object : NestedScrollConnection {
                     override fun onPostScroll(
@@ -2319,21 +2555,14 @@ fun FullStoryBottomSheet(
 
                 // Photo below Headline & Meta
                 if (post.mediaUrl.isNotBlank()) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(getOptimizedImageUrl(post.mediaUrl))
-                            .crossfade(true)
-                            .allowHardware(true)
-                            .build(),
-                        fallback = painterResource(id = R.drawable.fallback_news_image),
-                        error = painterResource(id = R.drawable.fallback_news_image),
-                        contentDescription = headlineText,
+                    SmartNewsImage(
+                        url = post.mediaUrl,
+                        headlineText = headlineText,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 240.dp)
+                            .height(230.dp)
                             .clip(RoundedCornerShape(12.dp)),
-                        contentScale = ContentScale.Crop,
-                        alignment = Alignment.TopCenter
+                        onClick = { fullscreenStoryImage = post.mediaUrl }
                     )
                     Spacer(modifier = Modifier.height(14.dp))
                 }
@@ -2352,13 +2581,6 @@ fun FullStoryBottomSheet(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // AdMob Box Ad (Medium Rectangle 300x250)
-                AdMobBoxAd(modifier = Modifier.fillMaxWidth(), preloadedAd = preloadedAd)
-
-                Spacer(modifier = Modifier.height(12.dp))
 
                 // WhatsApp-styled Share Button (Shares headline + image + full story + deep link to any app)
                 Button(
@@ -2463,11 +2685,23 @@ fun FullStoryBottomSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // AdMob Native Square Ad (Full width with proportionate square media)
+                AdMobSquareAd(modifier = Modifier.fillMaxWidth())
+
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
     }
-}
+
+    if (fullscreenStoryImage != null) {
+        FullscreenImageViewerDialog(
+            imageUrl = fullscreenStoryImage!!,
+            headlineText = headlineText,
+            onDismissRequest = { fullscreenStoryImage = null }
+        )
+    }
 }
 
 fun getOptimizedImageUrl(url: String): String {
