@@ -137,17 +137,7 @@ object AdMobService {
             .withAdListener(object : AdListener() {
                 override fun onAdFailedToLoad(error: LoadAdError) {
                     Log.e(TAG, "On-demand native ad failed to load: ${error.message} (Code: ${error.code})")
-                    // Do not delay retry on NO_FILL (code 3) or INVALID_REQUEST (code 1) - fast-fail to fallback
-                    if (error.code == LoadAdError.ERROR_CODE_NETWORK_ERROR && retriesLeft > 0 && !activity.isFinishing && !activity.isDestroyed) {
-                        Log.d(TAG, "Retrying on-demand native ad load in 1.5 seconds due to network error...")
-                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                            if (!activity.isFinishing && !activity.isDestroyed) {
-                                loadNativeAd(activity, retriesLeft - 1, onAdLoaded)
-                            }
-                        }, 1500)
-                    } else {
-                        onAdLoaded(null)
-                    }
+                    onAdLoaded(null)
                 }
             })
             .build()

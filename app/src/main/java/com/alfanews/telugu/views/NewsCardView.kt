@@ -2261,6 +2261,7 @@ fun FullStoryBottomSheet(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var isSharing by remember { mutableStateOf(false) }
+    var fullscreenStoryImage by remember(post.id) { mutableStateOf<String?>(null) }
     val isEnglish = language == Language.ENGLISH
     val headlineText = if (isEnglish) {
         post.headline.english.ifBlank { post.headline.telugu }
@@ -2469,7 +2470,6 @@ fun FullStoryBottomSheet(
             val storyScrollState = rememberScrollState()
             var accumulatedTopOverscroll by remember { mutableStateOf(0f) }
             var accumulatedBottomOverscroll by remember { mutableStateOf(0f) }
-            var fullscreenStoryImage by remember(post.id) { mutableStateOf<String?>(null) }
             val nestedScrollConnection = remember {
                 object : NestedScrollConnection {
                     override fun onPostScroll(
@@ -2701,6 +2701,7 @@ fun FullStoryBottomSheet(
             headlineText = headlineText,
             onDismissRequest = { fullscreenStoryImage = null }
         )
+    }
     }
 }
 
