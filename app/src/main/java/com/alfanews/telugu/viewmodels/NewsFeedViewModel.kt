@@ -198,12 +198,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private val SURVEY_CACHE_TTL = 15 * 60 * 1000L // 15 mins
 
     // 🌐 UNIVERSAL DISTRICT IDENTIFIERS (Applicable to both Telangana & Andhra Pradesh)
-    private val universalDistricts = listOf(
-        "General", "State", "Sports", "Health", "Technology", "Business", "Entertainment", "Cinema",
-        "National", "International", "Crime", "Education", "Agriculture", "Devotional", "Lifestyle",
-        "India", "World", "Global", "జనరల్", "భారతదేశం", "ప్రపంచం", "జాతీయం", "అంతర్జాతీయం",
-        "సినిమా", "స్పోర్ట్స్", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "ఆరోగ్యం", "విద్య", "వ్యవసాయం", "భక్తి"
-    )
+    private val universalDistricts = Constants.UNIVERSAL_IDENTIFIERS
 
     // 🌐 STRICTLY UNIVERSAL CATEGORIES (No state-specific politics or state-specific tags)
     private val strictlyGlobalKeywords = listOf(
@@ -223,7 +218,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         if (post.isGlobal) return true
         if (isGlobalCategory(post.category)) return true
         if (post.categories.any { isGlobalCategory(it) }) return true
-        if (universalDistricts.any { it.equals(post.district, ignoreCase = true) } && !post.categories.contains("జిల్లా వార్త")) {
+        if (Constants.isUniversalOrGeneral(post.district) && !post.categories.contains("జిల్లా వార్త")) {
             return true
         }
         return false
@@ -246,140 +241,67 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun getDistrictAliases(district: String?): List<String> {
-        if (district.isNullOrBlank()) return emptyList()
-        val list = mutableListOf(district)
-        when {
-            // --- TELANGANA DISTRICTS ---
-            district.contains("ఆదిలాబాద్") || district.equals("Adilabad", ignoreCase = true) ->
-                list.addAll(listOf("ఆదిలాబాద్", "Adilabad"))
-            district.contains("కొత్తగూడెం") || district.contains("భద్రాద్రి") || district.contains("Kothagudem", ignoreCase = true) || district.contains("Bhadradri", ignoreCase = true) ->
-                list.addAll(listOf("భద్రాద్రి కొత్తగూడెం", "కొత్తగూడెం", "Bhadradri", "Kothagudem", "Bhadradri Kothagudem"))
-            district.contains("హన్మకొండ") || district.contains("హనుమకొండ") || district.contains("Hanamkonda", ignoreCase = true) || district.contains("Hanumakonda", ignoreCase = true) ->
-                list.addAll(listOf("హన్మకొండ", "హనుమకొండ", "వరంగల్ అర్బన్", "Hanamkonda", "Hanumakonda"))
-            district.contains("హైదరాబాద్") || district.contains("Hyderabad", ignoreCase = true) || district.equals("HYD", ignoreCase = true) ->
-                list.addAll(listOf("హైదరాబాద్", "Hyderabad", "HYD", "సైబరాబాద్", "Cyberabad", "సికింద్రాబాద్", "Secunderabad"))
-            district.contains("జగిత్యాల") || district.contains("Jagtial", ignoreCase = true) ->
-                list.addAll(listOf("జగిత్యాల", "Jagtial"))
-            district.contains("జనగాం") || district.contains("Jangaon", ignoreCase = true) ->
-                list.addAll(listOf("జనగాం", "Jangaon"))
-            district.contains("భూపాలపల్లి") || district.contains("జయశంకర్") || district.contains("Bhupalpally", ignoreCase = true) ->
-                list.addAll(listOf("జయశంకర్ భూపాలపల్లి", "భూపాలపల్లి", "Bhupalpally", "Jayashankar Bhupalpally"))
-            district.contains("గద్వాల") || district.contains("జోగులాంబ") || district.contains("Gadwal", ignoreCase = true) ->
-                list.addAll(listOf("జోగులాంబ గద్వాల", "గద్వాల", "Gadwal", "Jogulamba Gadwal"))
-            district.contains("కామారెడ్డి") || district.contains("Kamareddy", ignoreCase = true) ->
-                list.addAll(listOf("కామారెడ్డి", "Kamareddy"))
-            district.contains("కరీంనగర్") || district.contains("Karimnagar", ignoreCase = true) ->
-                list.addAll(listOf("కరీంనగర్", "Karimnagar"))
-            district.contains("ఖమ్మం") || district.contains("Khammam", ignoreCase = true) ->
-                list.addAll(listOf("ఖమ్మం", "Khammam"))
-            district.contains("ఆసిఫాబాద్") || district.contains("కుమ్రం") || district.contains("Asifabad", ignoreCase = true) ->
-                list.addAll(listOf("కుమ్రం భీమ్ ఆసిఫాబాద్", "ఆసిఫాబాద్", "Asifabad", "Komaram Bheem"))
-            district.contains("మహబూబాబాద్") || district.contains("Mahabubabad", ignoreCase = true) ->
-                list.addAll(listOf("మహబూబాబాద్", "Mahabubabad"))
-            district.contains("మహబూబ్") || district.contains("మహబూబ్‌నగర్") || district.contains("Mahabubnagar", ignoreCase = true) || district.contains("Mahboobnagar", ignoreCase = true) ->
-                list.addAll(listOf("మహబూబ్ నగర్", "మహబూబ్‌నగర్", "Mahabubnagar", "Mahboobnagar"))
-            district.contains("మంచిర్యాల") || district.contains("Mancherial", ignoreCase = true) ->
-                list.addAll(listOf("మంచిర్యాల", "Mancherial"))
-            district.contains("మెదక్") || district.contains("Medak", ignoreCase = true) ->
-                list.addAll(listOf("మెదక్", "Medak"))
-            district.contains("మేడ్చల్") || district.contains("మల్కాజిగిరి") || district.contains("Medchal", ignoreCase = true) || district.contains("Malkajgiri", ignoreCase = true) ->
-                list.addAll(listOf("మేడ్చల్ మల్కాజిగిరి", "మేడ్చల్", "మల్కాజిగిరి", "Medchal", "Malkajgiri", "Medchal-Malkajgiri"))
-            district.contains("ములుగు") || district.contains("Mulugu", ignoreCase = true) ->
-                list.addAll(listOf("ములుగు", "Mulugu"))
-            district.contains("నాగర్ కర్నూల్") || district.contains("నాగర్‌కర్నూల్") || district.contains("Nagarkurnool", ignoreCase = true) ->
-                list.addAll(listOf("నాగర్ కర్నూల్", "నాగర్‌కర్నూల్", "Nagarkurnool"))
-            district.contains("నల్గొండ") || district.contains("నల్లగొండ") || district.contains("Nalgonda", ignoreCase = true) ->
-                list.addAll(listOf("నల్గొండ", "నల్లగొండ", "Nalgonda"))
-            district.contains("నారాయణపేట") || district.contains("Narayanpet", ignoreCase = true) ->
-                list.addAll(listOf("నారాయణపేట", "Narayanpet"))
-            district.contains("నిర్మల్") || district.contains("Nirmal", ignoreCase = true) ->
-                list.addAll(listOf("నిర్మల్", "Nirmal"))
-            district.contains("నిజామాబాద్") || district.contains("Nizamabad", ignoreCase = true) ->
-                list.addAll(listOf("నిజామాబాద్", "Nizamabad"))
-            district.contains("పెద్దపల్లి") || district.contains("Peddapalli", ignoreCase = true) ->
-                list.addAll(listOf("పెద్దపల్లి", "Peddapalli"))
-            district.contains("సిరిసిల్ల") || district.contains("రాజన్న") || district.contains("Sircilla", ignoreCase = true) ->
-                list.addAll(listOf("రాజన్న సిరిసిల్ల", "సిరిసిల్ల", "Sircilla", "Rajanna Sircilla"))
-            district.contains("రంగారెడ్డి") || district.contains("Rangareddy", ignoreCase = true) || district.contains("Ranga Reddy", ignoreCase = true) ->
-                list.addAll(listOf("రంగారెడ్డి", "Rangareddy", "Ranga Reddy"))
-            district.contains("సంగారెడ్డి") || district.contains("Sangareddy", ignoreCase = true) ->
-                list.addAll(listOf("సంగారెడ్డి", "Sangareddy"))
-            district.contains("సిద్దిపేట") || district.contains("Siddipet", ignoreCase = true) ->
-                list.addAll(listOf("సిద్దిపేట", "Siddipet"))
-            district.contains("సూర్యాపేట") || district.contains("Suryapet", ignoreCase = true) ->
-                list.addAll(listOf("సూర్యాపేట", "Suryapet"))
-            district.contains("వికారాబాద్") || district.contains("Vikarabad", ignoreCase = true) ->
-                list.addAll(listOf("వికారాబాద్", "Vikarabad"))
-            district.contains("వనపర్తి") || district.contains("Wanaparthy", ignoreCase = true) ->
-                list.addAll(listOf("వనపర్తి", "Wanaparthy"))
-            district.contains("వరంగల్") || district.contains("Warangal", ignoreCase = true) ->
-                list.addAll(listOf("వరంగల్", "వరంగల్ రూరల్", "Warangal", "Warangal Rural"))
-            district.contains("భువనగిరి") || district.contains("యాదాద్రి") || district.contains("Yadadri", ignoreCase = true) || district.contains("Bhongir", ignoreCase = true) ->
-                list.addAll(listOf("యాదాద్రి భువనగిరి", "భువనగిరి", "యాదాద్రి", "Yadadri", "Bhongir", "Yadadri Bhuvanagiri"))
+    /**
+     * 🛑 STRICT STATE ISOLATION (తెలంగాణ & ఆంధ్రప్రదేశ్ వార్తల విభజన):
+     */
+    private fun isPostAllowedForState(post: NewsPost, userState: String?): Boolean {
+        if (userState.isNullOrBlank() || userState == "BOTH") return true
 
-            // --- ANDHRA PRADESH DISTRICTS ---
-            district.contains("అల్లూరి") || district.contains("సీతారామరాజు") || district.contains("Alluri", ignoreCase = true) ->
-                list.addAll(listOf("అల్లూరి సీతారామరాజు", "అల్లూరి", "Alluri", "ASR District"))
-            district.contains("అనకాపల్లి") || district.contains("Anakapalli", ignoreCase = true) ->
-                list.addAll(listOf("అనకాపల్లి", "Anakapalli"))
-            district.contains("అనంతపురం") || district.contains("Anantapur", ignoreCase = true) || district.contains("Ananthapur", ignoreCase = true) ->
-                list.addAll(listOf("అనంతపురం", "Anantapur", "Ananthapuramu"))
-            district.contains("అన్నమయ్య") || district.contains("రాజంపేట") || district.contains("రాయచోటి") || district.contains("Annamayya", ignoreCase = true) ->
-                list.addAll(listOf("అన్నమయ్య", "Annamayya", "Rayachoti"))
-            district.contains("బాపట్ల") || district.contains("Bapatla", ignoreCase = true) ->
-                list.addAll(listOf("బాపట్ల", "Bapatla"))
-            district.contains("చిత్తూరు") || district.contains("Chittoor", ignoreCase = true) ->
-                list.addAll(listOf("చిత్తూరు", "Chittoor"))
-            district.contains("కోనసీమ") || district.contains("అంబేడ్కర్") || district.contains("Konaseema", ignoreCase = true) ->
-                list.addAll(listOf("డాక్టర్ బి.ఆర్. అంబేద్కర్ కోనసీమ", "కోనసీమ", "Konaseema", "Dr. B.R. Ambedkar Konaseema"))
-            district.contains("తూర్పు గోదావరి") || district.contains("తూర్పుగోదావరి") || district.contains("East Godavari", ignoreCase = true) || district.contains("రాజమండ్రి") ->
-                list.addAll(listOf("తూర్పు గోదావరి", "తూర్పుగోదావరి", "East Godavari", "Rajahmundry"))
-            district.contains("ఏలూరు") || district.contains("Eluru", ignoreCase = true) ->
-                list.addAll(listOf("ఏలూరు", "Eluru"))
-            district.contains("గుంటూరు") || district.contains("Guntur", ignoreCase = true) ->
-                list.addAll(listOf("గుంటూరు", "Guntur"))
-            district.contains("కాకినాడ") || district.contains("Kakinada", ignoreCase = true) ->
-                list.addAll(listOf("కాకినాడ", "Kakinada"))
-            district.contains("కృష్ణా") || district.contains("మచిలీపట్నం") || district.contains("Krishna", ignoreCase = true) ->
-                list.addAll(listOf("కృష్ణా", "Krishna", "Machilipatnam"))
-            district.contains("కర్నూలు") || district.contains("Kurnool", ignoreCase = true) ->
-                list.addAll(listOf("కర్నూలు", "Kurnool"))
-            district.contains("నంద్యాల") || district.contains("Nandyal", ignoreCase = true) ->
-                list.addAll(listOf("నంద్యాల", "Nandyal"))
-            district.contains("ఎన్టీఆర్") || district.contains("విజయవాడ") || district.contains("NTR", ignoreCase = true) ->
-                list.addAll(listOf("ఎన్టీఆర్", "NTR", "Vijayawada", "NTR District"))
-            district.contains("పల్నాడు") || district.contains("నరసరావుపేట") || district.contains("Palnadu", ignoreCase = true) ->
-                list.addAll(listOf("పల్నాడు", "Palnadu", "Narasaraopet"))
-            district.contains("పార్వతీపురం") || district.contains("మన్యం") || district.contains("Parvathipuram", ignoreCase = true) || district.contains("Manyam", ignoreCase = true) ->
-                list.addAll(listOf("పార్వతీపురం మన్యం", "మన్యం", "పార్వతీపురం", "Parvathipuram", "Manyam"))
-            district.contains("ప్రకాశం") || district.contains("ఒంగోలు") || district.contains("Prakasam", ignoreCase = true) || district.contains("Ongole", ignoreCase = true) ->
-                list.addAll(listOf("ప్రకాశం", "ఒంగోలు", "Prakasam", "Ongole"))
-            district.contains("నెల్లూరు") || district.contains("శ్రీ పొట్టి శ్రీరాములు") || district.contains("Nellore", ignoreCase = true) || district.contains("SPSR", ignoreCase = true) ->
-                list.addAll(listOf("శ్రీ పొట్టి శ్రీరాములు నెల్లూరు", "నెల్లూరు", "Nellore", "SPSR Nellore"))
-            district.contains("సత్యసాయి") || district.contains("పుట్టపర్తి") || district.contains("Sri Sathya Sai", ignoreCase = true) ->
-                list.addAll(listOf("శ్రీ సత్యసాయి", "సత్యసాయి", "Sri Sathya Sai", "Puttaparthi"))
-            district.contains("శ్రీకాకుళం") || district.contains("Srikakulam", ignoreCase = true) ->
-                list.addAll(listOf("శ్రీకాకుళం", "Srikakulam"))
-            district.contains("తిరుపతి") || district.contains("Tirupati", ignoreCase = true) || district.contains("బాలాజీ") ->
-                list.addAll(listOf("తిరుపతి", "శ్రీ బాలాజీ", "Tirupati"))
-            district.contains("విశాఖపట్నం") || district.contains("విశాఖ") || district.contains("Visakhapatnam", ignoreCase = true) || district.contains("Vizag", ignoreCase = true) ->
-                list.addAll(listOf("విశాఖపట్నం", "విశాఖ", "వైజాగ్", "Visakhapatnam", "Vizag"))
-            district.contains("విజయనగరం") || district.contains("Vizianagaram", ignoreCase = true) ->
-                list.addAll(listOf("విజయనగరం", "Vizianagaram"))
-            district.contains("పశ్చిమ గోదావరి") || district.contains("పశ్చిమగోదావరి") || district.contains("West Godavari", ignoreCase = true) || district.contains("భీమవరం") ->
-                list.addAll(listOf("పశ్చిమ గోదావరి", "పశ్చిమగోదావరి", "West Godavari", "Bhimavaram"))
-            district.contains("కడప") || district.contains("వైఎస్ఆర్") || district.contains("Kadapa", ignoreCase = true) ->
-                list.addAll(listOf("వైఎస్ఆర్ కడప", "కడప", "YSR Kadapa", "Kadapa"))
+        // 1. పోస్ట్ నేరుగా వేరొక రాష్ట్రానికి చెందినదిగా గుర్తిస్తే తిరస్కరించు (రాజకీయాలు, నాయకులు, సంస్థలు, కంటెంట్)
+        val postState = inferStateFromPost(post)
+        if (postState != null && postState != userState) {
+            return false
         }
-        return list.distinct()
+
+        // 2. పోస్ట్ యొక్క జిల్లా వేరొక రాష్ట్రానికి చెందినది అయితే తిరస్కరించు
+        val postDistrictState = Constants.mapDistrictToState(post.district)
+        if (postDistrictState != null && postDistrictState != userState) {
+            return false
+        }
+
+        // 3. పోస్ట్ state field వేరొక రాష్ట్రానికి చెందినది అయితే తిరస్కరించు
+        val explicitState = Constants.mapDistrictToState(post.state)
+        if (explicitState != null && explicitState != userState) {
+            return false
+        }
+
+        // 4. గ్లోబల్ లేదా న్యూట్రల్ పోస్టులను అనుమతించు
+        if (isGlobalPost(post)) {
+            return true
+        }
+
+        return true
     }
 
-    private fun isDistrictMatch(postDistrict: String?, targetDistrict: String?): Boolean {
-        if (postDistrict.isNullOrBlank() || targetDistrict.isNullOrBlank()) return false
-        if (postDistrict.equals(targetDistrict, ignoreCase = true)) return true
-        val aliases = getDistrictAliases(targetDistrict)
-        return aliases.any { it.equals(postDistrict, ignoreCase = true) || postDistrict.contains(it, ignoreCase = true) || it.contains(postDistrict, ignoreCase = true) }
+    /**
+     * 🛡️ STRICT DISTRICT & STATE FEED ISOLATION:
+     * ఒక జిల్లా ఫీడ్‌లో లేదా హోమ్ ఫీడ్‌లో వేరొక జిల్లా స్థానిక వార్తలు రాకుండా పూర్తిగా నియంత్రిస్తుంది.
+     */
+    private fun isPostAllowedForFeed(post: NewsPost, userDistrict: String?, userState: String?): Boolean {
+        // 1. State check
+        if (!isPostAllowedForState(post, userState)) {
+            return false
+        }
+
+        // 2. District News check:
+        val isDistrictNews = post.categories.contains("జిల్లా వార్త") || 
+            (!post.district.isNullOrBlank() && Constants.ALL_DISTRICTS.any { Constants.isDistrictMatch(post.district, it) })
+
+        if (isDistrictNews) {
+            if (userDistrict.isNullOrBlank()) {
+                // If user has not selected district, don't show specific other district local news in general feed
+                return false
+            } else {
+                // Only show if it belongs to user's district!
+                val matches = Constants.isDistrictMatch(post.district, userDistrict) ||
+                    post.categories.any { Constants.isDistrictMatch(it, userDistrict) }
+                if (!matches) {
+                    return false
+                }
+            }
+        }
+
+        return true
     }
 
     private val FETCH_LIMIT = 50 // Increased to ensure enough posts survive client-side filtering
@@ -461,7 +383,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                     val isDistrictNews = post.categories.contains("జిల్లా వార్త")
                                     if (isDistrictNews) {
                                         if (district != null) {
-                                            val matches = post.district == district || post.categories.contains(district) || isDistrictMatch(post.district, district)
+                                            val matches = post.district == district || post.categories.contains(district) || Constants.isDistrictMatch(post.district, district)
                                             if (!matches) return@filter false
                                         } else {
                                             return@filter false
@@ -486,7 +408,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                     val cachedPosts = cachedSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) }
                                         ?.filter { post ->
                                             isPostAllowedForState(post, userState) &&
-                                            (!post.categories.contains("జిల్లా వార్త") || (district != null && (post.district == district || post.categories.contains(district) || isDistrictMatch(post.district, district))))
+                                            (!post.categories.contains("జిల్లా వార్త") || (district != null && (post.district == district || post.categories.contains(district) || Constants.isDistrictMatch(post.district, district))))
                                         } ?: emptyList()
                                     Pair(cachedPosts, cachedSnap?.documents?.lastOrNull())
                                 }
@@ -505,7 +427,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                 val cachedPosts = cachedSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) }
                                     ?.filter { post ->
                                         isPostAllowedForState(post, userState) &&
-                                        (!post.categories.contains("జిల్లా వార్త") || (district != null && (post.district == district || post.categories.contains(district) || isDistrictMatch(post.district, district))))
+                                        (!post.categories.contains("జిల్లా వార్త") || (district != null && (post.district == district || post.categories.contains(district) || Constants.isDistrictMatch(post.district, district))))
                                     } ?: emptyList()
                                 Pair(cachedPosts, null)
                             }
@@ -739,7 +661,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
              pendingLoadMore = true
              return
          }
-         viewModelScope.launch {
+         var anyFetched = false
+        viewModelScope.launch {
              isFetching = true
              try {
                  val district = _userDistrict.value
@@ -800,6 +723,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                  prefs.incrementPostViewCounts(validIds)
                              }
                              consecutiveEmptyLoads = 0
+                             anyFetched = true
                           } else {
                               consecutiveEmptyLoads += 1
                               if (mainCursor == null && prefCursor == null && localCursor == null) {
@@ -830,7 +754,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                  isFetching = false
                  if (pendingLoadMore && _hasMore.value) {
                      pendingLoadMore = false
-                     loadMore(currentLanguage, currentUser)
+                     if (anyFetched) {
+                         loadMore(currentLanguage, currentUser)
+                     }
                  }
              }
          }
@@ -846,7 +772,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 val generalCats = getGeneralDistrictsForState(userState).take(30)
                 query = query.whereIn("district", generalCats)
             } else if (!district.isNullOrBlank()) {
-                val districtAliases = getDistrictAliases(district)
+                val districtAliases = Constants.getDistrictAliases(district)
                 val primaryAliases = districtAliases.take(30)
                 query = if (primaryAliases.size > 1) {
                     query.whereIn("district", primaryAliases)
@@ -865,7 +791,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     // 🚀 STEP 2: If district query by 'district' field returned empty, check categories array with category aliases
                     if (!district.isNullOrBlank() && !excludeDistricts) {
                         try {
-                            val categoryAliases = getDistrictAliases(district).take(10)
+                            val categoryAliases = Constants.getDistrictAliases(district).take(10)
                             var catQuery = FirebaseService.db.collection("news")
                                 .whereEqualTo("approved", true)
                                 .whereArrayContainsAny("categories", categoryAliases)
@@ -878,7 +804,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                             if (catSnap != null && !catSnap.isEmpty) {
                                 val allCatPosts = catSnap.documents.mapNotNull { doc -> mapDocumentToNewsPost(doc) }
                                 val filtered = allCatPosts.filter { post -> isPostAllowedForState(post, userState) }
-                                val catBatch = if (filtered.isNotEmpty()) filtered else allCatPosts
+                                val catBatch = filtered
                                 if (catBatch.isNotEmpty()) {
                                     return Pair(catBatch, catSnap.documents.lastOrNull() ?: currentCursor)
                                 }
@@ -907,7 +833,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     
                     val allFallback = fallbackSnapshot.documents.mapNotNull { doc -> mapDocumentToNewsPost(doc) }
                     val filtered = allFallback.filter { post -> isPostAllowedForState(post, userState) }
-                    val batch = if (filtered.isNotEmpty()) filtered else allFallback
+                    val batch = filtered
                     currentCursor = fallbackSnapshot.documents.lastOrNull() ?: currentCursor
                     return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(batch, currentCursor)
                 }
@@ -915,7 +841,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     mapDocumentToNewsPost(doc)
                 }
                 val filtered = allBatch.filter { post -> isPostAllowedForState(post, userState) }
-                val batch = if (filtered.isNotEmpty()) filtered else allBatch
+                val batch = filtered
                 currentCursor = snapshot.documents.lastOrNull() ?: currentCursor
 
                 return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(batch, currentCursor)
@@ -925,36 +851,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             }
         }
 
-    /**
-     * 🛑 STRICT STATE ISOLATION (తెలంగాణ & ఆంధ్రప్రదేశ్ వార్తల విభజన):
-     * ఒక post వినియోగదారు రాష్ట్రం కి అనుమతించవచ్చా లేదా చెక్ చేస్తుంది.
-     * @param post The news post to check
-     * @param userState వినియోగదారు రాష్ట్రం: "Telangana", "Andhra Pradesh", లేదా null (గుర్తించబడని సందర్భంలో)
-     */
-    private fun isPostAllowedForState(post: NewsPost, userState: String?): Boolean {
-        // రాష్ట్రం ఇంకా గుర్తించబడని కొత్త వినియోగదారులకు అన్నీ చూపించు
-        if (userState.isNullOrBlank() || userState == "BOTH") return true
 
-        // 🌟 GLOBAL POST EXEMPTION: జాతీయ, అంతర్జాతీయ, సినిమా, క్రీడలు, బిజినెస్, టెక్నాలజీ లాంటి
-        // గ్లోబల్ వార్తలను రెండు రాష్ట్రాల ప్రజలకూ అనుమతించాలి!
-        if (isGlobalPost(post)) {
-            return true
-        }
-
-        // 1. పోస్ట్ నేరుగా వేరొక రాష్ట్రానికి చెందినదిగా గుర్తిస్తే తిరస్కరించు
-        val postState = inferStateFromPost(post)
-        if (postState != null && postState != userState) {
-            return false
-        }
-
-        // 2. పోస్ట్ యొక్క జిల్లా వేరొక రాష్ట్రానికి చెందినది అయితే తిరస్కరించు
-        val postDistrictState = mapDistrictToState(post.district)
-        if (postDistrictState != null && postDistrictState != userState) {
-            return false
-        }
-
-        return true
-    }
 
 
        private suspend fun rankAndBlendPosts(
@@ -985,7 +882,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     if (userState != null && post.state != null && post.state != userState) return@filter false
                     if (post.isReporter) {
                         val matchesUserDistrict = currentDist != null && 
-                            (post.district == currentDist || post.categories.contains(currentDist) || isDistrictMatch(post.district, currentDist))
+                            (post.district == currentDist || post.categories.contains(currentDist) || Constants.isDistrictMatch(post.district, currentDist))
                         if (!matchesUserDistrict) return@filter false
                     }
                 }
@@ -1006,7 +903,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 val isDistrictNewsCategory = post.categories.contains("జిల్లా వార్త")
                 if (isDistrictNewsCategory && post.isReporter) {
                     if (currentDist != null) {
-                        val matchesUserDistrict = (post.district == currentDist || post.categories.contains(currentDist) || isDistrictMatch(post.district, currentDist))
+                        val matchesUserDistrict = (post.district == currentDist || post.categories.contains(currentDist) || Constants.isDistrictMatch(post.district, currentDist))
                         if (!matchesUserDistrict) return@filter false
                     }
                 }
@@ -1050,7 +947,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            val localIds = local.map { it.id }.toSet()
            val localCandidates = normalNews.filter { post ->
                post.id in localIds ||
-               (post.categories.contains("జిల్లా వార్త") && currentDist != null && isDistrictMatch(post.district, currentDist))
+               (post.categories.contains("జిల్లా వార్త") && currentDist != null && Constants.isDistrictMatch(post.district, currentDist))
            }
                .sortedByDescending { it.timestamp }
                .toMutableList()

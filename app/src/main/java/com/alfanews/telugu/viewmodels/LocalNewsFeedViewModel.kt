@@ -486,6 +486,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             _hasMore.value = true
             consecutiveEmptyLoads = 0
             
+            var fetchedAny = false
+            
             try {
                 var posts: List<NewsPost> = emptyList()
                 var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
@@ -606,8 +608,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 }
 
                 val wasEmpty = _news.value.isEmpty()
-                val finalPosts = if (rankedPosts.isNotEmpty()) rankedPosts else posts
+                val finalPosts = rankedPosts
                 if (finalPosts.isNotEmpty()) {
+                    fetchedAny = true
                     _news.value = finalPosts
                     val validIds = finalPosts.filter { it.type == "news" }.map { it.id }
                     prefs.incrementPostViewCounts(validIds)
@@ -627,7 +630,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 isFetching = false
                 if (pendingLoadMore && _hasMore.value) {
                     pendingLoadMore = false
-                    loadMore(currentLanguage, currentUser)
+                    // 🚀 FIX: Prevent infinite loading loops on empty batches
+                    if (fetchedAny) {
+                        loadMore(currentLanguage, currentUser)
+                    }
                 }
             }
         }
@@ -642,6 +648,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             return
         }
 
+        var anyFetched = false
         viewModelScope.launch {
             isFetching = true
             try {
@@ -764,6 +771,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             }
                             _news.value = _news.value + rankedNewPosts
                             appendedCount = rankedNewPosts.size
+                            if (appendedCount > 0) anyFetched = true
                             val validIds = rankedNewPosts.filter { it.type == "news" }.map { it.id }
                             if (validIds.isNotEmpty()) {
                                 prefs.incrementPostViewCounts(validIds)
@@ -777,7 +785,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 isFetching = false
                 if (pendingLoadMore && _hasMore.value) {
                     pendingLoadMore = false
-                    loadMore(language, currentUser)
+                    // 🚀 FIX: Prevent infinite loading loops on empty batches (hanging/sluggish scroll)
+                    if (anyFetched) {
+                        loadMore(language, currentUser)
+                    }
                 }
             }
         }
@@ -809,6 +820,21 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         currentUser: User?
     ): List<NewsPost> {
         if (posts.isEmpty()) return emptyList()
+
+        val mappedUserState = Constants.mapDistrictToState(district)
+
+        // 🚨 STRICT ISOLATION: తెలంగాణలో ఆంధ్ర వార్తలు, ఆంధ్రాలో తెలంగాణ వార్తలు రాకుండా ఫిల్టర్ చేయడం
+        val filteredPosts = posts.filter { post ->
+            val postState = Constants.mapDistrictToState(post.district) ?: Constants.mapDistrictToState(post.state)
+            if (mappedUserState != null && postState != null && mappedUserState != postState) {
+                // If post state and user state are both known and don't match, reject!
+                false
+            } else {
+                true
+            }
+        }
+
+        if (filteredPosts.isEmpty()) return emptyList()
 
         // 1. యూజర్ యొక్క ప్రాథమిక మండలాన్ని (Primary Mandal) గుర్తించడం
         val primaryMandal = prefs.getEffectiveUserMandal(district, currentUser)
