@@ -105,8 +105,13 @@ fun ClassifiedsView(
         viewMode = initialMode
     }
  
-    LaunchedEffect(Unit) {
-        viewModel.loadAds(null)
+    // Reload ads dynamically based on active view mode
+    LaunchedEffect(viewMode, currentUser?.id) {
+        if (viewMode == ClassifiedsViewMode.MY_ADS) {
+            viewModel.loadAds(currentUser?.id)
+        } else if (viewMode == ClassifiedsViewMode.CATEGORIES || viewMode == ClassifiedsViewMode.CATEGORY_ADS) {
+            viewModel.loadAds(null)
+        }
     }
     
     // Load detail ad when switching to detail mode or changing selected ad
@@ -264,25 +269,31 @@ fun ClassifiedsView(
                     }
                 }
                 ClassifiedsViewMode.MY_ADS -> {
-                    AdsGrid(
-                        ads = ads,
-                        currentUser = currentUser,
-                        viewMode = viewMode,
-                        gridAds = gridAds,
-                        onLoadAd = { loadAdForGrid(it) },
-                        onAdClick = { ad ->
-                            selectedAd = ad
-                            viewMode = ClassifiedsViewMode.DETAIL
-                        },
-                        onDelete = { adId ->
-                            scope.launch {
-                                val result = viewModel.deleteAd(adId)
-                                if (result.isSuccess) {
-                                    Toast.makeText(context, "ప్రకటన తొలగించబడింది", Toast.LENGTH_SHORT).show()
+                    if (loading && ads.isEmpty()) {
+                        LoadingState()
+                    } else if (ads.isEmpty()) {
+                        EmptyState(viewMode) { viewMode = ClassifiedsViewMode.POST }
+                    } else {
+                        AdsGrid(
+                            ads = ads,
+                            currentUser = currentUser,
+                            viewMode = viewMode,
+                            gridAds = gridAds,
+                            onLoadAd = { loadAdForGrid(it) },
+                            onAdClick = { ad ->
+                                selectedAd = ad
+                                viewMode = ClassifiedsViewMode.DETAIL
+                            },
+                            onDelete = { adId ->
+                                scope.launch {
+                                    val result = viewModel.deleteAd(adId)
+                                    if (result.isSuccess) {
+                                        Toast.makeText(context, "ప్రకటన తొలగించబడింది", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
                 ClassifiedsViewMode.DETAIL -> {
                     selectedAd?.let { ad ->

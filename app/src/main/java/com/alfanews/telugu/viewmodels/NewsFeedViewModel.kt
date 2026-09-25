@@ -438,34 +438,96 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     val isNewUser = district.isNullOrBlank()
                     val isGuestOrNew = isGuest || isNewUser
 
-                    // 🚀 FAST PATH: Quick top 10 news via direct primary index query
+                    // 🚀 FAST PATH: Quick top 3 fresh breaking news (General/State/National/Entertainment)
+                    // Strictly excludes other districts' hyper-local news. Runs within ~300ms while splash screen is active.
                     val isColdStart = _news.value.isEmpty()
                     val fastBatchJob = async {
                         if (isColdStart) {
                             try {
-                                val snap = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                                val generalDistricts = getGeneralDistrictsForState(userState).take(30)
+                                val snap = kotlinx.coroutines.withTimeoutOrNull(5000L) {
                                     FirebaseService.db.collection("news")
                                         .whereEqualTo("approved", true)
+                                        .whereIn("district", generalDistricts)
                                         .orderBy("timestamp", Query.Direction.DESCENDING)
-                                        .limit(10)
+                                        .limit(3)
                                         .get()
                                         .await()
                                 }
-                                val posts = snap?.documents?.mapNotNull { mapDocumentToNewsPost(it) }
-                                    ?.filter { isPostAllowedForState(it, userState) } ?: emptyList()
-                                Pair(posts, snap?.documents?.lastOrNull())
-                            } catch (e: Exception) { Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null) }
+                                val allPosts = snap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
+                                val statePosts = allPosts.filter { post ->
+                                    if (!isPostAllowedForState(post, userState)) return@filter false
+                                    // 🛡️ STRICT DISTRICT EXCLUSION: Do not show other districts' reporter news in general feed
+                                    val isDistrictNews = post.categories.contains("జిల్లా వార్త")
+                                    if (isDistrictNews) {
+                                        if (district != null) {
+                                            val matches = post.district == district || post.categories.contains(district) || isDistrictMatch(post.district, district)
+                                            if (!matches) return@filter false
+                                        } else {
+                                            return@filter false
+                                        }
+                                    }
+                                    true
+                                }
+                                val posts = statePosts
+                                if (posts.isNotEmpty()) {
+                                    Pair(posts, snap?.documents?.lastOrNull())
+                                } else {
+                                    // 📴 Fallback to cache if network query was empty
+                                    val cachedSnap = try {
+                                        FirebaseService.db.collection("news")
+                                            .whereEqualTo("approved", true)
+                                            .whereIn("district", generalDistricts)
+                                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                                            .limit(3)
+                                            .get(com.google.firebase.firestore.Source.CACHE)
+                                            .await()
+                                    } catch (e: Exception) { null }
+                                    val cachedPosts = cachedSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) }
+                                        ?.filter { post ->
+                                            isPostAllowedForState(post, userState) &&
+                                            (!post.categories.contains("జిల్లా వార్త") || (district != null && (post.district == district || post.categories.contains(district) || isDistrictMatch(post.district, district))))
+                                        } ?: emptyList()
+                                    Pair(cachedPosts, cachedSnap?.documents?.lastOrNull())
+                                }
+                            } catch (e: Exception) {
+                                // 📴 Fallback to cache on timeout/error
+                                val generalDistricts = getGeneralDistrictsForState(userState).take(30)
+                                val cachedSnap = try {
+                                    FirebaseService.db.collection("news")
+                                        .whereEqualTo("approved", true)
+                                        .whereIn("district", generalDistricts)
+                                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                                        .limit(3)
+                                        .get(com.google.firebase.firestore.Source.CACHE)
+                                        .await()
+                                } catch (ex: Exception) { null }
+                                val cachedPosts = cachedSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) }
+                                    ?.filter { post ->
+                                        isPostAllowedForState(post, userState) &&
+                                        (!post.categories.contains("జిల్లా వార్త") || (district != null && (post.district == district || post.categories.contains(district) || isDistrictMatch(post.district, district))))
+                                    } ?: emptyList()
+                                Pair(cachedPosts, null)
+                            }
                         } else {
                             Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
                         }
                     }
                     
+                    val preferredCats = try { AnalyticsService.getUserPreferredCategories().take(10) } catch (e: Exception) { emptyList<String>() }
+
                     val greetingBatchDeferred = async {
                         if (initialPostId == null) {
                             try { 
                                 val post = fetchGreetingPost()
                                 if (post != null && prefs.getPostViewCount(post.id) < 2) post else null
                             } catch (e: Exception) { null }
+                        } else null
+                    }
+
+                    val surveyBatchDeferred = async {
+                        if (initialPostId == null) {
+                            try { fetchActiveSurvey() } catch (e: Exception) { null }
                         } else null
                     }
 
@@ -479,38 +541,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         } else null
                     }
 
-                    val initialTargetPost = initialPostDeferred.await()
-                    val fastBatch = fastBatchJob.await()
-                    
-                    if (initialTargetPost != null || fastBatch.first.isNotEmpty()) {
-                        val initialList = mutableListOf<NewsPost>()
-                        initialTargetPost?.let { initialList.add(it) }
-                        initialList.addAll(fastBatch.first)
-                        
-                        // 🔄 FAST LOAD: Display fresh news immediately without waiting for anything else
-                        if (_news.value.isEmpty()) {
-                            _news.value = initialList.distinctBy { it.id }
-                            _loading.value = false 
-                        } else if (initialTargetPost != null) {
-                            _news.value = (listOf(initialTargetPost) + _news.value).distinctBy { it.id }
-                            _loading.value = false
-                        } else if (fastBatch.first.isNotEmpty()) {
-                            _news.value = (initialList + _news.value).distinctBy { it.id }
-                            _loading.value = false
-                        }
-                    }
-
-                    // Greeting post is merged at top if available
-                    val initialGreeting = greetingBatchDeferred.await()
-                    if (initialGreeting != null) {
-                        if (_news.value.isNotEmpty() && _news.value.none { it.id == initialGreeting.id }) {
-                            _news.value = (listOf(initialGreeting) + _news.value).distinctBy { it.id }
-                        }
-                    }
-
-                    // 🧠 BACKGROUND PROCESSING: Heavy 40/30/30 Mixing for ALL users (including guest and new users)
-                    val preferredCats = try { AnalyticsService.getUserPreferredCategories().take(10) } catch (e: Exception) { emptyList<String>() }
-
+                    // 🧠 BACKGROUND PROCESSING: Heavy 40/30/30 Mixing started in parallel from the start
                     val prefBatchDeferred = async {
                         if (preferredCats.isNotEmpty()) {
                             try {
@@ -542,12 +573,42 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         } catch (e: Exception) { Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null) }
                     }
 
+                    val initialTargetPost = initialPostDeferred.await()
+                    val fastBatch = fastBatchJob.await()
+                    
+                    if (initialTargetPost != null || fastBatch.first.isNotEmpty()) {
+                        val initialList = mutableListOf<NewsPost>()
+                        initialTargetPost?.let { initialList.add(it) }
+                        initialList.addAll(fastBatch.first)
+                        
+                        // 🔄 FAST LOAD: Display fresh news immediately without waiting for anything else
+                        if (_news.value.isEmpty()) {
+                            _news.value = initialList.distinctBy { it.id }
+                            _loading.value = false 
+                        } else if (initialTargetPost != null) {
+                            _news.value = (listOf(initialTargetPost) + _news.value).distinctBy { it.id }
+                            _loading.value = false
+                        } else if (fastBatch.first.isNotEmpty()) {
+                            _news.value = (initialList + _news.value).distinctBy { it.id }
+                            _loading.value = false
+                        }
+                    }
+
+                    // Greeting and Survey posts
+                    val initialGreeting = greetingBatchDeferred.await()
+                    val initialSurvey = surveyBatchDeferred.await()
+                    if (initialGreeting != null) {
+                        if (_news.value.isNotEmpty() && _news.value.none { it.id == initialGreeting.id }) {
+                            _news.value = (listOf(initialGreeting) + _news.value).distinctBy { it.id }
+                        }
+                    }
+
                     val prefBatch = prefBatchDeferred.await()
                     val localBatch = localBatchDeferred.await()
                     val mainBatch = mainBatchDeferred.await()
 
                     var finalPosts = withContext(Dispatchers.Default) {
-                        rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first, isFirstPage = true)
+                        rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first, isFirstPage = true, injectedSurvey = initialSurvey)
                     }
 
                     prefCursor = prefBatch.second
@@ -587,7 +648,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     // 🚨 ZERO EMPTY FEED GUARANTEE: If finalPosts is still empty, fallback directly to latest approved news!
                     if (finalPosts.isEmpty()) {
                         try {
-                            val emergencySnapshot = kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                            val emergencySnapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
                                 FirebaseService.db.collection("news")
                                     .whereEqualTo("approved", true)
                                     .orderBy("timestamp", Query.Direction.DESCENDING)
@@ -603,6 +664,22 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         } catch (e: Exception) {
                             Log.e("NewsFeedVM", "Emergency fetch failed: ${e.message}")
                         }
+                    }
+
+                    // 🚨 SECONDARY GUARANTEE: If network emergency fetch returned empty, read from Firestore Cache!
+                    if (finalPosts.isEmpty()) {
+                        try {
+                            val cachedSnap = FirebaseService.db.collection("news")
+                                .whereEqualTo("approved", true)
+                                .orderBy("timestamp", Query.Direction.DESCENDING)
+                                .limit(FETCH_LIMIT.toLong())
+                                .get(com.google.firebase.firestore.Source.CACHE)
+                                .await()
+                            val cachedList = cachedSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                            if (cachedList.isNotEmpty()) {
+                                finalPosts = cachedList
+                            }
+                        } catch (e: Exception) { }
                     }
 
                    if (finalPosts.isEmpty() && mainCursor == null && prefCursor == null && localCursor == null) {
@@ -781,7 +858,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             if (currentCursor != null) query = query.startAfter(currentCursor)
             
             try {
-                val snapshot = kotlinx.coroutines.withTimeoutOrNull(3500L) {
+                val snapshot = kotlinx.coroutines.withTimeoutOrNull(6000L) {
                     query.get().await()
                 }
                 if (snapshot == null || snapshot.isEmpty) {
@@ -795,12 +872,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
                                 .limit(limit.toLong())
                             if (currentCursor != null) catQuery = catQuery.startAfter(currentCursor)
-                            val catSnap = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                            val catSnap = kotlinx.coroutines.withTimeoutOrNull(5000L) {
                                 catQuery.get().await()
                             }
                             if (catSnap != null && !catSnap.isEmpty) {
-                                val catBatch = catSnap.documents.mapNotNull { doc -> mapDocumentToNewsPost(doc) }
-                                    .filter { post -> isPostAllowedForState(post, userState) }
+                                val allCatPosts = catSnap.documents.mapNotNull { doc -> mapDocumentToNewsPost(doc) }
+                                val filtered = allCatPosts.filter { post -> isPostAllowedForState(post, userState) }
+                                val catBatch = if (filtered.isNotEmpty()) filtered else allCatPosts
                                 if (catBatch.isNotEmpty()) {
                                     return Pair(catBatch, catSnap.documents.lastOrNull() ?: currentCursor)
                                 }
@@ -816,7 +894,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     
                     if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
                     
-                    val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                    val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
                         try {
                             fallbackQuery.get().await()
                         } catch (e: Exception) {
@@ -827,20 +905,19 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), currentCursor)
                     }
                     
-                    // userState filter apply చేసి fallback batch filter చేయడం
-                    val batch = fallbackSnapshot.documents.mapNotNull { doc -> mapDocumentToNewsPost(doc) }
-                        .filter { post -> isPostAllowedForState(post, userState) }
+                    val allFallback = fallbackSnapshot.documents.mapNotNull { doc -> mapDocumentToNewsPost(doc) }
+                    val filtered = allFallback.filter { post -> isPostAllowedForState(post, userState) }
+                    val batch = if (filtered.isNotEmpty()) filtered else allFallback
                     currentCursor = fallbackSnapshot.documents.lastOrNull() ?: currentCursor
                     return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(batch, currentCursor)
                 }
-                val batch = snapshot.documents.mapNotNull { doc ->
+                val allBatch = snapshot.documents.mapNotNull { doc ->
                     mapDocumentToNewsPost(doc)
-                }.filter { post -> isPostAllowedForState(post, userState) }
+                }
+                val filtered = allBatch.filter { post -> isPostAllowedForState(post, userState) }
+                val batch = if (filtered.isNotEmpty()) filtered else allBatch
                 currentCursor = snapshot.documents.lastOrNull() ?: currentCursor
 
-                // 🚀 Removed invalid fallback query with conflicting cursors that caused timeouts.
-                // Returning empty list safely lets the while-loop fetch the next valid page.
-                
                 return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(batch, currentCursor)
             } catch (e: Exception) {
                 // If the primary query times out, return the cursor to prevent endless loops.
@@ -861,10 +938,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         // 🌟 GLOBAL POST EXEMPTION: జాతీయ, అంతర్జాతీయ, సినిమా, క్రీడలు, బిజినెస్, టెక్నాలజీ లాంటి
         // గ్లోబల్ వార్తలను రెండు రాష్ట్రాల ప్రజలకూ అనుమతించాలి!
         if (isGlobalPost(post)) {
-            val postDistrictState = mapDistrictToState(post.district)
-            if (postDistrictState != null && postDistrictState != userState) {
-                return false
-            }
             return true
         }
 
@@ -884,7 +957,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     }
 
 
-       private suspend fun rankAndBlendPosts(pref: List<NewsPost>, main: List<NewsPost>, local: List<NewsPost>, isFirstPage: Boolean = false): List<NewsPost> = withContext(Dispatchers.Default) {
+       private suspend fun rankAndBlendPosts(
+           pref: List<NewsPost>,
+           main: List<NewsPost>,
+           local: List<NewsPost>,
+           isFirstPage: Boolean = false,
+           injectedSurvey: NewsPost? = null
+       ): List<NewsPost> = withContext(Dispatchers.Default) {
             val allRaw = (pref + main + local).distinctBy { it.id }
             var filteredPref = pref.filter { prefs.getPostViewCount(it.id) < 2 }
             var filteredMain = main.filter { prefs.getPostViewCount(it.id) < 2 }
@@ -950,10 +1029,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            // 🚀 FIRST PAGE SAFETY: If normalNews is empty on first page, fallback to allRaw normal news so feed is never blank
            if (isFirstPage && normalNews.isEmpty() && allRaw.isNotEmpty()) {
                normalNews = allRaw.filter { it.type != "greeting" && it.type != "history" && it.type != "cartoon" && it.type != "survey" && isPostAllowedForState(it, userState) }
+               if (normalNews.isEmpty()) {
+                   normalNews = allRaw.filter { it.type != "greeting" && it.type != "history" && it.type != "cartoon" && it.type != "survey" }
+               }
            }
 
             if (normalNews.isEmpty() && !isFirstPage) {
                 normalNews = allRaw.filter { it.type != "greeting" && it.type != "history" && it.type != "cartoon" && it.type != "survey" && isPostAllowedForState(it, userState) }
+                if (normalNews.isEmpty()) {
+                    normalNews = allRaw.filter { it.type != "greeting" && it.type != "history" && it.type != "cartoon" && it.type != "survey" }
+                }
                 if (normalNews.isEmpty()) {
                     return@withContext emptyList<NewsPost>() 
                 }
@@ -1047,7 +1132,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            }
 
            if (isFirstPage) {
-               val activeSurvey = fetchActiveSurvey()
+               val activeSurvey = injectedSurvey ?: fetchActiveSurvey()
                
                // Inject active survey at 3rd card (index 2)
                activeSurvey?.let { insertSafely(blendedNews, it, 2) }

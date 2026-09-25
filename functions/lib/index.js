@@ -617,13 +617,15 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
             const isAndroid = /Android/i.test(navigator.userAgent);
             const intentUrl = "intent://${isAd ? 'ad' : 'news'}/${id}#Intent;scheme=alfanews;package=com.alfanews.telugu;S.browser_fallback_url=" + encodeURIComponent("${playUrl}") + ";end";
             const appBtn = document.getElementById("openAppBtn");
-            if (isAndroid) {
-                appBtn.href = intentUrl;
-                const isCrawler = /facebookexternalhit|WhatsApp|Twitterbot|TelegramBot|LinkedInBot|Googlebot/i.test(navigator.userAgent);
-                if (!isCrawler) {
+            const isCrawler = /facebookexternalhit|WhatsApp|Twitterbot|TelegramBot|LinkedInBot|Googlebot/i.test(navigator.userAgent);
+            if (!isCrawler) {
+                if (isAndroid) {
+                    appBtn.href = intentUrl;
                     setTimeout(() => {
                         window.location.href = intentUrl;
                     }, 50);
+                } else {
+                    window.location.href = "${playUrl}";
                 }
             }
         })();

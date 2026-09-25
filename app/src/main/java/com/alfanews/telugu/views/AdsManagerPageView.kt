@@ -413,14 +413,34 @@ private fun MyAdsView(currentUser: User) {
         scope.launch {
             loadingMyAds = true
             try {
-                val snapshot = FirebaseService.db.collection("local_ads").whereEqualTo("userId", currentUser.id).orderBy("createdAt", Query.Direction.DESCENDING).get().await()
-                myAds = snapshot.documents.mapNotNull { LocalAd.fromSnapshot(it) }
-            } catch (e: Exception) { e.printStackTrace() } 
-            finally { loadingMyAds = false }
+                val snapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                    FirebaseService.db.collection("local_ads")
+                        .whereEqualTo("userId", currentUser.id)
+                        .limit(50)
+                        .get().await()
+                }
+                myAds = snapshot?.documents?.mapNotNull { LocalAd.fromSnapshot(it) }?.sortedByDescending { it.createdAt } ?: emptyList()
+            } catch (e: Exception) { 
+                e.printStackTrace() 
+            } finally { 
+                loadingMyAds = false 
+            }
         }
     }
 
-    LaunchedEffect(Unit) { fetchMyAds() }
+    LaunchedEffect(currentUser.id) { 
+        fetchMyAds() 
+    }
+
+    // Safety watchdog timer
+    LaunchedEffect(loadingMyAds) {
+        if (loadingMyAds) {
+            kotlinx.coroutines.delay(2500L)
+            if (loadingMyAds) {
+                loadingMyAds = false
+            }
+        }
+    }
 
     if (loadingMyAds) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -443,14 +463,32 @@ fun AdminAdsView() {
         scope.launch {
             loading = true
             try {
-                val snapshot = FirebaseService.db.collection("local_ads").orderBy("createdAt", Query.Direction.DESCENDING).get().await()
-                allAds = snapshot.documents.mapNotNull { LocalAd.fromSnapshot(it) }
-            } catch (e: Exception) { e.printStackTrace() }
-            finally { loading = false }
+                val snapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                    FirebaseService.db.collection("local_ads")
+                        .orderBy("createdAt", Query.Direction.DESCENDING)
+                        .limit(100)
+                        .get().await()
+                }
+                allAds = snapshot?.documents?.mapNotNull { LocalAd.fromSnapshot(it) } ?: emptyList()
+            } catch (e: Exception) { 
+                e.printStackTrace() 
+            } finally { 
+                loading = false 
+            }
         }
     }
 
     LaunchedEffect(Unit) { fetchAllAds() }
+
+    // Safety watchdog timer
+    LaunchedEffect(loading) {
+        if (loading) {
+            kotlinx.coroutines.delay(2500L)
+            if (loading) {
+                loading = false
+            }
+        }
+    }
 
     if (loading) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }

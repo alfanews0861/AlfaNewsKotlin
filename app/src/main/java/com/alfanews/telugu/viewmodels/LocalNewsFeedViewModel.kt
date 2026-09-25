@@ -440,6 +440,24 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             val districtAliases = getDistrictAliases(district)
             val primaryAliases = districtAliases.take(30)
 
+            // 🚀 INSTANT LOCAL CACHE FIRST: Show cached local news instantly (< 20ms) so user never sees blank screen
+            if (_news.value.isEmpty()) {
+                try {
+                    val cachedSnap = newsRef
+                        .whereEqualTo("approved", true)
+                        .whereIn("district", primaryAliases)
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(pageSize.toLong())
+                        .get(com.google.firebase.firestore.Source.CACHE)
+                        .await()
+                    val cachedPosts = cachedSnap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                    if (cachedPosts.isNotEmpty()) {
+                        _news.value = cachedPosts
+                        _loading.value = false
+                    }
+                } catch (e: Exception) { }
+            }
+
             if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
                 _isOnline.value = false
                 if (_news.value.isEmpty()) {
@@ -542,7 +560,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                     // 🚀 STEP 4: Emergency Fallback to latest approved news if local/state news is empty
                     if (posts.isEmpty()) {
-                        val emergencySnapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                        val emergencySnapshot = kotlinx.coroutines.withTimeoutOrNull(3000L) {
                             newsRef
                                 .whereEqualTo("approved", true)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
@@ -588,12 +606,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 }
 
                 val wasEmpty = _news.value.isEmpty()
-                if (rankedPosts.isNotEmpty()) {
-                    _news.value = rankedPosts
-                }
-                // Scroll to top on fresh district news load only if feed was empty
-                if (rankedPosts.isNotEmpty()) {
-                    val validIds = rankedPosts.filter { it.type == "news" }.map { it.id }
+                val finalPosts = if (rankedPosts.isNotEmpty()) rankedPosts else posts
+                if (finalPosts.isNotEmpty()) {
+                    _news.value = finalPosts
+                    val validIds = finalPosts.filter { it.type == "news" }.map { it.id }
                     prefs.incrementPostViewCounts(validIds)
                     if (wasEmpty) {
                         _shouldScrollToTop.value = true

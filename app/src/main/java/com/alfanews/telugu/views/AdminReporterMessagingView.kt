@@ -72,14 +72,20 @@ fun AdminReporterMessagingView(
     val warningCount = remember(conversations) { conversations.count { it.lastMessage.contains("⚠️") || it.lastMessage.contains("హెచ్చరిక") } }
     val readCount = remember(conversations) { conversations.count { it.unreadCountForAdmin == 0 && it.unreadCountForReporter == 0 } }
 
+    // Safety watchdog: After 2.5s, turn off loading spinner if snapshot listener hasn't finished yet
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(2500L)
+        loading = false
+    }
+
     // Real-time conversations list listener
     DisposableEffect(Unit) {
         val convRef = FirebaseService.db.collection("reporter_conversations")
             .orderBy("updatedAt", Query.Direction.DESCENDING)
 
         val listener: ListenerRegistration = convRef.addSnapshotListener { snapshot, error ->
+            loading = false
             if (error != null) {
-                loading = false
                 return@addSnapshotListener
             }
 
@@ -118,7 +124,6 @@ fun AdminReporterMessagingView(
                     }
                 }
                 conversations = list
-                loading = false
             }
         }
 
@@ -131,22 +136,26 @@ fun AdminReporterMessagingView(
     LaunchedEffect(Unit) {
         scope.launch {
             try {
-                val snapshot = FirebaseService.db.collection("users")
-                    .whereIn("role", listOf("REPORTER", "reporter", 2, 2.0, "2"))
-                    .get()
-                    .await()
+                val snapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                    FirebaseService.db.collection("users")
+                        .whereIn("role", listOf("REPORTER", "reporter", "STAFF_REPORTER", "staff_reporter", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0, "3"))
+                        .get()
+                        .await()
+                }
 
-                allReporters = snapshot.documents.mapNotNull { doc ->
-                    val data = doc.data ?: return@mapNotNull null
-                    User(
-                        id = doc.id,
-                        name = data["name"] as? String ?: "Reporter",
-                        phone = data["phone"] as? String,
-                        district = data["district"] as? String,
-                        assignedMandal = data["assignedMandal"] as? String ?: data["mandal"] as? String,
-                        photoUrl = data["photoUrl"] as? String,
-                        points = (data["points"] as? Number)?.toInt() ?: 0
-                    )
+                if (snapshot != null) {
+                    allReporters = snapshot.documents.mapNotNull { doc ->
+                        val data = doc.data ?: return@mapNotNull null
+                        User(
+                            id = doc.id,
+                            name = data["name"] as? String ?: "Reporter",
+                            phone = data["phone"] as? String,
+                            district = data["district"] as? String,
+                            assignedMandal = data["assignedMandal"] as? String ?: data["mandal"] as? String,
+                            photoUrl = data["photoUrl"] as? String,
+                            points = (data["points"] as? Number)?.toInt() ?: 0
+                        )
+                    }
                 }
 
                 // If initial reporter ID was passed, open their chat directly
@@ -833,17 +842,17 @@ fun AdminOneOnOneChatView(
                     .update("unreadCountForAdmin", 0)
                     .await()
 
-                val unreadMsgs = FirebaseService.db.collection("reporter_conversations")
+                val unreadSnap = FirebaseService.db.collection("reporter_conversations")
                     .document(reporterId)
                     .collection("messages")
                     .whereEqualTo("read", false)
-                    .whereNotEqualTo("senderRole", "ADMIN")
                     .get()
                     .await()
 
-                if (!unreadMsgs.isEmpty) {
+                val unreadMsgs = unreadSnap.documents.filter { (it.getString("senderRole") ?: "") != "ADMIN" }
+                if (unreadMsgs.isNotEmpty()) {
                     val batch = FirebaseService.db.batch()
-                    for (doc in unreadMsgs.documents) {
+                    for (doc in unreadMsgs) {
                         batch.update(doc.reference, "read", true)
                     }
                     batch.commit().await()

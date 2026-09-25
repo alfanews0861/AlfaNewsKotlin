@@ -89,42 +89,49 @@ fun ReporterManagementPageView(
                 val activeReporterUserIds = mutableSetOf<String>()
                 val activeReporterPhones = mutableSetOf<String>()
                 try {
-                    val usersSnap = FirebaseService.db.collection("users")
-                        .whereIn("role", listOf("REPORTER", "reporter", "STAFF_REPORTER", "staff_reporter", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0, "3"))
-                        .get().await()
-                    val occMap = mutableMapOf<String, String>()
-                    for (uDoc in usersSnap.documents) {
-                        val isSuspended = uDoc.getBoolean("suspended") == true || uDoc.getBoolean("previouslyDowngraded") == true
-                        val roleStr = uDoc.get("role")?.toString()?.uppercase() ?: ""
-                        if (isSuspended || roleStr == "SUBSCRIBER" || roleStr == "GUEST" || roleStr == "1" || roleStr == "1.0") continue
-
-                        activeReporterUserIds.add(uDoc.id)
-                        val phone = (uDoc.getString("phone") ?: "").filter { it.isDigit() }
-                        if (phone.length >= 10) {
-                            activeReporterPhones.add(phone.takeLast(10))
-                        }
-                        val dist = (uDoc.getString("district") ?: uDoc.getString("state_district") ?: "").trim()
-                        val mandal = (uDoc.getString("assignedMandal") ?: uDoc.getString("mandal") ?: uDoc.getString("mandalam") ?: uDoc.getString("selectedMandal") ?: "").trim()
-                        val name = uDoc.getString("name") ?: "Reporter"
-                        val phoneStr = uDoc.getString("phone") ?: ""
-                        if (dist.isNotEmpty() && mandal.isNotEmpty()) {
-                            val occupantInfo = if (phoneStr.isNotEmpty()) "$name ($phoneStr)" else name
-                            occMap["$dist|$mandal"] = occupantInfo
-                            occMap["${dist.trim()}|${mandal.trim()}"] = occupantInfo
-                            occMap["${dist.lowercase()}|${mandal.lowercase()}"] = occupantInfo
-                            occMap["${dist.replace(" ", "")}|${mandal.replace(" ", "")}"] = occupantInfo
-                        }
+                    val usersSnap = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                        FirebaseService.db.collection("users")
+                            .whereIn("role", listOf("REPORTER", "reporter", "STAFF_REPORTER", "staff_reporter", "REGIONAL_INCHARGE", "regional_incharge", 2, 2.0, "2", 3, 3.0, "3"))
+                            .limit(300)
+                            .get().await()
                     }
-                    occupiedMandalsMap = occMap
+                    if (usersSnap != null) {
+                        val occMap = mutableMapOf<String, String>()
+                        for (uDoc in usersSnap.documents) {
+                            val isSuspended = uDoc.getBoolean("suspended") == true || uDoc.getBoolean("previouslyDowngraded") == true
+                            val roleStr = uDoc.get("role")?.toString()?.uppercase() ?: ""
+                            if (isSuspended || roleStr == "SUBSCRIBER" || roleStr == "GUEST" || roleStr == "1" || roleStr == "1.0") continue
+
+                            activeReporterUserIds.add(uDoc.id)
+                            val phone = (uDoc.getString("phone") ?: "").filter { it.isDigit() }
+                            if (phone.length >= 10) {
+                                activeReporterPhones.add(phone.takeLast(10))
+                            }
+                            val dist = (uDoc.getString("district") ?: uDoc.getString("state_district") ?: "").trim()
+                            val mandal = (uDoc.getString("assignedMandal") ?: uDoc.getString("mandal") ?: uDoc.getString("mandalam") ?: uDoc.getString("selectedMandal") ?: "").trim()
+                            val name = uDoc.getString("name") ?: "Reporter"
+                            val phoneStr = uDoc.getString("phone") ?: ""
+                            if (dist.isNotEmpty() && mandal.isNotEmpty()) {
+                                val occupantInfo = if (phoneStr.isNotEmpty()) "$name ($phoneStr)" else name
+                                occMap["$dist|$mandal"] = occupantInfo
+                                occMap["${dist.trim()}|${mandal.trim()}"] = occupantInfo
+                                occMap["${dist.lowercase()}|${mandal.lowercase()}"] = occupantInfo
+                                occMap["${dist.replace(" ", "")}|${mandal.replace(" ", "")}"] = occupantInfo
+                            }
+                        }
+                        occupiedMandalsMap = occMap
+                    }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
 
                 if (selectedTab == 0) {
-                    val rawSnapshot = FirebaseService.db.collection("reporter_applications")
-                        .get().await()
+                    val rawSnapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                        FirebaseService.db.collection("reporter_applications")
+                            .get().await()
+                    }
 
-                    var fetchedList = rawSnapshot.documents.mapNotNull { doc ->
+                    var fetchedList: List<Map<String, Any>> = rawSnapshot?.documents?.mapNotNull { doc ->
                         val data = doc.data ?: return@mapNotNull null
                         val currentStatus = data["status"]?.toString()?.uppercase() ?: "PENDING"
                         val appUserId = (data["userId"] as? String)?.trim() ?: ""
@@ -150,7 +157,7 @@ fun ReporterManagementPageView(
                             data
                         }
                         mappedData.plus("id" to doc.id)
-                    }
+                    } ?: emptyList()
 
                     if (currentUser.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {
                         fetchedList = fetchedList.filter { app ->

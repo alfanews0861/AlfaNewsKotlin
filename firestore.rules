@@ -2,66 +2,100 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper function to get user data
+    // Helper functions for user identification and role checking
+    function isAuthed() {
+      return request.auth != null;
+    }
+
+    function isUserDocPresent() {
+      return isAuthed() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function getUserData() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Role checks covering string enum names, lowercase variants, and numeric representations (0..7)
+    // 5 = ADMIN, 7 = SUPER_ADMIN
+    function isAdmin() {
+      return isUserDocPresent() && (
+        getUserData().role in ['ADMIN', 'admin', '5', '5.0', '7', '7.0', 5, 5.0, 7, 7.0] ||
+        getUserData().role == 'ADMIN'
+      );
+    }
+
+    // 4 = EDITOR, 5 = ADMIN, 6 = NEWS_DESK, 7 = SUPER_ADMIN
+    function isEditorOrAdmin() {
+      return isUserDocPresent() && (
+        getUserData().role in ['ADMIN', 'admin', 'EDITOR', 'editor', 'NEWS_DESK', 'news_desk',
+                               '4', '4.0', '5', '5.0', '6', '6.0', '7', '7.0',
+                               4, 4.0, 5, 5.0, 6, 6.0, 7, 7.0]
+      );
+    }
+
+    // 3 = REGIONAL_INCHARGE, 4 = EDITOR, 5 = ADMIN, 6 = NEWS_DESK, 7 = SUPER_ADMIN
+    function isRegionalInchargeOrAdmin() {
+      return isUserDocPresent() && (
+        getUserData().role in ['ADMIN', 'admin', 'EDITOR', 'editor', 'NEWS_DESK', 'news_desk',
+                               'REGIONAL_INCHARGE', 'regional_incharge',
+                               3, 3.0, 4, 4.0, 5, 5.0, 6, 6.0, 7, 7.0,
+                               '3', '3.0', '4', '4.0', '5', '5.0', '6', '6.0', '7', '7.0']
+      );
+    }
+
+    // 2 = REPORTER, 3 = REGIONAL_INCHARGE, 4 = EDITOR, 5 = ADMIN, 6 = NEWS_DESK, 7 = SUPER_ADMIN
+    function isStaffOrAdmin() {
+      return isUserDocPresent() && (
+        getUserData().role in ['ADMIN', 'admin', 'EDITOR', 'editor', 'NEWS_DESK', 'news_desk',
+                               'REGIONAL_INCHARGE', 'regional_incharge', 'REPORTER', 'reporter',
+                               'STAFF_REPORTER', 'staff_reporter',
+                               2, 2.0, 3, 3.0, 4, 4.0, 5, 5.0, 6, 6.0, 7, 7.0,
+                               '2', '2.0', '3', '3.0', '4', '4.0', '5', '5.0', '6', '6.0', '7', '7.0']
+      );
     }
 
     // User Profiles & Subcollections (Messages, Notifications)
     match /users/{userId} {
       allow read: if true;
       // Allow create if creating own doc (as standard SUBSCRIBER/GUEST without privileged fields) or if Admin/Editor
-      allow create: if request.auth != null && (
+      allow create: if isAuthed() && (
         (request.auth.uid == userId &&
-         (!('role' in request.resource.data) || request.resource.data.role in ['SUBSCRIBER', 'GUEST']) &&
+         (!('role' in request.resource.data) || request.resource.data.role in ['SUBSCRIBER', 'GUEST', '1', 1, 1.0, '0', 0, 0.0]) &&
          (!('points' in request.resource.data) || request.resource.data.points == 0) &&
          (!('badges' in request.resource.data) || request.resource.data.badges.size() == 0) &&
          (!('assignedMandal' in request.resource.data) || request.resource.data.assignedMandal == null) &&
          (!('assignedDistricts' in request.resource.data) || request.resource.data.assignedDistricts.size() == 0)) ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         getUserData().role in ['ADMIN', 'EDITOR'])
+        isEditorOrAdmin()
       );
 
       // Normal users cannot modify protected fields (role, points, badges, assignments, warnings)
-      allow update: if request.auth != null && (
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         getUserData().role in ['ADMIN', 'EDITOR']) ||
+      allow update: if isAuthed() && (
+        isEditorOrAdmin() ||
         (request.auth.uid == userId &&
          !request.resource.data.diff(resource.data).affectedKeys()
            .hasAny(['role', 'points', 'badges', 'assignedDistricts', 'assignedMandal', 'warningLevel', 'inProbation', 'suspended', 'previouslyDowngraded']))
       );
 
-      allow delete: if request.auth != null &&
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        getUserData().role == 'ADMIN';
+      allow delete: if isAdmin();
 
       // User Personal Messages
       match /messages/{messageId} {
-        allow read: if request.auth != null && (request.auth.uid == userId ||
-          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-          getUserData().role in ['ADMIN', 'EDITOR']);
-        allow create, update, delete: if request.auth != null && (request.auth.uid == userId ||
-          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-          getUserData().role in ['ADMIN', 'EDITOR']);
+        allow read, create, update, delete: if isAuthed() && (request.auth.uid == userId || isEditorOrAdmin());
       }
 
       // User Personal Notifications
       match /notifications/{notifId} {
-        allow read, update, delete: if request.auth != null && request.auth.uid == userId;
-        allow create: if request.auth != null;
+        allow read, update, delete: if isAuthed() && request.auth.uid == userId;
+        allow create: if isAuthed();
       }
     }
 
-    // Reporter <-> Admin Conversations (Strict Isolation: Only the assigned Reporter and Admins can access)
+    // Reporter <-> Admin Conversations (Strict Isolation: Only the assigned Reporter and Admins/Staff can access)
     match /reporter_conversations/{reporterId} {
-      allow read, write: if request.auth != null && (request.auth.uid == reporterId ||
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        getUserData().role in ['ADMIN', 'EDITOR', 'NEWS_DESK', 'REGIONAL_INCHARGE']);
+      allow read, write: if isAuthed() && (request.auth.uid == reporterId || isRegionalInchargeOrAdmin());
 
       match /messages/{msgId} {
-        allow read, write: if request.auth != null && (request.auth.uid == reporterId ||
-          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-          getUserData().role in ['ADMIN', 'EDITOR', 'NEWS_DESK', 'REGIONAL_INCHARGE']);
+        allow read, write: if isAuthed() && (request.auth.uid == reporterId || isRegionalInchargeOrAdmin());
       }
     }
     
@@ -69,28 +103,25 @@ service cloud.firestore {
     match /news/{postId} {
       allow read: if true;
       // Allow reporters/admins/regional_incharge to create posts OR
-      // any user with an existing user document (i.e., a role) to create a citizen post.
-      allow create: if request.auth != null && (
-                      (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-                       getUserData().role in ['REPORTER', 'EDITOR', 'ADMIN', 'NEWS_DESK'] ||
-                       (getUserData().role == 'REGIONAL_INCHARGE' && request.resource.data.district in getUserData().assignedDistricts)
-                      )) ||
+      // any citizen to create a citizen post.
+      allow create: if isAuthed() && (
+                      isStaffOrAdmin() ||
                       (request.resource.data.isCitizen == true)
                     );
-      allow update, delete: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-        getUserData().role in ['EDITOR', 'ADMIN', 'NEWS_DESK'] ||
-        (getUserData().role == 'REPORTER' && (resource.data.reporter.id == request.auth.uid || ('originalReporterId' in resource.data && resource.data.originalReporterId == request.auth.uid))) ||
-        (getUserData().role == 'REGIONAL_INCHARGE' && resource.data.district in getUserData().assignedDistricts)
+      allow update, delete: if isAuthed() && (
+        isEditorOrAdmin() ||
+        (isUserDocPresent() && getUserData().role in ['REPORTER', 'reporter', 2, 2.0, '2', 'STAFF_REPORTER', 'staff_reporter'] && (resource.data.reporter.id == request.auth.uid || ('originalReporterId' in resource.data && resource.data.originalReporterId == request.auth.uid))) ||
+        (isUserDocPresent() && getUserData().role in ['REGIONAL_INCHARGE', 'regional_incharge', 3, 3.0, '3'] && resource.data.district in getUserData().assignedDistricts)
       );
 
       // User Engagement Update: any signed-in user may increment/decrement likes, increment shares or comments
-      allow update: if request.auth != null
+      allow update: if isAuthed()
                     && request.resource.data.diff(resource.data).affectedKeys()
                         .hasOnly(['likes', 'shares', 'comments']);
 
       // Survey Vote Update: any signed-in user may increment vote counts on a survey post.
       // Only the 'votes' and 'realVotesCount' fields may be written, and realVotesCount must increment by 1.
-      allow update: if request.auth != null
+      allow update: if isAuthed()
                     && resource.data.type == "survey"
                     && request.resource.data.diff(resource.data).affectedKeys()
                         .hasOnly(['votes', 'realVotesCount'])
@@ -99,127 +130,104 @@ service cloud.firestore {
       // Comments Sub-collection
       match /comments/{commentId} {
         allow read: if true;
-        allow create: if request.auth != null;
-        allow delete: if request.auth != null && (resource.data.userId == request.auth.uid ||
-                       (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-                        getUserData().role == 'ADMIN'));
+        allow create: if isAuthed();
+        allow delete: if isAuthed() && (resource.data.userId == request.auth.uid || isAdmin());
       }
 
       // Survey Voted-Users Sub-collection
       // Each user can only create their own receipt document (write-once, prevents double voting).
       match /voted_users/{userId} {
-        allow read: if request.auth != null && request.auth.uid == userId;
-        allow create: if request.auth != null
+        allow read: if isAuthed() && request.auth.uid == userId;
+        allow create: if isAuthed()
                       && request.auth.uid == userId
                       && !exists(/databases/$(database)/documents/news/$(postId)/voted_users/$(userId));
         allow update, delete: if false; // Immutable once cast
       }
     }
     
-    // RSS, Social & Scraping Feeds (Admin only write)
+    // RSS, Social & Scraping Feeds (Admin / Editor write)
     match /rss_feeds/{feedId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-        getUserData().role in ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'] || getUserData().role == 'ADMIN'
-      );
+      allow write: if isEditorOrAdmin();
     }
     match /social_feeds/{feedId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-        getUserData().role in ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'] || getUserData().role == 'ADMIN'
-      );
+      allow write: if isEditorOrAdmin();
     }
     match /scraping_sources/{sourceId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-        getUserData().role in ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'] || getUserData().role == 'ADMIN'
-      );
+      allow write: if isEditorOrAdmin();
     }
 
     // Social Auto-Post Configs & Logs
     match /social_auto_post_configs/{configId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-        getUserData().role in ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'] || getUserData().role == 'ADMIN'
-      );
+      allow write: if isEditorOrAdmin();
     }
     match /social_auto_post_logs/{logId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-        getUserData().role in ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'] || getUserData().role == 'ADMIN'
-      );
+      allow write: if isEditorOrAdmin();
     }
 
     // System Settings - Public Read, Admin Write
     match /settings/{settingId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-        getUserData().role in ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'] || getUserData().role == 'ADMIN'
-      );
+      allow write: if isEditorOrAdmin();
     }
 
     // System Settings (Old name, kept for compatibility) - Public Read, Admin Write
     match /system_settings/{settingId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
-        getUserData().role in ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'] || getUserData().role == 'ADMIN'
-      );
+      allow write: if isEditorOrAdmin();
     }
 
-    
     // Contact Messages (Public write, Admin read)
     match /contact_messages/{messageId} {
       allow create: if true;
-      allow read, delete, update: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
+      allow read, delete, update: if isAdmin();
     }
     
     // Classifieds
     match /classifieds/{adId} {
       allow read: if true;
-      allow create: if request.auth != null;
-      allow update, delete: if request.auth != null && (resource.data.userId == request.auth.uid ||
-                             (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-                              getUserData().role == 'ADMIN'));
+      allow create: if isAuthed();
+      allow update, delete: if isAuthed() && (resource.data.userId == request.auth.uid || isAdmin());
     }
     
     // Analytics
     match /user_analytics/{eventId} {
       allow create: if true;
-      allow read: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
+      allow read: if isAdmin();
     }
 
     // Ads Manager
     match /local_ads/{adId} {
       allow read: if true;
-      allow create: if request.auth != null;
-      allow update: if request.auth != null && (resource.data.userId == request.auth.uid ||
-                    (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-                     getUserData().role == 'ADMIN') ||
+      allow create: if isAuthed();
+      allow update: if isAuthed() && (resource.data.userId == request.auth.uid ||
+                    isAdmin() ||
                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes']));
     }
 
     // Reporters WhatsApp
     match /reporters_whatsapp/{userId} {
-      allow read, write: if request.auth != null && (request.auth.uid == userId ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         getUserData().role == 'ADMIN')
-      );
+      allow read, write: if isAuthed() && (request.auth.uid == userId || isAdmin());
     }
 
     // WhatsApp Queue
     match /whatsapp_queue/{queueId} {
-      allow read: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
+      allow read: if isAdmin();
       allow write: if false; // Only manageable via Cloud Functions and Admin SDK Server
     }
 
     // Monthly Leaderboard - Public Read, Admin Write
     match /monthly_leaderboard/{monthId} {
       allow read: if true;
-      allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
+      allow write: if isAdmin();
 
       match /reporters/{reporterId} {
         allow read: if true;
-        allow write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
+        allow write: if isAdmin();
       }
     }
 
@@ -233,20 +241,17 @@ service cloud.firestore {
                     request.resource.data.district.size() > 0 &&
                     request.resource.data.mandal is string &&
                     request.resource.data.mandal.size() > 0;
-      allow read: if request.auth != null && (
+      allow read: if isAuthed() && (
         (resource.data.userId == request.auth.uid) ||
         (resource.data.phone == request.auth.token.phone_number) ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         getUserData().role in ['ADMIN', 'EDITOR', 'NEWS_DESK'])
+        isEditorOrAdmin()
       );
-      allow update, delete: if request.auth != null &&
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        getUserData().role in ['ADMIN', 'EDITOR', 'NEWS_DESK'];
+      allow update, delete: if isEditorOrAdmin();
     }
 
     // Anonymous/Guest Devices for Notifications
     match /anonymous_devices/{deviceId} {
-      allow read: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'ADMIN';
+      allow read: if isAdmin();
       allow create, update: if true;
     }
 

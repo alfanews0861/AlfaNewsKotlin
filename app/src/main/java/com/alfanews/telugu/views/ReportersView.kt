@@ -74,11 +74,7 @@ fun ReportersView(
     val districts = if (selectedState == "TS") Constants.TS_DISTRICTS else if (selectedState == "AP") Constants.AP_DISTRICTS else emptyList()
     val mandals = if (selectedDistrict.isNotEmpty()) Constants.MANDAL_DATA[selectedDistrict] ?: emptyList() else emptyList()
 
-    // Initial fetch if we have a district from profile
-    LaunchedEffect(Unit) {
-        viewModel.fetchReporters(currentUser, selectedDistrict, selectedMandal.ifEmpty { null })
-    }
-
+    // Fetch reporters when district or mandal changes (also triggers on initial load)
     LaunchedEffect(selectedDistrict, selectedMandal) {
         viewModel.fetchReporters(currentUser, selectedDistrict, selectedMandal.ifEmpty { null })
     }

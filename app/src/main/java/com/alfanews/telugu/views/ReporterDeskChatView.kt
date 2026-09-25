@@ -52,6 +52,12 @@ fun ReporterDeskChatView(
 
     val reporterId = user.id
 
+    // Safety watchdog: After 2.5s, turn off loading spinner if snapshot listener hasn't finished yet
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(2500L)
+        loading = false
+    }
+
     // Real-time listener for reporter's conversation with Admin
     DisposableEffect(reporterId) {
         if (reporterId.isBlank()) {
@@ -67,17 +73,17 @@ fun ReporterDeskChatView(
                     .update("unreadCountForReporter", 0)
                     .await()
 
-                val unreadMsgs = FirebaseService.db.collection("reporter_conversations")
+                val unreadSnap = FirebaseService.db.collection("reporter_conversations")
                     .document(reporterId)
                     .collection("messages")
                     .whereEqualTo("read", false)
-                    .whereEqualTo("senderRole", "ADMIN")
                     .get()
                     .await()
 
-                if (!unreadMsgs.isEmpty) {
+                val unreadMsgs = unreadSnap.documents.filter { (it.getString("senderRole") ?: "ADMIN") == "ADMIN" }
+                if (unreadMsgs.isNotEmpty()) {
                     val batch = FirebaseService.db.batch()
-                    for (doc in unreadMsgs.documents) {
+                    for (doc in unreadMsgs) {
                         batch.update(doc.reference, "read", true)
                     }
                     batch.commit().await()
@@ -92,8 +98,8 @@ fun ReporterDeskChatView(
             .limitToLast(100)
 
         val listener: ListenerRegistration = messagesRef.addSnapshotListener { snapshot, error ->
+            loading = false
             if (error != null) {
-                loading = false
                 return@addSnapshotListener
             }
 

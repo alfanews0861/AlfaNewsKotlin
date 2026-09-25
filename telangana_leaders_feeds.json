@@ -1,0 +1,937 @@
+[
+  {
+    "handle": "revanth_anumula",
+    "name": "ఎనుముల రేవంత్ రెడ్డి (Revanth Reddy - CM)",
+    "district": "వికారాబాద్"
+  },
+  {
+    "handle": "GPrasadKumarINC",
+    "name": "గడ్డం ప్రసాద్ కుమార్ (Gaddam Prasad Kumar - స్పీకర్)",
+    "district": "వికారాబాద్"
+  },
+  {
+    "handle": "BManoharReddy",
+    "name": "బి. మనోహర్ రెడ్డి (B. Manohar Reddy - తాండూరు MLA)",
+    "district": "వికారాబాద్"
+  },
+  {
+    "handle": "TRamMohanReddy",
+    "name": "టి. రామ్మోహన్ రెడ్డి (T. Rammohan Reddy - పరిగి MLA)",
+    "district": "వికారాబాద్"
+  },
+  {
+    "handle": "PilotRohithBRS",
+    "name": "పైలట్ రోహిత్ రెడ్డి (Pilot Rohith Reddy - BRS తాండూరు)",
+    "district": "వికారాబాద్"
+  },
+  {
+    "handle": "PatnamNarender",
+    "name": "పట్నం నరేందర్ రెడ్డి (Patnam Narender Reddy - BRS కొడంగల్)",
+    "district": "వికారాబాద్"
+  },
+  {
+    "handle": "DrAnandBRS",
+    "name": "డా. మెతుకు ఆనంద్ (Dr. Anand Methuku - BRS వికారాబాద్)",
+    "district": "వికారాబాద్"
+  },
+  {
+    "handle": "ktrbrs",
+    "name": "కె.టి. రామారావు (K.T. Rama Rao - సిరిసిల్ల MLA / BRS)",
+    "district": "రాజన్న సిరిసిల్ల"
+  },
+  {
+    "handle": "AdiSrinivasINC",
+    "name": "ఆది శ్రీనివాస్ (Adi Srinivas - ప్రభుత్వ విప్ / వేములవాడ MLA)",
+    "district": "రాజన్న సిరిసిల్ల"
+  },
+  {
+    "handle": "KKMahenderINC",
+    "name": "కేకే మహేందర్ రెడ్డి (KK Mahender Reddy - INC సిరిసిల్ల)",
+    "district": "రాజన్న సిరిసిల్ల"
+  },
+  {
+    "handle": "brsharish",
+    "name": "తన్నీరు హరీష్ రావు (T. Harish Rao - సిద్దిపేట MLA / BRS)",
+    "district": "సిద్దిపేట"
+  },
+  {
+    "handle": "KothaPReddy",
+    "name": "కొత్త ప్రభాకర్ రెడ్డి (Kotha Prabhakar Reddy - దుబ్బాక MLA / BRS)",
+    "district": "సిద్దిపేట"
+  },
+  {
+    "handle": "PonnamLoksabha",
+    "name": "పొన్నం ప్రభాకర్ (Ponnam Prabhakar - మంత్రి / హుస్నాబాద్ MLA)",
+    "district": "సిద్దిపేట"
+  },
+  {
+    "handle": "RaghunandanraoM",
+    "name": "ఎం. రఘునందన్ రావు (M. Raghunandan Rao - మెదక్ MP / BJP)",
+    "district": "సిద్దిపేట"
+  },
+  {
+    "handle": "gangula_k",
+    "name": "గంగుల కమలాకర్ (Gangula Kamalakar - కరీంనగర్ MLA / BRS)",
+    "district": "కరీంనగర్"
+  },
+  {
+    "handle": "KaushikReddyBRS",
+    "name": "పాడి కౌశిక్ రెడ్డి (Padi Kaushik Reddy - హుజూరాబాద్ MLA / BRS)",
+    "district": "కరీంనగర్"
+  },
+  {
+    "handle": "MedipallySatyam",
+    "name": "మేడిపల్లి సత్యం (Medipally Satyam - చొప్పదండి MLA)",
+    "district": "కరీంనగర్"
+  },
+  {
+    "handle": "DrKavvampally",
+    "name": "డా. కవ్వంపల్లి సత్యనారాయణ (Dr. Kavvampally - మానకొండూరు MLA)",
+    "district": "కరీంనగర్"
+  },
+  {
+    "handle": "bandisanjay_bjp",
+    "name": "బండి సంజయ్ కుమార్ (Bandi Sanjay Kumar - కేంద్ర మంత్రి / కరీంనగర్ MP)",
+    "district": "కరీంనగర్"
+  },
+  {
+    "handle": "RasamayiBRS",
+    "name": "రసమయి బాలకిషన్ (Rasamayi Balakishan - BRS మానకొండూరు)",
+    "district": "కరీంనగర్"
+  },
+  {
+    "handle": "bhatti_mallu",
+    "name": "మల్లు భట్టి విక్రమార్క (Mallu Bhatti Vikramarka - డిప్యూటీ సీఎం / మధిర)",
+    "district": "ఖమ్మం"
+  },
+  {
+    "handle": "INC_Ponguleti",
+    "name": "పొంగులేటి శ్రీనివాస్ రెడ్డి (Ponguleti Srinivas Reddy - మంత్రి / పాలేరు)",
+    "district": "ఖమ్మం"
+  },
+  {
+    "handle": "Tummala_INC",
+    "name": "తుమ్మల నాగేశ్వరరావు (Tummala Nageswara Rao - వ్యవసాయ మంత్రి / ఖమ్మం)",
+    "district": "ఖమ్మం"
+  },
+  {
+    "handle": "PuvvadaAjayBRS",
+    "name": "పువ్వాడ అజయ్ కుమార్ (Puvvada Ajay Kumar - BRS ఖమ్మం)",
+    "district": "ఖమ్మం"
+  },
+  {
+    "handle": "NamaNageswarRao",
+    "name": "నామా నాగేశ్వరరావు (Nama Nageswara Rao - BRS ఖమ్మం)",
+    "district": "ఖమ్మం"
+  },
+  {
+    "handle": "KunamneniCPI",
+    "name": "కూనంనేని సాంబశివరావు (Kunamneni Sambasiva Rao - కొత్తగూడెం MLA / CPI)",
+    "district": "భద్రాద్రి కొత్తగూడెం"
+  },
+  {
+    "handle": "KoramKanakaiah",
+    "name": "కోరం కనకయ్య (Koram Kanakaiah - ఇల్లందు MLA)",
+    "district": "భద్రాద్రి కొత్తగూడెం"
+  },
+  {
+    "handle": "JareAdinarayana",
+    "name": "జారె ఆదినారాయణ (Jare Adinarayana - అశ్వారావుపేట MLA)",
+    "district": "భద్రాద్రి కొత్తగూడెం"
+  },
+  {
+    "handle": "TellamVenkataR",
+    "name": "తెల్లం వెంకటరావు (Tellam Venkata Rao - భద్రాచలం MLA)",
+    "district": "భద్రాద్రి కొత్తగూడెం"
+  },
+  {
+    "handle": "HaripriyaBanoth",
+    "name": "హరిప్రియా బానోత్ (Haripriya Banoth - BRS ఇల్లందు)",
+    "district": "భద్రాద్రి కొత్తగూడెం"
+  },
+  {
+    "handle": "RegaKanthaRao",
+    "name": "రేగా కాంతారావు (Rega Kantha Rao - BRS పినపాక)",
+    "district": "భద్రాద్రి కొత్తగూడెం"
+  },
+  {
+    "handle": "kishanreddybjp",
+    "name": "జి. కిషన్ రెడ్డి (G. Kishan Reddy - కేంద్ర మంత్రి / సికింద్రాబాద్ MP)",
+    "district": "హైదరాబాద్"
+  },
+  {
+    "handle": "TigerRajaSingh",
+    "name": "రాజా సింగ్ (T. Raja Singh - గోషామహల్ MLA / BJP)",
+    "district": "హైదరాబాద్"
+  },
+  {
+    "handle": "asadowaisi",
+    "name": "అసదుద్దీన్ ఓవైసీ (Asaduddin Owaisi - హైదరాబాద్ MP / AIMIM)",
+    "district": "హైదరాబాద్"
+  },
+  {
+    "handle": "drlaxmanbjp",
+    "name": "డా. కె. లక్ష్మణ్ (Dr. K. Laxman - రాజ్యసభ ఎంపీ / BJP)",
+    "district": "హైదరాబాద్"
+  },
+  {
+    "handle": "PadmaRaoBRS",
+    "name": "తీగుళ్ల పద్మారావు గౌడ్ (T. Padma Rao Goud - సికింద్రాబాద్ MLA / BRS)",
+    "district": "హైదరాబాద్"
+  },
+  {
+    "handle": "DanamNagender",
+    "name": "దానం నాగేందర్ (Danam Nagender - ఖైరతాబాద్ MLA)",
+    "district": "హైదరాబాద్"
+  },
+  {
+    "handle": "MagantiGopinath",
+    "name": "మాగంటి గోపీనాథ్ (Maganti Gopinath - జూబ్లీహిల్స్ MLA / BRS)",
+    "district": "హైదరాబాద్"
+  },
+  {
+    "handle": "MutaGopalBRS",
+    "name": "ముఠా గోపాల్ (Muta Gopal - ముషీరాబాద్ MLA / BRS)",
+    "district": "హైదరాబాద్"
+  },
+  {
+    "handle": "AhmedBalala",
+    "name": "అహ్మద్ బలాలా (Ahmed Balala - మలక్‌పేట్ MLA / AIMIM)",
+    "district": "హైదరాబాద్"
+  },
+  {
+    "handle": "MajidHussain_",
+    "name": "మాజిద్ హుస్సేన్ (Majid Hussain - నాంపల్లి MLA / AIMIM)",
+    "district": "హైదరాబాద్"
+  },
+  {
+    "handle": "JaffarHussain_",
+    "name": "జాఫర్ హుస్సేన్ (Jaffar Hussain - యాకుత్‌పుర MLA / AIMIM)",
+    "district": "హైదరాబాద్"
+  },
+  {
+    "handle": "FerozKhanINC",
+    "name": "ఫిరోజ్ ఖాన్ (Feroz Khan - INC నాంపల్లి)",
+    "district": "హైదరాబాద్"
+  },
+  {
+    "handle": "azharflicks",
+    "name": "మహమ్మద్ అజహరుద్దీన్ (Mohammad Azharuddin - INC జూబ్లీహిల్స్)",
+    "district": "హైదరాబాద్"
+  },
+  {
+    "handle": "chmallareddyBRS",
+    "name": "చామకూర మల్లారెడ్డి (Ch. Malla Reddy - మేడ్చల్ MLA / BRS)",
+    "district": "మేడ్చల్ మల్కాజిగిరి"
+  },
+  {
+    "handle": "Eatala_Rajender",
+    "name": "ఈటల రాజేందర్ (Eatala Rajender - మల్కాజిగిరి MP / BJP)",
+    "district": "మేడ్చల్ మల్కాజిగిరి"
+  },
+  {
+    "handle": "MarriRSReddy",
+    "name": "మర్రి రాజశేఖర్ రెడ్డి (Marri Rajashekar Reddy - మల్కాజిగిరి MLA / BRS)",
+    "district": "మేడ్చల్ మల్కాజిగిరి"
+  },
+  {
+    "handle": "MKR_BRS",
+    "name": "మాధవరం కృష్ణారావు (Madhavaram Krishna Rao - కూకట్‌పల్లి MLA / BRS)",
+    "district": "మేడ్చల్ మల్కాజిగిరి"
+  },
+  {
+    "handle": "KP_Vivekanand",
+    "name": "కె.పి. వివేకానంద్ గౌడ్ (K.P. Vivekanand - కుత్బుల్లాపూర్ MLA / BRS)",
+    "district": "మేడ్చల్ మల్కాజిగిరి"
+  },
+  {
+    "handle": "BLR_Uppal",
+    "name": "బండారి లక్ష్మారెడ్డి (Bandari Lakshma Reddy - ఉప్పల్ MLA / BRS)",
+    "district": "మేడ్చల్ మల్కాజిగిరి"
+  },
+  {
+    "handle": "MynampallyH",
+    "name": "మైనంపల్లి హనుమంతరావు (Mynampally Hanumantha Rao - INC మల్కాజిగిరి)",
+    "district": "మేడ్చల్ మల్కాజిగిరి"
+  },
+  {
+    "handle": "KunaSrisailamG",
+    "name": "కూన శ్రీశైలం గౌడ్ (Kuna Srisailam Goud - BJP కుత్బుల్లాపూర్)",
+    "district": "మేడ్చల్ మల్కాజిగిరి"
+  },
+  {
+    "handle": "BrsSabithaIndra",
+    "name": "సబితా ఇంద్రారెడ్డి (Sabitha Indra Reddy - మహేశ్వరం MLA / BRS)",
+    "district": "రంగారెడ్డి"
+  },
+  {
+    "handle": "SudheerReddyBRS",
+    "name": "దేవిరెడ్డి సుధీర్ రెడ్డి (Devireddy Sudheer Reddy - ఎల్బీనగర్ MLA / BRS)",
+    "district": "రంగారెడ్డి"
+  },
+  {
+    "handle": "ArekapudiGandhi",
+    "name": "ఆరెకపూడి గాంధీ (Arekapudi Gandhi - శేరిలింగంపల్లి MLA)",
+    "district": "రంగారెడ్డి"
+  },
+  {
+    "handle": "TPrakashGoud",
+    "name": "టి. ప్రకాష్ గౌడ్ (T. Prakash Goud - రాజేంద్రనగర్ MLA)",
+    "district": "రంగారెడ్డి"
+  },
+  {
+    "handle": "MalreddyRR",
+    "name": "మల్‌రెడ్డి రంగారెడ్డి (Malreddy Ranga Reddy - ఇబ్రహీంపట్నం MLA)",
+    "district": "రంగారెడ్డి"
+  },
+  {
+    "handle": "VShankarINC",
+    "name": "వీర్లపల్లి శంకర్ (Veerlapally Shankar - షాద్‌నగర్ MLA)",
+    "district": "రంగారెడ్డి"
+  },
+  {
+    "handle": "KVishReddy",
+    "name": "కొండా విశ్వేశ్వర్ రెడ్డి (Konda Vishweshwar Reddy - చేవెళ్ల MP / BJP)",
+    "district": "రంగారెడ్డి"
+  },
+  {
+    "handle": "SamaRangaReddy",
+    "name": "సామ రంగారెడ్డి (Sama Ranga Reddy - BJP ఎల్బీనగర్)",
+    "district": "రంగారెడ్డి"
+  },
+  {
+    "handle": "AndelaSriramulu",
+    "name": "అందెల శ్రీరాములు యాదవ్ (Andela Sriramulu Yadav - BJP మహేశ్వరం)",
+    "district": "రంగారెడ్డి"
+  },
+  {
+    "handle": "KomatireddyKVR",
+    "name": "కోమటిరెడ్డి వెంకట్ రెడ్డి (Komatireddy Venkat Reddy - ఆర్&బి మంత్రి / నల్గొండ)",
+    "district": "నల్గొండ"
+  },
+  {
+    "handle": "BLR_INC",
+    "name": "బత్తుల లక్ష్మారెడ్డి (Bathula Laxma Reddy - మిర్యాలగూడ MLA)",
+    "district": "నల్గొండ"
+  },
+  {
+    "handle": "KJayaveerReddy",
+    "name": "కుందురు జయవీర్ రెడ్డి (Kunduru Jayaveer Reddy - నాగార్జున సాగర్ MLA)",
+    "district": "నల్గొండ"
+  },
+  {
+    "handle": "VVeereshamINC",
+    "name": "వేముల వీరేశం (Vemula Veeresham - నకిరేకల్ MLA)",
+    "district": "నల్గొండ"
+  },
+  {
+    "handle": "NenavathBaluINC",
+    "name": "నేనావత్ బాలు నాయక్ (Nenavath Balu Naik - దేవరకొండ MLA)",
+    "district": "నల్గొండ"
+  },
+  {
+    "handle": "KBhupalReddyBRS",
+    "name": "కంచర్ల భూపాల్ రెడ్డి (Kancharla Bhupal Reddy - BRS నల్గొండ)",
+    "district": "నల్గొండ"
+  },
+  {
+    "handle": "NomulaBhagath",
+    "name": "నోముల భగత్ (Nomula Bhagath - BRS నాగార్జున సాగర్)",
+    "district": "నల్గొండ"
+  },
+  {
+    "handle": "UttamINC",
+    "name": "నలమాద ఉత్తమ్ కుమార్ రెడ్డి (N. Uttam Kumar Reddy - నీటిపారుదల మంత్రి / హుజూర్‌నగర్)",
+    "district": "సూర్యాపేట"
+  },
+  {
+    "handle": "NPadmavathiINC",
+    "name": "నలమాద పద్మావతి రెడ్డి (N. Padmavathi Reddy - కోదాడ MLA)",
+    "district": "సూర్యాపేట"
+  },
+  {
+    "handle": "JagadishBRS",
+    "name": "గుంటకండ్ల జగదీష్ రెడ్డి (G. Jagadish Reddy - సూర్యాపేట MLA / BRS)",
+    "district": "సూర్యాపేట"
+  },
+  {
+    "handle": "GadariKishore",
+    "name": "గాదరి కిశోర్ కుమార్ (Gadari Kishore Kumar - BRS తుంగతుర్తి)",
+    "district": "సూర్యాపేట"
+  },
+  {
+    "handle": "SaidiReddyBRS",
+    "name": "శానంపూడి సైదిరెడ్డి (Shanampudi Saidi Reddy - BJP/BRS హుజూర్‌నగర్)",
+    "district": "సూర్యాపేట"
+  },
+  {
+    "handle": "RDamodarReddy",
+    "name": "రాంరెడ్డి దామోదర్ రెడ్డి (R. Damodar Reddy - INC సూర్యాపేట)",
+    "district": "సూర్యాపేట"
+  },
+  {
+    "handle": "KumbamAnilINC",
+    "name": "కుంభం అనిల్ కుమార్ రెడ్డి (Kumbam Anil Kumar Reddy - భువనగిరి MLA)",
+    "district": "యాదాద్రి భువనగిరి"
+  },
+  {
+    "handle": "BeerlaIlaiahINC",
+    "name": "బీర్ల ఐలయ్య (Beerla Ilaiah - ఆలేరు MLA)",
+    "district": "యాదాద్రి భువనగిరి"
+  },
+  {
+    "handle": "ChamalaKiranINC",
+    "name": "చామల కిరణ్ కుమార్ రెడ్డి (Chamala Kiran Kumar Reddy - భువనగిరి MP)",
+    "district": "యాదాద్రి భువనగిరి"
+  },
+  {
+    "handle": "PaillaShekarBRS",
+    "name": "పైళ్ల శేఖర్ రెడ్డి (Pailla Shekar Reddy - BRS భువనగిరి)",
+    "district": "యాదాద్రి భువనగిరి"
+  },
+  {
+    "handle": "GongidiSunitha",
+    "name": "గొంగిడి సునీత మహేందర్ రెడ్డి (Gongidi Sunitha - BRS ఆలేరు)",
+    "district": "యాదాద్రి భువనగిరి"
+  },
+  {
+    "handle": "DrBooraBJP",
+    "name": "బూర నర్సయ్య గౌడ్ (Dr. Boora Narsaiah Goud - BJP భువనగిరి)",
+    "district": "యాదాద్రి భువనగిరి"
+  },
+  {
+    "handle": "iamkondasurekha",
+    "name": "కొండా సురేఖ (Konda Surekha - అటవీ శాఖ మంత్రి / వరంగల్ తూర్పు)",
+    "district": "వరంగల్"
+  },
+  {
+    "handle": "Donthi_INC",
+    "name": "దొంతి మాధవరెడ్డి (Donthi Madhava Reddy - నర్సంపేట MLA)",
+    "district": "వరంగల్"
+  },
+  {
+    "handle": "KRNagarajuINC",
+    "name": "కె.ఆర్. నాగరాజు (K.R. Nagaraju - వర్ధన్నపేట MLA)",
+    "district": "వరంగల్"
+  },
+  {
+    "handle": "NarenderBRS",
+    "name": "నన్నపునేని నరేందర్ (Nannapuneni Narender - BRS వరంగల్ తూర్పు)",
+    "district": "వరంగల్"
+  },
+  {
+    "handle": "PeddiReddyBRS",
+    "name": "పెద్ది సుదర్శన్ రెడ్డి (Peddi Sudarshan Reddy - BRS నర్సంపేట)",
+    "district": "వరంగల్"
+  },
+  {
+    "handle": "ArooriRameshBJP",
+    "name": "ఆరూరి రమేష్ (Aroori Ramesh - BJP వర్ధన్నపేట)",
+    "district": "వరంగల్"
+  },
+  {
+    "handle": "NainiRajenderR",
+    "name": "నాయిని రాజేందర్ రెడ్డి (Naini Rajender Reddy - వరంగల్ పశ్చిమ MLA)",
+    "district": "హన్మకొండ"
+  },
+  {
+    "handle": "RevuriPrakash",
+    "name": "రేవూరి ప్రకాష్ రెడ్డి (Revuri Prakash Reddy - పరకాల MLA)",
+    "district": "హన్మకొండ"
+  },
+  {
+    "handle": "VinaybhaskarBRS",
+    "name": "దాస్యం వినయ్ భాస్కర్ (Dasyam Vinay Bhaskar - BRS వరంగల్ పశ్చిమ)",
+    "district": "హన్మకొండ"
+  },
+  {
+    "handle": "ChallaDharmaBRS",
+    "name": "చల్లా ధర్మారెడ్డి (Challa Dharma Reddy - BRS పరకాల)",
+    "district": "హన్మకొండ"
+  },
+  {
+    "handle": "DayakarRaoErr",
+    "name": "ఎర్రబెల్లి దయాకర్ రావు (Errabelli Dayakar Rao - BRS మాజీ మంత్రి)",
+    "district": "హన్మకొండ"
+  },
+  {
+    "handle": "PallaRReddy",
+    "name": "పల్లా రాజేశ్వర్ రెడ్డి (Palla Rajeshwar Reddy - జనగాం MLA / BRS)",
+    "district": "జనగాం"
+  },
+  {
+    "handle": "MYashaswiniINC",
+    "name": "మామిడాల యశస్విని రెడ్డి (M. Yashaswini Reddy - పాలకుర్తి MLA)",
+    "district": "జనగాం"
+  },
+  {
+    "handle": "KadiyamSrihari_",
+    "name": "కడియం శ్రీహరి (Kadiyam Srihari - స్టేషన్ ఘన్‌పూర్ MLA)",
+    "district": "జనగాం"
+  },
+  {
+    "handle": "DrRajaiahBRS",
+    "name": "డా. తాటికొండ రాజయ్య (Dr. Thatikonda Rajaiah - BRS స్టేషన్ ఘన్‌పూర్)",
+    "district": "జనగాం"
+  },
+  {
+    "handle": "GandraSatyanar1",
+    "name": "గండ్ర సత్యనారాయణ రావు (Gandra Satyanarayana Rao - భూపాలపల్లి MLA)",
+    "district": "జయశంకర్ భూపాలపల్లి"
+  },
+  {
+    "handle": "GVR_BRS",
+    "name": "గండ్ర వెంకటరమణారెడ్డి (Gandra Venkata Ramana Reddy - BRS భూపాలపల్లి)",
+    "district": "జయశంకర్ భూపాలపల్లి"
+  },
+  {
+    "handle": "DrMuraliNaikINC",
+    "name": "డా. మురళీ నాయక్ భుక్య (Dr. Murali Naik - మహబూబాబాద్ MLA)",
+    "district": "మహబూబాబాద్"
+  },
+  {
+    "handle": "JatothRamchander",
+    "name": "జాతోత్ రాంచందర్ నాయక్ (Jatoth Ram Chander Naik - డోర్నకల్ MLA)",
+    "district": "మహబూబాబాద్"
+  },
+  {
+    "handle": "SatyavathiBRS",
+    "name": "సత్యవతి రాథోడ్ (Satyavathi Rathod - BRS మాజీ మంత్రి / MLC)",
+    "district": "మహబూబాబాద్"
+  },
+  {
+    "handle": "KavithaMaloth",
+    "name": "మాలోత్ కవిత (Maloth Kavitha - BRS మహబూబాబాద్)",
+    "district": "మహబూబాబాద్"
+  },
+  {
+    "handle": "BShankarNaikBRS",
+    "name": "బానోత్ శంకర్ నాయక్ (Banoth Shankar Naik - BRS మహబూబాబాద్)",
+    "district": "మహబూబాబాద్"
+  },
+  {
+    "handle": "DS_RedyaNaik",
+    "name": "డి.ఎస్. రెడ్యా నాయక్ (D.S. Redya Naik - BRS డోర్నకల్)",
+    "district": "మహబూబాబాద్"
+  },
+  {
+    "handle": "seethakkaMLA",
+    "name": "సీతక్క - దనసరి అనసూయ (Seethakka - పంచాయతీరాజ్ శాఖ మంత్రి / ములుగు)",
+    "district": "ములుగు"
+  },
+  {
+    "handle": "BadeNagajyothi",
+    "name": "బడే నాగజ్యోతి (Bade Nagajyothi - BRS ములుగు)",
+    "district": "ములుగు"
+  },
+  {
+    "handle": "OffDSB",
+    "name": "దుద్దిళ్ల శ్రీధర్ బాబు (D. Sridhar Babu - ఐటీ & పరిశ్రమల మంత్రి / మంథని MLA)",
+    "district": "పెద్దపల్లి"
+  },
+  {
+    "handle": "ChinthakuntaVRR",
+    "name": "చింతకుంట విజయ రమణారావు (C. Vijaya Ramana Rao - పెద్దపల్లి MLA)",
+    "district": "పెద్దపల్లి"
+  },
+  {
+    "handle": "RajThakurINC",
+    "name": "మక్కాన్ సింగ్ రాజ్ ఠాకూర్ (Makkan Singh Raj Thakur - రామగుండం MLA)",
+    "district": "పెద్దపల్లి"
+  },
+  {
+    "handle": "VamsiKrishnaG_",
+    "name": "గడ్డం వంశీకృష్ణ (Gaddam Vamsi Krishna - పెద్దపల్లి MP)",
+    "district": "పెద్దపల్లి"
+  },
+  {
+    "handle": "K_ChanderBRS",
+    "name": "కోరుకంటి చందర్ (Korukanti Chander - BRS రామగుండం)",
+    "district": "పెద్దపల్లి"
+  },
+  {
+    "handle": "DasariManoharB",
+    "name": "దాసరి మనోహర్ రెడ్డి (Dasari Manohar Reddy - BRS పెద్దపల్లి)",
+    "district": "పెద్దపల్లి"
+  },
+  {
+    "handle": "GaddamVinodINC",
+    "name": "గడ్డం వినోద్ (Gaddam Vinod - బెల్లంపల్లి MLA)",
+    "district": "మంచిర్యాల"
+  },
+  {
+    "handle": "GVP_INC",
+    "name": "గడ్డం వివేకానంద్ (Vivek Venkatswamy - చెన్నూర్ MLA)",
+    "district": "మంచిర్యాల"
+  },
+  {
+    "handle": "KPremsagarRao",
+    "name": "కొక్కిరాల ప్రేమ్‌సాగర్ రావు (K. Premsagar Rao - మంచిర్యాల MLA)",
+    "district": "మంచిర్యాల"
+  },
+  {
+    "handle": "balkasumantrs",
+    "name": "బాల్క సుమన్ (Balka Suman - BRS చెన్నూర్)",
+    "district": "మంచిర్యాల"
+  },
+  {
+    "handle": "DChinnaiahBRS",
+    "name": "దుర్గం చిన్నయ్య (Durgam Chinnaiah - BRS బెల్లంపల్లి)",
+    "district": "మంచిర్యాల"
+  },
+  {
+    "handle": "NDiwakarRaoBRS",
+    "name": "నడిపెల్లి దివాకర్ రావు (N. Diwakar Rao - BRS మంచిర్యాల)",
+    "district": "మంచిర్యాల"
+  },
+  {
+    "handle": "PayalShanker",
+    "name": "పాయల్ శంకర్ (Payal Shanker - ఆదిలాబాద్ MLA / BJP)",
+    "district": "ఆదిలాబాద్"
+  },
+  {
+    "handle": "AnilJadhavBRS",
+    "name": "అనిల్ జాదవ్ (Anil Jadhav - బోథ్ MLA / BRS)",
+    "district": "ఆదిలాబాద్"
+  },
+  {
+    "handle": "JoguRamannaBRS",
+    "name": "జోగు రామన్న (Jogu Ramanna - BRS ఆదిలాబాద్)",
+    "district": "ఆదిలాబాద్"
+  },
+  {
+    "handle": "GodamNageshBJP",
+    "name": "గోడం నగేశ్ (Godam Nagesh - ఆదిలాబాద్ MP / BJP)",
+    "district": "ఆదిలాబాద్"
+  },
+  {
+    "handle": "KandiSrinivas",
+    "name": "కంది శ్రీనివాస్ రెడ్డి (Kandi Srinivas Reddy - INC ఆదిలాబాద్)",
+    "district": "ఆదిలాబాద్"
+  },
+  {
+    "handle": "DrPalvaiHarish",
+    "name": "డా. పాల్వాయి హరీష్ బాబు (Dr. Palvai Harish Babu - సిర్పూర్ MLA / BJP)",
+    "district": "కుమ్రం భీమ్ ఆసిఫాబాద్"
+  },
+  {
+    "handle": "KovaLaxmiBRS",
+    "name": "కోవా లక్ష్మి (Kova Laxmi - ఆసిఫాబాద్ MLA / BRS)",
+    "district": "కుమ్రం భీమ్ ఆసిఫాబాద్"
+  },
+  {
+    "handle": "RSPraveenSwaero",
+    "name": "ఆర్.ఎస్. ప్రవీణ్ కుమార్ (Dr. R.S. Praveen Kumar - BRS సిర్పూర్)",
+    "district": "కుమ్రం భీమ్ ఆసిఫాబాద్"
+  },
+  {
+    "handle": "A_MaheshwarRedy",
+    "name": "ఆలేటి మహేశ్వర్ రెడ్డి (A. Maheshwar Reddy - నిర్మల్ MLA / BJP)",
+    "district": "నిర్మల్"
+  },
+  {
+    "handle": "RamaRaoPatelBJP",
+    "name": "పి. రామారావు పటేల్ (Rama Rao Patel - ముధోల్ MLA / BJP)",
+    "district": "నిర్మల్"
+  },
+  {
+    "handle": "VedmaBhojjuINC",
+    "name": "వెడ్మ బొజ్జు (Vedma Bhojju - ఖానాపూర్ MLA)",
+    "district": "నిర్మల్"
+  },
+  {
+    "handle": "IKReddyOfficial",
+    "name": "అల్లోల ఇంద్రకరణ్ రెడ్డి (Allola Indrakaran Reddy - BRS నిర్మల్)",
+    "district": "నిర్మల్"
+  },
+  {
+    "handle": "VittalReddyBRS",
+    "name": "జి. విఠల్ రెడ్డి (G. Vittal Reddy - BRS ముధోల్)",
+    "district": "నిర్మల్"
+  },
+  {
+    "handle": "DhanpalBJP",
+    "name": "ధన్‌పాల్ సూర్యనారాయణ గుప్తా (Dhanpal Suryanarayana - నిజామాబాద్ అర్బన్ MLA / BJP)",
+    "district": "నిజామాబాద్"
+  },
+  {
+    "handle": "PaidiRakesh",
+    "name": "పైడి రాకేష్ రెడ్డి (Paidi Rakesh Reddy - ఆర్మూర్ MLA / BJP)",
+    "district": "నిజామాబాద్"
+  },
+  {
+    "handle": "VPRTRS",
+    "name": "వేముల ప్రశాంత్ రెడ్డి (Vemula Prashanth Reddy - బాల్కొండ MLA / BRS)",
+    "district": "నిజామాబాద్"
+  },
+  {
+    "handle": "PocharamSReddy",
+    "name": "పోచారం శ్రీనివాస్ రెడ్డి (Pocharam Srinivas Reddy - బాన్సువాడ MLA)",
+    "district": "నిజామాబాద్"
+  },
+  {
+    "handle": "Arvindharmapuri",
+    "name": "అర్వింద్ ధర్మపురి (Arvind Dharmapuri - నిజామాబాద్ MP / BJP)",
+    "district": "నిజామాబాద్"
+  },
+  {
+    "handle": "raokavitha",
+    "name": "కల్వకుంట్ల కవిత (Kavitha Kalvakuntla - BRS ఎమ్మెల్సీ)",
+    "district": "నిజామాబాద్"
+  },
+  {
+    "handle": "SudarshanRINC",
+    "name": "పి. సుదర్శన్ రెడ్డి (P. Sudarshan Reddy - బోధన్ MLA)",
+    "district": "నిజామాబాద్"
+  },
+  {
+    "handle": "BhoopathiR_INC",
+    "name": "రేకులపల్లి భూపతిరెడ్డి (R. Bhoopathi Reddy - నిజామాబాద్ రూరల్ MLA)",
+    "district": "నిజామాబాద్"
+  },
+  {
+    "handle": "AashannagariJ",
+    "name": "ఆశన్నగారి జీవన్ రెడ్డి (Jeevan Reddy - BRS ఆర్మూర్)",
+    "district": "నిజామాబాద్"
+  },
+  {
+    "handle": "ShakilAamirBRS",
+    "name": "షకీల్ అహ్మద్ (Mohammed Shakil Aamir - BRS బోధన్)",
+    "district": "నిజామాబాద్"
+  },
+  {
+    "handle": "BajireddyBRS",
+    "name": "బాజిరెడ్డి గోవర్ధన్ (Bajireddy Goverdhan - BRS నిజామాబాద్ రూరల్)",
+    "district": "నిజామాబాద్"
+  },
+  {
+    "handle": "KVR_Kamareddy",
+    "name": "కాటిపల్లి వెంకటరమణారెడ్డి (K. Venkata Ramana Reddy - కామారెడ్డి MLA / BJP)",
+    "district": "కామారెడ్డి"
+  },
+  {
+    "handle": "MadanINC",
+    "name": "కె. మదన్ మోహన్ రావ్ (K. Madan Mohan Rao - ఎల్లారెడ్డి MLA)",
+    "district": "కామారెడ్డి"
+  },
+  {
+    "handle": "ThotaLaxmikanth",
+    "name": "తోట లక్ష్మీకాంతారావు (Thota Laxmikantha Rao - జుక్కల్ MLA)",
+    "district": "కామారెడ్డి"
+  },
+  {
+    "handle": "JajalaSurender",
+    "name": "జాజాల సురేందర్ (Jajala Surender - BRS ఎల్లారెడ్డి)",
+    "district": "కామారెడ్డి"
+  },
+  {
+    "handle": "HanmanthShinde",
+    "name": "హన్మంత్ షిండే (Hanmanth Shinde - BRS జుక్కల్)",
+    "district": "కామారెడ్డి"
+  },
+  {
+    "handle": "DrSanjayBRS",
+    "name": "డా. ఎం. సంజయ్ కుమార్ (Dr. M. Sanjay Kumar - జగిత్యాల MLA)",
+    "district": "జగిత్యాల"
+  },
+  {
+    "handle": "DrK_Sanjay",
+    "name": "డా. కల్వకుంట్ల సంజయ్ (Dr. Kalvakuntla Sanjay - కోరుట్ల MLA / BRS)",
+    "district": "జగిత్యాల"
+  },
+  {
+    "handle": "AdluriINC",
+    "name": "అడ్లూరి లక్ష్మణ్ కుమార్ (Adluri Laxman Kumar - ధర్మపురి MLA)",
+    "district": "జగిత్యాల"
+  },
+  {
+    "handle": "JeevanReddyINC",
+    "name": "టి. జీవన్ రెడ్డి (T. Jeevan Reddy - INC ఎమ్మెల్సీ / జగిత్యాల)",
+    "district": "జగిత్యాల"
+  },
+  {
+    "handle": "KoppulaEshwar_",
+    "name": "కొప్పుల ఈశ్వర్ (Koppula Eshwar - BRS ధర్మపురి)",
+    "district": "జగిత్యాల"
+  },
+  {
+    "handle": "DamodarRajaINC",
+    "name": "సి. దామోదర రాజనర్సింహ (Damodar Raja Narasimha - ఆరోగ్య శాఖ మంత్రి / ఆందోల్)",
+    "district": "సంగారెడ్డి"
+  },
+  {
+    "handle": "ChinthaP_BRS",
+    "name": "చింతా ప్రభాకర్ (Chintha Prabhakar - సంగారెడ్డి MLA / BRS)",
+    "district": "సంగారెడ్డి"
+  },
+  {
+    "handle": "GMahipalReddy",
+    "name": "గూడెం మహిపాల్ రెడ్డి (Gudem Mahipal Reddy - పటాన్‌చెరు MLA)",
+    "district": "సంగారెడ్డి"
+  },
+  {
+    "handle": "SanjeevaReddyI",
+    "name": "డా. పి. సంజీవరెడ్డి (Dr. P. Sanjeeva Reddy - నారాయణఖేడ్ MLA)",
+    "district": "సంగారెడ్డి"
+  },
+  {
+    "handle": "KManikRaoBRS",
+    "name": "కె. మాణిక్ రావు (K. Manik Rao - జహీరాబాద్ MLA / BRS)",
+    "district": "సంగారెడ్డి"
+  },
+  {
+    "handle": "JaggaReddyINC",
+    "name": "జగ్గారెడ్డి - తూర్పు జయప్రకాష్ రెడ్డి (T. Jayaprakash Reddy - INC వర్కింగ్ ప్రెసిడెంట్)",
+    "district": "సంగారెడ్డి"
+  },
+  {
+    "handle": "KranthiKiranBRS",
+    "name": "క్రాంతి కిరణ్ చంటి (Kranthi Kiran Chanti - BRS ఆందోల్)",
+    "district": "సంగారెడ్డి"
+  },
+  {
+    "handle": "MBhupalReddy",
+    "name": "మహారెడ్డి భూపాల్ రెడ్డి (M. Bhupal Reddy - BRS నారాయణఖేడ్)",
+    "district": "సంగారెడ్డి"
+  },
+  {
+    "handle": "RohitMynampally",
+    "name": "మైనంపల్లి రోహిత్ రావు (Rohit Rao Mynampally - మెదక్ MLA)",
+    "district": "మెదక్"
+  },
+  {
+    "handle": "SunithaLaxmaBRS",
+    "name": "వి. సునీతా లక్ష్మారెడ్డి (V. Sunitha Laxma Reddy - నర్సాపూర్ MLA / BRS)",
+    "district": "మెదక్"
+  },
+  {
+    "handle": "PadmaDReddy",
+    "name": "పద్మా దేవేందర్ రెడ్డి (Padma Devender Reddy - BRS మెదక్)",
+    "district": "మెదక్"
+  },
+  {
+    "handle": "YennamSReddy",
+    "name": "యెన్నం శ్రీనివాస్ రెడ్డి (Yennam Srinivas Reddy - మహబూబ్‌నగర్ MLA)",
+    "district": "మహబూబ్ నగర్"
+  },
+  {
+    "handle": "AnirudhReddyINC",
+    "name": "జనంపల్లి అనిరుధ్ రెడ్డి (J. Anirudh Reddy - జడ్చర్ల MLA)",
+    "district": "మహబూబ్ నగర్"
+  },
+  {
+    "handle": "GMR_Devarkadra",
+    "name": "గవినోళ్ల మధుసూదన్ రెడ్డి (G. Madhusudan Reddy - దేవరకద్ర MLA)",
+    "district": "మహబూబ్ నగర్"
+  },
+  {
+    "handle": "VSrinivasGoud",
+    "name": "వి. శ్రీనివాస్ గౌడ్ (V. Srinivas Goud - BRS మహబూబ్‌నగర్)",
+    "district": "మహబూబ్ నగర్"
+  },
+  {
+    "handle": "DrCLaxmaReddy",
+    "name": "డా. సి. లక్ష్మారెడ్డి (Dr. C. Laxma Reddy - BRS జడ్చర్ల)",
+    "district": "మహబూబ్ నగర్"
+  },
+  {
+    "handle": "AllaVenkateshBRS",
+    "name": "ఆళ్ల వెంకటేశ్వర్ రెడ్డి (Alla Venkateshwar Reddy - BRS దేవరకద్ర)",
+    "district": "మహబూబ్ నగర్"
+  },
+  {
+    "handle": "Jupally_INC",
+    "name": "జూపల్లి కృష్ణారావు (Jupally Krishna Rao - ఎక్సైజ్ & పర్యాటక మంత్రి / కొల్లాపూర్)",
+    "district": "నాగర్ కర్నూల్"
+  },
+  {
+    "handle": "DrRajeshReddyK",
+    "name": "డా. కూచుకుళ్ల రాజేష్ రెడ్డి (Dr. Kuchkulla Rajesh Reddy - నాగర్‌కర్నూల్ MLA)",
+    "district": "నాగర్ కర్నూల్"
+  },
+  {
+    "handle": "DrVamshiINC",
+    "name": "డా. చిక్కుడు వంశీకృష్ణ (Dr. Chikkudu Vamshi Krishna - అచ్చంపేట MLA)",
+    "district": "నాగర్ కర్నూల్"
+  },
+  {
+    "handle": "KasireddyINC",
+    "name": "కాసిరెడ్డి నారాయణరెడ్డి (Kasireddy Narayan Reddy - కల్వకుర్తి MLA)",
+    "district": "నాగర్ కర్నూల్"
+  },
+  {
+    "handle": "MalluRaviINC",
+    "name": "డా. మల్లు రవి (Dr. Mallu Ravi - నాగర్‌కర్నూల్ MP / INC)",
+    "district": "నాగర్ కర్నూల్"
+  },
+  {
+    "handle": "MarriJReddyBRS",
+    "name": "మర్రి జనార్దన్ రెడ్డి (Marri Janardhan Reddy - BRS నాగర్‌కర్నూల్)",
+    "district": "నాగర్ కర్నూల్"
+  },
+  {
+    "handle": "GuvvalaBalaraju",
+    "name": "గువ్వల బాలరాజు (Guvvala Balaraju - BRS అచ్చంపేట)",
+    "district": "నాగర్ కర్నూల్"
+  },
+  {
+    "handle": "BeeramBRS",
+    "name": "బీరం హర్షవర్ధన్ రెడ్డి (Beeram Harshavardhan Reddy - BRS కొల్లాపూర్)",
+    "district": "నాగర్ కర్నూల్"
+  },
+  {
+    "handle": "MeghaReddyINC",
+    "name": "తూడి మేఘారెడ్డి (Thudi Megha Reddy - వనపర్తి MLA)",
+    "district": "వనపర్తి"
+  },
+  {
+    "handle": "NiranjanReddyBRS",
+    "name": "సింగిరెడ్డి నిరంజన్ రెడ్డి (S. Niranjan Reddy - BRS మాజీ వ్యవసాయ శాఖ మంత్రి / వనపర్తి)",
+    "district": "వనపర్తి"
+  },
+  {
+    "handle": "GChinnaReddyINC",
+    "name": "జిల్లెల చిన్నారెడ్డి (G. Chinna Reddy - INC ప్లానింగ్ బోర్డు వైస్ చైర్మన్)",
+    "district": "వనపర్తి"
+  },
+  {
+    "handle": "BandlaKMReddy",
+    "name": "బండ్ల కృష్ణమోహన్ రెడ్డి (Bandla Krishna Mohan Reddy - గద్వాల MLA)",
+    "district": "జోగులాంబ గద్వాల"
+  },
+  {
+    "handle": "aruna_dk",
+    "name": "డి.కె. అరుణ (D.K. Aruna - మహబూబ్‌నగర్ MP / BJP జాతీయ ఉపాధ్యక్షురాలు / గద్వాల)",
+    "district": "జోగులాంబ గద్వాల"
+  },
+  {
+    "handle": "SA_SampathINC",
+    "name": "ఎస్.ఎ. సంపత్ కుమార్ (S.A. Sampath Kumar - INC అలంపూర్)",
+    "district": "జోగులాంబ గద్వాల"
+  },
+  {
+    "handle": "DrVM_AbrahamBRS",
+    "name": "డా. వి.ఎం. అబ్రహం (Dr. V.M. Abraham - BRS అలంపూర్)",
+    "district": "జోగులాంబ గద్వాల"
+  },
+  {
+    "handle": "ParnikaReddyINC",
+    "name": "డా. పర్ణికా చిట్టెం రెడ్డి (Dr. Parnika Chittem Reddy - నారాయణపేట MLA)",
+    "district": "నారాయణపేట"
+  },
+  {
+    "handle": "VakitiSrihariINC",
+    "name": "వాకిటి శ్రీహరి (Vakiti Srihari - మక్తల్ MLA)",
+    "district": "నారాయణపేట"
+  },
+  {
+    "handle": "SRajenderBRS",
+    "name": "ఎస్. రాజేందర్ రెడ్డి (S. Rajender Reddy - BRS నారాయణపేట)",
+    "district": "నారాయణపేట"
+  },
+  {
+    "handle": "ChittemRammohan",
+    "name": "చిట్టెం రామ్మోహన్ రెడ్డి (Chittem Rammohan Reddy - BRS మక్తల్)",
+    "district": "నారాయణపేట"
+  }
+]

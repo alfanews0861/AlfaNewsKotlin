@@ -199,7 +199,7 @@ fun LocalNewsFeedView(
         }
     }
 
-    LaunchedEffect(pagerState, news.size, hasMore) { 
+    LaunchedEffect(pagerState) { 
         snapshotFlow { pagerState.currentPage }.collect { page ->
             val newsIndex = page - (page / 6)
             if ((newsIndex >= news.size - 10 || page >= totalCount - 2) && hasMore && !loading) {
@@ -207,21 +207,23 @@ fun LocalNewsFeedView(
             }
 
             if (page < baseCount) {
-                // 🚀 FAST SWIPE PRELOADING: వేగంగా స్వైప్ చేసే యూజర్ల కోసం 5 పేజీల ముందస్తు ఇమేజ్ ప్రీ-లోడింగ్
-                (1..5).forEach { offset ->
-                    val nextPageIndex = page + offset
-                    val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
-                    if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
-                        val post = news[nextNewsIndex]
-                        if (post.mediaUrl.isNotEmpty()) {
-                            val request = ImageRequest.Builder(context)
-                                .data(getOptimizedImageUrl(post.mediaUrl))
-                                .allowHardware(true)
-                                .crossfade(false)
-                                .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
-                                .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
-                                .build()
-                            SingletonImageLoader.get(context).enqueue(request)
+                // 🚀 FAST SWIPE PRELOADING: వేగంగా స్వైప్ చేసే యూజర్ల కోసం 5 పేజీల ముందస్తు ఇమేజ్ ప్రీ-లోడింగ్ (IO thread)
+                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                    (1..5).forEach { offset ->
+                        val nextPageIndex = page + offset
+                        val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
+                        if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
+                            val post = news[nextNewsIndex]
+                            if (post.mediaUrl.isNotEmpty()) {
+                                val request = ImageRequest.Builder(context)
+                                    .data(getOptimizedImageUrl(post.mediaUrl))
+                                    .allowHardware(true)
+                                    .crossfade(false)
+                                    .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
+                                    .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
+                                    .build()
+                                SingletonImageLoader.get(context).enqueue(request)
+                            }
                         }
                     }
                 }
@@ -353,50 +355,29 @@ fun LocalNewsFeedView(
                 }
             }
         } else if (news.isEmpty()) {
-            if (loading) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(40.dp),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = stringResource(R.string.news_preparing),
-                            color = MaterialTheme.colorScheme.onBackground,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontFamily = Ramabhadra
-                        )
-                    }
+            if (!loading) {
+                LaunchedEffect(Unit) {
+                    viewModel.loadNews(language, currentUser)
                 }
-            } else {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+            }
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        modifier = Modifier.padding(32.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.no_news_in_district),
-                            color = MaterialTheme.colorScheme.onBackground,
-                            style = MaterialTheme.typography.bodyLarge,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            fontFamily = Ramabhadra
-                        )
-                        Button(
-                            onClick = { viewModel.loadNews(language, currentUser) }
-                        ) {
-                            Text(text = stringResource(R.string.retry), fontFamily = Ramabhadra)
-                        }
-                    }
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(40.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = stringResource(R.string.news_preparing),
+                        color = MaterialTheme.colorScheme.onBackground,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontFamily = Ramabhadra
+                    )
                 }
             }
         } else {

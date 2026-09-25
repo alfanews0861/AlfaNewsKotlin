@@ -47,38 +47,43 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             _loading.value = true
             try {
-                var query = FirebaseService.db.collection("users")
-                    .whereIn("role", listOf("REPORTER", "reporter", "STAFF_REPORTER", "staff_reporter", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0))
-                
-                if (district != null && district.isNotEmpty()) {
-                    query = query.whereEqualTo("district", district)
+                val rolesList = listOf("REPORTER", "reporter", "REGIONAL_INCHARGE", "regional_incharge", 2, 2.0, "2", 3, 3.0, "3")
+                val snapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                    FirebaseService.db.collection("users")
+                        .whereIn("role", rolesList)
+                        .limit(500)
+                        .get().await()
+                }
+                val list = snapshot?.documents?.mapNotNull { it.toUserObject() } ?: emptyList()
+
+                var finalList = list
+
+                if (!district.isNullOrEmpty()) {
+                    finalList = finalList.filter { it.district.equals(district, ignoreCase = true) }
                 }
                 
-                if (mandal != null && mandal.isNotEmpty()) {
-                    query = query.whereEqualTo("assignedMandal", mandal)
+                if (!mandal.isNullOrEmpty()) {
+                    finalList = finalList.filter { it.assignedMandal.equals(mandal, ignoreCase = true) }
                 }
 
-                val snapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
-                    query.get().await()
-                }
-                var list = snapshot?.documents?.mapNotNull { it.toUserObject() } ?: emptyList()
-
-                // In-memory filter for REGIONAL_INCHARGE to avoid Firestore multiple 'whereIn' crash
+                // In-memory filter for REGIONAL_INCHARGE
                 if (currentUser?.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {
                     if (district == null) {
-                        list = list.filter { user -> currentUser.assignedDistricts.contains(user.district) }
+                        finalList = finalList.filter { user -> currentUser.assignedDistricts.any { ad -> ad.equals(user.district, ignoreCase = true) } }
                     }
                 }
 
-                _reporters.value = list
+                _reporters.value = finalList
                 
-                // Fetch stats for these reporters
-                if (list.isNotEmpty()) {
-                    fetchReportersForStats(list.map { it.id })
+                // Fetch stats for these reporters in background
+                if (finalList.isNotEmpty()) {
+                    fetchReportersForStats(finalList.map { it.id })
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                _reporters.value = emptyList()
+                if (_reporters.value.isEmpty()) {
+                    _reporters.value = emptyList()
+                }
             } finally {
                 _loading.value = false
             }
@@ -86,6 +91,7 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun fetchReportersForStats(reporterIds: List<String>) {
+        if (reporterIds.isEmpty()) return
         viewModelScope.launch {
             val statsMap = _reporterStats.value.toMutableMap()
             
@@ -100,14 +106,13 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
             val weekStart = cal.time
 
             try {
-                // ✅ FIX #5: Single Timestamp query మాత్రమే చేయాలి.
-                // వేరే Long-format query duplicate docs వస్తాయి, counts 2× అవుతాయి.
-                val snapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                val snapshot = kotlinx.coroutines.withTimeoutOrNull(3500L) {
                     FirebaseService.db.collection("news")
                         .whereEqualTo("approved", true)
                         .whereEqualTo("isReporter", true)
                         .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
                         .whereGreaterThanOrEqualTo("timestamp", com.google.firebase.Timestamp(weekStart))
+                        .limit(300)
                         .get().await()
                 }
                 

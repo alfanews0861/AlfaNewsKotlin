@@ -120,16 +120,20 @@ fun ReporterProfileView(
             } else {
                 try {
                     val userRef = FirebaseService.db.collection("users").document(targetId)
-                    val userSnap = userRef.get().await()
-                    if (userSnap.exists()) {
+                    val userSnap = kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                        userRef.get().await()
+                    }
+                    if (userSnap != null && userSnap.exists()) {
                         reporter = userSnap.toUserObject()
                     } else {
                         // Fallback lookup by name in users collection
-                        val nameSnap = FirebaseService.db.collection("users")
-                            .whereEqualTo("name", targetId)
-                            .limit(1)
-                            .get().await()
-                        if (!nameSnap.isEmpty) {
+                        val nameSnap = kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                            FirebaseService.db.collection("users")
+                                .whereEqualTo("name", targetId)
+                                .limit(1)
+                                .get().await()
+                        }
+                        if (nameSnap != null && !nameSnap.isEmpty) {
                             reporter = nameSnap.documents.first().toUserObject()
                         }
                     }
@@ -141,23 +145,29 @@ fun ReporterProfileView(
             // 2. Fetch posts by this reporter (try reporter.id, fallback to reporter.name, originalReporterId, userId)
             val newsRef = FirebaseService.db.collection("news")
             var querySnapshot = try {
-                newsRef.whereEqualTo("reporter.id", targetId).get().await()
+                kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                    newsRef.whereEqualTo("reporter.id", targetId).limit(100).get().await()
+                }
             } catch (e: Exception) {
                 null
             }
 
             if (querySnapshot == null || querySnapshot.isEmpty) {
                 try {
-                    querySnapshot = newsRef.whereEqualTo("reporter.name", targetId).get().await()
+                    querySnapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                        newsRef.whereEqualTo("reporter.name", targetId).limit(100).get().await()
+                    }
                 } catch (e: Exception) {
                     // Ignore
                 }
             }
 
             val currentRep = reporter
-            if ((querySnapshot == null || querySnapshot.isEmpty) && currentRep != null) {
+            if ((querySnapshot == null || querySnapshot.isEmpty) && currentRep != null && currentRep.id != targetId) {
                 try {
-                    querySnapshot = newsRef.whereEqualTo("reporter.id", currentRep.id).get().await()
+                    querySnapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                        newsRef.whereEqualTo("reporter.id", currentRep.id).limit(100).get().await()
+                    }
                 } catch (e: Exception) {
                     // Ignore
                 }

@@ -44,19 +44,27 @@ fun AdminNoticePopupDialog(
     var currentIndex by remember { mutableIntStateOf(0) }
     val currentNotice = notices.getOrElse(currentIndex.coerceIn(0, notices.size - 1)) { notices.first() }
 
-    // సందేశ రకాన్ని బట్టి బ్యానర్ వివరాలు (WARNING vs BROADCAST/NOTICE)
-    val isWarning = currentNotice.type == "WARNING"
-
-    val (headerBg, headerIcon, headerTitle) = when {
-        isWarning -> Triple(
+    // సందేశ రకాన్ని బట్టి బ్యానర్ వివరాలు (WARNING, BROADCAST, NOTICE, CHAT/ADMIN_MESSAGE)
+    val (headerBg, headerIcon, headerTitle) = when (currentNotice.type) {
+        "WARNING" -> Triple(
             Color(0xFFD32F2F),
             Icons.Default.Warning,
             "🚨 అత్యవసర హెచ్చరిక (Warning Notice)"
         )
-        else -> Triple(
-            Color(0xFFD32F2F),
+        "BROADCAST" -> Triple(
+            Color(0xFF512DA8),
             Icons.Default.Campaign,
-            "📢 ఆల్ఫా న్యూస్ ఎడిటోరియల్ డెస్క్ ప్రకటన"
+            "📢 ఆల్ఫా న్యూస్ ముఖ్య ప్రకటన (Broadcast)"
+        )
+        "NOTICE" -> Triple(
+            Color(0xFFE65100),
+            Icons.Default.NotificationsActive,
+            "📌 ఎడిటోరియల్ డెస్క్ నోటీస్ (Notice)"
+        )
+        else -> Triple(
+            Color(0xFF0D47A1),
+            Icons.Default.Chat,
+            "💬 అడ్మిన్ డెస్క్ సందేశం (Admin Message)"
         )
     }
 

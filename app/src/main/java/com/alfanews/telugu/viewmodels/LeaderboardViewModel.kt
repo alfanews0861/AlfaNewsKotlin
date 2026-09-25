@@ -36,7 +36,7 @@ class LeaderboardViewModel(application: Application) : AndroidViewModel(applicat
                 var month = (calendar.get(Calendar.MONTH) + 1).toString().padStart(2, '0')
                 var monthlyId = "${year}_${month}"
 
-                var snapshot = kotlinx.coroutines.withTimeoutOrNull(7000L) {
+                var snapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
                     FirebaseService.db.collection("monthly_leaderboard")
                         .document(monthlyId)
                         .collection("reporters")
@@ -53,7 +53,7 @@ class LeaderboardViewModel(application: Application) : AndroidViewModel(applicat
                     month = (calendar.get(Calendar.MONTH) + 1).toString().padStart(2, '0')
                     monthlyId = "${year}_${month}"
                     
-                    snapshot = kotlinx.coroutines.withTimeoutOrNull(7000L) {
+                    snapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
                         FirebaseService.db.collection("monthly_leaderboard")
                             .document(monthlyId)
                             .collection("reporters")

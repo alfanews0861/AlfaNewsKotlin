@@ -117,6 +117,9 @@ fun MainScreen(
     
     val notificationsGranted by mainViewModel.notificationsGranted.collectAsStateWithLifecycle()
     val unreadMessagesCount by mainViewModel.unreadMessagesCount.collectAsStateWithLifecycle()
+    val unreadAdminNotices by mainViewModel.unreadAdminNotices.collectAsStateWithLifecycle()
+    var isNoticeDismissed by remember(unreadAdminNotices) { mutableStateOf(false) }
+    val showNoticePopup = unreadAdminNotices.isNotEmpty() && !isNoticeDismissed && activeTab != "messages"
     var showNotifBannerSession by remember { mutableStateOf(true) }
 
     LaunchedEffect(isUpdateDownloaded) {
@@ -710,6 +713,24 @@ fun MainScreen(
                 onDismissRequest = { mainViewModel.setShowDistrictPicker(false) }
             )
         }
+
+        // 📢 విలేకరులు/మాజీ రిపోర్టర్లు యాప్ ఓపెన్ చేయగానే అడ్మిన్ పంపిన సందేశాల In-App Popup
+        if (showNoticePopup) {
+            AdminNoticePopupDialog(
+                notices = unreadAdminNotices,
+                onOpenAllMessages = {
+                    isNoticeDismissed = true
+                    mainViewModel.markAllAdminMessagesRead()
+                    mainViewModel.setActiveTab("messages")
+                    if (isAdmin || currentUser?.role == UserRole.ADMIN || currentUser?.role == UserRole.EDITOR || currentUser?.role == UserRole.NEWS_DESK || currentUser?.role == UserRole.REGIONAL_INCHARGE) {
+                        mainViewModel.setAdminActivePage("messages")
+                    }
+                },
+                onDismiss = {
+                    isNoticeDismissed = true
+                }
+            )
+        }
     }
 }
 
@@ -726,7 +747,6 @@ fun ProfileContainer(
     val themeMode by viewModel.themeMode.collectAsState()
     val adminActivePage by viewModel.adminActivePage.collectAsState()
     val unreadMessagesCount by viewModel.unreadMessagesCount.collectAsState()
-    val unreadAdminNotices by viewModel.unreadAdminNotices.collectAsState()
     val authUser = com.alfanews.telugu.services.FirebaseService.auth.currentUser
     val isAdmin = currentUser != null && (
         currentUser.role == UserRole.ADMIN ||
@@ -742,28 +762,6 @@ fun ProfileContainer(
     }
 
     val isStaff = user != null && (isAdmin || user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.REGIONAL_INCHARGE || user.role == UserRole.REPORTER || user.role == UserRole.NEWS_DESK)
-
-    // విలేకరి/వినియోగదారు ప్రొఫైల్ ఓపెన్ చేయగానే అడ్మిన్ ముఖ్య సందేశాల In-App Popup
-    var isNoticeDismissed by remember(unreadAdminNotices) { mutableStateOf(false) }
-    val showNoticePopup = unreadAdminNotices.isNotEmpty() && !isNoticeDismissed && adminActivePage != "messages"
-
-    if (showNoticePopup) {
-        AdminNoticePopupDialog(
-            notices = unreadAdminNotices,
-            onOpenAllMessages = {
-                isNoticeDismissed = true
-                viewModel.markAllAdminMessagesRead()
-                if (isStaff) {
-                    viewModel.setAdminActivePage("messages")
-                } else {
-                    onNavigate("messages")
-                }
-            },
-            onDismiss = {
-                isNoticeDismissed = true
-            }
-        )
-    }
     
     if (isStaff && user != null) {
         AdminPanelView(

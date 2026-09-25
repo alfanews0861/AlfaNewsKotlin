@@ -1,0 +1,723 @@
+[
+  {
+    "handle": "@TelanganaCOPs",
+    "name": "తెలంగాణ రాష్ట్ర పోలీస్ (Telangana State Police - DGP)",
+    "district": "",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@ipr_telangana",
+    "name": "సమాచార పౌర సంబంధాల శాఖ (I&PR Telangana)",
+    "district": "",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_ADB",
+    "name": "కలెక్టర్ ఆదిలాబాద్ (District Collector Adilabad)",
+    "district": "ఆదిలాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_adilabad",
+    "name": "ఆదిలాబాద్ జిల్లా ఎస్పీ (Adilabad District Police / SP)",
+    "district": "ఆదిలాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_adilabad",
+    "name": "డిపిఆర్ఓ ఆదిలాబాద్ (DPRO Adilabad I&PR)",
+    "district": "ఆదిలాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_BDK",
+    "name": "కలెక్టర్ భద్రాద్రి కొత్తగూడెం (District Collector Bhadradri Kothagudem)",
+    "district": "భద్రాద్రి కొత్తగూడెం",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_bhadradri",
+    "name": "భద్రాద్రి కొత్తగూడెం ఎస్పీ (Bhadradri Kothagudem Police / SP)",
+    "district": "భద్రాద్రి కొత్తగూడెం",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_bdk",
+    "name": "డిపిఆర్ఓ భద్రాద్రి కొత్తగూడెం (DPRO Bhadradri Kothagudem I&PR)",
+    "district": "భద్రాద్రి కొత్తగూడెం",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_HNK",
+    "name": "కలెక్టర్ హన్మకొండ (District Collector Hanamkonda)",
+    "district": "హన్మకొండ",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@warangalpolice",
+    "name": "వరంగల్ & హన్మకొండ పోలీస్ కమిషనరేట్ (Warangal Police Commissionerate)",
+    "district": "హన్మకొండ",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_hnk",
+    "name": "డిపిఆర్ఓ హన్మకొండ (DPRO Hanamkonda I&PR)",
+    "district": "హన్మకొండ",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_HYD",
+    "name": "కలెక్టర్ హైదరాబాద్ (District Collector Hyderabad)",
+    "district": "హైదరాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@hydcitypolice",
+    "name": "హైదరాబాద్ సిటీ పోలీస్ (Hyderabad City Police)",
+    "district": "హైదరాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_hyderabad",
+    "name": "డిపిఆర్ఓ హైదరాబాద్ (DPRO Hyderabad I&PR)",
+    "district": "హైదరాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_JGL",
+    "name": "కలెక్టర్ జగిత్యాల (District Collector Jagtial)",
+    "district": "జగిత్యాల",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_jagtial",
+    "name": "జగిత్యాల జిల్లా ఎస్పీ (Jagtial District Police / SP)",
+    "district": "జగిత్యాల",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_jagtial",
+    "name": "డిపిఆర్ఓ జగిత్యాల (DPRO Jagtial I&PR)",
+    "district": "జగిత్యాల",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_JGN",
+    "name": "కలెక్టర్ జనగాం (District Collector Jangaon)",
+    "district": "జనగాం",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dcp_jangaon",
+    "name": "జనగాం డీసీపీ / పోలీస్ (DCP Jangaon Police)",
+    "district": "జనగాం",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_jangaon",
+    "name": "డిపిఆర్ఓ జనగాం (DPRO Jangaon I&PR)",
+    "district": "జనగాం",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_JSB",
+    "name": "కలెక్టర్ జయశంకర్ భూపాలపల్లి (District Collector Jayashankar Bhupalpally)",
+    "district": "జయశంకర్ భూపాలపల్లి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@js_bpl_police",
+    "name": "జయశంకర్ భూపాలపల్లి ఎస్పీ (Bhupalpally Police / SP)",
+    "district": "జయశంకర్ భూపాలపల్లి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_bhupalpally",
+    "name": "డిపిఆర్ఓ భూపాలపల్లి (DPRO Bhupalpally I&PR)",
+    "district": "జయశంకర్ భూపాలపల్లి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_JOG",
+    "name": "కలెక్టర్ జోగులాంబ గద్వాల (District Collector Jogulamba Gadwal)",
+    "district": "జోగులాంబ గద్వాల",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_gadwal",
+    "name": "జోగులాంబ గద్వాల ఎస్పీ (Gadwal Police / SP)",
+    "district": "జోగులాంబ గద్వాల",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_gadwal",
+    "name": "డిపిఆర్ఓ జోగులాంబ గద్వాల (DPRO Jogulamba Gadwal I&PR)",
+    "district": "జోగులాంబ గద్వాల",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_KMR",
+    "name": "కలెక్టర్ కామారెడ్డి (District Collector Kamareddy)",
+    "district": "కామారెడ్డి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_kamareddy",
+    "name": "కామారెడ్డి జిల్లా ఎస్పీ (Kamareddy District Police / SP)",
+    "district": "కామారెడ్డి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_kamareddy",
+    "name": "డిపిఆర్ఓ కామారెడ్డి (DPRO Kamareddy I&PR)",
+    "district": "కామారెడ్డి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_KNR",
+    "name": "కలెక్టర్ కరీంనగర్ (District Collector Karimnagar)",
+    "district": "కరీంనగర్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@cpkarimnagar",
+    "name": "కరీంనగర్ పోలీస్ కమిషనరేట్ (Karimnagar Police Commissionerate)",
+    "district": "కరీంనగర్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_karimnagar",
+    "name": "డిపిఆర్ఓ కరీంనగర్ (DPRO Karimnagar I&PR)",
+    "district": "కరీంనగర్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_KMM",
+    "name": "కలెక్టర్ ఖమ్మం (District Collector Khammam)",
+    "district": "ఖమ్మం",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@cp_khammam",
+    "name": "ఖమ్మం పోలీస్ కమిషనరేట్ (Khammam Police Commissionerate)",
+    "district": "ఖమ్మం",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_khammam",
+    "name": "డిపిఆర్ఓ ఖమ్మం (DPRO Khammam I&PR)",
+    "district": "ఖమ్మం",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_KBA",
+    "name": "కలెక్టర్ కుమ్రం భీమ్ ఆసిఫాబాద్ (District Collector KB Asifabad)",
+    "district": "కుమ్రం భీమ్ ఆసిఫాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_asifabad",
+    "name": "కుమ్రం భీమ్ ఆసిఫాబాద్ ఎస్పీ (KB Asifabad District Police / SP)",
+    "district": "కుమ్రం భీమ్ ఆసిఫాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_asifabad",
+    "name": "డిపిఆర్ఓ ఆసిఫాబాద్ (DPRO Asifabad I&PR)",
+    "district": "కుమ్రం భీమ్ ఆసిఫాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_MBD",
+    "name": "కలెక్టర్ మహబూబాబాద్ (District Collector Mahabubabad)",
+    "district": "మహబూబాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_mahabubabad",
+    "name": "మహబూబాబాద్ జిల్లా ఎస్పీ (Mahabubabad Police / SP)",
+    "district": "మహబూబాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_mahabubabad",
+    "name": "డిపిఆర్ఓ మహబూబాబాద్ (DPRO Mahabubabad I&PR)",
+    "district": "మహబూబాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_MBNR",
+    "name": "కలెక్టర్ మహబూబ్ నగర్ (District Collector Mahabubnagar)",
+    "district": "మహబూబ్ నగర్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_mbnr",
+    "name": "మహబూబ్ నగర్ జిల్లా ఎస్పీ (Mahabubnagar District Police / SP)",
+    "district": "మహబూబ్ నగర్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_mbnr",
+    "name": "డిపిఆర్ఓ మహబూబ్ నగర్ (DPRO Mahabubnagar I&PR)",
+    "district": "మహబూబ్ నగర్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_MNCL",
+    "name": "కలెక్టర్ మంచిర్యాల (District Collector Mancherial)",
+    "district": "మంచిర్యాల",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dcp_mancherial",
+    "name": "మంచిర్యాల డీసీపీ / పోలీస్ (DCP Mancherial Police)",
+    "district": "మంచిర్యాల",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_mancherial",
+    "name": "డిపిఆర్ఓ మంచిర్యాల (DPRO Mancherial I&PR)",
+    "district": "మంచిర్యాల",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_MDK",
+    "name": "కలెక్టర్ మెదక్ (District Collector Medak)",
+    "district": "మెదక్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_medak",
+    "name": "మెదక్ జిల్లా ఎస్పీ (Medak District Police / SP)",
+    "district": "మెదక్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_medak",
+    "name": "డిపిఆర్ఓ మెదక్ (DPRO Medak I&PR)",
+    "district": "మెదక్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_MDL",
+    "name": "కలెక్టర్ మేడ్చల్ మల్కాజిగిరి (District Collector Medchal Malkajgiri)",
+    "district": "మేడ్చల్ మల్కాజిగిరి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dcp_malkajgiri",
+    "name": "మల్కాజిగిరి డీసీపీ / పోలీస్ (DCP Malkajgiri / Rachakonda Police)",
+    "district": "మేడ్చల్ మల్కాజిగిరి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_medchal",
+    "name": "డిపిఆర్ఓ మేడ్చల్ మల్కాజిగిరి (DPRO Medchal Malkajgiri I&PR)",
+    "district": "మేడ్చల్ మల్కాజిగిరి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_MLG",
+    "name": "కలెక్టర్ ములుగు (District Collector Mulugu)",
+    "district": "ములుగు",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_mulugu",
+    "name": "ములుగు జిల్లా ఎస్పీ (Mulugu District Police / SP)",
+    "district": "ములుగు",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_mulugu",
+    "name": "డిపిఆర్ఓ ములుగు (DPRO Mulugu I&PR)",
+    "district": "ములుగు",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_NGKL",
+    "name": "కలెక్టర్ నాగర్ కర్నూల్ (District Collector Nagarkurnool)",
+    "district": "నాగర్ కర్నూల్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_nagarkurnool",
+    "name": "నాగర్ కర్నూల్ జిల్లా ఎస్పీ (Nagarkurnool Police / SP)",
+    "district": "నాగర్ కర్నూల్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_nagarkurnool",
+    "name": "డిపిఆర్ఓ నాగర్ కర్నూల్ (DPRO Nagarkurnool I&PR)",
+    "district": "నాగర్ కర్నూల్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_NLG",
+    "name": "కలెక్టర్ నల్గొండ (District Collector Nalgonda)",
+    "district": "నల్గొండ",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_nalgonda",
+    "name": "నల్గొండ జిల్లా ఎస్పీ (Nalgonda District Police / SP)",
+    "district": "నల్గొండ",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_nalgonda",
+    "name": "డిపిఆర్ఓ నల్గొండ (DPRO Nalgonda I&PR)",
+    "district": "నల్గొండ",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_NPT",
+    "name": "కలెక్టర్ నారాయణపేట (District Collector Narayanpet)",
+    "district": "నారాయణపేట",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_narayanpet",
+    "name": "నారాయణపేట జిల్లా ఎస్పీ (Narayanpet Police / SP)",
+    "district": "నారాయణపేట",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_narayanpet",
+    "name": "డిపిఆర్ఓ నారాయణపేట (DPRO Narayanpet I&PR)",
+    "district": "నారాయణపేట",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_NRML",
+    "name": "కలెక్టర్ నిర్మల్ (District Collector Nirmal)",
+    "district": "నిర్మల్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_nirmal",
+    "name": "నిర్మల్ జిల్లా ఎస్పీ (Nirmal District Police / SP)",
+    "district": "నిర్మల్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_nirmal",
+    "name": "డిపిఆర్ఓ నిర్మల్ (DPRO Nirmal I&PR)",
+    "district": "నిర్మల్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_NZB",
+    "name": "కలెక్టర్ నిజామాబాద్ (District Collector Nizamabad)",
+    "district": "నిజామాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@cp_nizamabad",
+    "name": "నిజామాబాద్ పోలీస్ కమిషనరేట్ (Nizamabad Police Commissionerate)",
+    "district": "నిజామాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_nizamabad",
+    "name": "డిపిఆర్ఓ నిజామాబాద్ (DPRO Nizamabad I&PR)",
+    "district": "నిజామాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_PDPL",
+    "name": "కలెక్టర్ పెద్దపల్లి (District Collector Peddapalli)",
+    "district": "పెద్దపల్లి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@cp_ramagundam",
+    "name": "రామగుండం పోలీస్ కమిషనరేట్ (Ramagundam Police Commissionerate / Peddapalli)",
+    "district": "పెద్దపల్లి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_peddapalli",
+    "name": "డిపిఆర్ఓ పెద్దపల్లి (DPRO Peddapalli I&PR)",
+    "district": "పెద్దపల్లి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_RSL",
+    "name": "కలెక్టర్ రాజన్న సిరిసిల్ల (District Collector Rajanna Sircilla)",
+    "district": "రాజన్న సిరిసిల్ల",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_sircilla",
+    "name": "రాజన్న సిరిసిల్ల ఎస్పీ (Rajanna Sircilla Police / SP)",
+    "district": "రాజన్న సిరిసిల్ల",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_sircilla",
+    "name": "డిపిఆర్ఓ రాజన్న సిరిసిల్ల (DPRO Rajanna Sircilla I&PR)",
+    "district": "రాజన్న సిరిసిల్ల",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_RR",
+    "name": "కలెక్టర్ రంగారెడ్డి (District Collector Ranga Reddy)",
+    "district": "రంగారెడ్డి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dcp_rajendranagar",
+    "name": "రాజేంద్రనగర్ డీసీపీ / రంగారెడ్డి పోలీస్ (DCP Rajendranagar Police)",
+    "district": "రంగారెడ్డి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_rangareddy",
+    "name": "డిపిఆర్ఓ రంగారెడ్డి (DPRO Ranga Reddy I&PR)",
+    "district": "రంగారెడ్డి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_SRD",
+    "name": "కలెక్టర్ సంగారెడ్డి (District Collector Sangareddy)",
+    "district": "సంగారెడ్డి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_sangareddy",
+    "name": "సంగారెడ్డి జిల్లా ఎస్పీ (Sangareddy District Police / SP)",
+    "district": "సంగారెడ్డి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_sangareddy",
+    "name": "డిపిఆర్ఓ సంగారెడ్డి (DPRO Sangareddy I&PR)",
+    "district": "సంగారెడ్డి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_SDPT",
+    "name": "కలెక్టర్ సిద్దిపేట (District Collector Siddipet)",
+    "district": "సిద్దిపేట",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@cp_siddipet",
+    "name": "సిద్దిపేట పోలీస్ కమిషనరేట్ (Siddipet Police Commissionerate)",
+    "district": "సిద్దిపేట",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_siddipet",
+    "name": "డిపిఆర్ఓ సిద్దిపేట (DPRO Siddipet I&PR)",
+    "district": "సిద్దిపేట",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_SYPT",
+    "name": "కలెక్టర్ సూర్యాపేట (District Collector Suryapet)",
+    "district": "సూర్యాపేట",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_suryapet",
+    "name": "సూర్యాపేట జిల్లా ఎస్పీ (Suryapet District Police / SP)",
+    "district": "సూర్యాపేట",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_suryapet",
+    "name": "డిపిఆర్ఓ సూర్యాపేట (DPRO Suryapet I&PR)",
+    "district": "సూర్యాపేట",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_VKBD",
+    "name": "కలెక్టర్ వికారాబాద్ (District Collector Vikarabad)",
+    "district": "వికారాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_vikarabad",
+    "name": "వికారాబాద్ జిల్లా ఎస్పీ (Vikarabad District Police / SP)",
+    "district": "వికారాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_vikarabad",
+    "name": "డిపిఆర్ఓ వికారాబాద్ (DPRO Vikarabad I&PR)",
+    "district": "వికారాబాద్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_WNP",
+    "name": "కలెక్టర్ వనపర్తి (District Collector Wanaparthy)",
+    "district": "వనపర్తి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@sp_wanaparthy",
+    "name": "వనపర్తి జిల్లా ఎస్పీ (Wanaparthy District Police / SP)",
+    "district": "వనపర్తి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_wanaparthy",
+    "name": "డిపిఆర్ఓ వనపర్తి (DPRO Wanaparthy I&PR)",
+    "district": "వనపర్తి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_WGL",
+    "name": "కలెక్టర్ వరంగల్ (District Collector Warangal)",
+    "district": "వరంగల్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@cp_warangal",
+    "name": "వరంగల్ పోలీస్ కమిషనరేట్ (Warangal Police Commissionerate)",
+    "district": "వరంగల్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_warangal",
+    "name": "డిపిఆర్ఓ వరంగల్ (DPRO Warangal I&PR)",
+    "district": "వరంగల్",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@Collector_YBD",
+    "name": "కలెక్టర్ యాదాద్రి భువనగిరి (District Collector Yadadri Bhuvanagiri)",
+    "district": "యాదాద్రి భువనగిరి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dcp_bhongir",
+    "name": "భువనగిరి డీసీపీ / పోలీస్ (DCP Bhongir / Rachakonda Police)",
+    "district": "యాదాద్రి భువనగిరి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@dpro_yadadri",
+    "name": "డిపిఆర్ఓ యాదాద్రి భువనగిరి (DPRO Yadadri Bhuvanagiri I&PR)",
+    "district": "యాదాద్రి భువనగిరి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@CyberabadPolice",
+    "name": "సైబరాబాద్ పోలీస్ కమిషనరేట్ (Cyberabad Police)",
+    "district": "మేడ్చల్ మల్కాజిగిరి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  },
+  {
+    "handle": "@RachakondaCop",
+    "name": "రాచకొండ పోలీస్ కమిషనరేట్ (Rachakonda Police)",
+    "district": "మేడ్చల్ మల్కాజిగిరి",
+    "state": "Telangana",
+    "category": "స్థానిక"
+  }
+]

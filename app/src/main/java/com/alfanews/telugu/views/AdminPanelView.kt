@@ -215,9 +215,10 @@ fun AdminPanelView(
                         }
                     )
                     "messages" -> {
+                        val effectiveUser = user.copy(role = effectiveRole)
                         if (effectiveRole == UserRole.ADMIN || effectiveRole == UserRole.EDITOR || effectiveRole == UserRole.NEWS_DESK || effectiveRole == UserRole.REGIONAL_INCHARGE) {
                             AdminReporterMessagingView(
-                                currentUser = user,
+                                currentUser = effectiveUser,
                                 initialReporterId = chatTargetReporterId,
                                 onBack = { 
                                     chatTargetReporterId = null
@@ -226,7 +227,7 @@ fun AdminPanelView(
                             )
                         } else {
                             ReporterDeskChatView(
-                                user = user,
+                                user = effectiveUser,
                                 onBack = { activePage = "profile" }
                             )
                         }

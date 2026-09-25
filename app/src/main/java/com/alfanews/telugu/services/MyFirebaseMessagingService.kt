@@ -439,7 +439,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         // NetworkOnMainThreadException వల్ల notification అస్సలు రాకపోవడం fix అవుతుంది.
         serviceScope.launch {
             try {
-                val notificationId = (System.currentTimeMillis() and 0xfffffffL).toInt()
+                val notificationId = (System.currentTimeMillis() and 0x7fffffffL).toInt()
                 val newsId = Uri.parse(actionUrl ?: "").lastPathSegment ?: ""
 
                 // 1. ప్రధాన క్లిక్ యాక్షన్: వార్తను చదవడం
@@ -477,18 +477,15 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
-                val GROUP_KEY_ALFA_NEWS = "com.alfanews.telugu.NEWS_NOTIFICATIONS"
-                val SUMMARY_NOTIFICATION_ID = 1001
-
                 val notificationBuilder = NotificationCompat.Builder(this@MyFirebaseMessagingService, channelId)
                     .setSmallIcon(R.drawable.app_icon_new)
                     .setContentTitle(title)
                     .setContentText(messageBody)
                     .setAutoCancel(true)
                     .setContentIntent(pendingIntent)
+                    .setShowWhen(true)
+                    .setWhen(System.currentTimeMillis())
                     .setPriority(if (isSilent) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
-                    .setGroup(GROUP_KEY_ALFA_NEWS)
-                    .setOnlyAlertOnce(true)
                     .addAction(R.drawable.ic_launcher_foreground, "చదవండి", pendingIntent)
                     .addAction(R.drawable.ic_launcher_foreground, "షేర్ చేయండి", sharePendingIntent)
 
@@ -552,21 +549,10 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     notificationBuilder.priority = priority
                 }
 
-                // ✅ Main thread లో notify చేయాలి + గ్రూప్ సమ్మరీ నోటిఫికేషన్ ద్వారా ఒకే కార్డ్ లో బండిల్ చేయడం
+                // ✅ Main thread లో notify చేయడం (విడివిడిగా ప్రతి నోటిఫికేషన్ స్పష్టంగా కనిపించేలా చేయడం)
                 withContext(Dispatchers.Main) {
                     val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                     notificationManager.notify(notificationId, notificationBuilder.build())
-
-                    val summaryNotification = NotificationCompat.Builder(this@MyFirebaseMessagingService, channelId)
-                        .setSmallIcon(R.drawable.app_icon_new)
-                        .setContentTitle("Alfa News")
-                        .setContentText("తాజా వార్తలు")
-                        .setGroup(GROUP_KEY_ALFA_NEWS)
-                        .setGroupSummary(true)
-                        .setAutoCancel(true)
-                        .setOnlyAlertOnce(true)
-                        .build()
-                    notificationManager.notify(SUMMARY_NOTIFICATION_ID, summaryNotification)
                 }
             } catch (t: Throwable) {
                 Log.e("MyFirebaseMsgService", "Error posting notification: ${t.message}", t)

@@ -59,19 +59,23 @@ class ClassifiedsViewModel : ViewModel() {
         viewModelScope.launch {
             _loading.value = true
             listenerRegistration?.remove()
+
+            // Safety watchdog: after 2.5s turn off loading state even if empty or slow
+            launch {
+                kotlinx.coroutines.delay(2500L)
+                _loading.value = false
+            }
+
             try {
                 val adsRef = FirebaseService.db.collection("classifieds")
                 val query = if (userId != null) {
-                    adsRef.whereEqualTo("userId", userId)
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(50)
+                    adsRef.whereEqualTo("userId", userId).limit(50)
                 } else {
-                    adsRef.orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(50)
+                    adsRef.orderBy("timestamp", Query.Direction.DESCENDING).limit(50)
                 }
                 listenerRegistration = query.addSnapshotListener { snapshot, error ->
+                    _loading.value = false
                     if (error != null) {
-                        _loading.value = false
                         return@addSnapshotListener
                     }
                     if (snapshot != null) {
@@ -96,9 +100,8 @@ class ClassifiedsViewModel : ViewModel() {
                             } catch (e: Exception) {
                                 null
                             }
-                        }
+                        }.sortedByDescending { it.timestamp }
                         _allAds.value = fetchedAds
-                        _loading.value = false
                     }
                 }
             } catch (e: Exception) {

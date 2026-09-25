@@ -1,0 +1,961 @@
+[
+  {
+    "id": "0FovliC8PbPOWrFSQ2DF",
+    "handle": "iamnagarjuna",
+    "name": "నాగార్జున",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "0T8LGKWBX24Y4qHRyfVc",
+    "handle": "ncbn",
+    "name": "Chandra Babu Naidu",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "0hRfkrRRCU9boKPNFyUd",
+    "handle": "imvangasandeep",
+    "name": "సందీప్ రెడ్డి వంగా",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "1BM8u01At9hFHYv1ro4O",
+    "handle": "egdistpolice",
+    "name": "East Godavari Police",
+    "district": "తూర్పు గోదావరి",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "1UVgRb31yJwxTKZ6AtwK",
+    "handle": "thisisdsp",
+    "name": "దేవి శ్రీ ప్రసాద్",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "2G4gLYd2QPwbkfIuW43k",
+    "handle": "bjp4telangana",
+    "name": "BJP Telangana",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "2KFCZaZ7cZf1isTn1k8D",
+    "handle": "bjp4andhra",
+    "name": "BJP Andhra Pradesh",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "2t0TzpnHNYQi3IsIircm",
+    "handle": "eatala_rajender",
+    "name": "ఈటల రాజేందర్",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "3rwZbntOUOumfEpr27Zc",
+    "handle": "anilravipudi",
+    "name": "అనిల్ రావిపూడి",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "52Sh80nGkDW8M6SNQkAK",
+    "handle": "ysjagan",
+    "name": "jagan mohan reddy",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "5BYXxSOIDB7o0nIr0Eyf",
+    "handle": "tarak9999",
+    "name": "ఎన్టీఆర్ (Jr NTR)",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "5UEkPNcperUIJWdnBAOx",
+    "handle": "dr_narayanap",
+    "name": "పొంగూరు నారాయణ",
+    "district": "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "7Y0Ipyh5cSVNhRA5fkTm",
+    "handle": "iamrashmika",
+    "name": "రష్మిక మందన్న",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "7gsCbZJLp24cAqsucdaK",
+    "handle": "gudivadaamar",
+    "name": "గుడివాడ Amarnath",
+    "district": "అనకాపల్లి",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "875B22nW8Df30eVKPYlQ",
+    "handle": "telanganacmo",
+    "name": "Telangana CMO",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "87voEkSEMY5tYRXAkg7N",
+    "handle": "naralokesh",
+    "name": "నారా లోకేష్",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "91iuB4XnF8fFcpW6Lh13",
+    "handle": "hydcitypolice",
+    "name": "Hyd City Police",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "99mlI5Gt6dVdSWL57fRi",
+    "handle": "konathalaforakp",
+    "name": "కొణతాల రామకృష్ణ అనకాపల్లి",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "9MphqdotGtxZDX1vrbxp",
+    "handle": "krishnapoliceap",
+    "name": "Krishna Police",
+    "district": "కృష్ణా",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "9PmJxL9wg8BUI5clvtBG",
+    "handle": "vishnurajubjpap",
+    "name": "విష్ణు కుమార్ రాజు విసహాపట్నం",
+    "district": "విశాఖపట్నం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "9UuX4NWVGLI2KCYSrj94",
+    "handle": "pvpmanyampolice",
+    "name": "Parvatipuram Police",
+    "district": "పార్వతీపురం మన్యం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "9kKjuJthaxMzeeQNJFQn",
+    "handle": "lalitha_kumarik",
+    "name": "లలిత కుమారి విజయనగరం",
+    "district": "విజయనగరం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "AfOGx5POHqAonDnpXiUf",
+    "handle": "dharmanadpr",
+    "name": "ధర్మాన ప్రసాద్ రావు శ్రీకాకుళం",
+    "district": "శ్రీకాకుళం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "AtSNBXOLJfO0HvSGQHhO",
+    "handle": "https://x.com/rahulgandhi",
+    "name": "రాహుల్ గాంధీ",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "BSWsNGFiuzwdNmIaD4BA",
+    "handle": "hegdepooja",
+    "name": "పూజా హెగ్డే",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "DlD8bTmXMT5AXb9inCMg",
+    "handle": "vijaysundarapu",
+    "name": "సుందరపు విజయ్ కుమార్ అనకాపల్లి",
+    "district": "అనకాపల్లి",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "DqAmSFmySkpAoUW9k8bY",
+    "handle": "seethakkaoffl",
+    "name": "సీతక్క (అనసూయ)",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "ELCuFgvshHtSjYz9Iy8p",
+    "handle": "pallasrinivas4u",
+    "name": "పళ్ళ శ్రీనివాసులు గాజువాక విశాఖపట్నం",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "EZa09voH4ZCJ506G8YD2",
+    "handle": "botchabsn",
+    "name": "బొత్స సత్యనారాయణ",
+    "district": "విజయనగరం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "EnLU8cDss6v5cQa93RRY",
+    "handle": "somireddycm",
+    "name": "సోమిరెడ్డి చంద్రమోహన్ రెడ్డి",
+    "district": "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "F1zoQ11at3O2WMveIvUa",
+    "handle": "ananisatyap",
+    "name": "అనిాని సత్యప్రసాద్",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "FGz66M3rL3Iw8BGFBNav",
+    "handle": "appolice100",
+    "name": "AP Police",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "FXNgV9Ln3JcQgzXhx9di",
+    "handle": "kadapa_police",
+    "name": "Kadapa Police",
+    "district": "వైఎస్ఆర్ కడప",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "FiRrm6zu4vyvDcYdMMKc",
+    "handle": "ysrcparty",
+    "name": "YSR Congress Party (YSRCP)",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "Gqaxm6Pkx900ttuXt2mZ",
+    "handle": "srikakulmpolice",
+    "name": "Srikakulam Police",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "GsGzRf7UouT3zXREJ5sD",
+    "handle": "cphydcity",
+    "name": "Sajjanar",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "Gx2ZYCFZivRSOwDNhXA9",
+    "handle": "gsandhyarani_",
+    "name": "సంధ్య రాణి పార్వతీపురం",
+    "district": "పార్వతీపురం మన్యం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "HB4bPOsNSDizzosZfZCS",
+    "handle": "rajumatsyarasa",
+    "name": "మత్స్యరాజు అల్లూరి జిల్లా",
+    "district": "అల్లూరి సీతారామరాజు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "HPoh9UQWmS8jsc6EI91t",
+    "handle": "ddipr_knl",
+    "name": "DPRO కర్నూల్",
+    "district": "కర్నూలు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "HUHchnTVNt0LIzwUGx5i",
+    "handle": "annamayyapolice",
+    "name": "Annamayya Police",
+    "district": "అన్నమయ్య",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "I4SWMdQ5x5SsPTuluawF",
+    "handle": "inc_andhra",
+    "name": "AP Congress (INC)",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "KACfkltTJZB3UE1lzz2q",
+    "handle": "kakinadapolice",
+    "name": "Kakinada Police",
+    "district": "కాకినాడ",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "KJrDpGMPfuqEagFfbDFH",
+    "handle": "telanganacops",
+    "name": "TG Police",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "KjyRRHWbA8e3pXNAQpoM",
+    "handle": "kishanreddybjp",
+    "name": "జి. కిషన్ రెడ్డి",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "LGZ6jlMg9Zf5kmwTxnkH",
+    "handle": "alluarjun",
+    "name": "అల్లు అర్జున్",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "LPKRwVxxGAfUBbNQBJJH",
+    "handle": "urstrulymahesh",
+    "name": "మహేష్ బాబు",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "Laesyt5sqDCYt1R5T6X2",
+    "handle": "asadowaisi",
+    "name": "AIMIM",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "LbhPmOQnNUTD9jelPDmB",
+    "handle": "vizagnewsman",
+    "name": "వైజాగ్ న్యూస్ మాన్",
+    "district": "విశాఖపట్నం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "LfMEoStlcIf7TalfjZKb",
+    "handle": "ssrajamouli",
+    "name": "ఎస్.ఎస్. రాజమౌళి",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "NEcQymmL6siLGqBHD1fr",
+    "handle": "telugufeedsite",
+    "name": "Telugufeedsite",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "NgVKpGqspct64NyMhmgK",
+    "handle": "anamreddy_tdp",
+    "name": "ఆనం రామనారాయణ రెడ్డి",
+    "district": "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "OOUM31boLgf05uDDWxWu",
+    "handle": "sp_nlr",
+    "name": "SP Nellore",
+    "district": "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "Oijy3EBqyiexROxBJ6OV",
+    "handle": "kurugondlark",
+    "name": "కురుగొండ్ల రామ కృష్ణ",
+    "district": "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "Pia0D47DTS0zDARlYpAV",
+    "handle": "policevzm",
+    "name": "Vijayanagaram Police",
+    "district": "విజయనగరం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "RCF0mjrvEH0PGcIIlmfe",
+    "handle": "musicthaman",
+    "name": "తమన్",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "RbNKSzyfLGPjOxQO6gLu",
+    "handle": "vjacitypolice",
+    "name": "NTR Police",
+    "district": "ఎన్టీఆర్",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "RiMcBPBhVYCCX3D251Re",
+    "handle": "dr_nelavalamla",
+    "name": "నెలవల విజయశ్రీ",
+    "district": "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "SG8xyCMCulbygYLGXG38",
+    "handle": "chittoorpolice",
+    "name": "Chittor Police",
+    "district": "చిత్తూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "SPGzQLDsPDx4gDhKm6ii",
+    "handle": "vsreddy_mp",
+    "name": "విజయసాయి రెడ్డి",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "STX02yXLIpVyLJCe2IeK",
+    "handle": "akyonline",
+    "name": "అనిల్ కుమార్ యాదవ్",
+    "district": "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "TRV2Z1yKMoXISumey2ra",
+    "handle": "lokammadhavi",
+    "name": "లోకం నాగ మాధవి",
+    "district": "విజయనగరం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "Vfx0V72Zyg2tkHhVV4gB",
+    "handle": "ganta_srinivasa",
+    "name": "గంట శ్రీనివాస రావు విశాఖపట్నం",
+    "district": "విశాఖపట్నం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "WSZaxPYn5rhD3uriWMnW",
+    "handle": "bandarusnm",
+    "name": "బండారు సత్యనారాయణ అనకాపల్లి",
+    "district": "అనకాపల్లి",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "WpQDA1X9LFWXMN8twzBd",
+    "handle": "tirupatipolice",
+    "name": "Tirupati Police",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "Wqo1mDZoI9C4zuorf7XO",
+    "handle": "bapatlapolice",
+    "name": "Bapatla Police",
+    "district": "బాపట్ల",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "XI81MbDIAcn8u3MUpby5",
+    "handle": "katchannaidu",
+    "name": "కే అచ్చేమ్ నాయుడు శ్రీకాకుళం",
+    "district": "శ్రీకాకుళం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "XK30mn8e8fFir44PDkMT",
+    "handle": "aditigajapathi",
+    "name": "పూసపాటి అదితి విజయనగరం",
+    "district": "విజయనగరం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "YMrxTgvYXov3jlQmotPF",
+    "handle": "konaseemapolice",
+    "name": "Konaseema Police",
+    "district": "కోనసీమ",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "YfRWayv0mSkRh5DNBdti",
+    "handle": "ashokbendalam10",
+    "name": "బెందాళం అశోక్ శ్రీకాకుళం",
+    "district": "శ్రీకాకుళం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "ZA4YRNrSkxkA58MJyTcn",
+    "handle": "alwaysramcharan",
+    "name": "రామ్ చరణ్",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "ZaVo0HAtVnCn6B7LIpr6",
+    "handle": "dharamanak",
+    "name": "ధర్మాన కృష్ణదాస్",
+    "district": "శ్రీకాకుళం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "ZgROUqLosoVbCmoclj9Q",
+    "handle": "pcsreddy_mlc",
+    "name": "Chandra Sekhar Reddy MLC Nellore",
+    "district": "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "bDElNURPsDSBUvorU8Hj",
+    "handle": "gouthusireesha",
+    "name": "గౌతు శిరీష శ్రీకాకుళం",
+    "district": "శ్రీకాకుళం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "bGqWzzXakcJN0F41lzik",
+    "handle": "ayyannapatruduc",
+    "name": "అయ్యన్నపాత్రుడు అనకాపల్లి",
+    "district": "అనకాపల్లి",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "bcfeJOHRNZduEbEDq4U7",
+    "handle": "mlabonelavijaya",
+    "name": "బోనాల విజయ్ పార్వతీపురం",
+    "district": "పార్వతీపురం మన్యం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "cAumkavup5I2TGFz8EJm",
+    "handle": "policekurnool",
+    "name": "Kurnool Police",
+    "district": "కర్నూలు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "cHEtEEhbgsEUNcduh4bI",
+    "handle": "prakasam_police",
+    "name": "Prakasam Police",
+    "district": "ప్రకాశం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "cNkv70D1qiTgitNRrpzm",
+    "handle": "anitha_tdp",
+    "name": "వంగలపూడి అనిత అనకాపల్లి",
+    "district": "అనకాపల్లి",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "cP1iqeGBR5uSFECDCaeb",
+    "handle": "ambatirambabu",
+    "name": "అంబటి రాంబాబు",
+    "district": "గుంటూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "cdewlMWHeis2hurtQxIc",
+    "handle": "https://x.com/ttdevasthanams",
+    "name": "TTD",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "cl3WGbzAwXiqE0QhpGb0",
+    "handle": "hydcitypolice",
+    "name": "Hyderabad City Police",
+    "district": "హైదరాబాద్",
+    "state": "Telangana"
+  },
+  {
+    "id": "cokrXWpcx3nsT13uePGf",
+    "handle": "jaitdp",
+    "name": "Telugu Desam Party (TDP)",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "cxXWzTJo9wvg56lW97CI",
+    "handle": "kchirutweets",
+    "name": "చిరంజీవి",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "dNlwXP2ZogvW3SqujgFI",
+    "handle": "ipr_ap",
+    "name": "I&PR AP",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "eQ3YvM98oAKVC3twQNsK",
+    "handle": "mskajalaggarwal",
+    "name": "కాజల్ అగర్వాల్",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "ei5iXkvB60Wy6R756LbQ",
+    "handle": "brsharish",
+    "name": "తన్నీరు హరీష్ రావు",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "eigjBj6JluvGcPVPS87P",
+    "handle": "vangaveeti_radha",
+    "name": "వంగవీటి రాధాకృష్ణ",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "geKQnqL5IBwjnyhel5V0",
+    "handle": "sivakoratala",
+    "name": "కొరటాల శివ",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "hCcIAnNYl3XRVIsx185h",
+    "handle": "asadowaisi",
+    "name": "అక్బరుద్దీన్ ఓవైసీ",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "hFsGM7hBDfVQiSpqjomQ",
+    "handle": "prameshbabumla",
+    "name": "పంచకర్ల రమేష్ బాబు అనకాపల్లి",
+    "district": "అనకాపల్లి",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "hV08yjXQGH6HY0bVvotm",
+    "handle": "skondapallioffl",
+    "name": "కొండపల్లి శ్రీనివాస్ విజయనగరం",
+    "district": "విజయనగరం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "hVk1Bws5S2yPt2tHRXeI",
+    "handle": "bandisanjay_bjp",
+    "name": "బండి సంజయ్ కుమార్",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "hjx1Bp3bPpxj36xChLRH",
+    "handle": "gondushankartdp",
+    "name": "గోండు శంకర్ శ్రీకాకుళమా",
+    "district": "శ్రీకాకుళం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "iDj3LjcyOhXXTvUcbjbA",
+    "handle": "teluguscribe",
+    "name": "Telugu Scribe",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "iQJUG5CPco6s9JBdSY5q",
+    "handle": "raokavitha",
+    "name": "కల్వకుంట్ల కవిత",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "ikXCnggWAWcY7ZkIjPSC",
+    "handle": "police_wg",
+    "name": "పశ్చిమ గోదావరి Police",
+    "district": "పశ్చిమ గోదావరి",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "j5YE6h9NMmF5kHi9Kfhx",
+    "handle": "guntursp",
+    "name": "గుంటూరు Police",
+    "district": "గుంటూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "jH1b9xQjjAPHWvxUwVFN",
+    "handle": "rgvzoomin",
+    "name": "రామ్ గోపాల్ వర్మ",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "k6orQZTSqVzi4HoSgdkL",
+    "handle": "brsparty",
+    "name": "కె. చంద్రశేఖర్ రావు (KCR",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "kDghdf38HyxDLe7wg4Mn",
+    "handle": "iamkondasurekha",
+    "name": "కొండా సురేఖ",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "kEeSj9CDwTYnvtrQ0M53",
+    "handle": "nameisnani",
+    "name": "నాని (Nani)",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "kMj9k5DG4wBB89BLRsAb",
+    "handle": "bjp4india",
+    "name": "BJP (National)",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "lPA6LMSUj5xzasUxu28U",
+    "handle": "vizagcitypolice",
+    "name": "Vizag Police",
+    "district": "విశాఖపట్నం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "lQ02BNRTW75mbSL1xgZ3",
+    "handle": "keerthyofficial",
+    "name": "కీర్తి సురేష్",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "m5N4WJQebl0GjZXd2YSb",
+    "handle": "chvamsiyadav",
+    "name": "వంశి యాదవ్ విశాఖపట్నం",
+    "district": "విశాఖపట్నం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "mMnI8wNYJJcVuZrR4TF2",
+    "handle": "ani",
+    "name": "ANI",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "nt7tI5hPEzrOXtTwoOY2",
+    "handle": "yssharmila",
+    "name": "వై.ఎస్. షర్మిల",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "o3Eb9WWJbvMXm4NVt3dT",
+    "handle": "bhatti_mallu",
+    "name": "మల్లు భట్టి విక్రమార్క",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "oMdN0fxTWUWiM6NLAgOH",
+    "handle": "purandeswaribjp",
+    "name": "పురందేశ్వరి",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "pm9yeKGcZuHte0no05JH",
+    "handle": "kotamreddy_nlr",
+    "name": "కోటంరెడ్డి శ్రీధర్ రెడ్డి",
+    "district": "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "q2VPxyEnMN6be9NVlbZM",
+    "handle": "ganababu_p",
+    "name": "గణ బాబు విశాఖపట్నం",
+    "district": "విశాఖపట్నం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "qoYn0DmDBxSduFnaqGhd",
+    "handle": "sureshkakarla_",
+    "name": "కాకర్ల సురేష్",
+    "district": "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "r2eOn1HxX2vNOzITaFSM",
+    "handle": "wearewithyou_ap",
+    "name": "I&PR Andhra Pradesh",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "rPP6R1JXmcfSYX9zvFvt",
+    "handle": "andhrapradeshcm",
+    "name": "AP CM Office",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "rmcPeT5iNtcnrDsiM0EH",
+    "handle": "sunilkumarpasam",
+    "name": "పాశం సునీల్ కుమార్",
+    "district": "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "s3pwGQTFrFY9610gGUtZ",
+    "handle": "pawankalyan",
+    "name": "పవన్ కళ్యాణ్",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "s5XZiiItgB9OSvfhauC1",
+    "handle": "thedeverakonda",
+    "name": "విజయ్ దేవరకొండ",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "s5x7UpyKKds4FTpBr4OX",
+    "handle": "ktrbrs",
+    "name": "కె.టి. రామారావు (KTR)",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "t8KDTWVsw7f1PeDcCP0S",
+    "handle": "palnadu_police",
+    "name": "Palnadu Police",
+    "district": "పల్నాడు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "v41BGUTpNlohiK8ccCAc",
+    "handle": "samanthaprabhu2",
+    "name": "సమంత",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "vUAcMD0hZkFKcdiilVzD",
+    "handle": "inctelangana",
+    "name": "Telangana Congress",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "vlkBDH50gSz5sX1xniKv",
+    "handle": "nandyalsp",
+    "name": "Nandhyala SP",
+    "district": "నందయాల",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "vwE2mRSjGBcwGjlvaeoI",
+    "handle": "brsparty_news",
+    "name": "BRS Party News",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "wYcpPDD70xcXejop3AUM",
+    "handle": "janasenaparty",
+    "name": "JanaSena Party (JSP)",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "x3AVb9MyUF14bx5gq4oD",
+    "handle": "aryasukku",
+    "name": "సుకుమార్",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "xN44Jl4wRRdwsemQ58mN",
+    "handle": "spelurudistrict",
+    "name": "Eluru Police",
+    "district": "ఏలూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "xWgbGr7Zo4X1aejG1WHK",
+    "handle": "venkymama",
+    "name": "వెంకటేష్",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "xjBPyYMVitLd8oTRz7YS",
+    "handle": "revanth_anumula",
+    "name": "ఎనుముల రేవంత్ రెడ్డి",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "y2G7XDVvLc9NspeA3dcz",
+    "handle": "akppolice",
+    "name": "Anakapalli Police",
+    "district": "అనకాపల్లి",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "yKE123odRtjJmczFOT3m",
+    "handle": "achannaiduk",
+    "name": "కింజరాపు అచ్చెన్నాయుడు",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "ydfX6jR7TwJNgQhXD04F",
+    "handle": "ssspolice12",
+    "name": "Satya Sai Police",
+    "district": "శ్రీ సత్యసాయి",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "yq4GMlgZUpq9zzP4B4T7",
+    "handle": "brsparty",
+    "name": "Bharat Rashtra Samithi (BRS)",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "ysE0E7Op1eZH7QFmnX7H",
+    "handle": "anantapurpolice",
+    "name": "Anantapur Police",
+    "district": "అనంతపురం",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "z3aB1gpGKOawr3oFnlGp",
+    "handle": "prashanthi_vpr",
+    "name": "వేమిరెడ్డి ప్రశాంతి రెడ్డి",
+    "district": "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "z6E0IcSXm5Gz7dY3WbmQ",
+    "handle": "tamannaahspeaks",
+    "name": "తమన్నా",
+    "district": "",
+    "state": ""
+  },
+  {
+    "id": "z79boNvbJ5cZ4yw9qKbp",
+    "handle": "kakanigovardhan",
+    "name": "కాకాని గోవర్ధన్ రెడ్డి",
+    "district": "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+    "state": "Andhra Pradesh"
+  },
+  {
+    "id": "zp8hoexQiqn5O2XtoLEM",
+    "handle": "asrpolice100",
+    "name": "Alluri Police",
+    "district": "అల్లూరి సీతారామరాజు",
+    "state": "Andhra Pradesh"
+  }
+]

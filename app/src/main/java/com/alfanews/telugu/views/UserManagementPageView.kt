@@ -59,11 +59,14 @@ fun UserManagementPageView(currentUser: User) {
             try {
                 // Fetch occupied mandals map for reporters
                 try {
-                    val repSnap = FirebaseService.db.collection("users")
-                        .whereIn("role", listOf("REPORTER", "reporter", "STAFF_REPORTER", "staff_reporter", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0, "3"))
-                        .get().await()
+                    val repSnap = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                        FirebaseService.db.collection("users")
+                            .whereIn("role", listOf("REPORTER", "reporter", "STAFF_REPORTER", "staff_reporter", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0, "3"))
+                            .limit(300)
+                            .get().await()
+                    }
                     val occMap = mutableMapOf<String, String>()
-                    for (uDoc in repSnap.documents) {
+                    for (uDoc in (repSnap?.documents ?: emptyList())) {
                         val isSuspended = uDoc.getBoolean("suspended") == true || uDoc.getBoolean("previouslyDowngraded") == true
                         val roleStr = uDoc.get("role")?.toString()?.uppercase() ?: ""
                         if (isSuspended || roleStr == "SUBSCRIBER" || roleStr == "GUEST" || roleStr == "1" || roleStr == "1.0") continue
@@ -88,32 +91,43 @@ fun UserManagementPageView(currentUser: User) {
                 // ✅ Optimized: Role-based queries instead of fetching all users
                 val queries = when (currentUser.role) {
                     UserRole.EDITOR -> {
-                        val subscribers = FirebaseService.db.collection("users")
-                            .whereEqualTo("role", "SUBSCRIBER")
-                            .get().await().documents.mapNotNull { doc -> doc.toUserObject() }
+                        val subscribers = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                            FirebaseService.db.collection("users")
+                                .whereEqualTo("role", "SUBSCRIBER")
+                                .limit(100)
+                                .get().await()
+                        }?.documents?.mapNotNull { doc -> doc.toUserObject() } ?: emptyList()
 
-                        val reporters = FirebaseService.db.collection("users")
-                            .whereEqualTo("role", "REPORTER")
-                            .get().await().documents.mapNotNull { doc -> doc.toUserObject() }
+                        val reporters = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                            FirebaseService.db.collection("users")
+                                .whereEqualTo("role", "REPORTER")
+                                .limit(100)
+                                .get().await()
+                        }?.documents?.mapNotNull { doc -> doc.toUserObject() } ?: emptyList()
 
                         subscribers + reporters.filter { it.promotedBy == currentUser.id || it.promotedBy.isNullOrBlank() || it.promotedBy == "ADMIN" }
                     }
                     UserRole.REGIONAL_INCHARGE -> {
                         val roles = listOf("SUBSCRIBER", "REPORTER")
                         roles.flatMap { role ->
-                            FirebaseService.db.collection("users")
-                                .whereEqualTo("role", role)
-                                .get().await().documents.mapNotNull { doc ->
-                                    doc.toUserObject()
-                                }
+                            kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                                FirebaseService.db.collection("users")
+                                    .whereEqualTo("role", role)
+                                    .limit(100)
+                                    .get().await()
+                            }?.documents?.mapNotNull { doc ->
+                                doc.toUserObject()
+                            } ?: emptyList()
                         }.filter { u -> u.district != null && currentUser.assignedDistricts.contains(u.district) }
                     }
                     else -> {
-                        FirebaseService.db.collection("users")
-                            .get()
-                            .await()
-                            .documents.mapNotNull { doc -> doc.toUserObject() }
-                            .sortedBy { it.name.lowercase() }
+                        kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                            FirebaseService.db.collection("users")
+                                .limit(200)
+                                .get()
+                                .await()
+                        }?.documents?.mapNotNull { doc -> doc.toUserObject() }
+                            ?.sortedBy { it.name.lowercase() } ?: emptyList()
                     }
                 }
 

@@ -197,7 +197,7 @@ fun NewsFeedView(
         }
     }
 
-    LaunchedEffect(pagerState, news.size, hasMore) {
+    LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.currentPage }.collect { page ->
             if (page < baseCount) {
                 val isAdSlot = (page + 1) % 6 == 0
@@ -220,21 +220,23 @@ fun NewsFeedView(
                 viewModel.loadMore(language, currentUser)
             }
 
-            // 🚀 FAST SWIPE PRELOADING: వేగంగా స్వైప్ చేసే యూజర్ల కోసం 5 పేజీల ముందస్తు ఇమేజ్ ప్రీ-లోడింగ్
-            (1..5).forEach { offset ->
-                val nextPageIndex = page + offset
-                val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
-                if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
-                    val post = news[nextNewsIndex]
-                    if (post.mediaUrl.isNotEmpty()) {
-                        val request = ImageRequest.Builder(context)
-                            .data(getOptimizedImageUrl(post.mediaUrl))
-                            .allowHardware(true)
-                            .crossfade(false)
-                            .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
-                            .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
-                            .build()
-                        SingletonImageLoader.get(context).enqueue(request)
+            // 🚀 FAST SWIPE PRELOADING: వేగంగా స్వైప్ చేసే యూజర్ల కోసం 5 పేజీల ముందస్తు ఇమేజ్ ప్రీ-లోడింగ్ (IO thread)
+            scope.launch(Dispatchers.IO) {
+                (1..5).forEach { offset ->
+                    val nextPageIndex = page + offset
+                    val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
+                    if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
+                        val post = news[nextNewsIndex]
+                        if (post.mediaUrl.isNotEmpty()) {
+                            val request = ImageRequest.Builder(context)
+                                .data(getOptimizedImageUrl(post.mediaUrl))
+                                .allowHardware(true)
+                                .crossfade(false)
+                                .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
+                                .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
+                                .build()
+                            SingletonImageLoader.get(context).enqueue(request)
+                        }
                     }
                 }
             }
@@ -300,30 +302,15 @@ fun NewsFeedView(
                 }
             }
         } else if (news.isEmpty()) {
-            if (loading) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        CircularProgressIndicator(modifier = Modifier.size(40.dp), color = MaterialTheme.colorScheme.primary)
-                        Text(text = stringResource(R.string.news_preparing), color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge)
-                    }
+            if (!loading) {
+                LaunchedEffect(Unit) {
+                    viewModel.loadNews(language, currentUser, initialPostId)
                 }
-            } else {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        modifier = Modifier.padding(32.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.news_not_available),
-                            color = MaterialTheme.colorScheme.onBackground,
-                            style = MaterialTheme.typography.bodyLarge,
-                            textAlign = TextAlign.Center
-                        )
-                        Button(onClick = { viewModel.loadNews(language, currentUser, initialPostId) }) {
-                            Text(text = stringResource(R.string.retry))
-                        }
-                    }
+            }
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.size(40.dp), color = MaterialTheme.colorScheme.primary)
+                    Text(text = stringResource(R.string.news_preparing), color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge)
                 }
             }
         } else {

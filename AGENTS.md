@@ -81,6 +81,8 @@ private var prefCursor: DocumentSnapshot? = null  // Tracks pagination state
   APK builds consume substantial system resources and time. Android release/debug builds are handled automatically via GitHub Actions pipelines or only when explicitly requested by the user. Do not trigger `./build_release_apk.ps1` or `assembleRelease` unless the user specifically asks for it.
 - **Cross-Mandal Reporter Attribution**:
   When a reporter posts news for a mandal other than their assigned mandal, public author credits are displayed as `"Alfa News Desk"`, while incentive reward points and notifications are still credited to the submitting reporter (`originalReporterId`).
+- **NEVER Add Empty News Fallback Screen (ఖాళీ వార్తల ఫాల్‌బ్యాక్ స్క్రీన్‌ను ఎట్టి పరిస్థితుల్లోనూ పెట్టవద్దు)**:
+  `NewsFeedView.kt` and `LocalNewsFeedView.kt` must NEVER render the `news_not_available` ("వార్త అందుబాటులో లేదు.") or `retry` button screen. With 98,000+ articles in Firestore, an empty feed indicates temporary network latency or filtering, NOT lack of news. Always auto-retry silently in the background with `LaunchedEffect` while displaying the `news_preparing` indicator. Never show a static error screen with a retry button.
 
 ### Building Android Release APK (Only when explicitly requested by user)
 
