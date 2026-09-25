@@ -5,8 +5,10 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.net.Uri
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -79,13 +81,15 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
         }
     }
 
-    val requestLocationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+    val requestLocationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+        val isGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (!isGranted) {
             Toast.makeText(context, "లొకేషన్ అనుమతి అవసరం.", Toast.LENGTH_SHORT).show()
         }
     }
 
-    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         mediaUri = uri
     }
 
@@ -137,27 +141,31 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
     }
 
     fun fetchCurrentLocation() {
-        when (PackageManager.PERMISSION_GRANTED) {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) -> {
-                scope.launch {
-                    try {
-                        val location = fusedLocationClient.getCurrentLocation(
-                            com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY,
-                            null
-                        ).await()
-                        if (location != null) {
-                            getAddressFromLocation(location.latitude, location.longitude)
-                        } else {
-                            Toast.makeText(context, "లొకేషన్‌ను తిరిగి పొందడం సాధ్యం కాలేదు.", Toast.LENGTH_SHORT).show()
-                        }
-                    } catch (e: Exception) {
-                        Toast.makeText(context, "లొకేషన్ పొందడంలో లోపం.", Toast.LENGTH_SHORT).show()
+        val hasPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (hasPermission) {
+            scope.launch {
+                try {
+                    val location = fusedLocationClient.getCurrentLocation(
+                        com.google.android.gms.location.Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+                        null
+                    ).await()
+                    if (location != null) {
+                        getAddressFromLocation(location.latitude, location.longitude)
+                    } else {
+                        Toast.makeText(context, "లొకేషన్‌ను తిరిగి పొందడం సాధ్యం కాలేదు.", Toast.LENGTH_SHORT).show()
                     }
+                } catch (e: Exception) {
+                    Toast.makeText(context, "లొకేషన్ పొందడంలో లోపం.", Toast.LENGTH_SHORT).show()
                 }
             }
-            else -> {
-                requestLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-            }
+        } else {
+            requestLocationPermission.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
         }
     }
 
@@ -264,7 +272,14 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
                 Button(onClick = { showMediaSourceDialog = false; launchCamera() }) { Text("కెమెరా") }
             },
             dismissButton = {
-                Button(onClick = { showMediaSourceDialog = false; galleryLauncher.launch("image/*,video/*") }) { Text("గ్యాలరీ") }
+                Button(onClick = {
+                    showMediaSourceDialog = false
+                    try {
+                        galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                    } catch (e: Exception) {
+                        Log.e("CitizenPostPageView", "Failed to launch visual media picker", e)
+                    }
+                }) { Text("గ్యాలరీ") }
             }
         )
     }

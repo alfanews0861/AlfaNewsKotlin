@@ -51,10 +51,9 @@ object AdMobService {
 
     /**
      * నేటివ్ యాడ్స్ ను ముందుగానే లోడ్ చేసి మెమరీలో ఉంచుతుంది.
-     * Original standard loadAds parallel batch request.
      */
     @Synchronized
-    private fun preloadNativeAds(activity: Activity) {
+    fun preloadNativeAds(activity: Activity) {
         if (activity.isFinishing || activity.isDestroyed) return
         if (nativeAds.size >= MAX_NATIVE_ADS) {
             Log.d(TAG, "Native ad cache full (${nativeAds.size}). Skipping preload.")
@@ -66,13 +65,17 @@ object AdMobService {
             return
         }
 
-        val numberOfAdsToLoad = MAX_NATIVE_ADS - nativeAds.size
-        Log.d(TAG, "Starting parallel batch preload for $numberOfAdsToLoad native ads. Current cache size: ${nativeAds.size}")
+        Log.d(TAG, "Starting sequential preload for native ad. Current cache size: ${nativeAds.size}")
 
         val adLoader = AdLoader.Builder(activity, NATIVE_AD_UNIT_ID)
             .forNativeAd { ad: NativeAd ->
                 nativeAds.add(ad)
                 Log.d(TAG, "Native ad preloaded successfully. New cache size: ${nativeAds.size}")
+                isPreloading.set(false)
+                // Proactively replenish cache if below threshold
+                if (nativeAds.size < 3 && !activity.isFinishing && !activity.isDestroyed) {
+                    preloadNativeAds(activity)
+                }
             }
             .withAdListener(object : AdListener() {
                 override fun onAdFailedToLoad(error: LoadAdError) {
@@ -82,13 +85,11 @@ object AdMobService {
 
                 override fun onAdLoaded() {
                     super.onAdLoaded()
-                    Log.d(TAG, "Native ad batch load completed. Cache size: ${nativeAds.size}")
-                    isPreloading.set(false)
                 }
             })
             .build()
 
-        adLoader.loadAds(AdRequest.Builder().build(), numberOfAdsToLoad)
+        adLoader.loadAd(AdRequest.Builder().build())
     }
 
     /**
@@ -105,7 +106,7 @@ object AdMobService {
             onAdLoaded(ad)
             
             // కాష్ లో యాడ్స్ తగ్గిపోతే మళ్ళీ లోడ్ చేయడం
-            if (nativeAds.size < MAX_NATIVE_ADS / 2) {
+            if (nativeAds.size < 3) {
                 preloadNativeAds(activity)
             }
             return

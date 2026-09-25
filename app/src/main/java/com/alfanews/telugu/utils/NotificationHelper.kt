@@ -75,14 +75,14 @@ object NotificationHelper {
                     val distTopic = getTopicName("district", district)
                     val wTopic = getTopicName("weather_alert", district)
                     if (distTopic != targetTopic) {
-                        try { messaging.unsubscribeFromTopic(distTopic).await() } catch (e: Exception) {}
+                        try { messaging.unsubscribeFromTopic(distTopic) } catch (e: Exception) {}
                     }
                     if (wTopic != targetWeatherTopic) {
-                        try { messaging.unsubscribeFromTopic(wTopic).await() } catch (e: Exception) {}
+                        try { messaging.unsubscribeFromTopic(wTopic) } catch (e: Exception) {}
                     }
                 }
                 prefs.hasCleanedStaleDistricts = true
-                android.util.Log.d("NotificationHelper", "One-time sweep: unsubscribed from all stale district topics")
+                android.util.Log.d("NotificationHelper", "One-time sweep: scheduled unsubscription from all stale district topics")
             }
 
             // 2. యూజర్ జిల్లా మారినప్పుడు మునుపటి టాపిక్ నుండి అన్‌సబ్‌స్క్రయిబ్ చేయడం

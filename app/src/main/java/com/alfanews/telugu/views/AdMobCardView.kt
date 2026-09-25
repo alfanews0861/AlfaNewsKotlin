@@ -233,37 +233,49 @@ fun AdMobBannerAd(
                 AdMobService.loadBannerAd(this)
             }
         },
-        update = { }
+        update = { },
+        onRelease = { adView ->
+            adView.destroy()
+        }
     )
 }
 
 @Composable
 fun AdMobBoxAd(
     modifier: Modifier = Modifier,
-    adUnitId: String = AdMobService.getNativeAdUnitId()
+    adUnitId: String = AdMobService.getNativeAdUnitId(),
+    preloadedAd: NativeAd? = null
 ) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
-    var nativeAd by remember { mutableStateOf<NativeAd?>(null) }
+    var internalNativeAd by remember { mutableStateOf<NativeAd?>(null) }
     var adFailed by remember { mutableStateOf(false) }
 
-    DisposableEffect(activity) {
-        if (activity != null && !activity.isFinishing && !activity.isDestroyed) {
-            AdMobService.loadNativeAd(activity) { ad ->
-                if (ad != null) {
-                    nativeAd = ad
-                    adFailed = false
-                } else {
-                    adFailed = true
+    val nativeAd = preloadedAd ?: internalNativeAd
+
+    DisposableEffect(activity, preloadedAd) {
+        if (preloadedAd == null) {
+            if (activity != null && !activity.isFinishing && !activity.isDestroyed) {
+                AdMobService.loadNativeAd(activity) { ad ->
+                    if (ad != null) {
+                        internalNativeAd = ad
+                        adFailed = false
+                    } else {
+                        adFailed = true
+                    }
                 }
+            } else {
+                adFailed = true
             }
         } else {
-            adFailed = true
+            adFailed = false
         }
 
         onDispose {
-            nativeAd?.destroy()
-            nativeAd = null
+            if (preloadedAd == null) {
+                internalNativeAd?.destroy()
+                internalNativeAd = null
+            }
         }
     }
 

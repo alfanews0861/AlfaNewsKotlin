@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { SocialFeed, TS_DISTRICTS, AP_DISTRICTS } from '../types';
 import { db, app } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
@@ -29,6 +29,23 @@ const SocialMediaFeedsPage: React.FC = () => {
     const [state, setState] = useState('');
     const [district, setDistrict] = useState('');
     const [editingId, setEditingId] = useState<string | null>(null);
+
+    // Search, Filter & Sort State
+    const [searchQuery, setSearchQuery] = useState('');
+    const [filterState, setFilterState] = useState<'ALL' | 'AP' | 'TS' | 'GENERAL'>('ALL');
+    const [filterDistrict, setFilterDistrict] = useState<string>('ALL');
+    const [filterCategory, setFilterCategory] = useState<string>('ALL');
+    const [filterStatus, setFilterStatus] = useState<'ALL' | 'ACTIVE' | 'ERROR' | 'HAS_TODAY'>('ALL');
+    const [sortBy, setSortBy] = useState<'name_asc' | 'today_desc' | 'total_desc' | 'last_checked' | 'errors_first'>('name_asc');
+
+    // Pagination State
+    const [currentPage, setCurrentPage] = useState<number>(1);
+    const [pageSize, setPageSize] = useState<number>(20);
+
+    // Reset pagination to page 1 whenever any filter, search or page size changes
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery, filterState, filterDistrict, filterCategory, filterStatus, sortBy, pageSize]);
 
     const [detailFeed, setDetailFeed] = useState<string | null>(null);
     const [todayNews, setTodayNews] = useState<any[]>([]);
@@ -61,11 +78,14 @@ const SocialMediaFeedsPage: React.FC = () => {
         e.preventDefault(); 
         setIsSubmitting(true); 
         try { 
-            const payload: any = { url, sourceName, platform, category };
-            if (category === 'స్థానిక') {
-                payload.state = state;
-                payload.district = district;
-            }
+            const payload: any = { 
+                url: url.trim(), 
+                sourceName: sourceName.trim(), 
+                platform, 
+                category,
+                state: state ? state : null,
+                district: district ? district : null
+            };
             if (editingId) await updateDoc(doc(db, 'social_feeds', editingId), payload); 
             else await addDoc(collection(db, 'social_feeds'), { 
                 ...payload, 
@@ -231,6 +251,144 @@ const SocialMediaFeedsPage: React.FC = () => {
     );
 
     const totalToday = feeds.reduce((acc, f) => acc + (f.todayProcessedCount || 0), 0);
+
+    // Compute category counts for filter dropdown
+    const categoryListWithCounts = useMemo(() => {
+        const map = new Map<string, number>();
+        feeds.forEach(f => {
+            const c = f.category || 'ఇతర';
+            map.set(c, (map.get(c) || 0) + 1);
+        });
+        return Array.from(map.entries())
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count);
+    }, [feeds]);
+
+    // Check if any filter is actively applied
+    const isFilterActive = searchQuery.trim() !== '' || 
+        filterState !== 'ALL' || 
+        filterDistrict !== 'ALL' || 
+        filterCategory !== 'ALL' || 
+        filterStatus !== 'ALL' ||
+        sortBy !== 'name_asc';
+
+    const clearAllFilters = () => {
+        setSearchQuery('');
+        setFilterState('ALL');
+        setFilterDistrict('ALL');
+        setFilterCategory('ALL');
+        setFilterStatus('ALL');
+        setSortBy('name_asc');
+    };
+
+    // Filter and Sort feeds
+    const filteredAndSortedFeeds = useMemo(() => {
+        return feeds.filter(feed => {
+            // 1. Search Query
+            const q = searchQuery.trim().toLowerCase();
+            if (q) {
+                const matches = 
+                    (feed.sourceName || '').toLowerCase().includes(q) || 
+                    (feed.url || '').toLowerCase().includes(q) ||
+                    (feed.district || '').toLowerCase().includes(q) ||
+                    (feed.category || '').toLowerCase().includes(q) ||
+                    (feed.state || '').toLowerCase().includes(q);
+                if (!matches) return false;
+            }
+
+            // 2. State Filter
+            if (filterState === 'AP') {
+                const isAP = feed.state === 'Andhra Pradesh' || (feed.district && AP_DISTRICTS.includes(feed.district));
+                if (!isAP) return false;
+            } else if (filterState === 'TS') {
+                const isTS = feed.state === 'Telangana' || (feed.district && TS_DISTRICTS.includes(feed.district));
+                if (!isTS) return false;
+            } else if (filterState === 'GENERAL') {
+                if (feed.state || feed.district) return false;
+            }
+
+            // 3. District Filter
+            if (filterDistrict !== 'ALL') {
+                if (filterDistrict === 'WITH_DISTRICT') {
+                    if (!feed.district) return false;
+                } else if (filterDistrict === 'WITHOUT_DISTRICT') {
+                    if (feed.district) return false;
+                } else {
+                    if (feed.district !== filterDistrict) return false;
+                }
+            }
+
+            // 4. Category Filter
+            if (filterCategory !== 'ALL') {
+                if (feed.category !== filterCategory) return false;
+            }
+
+            // 5. Status Filter
+            if (filterStatus === 'ACTIVE') {
+                if (feed.lastStatus === 'error' || feed.isPaused) return false;
+            } else if (filterStatus === 'ERROR') {
+                if (feed.lastStatus !== 'error') return false;
+            } else if (filterStatus === 'HAS_TODAY') {
+                if (!feed.todayProcessedCount || feed.todayProcessedCount <= 0) return false;
+            }
+
+            return true;
+        }).sort((a, b) => {
+            if (sortBy === 'today_desc') {
+                return (b.todayProcessedCount || 0) - (a.todayProcessedCount || 0);
+            }
+            if (sortBy === 'total_desc') {
+                return ((b.totalProcessedCount || 0) + (b.totalFailedCount || 0)) - ((a.totalProcessedCount || 0) + (a.totalFailedCount || 0));
+            }
+            if (sortBy === 'errors_first') {
+                const aErr = a.lastStatus === 'error' ? 1 : 0;
+                const bErr = b.lastStatus === 'error' ? 1 : 0;
+                if (bErr !== aErr) return bErr - aErr;
+                return (a.sourceName || '').localeCompare(b.sourceName || '');
+            }
+            if (sortBy === 'last_checked') {
+                const getTs = (f: any) => {
+                    const t = f.lastFetchTime;
+                    if (!t) return 0;
+                    if (t.toMillis) return t.toMillis();
+                    if (t._seconds) return t._seconds * 1000;
+                    return new Date(t).getTime() || 0;
+                };
+                return getTs(b) - getTs(a);
+            }
+            // default: name_asc
+            return (a.sourceName || '').localeCompare(b.sourceName || '');
+        });
+    }, [feeds, searchQuery, filterState, filterDistrict, filterCategory, filterStatus, sortBy]);
+
+    // Pagination Calculations
+    const totalItems = filteredAndSortedFeeds.length;
+    const totalPages = pageSize === -1 ? 1 : Math.max(1, Math.ceil(totalItems / pageSize));
+    const safePage = Math.min(Math.max(1, currentPage), totalPages);
+    const startIndex = pageSize === -1 ? 0 : (safePage - 1) * pageSize;
+
+    const paginatedFeeds = useMemo(() => {
+        if (pageSize === -1) return filteredAndSortedFeeds;
+        return filteredAndSortedFeeds.slice(startIndex, startIndex + pageSize);
+    }, [filteredAndSortedFeeds, startIndex, pageSize]);
+
+    // Generate smart page numbers array
+    const getPageNumbers = (current: number, total: number) => {
+        if (total <= 7) {
+            return Array.from({ length: total }, (_, i) => i + 1);
+        }
+        const pages: (number | string)[] = [];
+        if (current <= 4) {
+            pages.push(1, 2, 3, 4, 5, '...', total);
+        } else if (current >= total - 3) {
+            pages.push(1, '...', total - 4, total - 3, total - 2, total - 1, total);
+        } else {
+            pages.push(1, '...', current - 1, current, current + 1, '...', total);
+        }
+        return pages;
+    };
+
+    const pageNumbers = useMemo(() => getPageNumbers(safePage, totalPages), [safePage, totalPages]);
 
     return (
         <div className="font-mallanna text-black animate-fade-in relative">
@@ -403,36 +561,120 @@ const SocialMediaFeedsPage: React.FC = () => {
                     </div>
                 </div>
 
-                {category === 'స్థానిక' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in">
+                {/* State & District Assignment - Always Available */}
+                <div className="pt-2 border-t border-gray-100 space-y-3">
+                    <div className="flex items-center justify-between px-2">
+                        <label className="text-xs font-black text-gray-600 uppercase tracking-widest flex items-center gap-1.5">
+                            <span>📍 ప్రాంతీయ కేటాయింపు (రాష్ట్రం & జిల్లా - ఐచ్ఛికం)</span>
+                        </label>
+                        {(state || district) && (
+                            <button
+                                type="button"
+                                onClick={() => { setState(''); setDistrict(''); }}
+                                className="text-xs font-bold text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-2.5 py-1 rounded-full transition-all"
+                            >
+                                ✕ జిల్లా/రాష్ట్రం తొలగించు (Clear)
+                            </button>
+                        )}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-1">
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-2">రాష్ట్రం</label>
-                            <select value={state} onChange={e => { setState(e.target.value); setDistrict(''); }} className="w-full border p-4 rounded-2xl text-lg font-bold bg-gray-50 outline-none" required>
-                                <option value="">రాష్ట్రం ఎంచుకోండి</option>
-                                <option value="Telangana">Telangana</option>
-                                <option value="Andhra Pradesh">Andhra Pradesh</option>
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-2">రాష్ట్రం (State)</label>
+                            <select 
+                                value={state} 
+                                onChange={e => { 
+                                    const newState = e.target.value;
+                                    setState(newState); 
+                                    if (newState === 'Telangana' && district && !TS_DISTRICTS.includes(district)) {
+                                        setDistrict('');
+                                    } else if (newState === 'Andhra Pradesh' && district && !AP_DISTRICTS.includes(district)) {
+                                        setDistrict('');
+                                    }
+                                }} 
+                                className="w-full border p-4 rounded-2xl text-lg font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                <option value="">రాష్ట్రం ఎంచుకోండి (ఐచ్ఛికం - None / All)</option>
+                                <option value="Andhra Pradesh">ఆంధ్ర ప్రదేశ్ (Andhra Pradesh)</option>
+                                <option value="Telangana">తెలంగాణ (Telangana)</option>
                             </select>
                         </div>
                         <div className="space-y-1">
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-2">జిల్లా</label>
-                            <select value={district} onChange={e => setDistrict(e.target.value)} className="w-full border p-4 rounded-2xl text-lg font-bold bg-gray-50 outline-none" required>
-                                <option value="">జిల్లా ఎంచుకోండి</option>
-                                {state === 'Telangana' && TS_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
-                                {state === 'Andhra Pradesh' && AP_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)}
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-2">జిల్లా (District)</label>
+                            <select 
+                                value={district} 
+                                onChange={e => {
+                                    const selDistrict = e.target.value;
+                                    setDistrict(selDistrict);
+                                    if (selDistrict) {
+                                        if (TS_DISTRICTS.includes(selDistrict)) {
+                                            setState('Telangana');
+                                        } else if (AP_DISTRICTS.includes(selDistrict)) {
+                                            setState('Andhra Pradesh');
+                                        }
+                                    }
+                                }} 
+                                className="w-full border p-4 rounded-2xl text-lg font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                <option value="">జిల్లా లేదు / సాధారణ (None / General)</option>
+                                {state === 'Telangana' ? (
+                                    TS_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)
+                                ) : state === 'Andhra Pradesh' ? (
+                                    AP_DISTRICTS.map(d => <option key={d} value={d}>{d}</option>)
+                                ) : (
+                                    <>
+                                        <optgroup label={`── ఆంధ్ర ప్రదేశ్ జిల్లాలు (${AP_DISTRICTS.length}) ──`}>
+                                            {AP_DISTRICTS.map(d => <option key={`ap-${d}`} value={d}>{d}</option>)}
+                                        </optgroup>
+                                        <optgroup label={`── తెలంగాణ జిల్లాలు (${TS_DISTRICTS.length}) ──`}>
+                                            {TS_DISTRICTS.map(d => <option key={`ts-${d}`} value={d}>{d}</option>)}
+                                        </optgroup>
+                                    </>
+                                )}
                             </select>
                         </div>
                     </div>
-                )}
+
+                    <div className="px-2">
+                        {district ? (
+                            <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-2xl text-xs text-blue-900 font-bold flex items-center gap-2.5">
+                                <span className="text-lg shrink-0">📍</span>
+                                <div>
+                                    ఈ ఖాతా <strong>{district}</strong> ({state || 'రాష్ట్రం'}) జిల్లాకు కేటాయించబడింది. 
+                                    ఈ ఖాతా నుండి వచ్చే వార్తలు యాప్‌లో <strong>{district} లోకల్ ఫీడ్‌లో మాత్రమే</strong> కనిపిస్తాయి.
+                                </div>
+                            </div>
+                        ) : state ? (
+                            <div className="p-3 bg-purple-50 border border-purple-200 rounded-2xl text-xs text-purple-900 font-bold flex items-center gap-2">
+                                <span className="text-base shrink-0">🏛️</span>
+                                <span>ఈ ఖాతా <strong>{state}</strong> రాష్ట్ర స్థాయికి కేటాయించబడింది. నిర్దిష్ట జిల్లా కేటాయించలేదు.</span>
+                            </div>
+                        ) : (
+                            <p className="text-xs text-gray-500 font-medium flex items-center gap-1.5">
+                                <span>🌐</span>
+                                <span>జిల్లా లేదా రాష్ట్రం కేటాయించకపోతే, ఇది సాధారణ / కేటగిరీ వార్తగా పరిగణించబడుతుంది (ఉదా: భక్తి, రాజకీయం, జాతీయం).</span>
+                            </p>
+                        )}
+                    </div>
+                </div>
+
                 <button type="submit" disabled={isSubmitting} className="bg-blue-600 text-white w-full py-4 rounded-2xl font-bold text-2xl shadow-xl shadow-blue-100 hover:bg-blue-700 active:scale-[0.98] transition-all">
                     {isSubmitting ? 'సేవ్ అవుతోంది...' : editingId ? 'అప్‌డేట్ చేయి' : 'సోర్స్‌ను సేవ్ చేయి'}
                 </button>
-                {editingId && <button onClick={resetForm} className="w-full text-gray-500 font-bold py-2">రద్దు (Cancel)</button>}
+                {editingId && <button type="button" onClick={resetForm} className="w-full text-gray-500 font-bold py-2 hover:text-gray-800 transition-colors">రద్దు (Cancel)</button>}
             </form>
 
             <div className="space-y-4 pb-24">
                 <div className="flex justify-between items-center px-2 flex-wrap gap-2">
-                    <h3 className="font-ramabhadra text-2xl text-gray-800">యాక్టివ్ సోర్స్‌లు ({feeds.length})</h3>
-                    <div className="flex items-center gap-2">
+                    <div>
+                        <h3 className="font-ramabhadra text-2xl text-gray-800">
+                            యాక్టివ్ సోర్స్‌లు ({feeds.length})
+                        </h3>
+                        <p className="text-xs text-gray-400 font-bold">
+                            జిల్లా కేటాయించినవి: {feeds.filter(f => !!f.district).length} • సాధారణమైనవి: {feeds.filter(f => !f.district).length}
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
                         <button 
                             onClick={resetAllDailyCounts} 
                             disabled={isFetching}
@@ -444,58 +686,420 @@ const SocialMediaFeedsPage: React.FC = () => {
                         <button onClick={fetchFeeds} className="text-xs font-black text-blue-600 uppercase tracking-widest bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-full transition-all">Refresh Stats</button>
                     </div>
                 </div>
+
+                {/* Search, Multi-Filter & Sort Controls */}
+                <div className="bg-white p-5 rounded-2xl border shadow-sm space-y-4">
+                    {/* Row 1: Search Bar & Sort Dropdown */}
+                    <div className="flex flex-col md:flex-row gap-3 items-center">
+                        <div className="relative flex-1 w-full">
+                            <input
+                                type="text"
+                                value={searchQuery}
+                                onChange={e => setSearchQuery(e.target.value)}
+                                placeholder="సోర్స్ పేరు, @హ్యాండిల్, జిల్లా లేదా కేటగిరి ద్వారా వెతకండి..."
+                                className="w-full pl-10 pr-9 py-3 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 font-medium"
+                            />
+                            <span className="absolute left-3.5 top-3.5 text-gray-400 text-sm">🔍</span>
+                            {searchQuery && (
+                                <button 
+                                    onClick={() => setSearchQuery('')} 
+                                    className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 w-6 h-6 flex items-center justify-center rounded-full bg-gray-200 text-xs font-bold"
+                                    title="వెతుకులాట క్లియర్ చేయి"
+                                >
+                                    ✕
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Sort Selector */}
+                        <div className="w-full md:w-auto shrink-0 flex items-center gap-2">
+                            <span className="text-xs font-bold text-gray-400 shrink-0">సార్టింగ్:</span>
+                            <select
+                                value={sortBy}
+                                onChange={e => setSortBy(e.target.value as any)}
+                                className="w-full md:w-auto border py-2.5 px-3 rounded-xl text-xs font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                            >
+                                <option value="name_asc">🔤 పేరు (A → Z)</option>
+                                <option value="today_desc">🔥 నేటి వార్తలు (ఎక్కువ నుంచి)</option>
+                                <option value="total_desc">📊 మొత్తం పోస్ట్‌లు (ఎక్కువ నుంచి)</option>
+                                <option value="last_checked">⏱️ చివరిగా చెక్ చేసినవి</option>
+                                <option value="errors_first">⚠️ సమస్యలు ఉన్నవి మొదట</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* Row 2: 4-Way Filter Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-gray-100">
+                        {/* 1. State Filter */}
+                        <div className="space-y-1">
+                            <label className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider ml-1">రాష్ట్రం (State)</label>
+                            <select
+                                value={filterState}
+                                onChange={e => {
+                                    const st = e.target.value as any;
+                                    setFilterState(st);
+                                    setFilterDistrict('ALL');
+                                }}
+                                className="w-full border py-2 px-3 rounded-xl text-xs font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                            >
+                                <option value="ALL">అన్ని రాష్ట్రాలు ({feeds.length})</option>
+                                <option value="AP">🏛️ ఆంధ్రప్రదేశ్ ({feeds.filter(f => f.state === 'Andhra Pradesh' || (f.district && AP_DISTRICTS.includes(f.district))).length})</option>
+                                <option value="TS">🏛️ తెలంగాణ ({feeds.filter(f => f.state === 'Telangana' || (f.district && TS_DISTRICTS.includes(f.district))).length})</option>
+                                <option value="GENERAL">🌐 సాధారణ / జాతీయ ({feeds.filter(f => !f.state && !f.district).length})</option>
+                            </select>
+                        </div>
+
+                        {/* 2. District Filter */}
+                        <div className="space-y-1">
+                            <label className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider ml-1">జిల్లా (District)</label>
+                            <select
+                                value={filterDistrict}
+                                onChange={e => setFilterDistrict(e.target.value)}
+                                className="w-full border py-2 px-3 rounded-xl text-xs font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                            >
+                                <option value="ALL">అన్ని జిల్లాలు</option>
+                                <option value="WITH_DISTRICT">📍 జిల్లా కేటాయించినవి ({feeds.filter(f => !!f.district).length})</option>
+                                <option value="WITHOUT_DISTRICT">🌐 జిల్లా లేనివి ({feeds.filter(f => !f.district).length})</option>
+
+                                {filterState === 'AP' ? (
+                                    AP_DISTRICTS.map(d => {
+                                        const count = feeds.filter(f => f.district === d).length;
+                                        return count > 0 ? <option key={`ap-f-${d}`} value={d}>{d} ({count})</option> : null;
+                                    })
+                                ) : filterState === 'TS' ? (
+                                    TS_DISTRICTS.map(d => {
+                                        const count = feeds.filter(f => f.district === d).length;
+                                        return count > 0 ? <option key={`ts-f-${d}`} value={d}>{d} ({count})</option> : null;
+                                    })
+                                ) : (
+                                    <>
+                                        <optgroup label="── ఆంధ్రప్రదేశ్ జిల్లాలు ──">
+                                            {AP_DISTRICTS.map(d => {
+                                                const count = feeds.filter(f => f.district === d).length;
+                                                return count > 0 ? <option key={`all-ap-${d}`} value={d}>{d} ({count})</option> : null;
+                                            })}
+                                        </optgroup>
+                                        <optgroup label="── తెలంగాణ జిల్లాలు ──">
+                                            {TS_DISTRICTS.map(d => {
+                                                const count = feeds.filter(f => f.district === d).length;
+                                                return count > 0 ? <option key={`all-ts-${d}`} value={d}>{d} ({count})</option> : null;
+                                            })}
+                                        </optgroup>
+                                    </>
+                                )}
+                            </select>
+                        </div>
+
+                        {/* 3. Category Filter */}
+                        <div className="space-y-1">
+                            <label className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider ml-1">కేటగిరి (Category)</label>
+                            <select
+                                value={filterCategory}
+                                onChange={e => setFilterCategory(e.target.value)}
+                                className="w-full border py-2 px-3 rounded-xl text-xs font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                            >
+                                <option value="ALL">అన్ని కేటగిరీలు ({feeds.length})</option>
+                                {categoryListWithCounts.map(cat => (
+                                    <option key={cat.name} value={cat.name}>{cat.name} ({cat.count})</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* 4. Status Filter */}
+                        <div className="space-y-1">
+                            <label className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider ml-1">స్టేటస్ (Status)</label>
+                            <select
+                                value={filterStatus}
+                                onChange={e => setFilterStatus(e.target.value as any)}
+                                className="w-full border py-2 px-3 rounded-xl text-xs font-bold bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                            >
+                                <option value="ALL">అన్ని ఫీడ్లు ({feeds.length})</option>
+                                <option value="ACTIVE">✅ యాక్టివ్ ({feeds.filter(f => f.lastStatus !== 'error' && !f.isPaused).length})</option>
+                                <option value="ERROR">⚠️ సమస్యలు / ఎర్రర్స్ ({feeds.filter(f => f.lastStatus === 'error').length})</option>
+                                <option value="HAS_TODAY">🔥 నేడు వార్తలు వచ్చినవి ({feeds.filter(f => (f.todayProcessedCount || 0) > 0).length})</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* Active Filter Chips & Clear All */}
+                    {isFilterActive && (
+                        <div className="flex items-center justify-between pt-2 border-t border-gray-100 flex-wrap gap-2 text-xs">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-gray-400">యాక్టివ్ ఫిల్టర్లు:</span>
+                                {searchQuery && (
+                                    <span className="bg-blue-50 text-blue-700 font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 border border-blue-200">
+                                        🔍 "{searchQuery}" <button onClick={() => setSearchQuery('')} className="hover:text-red-500 font-black">✕</button>
+                                    </span>
+                                )}
+                                {filterState !== 'ALL' && (
+                                    <span className="bg-purple-50 text-purple-700 font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 border border-purple-200">
+                                        🏛️ {filterState === 'AP' ? 'ఆంధ్రప్రదేశ్' : filterState === 'TS' ? 'తెలంగాణ' : 'సాధారణ/జాతీయ'}
+                                        <button onClick={() => setFilterState('ALL')} className="hover:text-red-500 font-black">✕</button>
+                                    </span>
+                                )}
+                                {filterDistrict !== 'ALL' && (
+                                    <span className="bg-emerald-50 text-emerald-700 font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 border border-emerald-200">
+                                        📍 {filterDistrict} <button onClick={() => setFilterDistrict('ALL')} className="hover:text-red-500 font-black">✕</button>
+                                    </span>
+                                )}
+                                {filterCategory !== 'ALL' && (
+                                    <span className="bg-amber-50 text-amber-700 font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 border border-amber-200">
+                                        🏷️ {filterCategory} <button onClick={() => setFilterCategory('ALL')} className="hover:text-red-500 font-black">✕</button>
+                                    </span>
+                                )}
+                                {filterStatus !== 'ALL' && (
+                                    <span className="bg-rose-50 text-rose-700 font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 border border-rose-200">
+                                        ⚡ {filterStatus === 'ACTIVE' ? 'యాక్టివ్' : filterStatus === 'ERROR' ? 'ఎర్రర్' : 'నేటి వార్తలు'} 
+                                        <button onClick={() => setFilterStatus('ALL')} className="hover:text-red-500 font-black">✕</button>
+                                    </span>
+                                )}
+                                {sortBy !== 'name_asc' && (
+                                    <span className="bg-gray-100 text-gray-700 font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 border border-gray-200">
+                                        ⇅ సార్ట్ <button onClick={() => setSortBy('name_asc')} className="hover:text-red-500 font-black">✕</button>
+                                    </span>
+                                )}
+                            </div>
+
+                            <button
+                                onClick={clearAllFilters}
+                                className="text-xs font-black text-red-600 bg-red-50 hover:bg-red-100 px-3 py-1 rounded-full transition-all border border-red-200 flex items-center gap-1 active:scale-95"
+                            >
+                                ✕ ఫిల్టర్లు అన్నీ రీసెట్ చేయి (Clear All)
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                {/* Top Pagination Bar */}
+                {totalItems > 0 && (
+                    <div className="flex flex-col sm:flex-row justify-between items-center gap-3 bg-white p-3.5 rounded-2xl border shadow-sm">
+                        <div className="text-xs font-bold text-gray-500">
+                            చూపిస్తున్నవి: <span className="text-gray-900 font-extrabold">{startIndex + 1} - {Math.min(startIndex + (pageSize === -1 ? totalItems : pageSize), totalItems)}</span> / మొత్తం <span className="text-blue-600 font-extrabold">{totalItems}</span> ఫీడ్లు
+                            {totalItems !== feeds.length && (
+                                <span className="text-gray-400 font-medium ml-1.5">(మొత్తం {feeds.length} లో)</span>
+                            )}
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-wrap justify-center">
+                            {/* Page size selector */}
+                            <div className="flex items-center gap-1.5 mr-2">
+                                <span className="text-[11px] font-bold text-gray-400">పేజీకి:</span>
+                                <select
+                                    value={pageSize}
+                                    onChange={e => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                                    className="border py-1 px-2 rounded-lg text-xs font-bold bg-gray-50 outline-none cursor-pointer"
+                                >
+                                    <option value={10}>10</option>
+                                    <option value={20}>20</option>
+                                    <option value={50}>50</option>
+                                    <option value={100}>100</option>
+                                    <option value={-1}>అన్నీ ({totalItems})</option>
+                                </select>
+                            </div>
+
+                            {pageSize !== -1 && totalPages > 1 && (
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        onClick={() => setCurrentPage(1)}
+                                        disabled={safePage === 1}
+                                        className="px-2 py-1 rounded-lg border text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-100 transition-all"
+                                        title="మొదటి పేజీ"
+                                    >
+                                        ««
+                                    </button>
+                                    <button
+                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                        disabled={safePage === 1}
+                                        className="px-2.5 py-1 rounded-lg border text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-100 transition-all"
+                                        title="మునుపటి పేజీ"
+                                    >
+                                        ‹ మునుపటి
+                                    </button>
+
+                                    {pageNumbers.map((page, idx) => (
+                                        typeof page === 'number' ? (
+                                            <button
+                                                key={page}
+                                                onClick={() => setCurrentPage(page)}
+                                                className={`min-w-[28px] h-7 px-2 rounded-lg text-xs font-black transition-all ${
+                                                    safePage === page
+                                                        ? 'bg-blue-600 text-white shadow-md shadow-blue-200'
+                                                        : 'border hover:bg-gray-100 text-gray-700'
+                                                }`}
+                                            >
+                                                {page}
+                                            </button>
+                                        ) : (
+                                            <span key={`ellipsis-top-${idx}`} className="px-1 text-xs text-gray-400">...</span>
+                                        )
+                                    ))}
+
+                                    <button
+                                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                        disabled={safePage === totalPages}
+                                        className="px-2.5 py-1 rounded-lg border text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-100 transition-all"
+                                        title="తరువాతి పేజీ"
+                                    >
+                                        తరువాతి ›
+                                    </button>
+                                    <button
+                                        onClick={() => setCurrentPage(totalPages)}
+                                        disabled={safePage === totalPages}
+                                        className="px-2 py-1 rounded-lg border text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-100 transition-all"
+                                        title="చివరి పేజీ"
+                                    >
+                                        »»
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
                 
                 {isFetching && feeds.length === 0 ? (
                     <div className="flex justify-center py-20"><div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div></div>
-                ) : feeds.map(feed => (
-                    <div key={feed.id} className="bg-white p-5 rounded-[2rem] border shadow-sm hover:border-blue-200 transition-all group">
-                        <div className="flex flex-col sm:flex-row gap-4">
-                            <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-3 mb-2">
-                                    {feed.lastStatus === 'error' ? <StatusErrorIcon /> : <StatusOkIcon />}
-                                    <span className="font-black text-2xl text-gray-800 truncate">{feed.sourceName}</span>
-                                    <span className="text-[10px] bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-black uppercase tracking-wider">{feed.category}</span>
-                                    {feed.district && <span className="text-[10px] bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-black uppercase tracking-wider">{feed.district}</span>}
-                                </div>
-                                <p className="text-gray-400 text-xs truncate font-bold bg-gray-50 p-2 rounded-xl mb-4 border border-gray-100">{feed.url}</p>
-                                
-                                {/* Stats Row */}
-                                <div className="grid grid-cols-4 gap-2">
-                                    <StatItem 
-                                        label="నేడు (Today)" 
-                                        value={feed.todayProcessedCount || 0} 
-                                        color="text-blue-600" 
-                                        onClick={() => showTodayNews(feed.sourceName)}
-                                    />
-                                    <StatItem label="పోస్ట్స్" value={feed.totalProcessedCount || 0} color="text-green-600" />
-                                    <StatItem label="విఫలం" value={feed.totalFailedCount || 0} color="text-red-500" />
-                                    <StatItem label="మొత్తం" value={(feed.totalProcessedCount || 0) + (feed.totalFailedCount || 0)} color="text-gray-600" />
-                                </div>
-                            </div>
-                            
-                            <div className="flex sm:flex-col gap-2 justify-center shrink-0 border-t sm:border-t-0 sm:border-l border-gray-100 pt-4 sm:pt-0 sm:pl-4">
-                                <div className="hidden sm:block text-right mb-auto">
-                                    <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">చివరి చెక్</p>
-                                    <p className="text-xs font-bold text-gray-600">{formatLastCheck(feed.lastFetchTime)}</p>
-                                </div>
-                                <div className="flex gap-2">
-                                    <button onClick={() => { 
-                                        setEditingId(feed.id); setSourceName(feed.sourceName); setUrl(feed.url); 
-                                        setPlatform(feed.platform); setCategory(feed.category || 'రాజకీయం');
-                                        setState(feed.state || ''); setDistrict(feed.district || '');
-                                        window.scrollTo({ top: 0, behavior: 'smooth' });
-                                    }} className="p-4 bg-blue-50 rounded-2xl text-blue-600 active:scale-90 transition-all"><EditIcon /></button>
-                                    <button onClick={async () => { if (window.confirm("ఈ సోర్స్‌ను తొలగించాలా?")) { await deleteDoc(doc(db, 'social_feeds', feed.id)); fetchFeeds(); } }} className="p-4 bg-red-50 rounded-2xl text-red-600 active:scale-90 transition-all"><DeleteIcon /></button>
-                                </div>
-                            </div>
-                        </div>
-                        {feed.lastStatus === 'error' && feed.lastError && (
-                            <div className="mt-4 p-3 bg-red-50 rounded-2xl text-red-500 text-xs font-bold border border-red-100">
-                                ⚠ Error: {feed.lastError}
-                            </div>
+                ) : filteredAndSortedFeeds.length === 0 ? (
+                    <div className="bg-white p-12 rounded-[2rem] border text-center space-y-2">
+                        <div className="text-3xl">🔍</div>
+                        <h4 className="font-bold text-gray-700 text-lg">ఎటువంటి సోర్స్‌లు దొరకలేదు</h4>
+                        <p className="text-gray-400 text-sm">శోధన లేదా ఫిల్టర్ మార్చి ప్రయత్నించండి.</p>
+                        {isFilterActive && (
+                            <button 
+                                onClick={clearAllFilters}
+                                className="mt-2 text-xs font-bold text-blue-600 bg-blue-50 px-4 py-2 rounded-full hover:bg-blue-100 transition-all border border-blue-200"
+                            >
+                                ఫిల్టర్లను క్లియర్ చేయి (Clear Filters)
+                            </button>
                         )}
                     </div>
-                ))}
+                ) : (
+                    paginatedFeeds.map(feed => (
+                        <div key={feed.id} className="bg-white p-5 rounded-[2rem] border shadow-sm hover:border-blue-200 transition-all group">
+                            <div className="flex flex-col sm:flex-row gap-4">
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2.5 mb-2 flex-wrap">
+                                        {feed.lastStatus === 'error' ? <StatusErrorIcon /> : <StatusOkIcon />}
+                                        <span className="font-black text-2xl text-gray-800 truncate">{feed.sourceName}</span>
+                                        <span className="text-[10px] bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-black uppercase tracking-wider">{feed.category}</span>
+                                        {feed.district && (
+                                            <span className="text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-full font-black uppercase tracking-wider flex items-center gap-1">
+                                                📍 {feed.district} {feed.state && `(${feed.state === 'Telangana' ? 'TS' : feed.state === 'Andhra Pradesh' ? 'AP' : feed.state})`}
+                                            </span>
+                                        )}
+                                        {!feed.district && feed.state && (
+                                            <span className="text-[10px] bg-purple-50 text-purple-700 border border-purple-200 px-2.5 py-1 rounded-full font-black uppercase tracking-wider">
+                                                🏛️ {feed.state}
+                                            </span>
+                                        )}
+                                        {!feed.district && !feed.state && (
+                                            <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-bold">
+                                                🌐 సాధారణ / జిల్లా లేదు
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="text-gray-400 text-xs truncate font-bold bg-gray-50 p-2 rounded-xl mb-4 border border-gray-100">{feed.url}</p>
+                                    
+                                    {/* Stats Row */}
+                                    <div className="grid grid-cols-4 gap-2">
+                                        <StatItem 
+                                            label="నేడు (Today)" 
+                                            value={feed.todayProcessedCount || 0} 
+                                            color="text-blue-600" 
+                                            onClick={() => showTodayNews(feed.sourceName)}
+                                        />
+                                        <StatItem label="పోస్ట్స్" value={feed.totalProcessedCount || 0} color="text-green-600" />
+                                        <StatItem label="విఫలం" value={feed.totalFailedCount || 0} color="text-red-500" />
+                                        <StatItem label="మొత్తం" value={(feed.totalProcessedCount || 0) + (feed.totalFailedCount || 0)} color="text-gray-600" />
+                                    </div>
+                                </div>
+                                
+                                <div className="flex sm:flex-col gap-2 justify-center shrink-0 border-t sm:border-t-0 sm:border-l border-gray-100 pt-4 sm:pt-0 sm:pl-4">
+                                    <div className="hidden sm:block text-right mb-auto">
+                                        <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">చివరి చెక్</p>
+                                        <p className="text-xs font-bold text-gray-600">{formatLastCheck(feed.lastFetchTime)}</p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => { 
+                                            setEditingId(feed.id); setSourceName(feed.sourceName || ''); setUrl(feed.url || (feed as any).handle || ''); 
+                                            setPlatform(feed.platform || 'Twitter'); setCategory(feed.category || 'రాజకీయం');
+                                            setState(feed.state || ''); setDistrict(feed.district || '');
+                                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                                        }} title="సవరించండి (Edit)" className="p-4 bg-blue-50 rounded-2xl text-blue-600 active:scale-90 transition-all hover:bg-blue-100"><EditIcon /></button>
+                                        <button onClick={async () => { if (window.confirm("ఈ సోర్స్‌ను తొలగించాలా?")) { await deleteDoc(doc(db, 'social_feeds', feed.id)); fetchFeeds(); } }} title="తొలగించండి (Delete)" className="p-4 bg-red-50 rounded-2xl text-red-600 active:scale-90 transition-all hover:bg-red-100"><DeleteIcon /></button>
+                                    </div>
+                                </div>
+                            </div>
+                            {feed.lastStatus === 'error' && feed.lastError && (
+                                <div className="mt-4 p-3 bg-red-50 rounded-2xl text-red-500 text-xs font-bold border border-red-100">
+                                    ⚠ Error: {feed.lastError}
+                                </div>
+                            )}
+                        </div>
+                    ))
+                )}
+
+                {/* Bottom Pagination Bar */}
+                {totalItems > 0 && pageSize !== -1 && totalPages > 1 && (
+                    <div className="flex flex-col sm:flex-row justify-between items-center gap-3 bg-white p-3.5 rounded-2xl border shadow-sm mt-4">
+                        <div className="text-xs font-bold text-gray-500">
+                            పేజీ <span className="text-blue-600 font-black">{safePage}</span> / <span className="font-bold">{totalPages}</span> (మొత్తం {totalItems} ఫీడ్లు)
+                        </div>
+
+                        <div className="flex items-center gap-1 flex-wrap justify-center">
+                            <button
+                                onClick={() => { setCurrentPage(1); window.scrollTo({ top: 400, behavior: 'smooth' }); }}
+                                disabled={safePage === 1}
+                                className="px-2.5 py-1.5 rounded-lg border text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-100 transition-all"
+                                title="మొదటి పేజీ"
+                            >
+                                «« మొదటిది
+                            </button>
+                            <button
+                                onClick={() => { setCurrentPage(p => Math.max(1, p - 1)); window.scrollTo({ top: 400, behavior: 'smooth' }); }}
+                                disabled={safePage === 1}
+                                className="px-3 py-1.5 rounded-lg border text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-100 transition-all"
+                                title="మునుపటి పేజీ"
+                            >
+                                ‹ మునుపటి
+                            </button>
+
+                            {pageNumbers.map((page, idx) => (
+                                typeof page === 'number' ? (
+                                    <button
+                                        key={`bottom-${page}`}
+                                        onClick={() => { setCurrentPage(page); window.scrollTo({ top: 400, behavior: 'smooth' }); }}
+                                        className={`min-w-[32px] h-8 px-2.5 rounded-lg text-xs font-black transition-all ${
+                                            safePage === page
+                                                ? 'bg-blue-600 text-white shadow-md shadow-blue-200'
+                                                : 'border hover:bg-gray-100 text-gray-700'
+                                        }`}
+                                    >
+                                        {page}
+                                    </button>
+                                ) : (
+                                    <span key={`ellipsis-bottom-${idx}`} className="px-1 text-xs text-gray-400">...</span>
+                                )
+                            ))}
+
+                            <button
+                                onClick={() => { setCurrentPage(p => Math.min(totalPages, p + 1)); window.scrollTo({ top: 400, behavior: 'smooth' }); }}
+                                disabled={safePage === totalPages}
+                                className="px-3 py-1.5 rounded-lg border text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-100 transition-all"
+                                title="తరువాతి పేజీ"
+                            >
+                                తరువాతి ›
+                            </button>
+                            <button
+                                onClick={() => { setCurrentPage(totalPages); window.scrollTo({ top: 400, behavior: 'smooth' }); }}
+                                disabled={safePage === totalPages}
+                                className="px-2.5 py-1.5 rounded-lg border text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-100 transition-all"
+                                title="చివరి పేజీ"
+                            >
+                                చివరిది »»
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

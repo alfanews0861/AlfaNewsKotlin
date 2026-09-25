@@ -15,6 +15,12 @@ import android.util.Log
 import android.view.PixelCopy
 import android.view.View
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -80,6 +86,8 @@ import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseService
+import com.alfanews.telugu.services.AdMobService
+import com.google.android.gms.ads.nativead.NativeAd
 import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.ui.theme.Poppins
 import com.alfanews.telugu.ui.theme.Ramabhadra
@@ -171,12 +179,35 @@ fun NewsCardView(
             false
         } else {
             val storyWords = storyText.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.size
-            val isDiff = storyText.trim() != shortText.trim()
-            val hasLengthDelta = storyText.length > (shortText.length + 60)
+            val shortWords = shortText.trim().split(Regex("\\s+")).filter { it.isNotBlank() }.size
+            val isDiff = storyText.replace(Regex("\\s+"), " ").trim() != shortText.replace(Regex("\\s+"), " ").trim()
+            val hasLengthDelta = storyText.length >= (shortText.length + 100)
+            val hasWordDelta = storyWords >= (shortWords + 30)
 
-            // 🌟 "పూర్తి వార్త చదవండి" బటన్: అసలు వార్తలో కనీసం 120+ పదాలుండి, పెద్ద కథనం (80+ పదాలు) రాసినప్పుడు మాత్రమే యాక్టివేట్ అవుతుంది.
-            // చిన్న వార్తలైతే బటన్ డీయాక్టివేట్ అయిపోతుంది (కార్డుపై ఉన్నదే పూర్తి వార్తగా భావిస్తారు).
-            storyWords >= 80 && isDiff && hasLengthDelta
+            // 🌟 "పూర్తి వార్త చదవండి" బటన్: కనీసం 90+ పదాలుండి, షార్ట్ న్యూస్ కంటే స్పష్టమైన వ్యత్యాసం ఉన్నప్పుడు మాత్రమే యాక్టివేట్ అవుతుంది.
+            storyWords >= 90 && isDiff && hasLengthDelta && hasWordDelta
+        }
+    }
+
+    // 🚀 Proactive Preloading for Full Story AdMob Ad: Card active ఉన్నప్పుడే బ్యాక్‌గ్రౌండ్‌లో యాడ్ లోడ్ అవుతుంది
+    var preloadedFullStoryAd by remember(post.id) { mutableStateOf<NativeAd?>(null) }
+    LaunchedEffect(isActive, hasSubstantialFullStory) {
+        if (isActive && hasSubstantialFullStory && preloadedFullStoryAd == null) {
+            val activity = findActivity(context)
+            if (activity != null && !activity.isFinishing && !activity.isDestroyed) {
+                AdMobService.loadNativeAd(activity) { ad ->
+                    if (ad != null) {
+                        preloadedFullStoryAd = ad
+                    }
+                }
+            }
+        }
+    }
+
+    DisposableEffect(post.id) {
+        onDispose {
+            preloadedFullStoryAd?.destroy()
+            preloadedFullStoryAd = null
         }
     }
 
@@ -735,10 +766,15 @@ fun NewsCardView(
             }
         }
         
-        if (showFullStorySheet) {
+        AnimatedVisibility(
+            visible = showFullStorySheet,
+            enter = fadeIn(tween(250)) + slideInVertically(tween(300)) { it / 4 },
+            exit = fadeOut(tween(200)) + slideOutVertically(tween(250)) { it / 4 }
+        ) {
             FullStoryBottomSheet(
                 post = post,
                 language = language,
+                preloadedAd = preloadedFullStoryAd,
                 onDismissRequest = { showFullStorySheet = false }
             )
         }
@@ -1980,17 +2016,16 @@ fun InlineMicroPoll(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FullStoryBottomSheet(
     post: NewsPost,
     language: Language,
+    preloadedAd: NativeAd? = null,
     onDismissRequest: () -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var isSharing by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isEnglish = language == Language.ENGLISH
     val headlineText = if (isEnglish) {
         post.headline.english.ifBlank { post.headline.telugu }
@@ -2081,22 +2116,65 @@ fun FullStoryBottomSheet(
         DateTimeUtils.formatTimestamp(post.timestamp, "dd-MM-yy, hh:mm a", Locale.forLanguageTag("en-IN"))
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismissRequest,
-        sheetState = sheetState,
-        modifier = Modifier.fillMaxHeight(0.85f),
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        dragHandle = {
-            BottomSheetDefaults.DragHandle()
-        }
+    BackHandler(enabled = true) {
+        onDismissRequest()
+    }
+
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize()
     ) {
-        Column(
+        // 🎯 Starts 5% below the top Logo Header and ends above the footer!
+        val topGap = maxHeight * 0.05f
+        val bottomGap = 8.dp
+
+        // Scrim backdrop (dims the background news card, keeping LogoHeader and Footer clearly visible)
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp)
+                .background(Color.Black.copy(alpha = 0.52f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismissRequest
+                )
+        )
+
+        // Floating Full Story Popup Card
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = topGap, bottom = bottomGap, start = 8.dp, end = 8.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { /* Consume clicks to prevent dismissing on card tap */ },
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            shadowElevation = 10.dp
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
+            ) {
+                // Top Handle Bar
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp, bottom = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(36.dp)
+                            .height(4.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                shape = RoundedCornerShape(2.dp)
+                            )
+                    )
+                }
             // Top Bar: Category & Close Button
             Row(
                 modifier = Modifier
@@ -2278,7 +2356,7 @@ fun FullStoryBottomSheet(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // AdMob Box Ad (Medium Rectangle 300x250)
-                AdMobBoxAd(modifier = Modifier.fillMaxWidth())
+                AdMobBoxAd(modifier = Modifier.fillMaxWidth(), preloadedAd = preloadedAd)
 
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -2389,6 +2467,7 @@ fun FullStoryBottomSheet(
             }
         }
     }
+}
 }
 
 fun getOptimizedImageUrl(url: String): String {

@@ -70,8 +70,10 @@ fun NewsFeedView(
     val scope = rememberCoroutineScope()
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted: Boolean ->
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val isGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (isGranted) {
             viewModel.detectLocation(context, currentUser, language)
         }
@@ -106,14 +108,19 @@ fun NewsFeedView(
             viewModel.refreshIfStale(language, currentUser)
         }
         
-        // ✅ FIX: Always try to get GPS coords if permission is granted.
-        // Old code only ran detectLocation when district==null, so existing users
-        // never got fresh GPS coords → weather used stale/wrong location.
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+        // ✅ FIX: Always try to get GPS coords if permission is granted (fine or coarse).
+        val hasLocationPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (hasLocationPermission) {
             viewModel.detectLocation(context, currentUser, language)
         } else if (viewModelActiveDistrict == null) {
             // Only request permission if we don't know the district at all
-            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            permissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
         }
     }
 
@@ -293,15 +300,30 @@ fun NewsFeedView(
                 }
             }
         } else if (news.isEmpty()) {
-            if (!loading) {
-                LaunchedEffect(Unit) {
-                    viewModel.loadNews(language, currentUser, initialPostId)
+            if (loading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        CircularProgressIndicator(modifier = Modifier.size(40.dp), color = MaterialTheme.colorScheme.primary)
+                        Text(text = stringResource(R.string.news_preparing), color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge)
+                    }
                 }
-            }
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    CircularProgressIndicator(modifier = Modifier.size(40.dp), color = MaterialTheme.colorScheme.primary)
-                    Text(text = stringResource(R.string.news_preparing), color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge)
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.padding(32.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.news_not_available),
+                            color = MaterialTheme.colorScheme.onBackground,
+                            style = MaterialTheme.typography.bodyLarge,
+                            textAlign = TextAlign.Center
+                        )
+                        Button(onClick = { viewModel.loadNews(language, currentUser, initialPostId) }) {
+                            Text(text = stringResource(R.string.retry))
+                        }
+                    }
                 }
             }
         } else {

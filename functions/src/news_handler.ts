@@ -766,7 +766,7 @@ export async function performAIProcessing(
 
     const rawInputText = `${headline || ''} ${content || ''} ${videoSpeechContext || ''}`.trim();
     const sourceWords = rawInputText.split(/\s+/).filter(Boolean).length;
-    const hasSubstantialSource = sourceWords >= 120;
+    const hasSubstantialSource = actualPostData?.isReporter ? sourceWords >= 30 : sourceWords >= 45;
 
     console.log(`[AI_START] Processing: ${headline.substring(0, 30)}... (Type: ${actualPostData?.isReporter ? 'Reporter' : 'Citizen'}, Source words: ${sourceWords})`);
 
@@ -826,20 +826,24 @@ EDITORIAL & REJECTION INSTRUCTIONS (CRITICAL):
 - ONLY IF THE STORY VIOLATES EDITORIAL/SAFETY POLICIES OR IS A CONFIRMED DUPLICATE:
   * rejectionReason MUST be phrased politely in professional Telugu as if written by a Human Chief Editor / News Desk. NEVER mention AI, algorithms, bots, or automated systems. Explain naturally like an editor (e.g. 'ఈ మండలంలో ఈ వార్తాంశం ఇప్పటికే ప్రచురితమైంది', 'వార్తలో ప్రజా ప్రయోజనం కొరవడింది లేదా వ్యక్తిగత ప్రచారం', 'చిత్రం ప్రచురణ ప్రమాణాలకు అనుగుణంగా లేదు').
 ${hasSubstantialSource ? `
-FULL STORY INSTRUCTIONS (మూల సమాచారం 120+ పదాలు ఉన్నందున సమగ్ర కథనం):
-- The submitted material has substantial depth (${sourceWords} words, at least 120+ words).
-- Write a comprehensive full story in Telugu (fullStoryTe) structured into 3 to 4 distinct paragraphs separated by \\n\\n based strictly on the provided facts.
-- 3 to 4 distinct paragraphs separated by \\n\\n (NEVER a single text clump):
-  * Paragraph 1: Gripping hook, core incident context, date/time, exact place, and attribution (~60-80 words).
-  * Paragraph 2: Statements, quotations, heated remarks, or promises made by leaders/officials/witnesses (~80-100 words).
-  * Paragraph 3: Local public reaction, victims' distress, previous background, and community demands (~70-90 words).
-  * Paragraph 4: Required follow-up action by authorities, next steps, and Alfa News editorial observation (~50-70 words).
-- fullStoryEn: Provide matching English full story across 3-4 paragraphs separated by \\n\\n.
-- Under NO circumstances hallucinate or invent new facts not mentioned in the source material.
+FULL STORY INSTRUCTIONS (సేఫ్ ఎడిటోరియల్ ఎక్స్‌పాన్షన్ & సమగ్ర కథనం):
+- Write a comprehensive full story in Telugu (fullStoryTe) structured into 3 to 4 distinct paragraphs separated by \\n\\n (180-240 words).
+- STRICT FACT SAFETY: Preserve all provided facts, locations, names, titles, and budget numbers. Never invent false facts or fake names (ZERO HALLUCINATIONS).
+- SAFE CONTEXTUAL EXPANSION:
+  * Even if the input is concise (40-70 words), enrich it with relevant background, public awareness, social importance, and community impact.
+  * For health camps: explain the role of PHCs, preventive screening for hypertension/diabetes, and the relief of free medicine.
+  * For welfare/CMRF: highlight how CMRF provides relief to poor families during medical emergencies and the impact on beneficiaries.
+  * For rural/civic issues: highlight public need, administrative follow-up, and seasonal relevance.
+- 3 to 4 distinct paragraphs separated by \\n\\n:
+  * Paragraph 1: Gripping hook, core incident, place, and attribution (~60-70 words).
+  * Paragraph 2: Key statements, attendees, quotes, and specific numbers (~60-80 words).
+  * Paragraph 3: Public awareness, context, and social significance (~60-70 words).
+  * Paragraph 4: Follow-up action by authorities and expected outcome (~40-50 words).
+- fullStoryEn: Matching English full story across 3-4 paragraphs separated by \\n\\n.
+- If the submission is an ultra-brief casual announcement (under 25 words) with no contextual value: set fullStoryTe = "" and fullStoryEn = "".
 ` : `
-FULL STORY INSTRUCTIONS (చిన్న వార్తల నిబంధన - ZERO HALLUCINATIONS):
-- The submitted material is brief (${sourceWords} words, less than 120 words).
-- Do NOT imagine, invent, or hallucinate extra details to stretch the story (NO HALLUCINATIONS)!
+FULL STORY INSTRUCTIONS (అత్యంత స్వల్ప సమాచారం - NO CONTEXT POSSIBLE):
+- The submitted material is an ultra-brief snippet (${sourceWords} words) with no contextual expansion possible.
 - Set fullStoryTe = "" (empty string) and fullStoryEn = "" (empty string).
 - Only provide the concise 60-70 word Telugu content (one single paragraph) and headline.
 `}
@@ -1453,49 +1457,12 @@ export const onNewsPostCreated = onDocumentWritten({
         } catch (err: any) {
             console.error(`[AI_FATAL_FAILED] ${postId}:`, err.message);
 
-            // Graceful Reporter Fallback:
-            // If post is from a registered reporter and has valid headline & content,
-            // do NOT leave it stuck in FAILED! Publish directly with reporter's original content so news goes LIVE immediately!
-            if (isReporter && (latestData.headline?.telugu || latestData.headline) && (latestData.content?.telugu || latestData.content)) {
-                console.log(`[AI_FALLBACK_PUBLISH] Publishing reporter post ${postId} directly with original content due to AI temporary outage.`);
-                const mediaUrl = latestData.mediaUrl || (latestData.mediaUrls && latestData.mediaUrls[0]) || "";
-                const updatePayloadFallback: any = {
-                    headline: {
-                        telugu: latestData.headline?.telugu || latestData.headline || "",
-                        english: latestData.headline?.english || ""
-                    },
-                    content: {
-                        telugu: latestData.content?.telugu || latestData.content || "",
-                        english: latestData.content?.english || ""
-                    },
-                    category: latestData.category || "జిల్లా వార్త",
-                    categories: Array.isArray(latestData.categories) ? latestData.categories : ["జిల్లా వార్త"],
-                    status: "published",
-                    approved: true,
-                    aiProcessed: false,
-                    isReporter: true,
-                    isCitizen: false,
-                    lastProcessingError: err.message,
-                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-                };
-                await db.collection('news').doc(postId).update(updatePayloadFallback);
-                if (originalReporterId) {
-                    await awardPointsToReporter(originalReporterId, 2);
-                    await notifyReporter(
-                        originalReporterId,
-                        postId,
-                        latestData.headline?.telugu || latestData.headline || "వార్త",
-                        'SUCCESS',
-                        mediaUrl
-                    );
-                }
-                return;
-            }
-
+            // AI Failed: NEVER publish without AI processing! Keep approved: false and status: FAILED.
             await db.collection('news').doc(postId).update({
                 status: "FAILED",
-                error: err.message,
+                approved: false,
                 aiProcessed: false,
+                error: err.message,
                 lastProcessingError: err.message,
                 lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             });
@@ -1556,10 +1523,11 @@ export const onNewsPostCreated = onDocumentWritten({
         if (!videoUrl) {
             console.error(`[VIDEO_ERR] ${postId}: Missing video URL for PROCESSING_VIDEO post.`);
             await db.collection('news').doc(postId).update({
-                status: "published",
-                approved: true,
+                status: "FAILED",
+                approved: false,
                 videoProcessed: false,
-                processingError: "Missing video URL"
+                processingError: "Missing video URL",
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
             });
             return;
         }

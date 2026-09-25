@@ -41,8 +41,10 @@ export function getTopicName(prefix: string, value: string): string {
 const TEXT_MODELS = [
     "gemini-3.7-flash",       // 1. Primary - Best Editorial Quality
     "gemini-3.6-flash",       // 2. High-speed, high-quota safety net
-    "gemini-3.5-flash-lite",  // 3. Fallback
-    "gemini-3.5-flash"        // 4. Backup
+    "gemini-3.5-flash-lite",  // 3. Fast preview fallback
+    "gemini-3.1-flash-lite",  // 4. High-throughput stable fallback (verified active)
+    "gemini-2.5-flash",       // 5. Stable Flash fallback (verified active)
+    "gemini-3.5-flash"        // 6. Backup
 ];
 
 const IMAGE_ANALYSIS_MODELS = [
@@ -52,19 +54,26 @@ const IMAGE_ANALYSIS_MODELS = [
     "gemini-3.7-flash"        // 4. Ultimate fallback
 ];
 
-/**
- * Priority list of API keys: Free 1 -> Free 2 -> Paid -> Legacy fallback
- */
 function getApiKeys(): string[] {
-    return [
-        process.env.FREE_GEMINI_API_KEY_1,
-        process.env.FREE_GEMINI_API_KEY_2,
+    const rawKeys = [
+        process.env.GEMINI_API_KEY_1 || process.env.FREE_GEMINI_API_KEY_1,
+        process.env.GEMINI_API_KEY_2 || process.env.FREE_GEMINI_API_KEY_2,
+        process.env.GEMINI_API_KEY_3 || process.env.FREE_GEMINI_API_KEY_3,
+        process.env.GEMINI_API_KEY_4 || process.env.FREE_GEMINI_API_KEY_4,
+        process.env.GEMINI_API_KEY_5 || process.env.FREE_GEMINI_API_KEY_5,
+        process.env.GEMINI_API_KEY_6 || process.env.FREE_GEMINI_API_KEY_6,
+        process.env.GEMINI_API_KEY_7 || process.env.FREE_GEMINI_API_KEY_7,
+        process.env.GEMINI_API_KEY_8 || process.env.FREE_GEMINI_API_KEY_8,
         process.env.PAID_GEMINI_API_KEY,
         process.env.GEMINI_API_KEY,
         process.env.API_KEY
-    ]
-        .map(key => key ? key.replace(/^["']|["']$/g, '').trim() : '')
-        .filter(key => key.length > 0);
+    ];
+
+    return Array.from(new Set(
+        rawKeys
+            .map(key => key ? key.replace(/^["']|["']$/g, '').trim() : '')
+            .filter(key => key.length > 10)
+    ));
 }
 
 /**
@@ -124,7 +133,7 @@ export async function runWithAIFallback<T>(
     const keysToTry = apiKeys.length > 0 ? apiKeys : [process.env.GEMINI_API_KEY || process.env.API_KEY || ""];
     const modelsToTry = customModels || TEXT_MODELS;
 
-    const MAX_TOTAL_ATTEMPTS = 8;
+    const MAX_TOTAL_ATTEMPTS = Math.max(keysToTry.length * 3, 24);
     let totalAttempts = 0;
     let lastError: any = null;
 
@@ -138,7 +147,7 @@ export async function runWithAIFallback<T>(
             continue;
         }
 
-        const keyLabel = k === 0 ? "FREE_1" : k === 1 ? "FREE_2" : k === 2 ? "PAID" : `KEY_${k}`;
+        const keyLabel = isPaidKey ? "PAID" : `KEY_${k + 1}`;
         const ai = getAIInstanceInternal(currentKey);
 
         for (let m = 0; m < modelsToTry.length; m++) {
@@ -163,21 +172,27 @@ export async function runWithAIFallback<T>(
 
                 console.warn(`[AI-FAIL] Model ${currentModelName} (${keyLabel}) failed (Status: ${status || 'N/A'}, Attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS}): ${errMsg.substring(0, 120)}`);
 
-                // If key is totally unauthorized (403), jump to next key immediately
-                if (status === 403) {
-                    console.warn(`[KEY-INVALID] Key ${keyLabel} unauthorized (403). Moving to next key.`);
+                // If key is totally unauthorized (403) or depleted credits (402), jump to next key immediately
+                if (status === 403 || status === 402) {
+                    console.warn(`[KEY-EXHAUSTED] Key ${keyLabel} invalid or depleted (Status: ${status}). Moving to next key.`);
                     break;
                 }
 
                 // If 429 (rate/quota limit)
                 if (status === 429) {
-                    console.warn(`[MODEL-429] Model ${currentModelName} (${keyLabel}) hit rate/quota limit. Waiting briefly...`);
-                    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 500));
+                    const isDailyQuotaExhausted = errMsg.toLowerCase().includes("quota") || errMsg.toLowerCase().includes("exhausted");
+                    if (isDailyQuotaExhausted && k < keysToTry.length - 1) {
+                        console.warn(`[KEY-QUOTA-SWITCH] Key ${keyLabel} daily quota exhausted. Switching to next key in pool...`);
+                        break;
+                    }
+                    console.warn(`[MODEL-429] Model ${currentModelName} (${keyLabel}) hit rate limit. Trying next model...`);
+                    await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 200));
                 }
 
                 // If 503/504 transient server overload, wait briefly
                 if (status === 503 || status === 504) {
-                    await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 400));
+                    console.warn(`[MODEL-OVERLOAD] Model ${currentModelName} (${keyLabel}) overloaded. Trying next model...`);
+                    await new Promise(resolve => setTimeout(resolve, 400 + Math.random() * 200));
                 }
             }
         }
@@ -232,6 +247,17 @@ export function parseAIJson(text: string) {
 }
 
 /**
+ * Checks if the text has valid Telugu script content (U+0C00-U+0C7F)
+ * and is not predominantly English characters.
+ */
+export function isTeluguScript(text: string): boolean {
+    if (!text || typeof text !== 'string') return false;
+    const teluguChars = (text.match(/[\u0C00-\u0C7F]/g) || []).length;
+    const englishChars = (text.match(/[a-zA-Z]/g) || []).length;
+    return teluguChars > englishChars && teluguChars >= 10;
+}
+
+/**
  * Sanitizes Telugu text by converting any bled Kannada Unicode characters (0x0C80-0x0CFF)
  * and Devanagari/Hindi Unicode characters (0x0900-0x097F) to Telugu, removing orphaned matras,
  * broken placeholder glyphs, and zero-width spaces, ensuring 100% pure Telugu script purity.
@@ -239,6 +265,17 @@ export function parseAIJson(text: string) {
 export function sanitizeTeluguText(text: string): string {
     if (!text) return "";
     return text
+        // 0. Decode and eliminate HTML entities & zero-width non-joiners
+        .replace(/&zwnj;/gi, '')
+        .replace(/&zwj;/gi, '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;|&apos;/gi, "'")
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&#\d+;/g, '')
+        .replace(/&#x[0-9a-fA-F]+;/gi, '')
         // 1. Map any bled Kannada Unicode characters (0x0C80-0x0CFF) to Telugu Unicode (0x0C00-0x0C7F)
         .replace(/[\u0C80-\u0CFF]/g, (char) => {
             const code = char.charCodeAt(0) - 0x0080;
@@ -264,20 +301,37 @@ export function sanitizeTeluguText(text: string): string {
  * Sanitizes and formats Telugu headlines:
  * 1. Strictly eliminates all inverted commas / quotes ('...', "...", ‘...’, “...”).
  * 2. Eliminates colon templates and multiple dots (..) to ensure ONE single continuous sentence.
- * 3. Ensures single integrated sentence flow without clause splitting.
+ * 3. Removes leading/trailing punctuation and trims whitespace.
+ * 4. Ensures single integrated sentence flow without clause splitting.
  */
 export function cleanTeluguHeadline(headline: string): string {
     if (!headline) return "";
     let clean = headline.trim();
 
-    // 1. Strip all residual quotes (single, double, curly quotes, backticks)
-    clean = clean.replace(/['"“‘”’`]/g, '');
+    // 0. Decode and strip HTML entities
+    clean = clean
+        .replace(/&zwnj;/gi, '')
+        .replace(/&zwj;/gi, '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&quot;/gi, '')
+        .replace(/&#39;|&apos;/gi, '')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&#\d+;/g, '')
+        .replace(/&#x[0-9a-fA-F]+;/gi, '');
+
+    // 1. Strip all residual quotes (single, double, curly quotes, backticks, backslashes)
+    clean = clean.replace(/['"“‘”’`\\/]/g, '');
 
     // 2. Replace colons, semicolons, and multiple dots (..) with a space to prevent splitting into two sentences
     clean = clean.replace(/\s*[:;]\s*/g, ' ');
     clean = clean.replace(/\.{2,}/g, ' ');
 
-    // 3. Normalize multiple whitespace and trim
+    // 3. Remove leading or trailing hyphens, dashes, commas, dots, colons, or spaces
+    clean = clean.replace(/^[\s.,:;!?'"“”‘’\-\—]+|[\s.,:;!?'"“”‘’\-\—]+$/g, '');
+
+    // 4. Normalize multiple whitespace and trim
     clean = clean.replace(/\s+/g, ' ').trim();
 
     return sanitizeTeluguText(clean);

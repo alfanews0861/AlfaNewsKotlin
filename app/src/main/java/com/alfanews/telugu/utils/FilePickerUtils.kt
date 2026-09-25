@@ -2,7 +2,9 @@ package com.alfanews.telugu.utils
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -30,7 +32,7 @@ fun rememberMediaPicker(onMediaSelected: (Uri?) -> Unit): () -> Unit {
     var tempImageUri by remember { mutableStateOf<Uri?>(null) }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent(),
+        contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri: Uri? -> onMediaSelected(uri) }
     )
 
@@ -54,9 +56,13 @@ fun rememberMediaPicker(onMediaSelected: (Uri?) -> Unit): () -> Unit {
                         leadingContent = { Icon(Icons.Default.CameraAlt, contentDescription = "Camera") },
                         modifier = Modifier.clickable {
                             showDialog = false
-                            val uri = createImageUri(context)
-                            tempImageUri = uri
-                            cameraLauncher.launch(uri)
+                            try {
+                                val uri = createImageUri(context)
+                                tempImageUri = uri
+                                cameraLauncher.launch(uri)
+                            } catch (e: Exception) {
+                                Log.e("FilePickerUtils", "Failed to launch camera", e)
+                            }
                         }
                     )
                     ListItem(
@@ -64,7 +70,13 @@ fun rememberMediaPicker(onMediaSelected: (Uri?) -> Unit): () -> Unit {
                         leadingContent = { Icon(Icons.Default.PhotoLibrary, contentDescription = "Gallery") },
                         modifier = Modifier.clickable {
                             showDialog = false
-                            imagePickerLauncher.launch("image/* video/*") // Allow both image and video
+                            try {
+                                imagePickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                                )
+                            } catch (e: Exception) {
+                                Log.e("FilePickerUtils", "Failed to launch media picker", e)
+                            }
                         }
                     )
                 }
@@ -84,10 +96,16 @@ fun rememberMediaPicker(onMediaSelected: (Uri?) -> Unit): () -> Unit {
 @Composable
 fun rememberImagePicker(onImageSelected: (Uri?) -> Unit): () -> Unit {
     val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent(),
+        contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri: Uri? -> onImageSelected(uri) }
     )
-    return { launcher.launch("image/*") }
+    return {
+        try {
+            launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        } catch (e: Exception) {
+            Log.e("FilePickerUtils", "Failed to launch image picker", e)
+        }
+    }
 }
 
 

@@ -100,13 +100,19 @@ fun LocalNewsFeedView(
             ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_COARSE_LOCATION
             ) == PackageManager.PERMISSION_GRANTED
         )
     }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val isGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         hasLocationPermission = isGranted
         if (isGranted) {
             viewModel.detectLocation(context, currentUser)
@@ -134,7 +140,12 @@ fun LocalNewsFeedView(
             if (hasLocationPermission) {
                 viewModel.detectLocation(context, currentUser)
             } else {
-                locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                locationPermissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                )
             }
         }
     }
@@ -342,29 +353,50 @@ fun LocalNewsFeedView(
                 }
             }
         } else if (news.isEmpty()) {
-            if (!loading) {
-                LaunchedEffect(Unit) {
-                    viewModel.loadNews(language, currentUser)
-                }
-            }
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+            if (loading) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(40.dp),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = stringResource(R.string.news_preparing),
-                        color = MaterialTheme.colorScheme.onBackground,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontFamily = Ramabhadra
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(40.dp),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = stringResource(R.string.news_preparing),
+                            color = MaterialTheme.colorScheme.onBackground,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontFamily = Ramabhadra
+                        )
+                    }
+                }
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.padding(32.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.no_news_in_district),
+                            color = MaterialTheme.colorScheme.onBackground,
+                            style = MaterialTheme.typography.bodyLarge,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            fontFamily = Ramabhadra
+                        )
+                        Button(
+                            onClick = { viewModel.loadNews(language, currentUser) }
+                        ) {
+                            Text(text = stringResource(R.string.retry), fontFamily = Ramabhadra)
+                        }
+                    }
                 }
             }
         } else {

@@ -71,6 +71,19 @@ fun ClassifiedsView(
     val gridAds = remember { mutableStateMapOf<Int, AdState>() }
     val detailAd = remember { mutableStateOf<AdState>(AdState.Loading) }
     val categoryAd = remember { mutableStateOf<AdState>(AdState.Loading) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            gridAds.values.forEach { state ->
+                if (state is AdState.Success) {
+                    state.nativeAd.destroy()
+                }
+            }
+            gridAds.clear()
+            (detailAd.value as? AdState.Success)?.nativeAd?.destroy()
+            (categoryAd.value as? AdState.Success)?.nativeAd?.destroy()
+        }
+    }
  
     fun loadAdForGrid(index: Int) {
         if (!gridAds.containsKey(index)) {
@@ -99,6 +112,7 @@ fun ClassifiedsView(
     // Load detail ad when switching to detail mode or changing selected ad
     LaunchedEffect(viewMode, selectedAd) {
         if (viewMode == ClassifiedsViewMode.DETAIL && selectedAd != null) {
+            (detailAd.value as? AdState.Success)?.nativeAd?.destroy()
             detailAd.value = AdState.Loading
             (context as? android.app.Activity)?.let { activity ->
                 AdMobService.loadNativeAd(activity) { ad ->
@@ -115,6 +129,7 @@ fun ClassifiedsView(
     // Load category banner native ad when in categories mode
     LaunchedEffect(viewMode) {
         if (viewMode == ClassifiedsViewMode.CATEGORIES) {
+            (categoryAd.value as? AdState.Success)?.nativeAd?.destroy()
             categoryAd.value = AdState.Loading
             (context as? android.app.Activity)?.let { activity ->
                 AdMobService.loadNativeAd(activity) { ad ->

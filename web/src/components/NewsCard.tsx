@@ -83,18 +83,35 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
   const isSkipped = useRef(true);
 
   const headline = language === Language.TELUGU ? (post.headline?.telugu || '') : (post.headline?.english || '');
-  const content = language === Language.TELUGU ? (post.content?.telugu || '') : (post.content?.english || '');
+  const rawContent = language === Language.TELUGU ? (post.content?.telugu || '') : (post.content?.english || '');
+
+  // 🛡️ Automatic Language Recovery: If Telugu is active but content is in English,
+  // recover Telugu text from fullStory.telugu first paragraph if available.
+  const content = React.useMemo(() => {
+    if (language === Language.TELUGU && post.fullStory?.telugu) {
+      const engCount = (rawContent.match(/[a-zA-Z]/g) || []).length;
+      const telCount = (rawContent.match(/[\u0C00-\u0C7F]/g) || []).length;
+      if (engCount > 25 && engCount > telCount * 2) {
+        const firstPara = post.fullStory.telugu.split(/\r?\n\r?\n/)[0].trim();
+        if (firstPara) return firstPara;
+      }
+    }
+    return rawContent;
+  }, [language, rawContent, post.fullStory?.telugu]);
 
   const fullStoryText = (language === Language.TELUGU ? post.fullStory?.telugu : post.fullStory?.english) || '';
   const fullStoryWords = fullStoryText.trim().split(/\s+/).filter(Boolean).length;
   const contentWords = content.trim().split(/\s+/).filter(Boolean).length;
   const isReporterPost = post.isReporter === true || (Boolean(post.reporter) && post.reporter?.name !== 'సిటిజెన్ పోస్ట్');
 
+  // 🌟 STRICT LENGTH GATE: షార్ట్ న్యూస్ కి, పూర్తి కథనానికి మధ్య కనీసం 80-100 పదాలు/అక్షరాల వ్యత్యాసం ఉండాలి.
+  // కేవలం పేరాలుగా విడదీసినా ఒకే టెక్స్ట్ అయితే బటన్ ఎట్టి పరిస్థితుల్లోనూ చూపించకూడదు.
   const hasSubstantialFullStory = Boolean(
     fullStoryText.trim() &&
-    fullStoryWords >= 80 &&
-    fullStoryText.trim() !== content.trim() &&
-    fullStoryText.length > (content.length + 60)
+    fullStoryWords >= 90 &&
+    fullStoryText.replace(/\s+/g, ' ').trim() !== content.replace(/\s+/g, ' ').trim() &&
+    fullStoryWords >= (contentWords + 30) &&
+    fullStoryText.length >= (content.length + 100)
   );
 
   const storyScrollRef = useRef<HTMLDivElement>(null);
@@ -841,11 +858,13 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
                 ))}
               </div>
 
-              {/* Verified Editorial Badge */}
-              <div className="mt-8 p-3 rounded-lg bg-white/5 border border-white/10 flex items-center gap-2 text-xs text-gray-400">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>{language === Language.TELUGU ? "ఆల్ఫా న్యూస్ ఎడిటోరియల్ సమగ్ర కథనం" : "Alfa News Verified Comprehensive Story"}</span>
-              </div>
+              {/* Verified Editorial Badge - Only shown when there is genuine full story */}
+              {hasSubstantialFullStory && (
+                <div className="mt-8 p-3 rounded-lg bg-white/5 border border-white/10 flex items-center gap-2 text-xs text-gray-400">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{language === Language.TELUGU ? "ఆల్ఫా న్యూస్ ఎడిటోరియల్ సమగ్ర కథనం" : "Alfa News Verified Comprehensive Story"}</span>
+                </div>
+              )}
 
               {/* WhatsApp-styled Share Button */}
               <button

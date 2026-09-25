@@ -160,14 +160,32 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
         english = headlineMap?.get("english")?.toString() ?: ""
     )
     val contentMap = data["content"] as? Map<*, *>
-    val content = Content(
-        telugu = contentMap?.get("telugu")?.toString() ?: data["content"]?.toString() ?: "",
-        english = contentMap?.get("english")?.toString() ?: ""
-    )
+    var rawTeluguContent = contentMap?.get("telugu")?.toString() ?: data["content"]?.toString() ?: ""
+    val englishContent = contentMap?.get("english")?.toString() ?: ""
+
     val fullStoryMap = data["fullStory"] as? Map<*, *>
+    val fullStoryTelugu = fullStoryMap?.get("telugu")?.toString() ?: data["fullStory"]?.toString() ?: rawTeluguContent
+    val fullStoryEnglish = fullStoryMap?.get("english")?.toString() ?: englishContent
+
+    // 🛡️ Guard: If rawTeluguContent accidentally contains English text, recover from fullStoryTelugu first paragraph
+    if (fullStoryTelugu.isNotBlank()) {
+        val engCount = rawTeluguContent.count { it in 'a'..'z' || it in 'A'..'Z' }
+        val telCount = rawTeluguContent.count { it in '\u0C00'..'\u0C7F' }
+        if (engCount > 25 && engCount > telCount * 2) {
+            val firstPara = fullStoryTelugu.split("\n\n").firstOrNull { it.isNotBlank() }?.trim()
+            if (!firstPara.isNullOrBlank()) {
+                rawTeluguContent = firstPara
+            }
+        }
+    }
+
+    val content = Content(
+        telugu = rawTeluguContent,
+        english = englishContent
+    )
     val fullStory = FullStory(
-        telugu = fullStoryMap?.get("telugu")?.toString() ?: data["fullStory"]?.toString() ?: content.telugu,
-        english = fullStoryMap?.get("english")?.toString() ?: content.english
+        telugu = fullStoryTelugu,
+        english = fullStoryEnglish
     )
     val mediaUrl = data["mediaUrl"]?.toString() ?: ""
     val mediaType = if (data["mediaType"]?.toString() == "VIDEO") MediaType.VIDEO else MediaType.IMAGE

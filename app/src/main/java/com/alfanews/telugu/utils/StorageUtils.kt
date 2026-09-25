@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import com.alfanews.telugu.services.FirebaseService
@@ -171,11 +172,17 @@ object StorageUtils {
 @Composable
 fun rememberMediaPicker(onMediaPicked: (Uri) -> Unit): () -> Unit {
     val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent(),
+        contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri: Uri? ->
             uri?.let { onMediaPicked(it) }
         }
     )
 
-    return { launcher.launch("image/* video/*") }
+    return {
+        try {
+            launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+        } catch (e: Exception) {
+            Log.e("StorageUtils", "Failed to launch visual media picker", e)
+        }
+    }
 }

@@ -24,6 +24,7 @@ import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.toBitmap
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -38,7 +39,10 @@ import kotlinx.coroutines.tasks.await
  */
 class MyFirebaseMessagingService : FirebaseMessagingService() {
 
-    private val serviceScope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        Log.e("MyFirebaseMsgService", "Unhandled coroutine error in FCM service", throwable)
+    }
+    private val serviceScope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO + exceptionHandler)
 
     /**
      * అప్లికేషన్‌లో ఉపయోగించే నోటిఫికేషన్ ఛానెల్‌ల రకాలు.
@@ -434,134 +438,138 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         // ✅ FIX: Image download తప్పనిసరిగా Background thread లో జరగాలి.
         // NetworkOnMainThreadException వల్ల notification అస్సలు రాకపోవడం fix అవుతుంది.
         serviceScope.launch {
-            val notificationId = (System.currentTimeMillis() and 0xfffffffL).toInt()
-            val newsId = Uri.parse(actionUrl ?: "").lastPathSegment ?: ""
+            try {
+                val notificationId = (System.currentTimeMillis() and 0xfffffffL).toInt()
+                val newsId = Uri.parse(actionUrl ?: "").lastPathSegment ?: ""
 
-            // 1. ప్రధాన క్లిక్ యాక్షన్: వార్తను చదవడం
-            val intent = if (!actionUrl.isNullOrEmpty()) {
-                Intent(Intent.ACTION_VIEW, Uri.parse(actionUrl))
-            } else {
-                Intent(this@MyFirebaseMessagingService, MainActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                }
-            }
-
-            // ✅ FIX: requestCode unique గా ఉండాలి, లేకపోతే PendingIntent override అవుతుంది
-            val pendingIntent = PendingIntent.getActivity(
-                this@MyFirebaseMessagingService,
-                notificationId,
-                intent,
-                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            // 2. షేర్ బటన్ యాక్షన్ (Android 12+ Notification Trampoline Safe)
-            val shareUrl = actionUrl ?: "https://play.google.com/store/apps/details?id=com.alfanews.telugu"
-            val shareText = "🔴 $title\n\n$shareUrl"
-            val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, shareText)
-                if (newsId.isNotEmpty()) {
-                    putExtra("newsId", newsId)
-                }
-            }
-            val chooserIntent = Intent.createChooser(sendIntent, "వార్తను షేర్ చేయండి")
-            val sharePendingIntent = PendingIntent.getActivity(
-                this@MyFirebaseMessagingService,
-                notificationId + 1, // unique requestCode
-                chooserIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            val GROUP_KEY_ALFA_NEWS = "com.alfanews.telugu.NEWS_NOTIFICATIONS"
-            val SUMMARY_NOTIFICATION_ID = 1001
-
-            val notificationBuilder = NotificationCompat.Builder(this@MyFirebaseMessagingService, channelId)
-                .setSmallIcon(R.drawable.app_icon_new)
-                .setContentTitle(title)
-                .setContentText(messageBody)
-                .setAutoCancel(true)
-                .setContentIntent(pendingIntent)
-                .setPriority(if (isSilent) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
-                .setGroup(GROUP_KEY_ALFA_NEWS)
-                .setOnlyAlertOnce(true)
-                .addAction(R.drawable.ic_launcher_foreground, "చదవండి", pendingIntent)
-                .addAction(R.drawable.ic_launcher_foreground, "షేర్ చేయండి", sharePendingIntent)
-
-            if (!isSilent) {
-                notificationBuilder.setDefaults(NotificationCompat.DEFAULT_ALL)
-            } else {
-                notificationBuilder.setSilent(true)
-            }
-
-            if (badgeCount > 0) {
-                notificationBuilder.setNumber(badgeCount)
-            }
-
-            // 🖼️ Rich Notification: ఫోటో ఉంటే Coil 3 ద్వారా Safe గా లోడ్ చేసి చూపిస్తాం (4s Timeout + Disk Cache)
-            if (!imageUrl.isNullOrBlank()) {
-                var bitmap: Bitmap? = null
-                try {
-                    withTimeoutOrNull(4000L) { // Max 4 seconds timeout so slow connections never hang notifications
-                        val request = ImageRequest.Builder(this@MyFirebaseMessagingService)
-                            .data(imageUrl)
-                            .size(1024, 512)
-                            .allowHardware(false) // Notification view support requires software Bitmaps
-                            .diskCachePolicy(CachePolicy.ENABLED)
-                            .memoryCachePolicy(CachePolicy.ENABLED)
-                            .build()
-                        val result = SingletonImageLoader.get(this@MyFirebaseMessagingService).execute(request)
-                        if (result is SuccessResult) {
-                            bitmap = result.image.toBitmap()
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e("MyFirebaseMsgService", "Coil image load failed, showing text-only notification", e)
-                }
-
-                if (bitmap != null) {
-                    notificationBuilder
-                        .setLargeIcon(bitmap)
-                        .setStyle(
-                            NotificationCompat.BigPictureStyle()
-                                .bigPicture(bitmap)
-                                .setBigContentTitle(title)
-                                .setSummaryText(messageBody)
-                                .bigLargeIcon(null as Bitmap?)
-                        )
+                // 1. ప్రధాన క్లిక్ యాక్షన్: వార్తను చదవడం
+                val intent = if (!actionUrl.isNullOrEmpty()) {
+                    Intent(Intent.ACTION_VIEW, Uri.parse(actionUrl))
                 } else {
-                    // Image load fail అయినా notification వస్తుంది
+                    Intent(this@MyFirebaseMessagingService, MainActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    }
+                }
+
+                // ✅ FIX: requestCode unique గా ఉండాలి, లేకపోతే PendingIntent override అవుతుంది
+                val pendingIntent = PendingIntent.getActivity(
+                    this@MyFirebaseMessagingService,
+                    notificationId,
+                    intent,
+                    PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+                )
+
+                // 2. షేర్ బటన్ యాక్షన్ (Android 12+ Notification Trampoline Safe)
+                val shareUrl = actionUrl ?: "https://play.google.com/store/apps/details?id=com.alfanews.telugu"
+                val shareText = "🔴 $title\n\n$shareUrl"
+                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, shareText)
+                    if (newsId.isNotEmpty()) {
+                        putExtra("newsId", newsId)
+                    }
+                }
+                val chooserIntent = Intent.createChooser(sendIntent, "వార్తను షేర్ చేయండి")
+                val sharePendingIntent = PendingIntent.getActivity(
+                    this@MyFirebaseMessagingService,
+                    notificationId + 1, // unique requestCode
+                    chooserIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+
+                val GROUP_KEY_ALFA_NEWS = "com.alfanews.telugu.NEWS_NOTIFICATIONS"
+                val SUMMARY_NOTIFICATION_ID = 1001
+
+                val notificationBuilder = NotificationCompat.Builder(this@MyFirebaseMessagingService, channelId)
+                    .setSmallIcon(R.drawable.app_icon_new)
+                    .setContentTitle(title)
+                    .setContentText(messageBody)
+                    .setAutoCancel(true)
+                    .setContentIntent(pendingIntent)
+                    .setPriority(if (isSilent) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
+                    .setGroup(GROUP_KEY_ALFA_NEWS)
+                    .setOnlyAlertOnce(true)
+                    .addAction(R.drawable.ic_launcher_foreground, "చదవండి", pendingIntent)
+                    .addAction(R.drawable.ic_launcher_foreground, "షేర్ చేయండి", sharePendingIntent)
+
+                if (!isSilent) {
+                    notificationBuilder.setDefaults(NotificationCompat.DEFAULT_ALL)
+                } else {
+                    notificationBuilder.setSilent(true)
+                }
+
+                if (badgeCount > 0) {
+                    notificationBuilder.setNumber(badgeCount)
+                }
+
+                // 🖼️ Rich Notification: ఫోటో ఉంటే Coil 3 ద్వారా Safe గా లోడ్ చేసి చూపిస్తాం (4s Timeout + Disk Cache)
+                if (!imageUrl.isNullOrBlank()) {
+                    var bitmap: Bitmap? = null
+                    try {
+                        withTimeoutOrNull(4000L) { // Max 4 seconds timeout so slow connections never hang notifications
+                            val request = ImageRequest.Builder(this@MyFirebaseMessagingService)
+                                .data(imageUrl)
+                                .size(1024, 512)
+                                .allowHardware(false) // Notification view support requires software Bitmaps
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .build()
+                            val result = SingletonImageLoader.get(this@MyFirebaseMessagingService).execute(request)
+                            if (result is SuccessResult) {
+                                bitmap = result.image.toBitmap()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("MyFirebaseMsgService", "Coil image load failed, showing text-only notification", e)
+                    }
+
+                    if (bitmap != null) {
+                        notificationBuilder
+                            .setLargeIcon(bitmap)
+                            .setStyle(
+                                NotificationCompat.BigPictureStyle()
+                                    .bigPicture(bitmap)
+                                    .setBigContentTitle(title)
+                                    .setSummaryText(messageBody)
+                                    .bigLargeIcon(null as Bitmap?)
+                            )
+                    } else {
+                        // Image load fail అయినా notification వస్తుంది
+                        notificationBuilder.setStyle(NotificationCompat.BigTextStyle().bigText(messageBody))
+                    }
+                } else {
+                    // చిత్రం లేకపోతే BigTextStyle ఉపయోగిస్తాం
                     notificationBuilder.setStyle(NotificationCompat.BigTextStyle().bigText(messageBody))
                 }
-            } else {
-                // చిత్రం లేకపోతే BigTextStyle ఉపయోగిస్తాం
-                notificationBuilder.setStyle(NotificationCompat.BigTextStyle().bigText(messageBody))
-            }
 
-            // పాత ఆండ్రాయిడ్ వెర్షన్ల కోసం ప్రయారిటీ సెట్ చేయడం
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-                val priority = if (channelId == AppNotificationChannel.BREAKING.id) {
-                    NotificationCompat.PRIORITY_HIGH
-                } else {
-                    NotificationCompat.PRIORITY_DEFAULT
+                // పాత ఆండ్రాయిడ్ వెర్షన్ల కోసం ప్రయారిటీ సెట్ చేయడం
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                    val priority = if (channelId == AppNotificationChannel.BREAKING.id) {
+                        NotificationCompat.PRIORITY_HIGH
+                    } else {
+                        NotificationCompat.PRIORITY_DEFAULT
+                    }
+                    notificationBuilder.priority = priority
                 }
-                notificationBuilder.priority = priority
-            }
 
-            // ✅ Main thread లో notify చేయాలి + గ్రూప్ సమ్మరీ నోటిఫికేషన్ ద్వారా ఒకే కార్డ్ లో బండిల్ చేయడం
-            withContext(Dispatchers.Main) {
-                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                notificationManager.notify(notificationId, notificationBuilder.build())
+                // ✅ Main thread లో notify చేయాలి + గ్రూప్ సమ్మరీ నోటిఫికేషన్ ద్వారా ఒకే కార్డ్ లో బండిల్ చేయడం
+                withContext(Dispatchers.Main) {
+                    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    notificationManager.notify(notificationId, notificationBuilder.build())
 
-                val summaryNotification = NotificationCompat.Builder(this@MyFirebaseMessagingService, channelId)
-                    .setSmallIcon(R.drawable.app_icon_new)
-                    .setContentTitle("Alfa News")
-                    .setContentText("తాజా వార్తలు")
-                    .setGroup(GROUP_KEY_ALFA_NEWS)
-                    .setGroupSummary(true)
-                    .setAutoCancel(true)
-                    .setOnlyAlertOnce(true)
-                    .build()
-                notificationManager.notify(SUMMARY_NOTIFICATION_ID, summaryNotification)
+                    val summaryNotification = NotificationCompat.Builder(this@MyFirebaseMessagingService, channelId)
+                        .setSmallIcon(R.drawable.app_icon_new)
+                        .setContentTitle("Alfa News")
+                        .setContentText("తాజా వార్తలు")
+                        .setGroup(GROUP_KEY_ALFA_NEWS)
+                        .setGroupSummary(true)
+                        .setAutoCancel(true)
+                        .setOnlyAlertOnce(true)
+                        .build()
+                    notificationManager.notify(SUMMARY_NOTIFICATION_ID, summaryNotification)
+                }
+            } catch (t: Throwable) {
+                Log.e("MyFirebaseMsgService", "Error posting notification: ${t.message}", t)
             }
         }
     }
