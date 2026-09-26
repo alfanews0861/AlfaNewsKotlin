@@ -305,7 +305,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             
             val newsRef = FirebaseService.db.collection("news")
             val districtAliases = Constants.getDistrictAliases(district)
-            val primaryAliases = districtAliases.take(30)
+            val primaryAliases = districtAliases.take(10) // 🚀 Max 10 items for Firestore whereIn!
             val districtMandals = Constants.MANDAL_DATA[district] ?: emptyList()
 
             // 🚀 INSTANT LOCAL CACHE FIRST: Show cached local news instantly (< 20ms) so user never sees blank screen
@@ -358,30 +358,29 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             var fetchedAny = false
             
             try {
-                var posts: List<NewsPost> = emptyList()
+                val fetchedMap = mutableMapOf<String, NewsPost>()
                 var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
 
                 try {
-                    // 🚀 STEP 1: Search by 'district' field directly with whereIn
+                    // 🚀 STEP 1: Search by 'district' field directly with whereIn (Max 10)
                     val query = newsRef
                         .whereEqualTo("approved", true)
                         .whereIn("district", primaryAliases)
                         .orderBy("timestamp", Query.Direction.DESCENDING)
                         .limit(pageSize.toLong())
                     
-                    val snap = kotlinx.coroutines.withTimeoutOrNull(3500L) {
+                    val snap = kotlinx.coroutines.withTimeoutOrNull(3000L) {
                         query.get().await()
                     }
                     if (snap != null && !snap.isEmpty) {
                         currentStage = LocalFeedStage.DISTRICT
                         snapshot = snap
-                        posts = withContext(Dispatchers.Default) {
-                            snap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
-                        }
+                        snap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                            .forEach { fetchedMap[it.id] = it }
                     }
 
-                    // 🚀 STEP 2: Fallback - Search by categories array with whereArrayContainsAny
-                    if (posts.isEmpty()) {
+                    // 🚀 STEP 2: Multi-source merge - Search by categories array with whereArrayContainsAny if fetched count is low
+                    if (fetchedMap.size < pageSize) {
                         val categoryAliases = districtAliases.take(10)
                         val fallbackQuery = newsRef
                             .whereEqualTo("approved", true)
@@ -393,16 +392,17 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             fallbackQuery.get().await()
                         }
                         if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {
-                            currentStage = LocalFeedStage.DISTRICT_CATEGORIES
-                            snapshot = fallbackSnapshot
-                            posts = withContext(Dispatchers.Default) {
-                                fallbackSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                            if (snapshot == null) {
+                                currentStage = LocalFeedStage.DISTRICT_CATEGORIES
+                                snapshot = fallbackSnapshot
                             }
+                            fallbackSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                                .forEach { fetchedMap[it.id] = it }
                         }
                     }
 
-                    // 🚀 STEP 3: Fallback - Search by mandals array with whereArrayContainsAny
-                    if (posts.isEmpty() && districtMandals.isNotEmpty()) {
+                    // 🚀 STEP 3: Multi-source merge - Search by mandals array if still low
+                    if (fetchedMap.size < pageSize && districtMandals.isNotEmpty()) {
                         val mandalQuery = newsRef
                             .whereEqualTo("approved", true)
                             .whereArrayContainsAny("categories", districtMandals.take(10))
@@ -413,11 +413,12 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             mandalQuery.get().await()
                         }
                         if (mandalSnapshot != null && !mandalSnapshot.isEmpty) {
-                            currentStage = LocalFeedStage.DISTRICT_MANDALS
-                            snapshot = mandalSnapshot
-                            posts = withContext(Dispatchers.Default) {
-                                mandalSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                            if (snapshot == null) {
+                                currentStage = LocalFeedStage.DISTRICT_MANDALS
+                                snapshot = mandalSnapshot
                             }
+                            mandalSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                                .forEach { fetchedMap[it.id] = it }
                         }
                     }
                 } catch (e: Exception) {
@@ -428,7 +429,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 _hasMore.value = snapshot != null && !snapshot.isEmpty
                 
                 val rankedPosts = withContext(Dispatchers.Default) {
-                    rankLocalNews(posts, district, currentUser)
+                    rankLocalNews(fetchedMap.values.toList(), district, currentUser)
                 }
 
                 val wasEmpty = _news.value.isEmpty()
@@ -490,7 +491,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                     when (currentStage) {
                         LocalFeedStage.DISTRICT -> {
-                            val primaryAliases = districtAliases.take(30)
+                            val primaryAliases = districtAliases.take(10) // 🚀 Max 10 items for Firestore whereIn
                             var q = newsRef
                                 .whereEqualTo("approved", true)
                                 .whereIn("district", primaryAliases)
@@ -624,20 +625,18 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         val lowerAliases = aliases.map { it.lowercase().trim() }
         val lowerMandals = mandals.map { it.lowercase().trim() }
 
-        // 1. Direct match or alias match on post.district
-        // We only allow if post.district explicitly matches the selected targetDistrict
         val postDist = post.district?.trim()
-        val isGenericDistrict = postDist.isNullOrBlank() || Constants.isUniversalOrGeneral(postDist) || postDist.equals("State", ignoreCase = true)
         
-        if (!isGenericDistrict) {
-             if (Constants.isDistrictMatch(postDist, targetDistrict)) {
-                 return true
-             } else {
-                 // If the post has a specific district assigned and it's NOT our target district, reject it outright!
-                 // This prevents a post explicitly marked as "Kadapa" from showing up in "Guntur" just because 
-                 // the location text happens to mention a word that is also a Guntur mandal.
-                 return false
-             }
+        // 1. Direct match or alias match on post.district
+        if (!postDist.isNullOrBlank() && Constants.isDistrictMatch(postDist, targetDistrict)) {
+            return true
+        }
+
+        // 2. Check if post.district is another SPECIFIC district (e.g. Kadapa vs Guntur)
+        val isGenericOrState = Constants.isStateOrGenericDistrict(postDist)
+        if (!isGenericOrState) {
+            // It is explicitly assigned to another specific district, reject outright
+            return false
         }
 
         // If the post is generic (e.g. State level), only allow it if it strongly mentions our district
