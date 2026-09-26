@@ -69,10 +69,22 @@ object Constants {
         "రాష్ట్రం", "వార్తలు", "News", "వినోదం", "లైఫ్ స్టైల్"
     )
 
+    val STATE_NAMES: Set<String> = setOf(
+        "Andhra Pradesh", "AndhraPradesh", "AP", "Andhra", "ఆంధ్రప్రదేశ్", "ఆంధ్ర ప్రదేశ్", "ఆంధ్ర", "AP News",
+        "Telangana", "Telangana State", "TS", "TG", "తెలంగాణ", "తెలంగాణా", "Telangana News", "State", "State News", "రాష్ట్రం"
+    )
+
     fun isUniversalOrGeneral(districtOrCategory: String?): Boolean {
         if (districtOrCategory.isNullOrBlank()) return false
         val clean = districtOrCategory.trim()
         return UNIVERSAL_IDENTIFIERS.any { it.equals(clean, ignoreCase = true) }
+    }
+
+    fun isStateOrGenericDistrict(district: String?): Boolean {
+        if (district.isNullOrBlank()) return true
+        val clean = district.trim()
+        if (isUniversalOrGeneral(clean)) return true
+        return STATE_NAMES.any { it.equals(clean, ignoreCase = true) }
     }
 
     fun mapDistrictToState(district: String?): String? {
