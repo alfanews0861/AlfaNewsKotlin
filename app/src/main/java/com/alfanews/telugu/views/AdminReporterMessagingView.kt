@@ -179,7 +179,6 @@ fun AdminReporterMessagingView(
                 }
             } catch (_: Exception) {}
         }
-    }
 
     // Filtered lists
     val filteredConversations = remember(conversations, searchQuery, selectedTab, conversationFilter) {

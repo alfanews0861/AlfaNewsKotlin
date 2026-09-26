@@ -363,7 +363,7 @@ fun ReporterManagementPageView(
                     )
                 }
                 
-                IconButton(onClick = { fetchData() }, modifier = Modifier.size(36.dp)) {
+                IconButton(onClick = { scope.launch { fetchData() } }, modifier = Modifier.size(36.dp)) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = "Refresh",
@@ -599,7 +599,7 @@ fun ReporterManagementPageView(
                                 app = app,
                                 currentUser = currentUser,
                                 occupiedMandalsMap = occupiedMandalsMap,
-                                onRefresh = { fetchData() }
+                                onRefresh = { scope.launch { fetchData() } }
                             )
                         }
                     }
@@ -613,7 +613,7 @@ fun ReporterManagementPageView(
                                 currentUser = currentUser,
                                 stats = reporterStats[reporter.id],
                                 occupiedMandalsMap = occupiedMandalsMap,
-                                onRefresh = { fetchData() },
+                                onRefresh = { scope.launch { fetchData() } },
                                 onCardClick = { reporterId ->
                                     if (onOpenProfile != null) {
                                         onOpenProfile(reporterId)
