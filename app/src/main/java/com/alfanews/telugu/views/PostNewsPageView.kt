@@ -284,10 +284,18 @@ fun PostNewsPageView(
                         }
                     }
                 } catch (e: Exception) {
+                    val isCancellation = e is kotlinx.coroutines.CancellationException ||
+                                         e.toString().contains("CancellationException") ||
+                                         e.message?.contains("left the composition") == true
+                    if (isCancellation) throw e as Throwable
                     statusMessage = context.getString(R.string.error)
                     Toast.makeText(context, context.getString(R.string.error_publishing_news, e.message ?: ""), Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
+                val isCancellation = e is kotlinx.coroutines.CancellationException ||
+                                     e.toString().contains("CancellationException") ||
+                                     e.message?.contains("left the composition") == true
+                if (isCancellation) throw e as Throwable
                 statusMessage = context.getString(R.string.error)
                 Toast.makeText(context, context.getString(R.string.error_publishing_news, e.message ?: ""), Toast.LENGTH_LONG).show()
             } finally {

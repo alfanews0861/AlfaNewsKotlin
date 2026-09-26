@@ -81,136 +81,135 @@ fun ReporterManagementPageView(
     var loading by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
 
-    fun fetchData() {
-        scope.launch {
-            loading = true
+    suspend fun fetchData() {
+        loading = true
+        try {
+            // Fetch occupied mandals map from users collection (active reporters)
+            val activeReporterUserIds = mutableSetOf<String>()
+            val activeReporterPhones = mutableSetOf<String>()
             try {
-                // Fetch occupied mandals map from users collection (active reporters)
-                val activeReporterUserIds = mutableSetOf<String>()
-                val activeReporterPhones = mutableSetOf<String>()
-                try {
-                    val usersSnap = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                        FirebaseService.db.collection("users")
-                            .whereIn("role", listOf("REPORTER", "reporter", "STAFF_REPORTER", "staff_reporter", "REGIONAL_INCHARGE", "regional_incharge", 2, 2.0, "2", 3, 3.0, "3"))
-                            .limit(300)
-                            .get().await()
-                    }
-                    if (usersSnap != null) {
-                        val occMap = mutableMapOf<String, String>()
-                        for (uDoc in usersSnap.documents) {
-                            val isSuspended = uDoc.getBoolean("suspended") == true || uDoc.getBoolean("previouslyDowngraded") == true
-                            val roleStr = uDoc.get("role")?.toString()?.uppercase() ?: ""
-                            if (isSuspended || roleStr == "SUBSCRIBER" || roleStr == "GUEST" || roleStr == "1" || roleStr == "1.0") continue
-
-                            activeReporterUserIds.add(uDoc.id)
-                            val phone = (uDoc.getString("phone") ?: "").filter { it.isDigit() }
-                            if (phone.length >= 10) {
-                                activeReporterPhones.add(phone.takeLast(10))
-                            }
-                            val dist = (uDoc.getString("district") ?: uDoc.getString("state_district") ?: "").trim()
-                            val mandal = (uDoc.getString("assignedMandal") ?: uDoc.getString("mandal") ?: uDoc.getString("mandalam") ?: uDoc.getString("selectedMandal") ?: "").trim()
-                            val name = uDoc.getString("name") ?: "Reporter"
-                            val phoneStr = uDoc.getString("phone") ?: ""
-                            if (dist.isNotEmpty() && mandal.isNotEmpty()) {
-                                val occupantInfo = if (phoneStr.isNotEmpty()) "$name ($phoneStr)" else name
-                                occMap["$dist|$mandal"] = occupantInfo
-                                occMap["${dist.trim()}|${mandal.trim()}"] = occupantInfo
-                                occMap["${dist.lowercase()}|${mandal.lowercase()}"] = occupantInfo
-                                occMap["${dist.replace(" ", "")}|${mandal.replace(" ", "")}"] = occupantInfo
-                            }
-                        }
-                        occupiedMandalsMap = occMap
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                val usersSnap = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                    FirebaseService.db.collection("users")
+                        .whereIn("role", listOf("REPORTER", "reporter", "STAFF_REPORTER", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0, "3"))
+                        .limit(300)
+                        .get().await()
                 }
+                if (usersSnap != null) {
+                    val occMap = mutableMapOf<String, String>()
+                    for (uDoc in usersSnap.documents) {
+                        val isSuspended = uDoc.getBoolean("suspended") == true || uDoc.getBoolean("previouslyDowngraded") == true
+                        val roleStr = uDoc.get("role")?.toString()?.uppercase() ?: ""
+                        if (isSuspended || roleStr == "SUBSCRIBER" || roleStr == "GUEST" || roleStr == "1" || roleStr == "1.0") continue
 
-                if (selectedTab == 0) {
-                    val rawSnapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
-                        FirebaseService.db.collection("reporter_applications")
-                            .get().await()
-                    }
-
-                    var fetchedList: List<Map<String, Any>> = rawSnapshot?.documents?.mapNotNull { doc ->
-                        val data = doc.data ?: return@mapNotNull null
-                        val currentStatus = data["status"]?.toString()?.uppercase() ?: "PENDING"
-                        val appUserId = (data["userId"] as? String)?.trim() ?: ""
-                        val appPhone = ((data["phone"] as? String) ?: (data["phoneNumber"] as? String) ?: "").filter { it.isDigit() }
-                        val clean10 = if (appPhone.length >= 10) appPhone.takeLast(10) else ""
-
-                        val isAlreadyReporter = (appUserId.isNotEmpty() && activeReporterUserIds.contains(appUserId)) ||
-                                                (clean10.isNotEmpty() && activeReporterPhones.contains(clean10))
-
-                        val mappedData = if (isAlreadyReporter && currentStatus != "JOINED" && currentStatus != "APPROVED" && currentStatus != "REJECTED") {
-                            // Sync Firestore in background
-                            scope.launch {
-                                try {
-                                    FirebaseService.db.collection("reporter_applications").document(doc.id).update(
-                                        mapOf("status" to "JOINED", "autoApproved" to true)
-                                    )
-                                } catch (e: Exception) {
-                                    // ignore
-                                }
-                            }
-                            data.plus("status" to "JOINED")
-                        } else {
-                            data
+                        activeReporterUserIds.add(uDoc.id)
+                        val phone = (uDoc.getString("phone") ?: "").filter { it.isDigit() }
+                        if (phone.length >= 10) {
+                            activeReporterPhones.add(phone.takeLast(10))
                         }
-                        mappedData.plus("id" to doc.id)
-                    } ?: emptyList()
-
-                    if (currentUser.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {
-                        fetchedList = fetchedList.filter { app ->
-                            val appDist = (app["district"] as? String) 
-                                ?: (app["state_district"] as? String) 
-                                ?: ""
-                            currentUser.assignedDistricts.any { assigned ->
-                                assigned.equals(appDist, ignoreCase = true) || appDist.isEmpty()
-                            }
+                        val dist = (uDoc.getString("district") ?: uDoc.getString("state_district") ?: "").trim()
+                        val mandal = (uDoc.getString("assignedMandal") ?: uDoc.getString("mandal") ?: uDoc.getString("mandalam") ?: uDoc.getString("selectedMandal") ?: "").trim()
+                        val name = uDoc.getString("name") ?: "Reporter"
+                        val phoneStr = uDoc.getString("phone") ?: ""
+                        if (dist.isNotEmpty() && mandal.isNotEmpty()) {
+                            val occupantInfo = if (phoneStr.isNotEmpty()) "$name ($phoneStr)" else name
+                            occMap["$dist|$mandal"] = occupantInfo
+                            occMap["${dist.trim()}|${mandal.trim()}"] = occupantInfo
+                            occMap["${dist.lowercase()}|${mandal.lowercase()}"] = occupantInfo
+                            occMap["${dist.replace(" ", "")}|${mandal.replace(" ", "")}"] = occupantInfo
                         }
                     }
-
-                    // Auto-delete pending applications older than 10 days (10 days = 864,000,000 ms)
-                    val TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000L
-                    val now = System.currentTimeMillis()
-
-                    val (validApps, expiredPendingApps) = fetchedList.partition { app ->
-                        val status = app["status"]?.toString()?.uppercase() ?: "PENDING"
-                        val isPending = status != "JOINED" && status != "APPROVED" && status != "REJECTED"
-                        if (!isPending) return@partition true
-
-                        val ts = app["timestamp"]
-                        val timeMs = when (ts) {
-                            is com.google.firebase.Timestamp -> ts.toDate().time
-                            is Number -> ts.toLong()
-                            is java.util.Date -> ts.time
-                            else -> 0L
-                        }
-                        val isExpired = timeMs > 0L && (now - timeMs) > TEN_DAYS_MS
-                        !isExpired
-                    }
-                    // Keep ALL valid non-expired applications in state (sort newest first)
-                    // Note: Expired pending applications (>10 days) are safely pruned by the backend scheduled cleanup job
-                    applications = validApps.sortedByDescending { doc ->
-                        val ts = doc["timestamp"]
-                        when (ts) {
-                            is com.google.firebase.Timestamp -> ts.toDate().time
-                            is Number -> ts.toLong()
-                            else -> 0L
-                        }
-                    }
-                } else {
-                    reportersViewModel.fetchReporters(currentUser)
-                    // ReportersViewModel updates the 'reporters' state flow, which we observe
+                    occupiedMandalsMap = occMap
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
-                if (selectedTab == 0) {
-                    Toast.makeText(context, "Error fetching applications: ${e.message}", Toast.LENGTH_LONG).show()
-                }
-            } finally {
-                if (selectedTab == 0) loading = false
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                android.util.Log.e("ReporterManagement", "Error fetching occupied mandals: ${e.message}")
             }
+
+            if (selectedTab == 0) {
+                val rawSnapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                    FirebaseService.db.collection("reporter_applications")
+                        .get().await()
+                }
+
+                var fetchedList: List<Map<String, Any>> = rawSnapshot?.documents?.mapNotNull { doc ->
+                    val data = doc.data ?: return@mapNotNull null
+                    val currentStatus = data["status"]?.toString()?.uppercase() ?: "PENDING"
+                    val appUserId = (data["userId"] as? String)?.trim() ?: ""
+                    val appPhone = ((data["phone"] as? String) ?: (data["phoneNumber"] as? String) ?: "").filter { it.isDigit() }
+                    val clean10 = if (appPhone.length >= 10) appPhone.takeLast(10) else ""
+
+                    val isAlreadyReporter = (appUserId.isNotEmpty() && activeReporterUserIds.contains(appUserId)) ||
+                                            (clean10.isNotEmpty() && activeReporterPhones.contains(clean10))
+
+                    val mappedData = if (isAlreadyReporter && currentStatus != "JOINED" && currentStatus != "APPROVED" && currentStatus != "REJECTED") {
+                        // Sync Firestore in background non-blocking IO scope
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            try {
+                                FirebaseService.db.collection("reporter_applications").document(doc.id).update(
+                                    mapOf("status" to "JOINED", "autoApproved" to true)
+                                )
+                            } catch (e: Exception) {
+                                // ignore
+                            }
+                        }
+                        data.plus("status" to "JOINED")
+                    } else {
+                        data
+                    }
+                    mappedData.plus("id" to doc.id)
+                } ?: emptyList()
+
+                if (currentUser.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {
+                    fetchedList = fetchedList.filter { app ->
+                        val appDist = (app["district"] as? String) 
+                            ?: (app["state_district"] as? String) 
+                            ?: ""
+                        currentUser.assignedDistricts.any { assigned ->
+                            assigned.equals(appDist, ignoreCase = true) || appDist.isEmpty()
+                        }
+                    }
+                }
+
+                // Auto-delete pending applications older than 10 days (10 days = 864,000,000 ms)
+                val TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000L
+                val now = System.currentTimeMillis()
+
+                val (validApps, expiredPendingApps) = fetchedList.partition { app ->
+                    val status = app["status"]?.toString()?.uppercase() ?: "PENDING"
+                    val isPending = status != "JOINED" && status != "APPROVED" && status != "REJECTED"
+                    if (!isPending) return@partition true
+
+                    val ts = app["timestamp"]
+                    val timeMs = when (ts) {
+                        is com.google.firebase.Timestamp -> ts.toDate().time
+                        is Number -> ts.toLong()
+                        is java.util.Date -> ts.time
+                        else -> 0L
+                    }
+                    val isExpired = timeMs > 0L && (now - timeMs) > TEN_DAYS_MS
+                    !isExpired
+                }
+                // Keep ALL valid non-expired applications in state (sort newest first)
+                applications = validApps.sortedByDescending { doc ->
+                    val ts = doc["timestamp"]
+                    when (ts) {
+                        is com.google.firebase.Timestamp -> ts.toDate().time
+                        is Number -> ts.toLong()
+                        else -> 0L
+                    }
+                }
+            } else {
+                reportersViewModel.fetchReporters(currentUser)
+                // ReportersViewModel updates the 'reporters' state flow, which we observe
+            }
+        } catch (e: Exception) {
+            val isCancellation = e is kotlinx.coroutines.CancellationException || 
+                                 e.toString().contains("CancellationException") || 
+                                 e.message?.contains("left the composition") == true
+            if (isCancellation) throw e as Throwable
+            android.util.Log.e("ReporterManagement", "Error fetching applications: ${e.message}")
+        } finally {
+            loading = false
         }
     }
 
@@ -413,7 +412,9 @@ fun ReporterManagementPageView(
                                         fetchData()
                                     }
                                 } catch (e: Exception) {
-                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    if (e !is kotlinx.coroutines.CancellationException) {
+                                        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
                                 } finally {
                                     isCleaningDuplicates = false
                                 }
@@ -522,7 +523,9 @@ fun ReporterManagementPageView(
                                 Toast.makeText(context, "Error: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
                             }
                         } catch (e: Exception) {
-                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            if (e !is kotlinx.coroutines.CancellationException) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
                         } finally {
                             isBackfilling = false
                         }
@@ -819,7 +822,9 @@ fun ApplicationCard(
                                     onRefresh()
                                 }
                             } catch (e: Exception) {
-                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                if (e !is kotlinx.coroutines.CancellationException) {
+                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
                             } finally {
                                 isProcessing = false
                             }
@@ -842,7 +847,9 @@ fun ApplicationCard(
                                 Toast.makeText(context, "తిరస్కరించబడింది (Rejected)", Toast.LENGTH_SHORT).show()
                                 onRefresh()
                             } catch (e: Exception) {
-                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                if (e !is kotlinx.coroutines.CancellationException) {
+                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
                             } finally {
                                 isProcessing = false
                             }
@@ -1030,7 +1037,9 @@ fun ReporterListCard(
                                             Toast.makeText(context, "${reporter.name} సబ్‌స్క్రైబర్‌గా మార్చబడ్డారు.", Toast.LENGTH_SHORT).show()
                                             onRefresh()
                                         } catch (e: Exception) {
-                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            if (e !is kotlinx.coroutines.CancellationException) {
+                                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            }
                                         }
                                     }
                                 }
@@ -1053,7 +1062,9 @@ fun ReporterListCard(
                                                 Toast.makeText(context, "${reporter.name} ఖాతా తొలగించబడింది.", Toast.LENGTH_SHORT).show()
                                                 onRefresh()
                                             } catch (e: Exception) {
-                                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                if (e !is kotlinx.coroutines.CancellationException) {
+                                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                }
                                             }
                                         }
                                     }
@@ -1114,7 +1125,9 @@ fun ReporterListCard(
                                 isEditingLocation = false
                                 onRefresh()
                             } catch (e: Exception) {
-                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                if (e !is kotlinx.coroutines.CancellationException) {
+                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
                             } finally {
                                 isSaving = false
                             }

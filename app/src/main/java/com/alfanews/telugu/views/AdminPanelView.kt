@@ -91,6 +91,7 @@ fun AdminPanelView(
         authUser?.phoneNumber?.contains("9173811009") == true ||
         authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
     val effectiveRole = if (isAdminUser) UserRole.ADMIN else user.role
+    val effectiveUser = remember(user, effectiveRole) { user.copy(role = effectiveRole) }
 
     val accessiblePages = when (effectiveRole) {
         UserRole.GUEST, UserRole.SUBSCRIBER -> allPages.filter { it.id == "profile" }
@@ -159,7 +160,9 @@ fun AdminPanelView(
                 activePage = "profile"
                 Toast.makeText(context, context.getString(R.string.profile_updated), Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
-                Toast.makeText(context, context.getString(R.string.profile_update_failed, e.message ?: ""), Toast.LENGTH_LONG).show()
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    Toast.makeText(context, context.getString(R.string.profile_update_failed, e.message ?: ""), Toast.LENGTH_LONG).show()
+                }
             } finally {
                 savingProfile = false
             }
@@ -200,7 +203,7 @@ fun AdminPanelView(
                         onBack = { activePage = "profile" }
                     )
                     "manageSurveys" -> ManageSurveysPageView(
-                        currentUser = user,
+                        currentUser = effectiveUser,
                         language = language,
                         showTitle = false,
                         onNavigateToCreateSurvey = {
@@ -215,7 +218,6 @@ fun AdminPanelView(
                         }
                     )
                     "messages" -> {
-                        val effectiveUser = user.copy(role = effectiveRole)
                         if (effectiveRole == UserRole.ADMIN || effectiveRole == UserRole.EDITOR || effectiveRole == UserRole.NEWS_DESK || effectiveRole == UserRole.REGIONAL_INCHARGE) {
                             AdminReporterMessagingView(
                                 currentUser = effectiveUser,
@@ -233,7 +235,7 @@ fun AdminPanelView(
                         }
                     }
                     "post" -> PostNewsPageView(
-                        user = user,
+                        user = effectiveUser,
                         postToEdit = editingPost,
                         onActionComplete = { postId -> 
                             editingPost = null
@@ -244,7 +246,7 @@ fun AdminPanelView(
                         }
                     )
                     "survey" -> PostSurveyPageView(
-                        user = user,
+                        user = effectiveUser,
                         surveyToEdit = editingSurvey,
                         onActionComplete = {
                             editingSurvey = null
@@ -260,19 +262,19 @@ fun AdminPanelView(
                         onViewPost = { post ->
                             onPostPublished(post.id)
                         },
-                        currentUser = user,
+                        currentUser = effectiveUser,
                         showTitle = false
                     )
                     "manageReporters" -> ReporterManagementPageView(
-                        currentUser = user,
+                        currentUser = effectiveUser,
                         onOpenChat = { repId ->
                             chatTargetReporterId = repId
                             activePage = "messages"
                             onPageChange("messages")
                         }
                     )
-                    "ads" -> AdsManagerPageView(currentUser = user, showTitle = false)
-                    "manageUsers" -> UserManagementPageView(currentUser = user)
+                    "ads" -> AdsManagerPageView(currentUser = effectiveUser, showTitle = false)
+                    "manageUsers" -> UserManagementPageView(currentUser = effectiveUser)
                     "adminNotify" -> AdminNotificationsPageView(showTitle = false)
                     "appConfig" -> AppConfigPageView()
                     "affiliate_settings" -> AffiliateSettingsView(onBack = { activePage = "profile" }, showTitle = false)

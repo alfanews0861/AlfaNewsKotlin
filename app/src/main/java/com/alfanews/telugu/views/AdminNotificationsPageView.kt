@@ -70,15 +70,17 @@ fun AdminNotificationsPageView(showTitle: Boolean = true) {
 
 
     LaunchedEffect(Unit) {
-        scope.launch {
-            loadingPosts = true
-            try {
-                val snapshot = FirebaseService.db.collection("news")
+        loadingPosts = true
+        try {
+            val snapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                FirebaseService.db.collection("news")
                     .orderBy("timestamp", Query.Direction.DESCENDING)
                     .limit(100)
                     .get()
                     .await()
+            }
 
+            if (snapshot != null) {
                 latestPosts = snapshot.documents.mapNotNull { doc ->
                     val data = doc.data ?: return@mapNotNull null
                     val headlineData = data["headline"] as? Map<*, *> ?: emptyMap<Any, Any>()
@@ -94,11 +96,15 @@ fun AdminNotificationsPageView(showTitle: Boolean = true) {
                         categories = listOf(data["category"] as? String ?: "")
                     )
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                loadingPosts = false
             }
+        } catch (e: Exception) {
+            val isCancellation = e is kotlinx.coroutines.CancellationException || 
+                                 e.toString().contains("CancellationException") || 
+                                 e.message?.contains("left the composition") == true
+            if (isCancellation) throw e as Throwable
+            android.util.Log.e("AdminNotifications", "Error loading posts: ${e.message}")
+        } finally {
+            loadingPosts = false
         }
     }
 
@@ -157,7 +163,12 @@ fun AdminNotificationsPageView(showTitle: Boolean = true) {
                     ).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "లోపం: ${e.message}", Toast.LENGTH_SHORT).show()
+                val isCancellation = e is kotlinx.coroutines.CancellationException || 
+                                     e.toString().contains("CancellationException") || 
+                                     e.message?.contains("left the composition") == true
+                if (!isCancellation) {
+                    Toast.makeText(context, "లోపం: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             } finally {
                 isSending = false
             }

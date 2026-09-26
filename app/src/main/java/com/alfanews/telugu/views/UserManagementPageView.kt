@@ -53,93 +53,96 @@ fun UserManagementPageView(currentUser: User) {
         }
     }
 
-    fun refreshUsers() {
-        scope.launch {
-            loading = true
+    suspend fun refreshUsers() {
+        loading = true
+        try {
+            // Fetch occupied mandals map for reporters
             try {
-                // Fetch occupied mandals map for reporters
-                try {
-                    val repSnap = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                        FirebaseService.db.collection("users")
-                            .whereIn("role", listOf("REPORTER", "reporter", "STAFF_REPORTER", "staff_reporter", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0, "3"))
-                            .limit(300)
-                            .get().await()
-                    }
-                    val occMap = mutableMapOf<String, String>()
-                    for (uDoc in (repSnap?.documents ?: emptyList())) {
-                        val isSuspended = uDoc.getBoolean("suspended") == true || uDoc.getBoolean("previouslyDowngraded") == true
-                        val roleStr = uDoc.get("role")?.toString()?.uppercase() ?: ""
-                        if (isSuspended || roleStr == "SUBSCRIBER" || roleStr == "GUEST" || roleStr == "1" || roleStr == "1.0") continue
-
-                        val dist = (uDoc.getString("district") ?: uDoc.getString("state_district") ?: "").trim()
-                        val mandal = (uDoc.getString("assignedMandal") ?: uDoc.getString("mandal") ?: uDoc.getString("mandalam") ?: uDoc.getString("selectedMandal") ?: "").trim()
-                        val name = uDoc.getString("name") ?: "Reporter"
-                        val phoneStr = uDoc.getString("phone") ?: ""
-                        if (dist.isNotEmpty() && mandal.isNotEmpty()) {
-                            val occupantInfo = if (phoneStr.isNotEmpty()) "$name ($phoneStr)" else name
-                            occMap["$dist|$mandal"] = occupantInfo
-                            occMap["${dist.trim()}|${mandal.trim()}"] = occupantInfo
-                            occMap["${dist.lowercase()}|${mandal.lowercase()}"] = occupantInfo
-                            occMap["${dist.replace(" ", "")}|${mandal.replace(" ", "")}"] = occupantInfo
-                        }
-                    }
-                    occupiedMandalsMap = occMap
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                val repSnap = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                    FirebaseService.db.collection("users")
+                        .whereIn("role", listOf("REPORTER", "reporter", "STAFF_REPORTER", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0, "3"))
+                        .limit(300)
+                        .get().await()
                 }
+                val occMap = mutableMapOf<String, String>()
+                for (uDoc in (repSnap?.documents ?: emptyList())) {
+                    val isSuspended = uDoc.getBoolean("suspended") == true || uDoc.getBoolean("previouslyDowngraded") == true
+                    val roleStr = uDoc.get("role")?.toString()?.uppercase() ?: ""
+                    if (isSuspended || roleStr == "SUBSCRIBER" || roleStr == "GUEST" || roleStr == "1" || roleStr == "1.0") continue
 
-                // ✅ Optimized: Role-based queries instead of fetching all users
-                val queries = when (currentUser.role) {
-                    UserRole.EDITOR -> {
-                        val subscribers = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                            FirebaseService.db.collection("users")
-                                .whereEqualTo("role", "SUBSCRIBER")
-                                .limit(100)
-                                .get().await()
-                        }?.documents?.mapNotNull { doc -> doc.toUserObject() } ?: emptyList()
-
-                        val reporters = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                            FirebaseService.db.collection("users")
-                                .whereEqualTo("role", "REPORTER")
-                                .limit(100)
-                                .get().await()
-                        }?.documents?.mapNotNull { doc -> doc.toUserObject() } ?: emptyList()
-
-                        subscribers + reporters.filter { it.promotedBy == currentUser.id || it.promotedBy.isNullOrBlank() || it.promotedBy == "ADMIN" }
-                    }
-                    UserRole.REGIONAL_INCHARGE -> {
-                        val roles = listOf("SUBSCRIBER", "REPORTER")
-                        roles.flatMap { role ->
-                            kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                                FirebaseService.db.collection("users")
-                                    .whereEqualTo("role", role)
-                                    .limit(100)
-                                    .get().await()
-                            }?.documents?.mapNotNull { doc ->
-                                doc.toUserObject()
-                            } ?: emptyList()
-                        }.filter { u -> u.district != null && currentUser.assignedDistricts.contains(u.district) }
-                    }
-                    else -> {
-                        kotlinx.coroutines.withTimeoutOrNull(5000L) {
-                            FirebaseService.db.collection("users")
-                                .limit(200)
-                                .get()
-                                .await()
-                        }?.documents?.mapNotNull { doc -> doc.toUserObject() }
-                            ?.sortedBy { it.name.lowercase() } ?: emptyList()
+                    val dist = (uDoc.getString("district") ?: uDoc.getString("state_district") ?: "").trim()
+                    val mandal = (uDoc.getString("assignedMandal") ?: uDoc.getString("mandal") ?: uDoc.getString("mandalam") ?: uDoc.getString("selectedMandal") ?: "").trim()
+                    val name = uDoc.getString("name") ?: "Reporter"
+                    val phoneStr = uDoc.getString("phone") ?: ""
+                    if (dist.isNotEmpty() && mandal.isNotEmpty()) {
+                        val occupantInfo = if (phoneStr.isNotEmpty()) "$name ($phoneStr)" else name
+                        occMap["$dist|$mandal"] = occupantInfo
+                        occMap["${dist.trim()}|${mandal.trim()}"] = occupantInfo
+                        occMap["${dist.lowercase()}|${mandal.lowercase()}"] = occupantInfo
+                        occMap["${dist.replace(" ", "")}|${mandal.replace(" ", "")}"] = occupantInfo
                     }
                 }
-
-                users = queries
-                editors = queries.filter { it.role == UserRole.EDITOR }
-                filteredUsers = applyFilter(queries, searchTerm)
-
+                occupiedMandalsMap = occMap
             } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                loading = false
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                android.util.Log.e("UserManagement", "Error loading occupied mandals: ${e.message}")
             }
+
+            // ✅ Optimized: Role-based queries instead of fetching all users
+            val queries = when (currentUser.role) {
+                UserRole.EDITOR -> {
+                    val subscribers = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                        FirebaseService.db.collection("users")
+                            .whereEqualTo("role", "SUBSCRIBER")
+                            .limit(100)
+                            .get().await()
+                    }?.documents?.mapNotNull { doc -> doc.toUserObject() } ?: emptyList()
+
+                    val reporters = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                        FirebaseService.db.collection("users")
+                            .whereEqualTo("role", "REPORTER")
+                            .limit(100)
+                            .get().await()
+                    }?.documents?.mapNotNull { doc -> doc.toUserObject() } ?: emptyList()
+
+                    subscribers + reporters.filter { it.promotedBy == currentUser.id || it.promotedBy.isNullOrBlank() || it.promotedBy == "ADMIN" }
+                }
+                UserRole.REGIONAL_INCHARGE -> {
+                    val roles = listOf("SUBSCRIBER", "REPORTER")
+                    roles.flatMap { role ->
+                        kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                            FirebaseService.db.collection("users")
+                                .whereEqualTo("role", role)
+                                .limit(100)
+                                .get().await()
+                        }?.documents?.mapNotNull { doc ->
+                            doc.toUserObject()
+                        } ?: emptyList()
+                    }.filter { u -> u.district != null && currentUser.assignedDistricts.contains(u.district) }
+                }
+                else -> {
+                    kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                        FirebaseService.db.collection("users")
+                            .limit(200)
+                            .get()
+                            .await()
+                    }?.documents?.mapNotNull { doc -> doc.toUserObject() }
+                        ?.sortedBy { it.name.lowercase() } ?: emptyList()
+                }
+            }
+
+            users = queries
+            editors = queries.filter { it.role == UserRole.EDITOR }
+            filteredUsers = applyFilter(queries, searchTerm)
+
+        } catch (e: Exception) {
+            val isCancellation = e is kotlinx.coroutines.CancellationException || 
+                                 e.toString().contains("CancellationException") || 
+                                 e.message?.contains("left the composition") == true
+            if (isCancellation) throw e as Throwable
+            android.util.Log.e("UserManagement", "Error refreshing users: ${e.message}")
+        } finally {
+            loading = false
         }
     }
 

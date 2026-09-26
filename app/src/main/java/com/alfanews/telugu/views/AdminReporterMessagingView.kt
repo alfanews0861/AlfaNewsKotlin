@@ -81,7 +81,7 @@ fun AdminReporterMessagingView(
     // Real-time conversations list listener
     DisposableEffect(Unit) {
         val convRef = FirebaseService.db.collection("reporter_conversations")
-            .orderBy("updatedAt", Query.Direction.DESCENDING)
+            .limit(200)
 
         val listener: ListenerRegistration = convRef.addSnapshotListener { snapshot, error ->
             loading = false
@@ -93,12 +93,12 @@ fun AdminReporterMessagingView(
                 val list = snapshot.documents.mapNotNull { doc ->
                     try {
                         val data = doc.data ?: return@mapNotNull null
-                        val updatedTs = when (val t = data["updatedAt"] ?: data["lastMessageTime"]) {
+                        val updatedTs = when (val t = data["updatedAt"] ?: data["lastMessageTime"] ?: data["timestamp"]) {
                             is Timestamp -> t.toDate().time
                             is Number -> t.toLong()
                             else -> 0L
                         }
-                        val lastMsgTs = when (val t = data["lastMessageTime"]) {
+                        val lastMsgTs = when (val t = data["lastMessageTime"] ?: data["timestamp"]) {
                             is Timestamp -> t.toDate().time
                             is Number -> t.toLong()
                             else -> 0L
@@ -122,7 +122,7 @@ fun AdminReporterMessagingView(
                     } catch (_: Exception) {
                         null
                     }
-                }
+                }.sortedByDescending { it.updatedAt.coerceAtLeast(it.lastMessageTime) }
                 conversations = list
             }
         }
@@ -134,29 +134,29 @@ fun AdminReporterMessagingView(
 
     // Fetch all active reporters for comprehensive picker & fallback
     LaunchedEffect(Unit) {
-        scope.launch {
-            try {
-                val snapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
-                    FirebaseService.db.collection("users")
-                        .whereIn("role", listOf("REPORTER", "reporter", "STAFF_REPORTER", "staff_reporter", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0, "3"))
-                        .get()
-                        .await()
-                }
+        try {
+            val snapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                FirebaseService.db.collection("users")
+                    .whereIn("role", listOf("REPORTER", "reporter", "STAFF_REPORTER", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0, "3"))
+                    .limit(500)
+                    .get()
+                    .await()
+            }
 
-                if (snapshot != null) {
-                    allReporters = snapshot.documents.mapNotNull { doc ->
-                        val data = doc.data ?: return@mapNotNull null
-                        User(
-                            id = doc.id,
-                            name = data["name"] as? String ?: "Reporter",
-                            phone = data["phone"] as? String,
-                            district = data["district"] as? String,
-                            assignedMandal = data["assignedMandal"] as? String ?: data["mandal"] as? String,
-                            photoUrl = data["photoUrl"] as? String,
-                            points = (data["points"] as? Number)?.toInt() ?: 0
-                        )
-                    }
+            if (snapshot != null) {
+                allReporters = snapshot.documents.mapNotNull { doc ->
+                    val data = doc.data ?: return@mapNotNull null
+                    User(
+                        id = doc.id,
+                        name = data["name"] as? String ?: "Reporter",
+                        phone = data["phone"] as? String,
+                        district = data["district"] as? String,
+                        assignedMandal = data["assignedMandal"] as? String ?: data["mandal"] as? String,
+                        photoUrl = data["photoUrl"] as? String,
+                        points = (data["points"] as? Number)?.toInt() ?: 0
+                    )
                 }
+            }
 
                 // If initial reporter ID was passed, open their chat directly
                 if (!initialReporterId.isNullOrBlank()) {
@@ -270,7 +270,12 @@ fun AdminReporterMessagingView(
                                                 Toast.makeText(context, "స్కాన్ లోపం: ${res.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
                                             }
                                         } catch (e: Exception) {
-                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            val isCancellation = e is kotlinx.coroutines.CancellationException || 
+                                                                 e.toString().contains("CancellationException") || 
+                                                                 e.message?.contains("left the composition") == true
+                                            if (!isCancellation) {
+                                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            }
                                         } finally {
                                             isRunningInactivityScan = false
                                         }
@@ -553,7 +558,12 @@ fun AdminReporterMessagingView(
                                     Toast.makeText(context, "లోపం: ${res.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
                                 }
                             } catch (e: Exception) {
-                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                val isCancellation = e is kotlinx.coroutines.CancellationException || 
+                                                     e.toString().contains("CancellationException") || 
+                                                     e.message?.contains("left the composition") == true
+                                if (!isCancellation) {
+                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
                             } finally {
                                 isBroadcasting = false
                             }
@@ -832,33 +842,36 @@ fun AdminOneOnOneChatView(
 
     val reporterId = reporter.reporterId
 
-    // Real-time listener for messages
-    DisposableEffect(reporterId) {
-        // Reset unread count for Admin on open and batch mark incoming unread messages as read
-        scope.launch {
-            try {
-                FirebaseService.db.collection("reporter_conversations")
-                    .document(reporterId)
-                    .update("unreadCountForAdmin", 0)
-                    .await()
+    // Reset unread count for Admin on open and batch mark incoming unread messages as read
+    LaunchedEffect(reporterId) {
+        try {
+            FirebaseService.db.collection("reporter_conversations")
+                .document(reporterId)
+                .update("unreadCountForAdmin", 0)
+                .await()
 
-                val unreadSnap = FirebaseService.db.collection("reporter_conversations")
+            val unreadSnap = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                FirebaseService.db.collection("reporter_conversations")
                     .document(reporterId)
                     .collection("messages")
                     .whereEqualTo("read", false)
                     .get()
                     .await()
+            }
 
-                val unreadMsgs = unreadSnap.documents.filter { (it.getString("senderRole") ?: "") != "ADMIN" }
-                if (unreadMsgs.isNotEmpty()) {
-                    val batch = FirebaseService.db.batch()
-                    for (doc in unreadMsgs) {
-                        batch.update(doc.reference, "read", true)
-                    }
-                    batch.commit().await()
+            val unreadMsgs = unreadSnap?.documents?.filter { (it.getString("senderRole") ?: "") != "ADMIN" } ?: emptyList()
+            if (unreadMsgs.isNotEmpty()) {
+                val batch = FirebaseService.db.batch()
+                for (doc in unreadMsgs) {
+                    batch.update(doc.reference, "read", true)
                 }
-            } catch (_: Exception) {}
-        }
+                batch.commit().await()
+            }
+        } catch (_: Exception) {}
+    }
+
+    // Real-time listener for messages
+    DisposableEffect(reporterId) {
 
         val messagesRef = FirebaseService.db.collection("reporter_conversations")
             .document(reporterId)
@@ -931,7 +944,12 @@ fun AdminOneOnOneChatView(
                     Toast.makeText(context, "సందేశం పంపడం విఫలమైంది: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                val isCancellation = e is kotlinx.coroutines.CancellationException || 
+                                     e.toString().contains("CancellationException") || 
+                                     e.message?.contains("left the composition") == true
+                if (!isCancellation) {
+                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             } finally {
                 isSending = false
             }
