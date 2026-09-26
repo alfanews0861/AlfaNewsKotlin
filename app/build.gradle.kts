@@ -70,11 +70,37 @@ android {
                 properties.load(FileInputStream(keystorePropertiesFile))
             }
 
-            val storeFilePath = properties.getProperty("ALFANEWS_KEYSTORE_FILE") ?: System.getenv("RELEASE_STORE_FILE")
-            storeFile = storeFilePath?.let { file(it) }
-            storePassword = properties.getProperty("ALFANEWS_KEYSTORE_PASSWORD") ?: System.getenv("RELEASE_STORE_PASSWORD")
-            keyAlias = properties.getProperty("ALFANEWS_KEY_ALIAS") ?: System.getenv("RELEASE_KEY_ALIAS")
-            keyPassword = properties.getProperty("ALFANEWS_KEY_PASSWORD") ?: System.getenv("RELEASE_KEY_PASSWORD")
+            val storeFilePath = properties.getProperty("ALFANEWS_KEYSTORE_FILE")
+                ?: System.getenv("RELEASE_STORE_FILE")
+                ?: "release.jks"
+
+            var possibleFile = file(storeFilePath)
+            if (!possibleFile.exists()) {
+                possibleFile = project.rootProject.file(storeFilePath)
+            }
+            if (!possibleFile.exists()) {
+                possibleFile = file("release.jks")
+            }
+            if (!possibleFile.exists()) {
+                possibleFile = project.rootProject.file("app/release.jks")
+            }
+            if (!possibleFile.exists()) {
+                possibleFile = project.rootProject.file("release.jks")
+            }
+
+            if (possibleFile.exists()) {
+                storeFile = possibleFile
+            }
+
+            storePassword = properties.getProperty("ALFANEWS_KEYSTORE_PASSWORD")
+                ?: System.getenv("RELEASE_STORE_PASSWORD")
+                ?: System.getenv("RELEASE_KEYSTORE_PASSWORD")
+
+            keyAlias = properties.getProperty("ALFANEWS_KEY_ALIAS")
+                ?: System.getenv("RELEASE_KEY_ALIAS")
+
+            keyPassword = properties.getProperty("ALFANEWS_KEY_PASSWORD")
+                ?: System.getenv("RELEASE_KEY_PASSWORD")
             
             enableV1Signing = true
             enableV2Signing = true
