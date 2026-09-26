@@ -76,8 +76,6 @@ fun ReporterProfileView(
     var posts by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var selectedPostId by remember { mutableStateOf<String?>(null) }
-    
-    val scope = rememberCoroutineScope()
 
     // Handle system back button properly
     BackHandler {

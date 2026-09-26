@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateInitialGreeting = generateInitialGreeting;
-exports.processVoiceCallTurn = processVoiceCallTurn;
+exports.processVoiceCallTurn = exports.generateInitialGreeting = void 0;
 const genai_1 = require("@google/genai");
 const utils_1 = require("./utils");
 const types_1 = require("./types");
@@ -22,6 +21,7 @@ function generateInitialGreeting(callType, context) {
             return `నమస్కారం, ఆల్ఫా న్యూస్ హెల్ప్‌లైన్‌కు స్వాగతం. నేను ఆల్ఫా న్యూస్ వర్చువల్ అసిస్టెంట్‌ని. మీకు ఏ విధంగా సహాయపడగలను అండీ?`;
     }
 }
+exports.generateInitialGreeting = generateInitialGreeting;
 /**
  * Handles a single conversation turn between user and AI during an interactive phone call.
  */
@@ -128,3 +128,4 @@ ${formattedHistory}
         }
     };
 }
+exports.processVoiceCallTurn = processVoiceCallTurn;

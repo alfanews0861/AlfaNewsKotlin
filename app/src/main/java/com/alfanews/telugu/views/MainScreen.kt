@@ -124,15 +124,13 @@ fun MainScreen(
 
     LaunchedEffect(isUpdateDownloaded) {
         if (isUpdateDownloaded) {
-            scope.launch {
-                val result = snackbarHostState.showSnackbar(
-                    message = context.getString(R.string.update_downloaded),
-                    actionLabel = context.getString(R.string.update_now),
-                    duration = SnackbarDuration.Indefinite
-                )
-                if (result == SnackbarResult.ActionPerformed) {
-                    completeUpdate()
-                }
+            val result = snackbarHostState.showSnackbar(
+                message = context.getString(R.string.update_downloaded),
+                actionLabel = context.getString(R.string.update_now),
+                duration = SnackbarDuration.Indefinite
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                completeUpdate()
             }
         }
     }

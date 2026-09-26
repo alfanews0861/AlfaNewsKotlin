@@ -58,37 +58,38 @@ fun ReporterDeskChatView(
         loading = false
     }
 
+    // Reset unread count for reporter on open and batch mark incoming admin messages as read
+    LaunchedEffect(reporterId) {
+        if (reporterId.isBlank()) return@LaunchedEffect
+        try {
+            FirebaseService.db.collection("reporter_conversations")
+                .document(reporterId)
+                .update("unreadCountForReporter", 0)
+                .await()
+
+            val unreadSnap = FirebaseService.db.collection("reporter_conversations")
+                .document(reporterId)
+                .collection("messages")
+                .whereEqualTo("read", false)
+                .get()
+                .await()
+
+            val unreadMsgs = unreadSnap.documents.filter { (it.getString("senderRole") ?: "ADMIN") == "ADMIN" }
+            if (unreadMsgs.isNotEmpty()) {
+                val batch = FirebaseService.db.batch()
+                for (doc in unreadMsgs) {
+                    batch.update(doc.reference, "read", true)
+                }
+                batch.commit().await()
+            }
+        } catch (_: Exception) {}
+    }
+
     // Real-time listener for reporter's conversation with Admin
     DisposableEffect(reporterId) {
         if (reporterId.isBlank()) {
             loading = false
             return@DisposableEffect onDispose {}
-        }
-
-        // Reset unread count for reporter on open and batch mark incoming admin messages as read
-        scope.launch {
-            try {
-                FirebaseService.db.collection("reporter_conversations")
-                    .document(reporterId)
-                    .update("unreadCountForReporter", 0)
-                    .await()
-
-                val unreadSnap = FirebaseService.db.collection("reporter_conversations")
-                    .document(reporterId)
-                    .collection("messages")
-                    .whereEqualTo("read", false)
-                    .get()
-                    .await()
-
-                val unreadMsgs = unreadSnap.documents.filter { (it.getString("senderRole") ?: "ADMIN") == "ADMIN" }
-                if (unreadMsgs.isNotEmpty()) {
-                    val batch = FirebaseService.db.batch()
-                    for (doc in unreadMsgs) {
-                        batch.update(doc.reference, "read", true)
-                    }
-                    batch.commit().await()
-                }
-            } catch (_: Exception) {}
         }
 
         val messagesRef = FirebaseService.db.collection("reporter_conversations")
@@ -162,7 +163,9 @@ fun ReporterDeskChatView(
                     Toast.makeText(context, "సందేశం పంపడం విఫలమైంది: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             } finally {
                 isSending = false
             }

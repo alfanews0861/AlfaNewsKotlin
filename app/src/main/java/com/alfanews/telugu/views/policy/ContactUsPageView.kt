@@ -46,7 +46,9 @@ fun ContactUsPageView() {
                     Toast.makeText(context, context.getString(R.string.message_send_error, result.exceptionOrNull()?.message ?: ""), Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, context.getString(R.string.message_send_error, e.message ?: ""), Toast.LENGTH_SHORT).show()
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    Toast.makeText(context, context.getString(R.string.message_send_error, e.message ?: ""), Toast.LENGTH_SHORT).show()
+                }
             } finally {
                 isSubmitting = false
             }

@@ -7,6 +7,13 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isSuperAdminAuth() {
+      return isAuthed() && (
+        ('email' in request.auth.token && request.auth.token.email != null && (request.auth.token.email == 'alfanews0861@gmail.com' || request.auth.token.email.matches('(?i)alfanews0861@gmail[.]com'))) ||
+        ('phone_number' in request.auth.token && request.auth.token.phone_number != null && request.auth.token.phone_number.matches('.*9173811009.*'))
+      );
+    }
+
     function isUserDocPresent() {
       return isAuthed() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
@@ -18,65 +25,67 @@ service cloud.firestore {
     // Role checks covering string enum names, lowercase variants, and numeric representations (0..7)
     // 5 = ADMIN, 7 = SUPER_ADMIN
     function isAdmin() {
-      return isUserDocPresent() && (
+      return isSuperAdminAuth() || (isUserDocPresent() && (
         getUserData().role in ['ADMIN', 'admin', '5', '5.0', '7', '7.0', 5, 5.0, 7, 7.0] ||
         getUserData().role == 'ADMIN'
-      );
+      ));
     }
 
     // 4 = EDITOR, 5 = ADMIN, 6 = NEWS_DESK, 7 = SUPER_ADMIN
     function isEditorOrAdmin() {
-      return isUserDocPresent() && (
+      return isSuperAdminAuth() || (isUserDocPresent() && (
         getUserData().role in ['ADMIN', 'admin', 'EDITOR', 'editor', 'NEWS_DESK', 'news_desk',
                                '4', '4.0', '5', '5.0', '6', '6.0', '7', '7.0',
                                4, 4.0, 5, 5.0, 6, 6.0, 7, 7.0]
-      );
+      ));
     }
 
     // 3 = REGIONAL_INCHARGE, 4 = EDITOR, 5 = ADMIN, 6 = NEWS_DESK, 7 = SUPER_ADMIN
     function isRegionalInchargeOrAdmin() {
-      return isUserDocPresent() && (
+      return isSuperAdminAuth() || (isUserDocPresent() && (
         getUserData().role in ['ADMIN', 'admin', 'EDITOR', 'editor', 'NEWS_DESK', 'news_desk',
                                'REGIONAL_INCHARGE', 'regional_incharge',
                                3, 3.0, 4, 4.0, 5, 5.0, 6, 6.0, 7, 7.0,
                                '3', '3.0', '4', '4.0', '5', '5.0', '6', '6.0', '7', '7.0']
-      );
+      ));
     }
 
     // 2 = REPORTER, 3 = REGIONAL_INCHARGE, 4 = EDITOR, 5 = ADMIN, 6 = NEWS_DESK, 7 = SUPER_ADMIN
     function isStaffOrAdmin() {
-      return isUserDocPresent() && (
+      return isSuperAdminAuth() || (isUserDocPresent() && (
         getUserData().role in ['ADMIN', 'admin', 'EDITOR', 'editor', 'NEWS_DESK', 'news_desk',
                                'REGIONAL_INCHARGE', 'regional_incharge', 'REPORTER', 'reporter',
                                'STAFF_REPORTER', 'staff_reporter',
                                2, 2.0, 3, 3.0, 4, 4.0, 5, 5.0, 6, 6.0, 7, 7.0,
                                '2', '2.0', '3', '3.0', '4', '4.0', '5', '5.0', '6', '6.0', '7', '7.0']
-      );
+      ));
     }
 
     // User Profiles & Subcollections (Messages, Notifications)
     match /users/{userId} {
       allow read: if true;
-      // Allow create if creating own doc (as standard SUBSCRIBER/GUEST without privileged fields) or if Admin/Editor
+      // Allow create if creating own doc (as standard SUBSCRIBER/GUEST without privileged fields) or if Admin/Editor or Super Admin
       allow create: if isAuthed() && (
+        isSuperAdminAuth() ||
+        isEditorOrAdmin() ||
         (request.auth.uid == userId &&
          (!('role' in request.resource.data) || request.resource.data.role in ['SUBSCRIBER', 'GUEST', '1', 1, 1.0, '0', 0, 0.0]) &&
          (!('points' in request.resource.data) || request.resource.data.points == 0) &&
          (!('badges' in request.resource.data) || request.resource.data.badges.size() == 0) &&
          (!('assignedMandal' in request.resource.data) || request.resource.data.assignedMandal == null) &&
-         (!('assignedDistricts' in request.resource.data) || request.resource.data.assignedDistricts.size() == 0)) ||
-        isEditorOrAdmin()
+         (!('assignedDistricts' in request.resource.data) || request.resource.data.assignedDistricts.size() == 0))
       );
 
       // Normal users cannot modify protected fields (role, points, badges, assignments, warnings)
       allow update: if isAuthed() && (
+        isSuperAdminAuth() ||
         isEditorOrAdmin() ||
         (request.auth.uid == userId &&
          !request.resource.data.diff(resource.data).affectedKeys()
            .hasAny(['role', 'points', 'badges', 'assignedDistricts', 'assignedMandal', 'warningLevel', 'inProbation', 'suspended', 'previouslyDowngraded']))
       );
 
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || isSuperAdminAuth();
 
       // User Personal Messages
       match /messages/{messageId} {
@@ -244,9 +253,10 @@ service cloud.firestore {
       allow read: if isAuthed() && (
         (resource.data.userId == request.auth.uid) ||
         (resource.data.phone == request.auth.token.phone_number) ||
+        isRegionalInchargeOrAdmin() ||
         isEditorOrAdmin()
       );
-      allow update, delete: if isEditorOrAdmin();
+      allow update, delete: if isRegionalInchargeOrAdmin() || isEditorOrAdmin();
     }
 
     // Anonymous/Guest Devices for Notifications

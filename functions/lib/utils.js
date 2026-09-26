@@ -15,47 +15,15 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAIInstance = exports.IMAGEN_FAST_MODEL = exports.IMAGEN_MODEL = exports.FLASH_MODEL = exports.PRO_MODEL = exports.SCHEDULED_MODEL = exports.REGION = void 0;
-exports.slugify = slugify;
-exports.getTopicName = getTopicName;
-exports.runWithAIFallback = runWithAIFallback;
-exports.getISTDateString = getISTDateString;
-exports.parseAIJson = parseAIJson;
-exports.isTeluguScript = isTeluguScript;
-exports.sanitizeTeluguText = sanitizeTeluguText;
-exports.cleanTeluguHeadline = cleanTeluguHeadline;
-exports.isEditorialVerdictOrFlattery = isEditorialVerdictOrFlattery;
-exports.formatIntoParagraphs = formatIntoParagraphs;
-exports.saveBufferToStorage = saveBufferToStorage;
-exports.saveImageLocally = saveImageLocally;
-exports.detectFacesWithGeminiAI = detectFacesWithGeminiAI;
-exports.calculateSmartCrop16x9 = calculateSmartCrop16x9;
-exports.calculateBlurRanges = calculateBlurRanges;
-exports.scanImageSafetyWithGeminiAI = scanImageSafetyWithGeminiAI;
-exports.extractVideoKeyFrames = extractVideoKeyFrames;
-exports.extractVideoStoryboardMosaic = extractVideoStoryboardMosaic;
-exports.scanVideoSafetyWithGeminiAI = scanVideoSafetyWithGeminiAI;
-exports.processAndOptimizeNewsImage = processAndOptimizeNewsImage;
-exports.createAndSaveThumbnail = createAndSaveThumbnail;
-exports.generateImageWithRetry = generateImageWithRetry;
+exports.generateImageWithRetry = exports.createAndSaveThumbnail = exports.processAndOptimizeNewsImage = exports.scanVideoSafetyWithGeminiAI = exports.extractVideoStoryboardMosaic = exports.extractVideoKeyFrames = exports.scanImageSafetyWithGeminiAI = exports.calculateBlurRanges = exports.calculateSmartCrop16x9 = exports.detectFacesWithGeminiAI = exports.saveImageLocally = exports.saveBufferToStorage = exports.formatIntoParagraphs = exports.isEditorialVerdictOrFlattery = exports.cleanTeluguHeadline = exports.sanitizeTeluguText = exports.isTeluguScript = exports.parseAIJson = exports.getISTDateString = exports.getAIInstance = exports.runWithAIFallback = exports.getTopicName = exports.slugify = exports.IMAGEN_FAST_MODEL = exports.IMAGEN_MODEL = exports.FLASH_MODEL = exports.PRO_MODEL = exports.SCHEDULED_MODEL = exports.REGION = void 0;
 const admin = __importStar(require("firebase-admin"));
 const genai_1 = require("@google/genai");
 const buffer_1 = require("buffer");
@@ -90,9 +58,11 @@ function slugify(text) {
         return code.toString(16).padStart(4, '0');
     }).join('').substring(0, 80); // FCM Limit is 900, but let's keep it sane
 }
+exports.slugify = slugify;
 function getTopicName(prefix, value) {
     return `${prefix}_${slugify(value)}`;
 }
+exports.getTopicName = getTopicName;
 const TEXT_MODELS = [
     "gemini-3.7-flash", // 1. Primary - Best Editorial Quality
     "gemini-3.6-flash", // 2. High-speed, high-quota safety net
@@ -241,6 +211,7 @@ async function runWithAIFallback(operation, customModels) {
     }
     throw lastError || new Error(`AI processing failed after ${totalAttempts} attempts across available keys and models.`);
 }
+exports.runWithAIFallback = runWithAIFallback;
 const getAIInstance = () => {
     const keys = getApiKeys();
     return getAIInstanceInternal(keys[0] || process.env.GEMINI_API_KEY || process.env.API_KEY || "");
@@ -252,6 +223,7 @@ function getISTDateString() {
     const istDate = new Date(istString);
     return `${istDate.getFullYear()}-${String(istDate.getMonth() + 1).padStart(2, '0')}-${String(istDate.getDate()).padStart(2, '0')}`;
 }
+exports.getISTDateString = getISTDateString;
 function parseAIJson(text) {
     let cleanText = text.trim();
     // 1. Handle Markdown Code Blocks
@@ -276,6 +248,7 @@ function parseAIJson(text) {
         throw new Error(`Invalid AI JSON response: ${e.message}`);
     }
 }
+exports.parseAIJson = parseAIJson;
 /**
  * Checks if the text has valid Telugu script content (U+0C00-U+0C7F)
  * and is not predominantly English characters.
@@ -287,6 +260,7 @@ function isTeluguScript(text) {
     const englishChars = (text.match(/[a-zA-Z]/g) || []).length;
     return teluguChars > englishChars && teluguChars >= 10;
 }
+exports.isTeluguScript = isTeluguScript;
 /**
  * Sanitizes Telugu text by converting any bled Kannada Unicode characters (0x0C80-0x0CFF)
  * and Devanagari/Hindi Unicode characters (0x0900-0x097F) to Telugu, removing orphaned matras,
@@ -327,6 +301,7 @@ function sanitizeTeluguText(text) {
         .replace(/\s+([\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63])/g, '$1')
         .trim();
 }
+exports.sanitizeTeluguText = sanitizeTeluguText;
 /**
  * Sanitizes and formats Telugu headlines:
  * 1. Strictly eliminates all inverted commas / quotes ('...', "...", ‘...’, “...”).
@@ -361,6 +336,7 @@ function cleanTeluguHeadline(headline) {
     clean = clean.replace(/\s+/g, ' ').trim();
     return sanitizeTeluguText(clean);
 }
+exports.cleanTeluguHeadline = cleanTeluguHeadline;
 /**
  * Detects whether a headline or post is pure party flattery / sycophancy / verdict without attribution.
  */
@@ -403,6 +379,7 @@ function isEditorialVerdictOrFlattery(headline, text = '', authorName = '') {
     }
     return false;
 }
+exports.isEditorialVerdictOrFlattery = isEditorialVerdictOrFlattery;
 /**
  * Formats a story text into strictly 3 to 4 distinct paragraphs separated by \n\n.
  * If already separated by paragraphs, preserves them.
@@ -469,6 +446,7 @@ function formatIntoParagraphs(text, targetCount = 4) {
     }
     return clean;
 }
+exports.formatIntoParagraphs = formatIntoParagraphs;
 async function saveBufferToStorage(buffer, prefix) {
     try {
         const webpBuffer = await sharp(buffer).webp({ quality: 80 }).toBuffer();
@@ -487,6 +465,7 @@ async function saveBufferToStorage(buffer, prefix) {
         return null;
     }
 }
+exports.saveBufferToStorage = saveBufferToStorage;
 async function saveImageLocally(externalUrl, prefix) {
     try {
         const response = await fetch(externalUrl);
@@ -500,6 +479,7 @@ async function saveImageLocally(externalUrl, prefix) {
         return null;
     }
 }
+exports.saveImageLocally = saveImageLocally;
 /**
  * Calculates smart 16:9 crop coordinates preserving faces, heads, and salient human subjects.
  * Uses facial skin chrominance (YCbCr) and edge density to dynamically locate people in vertical/portrait photos.
@@ -577,6 +557,7 @@ async function detectFacesWithGeminiAI(imageBuffer) {
         return null;
     }
 }
+exports.detectFacesWithGeminiAI = detectFacesWithGeminiAI;
 /**
  * Calculates a clean 16:9 crop box using Gemini AI Vision face detection.
  * Ensures heads and faces are 100% visible in the upper frame without being cut.
@@ -631,6 +612,7 @@ async function calculateSmartCrop16x9(buffer, width, height) {
     const cropLeft = Math.max(0, Math.min(width - cropWidth, Math.round((width - cropWidth) / 2)));
     return { left: cropLeft, top: 0, width: cropWidth, height: cropHeight };
 }
+exports.calculateSmartCrop16x9 = calculateSmartCrop16x9;
 /**
  * Maps violating tile indices (1-indexed from storyboard mosaic) to time ranges in seconds,
  * merging overlapping intervals with safety buffer padding.
@@ -661,6 +643,7 @@ function calculateBlurRanges(violatingTileIndices, intervalSec, durationSeconds)
     }
     return merged;
 }
+exports.calculateBlurRanges = calculateBlurRanges;
 /**
  * 🛡️ AI Obscenity & Safety Scanner (Gemini Multimodal Vision)
  * Scans submitted images for adult content, nudity, obscenity, illegal hate materials, or severe gore.
@@ -762,6 +745,7 @@ EVALUATION RULES:
         return { isSafe: true, isAdultOrNude: false, isHateOrIllegal: false, isExtremelyGruesome: false, rejectionReason: null, safetyDetails: "Error bypassed" };
     }
 }
+exports.scanImageSafetyWithGeminiAI = scanImageSafetyWithGeminiAI;
 /**
  * Extracts representative keyframes from a video file for visual AI safety inspection.
  * Uses ffprobe to identify duration and ffmpeg to extract frames at 25% and 60% of duration.
@@ -844,6 +828,7 @@ async function extractVideoKeyFrames(videoPath, maxFrames = 2) {
     }
     return frameBuffers;
 }
+exports.extractVideoKeyFrames = extractVideoKeyFrames;
 /**
  * 🛡️ Generates a unified storyboard mosaic contact sheet across the ENTIRE video duration.
  * For example, a 4x3 grid (12 evenly distributed snapshots across 0% to 100% of the video).
@@ -909,6 +894,7 @@ async function extractVideoStoryboardMosaic(videoPath) {
     }
     return null;
 }
+exports.extractVideoStoryboardMosaic = extractVideoStoryboardMosaic;
 /**
  * 🛡️ Video AI Safety Scanner (Gemini Multimodal Vision + YouTube Community Guidelines)
  * 1. Uses a 12-tile full timeline storyboard mosaic covering the ENTIRE video from start to finish.
@@ -1075,6 +1061,7 @@ EVALUATION RULES:
         };
     }
 }
+exports.scanVideoSafetyWithGeminiAI = scanVideoSafetyWithGeminiAI;
 /**
  * Intelligently processes a news image:
  * 1. Scans for Adult/Nudity/Obscenity with Gemini Vision (rejection shield).
@@ -1181,10 +1168,12 @@ async function processAndOptimizeNewsImage(imageUrl, postId, isGraphicOrBloody =
         return null;
     }
 }
+exports.processAndOptimizeNewsImage = processAndOptimizeNewsImage;
 async function createAndSaveThumbnail(imageUrl, postId) {
     const result = await processAndOptimizeNewsImage(imageUrl, postId, false);
     return result?.isSafe ? (result.thumbnailUrl || null) : null;
 }
+exports.createAndSaveThumbnail = createAndSaveThumbnail;
 async function generateImageWithRetry(aiUnused, // Keeping signature for compatibility
 prompt, aspectRatio = '9:16', retriesUnused = 3) {
     // NOTE: imagen-4.0-generate-001 is DEPRECATED (shutdown Aug 17, 2026)
@@ -1231,3 +1220,4 @@ prompt, aspectRatio = '9:16', retriesUnused = 3) {
         return null;
     }
 }
+exports.generateImageWithRetry = generateImageWithRetry;

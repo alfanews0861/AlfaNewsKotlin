@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Launch
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
+import kotlinx.coroutines.Dispatchers
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -203,10 +204,12 @@ fun LocalAdCardView(
                         isLiked = !isLiked
                         likeCount = if (isLiked) likeCount + 1 else likeCount - 1
                         if (!isPreview) {
-                            scope.launch {
-                                FirebaseService.db.collection("local_ads").document(ad.id)
-                                    .update("likes", FieldValue.increment(if (isLiked) 1 else -1))
-                                AnalyticsService.logAnalyticsEvent("ad_like", Bundle().apply { putString("ad_id", ad.id) })
+                            CoroutineScope(Dispatchers.IO).launch {
+                                try {
+                                    FirebaseService.db.collection("local_ads").document(ad.id)
+                                        .update("likes", FieldValue.increment(if (isLiked) 1 else -1))
+                                    AnalyticsService.logAnalyticsEvent("ad_like", Bundle().apply { putString("ad_id", ad.id) })
+                                } catch (_: Exception) {}
                             }
                         }
                     }
@@ -313,7 +316,9 @@ private fun performAdShare(
                 } else Toast.makeText(context, "షేర్ చేయడం విఫలమైంది", Toast.LENGTH_SHORT).show()
             } else Toast.makeText(context, "స్క్రీన్ షాట్ తీయడం విఫలమైంది", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Toast.makeText(context, "Share error", Toast.LENGTH_SHORT).show()
+            if (e !is kotlinx.coroutines.CancellationException) {
+                Toast.makeText(context, "Share error", Toast.LENGTH_SHORT).show()
+            }
         } finally {
             setSharing(false)
         }

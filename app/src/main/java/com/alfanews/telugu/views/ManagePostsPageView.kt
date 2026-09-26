@@ -57,6 +57,12 @@ fun ManagePostsPageView(
     var showStatusDetailDialog by remember { mutableStateOf<NewsPost?>(null) }
 
     // ✅ REAL-TIME LISTENER: Updates automatically when status changes
+    LaunchedEffect(currentUser) {
+        // Safety watchdog: prevent infinite spinner on slow/offline listeners
+        kotlinx.coroutines.delay(4000L)
+        loading = false
+    }
+
     DisposableEffect(currentUser) {
         var query = FirebaseService.db.collection("news")
             .orderBy("timestamp", Query.Direction.DESCENDING)
@@ -94,7 +100,9 @@ fun ManagePostsPageView(
                 posts = posts.filter { it.id != postId }
                 Toast.makeText(context, "వార్త తొలగించబడింది", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
-                Toast.makeText(context, "తొలగించడం విఫలమైంది: ${e.message}", Toast.LENGTH_SHORT).show()
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    Toast.makeText(context, "తొలగించడం విఫలమైంది: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             } finally {
                 showDeleteDialog = null
             }
@@ -123,7 +131,9 @@ fun ManagePostsPageView(
                     Toast.makeText(context, "విఫలమైంది: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "విఫలమైంది: ${e.message}", Toast.LENGTH_SHORT).show()
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    Toast.makeText(context, "విఫలమైంది: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             } finally {
                 isBroadcasting = null
                 showBroadcastDialog = null

@@ -153,12 +153,14 @@ fun ReportNewsDialog(
                                 ).show()
                             }
                         } catch (e: Exception) {
-                            isSubmitting = false
-                            Toast.makeText(
-                                context,
-                                context.getString(R.string.report_error),
-                                Toast.LENGTH_SHORT
-                            ).show()
+                            if (e !is kotlinx.coroutines.CancellationException) {
+                                isSubmitting = false
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.report_error),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
                         }
                     }
                 },

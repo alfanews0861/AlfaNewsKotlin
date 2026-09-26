@@ -151,7 +151,9 @@ fun UserProfilePageView(
                     com.alfanews.telugu.utils.PreferenceManager.getInstance(context).clearUserData()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, context.getString(R.string.account_delete_error, e.message ?: ""), Toast.LENGTH_SHORT).show()
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    Toast.makeText(context, context.getString(R.string.account_delete_error, e.message ?: ""), Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }

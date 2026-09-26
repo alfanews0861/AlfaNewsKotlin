@@ -34,8 +34,10 @@ fun AffiliateSettingsView(onBack: () -> Unit, showTitle: Boolean = true) {
 
     LaunchedEffect(Unit) {
         try {
-            val doc = FirebaseService.db.collection("configs").document("affiliateApi").get().await()
-            if (doc.exists()) {
+            val doc = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                FirebaseService.db.collection("configs").document("affiliateApi").get().await()
+            }
+            if (doc != null && doc.exists()) {
                 amazonAccessKey = doc.getString("amazonAccessKey") ?: ""
                 amazonSecretKey = doc.getString("amazonSecretKey") ?: ""
                 amazonAssociateTag = doc.getString("amazonAssociateTag") ?: ""
@@ -64,7 +66,9 @@ fun AffiliateSettingsView(onBack: () -> Unit, showTitle: Boolean = true) {
                 FirebaseService.db.collection("configs").document("affiliateApi").set(data).await()
                 Toast.makeText(context, "Settings saved successfully", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
-                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             } finally {
                 isSaving = false
             }

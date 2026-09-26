@@ -15,29 +15,15 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.triggerOperatingRhythmBeat = exports.nightReporterLeaderboardAnnouncement = exports.eveningReporterRoundup = exports.middayReporterReminder = exports.morningReporterBeatNotification = void 0;
-exports.executeMorningReporterBeat = executeMorningReporterBeat;
-exports.executeMiddayReporterReminder = executeMiddayReporterReminder;
-exports.executeEveningReporterRoundup = executeEveningReporterRoundup;
-exports.executeNightLeaderboardAnnouncement = executeNightLeaderboardAnnouncement;
+exports.triggerOperatingRhythmBeat = exports.nightReporterLeaderboardAnnouncement = exports.executeNightLeaderboardAnnouncement = exports.eveningReporterRoundup = exports.executeEveningReporterRoundup = exports.middayReporterReminder = exports.executeMiddayReporterReminder = exports.morningReporterBeatNotification = exports.executeMorningReporterBeat = void 0;
 const admin = __importStar(require("firebase-admin"));
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const https_1 = require("firebase-functions/v2/https");
@@ -173,6 +159,7 @@ async function executeMorningReporterBeat() {
     console.log(`[OPERATING_RHYTHM] ✅ Morning Beat sent to ${reportersSnap.size} reporters (${tokens.length} tokens).`);
     return { count: reportersSnap.size, tokensCount: tokens.length };
 }
+exports.executeMorningReporterBeat = executeMorningReporterBeat;
 exports.morningReporterBeatNotification = (0, scheduler_1.onSchedule)({
     schedule: "0 8 * * *",
     timeZone: "Asia/Kolkata",
@@ -224,6 +211,7 @@ async function executeMiddayReporterReminder() {
     console.log(`[OPERATING_RHYTHM] ✅ Midday reminder sent to ${inactiveReportersToday.length} inactive reporters.`);
     return { targetedCount: inactiveReportersToday.length, tokensCount: tokens.length };
 }
+exports.executeMiddayReporterReminder = executeMiddayReporterReminder;
 exports.middayReporterReminder = (0, scheduler_1.onSchedule)({
     schedule: "30 13 * * *",
     timeZone: "Asia/Kolkata",
@@ -253,6 +241,7 @@ async function executeEveningReporterRoundup() {
     console.log(`[OPERATING_RHYTHM] ✅ Evening Roundup sent to ${reportersSnap.size} reporters.`);
     return { count: reportersSnap.size, tokensCount: tokens.length };
 }
+exports.executeEveningReporterRoundup = executeEveningReporterRoundup;
 exports.eveningReporterRoundup = (0, scheduler_1.onSchedule)({
     schedule: "0 18 * * *",
     timeZone: "Asia/Kolkata",
@@ -288,6 +277,7 @@ async function executeNightLeaderboardAnnouncement() {
     console.log(`[OPERATING_RHYTHM] ✅ Night Leaderboard announcement sent.`);
     return { topReporters: sortedReporters.map(r => r.name), tokensCount: tokens.length };
 }
+exports.executeNightLeaderboardAnnouncement = executeNightLeaderboardAnnouncement;
 exports.nightReporterLeaderboardAnnouncement = (0, scheduler_1.onSchedule)({
     schedule: "0 21 * * *",
     timeZone: "Asia/Kolkata",

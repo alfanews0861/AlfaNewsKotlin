@@ -317,6 +317,10 @@ class CommentViewModel(private val postId: String) : ViewModel() {
 
     private fun loadComments(postId: String) {
         _isLoading.value = true
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(2500L)
+            _isLoading.value = false
+        }
         val commentsRef = FirebaseService.db
             .collection("news")
             .document(postId)

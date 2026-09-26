@@ -15,40 +15,15 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.recordAppInstallReferral = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.runAutoApprovePendingBackfill = exports.cleanupExpiredReporterApplications = exports.cleanDuplicateApplications = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.submitReporterApplication = exports.processReporterSubmission = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.restoreAllDowngradedReporters = void 0;
-exports.notifyReporter = notifyReporter;
-exports.awardPointsToReporter = awardPointsToReporter;
-exports.performRestoreAllReporters = performRestoreAllReporters;
-exports.checkMandalVacancy = checkMandalVacancy;
-exports.isMandalVacant = isMandalVacant;
-exports.notifyApplicantOfConflict = notifyApplicantOfConflict;
-exports.auditExistingReporterPerformance = auditExistingReporterPerformance;
-exports.alertExistingReporterOfChallenger = alertExistingReporterOfChallenger;
-exports.sendAdminPerformanceAlert = sendAdminPerformanceAlert;
-exports.promoteUserToReporter = promoteUserToReporter;
-exports.sendReporterApplicationEmail = sendReporterApplicationEmail;
-exports.executeCleanDuplicateApplications = executeCleanDuplicateApplications;
-exports.executeCleanupExpiredApplications = executeCleanupExpiredApplications;
-exports.executeReactivateFalselyDemotedReporters = executeReactivateFalselyDemotedReporters;
-exports.getAssignedReporter = getAssignedReporter;
+exports.recordAppInstallReferral = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.getAssignedReporter = exports.verifyReporter = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.executeReactivateFalselyDemotedReporters = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.runAutoApprovePendingBackfill = exports.cleanupExpiredReporterApplications = exports.executeCleanupExpiredApplications = exports.cleanDuplicateApplications = exports.executeCleanDuplicateApplications = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.submitReporterApplication = exports.sendReporterApplicationEmail = exports.promoteUserToReporter = exports.sendAdminPerformanceAlert = exports.alertExistingReporterOfChallenger = exports.auditExistingReporterPerformance = exports.notifyApplicantOfConflict = exports.isMandalVacant = exports.checkMandalVacancy = exports.processReporterSubmission = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.restoreAllDowngradedReporters = exports.performRestoreAllReporters = exports.awardPointsToReporter = exports.notifyReporter = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -245,6 +220,7 @@ async function notifyReporter(reporterId, postId, headline, type, imageUrl, spec
         console.error(`[NOTIFY] Error:`, e.message);
     }
 }
+exports.notifyReporter = notifyReporter;
 /**
  * Award points to reporter and update badges
  */
@@ -330,6 +306,7 @@ async function awardPointsToReporter(reporterId, points) {
         console.error(`[POINTS_ERR] Error:`, e.message);
     }
 }
+exports.awardPointsToReporter = awardPointsToReporter;
 /**
  * Backfill points for all reporters based on their existing news posts
  */
@@ -646,6 +623,7 @@ async function performRestoreAllReporters() {
     console.log(`[RESTORE_REPORTERS] ✅ Restored and updated ${results.length} reporters.`);
     return { restoredCount: results.length, details: results };
 }
+exports.performRestoreAllReporters = performRestoreAllReporters;
 /**
  * Callable function to manually restore and upgrade all mistakenly downgraded reporters.
  */
@@ -905,10 +883,12 @@ async function checkMandalVacancy(district, mandal, excludeUserId) {
     }
     return { vacant: true };
 }
+exports.checkMandalVacancy = checkMandalVacancy;
 async function isMandalVacant(district, mandal, excludeUserId) {
     const res = await checkMandalVacancy(district, mandal, excludeUserId);
     return res.vacant;
 }
+exports.isMandalVacant = isMandalVacant;
 /**
  * Helper: Notify an applicant when their desired mandal is occupied, letting them know
  * their application is forwarded to Admin for competition / probation review.
@@ -977,6 +957,7 @@ async function notifyApplicantOfConflict(userId, applicantName, district, mandal
         console.error("[CONFLICT_NOTIF] Failed to send conflict notification:", e.message);
     }
 }
+exports.notifyApplicantOfConflict = notifyApplicantOfConflict;
 /**
  * Helper: Audits the performance of an existing reporter for a specific mandal.
  * Checks whether the reporter has posted at least 20 news items for their own mandal in the current calendar month,
@@ -1076,6 +1057,7 @@ async function auditExistingReporterPerformance(reporterId, reporterName, distri
         evaluationSummary
     };
 }
+exports.auditExistingReporterPerformance = auditExistingReporterPerformance;
 /**
  * Helper: Sends a wake-up / performance warning message from the News Desk to an existing reporter
  * whose mandal has received a new application while their own monthly performance is deficient (< 20 own-mandal posts).
@@ -1141,6 +1123,7 @@ async function alertExistingReporterOfChallenger(existingReporterId, existingRep
         console.error("[CHALLENGER_ALERT] Failed to send challenger alert to existing reporter:", e.message);
     }
 }
+exports.alertExistingReporterOfChallenger = alertExistingReporterOfChallenger;
 /**
  * Helper: Sends in-app message & push notification to Admins notifying them of a challenger application
  * where the existing reporter's performance is below benchmark.
@@ -1150,6 +1133,7 @@ async function sendAdminPerformanceAlert(district, mandal, existingReporterName,
     // Admin copy disabled: Warnings and performance alerts are sent strictly to reporters to prevent admin inbox overload.
     return;
 }
+exports.sendAdminPerformanceAlert = sendAdminPerformanceAlert;
 /**
  * Helper: Promote user to REPORTER, initialize conversation, send welcome push and desk message.
  */
@@ -1258,6 +1242,7 @@ async function promoteUserToReporter(userId, fullName, phone, district, mandal, 
         console.error("[REPORTER_PROMOTION] Failed to send welcome message/push to reporter:", msgErr.message);
     }
 }
+exports.promoteUserToReporter = promoteUserToReporter;
 /**
  * Helper: Send notification email to admin when a reporter application is submitted/approved.
  */
@@ -1372,6 +1357,7 @@ async function sendReporterApplicationEmail(data, shouldAutoApprove, isPreviousl
         console.error("[REPORTER_APP] ❌ Email send failed during application submission:", error.message);
     }
 }
+exports.sendReporterApplicationEmail = sendReporterApplicationEmail;
 exports.submitReporterApplication = (0, https_1.onCall)({ secrets: ["EMAIL_USER", "EMAIL_PASS"] }, async (request) => {
     const data = request.data;
     let { fullName, fatherName, phone, address, position, interestedArea, education, currentOrg, state, district, mandal, message, userId } = data;
@@ -1840,6 +1826,7 @@ async function executeCleanDuplicateApplications() {
     console.log(`[CLEAN_DUPLICATE_APPS] Deleted ${deletedCount} duplicate applications.`);
     return { deletedCount };
 }
+exports.executeCleanDuplicateApplications = executeCleanDuplicateApplications;
 /**
  * Callable function to clean duplicate reporter applications on demand (Admin only).
  */
@@ -1878,6 +1865,7 @@ async function executeCleanupExpiredApplications() {
     console.log(`[CLEANUP_EXPIRED_APPS] Deleted ${deletedCount} expired pending applications.`);
     return { deletedCount };
 }
+exports.executeCleanupExpiredApplications = executeCleanupExpiredApplications;
 /**
  * Scheduled job running daily at 02:00 AM IST to clean up expired unapproved applications and duplicates.
  */
@@ -2547,6 +2535,7 @@ async function executeReactivateFalselyDemotedReporters(dryRun = false) {
         reactivated: reactivatedList
     };
 }
+exports.executeReactivateFalselyDemotedReporters = executeReactivateFalselyDemotedReporters;
 /**
  * Callable function to reactivate all demoted reporters on demand (Admin Only).
  */
@@ -2732,6 +2721,7 @@ async function getAssignedReporter(district, mandalam) {
         return null;
     }
 }
+exports.getAssignedReporter = getAssignedReporter;
 /**
  * Cloud Function to process new user referrals.
  * Award 50 points to the referrer when a new user document is created.

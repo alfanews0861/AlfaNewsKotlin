@@ -84,7 +84,9 @@ fun PostClassifiedAdView(
                 Toast.makeText(context, "ప్రకటన పబ్లిష్ అయింది!", Toast.LENGTH_SHORT).show()
                 onSuccess()
             } catch (e: Exception) {
-                Toast.makeText(context, "ప్రకటన పోస్ట్ చేయడంలో లోపం: ${e.message}", Toast.LENGTH_SHORT).show()
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    Toast.makeText(context, "ప్రకటన పోస్ట్ చేయడంలో లోపం: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             } finally {
                 isSubmitting = false
             }

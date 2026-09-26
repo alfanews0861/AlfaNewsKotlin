@@ -29,8 +29,10 @@ fun AppConfigPageView() {
 
     LaunchedEffect(Unit) {
         try {
-            val snapshot = FirebaseService.db.collection("settings").document("android_config").get().await()
-            if (snapshot.exists()) {
+            val snapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                FirebaseService.db.collection("settings").document("android_config").get().await()
+            }
+            if (snapshot != null && snapshot.exists()) {
                 minVersionCode = (snapshot.get("min_version_code") as? Number)?.toInt()?.toString() ?: ""
             }
         } catch (e: Exception) {
@@ -88,7 +90,9 @@ fun AppConfigPageView() {
                                         .set(mapOf("min_version_code" to code), SetOptions.merge()).await()
                                     Toast.makeText(context, "Config updated successfully", Toast.LENGTH_SHORT).show()
                                 } catch (e: Exception) {
-                                    Toast.makeText(context, "Failed to update: ${e.message}", Toast.LENGTH_LONG).show()
+                                    if (e !is kotlinx.coroutines.CancellationException) {
+                                        Toast.makeText(context, "Failed to update: ${e.message}", Toast.LENGTH_LONG).show()
+                                    }
                                 } finally {
                                     saving = false
                                 }

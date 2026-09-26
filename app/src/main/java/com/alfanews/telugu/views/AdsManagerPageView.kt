@@ -208,7 +208,9 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
                 Toast.makeText(context, "యాడ్ రిక్వెస్ట్ సబ్మిట్ చేయబడింది!", Toast.LENGTH_LONG).show()
                 onAdCreated()
             } catch (e: Exception) {
-                Toast.makeText(context, "లోపం: ${e.message}", Toast.LENGTH_SHORT).show()
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    Toast.makeText(context, "లోపం: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             } finally {
                 isSubmitting = false
             }
@@ -407,24 +409,22 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
 private fun MyAdsView(currentUser: User) { 
     var myAds by remember { mutableStateOf<List<LocalAd>>(emptyList()) }
     var loadingMyAds by remember { mutableStateOf(true) }
-    val scope = rememberCoroutineScope()
 
-    fun fetchMyAds() {
-        scope.launch {
-            loadingMyAds = true
-            try {
-                val snapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                    FirebaseService.db.collection("local_ads")
-                        .whereEqualTo("userId", currentUser.id)
-                        .limit(50)
-                        .get().await()
-                }
-                myAds = snapshot?.documents?.mapNotNull { LocalAd.fromSnapshot(it) }?.sortedByDescending { it.createdAt } ?: emptyList()
-            } catch (e: Exception) { 
-                e.printStackTrace() 
-            } finally { 
-                loadingMyAds = false 
+    suspend fun fetchMyAds() {
+        loadingMyAds = true
+        try {
+            val snapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                FirebaseService.db.collection("local_ads")
+                    .whereEqualTo("userId", currentUser.id)
+                    .limit(50)
+                    .get().await()
             }
+            myAds = snapshot?.documents?.mapNotNull { LocalAd.fromSnapshot(it) }?.sortedByDescending { it.createdAt } ?: emptyList()
+        } catch (e: Exception) { 
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            android.util.Log.e("AdsManager", "Error fetching my ads: ${e.message}")
+        } finally { 
+            loadingMyAds = false 
         }
     }
 
@@ -459,22 +459,21 @@ fun AdminAdsView() {
     var loading by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
 
-    fun fetchAllAds() {
-        scope.launch {
-            loading = true
-            try {
-                val snapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                    FirebaseService.db.collection("local_ads")
-                        .orderBy("createdAt", Query.Direction.DESCENDING)
-                        .limit(100)
-                        .get().await()
-                }
-                allAds = snapshot?.documents?.mapNotNull { LocalAd.fromSnapshot(it) } ?: emptyList()
-            } catch (e: Exception) { 
-                e.printStackTrace() 
-            } finally { 
-                loading = false 
+    suspend fun fetchAllAds() {
+        loading = true
+        try {
+            val snapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                FirebaseService.db.collection("local_ads")
+                    .orderBy("createdAt", Query.Direction.DESCENDING)
+                    .limit(100)
+                    .get().await()
             }
+            allAds = snapshot?.documents?.mapNotNull { LocalAd.fromSnapshot(it) } ?: emptyList()
+        } catch (e: Exception) { 
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            android.util.Log.e("AdsManager", "Error fetching all ads: ${e.message}")
+        } finally { 
+            loading = false 
         }
     }
 
@@ -495,7 +494,9 @@ fun AdminAdsView() {
     } else {
         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             items(allAds, key = { it.id }) { ad -> 
-                AdminAdListItem(ad) { fetchAllAds() }
+                AdminAdListItem(ad) { 
+                    scope.launch { fetchAllAds() }
+                }
             }
         }
     }

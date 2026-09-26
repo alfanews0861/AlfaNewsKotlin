@@ -41,7 +41,6 @@ fun PostSurveyPageView(
     onActionComplete: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
     var headlineTe by remember { mutableStateOf(surveyToEdit?.headline?.telugu ?: "") }
     var contentTe by remember { mutableStateOf(surveyToEdit?.content?.telugu ?: "") }

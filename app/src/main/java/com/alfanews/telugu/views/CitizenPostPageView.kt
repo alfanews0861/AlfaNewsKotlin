@@ -249,13 +249,14 @@ fun CitizenPostPageView(user: User, onClose: () -> Unit) {
                 try {
                     // Send to Cloud Function for unified processing
                     val result = FirebaseFunctionsService.processNewsPost(postData = newsData).getOrThrow()
-                    
                     Toast.makeText(context, "ధన్యవాదాలు! మీ ప్రజా సమస్య విజయవంతంగా పంపబడింది. పరిశీలన తర్వాత ప్రచురించబడుతుంది.", Toast.LENGTH_LONG).show()
                     onClose()
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Toast.makeText(context, "పంపడంలో లోపం: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Toast.makeText(context, "అనిరీక్షిత లోపం: ${e.message}", Toast.LENGTH_LONG).show()
             } finally {
                 isSubmitting = false

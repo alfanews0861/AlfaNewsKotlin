@@ -50,6 +50,12 @@ fun ManageSurveysPageView(
     var showResultsDialog by remember { mutableStateOf<NewsPost?>(null) }
     var showDetailPreviewDialog by remember { mutableStateOf<NewsPost?>(null) }
 
+    // ✅ Fallback timeout so spinner never hangs
+    LaunchedEffect(currentUser) {
+        kotlinx.coroutines.delay(4000L)
+        if (loading) loading = false
+    }
+
     // ✅ REAL-TIME LISTENER for Surveys
     DisposableEffect(currentUser) {
         val query = FirebaseService.db.collection("news")
@@ -86,7 +92,9 @@ fun ManageSurveysPageView(
                     showDetailPreviewDialog = showDetailPreviewDialog?.copy(approved = true, status = "PUBLISHED")
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -97,7 +105,9 @@ fun ManageSurveysPageView(
                 FirebaseService.db.collection("news").document(postId).delete().await()
                 Toast.makeText(context, "సర్వే తొలగించబడింది", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
-                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             } finally {
                 showDeleteDialog = null
                 if (showDetailPreviewDialog?.id == postId) {

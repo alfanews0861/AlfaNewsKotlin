@@ -387,22 +387,24 @@ fun NewsCardView(
                                 val wasLiked = isLiked
                                 isLiked = !isLiked
                                 likeCount = if (isLiked) likeCount + 1 else maxOf(0, likeCount - 1)
-                                scope.launch {
-                                    if (!wasLiked) {
-                                        // Liking: High positive signal (weight = 3)
-                                        FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(1))
-                                        AnalyticsService.logNewsLike(post, liked = true)
-                                        AnalyticsService.logPostEngagement(post, weight = 3)
-                                        val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
-                                            ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
-                                        if (primaryCat != null) {
-                                            try { PreferenceManager.getInstance(context).trackCategoryRead(primaryCat) } catch (e: Exception) { }
+                                CoroutineScope(Dispatchers.IO).launch {
+                                    try {
+                                        if (!wasLiked) {
+                                            // Liking: High positive signal (weight = 3)
+                                            FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(1))
+                                            AnalyticsService.logNewsLike(post, liked = true)
+                                            AnalyticsService.logPostEngagement(post, weight = 3)
+                                            val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                                                ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                                            if (primaryCat != null) {
+                                                try { PreferenceManager.getInstance(context).trackCategoryRead(primaryCat) } catch (e: Exception) { }
+                                            }
+                                        } else {
+                                            // Unliking — only decrement if real likes > 0
+                                            FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(-1))
+                                            AnalyticsService.logNewsLike(post, liked = false)
                                         }
-                                    } else {
-                                        // Unliking — only decrement if real likes > 0
-                                        FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(-1))
-                                        AnalyticsService.logNewsLike(post, liked = false)
-                                    }
+                                    } catch (_: Exception) {}
                                 }
                             }
                         }
@@ -698,21 +700,23 @@ fun NewsCardView(
                                     val wasLiked = isLiked
                                     isLiked = !isLiked
                                     likeCount = if (isLiked) likeCount + 1 else maxOf(0, likeCount - 1)
-                                    scope.launch {
-                                        if (!wasLiked) {
-                                            // Liking: High positive signal (weight = 3)
-                                            FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(1))
-                                            AnalyticsService.logNewsLike(post, liked = true)
-                                            AnalyticsService.logPostEngagement(post, weight = 3)
-                                            val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
-                                                ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
-                                            if (primaryCat != null) {
-                                                try { PreferenceManager.getInstance(context).trackCategoryRead(primaryCat) } catch (e: Exception) { }
+                                    CoroutineScope(Dispatchers.IO).launch {
+                                        try {
+                                            if (!wasLiked) {
+                                                // Liking: High positive signal (weight = 3)
+                                                FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(1))
+                                                AnalyticsService.logNewsLike(post, liked = true)
+                                                AnalyticsService.logPostEngagement(post, weight = 3)
+                                                val primaryCat = post.categories.firstOrNull { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                                                    ?: post.category?.takeIf { it.isNotBlank() && it != "జిల్లా వార్త" && it != "General News" && it != "State" }
+                                                if (primaryCat != null) {
+                                                    try { PreferenceManager.getInstance(context).trackCategoryRead(primaryCat) } catch (e: Exception) { }
+                                                }
+                                            } else {
+                                                FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(-1))
+                                                AnalyticsService.logNewsLike(post, liked = false)
                                             }
-                                        } else {
-                                            FirebaseService.db.collection("news").document(post.id).update("likes", FieldValue.increment(-1))
-                                            AnalyticsService.logNewsLike(post, liked = false)
-                                        }
+                                        } catch (_: Exception) {}
                                     }
                                 }
                             }
@@ -917,7 +921,7 @@ fun SmartNewsImage(
             onSuccess = { successState ->
                 val image = successState.result.image
                 if (image.height > image.width * 1.05f) {
-                    scope.launch(Dispatchers.Default) {
+                    CoroutineScope(Dispatchers.Default).launch {
                         try {
                             val bitmap = image.toBitmap()
                             val detectedFocalY = SmartFaceCropper.detectFocalY(bitmap, imageUrl)
@@ -1065,8 +1069,10 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
                 try { PreferenceManager.getInstance(context).trackCategoryRead(primaryCat) } catch (e: Exception) { }
             }
         } catch (e: Exception) { 
-            Log.e("NewsCardView", "Share error", e)
-            Toast.makeText(context, "Share error", Toast.LENGTH_SHORT).show() 
+            if (e !is kotlinx.coroutines.CancellationException) {
+                Log.e("NewsCardView", "Share error", e)
+                Toast.makeText(context, "Share error", Toast.LENGTH_SHORT).show() 
+            }
         } finally { 
             setSharing(false) 
         }
@@ -2049,7 +2055,9 @@ private fun submitSurveyVotes(
             Toast.makeText(context, "మీ అభిప్రాయం సమర్పించబడింది!", Toast.LENGTH_SHORT).show()
             onSuccess()
         } catch (e: Exception) {
-            Toast.makeText(context, "ఓటు వేయడంలో లోపం: ${e.message}", Toast.LENGTH_LONG).show()
+            if (e !is kotlinx.coroutines.CancellationException) {
+                Toast.makeText(context, "ఓటు వేయడంలో లోపం: ${e.message}", Toast.LENGTH_LONG).show()
+            }
         } finally {
             setIsSubmitting(false)
         }

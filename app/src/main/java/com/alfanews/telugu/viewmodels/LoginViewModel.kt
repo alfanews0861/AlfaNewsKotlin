@@ -79,82 +79,102 @@ class LoginViewModel : ViewModel() {
                 val isAdmin = (phone?.contains("9173811009") == true) ||
                               (email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
 
-                val userRef = FirebaseService.db.collection("users").document(user.uid)
-                val existingUserDoc = userRef.get().await()
+                // 🚀 PRE-CACHE immediately for instant offline persistence & login UX
+                prefs.userId = user.uid
+                prefs.userName = user.displayName ?: (if (isAdmin) "శ్రీకాంత్ రెడ్డి" else "User")
+                prefs.userRole = if (isAdmin) "ADMIN" else "SUBSCRIBER"
+                if (!phone.isNullOrEmpty()) prefs.userPhone = phone
 
-                if (!existingUserDoc.exists()) {
-                    // 🔍 RESILIENCE Check: Look for user by phone before creating new one
-                    var foundLegacyUser = false
-                    var legacyRole = if (isAdmin) "ADMIN" else "SUBSCRIBER"
-                    
-                    if (!phone.isNullOrEmpty()) {
-                        val legacyDocs = FirebaseService.db.collection("users")
-                            .whereEqualTo("phone", phone)
-                            .get().await()
+                var isNewUser = false
+                try {
+                    val userRef = FirebaseService.db.collection("users").document(user.uid)
+                    val existingUserDoc = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                        userRef.get().await()
+                    }
+
+                    if (existingUserDoc == null || !existingUserDoc.exists()) {
+                        isNewUser = true
+                        // 🔍 RESILIENCE Check: Look for user by phone before creating new one
+                        var foundLegacyUser = false
+                        var legacyRole = if (isAdmin) "ADMIN" else "SUBSCRIBER"
                         
-                        if (!legacyDocs.isEmpty) {
-                            val legacyDoc = legacyDocs.documents.first()
-                            val legacyData = legacyDoc.data
-                            val rawLegacyRole = legacyData?.get("role")
-                            val parsedLegacyRole = if (isAdmin) UserRole.ADMIN else (UserRole.fromStringSafe(rawLegacyRole) ?: UserRole.SUBSCRIBER)
-                            legacyRole = parsedLegacyRole.name
-                            
-                            val updatedLegacyData = legacyData?.toMutableMap() ?: mutableMapOf()
-                            updatedLegacyData["lastLogin"] = Timestamp.now()
-                            if (isAdmin) {
-                                updatedLegacyData["role"] = "ADMIN"
+                        if (!phone.isNullOrEmpty()) {
+                            try {
+                                val legacyDocs = kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                                    FirebaseService.db.collection("users")
+                                        .whereEqualTo("phone", phone)
+                                        .get().await()
+                                }
+                                
+                                if (legacyDocs != null && !legacyDocs.isEmpty) {
+                                    val legacyDoc = legacyDocs.documents.first()
+                                    val legacyData = legacyDoc.data
+                                    val rawLegacyRole = legacyData?.get("role")
+                                    val parsedLegacyRole = if (isAdmin) UserRole.ADMIN else (UserRole.fromStringSafe(rawLegacyRole) ?: UserRole.SUBSCRIBER)
+                                    legacyRole = parsedLegacyRole.name
+                                    
+                                    val updatedLegacyData = legacyData?.toMutableMap() ?: mutableMapOf()
+                                    updatedLegacyData["lastLogin"] = Timestamp.now()
+                                    if (isAdmin) {
+                                        updatedLegacyData["role"] = "ADMIN"
+                                    }
+                                    userRef.set(updatedLegacyData, com.google.firebase.firestore.SetOptions.merge()).await()
+                                    foundLegacyUser = true
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.e("LoginViewModel", "Legacy search failed: ${e.message}")
                             }
-                            userRef.set(updatedLegacyData, com.google.firebase.firestore.SetOptions.merge()).await()
-                            foundLegacyUser = true
+                        }
+
+                        if (!foundLegacyUser) {
+                            try {
+                                createNewUserProfile(user = user, name = user.displayName ?: "", context = context)
+                            } catch (e: Exception) {
+                                android.util.Log.e("LoginViewModel", "Create profile failed: ${e.message}")
+                            }
+                        }
+                        
+                        // Update cache with resolved legacy role
+                        prefs.userRole = legacyRole
+                    } else {
+                        // EXISTING USER: Only update metadata, NEVER downgrade role
+                        val rawRole = existingUserDoc.get("role")
+                        val roleFromDb = if (isAdmin) "ADMIN" else ((UserRole.fromStringSafe(rawRole) ?: UserRole.SUBSCRIBER).name)
+                        
+                        prefs.userName = existingUserDoc.getString("name") ?: user.displayName ?: (if (isAdmin) "శ్రీకాంత్ రెడ్డి" else "User")
+                        prefs.userRole = roleFromDb
+                        val dist = existingUserDoc.getString("district")
+                        prefs.userDistrict = dist
+                        if (!dist.isNullOrBlank()) {
+                            prefs.selectedDistrict = dist
+                            com.alfanews.telugu.utils.NotificationHelper.syncDistrictTopic(context, dist)
+                        }
+
+                        val updateData = mutableMapOf<String, Any>(
+                            "lastLogin" to Timestamp.now()
+                        )
+                        if (isAdmin && rawRole?.toString()?.uppercase() != "ADMIN") {
+                            updateData["role"] = "ADMIN"
+                        }
+                        
+                        user.phoneNumber?.let { if (it.isNotEmpty()) updateData["phone"] = it }
+                        user.email?.let { if (it.isNotEmpty()) updateData["email"] = it }
+                        user.photoUrl?.let { updateData["photoUrl"] = it.toString() }
+                        user.displayName?.let { if (it.isNotEmpty()) updateData["name"] = it }
+                        
+                        try {
+                            userRef.update(updateData).await()
+                        } catch (e: Exception) {
+                            android.util.Log.e("LoginViewModel", "Profile update failed: ${e.message}")
                         }
                     }
-
-                    if (!foundLegacyUser) {
-                        createNewUserProfile(user = user, name = user.displayName ?: "", context = context)
-                    }
-                    
-                    // 🚀 CACHE for offline persistence
-                    prefs.userId = user.uid
-                    prefs.userName = user.displayName ?: (if (isAdmin) "శ్రీకాంత్ రెడ్డి" else "User")
-                    prefs.userRole = legacyRole
-                    if (!phone.isNullOrEmpty()) prefs.userPhone = phone
-
-                    _uiState.value = LoginUiState(isLoginSuccessful = true, isNewUser = true)
-                } else {
-                    // EXISTING USER: Only update metadata, NEVER downgrade role
-                    val rawRole = existingUserDoc.get("role")
-                    val roleFromDb = if (isAdmin) "ADMIN" else ((UserRole.fromStringSafe(rawRole) ?: UserRole.SUBSCRIBER).name)
-                    
-                    // 🚀 CACHE immediately for offline persistence
-                    prefs.userId = user.uid
-                    prefs.userName = existingUserDoc.getString("name") ?: user.displayName ?: (if (isAdmin) "శ్రీకాంత్ రెడ్డి" else "User")
-                    prefs.userRole = roleFromDb
-                    if (!phone.isNullOrEmpty()) prefs.userPhone = phone
-                    val dist = existingUserDoc.getString("district")
-                    prefs.userDistrict = dist
-                    if (!dist.isNullOrBlank()) {
-                        prefs.selectedDistrict = dist
-                        com.alfanews.telugu.utils.NotificationHelper.syncDistrictTopic(context, dist)
-                    }
-
-                    val updateData = mutableMapOf<String, Any>(
-                        "lastLogin" to Timestamp.now()
-                    )
-                    if (isAdmin && rawRole?.toString()?.uppercase() != "ADMIN") {
-                        updateData["role"] = "ADMIN"
-                    }
-                    
-                    // Update profile info only if it was provided by the auth provider
-                    user.phoneNumber?.let { if (it.isNotEmpty()) updateData["phone"] = it }
-                    user.email?.let { if (it.isNotEmpty()) updateData["email"] = it }
-                    user.photoUrl?.let { updateData["photoUrl"] = it.toString() }
-                    user.displayName?.let { if (it.isNotEmpty()) updateData["name"] = it }
-                    
-                    userRef.update(updateData).await()
-                    _uiState.value = LoginUiState(isLoginSuccessful = true, isNewUser = false)
+                } catch (e: Exception) {
+                    android.util.Log.e("LoginViewModel", "Firestore sync failed: ${e.message}")
                 }
+
+                _uiState.value = LoginUiState(isLoginSuccessful = true, isNewUser = isNewUser)
             } catch (e: Exception) {
-                _uiState.value = LoginUiState(errorMessage = e.localizedMessage)
+                _uiState.value = LoginUiState(errorMessage = e.localizedMessage ?: "లాగిన్ విఫలమైంది.")
             }
         }
     }

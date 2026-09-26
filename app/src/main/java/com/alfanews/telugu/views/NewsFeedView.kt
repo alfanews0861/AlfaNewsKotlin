@@ -68,7 +68,6 @@ fun NewsFeedView(
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val scope = rememberCoroutineScope()
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -206,7 +205,7 @@ fun NewsFeedView(
                     val newsIndex = page - (page / 6)
                     if (newsIndex >= 0 && newsIndex < news.size) {
                         val currentPost = news[newsIndex]
-                        scope.launch {
+                        launch {
                             kotlinx.coroutines.delay(4000)
                             if (pagerState.currentPage == page) {
                                 com.alfanews.telugu.services.AnalyticsService.logLongView(currentPost.id)
@@ -222,7 +221,7 @@ fun NewsFeedView(
             }
 
             // 🚀 FAST SWIPE PRELOADING: వేగంగా స్వైప్ చేసే యూజర్ల కోసం 5 పేజీల ముందస్తు ఇమేజ్ ప్రీ-లోడింగ్ (IO thread)
-            scope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                 (1..5).forEach { offset ->
                     val nextPageIndex = page + offset
                     val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
