@@ -302,8 +302,9 @@ fun NewsFeedView(
                 }
             }
         } else if (news.isEmpty()) {
-            if (!loading) {
-                LaunchedEffect(Unit) {
+            LaunchedEffect(loading) {
+                if (!loading) {
+                    kotlinx.coroutines.delay(2000)
                     viewModel.loadNews(language, currentUser, initialPostId)
                 }
             }

@@ -235,9 +235,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             "Education", "Agriculture", "Devotional", "Lifestyle", "India", "World"
         )
         return when (userState) {
-            "Telangana" -> (coreUniversal + listOf("Telangana", "TS", "TG", "తెలంగాణ", "హైదరాబాద్", "Hyderabad", "State News", "జాతీయం", "సినిమా", "క్రీడలు")).distinct().take(30)
-            "Andhra Pradesh" -> (coreUniversal + listOf("Andhra Pradesh", "AndhraPradesh", "AP", "Andhra", "ఆంధ్రప్రదేశ్", "State News", "జాతీయం", "సినిమా", "క్రీడలు")).distinct().take(30)
-            else -> (coreUniversal + listOf("State", "Telangana", "Andhra Pradesh", "TS", "AP", "తెలంగాణ", "ఆంధ్రప్రదేశ్", "హైదరాబాద్", "జాతీయం", "సినిమా", "క్రీడలు")).distinct().take(30)
+            "Telangana" -> (coreUniversal + listOf("Telangana", "TS", "TG", "తెలంగాణ", "హైదరాబాద్", "Hyderabad", "State News", "జాతీయం", "సినిమా", "క్రీడలు")).distinct().take(10)
+            "Andhra Pradesh" -> (coreUniversal + listOf("Andhra Pradesh", "AndhraPradesh", "AP", "Andhra", "ఆంధ్రప్రదేశ్", "State News", "జాతీయం", "సినిమా", "క్రీడలు")).distinct().take(10)
+            else -> (coreUniversal + listOf("State", "Telangana", "Andhra Pradesh", "TS", "AP", "తెలంగాణ", "ఆంధ్రప్రదేశ్", "హైదరాబాద్", "జాతీయం", "సినిమా", "క్రీడలు")).distinct().take(10)
         }
     }
 
@@ -346,6 +346,27 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    }
                    _isOnline.value = true
 
+                   // ⚡ SUPER FAST CACHE LOAD: Instantly show cached news (< 20ms) so user never sees a spinner
+                   if (_news.value.isEmpty()) {
+                       try {
+                           val cachedSnap = FirebaseService.db.collection("news")
+                               .whereEqualTo("approved", true)
+                               .orderBy("timestamp", Query.Direction.DESCENDING)
+                               .limit(30L)
+                               .get(com.google.firebase.firestore.Source.CACHE)
+                               .await()
+                           val cachedPosts = cachedSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                               .filter { post ->
+                                   isPostAllowedForState(post, userState) &&
+                                   (!post.categories.contains("జిల్లా వార్త") || (district != null && (post.district == district || post.categories.contains(district) || Constants.isDistrictMatch(post.district, district))))
+                               }
+                           if (cachedPosts.isNotEmpty()) {
+                               _news.value = cachedPosts
+                               _loading.value = false
+                           }
+                       } catch (e: Exception) { }
+                   }
+
                    // Always reset cursors on loadNews to avoid appending initialPostId to a subsequent page
                    prefCursor = null
                    mainCursor = null
@@ -366,7 +387,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     val fastBatchJob = async {
                         if (isColdStart) {
                             try {
-                                val generalDistricts = getGeneralDistrictsForState(userState).take(30)
+                                val generalDistricts = getGeneralDistrictsForState(userState).take(10)
                                 val snap = kotlinx.coroutines.withTimeoutOrNull(5000L) {
                                     FirebaseService.db.collection("news")
                                         .whereEqualTo("approved", true)
@@ -414,7 +435,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                 }
                             } catch (e: Exception) {
                                 // 📴 Fallback to cache on timeout/error
-                                val generalDistricts = getGeneralDistrictsForState(userState).take(30)
+                                val generalDistricts = getGeneralDistrictsForState(userState).take(10)
                                 val cachedSnap = try {
                                     FirebaseService.db.collection("news")
                                         .whereEqualTo("approved", true)
@@ -769,11 +790,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 // ✅ FIX: district null (guest/unknown) అయినా whereIn filter apply చేయాలి
                 // getGeneralDistrictsForState(null) → universal + both-state general districts return చేస్తుంది
                 // ఇది district-specific news (జిల్లా వార్తలు) home feed లో రాకుండా block చేస్తుంది
-                val generalCats = getGeneralDistrictsForState(userState).take(30)
+                val generalCats = getGeneralDistrictsForState(userState).take(10)
                 query = query.whereIn("district", generalCats)
             } else if (!district.isNullOrBlank()) {
                 val districtAliases = Constants.getDistrictAliases(district)
-                val primaryAliases = districtAliases.take(30)
+                val primaryAliases = districtAliases.take(10)
                 query = if (primaryAliases.size > 1) {
                     query.whereIn("district", primaryAliases)
                 } else {
