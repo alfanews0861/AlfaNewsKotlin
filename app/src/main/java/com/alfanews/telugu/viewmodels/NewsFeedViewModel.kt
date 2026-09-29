@@ -551,7 +551,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     val mainBatch = mainBatchDeferred.await()
 
                     var finalPosts = withContext(Dispatchers.Default) {
-                        rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first, isFirstPage = true, injectedSurvey = initialSurvey)
+                        rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first, isFirstPage = true, injectedSurvey = initialSurvey, reporterUserId = currentUser?.id)
                     }
 
                     prefCursor = prefBatch.second
@@ -583,7 +583,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         mainCursor = extraMain.second
                         
                         val extraPosts = withContext(Dispatchers.Default) {
-                            rankAndBlendPosts(extraPref.first, extraMain.first, extraLocal.first, isFirstPage = false)
+                            rankAndBlendPosts(extraPref.first, extraMain.first, extraLocal.first, isFirstPage = false, reporterUserId = currentUser?.id)
                         }
                         finalPosts = (finalPosts + extraPosts).distinctBy { it.id }
                     }
@@ -721,7 +721,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                      val mainBatch = mainBatchDeferred.await()
 
                      var newPosts = withContext(Dispatchers.Default) {
-                         rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first, isFirstPage = false)
+                         rankAndBlendPosts(prefBatch.first, mainBatch.first, localBatch.first, isFirstPage = false, reporterUserId = currentUser?.id)
                      }
 
                      if (newPosts.isEmpty() && (prefBatch.first.isNotEmpty() || mainBatch.first.isNotEmpty() || localBatch.first.isNotEmpty())) {
@@ -880,12 +880,20 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            main: List<NewsPost>,
            local: List<NewsPost>,
            isFirstPage: Boolean = false,
-           injectedSurvey: NewsPost? = null
+           injectedSurvey: NewsPost? = null,
+           reporterUserId: String? = null
        ): List<NewsPost> = withContext(Dispatchers.Default) {
             val allRaw = (pref + main + local).distinctBy { it.id }
-            var filteredPref = pref.filter { prefs.getPostViewCount(it.id) < 2 }
-            var filteredMain = main.filter { prefs.getPostViewCount(it.id) < 2 }
-            var filteredLocal = local.filter { prefs.getPostViewCount(it.id) < 2 }
+
+            // ✅ FIX: Reporter వారి own posts ని view count filter నుండి bypass చేస్తున్నాం.
+            // Reporter తన post ఎన్ని సార్లు చూసినా feed లో కనపడుతుంది.
+            // Regular users కి మాత్రమే 2-view limit apply అవుతుంది.
+            fun isOwnPost(post: NewsPost): Boolean =
+                !reporterUserId.isNullOrBlank() && post.reporter.id == reporterUserId
+
+            var filteredPref = pref.filter { isOwnPost(it) || prefs.getPostViewCount(it.id) < 2 }
+            var filteredMain = main.filter { isOwnPost(it) || prefs.getPostViewCount(it.id) < 2 }
+            var filteredLocal = local.filter { isOwnPost(it) || prefs.getPostViewCount(it.id) < 2 }
 
             // 🚀 ROBUSTNESS: Unread వార్తలను ముందుంచి, చదివిన వాటిని వెనక్కి నెడతాం (పూర్తిగా డిలీట్ చేయము).
             // అన్‌రీడ్ పోస్టులు తక్కువగా ఉంటే (< 8), రా-పోస్టులతో ఫీడ్‌ను నింపి ఎక్స్‌ట్రా నెట్‌వర్క్ రౌండ్‌ట్రిప్స్ మరియు ఖాళీ స్క్రీన్ ఆలస్యాన్ని నివారిస్తాము.

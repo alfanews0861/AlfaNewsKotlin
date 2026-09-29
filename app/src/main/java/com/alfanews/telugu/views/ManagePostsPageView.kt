@@ -64,30 +64,67 @@ fun ManagePostsPageView(
     }
 
     DisposableEffect(currentUser) {
-        var query = FirebaseService.db.collection("news")
+        val uid = currentUser?.id ?: ""
+        val isReporter = currentUser?.role == UserRole.REPORTER
+        val isRegionalIncharge = currentUser?.role == UserRole.REGIONAL_INCHARGE
+
+        // ── Listener 1: reporter.id == uid (standard posts)
+        var query1 = FirebaseService.db.collection("news")
             .orderBy("timestamp", Query.Direction.DESCENDING)
 
-        if (currentUser?.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {
-            query = query.whereIn("district", currentUser.assignedDistricts)
+        if (isRegionalIncharge && currentUser.assignedDistricts.isNotEmpty()) {
+            query1 = query1.whereIn("district", currentUser.assignedDistricts)
         }
-        
-        if (currentUser?.role == UserRole.REPORTER) {
-            query = query.whereEqualTo("reporter.id", currentUser.id)
+        if (isReporter) {
+            query1 = query1.whereEqualTo("reporter.id", uid)
         }
 
-        val listener = query.limit(100).addSnapshotListener { snapshot, e ->
+        // ── Listener 2: originalReporterId == uid
+        // Cross-mandal posts లో reporter.name = "Alfa News Desk" మారినా
+        // originalReporterId field లో original reporter ID preserve అవుతుంది.
+        // ఈ query వల్ల ఆ posts కూడా Manage News లో కనపడతాయి.
+        val query2 = if (isReporter && uid.isNotBlank()) {
+            FirebaseService.db.collection("news")
+                .whereEqualTo("originalReporterId", uid)
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+                .limit(50)
+        } else null
+
+        // Merged state map (postId -> NewsPost) to deduplicate across both listeners
+        val mergedMap = mutableMapOf<String, NewsPost>()
+
+        fun rebuildPosts() {
+            posts = mergedMap.values
+                .sortedByDescending { it.timestamp }
+                .take(100)
+            loading = false
+        }
+
+        val listener1 = query1.limit(100).addSnapshotListener { snapshot, e ->
             loading = false
             if (e != null) return@addSnapshotListener
-            
-            if (snapshot != null) {
-                posts = snapshot.documents.mapNotNull { doc ->
-                    val data = doc.data ?: return@mapNotNull null
-                    com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
-                }
+            snapshot?.documents?.forEach { doc ->
+                val data = doc.data ?: return@forEach
+                val post = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
+                mergedMap[doc.id] = post
             }
+            rebuildPosts()
         }
-        
-        onDispose { listener.remove() }
+
+        val listener2 = query2?.addSnapshotListener { snapshot, e ->
+            if (e != null) return@addSnapshotListener
+            snapshot?.documents?.forEach { doc ->
+                val data = doc.data ?: return@forEach
+                val post = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
+                mergedMap[doc.id] = post
+            }
+            rebuildPosts()
+        }
+
+        onDispose {
+            listener1.remove()
+            listener2?.remove()
+        }
     }
 
     fun confirmDelete(postId: String) {

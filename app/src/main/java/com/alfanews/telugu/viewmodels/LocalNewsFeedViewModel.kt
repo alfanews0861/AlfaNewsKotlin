@@ -615,7 +615,12 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
 
     /**
-     * ఒక వార్తా పోస్ట్ నిజంగా ఎంచుకున్న జిల్లాకు (లేదా ఆ జిల్లా మండలాలకు/అలీయాసెస్‌లకు) చెందుతుందో లేదో ఖచ్చితంగా తనిఖీ చేస్తుంది.
+     * ఒక వార్తా పోస్ట్ నిజంగా ఎంచుకున్న జిల్లాకు (లేదా ఆ జిల్లా మండలాలకు/అలీయాసెస్‌లకు) చెందుతుందో లేదో తనిఖీ చేస్తుంది.
+     *
+     * NOTE: Firestore query already pre-filtered with whereIn(district) / whereArrayContainsAny(categories).
+     * So most posts will pass quickly via check #1 or #3 below.
+     * The strict "other district" rejection (isGenericOrState) only applies when post.district is a
+     * clearly different specific district (e.g. Kadapa post shown in Guntur feed).
      */
     private fun isPostMatchingDistrict(post: NewsPost, targetDistrict: String): Boolean {
         if (targetDistrict.isBlank()) return false
@@ -626,32 +631,25 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         val lowerMandals = mandals.map { it.lowercase().trim() }
 
         val postDist = post.district?.trim()
-        
+
         // 1. Direct match or alias match on post.district
         if (!postDist.isNullOrBlank() && Constants.isDistrictMatch(postDist, targetDistrict)) {
             return true
         }
 
-        // 2. Check if post.district is another SPECIFIC district (e.g. Kadapa vs Guntur)
-        val isGenericOrState = Constants.isStateOrGenericDistrict(postDist)
-        if (!isGenericOrState) {
-            // It is explicitly assigned to another specific district, reject outright
-            return false
-        }
-
-        // If the post is generic (e.g. State level), only allow it if it strongly mentions our district
-        
         // 2. Check categories and tags for district name or aliases
+        //    (Firestore's whereIn on "district" and whereArrayContainsAny on "categories" already
+        //     pre-selected these posts, so this check catches any remaining matches quickly)
         val postCatsAndTags = (post.categories + post.tags).map { it.lowercase().trim() }
         if (postCatsAndTags.any { item ->
-            lowerAliases.any { alias -> item == alias || item.contains(alias) }
+            lowerAliases.any { alias -> alias.isNotBlank() && (item == alias || item.contains(alias)) }
         }) {
             return true
         }
 
         // 3. Check categories and tags for mandal names
         if (lowerMandals.isNotEmpty() && postCatsAndTags.any { item ->
-            lowerMandals.any { mandal -> item == mandal || item.contains(mandal) }
+            lowerMandals.any { mandal -> mandal.isNotBlank() && (item == mandal || item.contains(mandal)) }
         }) {
             return true
         }
@@ -659,8 +657,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         // 4. Check location field
         val postLoc = post.location.lowercase().trim()
         if (postLoc.isNotBlank()) {
-            if (lowerAliases.any { alias -> postLoc == alias || postLoc.contains(alias) || alias.contains(postLoc) } ||
-                lowerMandals.any { mandal -> postLoc == mandal || postLoc.contains(mandal) || mandal.contains(postLoc) }) {
+            if (lowerAliases.any { alias -> alias.isNotBlank() && (postLoc == alias || postLoc.contains(alias) || alias.contains(postLoc)) } ||
+                lowerMandals.any { mandal -> mandal.isNotBlank() && (postLoc == mandal || postLoc.contains(mandal) || mandal.contains(postLoc)) }) {
                 return true
             }
         }
@@ -680,7 +678,17 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             }
         }
 
-        return false
+        // 7. LAST RESORT: If postDist is a different SPECIFIC district → reject.
+        //    If postDist is null/blank/generic/state-level → allow (it came from Firestore query match
+        //    via categories/mandals, so it is relevant even if district field is not set precisely).
+        val isGenericOrState = Constants.isStateOrGenericDistrict(postDist)
+        if (!isGenericOrState) {
+            // Explicitly assigned to another specific district — reject
+            return false
+        }
+
+        // postDist is generic/null/state-level and passed Firestore pre-filter → accept
+        return true
     }
 
     /**

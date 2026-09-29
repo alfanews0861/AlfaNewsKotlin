@@ -155,25 +155,38 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
             // Check for direct district match OR array contains any on categories for the district
             const searchTerms = [activeDistrict];
 
-            // Add some common aliases for robust web searching
-            if (activeDistrict === 'హైదరాబాద్') searchTerms.push('Hyderabad', 'సికింద్రాబాద్', 'సైబరాబాద్');
-            if (activeDistrict === 'రంగారెడ్డి') searchTerms.push('Rangareddy', 'Ranga Reddy');
-            if (activeDistrict === 'విశాఖపట్నం') searchTerms.push('Visakhapatnam', 'Vizag', 'వైజాగ్');
-            if (activeDistrict === 'ఎన్టీఆర్') searchTerms.push('విజయవాడ', 'Vijayawada');
-            if (activeDistrict === 'హన్మకొండ') searchTerms.push('వరంగల్ అర్బన్', 'Hanamkonda');
+            // Add common district aliases for web search
+            if (activeDistrict.includes('నెల్లూరు') || activeDistrict.includes('Nellore')) {
+                searchTerms.push('శ్రీ పొట్టి శ్రీరాములు నెల్లూరు', 'నెల్లూరు', 'Nellore', 'SPSR Nellore');
+            } else if (activeDistrict.includes('విజయనగరం') || activeDistrict.includes('Vizianagaram')) {
+                searchTerms.push('విజయనగరం', 'Vizianagaram');
+            } else if (activeDistrict.includes('హైదరాబాద్')) {
+                searchTerms.push('Hyderabad', 'సికింద్రాబాద్', 'సైబరాబాద్');
+            } else if (activeDistrict.includes('రంగారెడ్డి')) {
+                searchTerms.push('Rangareddy', 'Ranga Reddy');
+            } else if (activeDistrict.includes('విశాఖపట్నం')) {
+                searchTerms.push('Visakhapatnam', 'Vizag', 'వైజాగ్');
+            } else if (activeDistrict.includes('ఎన్టీఆర్')) {
+                searchTerms.push('విజయవాడ', 'Vijayawada', 'NTR');
+            } else if (activeDistrict.includes('హన్మకొండ')) {
+                searchTerms.push('వరంగల్ అర్బన్', 'Hanamkonda');
+            } else if (activeDistrict.includes('కడప') || activeDistrict.includes('YSR')) {
+                searchTerms.push('వైఎస్ఆర్ కడప', 'వైఎస్సార్ కడప', 'కడప', 'Kadapa', 'YSR Kadapa');
+            } else if (activeDistrict.includes('కర్నూలు')) {
+                searchTerms.push('కర్నూలు', 'Kurnool');
+            } else if (activeDistrict.includes('గుంటూరు')) {
+                searchTerms.push('గుంటూరు', 'Guntur');
+            }
+
+            const uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 10);
 
             q = query(
                 newsRef,
                 where('approved', '==', true),
-                where('district', '==', activeDistrict),
+                where('district', 'in', uniqueTerms),
                 orderBy('timestamp', 'desc'),
                 limit(FETCH_LIMIT)
             );
-
-            // Note: In a full production setup with complex queries, we might need to fallback
-            // to searching by categories array if the direct district query returns empty.
-            // For now, aligning exactly with the requested "only selected district news should come"
-            // the above strict where('district', '==', activeDistrict) achieves this.
         } else {
              q = query(
                 newsRef,

@@ -1296,6 +1296,10 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                     isCitizen: finalIsCitizen,
                     isReporter: finalIsReporter,
                     reporter: finalIsCitizen ? { id: latestData.reporter?.id || originalReporterId || "", name: "సిటిజెన్ పోస్ట్" } : (aiProcessedData.reporter || latestData.reporter),
+                    // ✅ FIX: originalReporterId ని ఎల్లప్పుడూ save చేయాలి —
+                    // Cross-mandal posts లో reporter.name = "Alfa News Desk" మారినా
+                    // originalReporterId వల్ల ManageNews query లో reporter కి వారి posts కనపడతాయి
+                    originalReporterId: originalReporterId || latestData.originalReporterId || latestData.reporter?.id || "",
                     status: isRejected ? "REJECTED" : (shouldWaitForVideoUpload ? "PROCESSING_VIDEO" : "PUBLISHED"),
                     approved: isRejected ? false : (shouldWaitForVideoUpload ? false : true),
                     lastProcessingError: admin.firestore.FieldValue.delete(),
