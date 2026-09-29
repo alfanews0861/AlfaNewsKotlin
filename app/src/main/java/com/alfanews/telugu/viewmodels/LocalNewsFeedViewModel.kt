@@ -427,7 +427,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 
                 lastDocument = snapshot?.documents?.lastOrNull()
                 _hasMore.value = snapshot != null && !snapshot.isEmpty
-                
+
                 val rankedPosts = withContext(Dispatchers.Default) {
                     rankLocalNews(fetchedMap.values.toList(), district, currentUser)
                 }
@@ -442,8 +442,22 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     if (wasEmpty) {
                         _shouldScrollToTop.value = true
                     }
-                } else if (snapshot == null || snapshot.isEmpty) {
-                    _hasMore.value = false
+                } else {
+                    // 🛡️ Firestore returned docs but rankLocalNews filtered ALL of them (too strict).
+                    // Fallback: show raw fetched posts sorted by timestamp so user never sees empty screen.
+                    val fallbackPosts = withContext(Dispatchers.Default) {
+                        fetchedMap.values.toList().sortedByDescending { it.timestamp }
+                    }
+                    if (fallbackPosts.isNotEmpty()) {
+                        fetchedAny = true
+                        _news.value = fallbackPosts
+                        val validIds = fallbackPosts.filter { it.type == "news" }.map { it.id }
+                        prefs.incrementPostViewCounts(validIds)
+                        if (wasEmpty) _shouldScrollToTop.value = true
+                    } else {
+                        // Genuinely empty — no more pages to load
+                        _hasMore.value = false
+                    }
                 }
                 _loading.value = false 
 
@@ -585,12 +599,27 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                                 if (validIds.isNotEmpty()) {
                                     prefs.incrementPostViewCounts(validIds)
                                 }
+                            } else {
+                                // 🛡️ rankLocalNews filtered ALL unique posts — fallback to raw posts
+                                // so user doesn't get stuck on a spinner that never resolves
+                                val rawPosts = uniqueNewPosts.sortedByDescending { it.timestamp }
+                                _news.value = _news.value + rawPosts
+                                appendedCount = rawPosts.size
+                                if (appendedCount > 0) anyFetched = true
+                                val validIds = rawPosts.filter { it.type == "news" }.map { it.id }
+                                if (validIds.isNotEmpty()) prefs.incrementPostViewCounts(validIds)
                             }
                         }
                     }
                 }
+                // 🛡️ INFINITE SPINNER FIX: After while loop exits with 0 appended posts,
+                // stop showing the loading slot so user can keep reading existing articles.
+                if (appendedCount == 0 && _hasMore.value) {
+                    _hasMore.value = false
+                }
             } catch (e: Exception) {
                 android.util.Log.e("LocalNewsFeedViewModel", "LoadMore query failed: ${e.message}")
+                _hasMore.value = false // prevent infinite spinner on error
             } finally {
                 isFetching = false
                 if (pendingLoadMore && _hasMore.value) {
