@@ -86,6 +86,7 @@ class MainActivity : ComponentActivity() {
 
     private val mainViewModel: MainViewModel by viewModels { ViewModelFactory(application) }
     private val newsFeedViewModel: NewsFeedViewModel by viewModels { ViewModelFactory(application) }
+    private val localNewsFeedViewModel: LocalNewsFeedViewModel by viewModels { ViewModelFactory(application) }
     private var coldStartInitialPostId: String? = null
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -143,6 +144,7 @@ class MainActivity : ComponentActivity() {
         val language = mainViewModel.language.value
         val currentUser = mainViewModel.currentUser.value
         newsFeedViewModel.loadNews(language, currentUser, initialPostId = initialPostId)
+        localNewsFeedViewModel.loadNews(language, currentUser)
 
         // Handle Firebase Dynamic Links (for deferred deep links when app wasn't installed)
         // This must be done BEFORE handleDeepLink() to catch dynamic links properly
@@ -186,14 +188,29 @@ class MainActivity : ComponentActivity() {
         setContent {
             if (showAnimatedSplash) {
                 val newsLoaded by newsFeedViewModel.news.collectAsState()
+                val localNewsLoaded by localNewsFeedViewModel.news.collectAsState()
                 val isLoading by newsFeedViewModel.loading.collectAsState()
                 val localAds by newsFeedViewModel.localAds.collectAsState()
 
                 // 🚀 PRELOAD IMAGES & ADS DURING SPLASH ANIMATION:
-                // While splash screen animates (2-3 seconds), pre-fetch images for top 5 news + 5th card local ad into Coil cache
-                LaunchedEffect(newsLoaded, localAds) {
+                // While splash screen animates (2-3 seconds), pre-fetch images for top 5 home news + top 5 local news + 5th card local ad into Coil cache
+                LaunchedEffect(newsLoaded, localNewsLoaded, localAds) {
                     if (newsLoaded.isNotEmpty()) {
                         newsLoaded.take(5).forEach { post ->
+                            if (post.mediaUrl.isNotEmpty()) {
+                                val request = ImageRequest.Builder(this@MainActivity)
+                                    .data(post.mediaUrl)
+                                    .allowHardware(true)
+                                    .crossfade(false)
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .build()
+                                SingletonImageLoader.get(this@MainActivity).enqueue(request)
+                            }
+                        }
+                    }
+                    if (localNewsLoaded.isNotEmpty()) {
+                        localNewsLoaded.take(5).forEach { post ->
                             if (post.mediaUrl.isNotEmpty()) {
                                 val request = ImageRequest.Builder(this@MainActivity)
                                     .data(post.mediaUrl)
@@ -256,6 +273,7 @@ class MainActivity : ComponentActivity() {
                             MainScreen(
                                 mainViewModel = mainViewModel, 
                                 newsFeedViewModel = newsFeedViewModel,
+                                localNewsFeedViewModel = localNewsFeedViewModel,
                                 completeUpdate = this@MainActivity::completeAppUpdate
                             )
                         }

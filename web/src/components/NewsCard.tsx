@@ -322,14 +322,15 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
       try {
         const canvas = await html2canvas(cardRef.current, {
           useCORS: true,
-          scale: 2,
+          scale: Math.max(3, window.devicePixelRatio || 2),
           backgroundColor: '#000000',
           logging: false,
+          imageTimeout: 15000,
           ignoreElements: (element: Element) => element.classList?.contains('share-ignore')
         } as any);
-        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95));
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
         if (blob) {
-          shareFile = new File([blob], `alfanews_${post.id}.jpg`, { type: 'image/jpeg' });
+          shareFile = new File([blob], `alfanews_${post.id}.png`, { type: 'image/png' });
         }
       } catch (screenshotErr) {
         console.warn("Could not capture DOM screenshot, falling back to text:", screenshotErr);

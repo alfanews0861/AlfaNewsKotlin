@@ -20,7 +20,7 @@ import DataCollectionPolicyPage from './src/components/policy/DataCollectionPoli
 import { ArrowLeft, Loader2 } from 'lucide-react';
 
 const { onAuthStateChanged, signOut } = _auth as any;
-const { doc, getDoc, setDoc, serverTimestamp, onSnapshot } = _firestore as any;
+const { doc, getDoc, setDoc, serverTimestamp, onSnapshot, collection, query, where, getDocs } = _firestore as any;
 
 const App: React.FC = () => {
   const [showLogin, setShowLogin] = useState(false);
@@ -61,14 +61,42 @@ const App: React.FC = () => {
         const userSnap = await getDoc(userRef);
 
         if (!userSnap.exists()) {
-          const newUser: User = {
+          let legacyData: any = null;
+          try {
+            if (firebaseUser.email) {
+              const qEmail = query(collection(db, 'users'), where('email', '==', firebaseUser.email));
+              const snap = await getDocs(qEmail);
+              if (!snap.empty) {
+                legacyData = snap.docs[0].data();
+              }
+            }
+            if (!legacyData && firebaseUser.phoneNumber) {
+              const clean10 = firebaseUser.phoneNumber.replace(/[^0-9]/g, '').slice(-10);
+              const qPhone1 = query(collection(db, 'users'), where('phone', '==', firebaseUser.phoneNumber));
+              let snapPhone = await getDocs(qPhone1);
+              if (!snapPhone.empty) {
+                legacyData = snapPhone.docs[0].data();
+              } else if (clean10) {
+                const qPhone2 = query(collection(db, 'users'), where('phone', '==', clean10));
+                snapPhone = await getDocs(qPhone2);
+                if (!snapPhone.empty) {
+                  legacyData = snapPhone.docs[0].data();
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to query legacy user profile:', e);
+          }
+
+          const newUser: any = {
             id: firebaseUser.uid,
-            name: firebaseUser.displayName || 'New User',
-            email: firebaseUser.email || '',
-            photoUrl: firebaseUser.photoURL || '',
-            role: UserRole.SUBSCRIBER,
+            name: legacyData?.name || firebaseUser.displayName || 'New User',
+            email: firebaseUser.email || legacyData?.email || '',
+            photoUrl: firebaseUser.photoURL || legacyData?.photoUrl || '',
+            role: legacyData?.role || UserRole.SUBSCRIBER,
+            ...(legacyData || {})
           };
-          await setDoc(userRef, { ...newUser, createdAt: serverTimestamp() });
+          await setDoc(userRef, { ...newUser, createdAt: legacyData?.createdAt || serverTimestamp(), lastLogin: serverTimestamp() }, { merge: true });
         }
 
         userUnsub = onSnapshot(userRef, (docSnap: any) => {

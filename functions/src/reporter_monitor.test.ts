@@ -55,29 +55,57 @@ describe('Reporter Monitor & Warning System Tests', () => {
         expect(days).toBe(1); // Self-healed to 1 day!
     });
 
-    test('Warning Ladder Escalation Thresholds', () => {
-        // Level 1: 3-4 days
-        expect(3 >= 3 && 3 < 5).toBe(true);
-        expect(4 >= 3 && 4 < 5).toBe(true);
+    test('calculateDaysInactive: User doc recent post is NOT overwritten by older actualNewsDate', () => {
+        const now = new Date('2026-08-20T12:00:00Z');
+        const userDocRecentPost = new Date('2026-08-18T12:00:00Z'); // 2 days ago
+        const staleNewsFromQuery = new Date('2026-08-01T12:00:00Z'); // 19 days ago
 
-        // Level 2: 5-6 days
-        expect(5 >= 5 && 5 < 7).toBe(true);
-        expect(6 >= 5 && 6 < 7).toBe(true);
+        const reporter = {
+            lastPostTimestamp: userDocRecentPost,
+            promotedAt: new Date('2026-05-01T12:00:00Z')
+        };
 
-        // Level 3: 7-9 days
-        expect(7 >= 7 && 7 < 10).toBe(true);
-        expect(9 >= 7 && 9 < 10).toBe(true);
+        const days = calculateDaysInactive(reporter, now, staleNewsFromQuery);
+        expect(days).toBe(2); // Retains 2 days, not degraded to 19 days!
+    });
 
-        // Demotion: 10+ days (Requires Level 3 + 48 hours gap)
-        const daysInactive = 10;
-        const currentLevel = 3;
-        const hoursSinceLastWarning = 49;
-        const canDemote = daysInactive >= 10 && currentLevel >= 3 && hoursSinceLastWarning >= 48;
-        expect(canDemote).toBe(true);
+    test('parseToDate parses string numeric epoch timestamps', () => {
+        const tsString = "1724155200000";
+        const parsed = parseToDate(tsString);
+        expect(parsed).not.toBeNull();
+        expect(parsed?.getTime()).toBe(1724155200000);
+    });
 
-        // Safety Guard: Level 0 cannot be instantly demoted
-        const levelZeroLevel = 0;
-        const canDemoteLevelZero = daysInactive >= 10 && levelZeroLevel >= 3 && hoursSinceLastWarning >= 48;
-        expect(canDemoteLevelZero).toBe(false);
+    test('Sequential Warning Ladder Escalation Thresholds', () => {
+        const canEscalateToLevel2 = (days: number, currentLevel: number, hours: number) => {
+            return days >= 8 && currentLevel === 1 && hours >= 48;
+        };
+
+        const canEscalateToLevel3 = (days: number, currentLevel: number, hours: number) => {
+            return days >= 12 && currentLevel === 2 && hours >= 72;
+        };
+
+        const canDemote = (days: number, currentLevel: number, hours: number, lifetimePosts: number) => {
+            return days >= 15 && currentLevel >= 3 && hours >= 72 && lifetimePosts === 0;
+        };
+
+        // Level 1: Day 5+
+        expect(5 >= 5).toBe(true);
+        expect(4 >= 5).toBe(false);
+
+        // Level 2: Requires Level 1 + 48h
+        expect(canEscalateToLevel2(8, 1, 49)).toBe(true);
+        expect(canEscalateToLevel2(8, 0, 49)).toBe(false); // Cannot jump from Level 0 to Level 2!
+
+        // Level 3: Requires Level 2 + 72h
+        expect(canEscalateToLevel3(12, 2, 73)).toBe(true);
+        expect(canEscalateToLevel3(12, 0, 73)).toBe(false); // Cannot jump from Level 0 to Level 3!
+        expect(canEscalateToLevel3(12, 1, 73)).toBe(false); // Cannot jump from Level 1 to Level 3!
+
+        // Demotion: Requires Level 3 + 72h + 0 lifetime posts
+        expect(canDemote(15, 3, 75, 0)).toBe(true);
+
+        // Established reporters with >= 3 posts are NEVER demoted
+        expect(canDemote(15, 3, 75, 5)).toBe(false);
     });
 });

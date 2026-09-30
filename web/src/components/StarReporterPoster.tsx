@@ -45,7 +45,7 @@ export const StarReporterCard: React.FC<StarReporterCardProps> = ({ data, isModa
     try {
       const canvas = await html2canvas(posterRef.current, {
         useCORS: true,
-        scale: 2.5,
+        scale: Math.max(3, window.devicePixelRatio || 2),
         backgroundColor: '#0a0f1d',
         logging: false
       } as any);
@@ -72,11 +72,11 @@ export const StarReporterCard: React.FC<StarReporterCardProps> = ({ data, isModa
       try {
         const canvas = await html2canvas(posterRef.current, {
           useCORS: true,
-          scale: 2,
+          scale: Math.max(3, window.devicePixelRatio || 2),
           backgroundColor: '#0a0f1d',
           logging: false
         } as any);
-        const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png', 0.95));
+        const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
         if (blob) {
           shareFile = new File([blob], `AlfaNews_Star_Reporter_${data.name.replace(/\s+/g, '_')}.png`, { type: 'image/png' });
         }

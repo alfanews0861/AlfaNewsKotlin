@@ -1090,7 +1090,12 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
         val decorView = window.decorView
         val windowWidth = decorView.width
         val windowHeight = decorView.height
-        val safeBounds = Rect(bounds.left.coerceIn(0, windowWidth), 0, bounds.right.coerceIn(0, windowWidth), bounds.bottom.coerceIn(0, windowHeight))
+        val safeBounds = Rect(
+            bounds.left.coerceIn(0, windowWidth),
+            bounds.top.coerceIn(0, windowHeight),
+            bounds.right.coerceIn(0, windowWidth),
+            bounds.bottom.coerceIn(0, windowHeight)
+        )
         if (safeBounds.width() <= 0 || safeBounds.height() <= 0) { 
             continuation.resume(null)
             return@suspendCoroutine 
@@ -1099,32 +1104,11 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
         val w = safeBounds.width()
         val h = safeBounds.height()
 
-        // 🛡️ Progressive OOM-safe allocation:
-        // 1. Full ARGB_8888
-        // 2. Full RGB_565 (50% RAM savings)
-        // 3. 0.75x Scaled RGB_565 (70% RAM savings)
+        // 🛡️ Always allocate full ARGB_8888 for ultra-crisp screenshot rendering
         var bitmap: Bitmap? = try {
             Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         } catch (oom: OutOfMemoryError) {
             null
-        }
-
-        if (bitmap == null) {
-            bitmap = try {
-                Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565)
-            } catch (oom: OutOfMemoryError) {
-                null
-            }
-        }
-
-        if (bitmap == null) {
-            val scaleW = maxOf(1, (w * 0.75).toInt())
-            val scaleH = maxOf(1, (h * 0.75).toInt())
-            bitmap = try {
-                Bitmap.createBitmap(scaleW, scaleH, Bitmap.Config.RGB_565)
-            } catch (oom: OutOfMemoryError) {
-                null
-            }
         }
 
         if (bitmap == null) {
@@ -1137,9 +1121,10 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
                 if (copyResult == PixelCopy.SUCCESS) {
                     continuation.resume(bitmap)
                 } else {
-                    // Fallback to Canvas draw on PixelCopy failure
+                    // Fallback to Canvas draw with anti-aliasing and bitmap filtering
                     try {
                         val canvas = android.graphics.Canvas(bitmap)
+                        canvas.drawFilter = android.graphics.PaintFlagsDrawFilter(0, android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
                         canvas.translate(-safeBounds.left.toFloat(), -safeBounds.top.toFloat())
                         decorView.draw(canvas)
                         continuation.resume(bitmap)
@@ -1151,6 +1136,7 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
         } else {
             try {
                 val canvas = android.graphics.Canvas(bitmap)
+                canvas.drawFilter = android.graphics.PaintFlagsDrawFilter(0, android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
                 canvas.translate(-safeBounds.left.toFloat(), -safeBounds.top.toFloat())
                 decorView.draw(canvas)
                 continuation.resume(bitmap)
@@ -1166,7 +1152,7 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
 private suspend fun fallbackGetNewsImageUri(context: Context, post: NewsPost, language: Language): Uri? {
     return kotlinx.coroutines.withContext(Dispatchers.IO) {
         try {
-            // 1. If post has a media image, fetch via Coil (disable memory cache to avoid mutating UI cache)
+            // 1. If post has a media image, fetch via Coil at 1080x1080 resolution
             if (post.mediaUrl.isNotBlank()) {
                 try {
                     val request = ImageRequest.Builder(context)
@@ -1186,67 +1172,65 @@ private suspend fun fallbackGetNewsImageUri(context: Context, post: NewsPost, la
                 }
             }
 
-            // 2. Generate a clean branded news card image on canvas
-            val width = 720
-            val height = 720
-            val cardBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+            // 2. Generate a clean branded high-resolution news card image (1080x1080 ARGB_8888)
+            val width = 1080
+            val height = 1080
+            val cardBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(cardBitmap)
+            canvas.drawFilter = android.graphics.PaintFlagsDrawFilter(0, android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
 
             // Background
-            val bgPaint = android.graphics.Paint().apply {
+            val bgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                 color = android.graphics.Color.parseColor("#121212")
                 style = android.graphics.Paint.Style.FILL
             }
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
 
             // Header red bar
-            val headerPaint = android.graphics.Paint().apply {
+            val headerPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                 color = android.graphics.Color.parseColor("#E53935")
                 style = android.graphics.Paint.Style.FILL
             }
-            canvas.drawRect(0f, 0f, width.toFloat(), 90f, headerPaint)
+            canvas.drawRect(0f, 0f, width.toFloat(), 110f, headerPaint)
 
             // Header text "AlfaNews"
-            val titlePaint = android.graphics.Paint().apply {
+            val titlePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.SUBPIXEL_TEXT_FLAG).apply {
                 color = android.graphics.Color.WHITE
-                textSize = 38f
+                textSize = 48f
                 isFakeBoldText = true
-                isAntiAlias = true
             }
-            canvas.drawText("AlfaNews", 40f, 60f, titlePaint)
+            canvas.drawText("AlfaNews", 50f, 75f, titlePaint)
 
             // Headline text
-            val textPaint = android.text.TextPaint().apply {
+            val textPaint = android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.SUBPIXEL_TEXT_FLAG).apply {
                 color = android.graphics.Color.WHITE
-                textSize = 34f
+                textSize = 44f
                 isFakeBoldText = true
-                isAntiAlias = true
             }
 
             val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
             val staticLayout = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                android.text.StaticLayout.Builder.obtain(headline, 0, headline.length, textPaint, width - 80)
+                android.text.StaticLayout.Builder.obtain(headline, 0, headline.length, textPaint, width - 100)
                     .setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL)
-                    .setMaxLines(6)
+                    .setMaxLines(7)
                     .setEllipsize(android.text.TextUtils.TruncateAt.END)
                     .build()
             } else {
                 @Suppress("DEPRECATION")
-                android.text.StaticLayout(headline, textPaint, width - 80, android.text.Layout.Alignment.ALIGN_NORMAL, 1.2f, 0f, false)
+                android.text.StaticLayout(headline, textPaint, width - 100, android.text.Layout.Alignment.ALIGN_NORMAL, 1.2f, 0f, false)
             }
 
             canvas.save()
-            canvas.translate(40f, 150f)
+            canvas.translate(50f, 180f)
             staticLayout.draw(canvas)
             canvas.restore()
 
             // Footer watermark
-            val footerPaint = android.graphics.Paint().apply {
+            val footerPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.SUBPIXEL_TEXT_FLAG).apply {
                 color = android.graphics.Color.LTGRAY
-                textSize = 24f
-                isAntiAlias = true
+                textSize = 30f
             }
-            canvas.drawText("alfanews.app/news/${post.id}", 40f, height - 50f, footerPaint)
+            canvas.drawText("alfanews.app/news/${post.id}", 50f, height - 60f, footerPaint)
 
             val uri = saveImageToCache(context, cardBitmap)
             uri
@@ -1277,9 +1261,11 @@ private fun saveImageToCache(context: Context, bitmap: Bitmap): Uri? {
         shareFiles.filter { System.currentTimeMillis() - it.lastModified() > 3600000 }
             .forEach { runCatching { it.delete() } }
 
-        val file = File(imagesFolder, "news_share_${System.currentTimeMillis()}.jpg")
+        // Lossless PNG preserves 100% crispness for text and photos without any compression artifacts or blur
+        val file = File(imagesFolder, "news_share_${System.currentTimeMillis()}.png")
         FileOutputStream(file).use { stream ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+            stream.flush()
         }
         return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     } catch (e: Exception) { 

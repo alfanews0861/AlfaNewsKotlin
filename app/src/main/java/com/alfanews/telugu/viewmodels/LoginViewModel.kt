@@ -81,31 +81,40 @@ class LoginViewModel : ViewModel() {
 
                 // 🚀 PRE-CACHE immediately for instant offline persistence & login UX
                 prefs.userId = user.uid
-                prefs.userName = user.displayName ?: (if (isAdmin) "శ్రీకాంత్ రెడ్డి" else "User")
-                prefs.userRole = if (isAdmin) "ADMIN" else "SUBSCRIBER"
+                if (user.displayName?.isNotEmpty() == true) prefs.userName = user.displayName
+                if (isAdmin) prefs.userRole = "ADMIN"
                 if (!phone.isNullOrEmpty()) prefs.userPhone = phone
 
                 var isNewUser = false
                 try {
                     val userRef = FirebaseService.db.collection("users").document(user.uid)
-                    val existingUserDoc = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                        userRef.get().await()
+                    val existingUserDoc = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                        try {
+                            userRef.get().await()
+                        } catch (e: Exception) {
+                            null
+                        }
                     }
 
-                    if (existingUserDoc == null || !existingUserDoc.exists()) {
+                    if (existingUserDoc != null && !existingUserDoc.exists()) {
                         isNewUser = true
-                        // 🔍 RESILIENCE Check: Look for user by phone before creating new one
+                        // 🔍 RESILIENCE Check: Look for user by phone (both +91 and 10-digit formats) or email
                         var foundLegacyUser = false
                         var legacyRole = if (isAdmin) "ADMIN" else "SUBSCRIBER"
                         
-                        if (!phone.isNullOrEmpty()) {
+                        val clean10Digit = phone?.replace("+91", "")?.trim()
+                        val fullWith91 = if (phone != null && phone.startsWith("+91")) phone else if (!clean10Digit.isNullOrEmpty()) "+91$clean10Digit" else null
+                        
+                        // 1. Search by 10-digit phone and +91 phone
+                        val searchPhones = listOfNotNull(clean10Digit, fullWith91).filter { it.length >= 10 }.distinct()
+                        for (p in searchPhones) {
+                            if (foundLegacyUser) break
                             try {
                                 val legacyDocs = kotlinx.coroutines.withTimeoutOrNull(3000L) {
                                     FirebaseService.db.collection("users")
-                                        .whereEqualTo("phone", phone)
+                                        .whereEqualTo("phone", p)
                                         .get().await()
                                 }
-                                
                                 if (legacyDocs != null && !legacyDocs.isEmpty) {
                                     val legacyDoc = legacyDocs.documents.first()
                                     val legacyData = legacyDoc.data
@@ -122,7 +131,35 @@ class LoginViewModel : ViewModel() {
                                     foundLegacyUser = true
                                 }
                             } catch (e: Exception) {
-                                android.util.Log.e("LoginViewModel", "Legacy search failed: ${e.message}")
+                                android.util.Log.e("LoginViewModel", "Legacy search by phone failed: ${e.message}")
+                            }
+                        }
+
+                        // 2. Search by email if not found yet
+                        if (!foundLegacyUser && !email.isNullOrBlank()) {
+                            try {
+                                val emailDocs = kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                                    FirebaseService.db.collection("users")
+                                        .whereEqualTo("email", email.trim().lowercase())
+                                        .get().await()
+                                }
+                                if (emailDocs != null && !emailDocs.isEmpty) {
+                                    val legacyDoc = emailDocs.documents.first()
+                                    val legacyData = legacyDoc.data
+                                    val rawLegacyRole = legacyData?.get("role")
+                                    val parsedLegacyRole = if (isAdmin) UserRole.ADMIN else (UserRole.fromStringSafe(rawLegacyRole) ?: UserRole.SUBSCRIBER)
+                                    legacyRole = parsedLegacyRole.name
+                                    
+                                    val updatedLegacyData = legacyData?.toMutableMap() ?: mutableMapOf()
+                                    updatedLegacyData["lastLogin"] = Timestamp.now()
+                                    if (isAdmin) {
+                                        updatedLegacyData["role"] = "ADMIN"
+                                    }
+                                    userRef.set(updatedLegacyData, com.google.firebase.firestore.SetOptions.merge()).await()
+                                    foundLegacyUser = true
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.e("LoginViewModel", "Legacy search by email failed: ${e.message}")
                             }
                         }
 
@@ -136,7 +173,7 @@ class LoginViewModel : ViewModel() {
                         
                         // Update cache with resolved legacy role
                         prefs.userRole = legacyRole
-                    } else {
+                    } else if (existingUserDoc != null && existingUserDoc.exists()) {
                         // EXISTING USER: Only update metadata, NEVER downgrade role
                         val rawRole = existingUserDoc.get("role")
                         val roleFromDb = if (isAdmin) "ADMIN" else ((UserRole.fromStringSafe(rawRole) ?: UserRole.SUBSCRIBER).name)

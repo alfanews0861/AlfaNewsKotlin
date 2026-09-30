@@ -339,7 +339,7 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
         val windowHeight = decorView.height
         val safeBounds = Rect(
             bounds.left.coerceIn(0, windowWidth),
-            0, // Start from y=0 to include the logo header at the top of the window
+            bounds.top.coerceIn(0, windowHeight),
             bounds.right.coerceIn(0, windowWidth),
             bounds.bottom.coerceIn(0, windowHeight)
         )
@@ -349,8 +349,19 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
         }
         val bitmap = Bitmap.createBitmap(safeBounds.width(), safeBounds.height(), Bitmap.Config.ARGB_8888)
         PixelCopy.request(window, safeBounds, bitmap, { copyResult ->
-            if (copyResult == PixelCopy.SUCCESS) continuation.resume(bitmap)
-            else continuation.resume(null)
+            if (copyResult == PixelCopy.SUCCESS) {
+                continuation.resume(bitmap)
+            } else {
+                try {
+                    val canvas = android.graphics.Canvas(bitmap)
+                    canvas.drawFilter = android.graphics.PaintFlagsDrawFilter(0, android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+                    canvas.translate(-safeBounds.left.toFloat(), -safeBounds.top.toFloat())
+                    decorView.draw(canvas)
+                    continuation.resume(bitmap)
+                } catch (e: Exception) {
+                    continuation.resume(null)
+                }
+            }
         }, Handler(Looper.getMainLooper()))
     } catch (e: Exception) { continuation.resume(null) }
 }
@@ -369,10 +380,10 @@ private fun saveImageToCache(context: Context, bitmap: Bitmap): Uri? {
     try {
         imagesFolder.mkdirs()
         val file = File(imagesFolder, "ad_share_${System.currentTimeMillis()}.png")
-        val stream = FileOutputStream(file)
-        bitmap.compress(Bitmap.CompressFormat.PNG, 90, stream)
-        stream.flush()
-        stream.close()
+        FileOutputStream(file).use { stream ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+            stream.flush()
+        }
         return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     } catch (e: Exception) { e.printStackTrace() }
     return null

@@ -382,11 +382,16 @@ export const getNewsCardImage = onRequest(async (req, res) => {
 
         let mediaUrl = data.mediaUrl || data.imageUrl || (Array.isArray(data.images) && data.images.length > 0 ? data.images[0] : null) || data.videoThumbnailUrl;
 
-        // 9:14 Mobile Aspect Ratio -> 1080 x 1680
+        // Full Vertical Mobile News Card (1080 x 1680, 9:14 Mobile Ratio - Perfect for WhatsApp Status & Story Sharing)
         const width = 1080;
         const height = 1680;
         const canvas = createCanvas(width, height);
         const ctx = canvas.getContext('2d');
+
+        // Enable ultra-high quality anti-aliasing and image smoothing
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.textRendering = 'geometricPrecision';
 
         // 1. Mobile App Dark Background
         ctx.fillStyle = '#050505';
@@ -409,19 +414,29 @@ export const getNewsCardImage = onRequest(async (req, res) => {
         ctx.fillText('alfanews', 76, 52);
 
         // Location text
-        ctx.font = '700 32px Mallanna';
+        ctx.font = '700 32px Mallanna, sans-serif';
         ctx.textAlign = 'right';
         ctx.fillStyle = '#cbd5e1';
         ctx.fillText(location, width - 36, 52);
         ctx.textAlign = 'left';
 
-        // 3. News Photo (Y: 75 to 675, Height: 600)
+        // 3. News Photo (Y: 75 to 675, Height: 600) with aspect-ratio preserving cover crop
         const photoY = 75;
         const photoH = 600;
         if (mediaUrl && typeof mediaUrl === 'string' && mediaUrl.startsWith('http')) {
             try {
                 const photo = await loadImage(mediaUrl);
-                ctx.drawImage(photo, 0, photoY, width, photoH);
+                const imgRatio = photo.width / photo.height;
+                const targetRatio = width / photoH;
+                let sx = 0, sy = 0, sw = photo.width, sh = photo.height;
+                if (imgRatio > targetRatio) {
+                    sw = photo.height * targetRatio;
+                    sx = (photo.width - sw) / 2;
+                } else {
+                    sh = photo.width / targetRatio;
+                    sy = Math.max(0, (photo.height - sh) * 0.25); // Slight bias to upper-center for faces
+                }
+                ctx.drawImage(photo, sx, sy, sw, sh, 0, photoY, width, photoH);
             } catch(e) {
                 ctx.fillStyle = '#1e293b';
                 ctx.fillRect(0, photoY, width, photoH);
@@ -431,27 +446,31 @@ export const getNewsCardImage = onRequest(async (req, res) => {
             ctx.fillRect(0, photoY, width, photoH);
         }
 
-        // Photo Bottom Overlay Strip
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-        ctx.fillRect(0, photoY + photoH - 55, width, 55);
+        // Photo Bottom Gradient Overlay & Source attribution
+        const photoGrad = ctx.createLinearGradient(0, photoY + photoH - 90, 0, photoY + photoH);
+        photoGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        photoGrad.addColorStop(1, 'rgba(0, 0, 0, 0.85)');
+        ctx.fillStyle = photoGrad;
+        ctx.fillRect(0, photoY + photoH - 90, width, 90);
+
         ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-        ctx.font = '600 28px Mallanna';
+        ctx.font = '600 28px Mallanna, sans-serif';
         ctx.fillText(`మూలం: ${reporterName}`, 36, photoY + photoH - 18);
 
-        // 4. Headline
+        // 4. Headline (Native Ramabhadra rendering for smooth vector curves)
         ctx.fillStyle = '#ffffff';
-        ctx.font = '800 52px Ramabhadra';
+        ctx.font = '54px Ramabhadra, sans-serif';
         const titleLines = wrapTextCanvas(ctx, title, width - 180, 3);
-        let curY = photoY + photoH + 72;
+        let curY = photoY + photoH + 74;
         for (const line of titleLines) {
             ctx.fillText(line, 40, curY);
-            curY += 70;
+            curY += 72;
         }
 
         // 5. Meta Info Line
-        curY += 10;
+        curY += 12;
         ctx.fillStyle = '#94a3b8';
-        ctx.font = '600 32px Mallanna';
+        ctx.font = '32px Mallanna, sans-serif';
         ctx.fillText(`${reporterName}  |  ${mandal}  |  AlfaNews`, 40, curY);
 
         // 6. Dotted Divider
@@ -465,19 +484,21 @@ export const getNewsCardImage = onRequest(async (req, res) => {
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // 7. Story Body (46px Mallanna)
+        // 7. Story Body (Mallanna with comfortable line height and bounds protection)
         curY += 66;
         ctx.fillStyle = '#f8fafc';
-        ctx.font = '500 46px Mallanna';
+        ctx.font = '46px Mallanna, sans-serif';
         
-        const paragraphs = content.split('\n\n');
+        const paragraphs = content.split(/\r?\n\s*\r?\n/);
         for (const para of paragraphs) {
-            const bodyLines = wrapTextCanvas(ctx, para, width - 180, 6);
+            if (curY > height - 80) break;
+            const bodyLines = wrapTextCanvas(ctx, para.trim(), width - 180, 5);
             for (const line of bodyLines) {
+                if (curY > height - 60) break;
                 ctx.fillText(line, 40, curY);
-                curY += 68;
+                curY += 70;
             }
-            curY += 28;
+            curY += 24;
         }
 
         // 8. Right Action Floating Buttons
@@ -507,10 +528,11 @@ export const getNewsCardImage = onRequest(async (req, res) => {
         ctx.fillStyle = '#ffffff'; ctx.font = '700 22px -apple-system, sans-serif'; ctx.textAlign = 'center';
         ctx.fillText(comments.toString(), actionX, actionY + 56);
 
-        const imageBuf = canvas.toBuffer('image/jpeg');
+        // Ultra-high quality 95% JPEG encoding (zero mosquito noise, smooth vector edges)
+        const imageBuf = canvas.encodeSync('jpeg', 95);
         res.set({
             'Content-Type': 'image/jpeg',
-            'Cache-Control': 'public, max-age=86400, s-maxage=604800'
+            'Cache-Control': 'public, max-age=3600, s-maxage=86400'
         });
         res.status(200).send(imageBuf);
     } catch (e) {
@@ -556,11 +578,11 @@ export const shareNews = onRequest(async (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>${safeTitle} - Alfa News</title>
 
-    <!-- Open Graph (WhatsApp, Facebook, Telegram Preview) -->
+    <!-- Open Graph (WhatsApp, Telegram Clean Full-Size Image Preview - No duplicate title/description box) -->
     <meta property="og:site_name" content="Alfa News">
-    <meta property="og:title" content="${safeTitle}">
-    <meta property="og:description" content="${safeDesc}">
-    <meta property="og:type" content="article">
+    <meta property="og:title" content="&#8203;">
+    <meta property="og:description" content="&#8203;">
+    <meta property="og:type" content="image.other">
     <meta property="og:url" content="${postUrl}">
     <meta property="og:image" content="${safeImage}">
     <meta property="og:image:secure_url" content="${safeImage}">

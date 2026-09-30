@@ -30,6 +30,7 @@ import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.viewmodels.MainViewModel
 import com.alfanews.telugu.viewmodels.NewsFeedViewModel
+import com.alfanews.telugu.viewmodels.LocalNewsFeedViewModel
 import com.alfanews.telugu.views.policy.*
 import com.alfanews.telugu.views.WeatherAlertBanner
 import kotlinx.coroutines.launch
@@ -39,6 +40,7 @@ import kotlinx.coroutines.launch
 fun MainScreen(
     mainViewModel: MainViewModel,
     newsFeedViewModel: NewsFeedViewModel,
+    localNewsFeedViewModel: LocalNewsFeedViewModel? = null,
     completeUpdate: () -> Unit = {}
 ) {
     val rawCurrentUser: User? by mainViewModel.currentUser.collectAsStateWithLifecycle()
@@ -527,18 +529,36 @@ fun MainScreen(
                                 },
                                 onMenuClick = { scope.launch { drawerState.open() } }
                             )
-                            "local" -> LocalNewsFeedView(
-                                language = language, 
-                                currentUser = user, 
-                                onDistrictClick = { mainViewModel.setShowDistrictPicker(true) },
-                                onProfileClick = { mainViewModel.setActiveTab("profile") },
-                                onReporterClick = { mainViewModel.setReporterIdToShow(it) },
-                                onEditClick = { post ->
-                                    editingNewsPost = post
-                                    showPostNewsPage = true
-                                },
-                                onMenuClick = { scope.launch { drawerState.open() } }
-                            )
+                            "local" -> {
+                                if (localNewsFeedViewModel != null) {
+                                    LocalNewsFeedView(
+                                        language = language, 
+                                        currentUser = user, 
+                                        viewModel = localNewsFeedViewModel,
+                                        onDistrictClick = { mainViewModel.setShowDistrictPicker(true) },
+                                        onProfileClick = { mainViewModel.setActiveTab("profile") },
+                                        onReporterClick = { mainViewModel.setReporterIdToShow(it) },
+                                        onEditClick = { post ->
+                                            editingNewsPost = post
+                                            showPostNewsPage = true
+                                        },
+                                        onMenuClick = { scope.launch { drawerState.open() } }
+                                    )
+                                } else {
+                                    LocalNewsFeedView(
+                                        language = language, 
+                                        currentUser = user, 
+                                        onDistrictClick = { mainViewModel.setShowDistrictPicker(true) },
+                                        onProfileClick = { mainViewModel.setActiveTab("profile") },
+                                        onReporterClick = { mainViewModel.setReporterIdToShow(it) },
+                                        onEditClick = { post ->
+                                            editingNewsPost = post
+                                            showPostNewsPage = true
+                                        },
+                                        onMenuClick = { scope.launch { drawerState.open() } }
+                                    )
+                                }
+                            }
                             "create" -> {
                                 var showCitizenJournalism by remember { mutableStateOf(false) }
                                 if (showCitizenJournalism) {
@@ -706,6 +726,7 @@ fun MainScreen(
                 activeDistrict = activeDistrict,
                 onDistrictSelected = { district ->
                     mainViewModel.setDistrict(district)
+                    localNewsFeedViewModel?.setDistrict(district)
                     mainViewModel.setShowDistrictPicker(false)
                 },
                 onDismissRequest = { mainViewModel.setShowDistrictPicker(false) }

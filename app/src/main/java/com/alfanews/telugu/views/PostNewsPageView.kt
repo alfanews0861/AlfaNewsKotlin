@@ -258,7 +258,8 @@ fun PostNewsPageView(
                     "isCitizen" to false,
                     "meta" to mapOf("location" to location),
                     "headline" to mapOf("telugu" to headline),
-                    "content" to mapOf("telugu" to content)
+                    "content" to mapOf("telugu" to content),
+                    "originalReporterId" to (postToEdit?.originalReporterId ?: user.id)
                 )
 
                 try {

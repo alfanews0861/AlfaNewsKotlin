@@ -976,7 +976,10 @@ export const processNewsPost = onCall(async (request) => {
 
         if (reporterId && !reporterId.startsWith('BOT_') && !reporterId.startsWith('SYSTEM_')) {
             await db.collection('users').doc(reporterId).set({
-                lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp()
+                lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
+                warningLevel: 0,
+                inProbation: false,
+                lastWarningDate: admin.firestore.FieldValue.delete()
             }, { merge: true });
         }
 
@@ -1447,6 +1450,12 @@ export const onNewsPostCreated = onDocumentWritten({
                     if (finalIsReporter) {
                         const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
                         await awardPointsToReporter(originalReporterId, points);
+                        await db.collection('users').doc(originalReporterId).set({
+                            lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
+                            warningLevel: 0,
+                            inProbation: false,
+                            lastWarningDate: admin.firestore.FieldValue.delete()
+                        }, { merge: true }).catch(() => null);
                     }
                     await notifyReporter(
                         originalReporterId,
@@ -1697,7 +1706,7 @@ export const onNewsPostCreated = onDocumentWritten({
                 }
             }
 
-            let teluguVocal = data.vocalContent || teluguNews;
+            let teluguVocal = data.vocalContent || data.content?.telugu || data.headline?.telugu || "";
 
             // Filter out intro greetings like "నమస్కారం" so they don't get read in voiceover
             teluguVocal = teluguVocal.replace(/^(నమస్కారం|నమస్కారమండి|నమస్కారాలు|నమస్తే)[,\s!.]*/gi, '').trim();

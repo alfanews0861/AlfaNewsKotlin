@@ -116,7 +116,7 @@ class PreferenceManager(context: Context) {
      * ఎంచుకున్న జిల్లా ఉంటే అది, లేకపోతే గుర్తించిన జిల్లా, అది కూడా లేకపోతే null.
      */
     fun getEffectiveDistrict(): String? {
-        return selectedDistrict ?: detectedDistrict
+        return selectedDistrict ?: userDistrict ?: detectedDistrict
     }
 
     var shouldShowOnboarding: Boolean

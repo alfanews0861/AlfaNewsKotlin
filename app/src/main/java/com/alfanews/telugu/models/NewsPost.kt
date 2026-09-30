@@ -108,6 +108,7 @@ data class NewsPost(
     val isDuplicate: Boolean = false,
     val webOnly: Boolean = false,
     val isSpecialStory: Boolean = false,
+    val originalReporterId: String? = null,
 
     // Survey & Poll fields
     val surveyQuestions: List<SurveyQuestion> = emptyList(),
@@ -196,8 +197,14 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
     val postFormat = if (data["postFormat"]?.toString() == "16:9") PostFormat.HORIZONTAL else PostFormat.VERTICAL
     
     val reporterMap = data["reporter"] as? Map<*, *>
+    val originalReporterId = data["originalReporterId"]?.toString()
+    val reporterIdFallback = data["reporterId"]?.toString() ?: (data["reporter"] as? String)
+    val finalReporterId = reporterMap?.get("id")?.toString()?.takeIf { it.isNotBlank() }
+        ?: originalReporterId?.takeIf { it.isNotBlank() }
+        ?: reporterIdFallback?.takeIf { it.isNotBlank() }
+        ?: ""
     val reporter = Reporter(
-        id = reporterMap?.get("id")?.toString() ?: "",
+        id = finalReporterId,
         name = reporterMap?.get("name")?.toString() ?: ""
     )
     val location = data["location"]?.toString() ?: ""
@@ -395,6 +402,7 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
         error = data["error"]?.toString() ?: data["lastProcessingError"]?.toString(),
         isDuplicate = data["isDuplicate"] as? Boolean ?: false,
         webOnly = (data["webOnly"] as? Boolean) == true,
-        isSpecialStory = (data["isSpecialStory"] as? Boolean) == true
+        isSpecialStory = (data["isSpecialStory"] as? Boolean) == true,
+        originalReporterId = originalReporterId ?: finalReporterId.takeIf { it.isNotBlank() }
     )
 }

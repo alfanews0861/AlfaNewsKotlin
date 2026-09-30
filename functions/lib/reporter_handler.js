@@ -48,6 +48,11 @@ const WELCOME_MESSAGES = [
  */
 async function notifyReporter(reporterId, postId, headline, type, imageUrl, specificReason) {
     try {
+        // User request: "వార్త పబ్లిష్ అయినప్పుడు" సందేశాలు పంపవద్దు (Suppress notifications & desk chat when news is published)
+        if (type === 'SUCCESS') {
+            console.log(`[NOTIFY_REPORTER] Suppressing SUCCESS/published notification for post: ${postId}, reporter: ${reporterId}`);
+            return;
+        }
         let targetUserId = reporterId ? reporterId.trim() : "";
         if (!targetUserId || targetUserId.startsWith('BOT_') || targetUserId.startsWith('SYSTEM_') || targetUserId === 'ALFA_DESK') {
             return;
@@ -107,13 +112,8 @@ async function notifyReporter(reporterId, postId, headline, type, imageUrl, spec
         let title = "";
         let body = "";
         let chatText = "";
-        const isYouTubeCase = type === 'YOUTUBE_POLICY_VIOLATION' || (specificReason && (specificReason.includes('యూట్యూబ్') || specificReason.toLowerCase().includes('youtube')));
-        if (type === 'SUCCESS') {
-            title = 'మీ వార్త లైవ్ అయ్యింది! 📰';
-            body = `నమస్కారం! మీరు పంపిన "${truncatedHeadline}" వార్త విజయవంతంగా ప్రచురించబడింది.`;
-            chatText = `నమస్కారం ${reporterName} గారు,\n\nమీరు పంపిన వార్త: "${headline}"\n\nఎడిటోరియల్ డెస్క్ పరిశీలన పూర్తయింది. ఈ వార్త విజయవంతంగా లైవ్‌లో ప్రచురించబడింది. ధన్యవాదాలు!\n\n- ఆల్ఫా న్యూస్ ఎడిటోరియల్ డెస్క్`;
-        }
-        else if (type === 'DUPLICATE') {
+        const isYouTubeCase = type === 'YOUTUBE_POLICY_VIOLATION' || (type !== 'INTERNAL_ERROR' && !!specificReason && (specificReason.includes('యూట్యూబ్') || specificReason.toLowerCase().includes('youtube')));
+        if (type === 'DUPLICATE') {
             title = 'ఎడిటోరియల్ డెస్క్ సమాచారం ℹ️';
             body = `నమస్కారం! "${truncatedHeadline}" వార్తాంశం మీ మండలంలో ఇప్పటికే కవర్ అయింది.`;
             chatText = `నమస్కారం ${reporterName} గారు,\n\nమీరు పంపిన వార్త: "${headline}"\n\nఎడిటోరియల్ డెస్క్ పరిశీలన:\nఈ వార్తాంశం మీ మండలంలో గత కొన్ని గంటల్లోనే ఇప్పటికే మన యాప్‌లో ప్రచురితమైంది. ఒకే వార్త పాఠకులకు పునరావృతం కాకుండా చూసేందుకు ఎడిటోరియల్ టీమ్ దీనిని ఆమోదించలేకపోయింది.\n\nదయచేసి మీ ప్రాంతంలోని ఇతర తాజా ప్రజా సమస్యలు లేదా కొత్త వార్తలను పంపగలరు. ధన్యవాదాలు!\n\n- ఎడిటోరియల్ డెస్క్ (ఆల్ఫా న్యూస్)`;
@@ -142,7 +142,7 @@ async function notifyReporter(reporterId, postId, headline, type, imageUrl, spec
                 senderName: 'ఆల్ఫా న్యూస్ ఎడిటోరియల్ డెస్క్',
                 senderRole: 'ADMIN',
                 text: chatText,
-                type: type === 'SUCCESS' ? 'NOTICE' : 'WARNING',
+                type: 'WARNING',
                 read: false,
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
             });
@@ -697,6 +697,7 @@ exports.processReporterSubmission = (0, https_1.onCall)(async (request) => {
         }
         const mediaUrl = postData?.mediaUrl || "";
         const mediaUrls = postData?.mediaUrls || (mediaUrl ? [mediaUrl] : []);
+        const reporterId = request.auth?.uid || (typeof postData?.reporter === 'string' ? postData.reporter : postData?.reporter?.id) || postData?.originalReporterId || "";
         const finalData = {
             ...postData,
             headline: {
@@ -716,13 +717,16 @@ exports.processReporterSubmission = (0, https_1.onCall)(async (request) => {
             approved: false,
             status: "PENDING",
             processingType: "REPORTER_SUBMISSION",
+            originalReporterId: reporterId,
             timestamp: postData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         };
-        const reporterId = request.auth?.uid || (typeof postData?.reporter === 'string' ? postData.reporter : postData?.reporter?.id);
         if (reporterId && !reporterId.startsWith('BOT_') && !reporterId.startsWith('SYSTEM_')) {
             await db.collection('users').doc(reporterId).set({
-                lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp()
+                lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
+                warningLevel: 0,
+                inProbation: false,
+                lastWarningDate: admin.firestore.FieldValue.delete()
             }, { merge: true });
         }
         if (postId) {
@@ -2288,9 +2292,12 @@ exports.onNewsPostApproved = (0, firestore_1.onDocumentWritten)({
             reporterIdsToUpdate.add(originalReporterId);
         }
         for (const rId of reporterIdsToUpdate) {
-            console.log(`[POST_APPROVED] Updating lastPostTimestamp for reporter: ${rId}`);
+            console.log(`[POST_APPROVED] Updating lastPostTimestamp and clearing warnings for reporter: ${rId}`);
             await db.collection('users').doc(rId).set({
-                lastPostTimestamp: after.timestamp || admin.firestore.FieldValue.serverTimestamp()
+                lastPostTimestamp: after.timestamp || admin.firestore.FieldValue.serverTimestamp(),
+                warningLevel: 0,
+                inProbation: false,
+                lastWarningDate: admin.firestore.FieldValue.delete()
             }, { merge: true });
         }
     }

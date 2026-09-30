@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendInternalMessage = exports.handleReporterStatus = exports.triggerReporterActivityCheck = exports.monitorReporterActivity = exports.runReporterActivityScan = exports.calculateDaysInactive = exports.getActualLatestNewsDate = exports.parseToDate = void 0;
+exports.sendInternalMessage = exports.handleReporterStatus = exports.triggerReporterActivityCheck = exports.monitorReporterActivity = exports.runReporterActivityScan = exports.calculateDaysInactive = exports.getActualLatestNewsDate = exports.getReporterActivitySummary = exports.parseToDate = void 0;
 const admin = __importStar(require("firebase-admin"));
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const https_1 = require("firebase-functions/v2/https");
@@ -54,8 +54,18 @@ function parseToDate(val) {
         if (val._seconds && typeof val._seconds === 'number') {
             return new Date(val._seconds * 1000);
         }
-        const parsed = new Date(val);
-        return isNaN(parsed.getTime()) ? null : parsed;
+        if (typeof val === 'string') {
+            const trimmed = val.trim();
+            if (/^\d+$/.test(trimmed)) {
+                const num = Number(trimmed);
+                const ms = num > 1e11 ? num : num * 1000;
+                const d = new Date(ms);
+                return isNaN(d.getTime()) ? null : d;
+            }
+            const parsed = new Date(trimmed);
+            return isNaN(parsed.getTime()) ? null : parsed;
+        }
+        return null;
     }
     catch {
         return null;
@@ -63,101 +73,140 @@ function parseToDate(val) {
 }
 exports.parseToDate = parseToDate;
 /**
- * Robust verification: Query the news collection to check if the reporter
- * has submitted news (catches cases where users doc lastPostTimestamp was
- * missed, pending news, or reassigned news).
- * Does NOT restrict with an arbitrary 3-day cutoff.
+ * Deep multi-field news activity inspection:
+ * Queries all fields (reporter.id, originalReporterId, reporterId, userId, reporter.phone, reporter.name)
+ * across the news collection without early-break, calculating:
+ * - Latest post date
+ * - Total lifetime posts
+ * - Recent posts in the last 7 days
+ * - Recent posts in the last 30 days
  */
-async function getActualLatestNewsDate(reporterId, reporterName) {
+async function getReporterActivitySummary(reporterId, reporterName, reporterPhone) {
+    const summary = {
+        latestDate: null,
+        totalPosts: 0,
+        recentPostsLast7Days: 0,
+        recentPostsLast30Days: 0
+    };
     if (!reporterId)
-        return null;
-    let latestDate = null;
+        return summary;
+    const now = new Date();
+    const sevenDaysAgoMs = now.getTime() - (7 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgoMs = now.getTime() - (30 * 24 * 60 * 60 * 1000);
+    const seenDocIds = new Set();
     const checkDocs = (docs) => {
         for (const doc of docs) {
+            if (seenDocIds.has(doc.id))
+                continue;
+            seenDocIds.add(doc.id);
             const data = doc.data();
             const date = parseToDate(data.timestamp || data.createdAt || data.lastUpdated || data.publishedAt);
             if (date) {
-                if (!latestDate || date.getTime() > latestDate.getTime()) {
-                    latestDate = date;
+                const time = date.getTime();
+                if (!summary.latestDate || time > summary.latestDate.getTime()) {
+                    summary.latestDate = date;
+                }
+                if (time >= sevenDaysAgoMs) {
+                    summary.recentPostsLast7Days++;
+                }
+                if (time >= thirtyDaysAgoMs) {
+                    summary.recentPostsLast30Days++;
                 }
             }
         }
+        summary.totalPosts = seenDocIds.size;
     };
-    // 🚀 Primary query with index (ordered by timestamp desc)
-    try {
-        const primarySnap = await db.collection('news')
-            .where('reporter.id', '==', reporterId)
-            .orderBy('timestamp', 'desc')
-            .limit(1)
-            .get();
-        if (!primarySnap.empty) {
-            checkDocs(primarySnap.docs);
-            if (latestDate)
-                return latestDate;
-        }
-    }
-    catch {
-        // Fallback without composite index if orderBy failed
-    }
-    // Check all possible reporter identifier fields thoroughly
-    const queryFields = ['reporter.id', 'originalReporterId', 'reporterId', 'userId'];
-    for (const field of queryFields) {
-        try {
-            let snap;
+    const queryPromises = [];
+    // 1. Direct ID fields across news posts
+    const idFields = ['reporter.id', 'originalReporterId', 'reporterId', 'userId'];
+    for (const field of idFields) {
+        queryPromises.push((async () => {
             try {
-                snap = await db.collection('news')
+                const snap = await db.collection('news')
                     .where(field, '==', reporterId)
                     .orderBy('timestamp', 'desc')
-                    .limit(1)
+                    .limit(5)
                     .get();
+                if (!snap.empty)
+                    checkDocs(snap.docs);
             }
             catch {
-                snap = await db.collection('news')
-                    .where(field, '==', reporterId)
-                    .limit(1)
-                    .get();
+                try {
+                    const snap = await db.collection('news')
+                        .where(field, '==', reporterId)
+                        .limit(25)
+                        .get();
+                    if (!snap.empty)
+                        checkDocs(snap.docs);
+                }
+                catch { }
             }
-            if (!snap.empty) {
-                checkDocs(snap.docs);
-                if (latestDate)
-                    return latestDate;
-            }
-        }
-        catch { }
+        })());
     }
-    if (reporterName) {
-        try {
-            let nameSnap;
+    // 2. Match by reporter phone number if available
+    if (reporterPhone && typeof reporterPhone === 'string' && reporterPhone.trim()) {
+        const clean10 = reporterPhone.replace(/\D/g, '').slice(-10);
+        const phonesToQuery = [reporterPhone.trim()];
+        if (clean10.length === 10 && !phonesToQuery.includes(clean10)) {
+            phonesToQuery.push(clean10);
+            phonesToQuery.push(`+91${clean10}`);
+        }
+        for (const ph of phonesToQuery) {
+            queryPromises.push((async () => {
+                try {
+                    const snap = await db.collection('news')
+                        .where('reporter.phone', '==', ph)
+                        .limit(20)
+                        .get();
+                    if (!snap.empty)
+                        checkDocs(snap.docs);
+                }
+                catch { }
+            })());
+        }
+    }
+    // 3. Match by reporter name if unique and not generic placeholder
+    if (reporterName && typeof reporterName === 'string' && reporterName.trim() &&
+        !['Reporter', 'విలేకరి', 'Admin', 'Alfa News Desk', 'AlfaNews Admin'].includes(reporterName.trim())) {
+        queryPromises.push((async () => {
             try {
-                nameSnap = await db.collection('news')
-                    .where('reporter.name', '==', reporterName)
-                    .orderBy('timestamp', 'desc')
-                    .limit(1)
+                const snap = await db.collection('news')
+                    .where('reporter.name', '==', reporterName.trim())
+                    .limit(20)
                     .get();
+                if (!snap.empty)
+                    checkDocs(snap.docs);
             }
-            catch {
-                nameSnap = await db.collection('news')
-                    .where('reporter.name', '==', reporterName)
-                    .limit(1)
-                    .get();
-            }
-            if (!nameSnap.empty) {
-                checkDocs(nameSnap.docs);
-                if (latestDate)
-                    return latestDate;
-            }
-        }
-        catch { }
+            catch { }
+        })());
     }
-    return latestDate;
+    await Promise.allSettled(queryPromises);
+    return summary;
+}
+exports.getReporterActivitySummary = getReporterActivitySummary;
+/**
+ * Robust verification: Returns the latest news post date for a reporter.
+ * Backwards-compatible with callers expecting Date | null.
+ */
+async function getActualLatestNewsDate(reporterId, reporterName, reporterPhone) {
+    const summary = await getReporterActivitySummary(reporterId, reporterName, reporterPhone);
+    return summary.latestDate;
 }
 exports.getActualLatestNewsDate = getActualLatestNewsDate;
 /**
  * Calculates days of inactivity for a reporter based on last post timestamp or promotion date.
- * Ensures newly promoted / re-upgraded reporters are NOT falsely downgraded using account creation date.
+ * Always takes the maximum (most recent) date between actual news collection date and user doc lastPostTimestamp.
  */
 function calculateDaysInactive(reporter, now, actualNewsDate) {
-    const lastPost = actualNewsDate || parseToDate(reporter.lastPostTimestamp);
+    const userDocLastPost = parseToDate(reporter.lastPostTimestamp);
+    // Pick the most recent timestamp between actualNewsDate and userDocLastPost
+    let lastPost = null;
+    if (actualNewsDate && userDocLastPost) {
+        lastPost = actualNewsDate.getTime() > userDocLastPost.getTime() ? actualNewsDate : userDocLastPost;
+    }
+    else {
+        lastPost = actualNewsDate || userDocLastPost;
+    }
     const promotedAt = parseToDate(reporter.promotedAt) || parseToDate(reporter.rejoinedAt) || parseToDate(reporter.roleUpdatedAt);
     const createdAt = parseToDate(reporter.timestamp) || parseToDate(reporter.createdAt) || parseToDate(reporter.joinedAt);
     // 1. Pick the most recent activity marker between lastPost and promotedAt
@@ -179,7 +228,7 @@ function calculateDaysInactive(reporter, now, actualNewsDate) {
     if (createdAt) {
         const diffTime = Math.max(0, now.getTime() - createdAt.getTime());
         const daysSinceCreation = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-        if (daysSinceCreation < 10) {
+        if (daysSinceCreation < 14) {
             return daysSinceCreation;
         }
     }
@@ -208,7 +257,7 @@ async function runReporterActivityScan() {
         const reporterId = doc.id;
         // Auto-fix for existing reporters lacking promotedAt and lastPostTimestamp
         if (!reporter.lastPostTimestamp && !reporter.promotedAt && !reporter.rejoinedAt && !reporter.roleUpdatedAt) {
-            console.log(`[REPORTER_MONITOR] Auto-initializing 10-day grace period for reporter ${reporter.name || reporterId}...`);
+            console.log(`[REPORTER_MONITOR] Auto-initializing 14-day grace period for reporter ${reporter.name || reporterId}...`);
             await db.collection('users').doc(reporterId).set({
                 promotedAt: admin.firestore.FieldValue.serverTimestamp(),
                 lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
@@ -218,7 +267,7 @@ async function runReporterActivityScan() {
                 previouslyDowngraded: false,
                 suspended: false
             }, { merge: true });
-            continue; // Skip this scan iteration, giving full 10-day grace period
+            continue; // Skip this scan iteration, giving full grace period
         }
         const acted = await handleReporterStatus(reporterId, reporter, now);
         if (acted)
@@ -255,28 +304,75 @@ exports.triggerReporterActivityCheck = (0, https_1.onCall)({
 async function handleReporterStatus(reporterId, reporter, now = new Date()) {
     const inProbation = reporter.inProbation === true;
     const currentLevel = Number(reporter.warningLevel || 0);
-    // 1. Fetch actual latest news date (Skip query if user already posted in last 48h to save reads)
-    const existingLastPost = parseToDate(reporter.lastPostTimestamp);
+    // 1. Fetch comprehensive news activity summary across all fields
+    const summary = await getReporterActivitySummary(reporterId, reporter.name, reporter.phone);
+    const userDocLastPost = parseToDate(reporter.lastPostTimestamp);
+    // Take the maximum of summary.latestDate and userDocLastPost
     let actualNewsDate = null;
-    if (existingLastPost && (now.getTime() - existingLastPost.getTime()) < 48 * 60 * 60 * 1000) {
-        actualNewsDate = existingLastPost;
+    if (summary.latestDate && userDocLastPost) {
+        actualNewsDate = summary.latestDate.getTime() > userDocLastPost.getTime() ? summary.latestDate : userDocLastPost;
     }
     else {
-        actualNewsDate = await getActualLatestNewsDate(reporterId, reporter.name);
-        if (actualNewsDate) {
-            const userLastPost = parseToDate(reporter.lastPostTimestamp);
-            if (!userLastPost || actualNewsDate.getTime() > userLastPost.getTime()) {
-                await db.collection('users').doc(reporterId).set({
-                    lastPostTimestamp: actualNewsDate
-                }, { merge: true });
-                reporter.lastPostTimestamp = actualNewsDate;
-            }
-        }
+        actualNewsDate = summary.latestDate || userDocLastPost;
+    }
+    // Sync latest post timestamp back to users doc if newer
+    if (actualNewsDate && (!userDocLastPost || actualNewsDate.getTime() > userDocLastPost.getTime())) {
+        await db.collection('users').doc(reporterId).set({
+            lastPostTimestamp: actualNewsDate
+        }, { merge: true });
+        reporter.lastPostTimestamp = actualNewsDate;
     }
     // 2. Calculate actual days inactive
     const daysInactive = calculateDaysInactive(reporter, now, actualNewsDate);
-    // 3. Reset logic: If reporter posted recently (within 3 days)
-    if (daysInactive < 3) {
+    // 3. Reporter points & post count metrics
+    let points = Number(reporter.points || 0);
+    const totalNewsPosts = Math.max(summary.totalPosts, Math.floor(points / 10));
+    // Self-heal points if reporter has posts but 0 points recorded
+    if (totalNewsPosts > 0 && points === 0) {
+        points = totalNewsPosts * 10;
+        await db.collection('users').doc(reporterId).set({ points }, { merge: true });
+        reporter.points = points;
+    }
+    // Determine if this is a Regular / Established / Senior Reporter
+    const isRegularReporter = points >= 30 ||
+        totalNewsPosts >= 3 ||
+        summary.recentPostsLast7Days >= 1 ||
+        summary.recentPostsLast30Days >= 3 ||
+        reporter.isProtectedSenior === true ||
+        reporter.exemptFromInactivity === true;
+    // 🛡️ CRITICAL RULE: Active / Regular / Senior reporters must NEVER be in probation or receive deactivation threats!
+    if (isRegularReporter) {
+        // If they currently have any warning level or probation flag, immediately and silently heal them!
+        if (currentLevel > 0 || inProbation || reporter.lastWarningDate) {
+            await db.collection('users').doc(reporterId).set({
+                warningLevel: 0,
+                inProbation: false,
+                lastWarningDate: null,
+                isProtectedSenior: true
+            }, { merge: true });
+            console.log(`[REPORTER_MONITOR] 🛡️ Cleared warnings and probation for regular reporter ${reporter.name || reporterId} (${points} pts, ${totalNewsPosts} posts, ${summary.recentPostsLast7Days} recent).`);
+            return true;
+        }
+        // If an established reporter hasn't posted in 14+ days, send ONLY a respectful friendly check-in reminder
+        // (No warning level escalation, no probation, no threat of removal)
+        if (daysInactive >= 14) {
+            const lastFriendlyReminder = parseToDate(reporter.lastFriendlyReminderDate);
+            const daysSinceReminder = lastFriendlyReminder ? (now.getTime() - lastFriendlyReminder.getTime()) / (1000 * 60 * 60 * 24) : 999;
+            if (daysSinceReminder >= 14) {
+                console.log(`[REPORTER_MONITOR] 📰 Sending friendly encouragement to established reporter ${reporter.name || reporterId}.`);
+                await db.collection('users').doc(reporterId).set({
+                    lastFriendlyReminderDate: admin.firestore.FieldValue.serverTimestamp(),
+                    isProtectedSenior: true,
+                    warningLevel: 0,
+                    inProbation: false
+                }, { merge: true });
+                await sendInternalMessage(reporterId, "మీ వార్తల కోసం Alfa News వేచి చూస్తోంది! 📰", "నమస్కారం! గత కొద్ది రోజులుగా మీ మండల వార్తలు రాలేదు. మీ ప్రాంత తాజా విశేషాలను, ప్రజల సమస్యలను త్వరలోనే పోస్ట్ చేయగలరని ఆశిస్తున్నాము.", "NORMAL", reporter, "REMINDER");
+            }
+        }
+        return false;
+    }
+    // 4. Auto-Reset logic: For ANY reporter who posted recently (within 5 days) or posted in last 7 days
+    if (daysInactive < 5 || summary.recentPostsLast7Days > 0) {
         if (currentLevel > 0 || inProbation || reporter.lastWarningDate) {
             await db.collection('users').doc(reporterId).set({
                 warningLevel: 0,
@@ -288,7 +384,7 @@ async function handleReporterStatus(reporterId, reporter, now = new Date()) {
         }
         return false;
     }
-    // Calculate hours since last warning to ensure progressive time gaps
+    // 5. Progressive Warning Ladder for Inactive Non-Regular accounts (Strictly sequential, no level skipping)
     const lastWarningDate = parseToDate(reporter.lastWarningDate);
     const hoursSinceLastWarning = lastWarningDate
         ? Math.max(0, (now.getTime() - lastWarningDate.getTime()) / (1000 * 60 * 60))
@@ -297,91 +393,33 @@ async function handleReporterStatus(reporterId, reporter, now = new Date()) {
     let title = "";
     let body = "";
     let shouldDowngrade = false;
-    if (inProbation) {
-        // Probation ladder (faster, but strictly requires final warning + 48h reaction time)
-        if (daysInactive >= 6 && currentLevel >= 3 && hoursSinceLastWarning >= 48) {
-            shouldDowngrade = true;
-            title = "రిపోర్టర్ హోదా తొలగించబడింది";
-            body = "ప్రొబేషన్ సమయంలో వార్తలు పంపనందున మిమ్మల్ని రిపోర్టర్ హోదా నుండి తొలగించి సబ్‌స్క్రైబర్‌గా మార్చాము.";
-        }
-        else if (daysInactive >= 3 && currentLevel < 3) {
-            nextLevel = 3;
-            title = "తుది హెచ్చరిక (Final Warning)";
-            body = "మీరు ప్రొబేషన్‌లో ఉన్నారు. రాబోయే 3 రోజుల్లో వార్తలు పంపకపోతే మీ రిపోర్టర్ హోదా రద్దు చేయబడుతుంది.";
-        }
+    // Strict sequential progression:
+    // Level 0 -> Level 1 (after 5 days inactive)
+    // Level 1 -> Level 2 (after 8 days inactive AND at least 48h since Level 1)
+    // Level 2 -> Level 3 (after 12 days inactive AND at least 72h since Level 2)
+    // Level 3 -> Demotion (after 15 days inactive AND at least 72h since Level 3 AND 0 lifetime posts)
+    if (daysInactive >= 15 && currentLevel >= 3 && hoursSinceLastWarning >= 72 && totalNewsPosts === 0) {
+        shouldDowngrade = true;
+        title = "రిపోర్టర్ హోదా తొలగించబడింది";
+        body = "వార్తలు పంపనందున మరియు పదే పదే పంపిన హెచ్చరికలకు స్పందించనందున మిమ్మల్ని రిపోర్టర్ హోదా నుండి తొలగించి సబ్‌స్క్రైబర్‌గా మార్చాము.";
     }
-    else {
-        // Standard progressive warning ladder:
-        // Day 3+: Level 1 (Gentle reminder)
-        // Day 5+: Level 2 (Show Cause notice)
-        // Day 7+: Level 3 (Final Warning + Probation)
-        // Day 10+: Demotion ONLY if already at Level 3 AND 48h elapsed since warning!
-        if (daysInactive >= 10) {
-            if (currentLevel >= 3 && hoursSinceLastWarning >= 48) {
-                shouldDowngrade = true;
-                title = "రిపోర్టర్ హోదా తొలగించబడింది";
-                body = "వార్తలు క్రమం తప్పకుండా పంపనందున మరియు హెచ్చరికలకు స్పందించనందున మిమ్మల్ని రిపోర్టర్ హోదా నుండి తొలగించి సబ్‌స్క్రైబర్‌గా మార్చాము.";
-            }
-            else if (currentLevel < 3) {
-                // Was not at level 3 yet -> Escalate to Level 3 first giving them 48h to submit news!
-                nextLevel = 3;
-                title = "తుది హెచ్చరిక (Final Warning)";
-                body = "గత 7 రోజులుగా మీరు వార్తలు పంపడం లేదు. మరో 3 రోజుల్లో వార్తలు పంపకపోతే మీ రిపోర్టర్ హోదా రద్దు చేయబడుతుంది.";
-            }
-        }
-        else if (daysInactive >= 7 && currentLevel < 3) {
-            nextLevel = 3;
-            title = "తుది హెచ్చరిక (Final Warning)";
-            body = "గత 7 రోజులుగా మీరు వార్తలు పంపడం లేదు. మరో 3 రోజుల్లో వార్తలు పంపకపోతే మీ రిపోర్టర్ హోదా రద్దు చేయబడుతుంది.";
-        }
-        else if (daysInactive >= 5 && currentLevel < 2) {
-            nextLevel = 2;
-            title = "షోకాజ్ నోటీసు (Show Cause Notice)";
-            body = "మీరు గత 5 రోజులుగా వార్తలు పంపడం లేదు. వార్తలు పంపకపోవడానికి గల కారణాన్ని తెలియజేయండి లేదా వెంటనే వార్తను పోస్ట్ చేయండి.";
-        }
-        else if (daysInactive >= 3 && currentLevel < 1) {
-            nextLevel = 1;
-            title = "వార్తలు పంపమని విన్నపం";
-            body = "దయచేసి మీ ప్రాంత వార్తలను క్రమం తప్పకుండా పంపండి. మీ సహకారం Alfa News కు ఎంతో అవసరం.";
-        }
+    else if (daysInactive >= 12 && currentLevel === 2 && hoursSinceLastWarning >= 72) {
+        nextLevel = 3;
+        title = "తుది హెచ్చరిక (Final Warning)";
+        body = "గత 12 రోజులుగా మీరు వార్తలు పంపడం లేదు. రాబోయే 3 రోజుల్లో కనీసం ఒక వార్త అయినా పంపకపోతే మీ రిపోర్టర్ హోదా రద్దు చేయబడుతుంది.";
     }
-    const reporterName = reporter.name || reporter.phone || reporterId;
-    let points = Number(reporter.points || 0);
-    // Dynamic lifetime news count check to guarantee protection for reporters with post history
-    let totalNewsPosts = 0;
-    try {
-        const [snapId, snapName, snapOrig] = await Promise.all([
-            db.collection('news').where('reporter.id', '==', reporterId).get().catch(() => null),
-            reporterName ? db.collection('news').where('reporter.name', '==', reporterName).get().catch(() => null) : null,
-            db.collection('news').where('originalReporterId', '==', reporterId).get().catch(() => null)
-        ]);
-        const postSet = new Set();
-        if (snapId)
-            snapId.docs.forEach(d => postSet.add(d.id));
-        if (snapName)
-            snapName.docs.forEach(d => postSet.add(d.id));
-        if (snapOrig)
-            snapOrig.docs.forEach(d => postSet.add(d.id));
-        totalNewsPosts = postSet.size;
+    else if (daysInactive >= 8 && currentLevel === 1 && hoursSinceLastWarning >= 48) {
+        nextLevel = 2;
+        title = "షోకాజ్ నోటీసు (Show Cause Notice)";
+        body = "మీరు గత 8 రోజులుగా వార్తలు పంపడం లేదు. వార్తలు పంపకపోవడానికి గల కారణాన్ని తెలియజేయండి లేదా వెంటనే మీ మండల వార్తను పోస్ట్ చేయండి.";
     }
-    catch { }
-    if (totalNewsPosts > 0 && points === 0) {
-        points = totalNewsPosts * 10;
-        await db.collection('users').doc(reporterId).set({ points }, { merge: true });
-    }
-    const isProtectedSenior = points >= 50 || totalNewsPosts >= 5 || reporter.isProtectedSenior === true || reporter.exemptFromInactivity === true;
-    if (shouldDowngrade && isProtectedSenior) {
-        console.log(`[REPORTER_MONITOR] 🛡️ Senior reporter protection active for ${reporterName} (${points} points, ${totalNewsPosts} posts). Skipping auto-demotion.`);
-        shouldDowngrade = false;
-        await db.collection('users').doc(reporterId).set({
-            isProtectedSenior: true,
-            warningLevel: 0
-        }, { merge: true });
-        await sendInternalMessage(reporterId, "మీ వార్తల కోసం Alfa News వేచి చూస్తోంది! 📰", "నమస్కారం! మీరు చాలా కాలంగా వార్తలు పంపలేదు. మీ ప్రాంత తాజా విశేషాలను త్వరలోనే పంపగలరని ఆశిస్తున్నాము.", "NORMAL", reporter, "REMINDER");
-        return false;
+    else if (daysInactive >= 5 && currentLevel === 0) {
+        nextLevel = 1;
+        title = "వార్తలు పంపమని విన్నపం";
+        body = "దయచేసి మీ ప్రాంత వార్తలను క్రమం తప్పకుండా పంపండి. మీ సహకారం Alfa News కు ఎంతో అవసరం.";
     }
     if (shouldDowngrade) {
-        console.log(`[REPORTER_MONITOR] ⚠️ Downgrading reporter ${reporterName} (ID: ${reporterId}) due to ${daysInactive} days inactivity (Probation: ${inProbation}).`);
+        console.log(`[REPORTER_MONITOR] ⚠️ Downgrading inactive account ${reporter.name || reporterId} due to ${daysInactive} days inactivity.`);
         await db.collection('users').doc(reporterId).set({
             role: types_1.UserRole.SUBSCRIBER,
             warningLevel: 0,
@@ -412,17 +450,12 @@ async function handleReporterStatus(reporterId, reporter, now = new Date()) {
         return true;
     }
     else if (nextLevel > currentLevel) {
-        console.log(`[REPORTER_MONITOR] 📢 Warning level ${nextLevel} sent to reporter ${reporterName} (ID: ${reporterId}), inactive ${daysInactive} days.`);
+        console.log(`[REPORTER_MONITOR] 📢 Warning level ${nextLevel} sent to reporter ${reporter.name || reporterId}, inactive ${daysInactive} days.`);
         const importance = nextLevel === 3 ? "HIGH" : "NORMAL";
-        const levelUpdates = {
+        await db.collection('users').doc(reporterId).set({
             warningLevel: nextLevel,
             lastWarningDate: admin.firestore.FieldValue.serverTimestamp()
-        };
-        // Level 3 (Final Warning) sets inProbation: true
-        if (nextLevel === 3) {
-            levelUpdates.inProbation = true;
-        }
-        await db.collection('users').doc(reporterId).set(levelUpdates, { merge: true });
+        }, { merge: true });
         await sendInternalMessage(reporterId, title, body, importance, reporter, "WARNING");
         return true;
     }
@@ -432,14 +465,17 @@ exports.handleReporterStatus = handleReporterStatus;
 async function sendInternalMessage(userId, title, body, importance, userData, msgType = "INTERNAL_MESSAGE") {
     try {
         const timestamp = admin.firestore.FieldValue.serverTimestamp();
+        const isWarning = msgType === "WARNING" || importance === "HIGH" || importance === "CRITICAL";
         const messageData = {
             title,
             body,
             senderName: "AlfaNews Admin",
+            senderRole: "ADMIN",
             read: false,
             timestamp,
             importance,
-            type: msgType
+            type: msgType,
+            isWarning
         };
         // 1. Add to user's personal messages subcollection
         await db.collection('users').doc(userId).collection('messages').add(messageData);
@@ -451,6 +487,8 @@ async function sendInternalMessage(userId, title, body, importance, userData, ms
                 senderRole: "ADMIN",
                 text: `⚠️ [${title}]\n${body}`,
                 type: msgType === "WARNING" ? "WARNING" : "NOTICE",
+                isWarning,
+                importance,
                 read: false,
                 timestamp
             });

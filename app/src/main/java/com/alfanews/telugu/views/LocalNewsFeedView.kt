@@ -54,6 +54,9 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 fun LocalNewsFeedView(
     language: Language,
     currentUser: User?,
+    viewModel: LocalNewsFeedViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+        factory = ViewModelFactory(LocalContext.current.applicationContext as Application)
+    ),
     onDistrictClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
     onReporterClick: (String) -> Unit = {},
@@ -62,9 +65,6 @@ fun LocalNewsFeedView(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val viewModel: LocalNewsFeedViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
-        factory = ViewModelFactory(context.applicationContext as Application)
-    )
     val news by viewModel.news.collectAsStateWithLifecycle()
     val preloadedAds = remember { mutableStateMapOf<Int, AdState>() }
 
@@ -118,6 +118,11 @@ fun LocalNewsFeedView(
         hasLocationPermission = isGranted
         if (isGranted) {
             viewModel.detectLocation(context, currentUser)
+        } else {
+            // Permission not granted -> immediately open district selection if no district is set
+            if (viewModelActiveDistrict == null) {
+                onDistrictClick()
+            }
         }
     }
 
@@ -138,7 +143,10 @@ fun LocalNewsFeedView(
     }
 
     LaunchedEffect(currentUser) {
-        if (viewModelActiveDistrict == null) {
+        val userDist = currentUser?.district?.takeIf { it.isNotBlank() }
+        if (userDist != null && viewModelActiveDistrict != userDist) {
+            viewModel.setDistrict(userDist)
+        } else if (viewModelActiveDistrict == null) {
             if (hasLocationPermission) {
                 viewModel.detectLocation(context, currentUser)
             } else {
@@ -149,6 +157,8 @@ fun LocalNewsFeedView(
                     )
                 )
             }
+        } else if (news.isEmpty()) {
+            viewModel.loadNews(language, currentUser)
         }
     }
 
@@ -309,28 +319,7 @@ fun LocalNewsFeedView(
                     }
                 }
             }
-        } else if ((loading || isDetecting) && news.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(40.dp),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = if (isDetecting) stringResource(R.string.detecting_location) else stringResource(R.string.news_preparing),
-                        color = MaterialTheme.colorScheme.onBackground,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontFamily = Ramabhadra
-                    )
-                }
-            }
-        } else if (news.isEmpty() && viewModelActiveDistrict == null) {
+        } else if (news.isEmpty() && viewModelActiveDistrict == null && !isDetecting) {
             LaunchedEffect(Unit) {
                 onDistrictClick()
             }
@@ -354,6 +343,27 @@ fun LocalNewsFeedView(
                     ) {
                         Text(stringResource(R.string.select_district), fontFamily = Ramabhadra)
                     }
+                }
+            }
+        } else if ((loading || isDetecting) && news.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(40.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = if (isDetecting) stringResource(R.string.detecting_location) else stringResource(R.string.news_preparing),
+                        color = MaterialTheme.colorScheme.onBackground,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontFamily = Ramabhadra
+                    )
                 }
             }
         } else if (news.isEmpty()) {

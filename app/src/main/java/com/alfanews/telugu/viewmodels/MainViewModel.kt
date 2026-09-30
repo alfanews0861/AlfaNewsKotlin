@@ -635,58 +635,85 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * కేవలం అడ్మిన్ లేదా ఎడిటోరియల్ స్టాఫ్ మాన్యువల్‌గా పంపిన ముఖ్య సందేశాలు/ప్రకటనలు మాత్రమే
-     * In-App Popup లాగా రావాలి. ఆటోమేటెడ్ బాట్/సిస్టమ్ మెసేజ్‌లు పాపప్ కాకూడదు.
+     * కేవలం warning message లు మరియు అడ్మిన్ లేదా ఎడిటోరియల్ స్టాఫ్ పంపిన సందేశాలు మాత్రమే
+     * In-App Popup లాగా రావాలి. ఆటోమేటెడ్ డైలీ రిథమ్, పోస్ట్ పబ్లిష్ లేదా సాధారణ సిస్టమ్ మెసేజ్‌లు పాపప్ కాకూడదు.
      */
     private fun isManualAdminMessage(data: Map<String, Any?>): Boolean {
-        // 1. Explicit manual or automated flags
-        val isExplicitManual = data["isManual"] as? Boolean ?: (data["manual"] as? Boolean ?: false)
-        val isExplicitAutomated = data["isAutomated"] as? Boolean ?: (data["automated"] as? Boolean ?: (data["isAuto"] as? Boolean ?: false))
-        if (isExplicitAutomated) return false
-        if (isExplicitManual) return true
+        val rawType = (data["type"] as? String ?: "CHAT").trim().uppercase()
+        val importance = (data["importance"] as? String ?: "").trim().uppercase()
+        val isExplicitWarning = (data["isWarning"] as? Boolean ?: false) ||
+                rawType == "WARNING" ||
+                rawType == "INACTIVITY_WARNING" ||
+                rawType == "ZERO_POSTS_WARNING" ||
+                rawType == "MANDAL_REVOCATION" ||
+                importance == "HIGH" ||
+                importance == "CRITICAL"
 
-        // 2. Sender role check (Must be ADMIN or editorial staff)
-        val senderRole = (data["senderRole"] as? String ?: "").trim().uppercase()
-        val adminRoles = setOf("ADMIN", "SUPER_ADMIN", "CHIEF_EDITOR", "EDITOR", "NEWS_DESK", "REGIONAL_INCHARGE")
-        if (senderRole.isNotEmpty() && senderRole !in adminRoles) {
-            return false
+        // 1. WARNING సందేశాలు తప్పనిసరిగా పాపప్ అవ్వాలి (Warning messages must always popup)
+        if (isExplicitWarning) {
+            val text = (data["text"] as? String ?: (data["body"] as? String ?: "")).trim()
+            // సాధారణ డూప్లికేట్ లేదా ఆర్టికల్-లెవల్ ఎడిటోరియల్ ఫీడ్‌బ్యాక్ డెస్క్ చాట్‌లోనే ఉండాలి, పాపప్ అవ్వకూడదు
+            if (text.contains("మీరు పంపిన వార్త:") && text.contains("ఎడిటోరియల్ డెస్క్ పరిశీలన:")) {
+                return false
+            }
+            return true
         }
 
-        // 3. Sender ID check - filter out all automated bots and system handlers
+        // 2. Explicit automated flags - ఆటోమేటెడ్ నాన్-వార్నింగ్ మెసేజ్‌లు పాపప్ కాకూడదు
+        val isExplicitAutomated = data["isAutomated"] as? Boolean ?: (data["automated"] as? Boolean ?: (data["isAuto"] as? Boolean ?: false))
+        if (isExplicitAutomated) return false
+
+        // 3. అడ్మిన్ మాన్యువల్‌గా పంపిన సందేశాలు మాత్రమే పాపప్ అవ్వాలి
+        val isExplicitManual = data["isManual"] as? Boolean ?: (data["manual"] as? Boolean ?: false)
+        val senderRole = (data["senderRole"] as? String ?: "").trim().uppercase()
+        val adminRoles = setOf("ADMIN", "SUPER_ADMIN", "CHIEF_EDITOR", "EDITOR", "NEWS_DESK", "REGIONAL_INCHARGE")
+        val isAdminRole = senderRole in adminRoles || senderRole.isEmpty()
+
+        if (isExplicitManual && isAdminRole) return true
+
+        // 4. Sender ID check - filter out all automated bots and system handlers
         val senderId = (data["senderId"] as? String ?: "").trim().uppercase()
         val systemIdPrefixes = listOf("SYSTEM", "SYS_", "BOT_", "AUTO_", "CRON_", "AI_")
         if (systemIdPrefixes.any { senderId.startsWith(it) }) {
             return false
         }
 
-        // 4. Message Type check - filter out automated system notification types
-        val rawType = (data["type"] as? String ?: "CHAT").trim().uppercase()
+        // 5. Message Type check - filter out automated system notification types
         val automatedTypes = setOf(
             "REPORTER_APP_PENDING",
             "REPORTER_APPROVED",
             "REPORTER_REJECTED",
-            "INACTIVITY_WARNING",
-            "ZERO_POSTS_WARNING",
-            "MANDAL_REVOCATION",
             "AUTO_TIP",
             "DAILY_BEAT_AUTO",
+            "DAILY_BEAT",
+            "REMINDER",
+            "STAR_RECOGNITION",
+            "REPORTER_MORNING_BEAT",
+            "REPORTER_MIDDAY_REMINDER",
+            "REPORTER_EVENING_ROUNDUP",
+            "REPORTER_NIGHT_LEADERBOARD",
             "NEWS_STATUS",
             "NEWS_APPROVED",
             "NEWS_REJECTED",
             "SYSTEM_ALERT",
-            "SYSTEM_NOTICE"
+            "SYSTEM_NOTICE",
+            "SUCCESS"
         )
         if (rawType in automatedTypes) {
             return false
         }
 
-        // 5. Automated text heuristics to prevent legacy auto rejection/approval notifications from popping up
+        // 6. Automated text heuristics to prevent legacy auto rejection/approval notifications from popping up
         val text = (data["text"] as? String ?: (data["body"] as? String ?: "")).trim()
         if (text.contains("మీరు పంపిన వార్త:") && text.contains("ఎడిటోరియల్ డెస్క్ పరిశీలన:")) return false
         if (text.contains("వార్త ప్రచురణ సమాచారం") && text.contains("అంతరాయం ఏర్పడింది")) return false
         if (text.contains("రిథమ్ రిమైండర్") || text.contains("దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు")) return false
 
-        return true
+        if (isAdminRole && senderId.isNotEmpty()) {
+            return true
+        }
+
+        return false
     }
 
     /**

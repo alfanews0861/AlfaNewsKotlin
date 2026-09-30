@@ -168,4 +168,21 @@ describe('notifyReporter Notification & Desk Chat Integration Tests', () => {
         const convSummary = mockSet.mock.calls[0][0] as any;
         expect(convSummary.reporterId).toBe(mockResolvedUserId);
     });
+
+    test('SUCCESS post published: Should suppress Desk Chat message and FCM push as requested', async () => {
+        const mockReporterId = 'rep_success_1';
+
+        await notifyReporter(
+            mockReporterId,
+            'post_pub_1',
+            'తాజా వార్త ప్రచురితం',
+            'SUCCESS',
+            ''
+        );
+
+        // Neither desk chat message nor FCM push should be sent
+        expect(mockAdd).not.toHaveBeenCalled();
+        expect(mockSet).not.toHaveBeenCalled();
+        expect(mockSend).not.toHaveBeenCalled();
+    });
 });
