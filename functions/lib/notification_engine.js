@@ -74,7 +74,7 @@ const CATEGORY_TOPICS = {
 function getTitleForHour(hour, headline, curiosityTitle) {
     if (curiosityTitle && curiosityTitle.trim().length > 0) {
         const raw = curiosityTitle.trim();
-        const short = raw.length > 55 ? raw.substring(0, 55).trim() + "..." : raw;
+        const short = raw.length > 70 ? raw.substring(0, 70).trim() + "..." : raw;
         if (hour === 8)
             return `☀️ ${short}`;
         if (hour === 13)
@@ -86,7 +86,7 @@ function getTitleForHour(hour, headline, curiosityTitle) {
         return `📰 ${short}`;
     }
     const raw = headline.trim();
-    const short = raw.length > 45 ? raw.substring(0, 45).trim() + "..." : raw;
+    const short = raw.length > 70 ? raw.substring(0, 70).trim() + "..." : raw;
     if (hour === 8)
         return `☀️ శుభోదయం: ${short}`;
     if (hour === 13)
@@ -348,7 +348,7 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
             if (!districtNews)
                 continue;
             const notifTitle = districtNews.notificationTitle || districtNews.headline?.telugu || `${district} తాజా వార్త`;
-            const shortTitle = notifTitle.length > 45 ? notifTitle.substring(0, 45).trim() + "..." : notifTitle;
+            const shortTitle = notifTitle.length > 70 ? notifTitle.substring(0, 70).trim() + "..." : notifTitle;
             let imageUrl = districtNews.thumbnailUrl || "";
             if (!imageUrl && districtNews.mediaUrl) {
                 imageUrl = (await (0, utils_1.createAndSaveThumbnail)(districtNews.mediaUrl, districtNews.id)) || districtNews.mediaUrl;
@@ -384,7 +384,7 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
             if (!catNews)
                 continue;
             const notifTitle = catNews.notificationTitle || catNews.headline?.telugu || catNews.headline?.english || "";
-            const shortTitle = notifTitle.length > 45 ? notifTitle.substring(0, 45).trim() + "..." : notifTitle;
+            const shortTitle = notifTitle.length > 70 ? notifTitle.substring(0, 70).trim() + "..." : notifTitle;
             const imageUrl = catNews.thumbnailUrl || catNews.mediaUrl || "";
             try {
                 const message = buildNewsMessage(catNews, `📌 ${teluguCat}: ${shortTitle}`, "general_news_v2", imageUrl, 21600000, // 6 hour TTL
@@ -483,7 +483,7 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
         return;
     }
     const notifTitle = after.notificationTitle || after.headline?.telugu || after.headline?.english || after.headline || "తాజా వార్త";
-    const shortBreaking = notifTitle.length > 50 ? notifTitle.substring(0, 50).trim() + "..." : notifTitle;
+    const shortBreaking = notifTitle.length > 70 ? notifTitle.substring(0, 70).trim() + "..." : notifTitle;
     const imageUrl = after.thumbnailUrl || after.mediaUrl || "";
     const breakingTitle = (tone === 'BREAKING' || after.isBreaking === true)
         ? `🔴 Breaking: ${shortBreaking}`

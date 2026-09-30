@@ -226,7 +226,7 @@ You are a Senior Journalist. Write 70 words in Telugu. Output JSON.
 {
   "headline": "6-10 word punchy title",
   "headlineEn": "English translation",
-  "content": "60-70 word body text",
+  "content": "52-60 word body text",
   "contentEn": "English translation",
   "location": "detected location",
   "storyFingerprint": "unique identifier",

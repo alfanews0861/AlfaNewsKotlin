@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.recordAppInstallReferral = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.getAssignedReporter = exports.verifyReporter = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.executeReactivateFalselyDemotedReporters = exports.onUserRoleChanged = exports.onNewsPostApproved = exports.runAutoApprovePendingBackfill = exports.cleanupExpiredReporterApplications = exports.executeCleanupExpiredApplications = exports.cleanDuplicateApplications = exports.executeCleanDuplicateApplications = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.submitReporterApplication = exports.sendReporterApplicationEmail = exports.promoteUserToReporter = exports.sendAdminPerformanceAlert = exports.alertExistingReporterOfChallenger = exports.auditExistingReporterPerformance = exports.notifyApplicantOfConflict = exports.isMandalVacant = exports.checkMandalVacancy = exports.processReporterSubmission = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.restoreAllDowngradedReporters = exports.performRestoreAllReporters = exports.awardPointsToReporter = exports.notifyReporter = void 0;
+exports.recordAppInstallReferral = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.getAssignedReporter = exports.verifyReporter = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.executeReactivateFalselyDemotedReporters = exports.syncUserRoleUpgrade = exports.onNewsPostApproved = exports.runAutoApprovePendingBackfill = exports.cleanupExpiredReporterApplications = exports.executeCleanupExpiredApplications = exports.cleanDuplicateApplications = exports.executeCleanDuplicateApplications = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.submitReporterApplication = exports.sendReporterApplicationEmail = exports.promoteUserToReporter = exports.sendAdminPerformanceAlert = exports.alertExistingReporterOfChallenger = exports.auditExistingReporterPerformance = exports.notifyApplicantOfConflict = exports.isMandalVacant = exports.checkMandalVacancy = exports.processReporterSubmission = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.restoreAllDowngradedReporters = exports.performRestoreAllReporters = exports.awardPointsToReporter = exports.notifyReporter = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -2303,24 +2303,14 @@ exports.onNewsPostApproved = (0, firestore_1.onDocumentWritten)({
     }
 });
 /**
- * Automatically reset warning levels and set promotion timestamps when a user is assigned/upgraded/re-joined to REPORTER
+ * Helper to reset warning levels and set promotion timestamps when a user is assigned/upgraded/re-joined to REPORTER.
+ * Note: Replaced high-overhead onDocumentWritten trigger on users/{userId} with direct synchronous logic
+ * to prevent massive Pub/Sub event loops and multi-gigabyte egress costs.
  */
-exports.onUserRoleChanged = (0, firestore_1.onDocumentWritten)({
-    document: "users/{userId}",
-    region: utils_1.REGION,
-}, async (event) => {
-    const before = event.data?.before.data();
-    const after = event.data?.after.data();
-    if (!after)
-        return;
-    const beforeRole = String(before?.role || '').toUpperCase();
-    const afterRole = String(after.role || '').toUpperCase();
-    const isBeforeReporter = ['REPORTER', '2', '2.0', 'STAFF_REPORTER', 'REGIONAL_INCHARGE'].includes(beforeRole) || before?.role === 2 || before?.role === 2.0;
-    const isAfterReporter = ['REPORTER', '2', '2.0'].includes(afterRole) || after.role === 2 || after.role === 2.0;
-    // Check if user was newly promoted / upgraded / re-joined to REPORTER
-    if (!isBeforeReporter && isAfterReporter) {
-        console.log(`[ROLE_UPGRADED] User ${event.params.userId} upgraded to REPORTER. Setting full grace period timestamps and resetting flags...`);
-        await event.data?.after.ref.update({
+async function syncUserRoleUpgrade(userId, userRef) {
+    try {
+        const ref = userRef || db.collection('users').doc(userId);
+        await ref.update({
             warningLevel: 0,
             inProbation: false,
             lastWarningDate: admin.firestore.FieldValue.delete(),
@@ -2333,23 +2323,22 @@ exports.onUserRoleChanged = (0, firestore_1.onDocumentWritten)({
             rejoinedAt: admin.firestore.FieldValue.serverTimestamp()
         });
         // Also sync any SUSPENDED applications back to JOINED
-        try {
-            const appSnap = await db.collection('reporter_applications')
-                .where('userId', '==', event.params.userId)
-                .where('status', '==', 'SUSPENDED')
-                .get();
-            for (const doc of appSnap.docs) {
-                await doc.ref.update({
-                    status: 'JOINED',
-                    rejoinedAt: admin.firestore.FieldValue.serverTimestamp()
-                });
-            }
-        }
-        catch (err) {
-            console.error(`[ROLE_UPGRADE_APP_SYNC_ERR] ${event.params.userId}:`, err.message);
+        const appSnap = await db.collection('reporter_applications')
+            .where('userId', '==', userId)
+            .where('status', '==', 'SUSPENDED')
+            .get();
+        for (const doc of appSnap.docs) {
+            await doc.ref.update({
+                status: 'JOINED',
+                rejoinedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
         }
     }
-});
+    catch (err) {
+        console.warn(`[ROLE_UPGRADE_SYNC_WARN] ${userId}:`, err.message);
+    }
+}
+exports.syncUserRoleUpgrade = syncUserRoleUpgrade;
 /**
  * Mass re-activation of all reporters who were mistakenly demoted to subscribers.
  * Restores role: "REPORTER", sets 10-day fresh grace period, resets warning levels,

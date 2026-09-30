@@ -327,12 +327,21 @@ function cleanTeluguHeadline(headline) {
         .replace(/&#x[0-9a-fA-F]+;/gi, '');
     // 1. Strip all residual quotes (single, double, curly quotes, backticks, backslashes)
     clean = clean.replace(/['"“‘”’`\\/]/g, '');
-    // 2. Replace colons, semicolons, and multiple dots (..) with a space to prevent splitting into two sentences
-    clean = clean.replace(/\s*[:;]\s*/g, ' ');
-    clean = clean.replace(/\.{2,}/g, ' ');
-    // 3. Remove leading or trailing hyphens, dashes, commas, dots, colons, or spaces
+    // 2. Replace semicolons and long ellipses with space
+    clean = clean.replace(/\s*;\s*/g, ' ');
+    clean = clean.replace(/\.{3,}/g, ' ');
+    // 3. Normalize colons: allow at most ONE colon (journalistic hook separator e.g. "లీడ్: సంఘటన"), replace subsequent colons with space
+    let colonFound = false;
+    clean = clean.replace(/\s*:\s*/g, () => {
+        if (!colonFound) {
+            colonFound = true;
+            return ': ';
+        }
+        return ' ';
+    });
+    // 4. Remove leading or trailing hyphens, dashes, commas, dots, colons, or spaces
     clean = clean.replace(/^[\s.,:;!?'"“”‘’\-\—]+|[\s.,:;!?'"“”‘’\-\—]+$/g, '');
-    // 4. Normalize multiple whitespace and trim
+    // 5. Normalize multiple whitespace and trim
     clean = clean.replace(/\s+/g, ' ').trim();
     return sanitizeTeluguText(clean);
 }

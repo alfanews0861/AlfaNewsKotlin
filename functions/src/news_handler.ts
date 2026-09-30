@@ -707,10 +707,10 @@ export async function performAIProcessing(
     const singleStorySchema = {
         type: Type.OBJECT,
         properties: {
-            headline: { type: Type.STRING },
-            content: { type: Type.STRING },
+            headline: { type: Type.STRING, description: "Pure Telugu punchy journalistic headline strictly in 8-10 words, optional single colon hook" },
+            content: { type: Type.STRING, description: "Pure Telugu short news story strictly 52-60 words (minimum 52 words, maximum 60 words), single paragraph" },
             fullStoryTe: { type: Type.STRING, description: "Senior Editor full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if source is brief (< 120 words)" },
-            headlineEn: { type: Type.STRING },
+            headlineEn: { type: Type.STRING, description: "English headline translated from Telugu headline (8-10 words)" },
             contentEn: { type: Type.STRING },
             fullStoryEn: { type: Type.STRING, description: "Senior Editor full story in English across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if source is brief (< 120 words)" },
             location: { type: Type.STRING },
@@ -813,7 +813,7 @@ ${videoSpeechContext}
 ⚠️ వీడియో జర్నలిజం సమగ్ర కథన నిబంధనలు (CRITICAL VIDEO JOURNALISM MANDATE):
 - ఈ వార్త క్షేత్రస్థాయి వీడియో ఆధారంగా సమర్పించబడింది. పైన సేకరించిన [వీడియోలో మాట్లాడిన అసలు మాటలు] నుండి మాట్లాడిన వ్యక్తి వివరాలు, వారి అసలు ప్రకటనలు, ఆరోపణలు, సంఖ్యలు మరియు ప్రజా సమస్యలను తప్పనిసరిగా కథనంలో సమగ్రంగా చేర్చండి.
 - మాట్లాడిన మాటలను సదరు నేత/బాధితుడికే ఆపాదించాలి (ఉదా: "...అని వీడియోలో వెల్లడించిన ఫలానా నేత", "...అంటూ వాపోయిన బాధితులు").
-- సందర్భానుసార శీర్షిక (7-8 పదాలు): వీడియోలోని అత్యంత కీలకమైన ప్రకటన లేదా సవాలు ఆధారంగా శీర్షిక ఉండాలి.
+- సందర్భానుసార శీర్షిక (8-10 పదాలు): వీడియోలోని అత్యంత కీలకమైన ప్రకటన లేదా సవాలు ఆధారంగా శీర్షిక ఉండాలి (లీడ్ హుక్ కోసం ఒకే ఒక్క కోలన్ : వాడవచ్చు).
 - 360° సమతుల్యత: వీడియోలో ఒక పక్షం ఘాటైన ఆరోపణలు చేస్తే, 3వ పేరాలో ఎదుటి పక్షం వివరణ లేదా ప్రభుత్వ/అధికారుల స్పందనను సమతుల్యంగా చేర్చండి.
 - స్వీయ ప్రచారం / భజన / పీఆర్ రీల్ అయితే: వీడియోలో ఎటువంటి వార్తా విలువ లేకుండా కేవలం నాయకుడి భజన, పొగడ్తలు ఉంటే తిరస్కరించండి (rejectionReason రాయండి).` : ''}
 
@@ -827,25 +827,25 @@ EDITORIAL & REJECTION INSTRUCTIONS (CRITICAL):
   * rejectionReason MUST be phrased politely in professional Telugu as if written by a Human Chief Editor / News Desk. NEVER mention AI, algorithms, bots, or automated systems. Explain naturally like an editor (e.g. 'ఈ మండలంలో ఈ వార్తాంశం ఇప్పటికే ప్రచురితమైంది', 'వార్తలో ప్రజా ప్రయోజనం కొరవడింది లేదా వ్యక్తిగత ప్రచారం', 'చిత్రం ప్రచురణ ప్రమాణాలకు అనుగుణంగా లేదు').
 ${hasSubstantialSource ? `
 FULL STORY INSTRUCTIONS (సేఫ్ ఎడిటోరియల్ ఎక్స్‌పాన్షన్ & సమగ్ర కథనం):
-- Write a comprehensive full story in Telugu (fullStoryTe) structured into 3 to 4 distinct paragraphs separated by \\n\\n (180-240 words).
+- Write a comprehensive full story in Telugu (fullStoryTe) structured into 3 to 4 distinct paragraphs separated by \n\n (180-240 words).
 - STRICT FACT SAFETY: Preserve all provided facts, locations, names, titles, and budget numbers. Never invent false facts or fake names (ZERO HALLUCINATIONS).
 - SAFE CONTEXTUAL EXPANSION:
   * Even if the input is concise (40-70 words), enrich it with relevant background, public awareness, social importance, and community impact.
   * For health camps: explain the role of PHCs, preventive screening for hypertension/diabetes, and the relief of free medicine.
   * For welfare/CMRF: highlight how CMRF provides relief to poor families during medical emergencies and the impact on beneficiaries.
   * For rural/civic issues: highlight public need, administrative follow-up, and seasonal relevance.
-- 3 to 4 distinct paragraphs separated by \\n\\n:
+- 3 to 4 distinct paragraphs separated by \n\n:
   * Paragraph 1: Gripping hook, core incident, place, and attribution (~60-70 words).
   * Paragraph 2: Key statements, attendees, quotes, and specific numbers (~60-80 words).
   * Paragraph 3: Public awareness, context, and social significance (~60-70 words).
   * Paragraph 4: Follow-up action by authorities and expected outcome (~40-50 words).
-- fullStoryEn: Matching English full story across 3-4 paragraphs separated by \\n\\n.
+- fullStoryEn: Matching English full story across 3-4 paragraphs separated by \n\n.
 - If the submission is an ultra-brief casual announcement (under 25 words) with no contextual value: set fullStoryTe = "" and fullStoryEn = "".
 ` : `
 FULL STORY INSTRUCTIONS (అత్యంత స్వల్ప సమాచారం - NO CONTEXT POSSIBLE):
 - The submitted material is an ultra-brief snippet (${sourceWords} words) with no contextual expansion possible.
 - Set fullStoryTe = "" (empty string) and fullStoryEn = "" (empty string).
-- Only provide the concise 60-70 word Telugu content (one single paragraph) and headline.
+- Only provide the concise 52-60 word Telugu content (minimum 52 words, one single paragraph) and headline.
 `}
 
 PROACTIVE MULTI-STORY BUNDLE DETECTION (CRITICAL):
@@ -870,8 +870,8 @@ NOTIFICATION INSTRUCTIONS (CRITICAL - STRICT RELEVANCE & URGENCY):
   * Inspiring human achievements, significant regional or state developments.
   * STRICTLY FALSE for: Routine political statement battles ("నాయకుడి విమర్శలు-ప్రతివిమర్శలు"), routine photo-ops, birthday celebrations, shawl felicitations, personal praise/flattery (భజన వార్తలు), small ward drainage/street light complaints.
 - notificationTitle:
-  * If isBreaking is true: Generate a crisp, urgent, 100% FACTUAL Telugu title stating WHAT happened and WHERE (max 7-9 words). NEVER use clickbait questions or mystery teasers for tragic/breaking news!
-  * If notificationWorthy is true (and NOT breaking): Generate an engaging, intriguing Telugu curiosity hook title (max 7-9 words).
+  * If isBreaking is true: Generate a crisp, urgent, 100% FACTUAL Telugu title stating WHAT happened and WHERE (strictly 8-10 words, optional single colon hook e.g. 'హైవేపై లారీ బీభత్సం: నలుగురు దుర్మరణం'). NEVER use clickbait questions or mystery teasers for tragic/breaking news!
+  * If notificationWorthy is true (and NOT breaking): Generate an engaging, intriguing Telugu curiosity hook title (strictly 8-10 words, optional single colon hook).
   * If neither, leave as empty string "".
 - tone options: BREAKING | URGENT | IMPORTANT | NORMAL | SOFT
   * BREAKING: Only for genuine high-magnitude breaking news matching isBreaking above.
@@ -887,7 +887,7 @@ NOTIFICATION INSTRUCTIONS (CRITICAL - STRICT RELEVANCE & URGENCY):
             contents: [{ role: "user", parts: [{ text: `${metadataPrompt}\n\nHeadline: ${headline}\nContent: ${content}` }] }],
             config: {
                 systemInstruction: getCategorySystemInstruction(),
-                temperature: 0.4,
+                temperature: 0.6,
                 maxOutputTokens: 4096,
                 responseMimeType: "application/json",
                 responseSchema: schema,

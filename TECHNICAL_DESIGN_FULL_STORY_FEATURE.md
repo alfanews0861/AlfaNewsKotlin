@@ -1,10 +1,10 @@
 # TECHNICAL DESIGN: AI SENIOR EDITOR FULL STORY (పూర్తి వార్త) FEATURE
 
 ## 1. Overview
-The AlfaNews mobile app and web feed currently condense news into ~70 words for quick card-based consumption. While this delivers rapid browsing, certain in-depth news stories lose their underlying context, emotional intensity, or nuance. 
+The AlfaNews mobile app and web feed condense news into 52-60 words for quick card-based consumption. While this delivers rapid browsing, certain in-depth news stories lose their underlying context, emotional intensity, or nuance. 
 
 To bridge this without compromising the core short-news format, we introduce the **"పూర్తి వార్త" (Full Story)** feature:
-- The 70-word card remains the primary hook on the swipeable feed.
+- The 52-60 word card remains the primary hook on the swipeable feed.
 - A discrete pill button ("పూర్తి వార్త చదవండి" / "Read Full Story") appears below the content.
 - Tapping this button opens a 90% height in-app Bottom Sheet modal containing a comprehensive ~200–250 word rewrite.
 - Swiping down dismisses the sheet immediately, returning the user to the exact position in their feed without reload or stutter.

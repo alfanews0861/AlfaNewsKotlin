@@ -412,7 +412,23 @@ private fun EditorRoleManager(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (user.role == UserRole.SUBSCRIBER) {
             Button(
-                onClick = { onUpdate(mapOf("role" to UserRole.REPORTER.name, "promotedBy" to currentUser.id)) },
+                onClick = { 
+                    val updates = mutableMapOf<String, Any>(
+                        "role" to UserRole.REPORTER.name, 
+                        "promotedBy" to currentUser.id,
+                        "warningLevel" to 0,
+                        "inProbation" to false,
+                        "previouslyDowngraded" to false,
+                        "suspended" to false,
+                        "downgradedReason" to com.google.firebase.firestore.FieldValue.delete(),
+                        "downgradedAt" to com.google.firebase.firestore.FieldValue.delete(),
+                        "lastWarningDate" to com.google.firebase.firestore.FieldValue.delete(),
+                        "promotedAt" to com.google.firebase.Timestamp.now(),
+                        "lastPostTimestamp" to com.google.firebase.Timestamp.now(),
+                        "rejoinedAt" to com.google.firebase.Timestamp.now()
+                    )
+                    onUpdate(updates) 
+                },
                 enabled = !isUpdating,
                 modifier = Modifier.fillMaxWidth()
             ) {

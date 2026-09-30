@@ -41,7 +41,6 @@ export {
     backfillReporterPoints,
     onNewsViewCountUpdated,
     onNewsPostApproved,
-    onUserRoleChanged,
     verifyReporter,
     onUserCreated,
     onAnonymousDeviceCreated,

@@ -137,7 +137,7 @@ db.collection('news')
 ### Output Fields (Both Types)
 - `headline`: Main title (6-10 words, punchy)
 - `headlineEn`: English translation
-- `content`: Body text (60-70 words)
+- `content`: Body text (52-60 words)
 - `contentEn`: English translation
 - `location`: Detected geographic location
 - `storyFingerprint`: Unique hash for duplicate detection

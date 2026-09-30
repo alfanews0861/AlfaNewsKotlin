@@ -2613,28 +2613,14 @@ export const onNewsPostApproved = onDocumentWritten({
 });
 
 /**
- * Automatically reset warning levels and set promotion timestamps when a user is assigned/upgraded/re-joined to REPORTER
+ * Helper to reset warning levels and set promotion timestamps when a user is assigned/upgraded/re-joined to REPORTER.
+ * Note: Replaced high-overhead onDocumentWritten trigger on users/{userId} with direct synchronous logic
+ * to prevent massive Pub/Sub event loops and multi-gigabyte egress costs.
  */
-export const onUserRoleChanged = onDocumentWritten({
-    document: "users/{userId}",
-    region: REGION,
-}, async (event) => {
-    const before = event.data?.before.data();
-    const after = event.data?.after.data();
-
-    if (!after) return;
-
-    const beforeRole = String(before?.role || '').toUpperCase();
-    const afterRole = String(after.role || '').toUpperCase();
-
-    const isBeforeReporter = ['REPORTER', '2', '2.0', 'STAFF_REPORTER', 'REGIONAL_INCHARGE'].includes(beforeRole) || before?.role === 2 || before?.role === 2.0;
-    const isAfterReporter = ['REPORTER', '2', '2.0'].includes(afterRole) || after.role === 2 || after.role === 2.0;
-
-    // Check if user was newly promoted / upgraded / re-joined to REPORTER
-    if (!isBeforeReporter && isAfterReporter) {
-        console.log(`[ROLE_UPGRADED] User ${event.params.userId} upgraded to REPORTER. Setting full grace period timestamps and resetting flags...`);
-        
-        await event.data?.after.ref.update({
+export async function syncUserRoleUpgrade(userId: string, userRef?: admin.firestore.DocumentReference) {
+    try {
+        const ref = userRef || db.collection('users').doc(userId);
+        await ref.update({
             warningLevel: 0,
             inProbation: false,
             lastWarningDate: admin.firestore.FieldValue.delete(),
@@ -2648,22 +2634,20 @@ export const onUserRoleChanged = onDocumentWritten({
         });
 
         // Also sync any SUSPENDED applications back to JOINED
-        try {
-            const appSnap = await db.collection('reporter_applications')
-                .where('userId', '==', event.params.userId)
-                .where('status', '==', 'SUSPENDED')
-                .get();
-            for (const doc of appSnap.docs) {
-                await doc.ref.update({
-                    status: 'JOINED',
-                    rejoinedAt: admin.firestore.FieldValue.serverTimestamp()
-                });
-            }
-        } catch (err: any) {
-            console.error(`[ROLE_UPGRADE_APP_SYNC_ERR] ${event.params.userId}:`, err.message);
+        const appSnap = await db.collection('reporter_applications')
+            .where('userId', '==', userId)
+            .where('status', '==', 'SUSPENDED')
+            .get();
+        for (const doc of appSnap.docs) {
+            await doc.ref.update({
+                status: 'JOINED',
+                rejoinedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
         }
+    } catch (err: any) {
+        console.warn(`[ROLE_UPGRADE_SYNC_WARN] ${userId}:`, err.message);
     }
-});
+}
 
 /**
  * Mass re-activation of all reporters who were mistakenly demoted to subscribers.

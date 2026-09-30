@@ -1284,9 +1284,17 @@ private suspend fun processJoin(
         "mandal" to mandal,
         "promotedBy" to promoterId,
         "agreedToRules" to true,
+        "warningLevel" to 0,
         "inProbation" to isOccupied,
         "isChallenger" to isOccupied,
-        "promotedAt" to com.google.firebase.Timestamp.now()
+        "previouslyDowngraded" to false,
+        "suspended" to false,
+        "downgradedReason" to com.google.firebase.firestore.FieldValue.delete(),
+        "downgradedAt" to com.google.firebase.firestore.FieldValue.delete(),
+        "lastWarningDate" to com.google.firebase.firestore.FieldValue.delete(),
+        "promotedAt" to com.google.firebase.Timestamp.now(),
+        "rejoinedAt" to com.google.firebase.Timestamp.now(),
+        "lastPostTimestamp" to com.google.firebase.Timestamp.now()
     )
     if (isOccupied) {
         updates["probationStartDate"] = com.google.firebase.Timestamp.now()

@@ -215,7 +215,7 @@
 - **Languages**: Telugu (primary) + English (translation)
 - **Output Fields**:
   - `headline`: Main title (6-10 words, punchy)
-  - `content`: Body text (60-70 words)
+  - `content`: Body text (52-60 words)
   - `headlineEn`: English title
   - `contentEn`: English body
   - `location`: Detected location

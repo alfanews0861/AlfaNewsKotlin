@@ -9,19 +9,19 @@ const EDITORIAL_SYSTEM_INSTRUCTION = `మీరు ఆల్ఫా న్యూ�
 
 ముఖ్యమైన ఎడిటోరియల్ నిబంధనలు (CRITICAL EDITORIAL RULES):
 
-0. 🎯 అత్యున్నత ప్రాథమిక సూత్రం & ప్రాసెసింగ్ క్రమం (FOUNDATIONAL BASE RULE - 70 TELUGU WORDS FIRST, THEN ENGLISH):
+0. 🎯 అత్యున్నత ప్రాథమిక సూత్రం & ప్రాసెసింగ్ క్రమం (FOUNDATIONAL BASE RULE - 60 TELUGU WORDS FIRST, THEN ENGLISH):
    ఇన్‌పుట్ సమాచారం/పోస్ట్ ఏ భాషలో ఉన్నప్పటికీ (ఇంగ్లీష్, తెలుగు, హిందీ లేదా ఇతర ఏ భాషలో ఉన్నా సరే):
    - దశ 1 (ముందుగా తెలుగు వార్త - STEP 1: PURE TELUGU NEWS FIRST):
-     * ఇన్‌పుట్ ఏ భాషలో ఉన్నా, అందులోని వాస్తవాలను, సంఘటనను మాత్రమే ఆధారం చేసుకొని, ముందుగా 100% స్వచ్ఛమైన తెలుగు లిపిలో (Unicode U+0C00-U+0C7F) కచ్చితంగా 60 నుండి 70 పదాల ప్రామాణిక జర్నలిస్టిక్ వార్తను రూపొందించాలి ('content').
-     * అలాగే శీర్షికను కూడా ముందుగా స్వచ్ఛమైన తెలుగులోనే 6 నుండి 8 పదాల సంపూర్ణ ఏక వాక్యంగా రాయాలి ('headline').
+     * ఇన్‌పుట్ ఏ భాషలో ఉన్నా, అందులోని వాస్తవాలను, సంఘటనను మాత్రమే ఆధారం చేసుకొని, ముందుగా 100% స్వచ్ఛమైన తెలుగు లిపిలో (Unicode U+0C00-U+0C7F) కచ్చితంగా 52 నుండి 60 పదాల (కనీసం 52 పదాలు, గరిష్టంగా 60 పదాలు) ప్రామాణిక జర్నలిస్టిక్ వార్తను రూపొందించాలి ('content').
+     * అలాగే శీర్షికను కూడా ముందుగా స్వచ్ఛమైన తెలుగులోనే 8 నుండి 10 పదాల (కనీసం 8 పదాలు, గరిష్టంగా 10 పదాలు) పదునైన, ఆకర్షణీయమైన జర్నలిస్టిక్ శైలిలో రాయాలి ('headline'). లీడ్ హుక్ కోసం ఒకే ఒక్క కోలన్ (:) వాడవచ్చు.
      * ⚠️ అత్యంత కఠిన నిబంధన: 'content' మరియు 'headline' లలో ఒక్క ఇంగ్లీష్ వాక్యం లేదా పదం కూడా ఉండకూడదు! ఇన్‌పుట్ మొత్తం ఇంగ్లీష్ లో ఉన్నప్పటికీ, దానిని పూర్తిగా స్వచ్ఛమైన తెలుగు వార్తగా మార్చాలి.
    - దశ 2 (తెలుగు వార్త ఆధారంగా ఇంగ్లీష్ అనువాదం - STEP 2: TRANSLATE TELUGU NEWS TO ENGLISH):
      * మీరు దశ 1 లో రాసిన 'content' (తెలుగు వార్త) ని మాత్రమే ఆధారంగా చేసుకుని, దానిని స్పష్టమైన ఇంగ్లీష్ వార్తా సారాంశంగా ('contentEn', 50-60 పదాలు) అనువదించి రాయాలి!
-     * అలాగే దశ 1 లో రాసిన 'headline' (తెలుగు శీర్షిక) ఆధారంగానే ఇంగ్లీష్ శీర్షిక ('headlineEn') రాయాలి.
+     * అలాగే దశ 1 లో రాసిన 'headline' (తెలుగు శీర్షిక) ఆధారంగానే ఇంగ్లీష్ శీర్షిక ('headlineEn', 8-10 words) రాయాలి.
      * ఇంగ్లీష్ ఫీల్డ్‌లు కేవలం ఆ తెలుగు వార్తకు ఖచ్చితమైన అనువాదం మాత్రమే!
 
-1. సారాంశం (content / summarizedTeluguContent - STRICTLY 60-70 TELUGU WORDS, ONE PARAGRAPH):
-   - కచ్చితంగా 60 నుండి 70 పదాల మధ్య ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్ (No multiple paragraphs, no newlines).
+1. సారాంశం (content / summarizedTeluguContent - STRICTLY 52-60 TELUGU WORDS, MINIMUM 52 WORDS, ONE PARAGRAPH):
+   - కచ్చితంగా 52 నుండి 60 పదాల మధ్య (కనీసం 52 పదాలు, గరిష్టంగా 60 పదాలు) ఒకే ఒక్క సింగిల్ పేరాగ్రాఫ్ (No multiple paragraphs, no newlines).
    - వార్త పూర్తి మూల భావం, మాట్లాడిన వారి వాదన, భావోద్వేగం ఏమాత్రం తగ్గకూడదు. స్పష్టమైన ఆపాదింపు తప్పనిసరి.
 
 2. పూర్తి వార్తా కథనం (fullStoryTe - సేఫ్ ఎడిటోరియల్ ఎక్స్‌పాన్షన్ & సమగ్ర కథన నిబంధనలు):
@@ -83,47 +83,46 @@ const EDITORIAL_SYSTEM_INSTRUCTION = `మీరు ఆల్ఫా న్యూ�
    - ⚠️ సోషల్ మీడియా / ట్విట్టర్ అకౌంట్ ఆపాదింపు: పోస్ట్ రాసిన వారి (Post Author) పూర్తి క్రెడిట్ వార్తా సారాంశం (content) లోని మొదటి వాక్యంలో తప్పక ఇవ్వాలి.
    - G (HARD NUMBERS & FACTS PRESERVATION): ఇన్‌పుట్‌లోని ప్రతి సంఖ్య, బడ్జెట్ అంకె (రూ. కోట్లు, లక్షలు), ఉద్యోగాల సంఖ్య, పనుల సంఖ్య, నగరాలు/మున్సిపాలిటీల పేర్లు తప్పక తెలుగు శీర్షిక మరియు వార్తలో ఉండాలి. అంకెలను వదిలేసి "పలు అభివృద్ధి పనులు" అని రాయరాదు!
 
-8. 🏆 అత్యున్నత ప్రాధాన్యత: సందర్భానుసార శీర్షిక & పంచ్ డైలాగ్ నిబంధన (CONTEXT-AWARE HEADLINES & PUNCH DIALOGUE - ABSOLUTE FIRST PRIORITY):
-   హెడ్‌లైన్ చదివేటప్పుడు ఎక్కడా బ్రేక్ లేకుండా, మొదటి పదం నుండి చివరి పదం వరకు ఒకే తాటిపై నడిచే స్వచ్ఛమైన ఏక వాక్యంగా (Single Unbroken Flow) ఉండాలి. వార్తలోని మూల స్వభావానికి (Context) తగినట్లుగా శీర్షిక ఉండాలి:
+8. 🏆 అత్యున్నత ప్రాధాన్యత: సందర్భానుసార శీర్షికా నైపుణ్యం & పవర్ వర్డ్స్ (CONTEXT-AWARE HEADLINE MASTERY & POWER VERBS - 8 TO 10 WORDS):
+   హెడ్‌లైన్ చప్పగా లేదా ప్రభుత్వ ప్రకటనలా ఉండకూడదు! పాఠకుడిని వెంటనే కట్టిపడేసే పదునైన పత్రికా శైలిలో ఉండాలి:
+   
+   - పదాల పరిమాణం: ఖచ్చితంగా 8 నుండి 10 పదాలు మాత్రమే (కనీసం 8 పదాలు, గరిష్టంగా 10 పదాలు).
+   - లీడ్ హుక్ కోలన్ (JOURNALISTIC LEAD COLON ALLOWED): పాఠకుడిని వెంటనే ఆకట్టుకునే లీడ్ యాంకర్ కోసం ఒకే ఒక్క కోలన్ (:) వాడవచ్చు (ఉదా: "హైవేపై లారీ బీభత్సం: నలుగురు దుర్మరణం"). కొటేషన్లు ('...', "...") నిషిద్ధం.
+   
+   - సజీవ జర్నలిస్టిక్ పదజాలం (JOURNALISTIC POWER WORDS):
+     * లీడ్ యాంకర్లు: తీపి కబురు, భారీ ఊరట, షాకింగ్ ఘటన, బీభత్సం, కలకలం, ఉలిక్కిపడ్డ, ఘోరం, బట్టబయలు, బరితెగింపు, భారీ ఝలక్, ఉచ్చు, కొరడా, ఆక్రోశం, ఆవేదన, గుడ్ న్యూస్, సంచలనం, నిప్పుల కొలిమి, దారుణం, అలర్ట్.
+     * యాక్షన్ ముగింపులు (క్రియా పదాలు): కేవలం రొటీన్ 'ఆగ్రహం', 'ధ్వజం' మాత్రమే కాకుండా నిప్పులు, సవాల్, నిలదీత, కౌంటర్, చురకలు, హెచ్చరిక, విరుచుకుపడ్డారు, స్పష్టం చేశారు, తేల్చిచెప్పారు, గుట్టురట్టు, కటకటాల్లోకి, గ్రీన్ సిగ్నల్, పంజా విసిరిన, నివ్వెరపోయిన, భారీ షాక్ వంటి వైవిధ్యమైన శక్తివంతమైన పదాలు వాడాలి.
 
-   ఎ. సందర్భానుసార శీర్షిక (Context-Aware Headlines):
+   - సందర్భానుసార శైలులు (CONTEXT-AWARE PATTERNS):
+     1. రాజకీయ విమర్శలు, సవాళ్లు, ఆరోపణలు (POLITICAL CHARGES & CLASHES):
+        * నాయకుడి ఘాటైన పంచ్ డైలాగ్/ఆరోపణనే లీడ్ గా తీసుకోవాలి: [ఘాటైన పంచ్ వ్యాఖ్య]: [ఎవరిపై] [నాయకుడి పేరు] [క్రియా పదం].
+        * ఉదాహరణ: "రైతులను నిలువునా ముంచేశారు: కూటమి సర్కార్‌పై వైఎస్ జగన్ నిప్పులు" (8 పదాలు)
+        * ఉదాహరణ: "నన్ను అక్రమ కేసులతో బెదిరించలేరు: కాంగ్రెస్ సర్కార్‌కు కేటీఆర్ బహిరంగ సవాల్" (9 పదాలు)
+        * ఉదాహరణ: "ఓట్ల కోసం ఇంత బరితెగింపా: ఎన్నికల సంఘం నిర్ణయంపై రాహుల్ గాంధీ ఆగ్రహం" (9 పదాలు)
 
-   1. రాజకీయ విమర్శలు, సవాళ్లు, ఆరోపణలు (POLITICAL CHARGES & CLASHES):
-      - ఘాటైన పంచ్ డైలాగ్ + స్పష్టమైన ఆపాదింపు (Attribution) ఉండాలి.
-      - మాట్లాడిన వారి ప్రసంగం లేదా ప్రకటనలోని అత్యంత పదునైన, ఘాటైన పంచ్ డైలాగ్‌ను / ప్రధాన ఆరోపణనే హెడ్‌లైన్‌లో ప్రధాన భాగంగా తీసుకోవాలి!
-      - చప్పని పదాలు ("సమీక్ష", "స్పందన", "సమావేశం", "విమర్శలు", "ప్రకటన") పూర్తిగా నిషిద్ధం!
-      - వాక్య నిర్మాణం: [ఘాటైన పంచ్ డైలాగ్ / ఆరోపణ సారాంశం] అంటూ/అని [ఎవరిపై] [నాయకుడి పేరు] [తీవ్ర ఆగ్రహం / ధ్వజం / సవాల్ / నిప్పులు].
-      - ఉదాహరణ: "ప్రజలను దగా చేశారంటూ కూటమి సర్కార్పై జగన్ తీవ్ర ఆగ్రహం" (8 పదాలు)
-      - ఉదాహరణ: "అక్రమ కేసులతో బెదిరించలేరంటూ కాంగ్రెస్ సర్కార్‌కు కేటీఆర్ సవాల్" (7 పదాలు)
-      - ఉదాహరణ: "కేంద్ర ఎన్నికల సంఘం నిర్ణయంపై రాహుల్ గాంధీ నిప్పులు" (7 పదాలు)
+     2. ప్రమాదాలు, విషాదాలు, విపత్తులు (ACCIDENTS, TRAGEDIES & DISASTERS):
+        * వాస్తవికత, వేదన, సంఘటన తీవ్రత తెలిపే శైలి.
+        * ఉదాహరణ: "హైవేపై లారీ బీభత్సం: క్షణాల్లో నుజ్జునుజ్జైన కారుతో నలుగురు దుర్మరణం" (9 పదాలు)
+        * ఉదాహరణ: "కొండచరియలు విరిగిపడి బీభత్సం: సీలేరు ఘాట్ రోడ్డులో స్తంభించిన రాకపోకలు" (9 పదాలు)
+        * ఉదాహరణ: "వరద ఉధృతిలో కొట్టుకుపోయిన కారు: నదిలో గల్లంతైన ఇద్దరి కోసం గాలింపు" (10 పదాలు)
 
-   2. రైతాంగ వ్యథ, పేదల ఆవేదన, ప్రజా సమస్యలు (FARMERS, POOR & PUBLIC AGONY):
-      - హృదయాన్ని కదిలించే కరుణ రసం, రూపకాలు ఉండాలి.
-      - ఉదాహరణ: "ఆశల పందిరి కూలి కన్నీటి సంద్రమైన అన్నదాత బతుకు చిత్రం" (8 పదాలు)
-      - ఉదాహరణ: "గిట్టుబాటు ధర లేక పంటను రోడ్డుపై పారబోసిన మిర్చి రైతులు" (8 పదాలు)
+     3. ప్రభుత్వ పథకాలు, అభివృద్ధి పనులు, శుభవార్తలు (GOVT SCHEMES & PUBLIC BENEFITS):
+        * ప్రజలకు కలిగే ప్రత్యక్ష ప్రయోజనం, సంతోషాన్ని తెలిపే శైలి (ప్రభుత్వ ప్రకటనలా కాకుండా ఉల్లాసంగా).
+        * ఉదాహరణ: "అన్నదాతలకు భారీ ఊరట: నేడే రైతుల ఖాతాల్లోకి రైతు భరోసా నిధులు" (9 పదాలు)
+        * ఉదాహరణ: "నిరుద్యోగులకు తీపి కబురు: రాష్ట్రంలో పదివేల ఉపాధ్యాయ పోస్టుల భర్తీకి గ్రీన్ సిగ్నల్" (10 పదాలు)
+        * ఉదాహరణ: "రాయలసీమ రైతులకు గుడ్ న్యూస్: లక్ష కోట్లతో మెగా హార్టికల్చర్ హబ్" (9 పదాలు)
 
-   3. ప్రమాదాలు, విషాదాలు, విపత్తులు (ACCIDENTS, TRAGEDIES & DISASTERS):
-      - గంభీరమైన, వాస్తవికతతో కూడిన శైలి (కవిత్వాలు, పంచ్లు లేకుండా).
-      - ఉదాహరణ: "నెత్తురోడిన జాతీయ రహదారిపై లారీ ఢీకొని నలుగురు దుర్మరణం" (7 పదాలు)
-      - ఉదాహరణ: "కొండచరియలు విరిగిపడి సీలేరు రహదారిలో స్తంభించిన రాకపోకలు" (7 పదాలు)
-      - ఉదాహరణ: "వరద ఉధృతిలో కొట్టుకుపోయిన కారుతో ఇద్దరు గల్లంతు" (6 పదాలు)
+     4. నేరాలు, దోపిడీలు, పోలీస్ దాడులు, మోసాలు (CRIMES & POLICE RAIDS):
+        * పదునైన క్రైమ్ ఇన్వెస్టిగేషన్ శైలి.
+        * ఉదాహరణ: "నకిలీ సర్టిఫికెట్ల దందా బట్టబయలు: రంగంలోకి దిగి కీలక సూత్రధారి అరెస్ట్" (9 పదాలు)
+        * ఉదాహరణ: "సికింద్రాబాద్‌లో సినీ ఫక్కీలో భారీ దోపిడీ: నిమిషాల్లో అంతర్రాష్ట్ర ముఠా అరెస్ట్" (9 పదాలు)
 
-   4. ప్రభుత్వ పథకాలు, అభివృద్ధి పనులు, శుభవార్తలు (GOVT SCHEMES & DEVELOPMENT):
-      - ఉత్తేజభరితమైన, ప్రజలకు కలిగే ప్రత్యక్ష ప్రయోజనాన్ని సూటిగా తెలిపే శైలి (వ్యక్తుల ఆపాదింపు లేకుండా).
-      - ఉదాహరణ: "రైతుల ఖాతాల్లోకి నేడే రైతు భరోసా నిధుల జమ" (7 పదాలు)
-      - ఉదాహరణ: "రాయలసీమలో లక్ష కోట్లతో మెగా హార్టికల్చర్ హబ్" (7 పదాలు)
-      - ఉదాహరణ: "రాష్ట్రంలో పదివేల ఉపాధ్యాయ పోస్టుల భర్తీకి గ్రీన్ సిగ్నల్" (7 పదాలు)
+     5. వాతావరణం & ప్రజా హెచ్చరికలు (WEATHER & PUBLIC ALERTS):
+        * ఉదాహరణ: "నిప్పుల కొలిమిలా మారిన రాష్ట్రం: రాబోయే 3 రోజులు తీవ్ర వడగాడ్పుల హెచ్చరిక" (9 పదాలు)
 
-   5. నేరాలు, దోపిడీలు, పోలీస్ దాడులు (CRIMES & POLICE RAIDS):
-      - పదునైన క్రైమ్ రిపోర్టింగ్.
-      - ఉదాహరణ: "సికింద్రాబాద్‌లో సినీ ఫక్కీలో భారీ దోపిడీ.. అంతర్రాష్ట్ర ముఠా అరెస్ట్" (లేదా "సికింద్రాబాద్‌లో సినీ ఫక్కీలో భారీ దోపిడీకి పాల్పడ్డ ముఠా అరెస్ట్")
-
-   - సార్వత్రిక నిబంధనలు (UNIVERSAL RULES FOR ALL HEADLINES):
-      1. ఖచ్చితంగా 6 నుండి 8 పదాలు మాత్రమే (STRICTLY 6 TO 8 WORDS, COMPACT & CRISP).
-      2. ఒకే ఒక్క నిరంతర సంపూర్ణ వాక్యం (STRICTLY ONE CONTINUOUS SENTENCE) - కొటేషన్లు ('...', "..."), కోలన్లు (:) పూర్తిగా నిషిద్ధం! ఎక్కడా రెండు ముక్కలుగా విరగ్గొట్టరాదు.
-      3. 🛑 చప్పని నామవాచక ముగింపులు మరియు పాసివ్ శైలి పూర్తిగా నిషిద్ధం:
-         - వాక్యం చివర '...విమర్శలు', '...ప్రకటన', '...నిలిపివేత', '...సమీక్ష', '...స్పందన', '...వేడుకలు', '...పర్యటన' వంటి చప్పని నామవాచకాలతో లేదా '...చేసిన ఫలానా' వంటి పాసివ్ ముగింపులతో ఎట్టిపరిస్థితుల్లోనూ ముగించరాదు!
-         - సజీవమైన ప్రభావం లేదా కార్యాచరణను తెలిపే పదాలతో మాత్రమే ముగియాలి.
+   - 🛑 చప్పని ముగింపుల సంపూర్ణ నిషేధం:
+     * వాక్యం చివర '...విమర్శలు', '...ప్రకటన', '...నిలిపివేత', '...సమీక్ష', '...స్పందన', '...వేడుకలు', '...పర్యటన' వంటి చప్పని నామవాచకాలతో లేదా '...చేసిన ఫలానా' వంటి పాసివ్ ముగింపులతో ఎట్టిపరిస్థితుల్లోనూ ముగించరాదు!
+     * న్యూట్రాలిటీ అంటే నిస్తేజమైన సమాచార బులెటిన్ కాదు: ఆల్ఫా న్యూస్ ఎవరి పక్షానా తీర్పులు ఇవ్వదు, కానీ అసలు సంఘటనలోని వాడి, వేడి, నాటకీయతను శీర్షికలో పాఠకుడికి సూటిగా చేరవేయాలి.
 
 9. స్వచ్ఛమైన తెలుగు లిపి (NO FOREIGN SCRIPTS): కన్నడ, హిందీ/దేవనాగరి లిపి అక్షరాలు రాకూడదు. 100% తెలుగు లిపి వాడాలి.
 10. ఇంగ్లీష్ పూర్తి కథనం (fullStoryEn): Across 3-4 paragraphs separated by \n\n if source has 120+ words, else empty string "".
@@ -180,10 +179,10 @@ const processSocialPostWithAI = async (socialText, platform, category, authorNam
         type: genai_1.Type.OBJECT,
         properties: {
             isNewsFound: { type: genai_1.Type.BOOLEAN },
-            headline: { type: genai_1.Type.STRING, description: "Step 1: 100% Pure Telugu headline in 6-8 words, single complete sentence" },
-            content: { type: genai_1.Type.STRING, description: "Step 1: 100% Pure Telugu journalistic news story (strictly 60-70 words, single paragraph) created from input regardless of input language" },
+            headline: { type: genai_1.Type.STRING, description: "Step 1: 100% Pure Telugu punchy journalistic headline strictly in 8-10 words, with optional single colon hook (e.g. లీడ్: వివరాలు)" },
+            content: { type: genai_1.Type.STRING, description: "Step 1: 100% Pure Telugu journalistic news story (strictly 52-60 words, minimum 52 words, maximum 60 words, single paragraph) created from input regardless of input language" },
             fullStoryTe: { type: genai_1.Type.STRING, description: "Senior editor comprehensive full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
-            headlineEn: { type: genai_1.Type.STRING, description: "Step 2: English headline translated from Telugu headline (6-8 words)" },
+            headlineEn: { type: genai_1.Type.STRING, description: "Step 2: English headline translated from Telugu headline (8-10 words)" },
             contentEn: { type: genai_1.Type.STRING, description: "Step 2: English news story translated from the Telugu story (50-60 words)" },
             fullStoryEn: { type: genai_1.Type.STRING, description: "Senior editor full story in English across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
             category: { type: genai_1.Type.STRING }
@@ -204,7 +203,7 @@ const processSocialPostWithAI = async (socialText, platform, category, authorNam
             contents: [{ role: "user", parts: [{ text: userPrompt }] }],
             config: {
                 systemInstruction: EDITORIAL_SYSTEM_INSTRUCTION,
-                temperature: 0.4,
+                temperature: 0.6,
                 maxOutputTokens: 4096,
                 responseMimeType: "application/json",
                 responseSchema: schema,
@@ -262,10 +261,10 @@ const processCitizenContentWithAI = async (rawContent) => {
             processed: {
                 type: genai_1.Type.OBJECT,
                 properties: {
-                    headline: { type: genai_1.Type.STRING },
-                    content: { type: genai_1.Type.STRING },
+                    headline: { type: genai_1.Type.STRING, description: "Pure Telugu punchy journalistic headline strictly in 8-10 words, optional single colon hook" },
+                    content: { type: genai_1.Type.STRING, description: "Strictly 52-60 words in pure Telugu (minimum 52 words), single paragraph" },
                     fullStoryTe: { type: genai_1.Type.STRING, description: "Senior editor comprehensive full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
-                    headlineEn: { type: genai_1.Type.STRING },
+                    headlineEn: { type: genai_1.Type.STRING, description: "English headline translated from Telugu headline (8-10 words)" },
                     contentEn: { type: genai_1.Type.STRING },
                     fullStoryEn: { type: genai_1.Type.STRING, description: "Senior editor full story in English across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
                     category: { type: genai_1.Type.STRING }
@@ -285,7 +284,7 @@ const processCitizenContentWithAI = async (rawContent) => {
             contents: [{ role: "user", parts: [{ text: userPrompt }] }],
             config: {
                 systemInstruction: EDITORIAL_SYSTEM_INSTRUCTION,
-                temperature: 0.4,
+                temperature: 0.6,
                 maxOutputTokens: 4096,
                 responseMimeType: "application/json",
                 responseSchema: schema,
@@ -321,10 +320,10 @@ const processContentWithAI = async (rawContent, rawHeadline) => {
     const schema = {
         type: genai_1.Type.OBJECT,
         properties: {
-            summarizedTeluguContent: { type: genai_1.Type.STRING },
-            generatedTeluguHeadline: { type: genai_1.Type.STRING },
+            summarizedTeluguContent: { type: genai_1.Type.STRING, description: "Strictly 52-60 words in pure Telugu (minimum 52 words), single paragraph" },
+            generatedTeluguHeadline: { type: genai_1.Type.STRING, description: "Pure Telugu punchy journalistic headline strictly in 8-10 words, optional single colon hook" },
             fullStoryTe: { type: genai_1.Type.STRING, description: "Senior editor comprehensive full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
-            englishHeadline: { type: genai_1.Type.STRING },
+            englishHeadline: { type: genai_1.Type.STRING, description: "English headline translated from Telugu headline (8-10 words)" },
             englishContent: { type: genai_1.Type.STRING },
             fullStoryEn: { type: genai_1.Type.STRING, description: "Senior editor full story in English across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
         },
@@ -341,7 +340,7 @@ const processContentWithAI = async (rawContent, rawHeadline) => {
             contents: [{ role: "user", parts: [{ text: userPrompt }] }],
             config: {
                 systemInstruction: EDITORIAL_SYSTEM_INSTRUCTION,
-                temperature: 0.4,
+                temperature: 0.6,
                 maxOutputTokens: 4096,
                 responseMimeType: "application/json",
                 responseSchema: schema,

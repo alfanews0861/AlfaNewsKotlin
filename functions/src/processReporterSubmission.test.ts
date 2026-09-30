@@ -14,10 +14,10 @@ const createMockRequest = (data: any) => ({
 });
 
 const createValidAIResponse = (): any => ({
-  content: "The 70-word enhanced news content here.",
+  content: "The 60-word enhanced news content here.",
   headline: "Compelling Headlines",
   headlineEn: "Compelling Headline",
-  contentEn: "The 70-word enhanced news content in English.",
+  contentEn: "The 60-word enhanced news content in English.",
   location: "Hyderabad",
   storyFingerprint: "abc123def456",
   refinedCategory: "రాజకీయ సమాచారం",
