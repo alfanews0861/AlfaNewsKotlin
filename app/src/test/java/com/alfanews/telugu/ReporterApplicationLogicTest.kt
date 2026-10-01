@@ -270,7 +270,7 @@ class ReporterApplicationLogicTest {
             fullName = "రమేష్ కుమార్",
             fatherName = "సోమయ్య",
             phone = "9876543210",
-            address = "గ్రామం",
+            address = "గ్రా",
             district = "ఖమ్మం",
             mandal = "ఖమ్మం",
             interestedArea = "రాజకీయం",
@@ -280,6 +280,7 @@ class ReporterApplicationLogicTest {
         )
         assertFalse(shortAddrValid)
         assertEquals("చిరునామా", shortAddrErr)
+
 
         // Rules not agreed
         val (rulesNotAgreedValid, rulesNotAgreedErr) = validateReporterApplication(

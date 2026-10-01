@@ -1,22 +1,33 @@
 package com.alfanews.telugu.data
 
+import com.alfanews.telugu.models.Content
+import com.alfanews.telugu.models.Headline
+import com.alfanews.telugu.models.NewsPost
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class NewsItemTest {
 
     @Test
-    fun testNewsItemCreation() {
+    fun testNewsPostCreation() {
         val id = "123"
-        val title = "Test Title"
-        val content = "Test Content"
+        val headline = Headline(telugu = "ముఖ్య వార్త", english = "Test Title")
+        val content = Content(telugu = "వివరణ", english = "Test Content")
         val timestamp = System.currentTimeMillis()
 
-        val item = NewsItem(id, title, content, timestamp)
+        val post = NewsPost(
+            id = id,
+            headline = headline,
+            content = content,
+            timestamp = timestamp
+        )
 
-        assertEquals(id, item.id)
-        assertEquals(title, item.title)
-        assertEquals(content, item.content)
-        // Timestamp check is often flaky, so we skip exact comparison for now.
+        assertEquals(id, post.id)
+        assertEquals("ముఖ్య వార్త", post.headline.telugu)
+        assertEquals("Test Title", post.headline.english)
+        assertEquals("వివరణ", post.content.telugu)
+        assertEquals("Test Content", post.content.english)
+        assertEquals(timestamp, post.timestamp)
     }
 }
+
