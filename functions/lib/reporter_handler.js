@@ -2387,9 +2387,18 @@ async function executeReactivateFalselyDemotedReporters(dryRun = false) {
         // Check matching applications
         const clean10 = String(u.phone || '').replace(/\D/g, '').slice(-10);
         const userApps = appsByUser[userId] || (clean10.length === 10 ? appsByPhone[clean10] : []) || [];
-        const hasJoinedOrSuspendedApp = userApps.some((a) => a.status === 'JOINED' || a.status === 'SUSPENDED' || a.autoApproved === true);
-        const shouldReactivate = (!isActiveReporter && (isMarkedDemoted || hasJoinedOrSuspendedApp)) ||
-            (isActiveReporter && isMarkedDemoted);
+        const hasJoinedOrSuspendedApp = userApps.some((a) => a.status === 'JOINED' || a.status === 'SUSPENDED' || a.status === 'APPROVED' || a.autoApproved === true || userApps.length > 0);
+        // Check if user has mandal/district or any reporter traces
+        const hasReporterTraces = Boolean(u.assignedMandal ||
+            u.mandal ||
+            u.district ||
+            u.points > 0 ||
+            u.promotedAt ||
+            u.promotedBy ||
+            userApps.length > 0 ||
+            u.isReporter === true ||
+            isMarkedDemoted);
+        const shouldReactivate = !isActiveReporter && (isMarkedDemoted || hasJoinedOrSuspendedApp || hasReporterTraces);
         if (!shouldReactivate) {
             continue;
         }

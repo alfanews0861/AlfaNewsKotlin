@@ -864,21 +864,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             return tierScore + relevanceBonus + recencyBonus
         }
 
-        // 2. చదివిన వార్తలను వెనక్కి నెట్టడం (Unread vs Seen)
-        val unreadPosts = filteredPosts.filter { post ->
-            val isOwnPost = currentUser != null && (
-                post.reporter.id == currentUser.id ||
-                post.originalReporterId == currentUser.id ||
-                post.id.startsWith("post_${currentUser.id}_")
-            )
-            isOwnPost || prefs.getPostViewCount(post.id) < 2
-        }
-        val readPosts = filteredPosts.filter { it !in unreadPosts }
+        // 2. ర్యాంకింగ్ స్కోరు ప్రకారం ఆర్డర్ చేయడం
+        val rankedPosts = filteredPosts.sortedByDescending { computeLocalScore(it) }
 
-        val rankedUnread = unreadPosts.sortedByDescending { computeLocalScore(it) }
-        val rankedRead = readPosts.sortedByDescending { computeLocalScore(it) }
-
-        return (rankedUnread + rankedRead).distinctBy { it.id }
+        return rankedPosts.distinctBy { it.id }
     }
 
     private fun isMandalMatch(m1: String, m2: String): Boolean {

@@ -304,12 +304,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         return true
     }
 
-    private val FETCH_LIMIT = 50 // Increased to ensure enough posts survive client-side filtering
+    private val FETCH_LIMIT = 25 // Decreased to 25 to reduce memory and CPU load during 40/30/30 blending
 
       fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null) {
           currentLanguage = language
           currentFetchJob?.cancel()
           isFetching = false
+
+          if (initialPostId != null) {
+              _news.value = emptyList()
+          }
 
           if (_news.value.isEmpty()) {
               _loading.value = true 
@@ -522,14 +526,23 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     if (initialTargetPost != null || fastBatch.first.isNotEmpty()) {
                         val initialList = mutableListOf<NewsPost>()
                         initialTargetPost?.let { initialList.add(it) }
+                        
+                        if (initialTargetPost == null && initialPostId != null) {
+                            val foundInFast = fastBatch.first.find { it.id == initialPostId }
+                            foundInFast?.let { initialList.add(it) }
+                        }
+                        
                         initialList.addAll(fastBatch.first)
                         
                         // 🔄 FAST LOAD: Display fresh news immediately without waiting for anything else
                         if (_news.value.isEmpty()) {
                             _news.value = initialList.distinctBy { it.id }
                             _loading.value = false 
-                        } else if (initialTargetPost != null) {
-                            _news.value = (listOf(initialTargetPost) + _news.value).distinctBy { it.id }
+                        } else if (initialTargetPost != null || (initialPostId != null && fastBatch.first.any { it.id == initialPostId })) {
+                            val targetToPrepend = initialTargetPost ?: fastBatch.first.find { it.id == initialPostId }
+                            targetToPrepend?.let {
+                                _news.value = (listOf(it) + _news.value).distinctBy { post -> post.id }
+                            }
                             _loading.value = false
                         } else if (fastBatch.first.isNotEmpty()) {
                             _news.value = (initialList + _news.value).distinctBy { it.id }
@@ -882,26 +895,12 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            isFirstPage: Boolean = false,
            injectedSurvey: NewsPost? = null,
            reporterUserId: String? = null
-       ): List<NewsPost> = withContext(Dispatchers.Default) {
+        ): List<NewsPost> = withContext(Dispatchers.Default) {
             val allRaw = (pref + main + local).distinctBy { it.id }
 
-            // ✅ FIX: Reporter వారి own posts ని view count filter నుండి bypass చేస్తున్నాం.
-            // Reporter తన post ఎన్ని సార్లు చూసినా feed లో కనపడుతుంది.
-            // Regular users కి మాత్రమే 2-view limit apply అవుతుంది.
-            fun isOwnPost(post: NewsPost): Boolean =
-                !reporterUserId.isNullOrBlank() && post.reporter.id == reporterUserId
-
-            var filteredPref = pref.filter { isOwnPost(it) || prefs.getPostViewCount(it.id) < 2 }
-            var filteredMain = main.filter { isOwnPost(it) || prefs.getPostViewCount(it.id) < 2 }
-            var filteredLocal = local.filter { isOwnPost(it) || prefs.getPostViewCount(it.id) < 2 }
-
-            // 🚀 ROBUSTNESS: Unread వార్తలను ముందుంచి, చదివిన వాటిని వెనక్కి నెడతాం (పూర్తిగా డిలీట్ చేయము).
-            // అన్‌రీడ్ పోస్టులు తక్కువగా ఉంటే (< 8), రా-పోస్టులతో ఫీడ్‌ను నింపి ఎక్స్‌ట్రా నెట్‌వర్క్ రౌండ్‌ట్రిప్స్ మరియు ఖాళీ స్క్రీన్ ఆలస్యాన్ని నివారిస్తాము.
-            if ((filteredPref.size + filteredMain.size + filteredLocal.size) < 8 && allRaw.isNotEmpty()) {
-                filteredPref = if (filteredPref.size >= 3) filteredPref else pref
-                filteredMain = if (filteredMain.size >= 4) filteredMain else main
-                filteredLocal = if (filteredLocal.size >= 2) filteredLocal else local
-            }
+            var filteredPref = pref
+            var filteredMain = main
+            var filteredLocal = local
 
             val currentDist = _userDistrict.value
             val userState: String? = mapDistrictToState(currentDist)

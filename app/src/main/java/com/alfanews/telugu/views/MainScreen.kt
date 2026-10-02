@@ -1,3 +1,4 @@
+@file:android.annotation.SuppressLint("LocalContextGetResourceValueCall")
 package com.alfanews.telugu.views
 
 import androidx.activity.compose.BackHandler

@@ -1,9 +1,107 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.processProductWithAI = exports.processContentWithAI = exports.processCitizenContentWithAI = exports.processSocialPostWithAI = void 0;
+exports.processProductWithAI = exports.processContentWithAI = exports.processCitizenContentWithAI = exports.processSocialPostWithAI = exports.refineHeadlineWithPaidAI = void 0;
 const genai_1 = require("@google/genai");
 const utils_1 = require("./utils");
 const PRIMARY_MODEL = utils_1.PRO_MODEL;
+const PREMIUM_HEADLINE_SYSTEM_INSTRUCTION = `మీరు ఆల్ఫా న్యూస్ (Alfa News) ప్రధాన శీర్షికా రచయిత (Chief Headline Editor).
+మీకు ఇవ్వబడిన 52-60 పదాల తెలుగు వార్తా సారాంశాన్ని చదివి, పాఠకుడిని వెంటనే కట్టిపడేసేలా అత్యున్నత జర్నలిస్టిక్ విలువలతో కూడిన పదునైన శీర్షికను (8 నుండి 10 పదాలలో) మాత్రమే రాయాలి.
+
+ముఖ్యమైన నిబంధనలు (CRITICAL HEADLINE RULES):
+1. పదాల పరిమాణం: ఖచ్చితంగా 8 నుండి 10 పదాలు మాత్రమే (కనీసం 8 పదాలు, గరిష్టంగా 10 పదాలు).
+2. లీడ్ హుక్ కోలన్ (JOURNALISTIC LEAD COLON): లీడ్ యాంకర్ కోసం ఒకే ఒక్క కోలన్ (:) వాడవచ్చు (ఉదా: "హైవేపై లారీ బీభత్సం: క్షణాల్లో నుజ్జునుజ్జైన కారుతో నలుగురు దుర్మరణం"). కొటేషన్లు ('...', "...") నిషిద్ధం.
+3. సజీవ జర్నలిస్టిక్ పవర్ వర్డ్స్:
+   - లీడ్ యాంకర్లు: తీపి కబురు, భారీ ఊరట, షాకింగ్ ఘటన, బీభత్సం, కలకలం, ఉలిక్కిపడ్డ, ఘోరం, బట్టబయలు, బరితెగింపు, భారీ ఝలక్, ఉచ్చు, కొరడా, ఆక్రోశం, ఆవేదన, గుడ్ న్యూస్, సంచలనం, నిప్పుల కొలిమి, దారుణం, అలర్ట్.
+   - క్రియా పదాలు (యాక్షన్ ముగింపులు): నిప్పులు, సవాల్, నిలదీత, కౌంటర్, చురకలు, హెచ్చరిక, విరుచుకుపడ్డారు, స్పష్టం చేశారు, తేల్చిచెప్పారు, గుట్టురట్టు, కటకటాల్లోకి, గ్రీన్ సిగ్నల్, పంజా విసిరిన, భారీ షాక్.
+4. రాజకీయ విమర్శలు/సవాళ్లు: నాయకుడి ఘాటైన పంచ్ వ్యాఖ్యనే లీడ్ గా తీసుకోవాలి: [పంచ్ వ్యాఖ్య]: [ఎవరిపై] [నాయకుడి పేరు] [క్రియా పదం].
+   - ఉదా: "రైతులను నిలువునా ముంచేశారు: కూటమి సర్కార్‌పై వైఎస్ జగన్ నిప్పులు" (8 పదాలు)
+   - ఉదా: "నన్ను అక్రమ కేసులతో బెదిరించలేరు: కాంగ్రెస్ సర్కార్‌కు కేటీఆర్ బహిరంగ సవాల్" (9 పదాలు)
+   - ఉదా: "ఓట్ల కోసం ఇంత బరితెగింపా: ఎన్నికల సంఘం నిర్ణయంపై రాహుల్ గాంధీ ఆగ్రహం" (9 పదాలు)
+5. ప్రభుత్వ పథకాలు/శుభవార్తలు: ప్రజలకు కలిగే ప్రత్యక్ష లబ్ధి/ప్రయోజనం:
+   - ఉదా: "అన్నదాతలకు భారీ ఊరట: నేడే రైతుల ఖాతాల్లోకి రైతు భరోసా నిధులు" (9 పదాలు)
+   - ఉదా: "నిరుద్యోగులకు తీపి కబురు: రాష్ట్రంలో పదివేల ఉపాధ్యాయ పోస్టుల భర్తీకి గ్రీన్ సిగ్నల్" (10 పదాలు)
+6. 🛑 చప్పని ముగింపుల సంపూర్ణ నిషేధం: వాక్యం చివర '...విమర్శలు', '...ప్రకటన', '...సమీక్ష', '...స్పందన' వంటి చప్పని నామవాచకాలతో లేదా '...చేసిన ఫలానా' వంటి పాసివ్ ముగింపులతో ముగించరాదు.
+7. సంఖ్యలు & ఫ్యాక్ట్స్: వార్తలోని ఖచ్చితమైన బడ్జెట్ అంకెలు, ఉద్యోగాల సంఖ్య, ప్రాంతాల పేర్లు శీర్షికలో రావాలి.
+8. 100% స్వచ్ఛమైన తెలుగు లిపి (Unicode U+0C00-U+0C7F). ఒక్క ఇంగ్లీష్ పదం కూడా ఉండకూడదు.
+Output must be strictly JSON format: {"headline": "...", "headlineEn": "..."}`;
+/**
+ * Generates a premium journalistic headline using PAID_GEMINI_API_KEY and Gemini 3.7/3.8 Flash.
+ * If PAID_GEMINI_API_KEY is not set or if any error occurs, safely falls back to the original headline.
+ */
+async function refineHeadlineWithPaidAI(teluguContent, fallbackHeadline, fallbackHeadlineEn, authorName) {
+    const paidKey = (process.env.PAID_GEMINI_API_KEY || '').replace(/^["']|["']$/g, '').trim();
+    // If Paid key is not set, immediately and cleanly return fallback headline
+    if (!paidKey || paidKey.length < 10) {
+        return {
+            headline: fallbackHeadline,
+            headlineEn: fallbackHeadlineEn || fallbackHeadline
+        };
+    }
+    try {
+        const ai = new genai_1.GoogleGenAI({
+            apiKey: paidKey,
+            apiVersion: "v1beta"
+        });
+        const headlineSchema = {
+            type: genai_1.Type.OBJECT,
+            properties: {
+                headline: {
+                    type: genai_1.Type.STRING,
+                    description: "Step 1: 100% Pure Telugu punchy journalistic headline strictly in 8-10 words, with optional single colon hook (e.g. లీడ్: వివరాలు)"
+                },
+                headlineEn: {
+                    type: genai_1.Type.STRING,
+                    description: "Step 2: English headline translated from Telugu headline (8-10 words)"
+                }
+            },
+            required: ["headline", "headlineEn"]
+        };
+        const authorHint = authorName ? `రచయిత/నాయకుడి పేరు: ${authorName}\n` : "";
+        const userPrompt = `${authorHint}వార్తా సారాంశం (News Summary):\n${teluguContent}\n\nపై తెలుగు వార్తా సారాంశానికి మాత్రమే 8 నుండి 10 పదాలలో పదునైన జర్నలిస్టిక్ శీర్షిక (తెలుగు మరియు ఇంగ్లీష్) రాయండి.`;
+        const models = ["gemini-3.7-flash", "gemini-3.8-flash", "gemini-3.6-flash"];
+        for (const modelName of models) {
+            try {
+                const response = await ai.models.generateContent({
+                    model: modelName,
+                    contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+                    config: {
+                        systemInstruction: PREMIUM_HEADLINE_SYSTEM_INSTRUCTION,
+                        temperature: 0.5,
+                        maxOutputTokens: 256,
+                        responseMimeType: "application/json",
+                        responseSchema: headlineSchema,
+                    }
+                });
+                const text = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (text) {
+                    const parsed = (0, utils_1.parseAIJson)(text);
+                    if (parsed && parsed.headline) {
+                        const cleaned = (0, utils_1.cleanTeluguHeadline)(parsed.headline);
+                        if (cleaned && !(0, utils_1.isEditorialVerdictOrFlattery)(cleaned, teluguContent, authorName)) {
+                            console.log(`[PAID-HEADLINE-SUCCESS] Generated headline with ${modelName}: "${cleaned}"`);
+                            return {
+                                headline: cleaned,
+                                headlineEn: parsed.headlineEn || fallbackHeadlineEn || fallbackHeadline
+                            };
+                        }
+                    }
+                }
+            }
+            catch (err) {
+                console.warn(`[PAID-HEADLINE-ATTEMPT-FAIL] Model ${modelName} with paid key: ${err?.message || err}`);
+            }
+        }
+        console.warn(`[PAID-HEADLINE-FALLBACK] Paid headline generation failed or rejected, falling back to primary headline.`);
+    }
+    catch (e) {
+        console.warn(`[PAID-HEADLINE-ERROR] Unexpected error in refineHeadlineWithPaidAI: ${e?.message || e}`);
+    }
+    return {
+        headline: fallbackHeadline,
+        headlineEn: fallbackHeadlineEn || fallbackHeadline
+    };
+}
+exports.refineHeadlineWithPaidAI = refineHeadlineWithPaidAI;
 const EDITORIAL_SYSTEM_INSTRUCTION = `మీరు ఆల్ఫా న్యూస్ (Alfa News - తెలుగు ప్రముఖ హైపర్-లోకల్ న్యూస్ నెట్‌వర్క్) కు చీఫ్ ఎడిటర్ మరియు సీనియర్ జర్నలిస్ట్.
 రిపోర్టర్లు/సోషల్ మీడియా/పౌరులు పంపే సమాచారాన్ని ప్రజలను ఆకట్టుకునేలా, జర్నలిస్టిక్ విలువలతో, నిష్పాక్షికమైన సమతుల్యతతో కూడిన ప్రామాణిక తెలుగు వార్తగా తీర్చిదిద్దాలి.
 
@@ -242,9 +340,12 @@ const processSocialPostWithAI = async (socialText, platform, category, authorNam
         const rawStoryEn = parsed.fullStoryEn ? String(parsed.fullStoryEn).trim() : "";
         const storyWordsEn = rawStoryEn ? rawStoryEn.split(/\s+/).filter(Boolean).length : 0;
         const validStoryEn = (storyWordsEn >= 80 && rawStoryEn !== (parsed.contentEn || "")) ? (0, utils_1.formatIntoParagraphs)(rawStoryEn) : "";
+        // Refine headline using Paid AI (Gemini 3.7 Flash) if PAID_GEMINI_API_KEY is available, or gracefully fallback
+        const refinedHeadlines = await refineHeadlineWithPaidAI(cleanedContent, cleanedHeadline, parsed.headlineEn, authorName);
         return {
             ...parsed,
-            headline: cleanedHeadline,
+            headline: refinedHeadlines.headline,
+            headlineEn: refinedHeadlines.headlineEn,
             content: cleanedContent,
             fullStoryTe: validStoryTe,
             fullStoryEn: validStoryEn
@@ -307,7 +408,10 @@ const processCitizenContentWithAI = async (rawContent) => {
             const rawStoryEn = parsed.processed.fullStoryEn ? String(parsed.processed.fullStoryEn).trim() : "";
             const storyWordsEn = rawStoryEn ? rawStoryEn.split(/\s+/).filter(Boolean).length : 0;
             const validStoryEn = (storyWordsEn >= 80 && rawStoryEn !== (parsed.processed.contentEn || "")) ? (0, utils_1.formatIntoParagraphs)(rawStoryEn) : "";
-            parsed.processed.headline = cleanedHeadline;
+            // Refine headline using Paid AI (Gemini 3.7 Flash) if PAID_GEMINI_API_KEY is available, or gracefully fallback
+            const refinedHeadlines = await refineHeadlineWithPaidAI(cleanContent, cleanedHeadline, parsed.processed.headlineEn);
+            parsed.processed.headline = refinedHeadlines.headline;
+            parsed.processed.headlineEn = refinedHeadlines.headlineEn;
             parsed.processed.content = cleanContent;
             parsed.processed.fullStoryTe = validStoryTe;
             parsed.processed.fullStoryEn = validStoryEn;
@@ -358,9 +462,13 @@ const processContentWithAI = async (rawContent, rawHeadline) => {
         const rawStoryEn = parsed.fullStoryEn ? String(parsed.fullStoryEn).trim() : "";
         const storyWordsEn = rawStoryEn ? rawStoryEn.split(/\s+/).filter(Boolean).length : 0;
         const validStoryEn = (storyWordsEn >= 80 && rawStoryEn !== (parsed.englishContent || "")) ? (0, utils_1.formatIntoParagraphs)(rawStoryEn) : "";
+        const initialHeadline = (0, utils_1.cleanTeluguHeadline)(parsed.generatedTeluguHeadline);
+        // Refine headline using Paid AI (Gemini 3.7 Flash) if PAID_GEMINI_API_KEY is available, or gracefully fallback
+        const refinedHeadlines = await refineHeadlineWithPaidAI(cleanContent, initialHeadline, parsed.englishHeadline);
         return {
             ...parsed,
-            generatedTeluguHeadline: (0, utils_1.cleanTeluguHeadline)(parsed.generatedTeluguHeadline),
+            generatedTeluguHeadline: refinedHeadlines.headline,
+            englishHeadline: refinedHeadlines.headlineEn,
             summarizedTeluguContent: cleanContent,
             fullStoryTe: validStoryTe,
             fullStoryEn: validStoryEn

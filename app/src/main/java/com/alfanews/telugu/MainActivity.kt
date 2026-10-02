@@ -112,6 +112,20 @@ class MainActivity : ComponentActivity() {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
 
+        val prefs = PreferenceManager.getInstance(this)
+        val currentVersion = BuildConfig.VERSION_CODE
+        if (prefs.lastAppVersionCode < currentVersion) {
+            prefs.lastAppVersionCode = currentVersion
+            try {
+                this.cacheDir.deleteRecursively()
+                this.externalCacheDir?.deleteRecursively()
+                com.alfanews.telugu.services.FirebaseService.db.clearPersistence()
+                Log.d("MainActivity", "App updated to version $currentVersion. Cache and Firestore persistence cleared successfully.")
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error clearing cache during update: ${e.message}")
+            }
+        }
+
         checkInstallReferrer(this)
 
         appUpdateManager = AppUpdateManagerFactory.create(this)

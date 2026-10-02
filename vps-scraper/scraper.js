@@ -1372,7 +1372,20 @@ async function uploadMediaToStorage(url, folder = 'news-media') {
     let contentType = 'image/jpeg';
     let extension = 'jpg';
 
-    // 1. First attempt: Direct fetch
+    // Determine smart referer based on image URL domain
+    let referer = 'https://www.google.com/';
+    try {
+        const parsedUrl = new URL(url);
+        if (parsedUrl.hostname.includes('eenadu.net')) {
+            referer = 'https://www.eenadu.net/';
+        } else if (parsedUrl.hostname.includes('sakshi.com')) {
+            referer = 'https://www.sakshi.com/';
+        } else {
+            referer = `${parsedUrl.protocol}//${parsedUrl.hostname}/`;
+        }
+    } catch (e) {}
+
+    // 1. First attempt: Direct fetch with domain Referer
     try {
         const response = await axios.get(url, { 
             responseType: 'arraybuffer',
@@ -1380,26 +1393,41 @@ async function uploadMediaToStorage(url, folder = 'news-media') {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-                'Referer': 'https://www.google.com/'
+                'Referer': referer
             }
         });
         buffer = Buffer.from(response.data, 'binary');
         contentType = response.headers['content-type'] || 'image/jpeg';
         extension = contentType.split('/')[1] || 'jpg';
     } catch (directErr) {
-        // 2. Fallback: Proxy fetch via wsrv.nl to bypass 403/hotlink blocks (e.g. Times of India, Eenadu)
+        // 2. Second attempt: Direct fetch without referer
         try {
-            const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(url)}&output=webp`;
-            const proxyRes = await axios.get(proxyUrl, {
+            const responseNoRef = await axios.get(url, { 
                 responseType: 'arraybuffer',
-                timeout: 15000
+                timeout: 15000,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+                }
             });
-            buffer = Buffer.from(proxyRes.data, 'binary');
-            contentType = 'image/webp';
-            extension = 'webp';
-        } catch (proxyErr) {
-            console.error(`Failed to download media for storage (direct: ${directErr.message}, proxy: ${proxyErr.message})`);
-            return null;
+            buffer = Buffer.from(responseNoRef.data, 'binary');
+            contentType = responseNoRef.headers['content-type'] || 'image/jpeg';
+            extension = contentType.split('/')[1] || 'jpg';
+        } catch (noRefErr) {
+            // 3. Fallback: Proxy fetch via wsrv.nl
+            try {
+                const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(url)}&output=webp`;
+                const proxyRes = await axios.get(proxyUrl, {
+                    responseType: 'arraybuffer',
+                    timeout: 15000
+                });
+                buffer = Buffer.from(proxyRes.data, 'binary');
+                contentType = 'image/webp';
+                extension = 'webp';
+            } catch (proxyErr) {
+                console.error(`Failed to download media for storage (direct: ${directErr.message}, noRef: ${noRefErr.message}, proxy: ${proxyErr.message})`);
+                return null;
+            }
         }
     }
 
@@ -1659,13 +1687,21 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 4) {
     let imagePart = null;
     if (imageUrl && !isGenericImage(imageUrl)) {
         try {
+            let imgReferer = 'https://www.google.com/';
+            try {
+                const parsedImgUrl = new URL(imageUrl);
+                if (parsedImgUrl.hostname.includes('eenadu.net')) imgReferer = 'https://www.eenadu.net/';
+                else if (parsedImgUrl.hostname.includes('sakshi.com')) imgReferer = 'https://www.sakshi.com/';
+                else imgReferer = `${parsedImgUrl.protocol}//${parsedImgUrl.hostname}/`;
+            } catch (e) {}
+
             const imgRes = await axios.get(imageUrl, { 
                 responseType: 'arraybuffer', 
                 timeout: 10000,
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                     'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-                    'Referer': 'https://www.google.com/'
+                    'Referer': imgReferer
                 }
             });
             let mimeType = imgRes.headers['content-type'] || 'image/jpeg';
@@ -2117,10 +2153,10 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
    - కన్నడ, హిందీ/దేవనాగరి, ఉర్దూ, తమిళం లేదా మలయాళం అక్షరాలు ఎట్టిపరిస్థితుల్లోనూ రానివ్వకూడదు.
    - హిందీ/ఇతర భాషల పేర్లను స్వచ్ఛమైన తెలుగులోకి లిప్యంతరీకరించాలి (ఉదా: 'నరేంద్ర మోదీ', 'రాహుల్ గాంధీ', 'ఒవైసీ', 'వక్ఫ్').
 
-11. చిత్రాలు & లోగోల పరిశీలన (STRICT LOGO REJECTION):
+11. చిత్రాలు & లోగోల పరిశీలన (IMAGE & LOGO HANDLING):
    - చిత్రం: ${extracted.image || 'None'}.
-   - ఒకవేళ చిత్రంలో టీవీ ఛానల్ లోగో (ETV, TV9, Sakshi, Eenadu, ABN, NTV, V6, 10TV, HMTV, Zee మొదలైనవి), వెబ్‌సైట్ లోగో, వాటర్‌మార్క్, మైక్ చిహ్నం, డిజిటల్ టైటిల్ కార్డ్ ఉంటే తప్పనిసరిగా తిరస్కరించాలి! ("hasLogo": true, "mediaUrl": "").
-   - నిజమైన వాస్తవ సంఘటన ఫోటో అయితే మాత్రమే "hasLogo": false, "mediaUrl": "${extracted.image || ''}" ఇవ్వాలి.
+   - కేవలం ఛానల్ లోగోలు, వెబ్‌సైట్ బ్రాండ్ ఐకాన్లు (ఉదా: కేవలం ETV/Eenadu/Sakshi లోగో ఐకాన్ మాత్రమే ఉన్నవి), ఖాళీ ప్లేస్‌హోల్డర్లు లేదా డిజిటల్ టైటిల్ కార్డ్ గ్రాఫిక్స్ మాత్రమే ఉన్న చిత్రాలనైతే "hasLogo": true, "mediaUrl": "" అని తిరస్కరించాలి.
+   - వార్తకు సంబంధించిన అసలైన వాస్తవ ఫోటో (వ్యక్తుల ఫోటోలు, సంఘటనలు, సమావేశాలు, క్రీడలు, సభలు, ప్రెస్ మీట్లు, నేర స్థలాలు మొదలైనవి) అయితే తప్పనిసరిగా "hasLogo": false, "mediaUrl": "${extracted.image || ''}" ఇవ్వాలి. (మూలలో చిన్న న్యూస్ వాటర్‌మార్క్ ఉన్నప్పటికీ అసలైన వార్తా చిత్రమైతే నిరభ్యంతరంగా ఆమోదించాలి).
 
 12. లొకేషన్ & వర్గీకరణ:
    - location: తెలంగాణ/ఆంధ్రప్రదేశ్‌లోని జిల్లా పేరు (లేదా మండలం).
@@ -2225,10 +2261,12 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
                         categoriesList.push(finalDistrict);
                     }
 
-                    // Media URL handling: Strict Logo Rejection & Never override AI logo decision
+                    // Media URL handling: Strict Logo Rejection & Smart Fallback
                     let chosenMediaUrl = null;
                     if (parsed.hasLogo !== true && parsed.mediaUrl && parsed.mediaUrl.startsWith('http') && !parsed.mediaUrl.includes('"') && parsed.mediaUrl !== 'url' && !isGenericImage(parsed.mediaUrl)) {
                         chosenMediaUrl = parsed.mediaUrl;
+                    } else if (extracted.image && extracted.image.startsWith('http') && !isGenericImage(extracted.image) && parsed.hasLogo !== true) {
+                        chosenMediaUrl = extracted.image;
                     }
 
                     let finalMediaUrl = ALFA_NEWS_LOGO;

@@ -178,6 +178,13 @@ class PreferenceManager(context: Context) {
             prefs.edit().putInt(KEY_CACHE_VERSION, value).apply()
         }
 
+    /** యాప్ వెర్షన్ - అప్‌డేట్ అయినప్పుడు కాష్ క్లియర్ చేయడానికి. */
+    var lastAppVersionCode: Int
+        get() = prefs.getInt("key_last_app_version_code", 0)
+        set(value) {
+            prefs.edit().putInt("key_last_app_version_code", value).apply()
+        }
+
     /** యూజర్ ప్రస్తుత స్థానం (మండలం/ఊరు) - వాతావరణం కోసం. */
     var localPlace: String?
         get() = prefs.getString(KEY_LOCAL_PLACE, null)

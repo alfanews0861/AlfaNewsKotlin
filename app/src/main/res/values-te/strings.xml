@@ -446,4 +446,20 @@
     <string name="choose_signature">సంతకాన్ని ఎంచుకోండి</string>
     <string name="skip">తర్వాత (Skip)</string>
     <string name="save">సేవ్ చేయండి</string>
+
+    <!-- Missing translations fixed -->
+    <string name="technical_error_with_message">సాంకేతిక లోపం ఏర్పడింది: %1$s</string>
+    <string name="google_sign_in_failed">గూగుల్ లాగిన్ విఫలమైంది. రిజల్ట్ కోడ్: %1$d</string>
+    <string name="invalid_otp_with_message">తప్పు OTP: %1$s</string>
+    <string name="otp_send_failed_with_message">OTP పంపడం విఫలమైంది: %1$s</string>
+    <string name="firestore_error">ఫైర్‌స్టోర్ ఎర్రర్</string>
+    <string name="firebase_user_null">ఫైర్‌బేస్ యూజర్ null</string>
+    <string name="login_error_auto_verification_failed">లాగిన్ విఫలమైంది: ఆటో-వెరిఫికేషన్ విఫలమైంది</string>
+    <string name="user_default_name">యూజర్</string>
+    <string name="google_login_status_code">స్టేటస్ కోడ్: %1$s</string>
+    <string name="unknown_error">తెలియని లోపం</string>
+    <string name="unknown_exception">తెలియని ఎక్సెప్షన్</string>
+    <string name="firestore_profile_creation_failed">ఫైర్‌స్టోర్ ప్రొఫైల్ సృష్టి విఫలమైంది</string>
+    <string name="copyright_text">© 2024 ఆల్ఫా న్యూస్. సర్వహక్కులూ ప్రత్యేకించబడినవి.</string>
+    <string name="google_logo_text">G</string>
 </resources>

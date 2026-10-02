@@ -425,7 +425,7 @@ object AnalyticsService {
                 putString("channel_id", safeTruncate(channelId, 95))
             }
         }
-        firebaseAnalytics?.logEvent("notification_open", bundle)
+        firebaseAnalytics?.logEvent("app_notification_open", bundle)
     }
 
     val NON_TOPICAL_CATEGORIES = setOf(

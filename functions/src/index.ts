@@ -27,7 +27,8 @@ export {
     scheduleHistoryOfTheDay,
     generateDailyCartoon,
     checkSevereWeatherAlerts,
-    cleanupOldNews
+    cleanupOldNews,
+    runOneTimeReporterReactivation
 } from "./auto_content_handler";
 
 export {

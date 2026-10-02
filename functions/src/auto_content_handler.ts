@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import { onRequest } from "firebase-functions/v2/https";
 import { Type } from "@google/genai";
 import {
     runWithAIFallback,
@@ -9,7 +10,8 @@ import {
     generateImageWithRetry,
     SCHEDULED_MODEL,
     getTopicName,
-    formatIntoParagraphs
+    formatIntoParagraphs,
+    REGION
 } from "./utils";
 
 const db = admin.firestore();
@@ -783,3 +785,125 @@ export const cleanupOldNews = onSchedule({
         console.error("[CLEANUP] Error during cleanup:", error.message);
     }
 });
+
+/**
+ * Automated reactivation job & report generator:
+ * Scans Firestore directly to restore all demoted reporters and saves the exact list to a document in Firestore.
+ */
+export const runOneTimeReporterReactivation = onSchedule({
+    schedule: "0 4 * * *",
+    timeZone: "Asia/Kolkata",
+    memory: "512MiB",
+    timeoutSeconds: 540
+}, async () => {
+    try {
+        console.log("[REPORTER_RESTORE_TASK] 🚀 Scanning Firestore for all demoted/affected reporters...");
+        const usersSnap = await db.collection('users').get();
+        const appsSnap = await db.collection('reporter_applications').get();
+
+        const appsByUser: { [userId: string]: any[] } = {};
+        const appsByPhone: { [phone: string]: any[] } = {};
+
+        for (const doc of appsSnap.docs) {
+            const data = { id: doc.id, ...doc.data() } as any;
+            const uId = String(data.userId || data.uid || "").trim();
+            if (uId) {
+                if (!appsByUser[uId]) appsByUser[uId] = [];
+                appsByUser[uId].push(data);
+            }
+            const rawPhone = String(data.phone || data.phoneNumber || data.mobile || "").trim();
+            const clean10 = rawPhone.replace(/\D/g, '').slice(-10);
+            if (clean10.length === 10) {
+                if (!appsByPhone[clean10]) appsByPhone[clean10] = [];
+                appsByPhone[clean10].push(data);
+            }
+        }
+
+        const restoredReporters: any[] = [];
+        const batch = db.batch();
+        let batchCount = 0;
+
+        for (const doc of usersSnap.docs) {
+            const u = doc.data();
+            const userId = doc.id;
+            const currentRole = String(u.role || '').toUpperCase();
+            const clean10 = String(u.phone || '').replace(/\D/g, '').slice(-10);
+            const userApps = appsByUser[userId] || (clean10.length === 10 ? appsByPhone[clean10] : []) || [];
+
+            const isSenior = ['ADMIN', 'EDITOR', 'REGIONAL_INCHARGE', 'STAFF_REPORTER', '5', '7', 5, 7].includes(currentRole);
+            if (isSenior) continue;
+
+            const isCurrentlyReporter = ['REPORTER', '2', '2.0'].includes(currentRole) || u.role === 2 || u.role === 2.0;
+            
+            // Identifying any user who was a reporter but now is SUBSCRIBER or GUEST
+            const hadReporterHistory = Boolean(
+                u.previouslyDowngraded === true ||
+                u.downgradedReason != null ||
+                u.downgradedAt != null ||
+                u.assignedMandal ||
+                u.mandal ||
+                (u.district && u.district !== "State" && u.district !== "General") ||
+                u.points > 0 ||
+                u.promotedAt ||
+                u.promotedBy ||
+                userApps.length > 0
+            );
+
+            if (!isCurrentlyReporter && hadReporterHistory) {
+                let district = String(u.district || userApps[0]?.district || "").trim();
+                let mandal = String(u.assignedMandal || u.mandal || userApps[0]?.mandal || "").trim();
+
+                const userRef = db.collection('users').doc(userId);
+                batch.set(userRef, {
+                    role: "REPORTER",
+                    district: district || "నిర్మల్",
+                    assignedMandal: mandal || "స్థానిక",
+                    mandal: mandal || "స్థానిక",
+                    warningLevel: 0,
+                    inProbation: false,
+                    previouslyDowngraded: false,
+                    suspended: false,
+                    promotedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    rejoinedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    promotedBy: "SYSTEM_RESTORATION_TASK"
+                }, { merge: true });
+
+                for (const app of userApps) {
+                    const appRef = db.collection('reporter_applications').doc(app.id);
+                    batch.update(appRef, { status: "JOINED", userId: userId });
+                }
+
+                restoredReporters.push({
+                    name: u.name || userApps[0]?.fullName || "విలేకరి",
+                    phone: u.phone || userApps[0]?.phone || "N/A",
+                    district: district,
+                    mandal: mandal,
+                    userId: userId,
+                    previousRole: currentRole || "SUBSCRIBER"
+                });
+
+                batchCount++;
+                if (batchCount >= 400) {
+                    await batch.commit();
+                }
+            }
+        }
+
+        if (batchCount > 0) {
+            await batch.commit();
+        }
+
+        // Save report to Firestore collection for permanent review
+        await db.collection('system_logs').doc('reporter_restoration_report').set({
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            totalRestored: restoredReporters.length,
+            restoredList: restoredReporters
+        });
+
+        console.log(`[REPORTER_RESTORE_TASK] Restored ${restoredReporters.length} reporters.`);
+    } catch (e: any) {
+        console.error("[REPORTER_RESTORE_TASK] Error:", e.message);
+    }
+});
+
