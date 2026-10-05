@@ -122,7 +122,7 @@ fun AdminPanelView(
         }
     }
     
-    fun saveProfile(name: String, phone: String, address: String, district: String, photoUri: Uri?, signatureUri: Uri?) {
+    fun saveProfile(name: String, phone: String, address: String, district: String, mandal: String, photoUri: Uri?, signatureUri: Uri?) {
         scope.launch {
             savingProfile = true
             try {
@@ -155,6 +155,10 @@ fun AdminPanelView(
                     "district" to district,
                     "photoUrl" to (photoUrl ?: ""),
                 )
+                if (mandal.isNotBlank()) {
+                    updates["assignedMandal"] = mandal
+                    updates["mandal"] = mandal
+                }
                 if (!signatureUrl.isNullOrBlank()) updates["signatureUrl"] = signatureUrl
 
                 FirebaseService.db.collection("users").document(user.id).update(updates).await()

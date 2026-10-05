@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.stringResource
@@ -200,6 +201,16 @@ fun AppDrawerContent(
                 )
             )
         }
+
+        Text(
+            text = "Alfa News v${com.alfanews.telugu.BuildConfig.VERSION_NAME} (${com.alfanews.telugu.BuildConfig.VERSION_CODE})",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            fontFamily = Poppins,
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .padding(bottom = 16.dp)
+        )
     }
 }
 

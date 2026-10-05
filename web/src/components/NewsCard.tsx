@@ -5,6 +5,8 @@ import html2canvas from 'html2canvas';
 import { logAnalyticsEvent } from '../services/analyticsService';
 import { updateInterests } from '../services/interestService';
 import { Heart, MessageCircle, Share2, BookOpen, ChevronDown, ChevronUp, X, CheckCircle2 } from 'lucide-react';
+import { VerifiedBadge } from './VerifiedBadge';
+import { isReporterVerified } from '../services/reporterVerification';
 
 export const getReadNewsIds = (): Set<string> => {
   try {
@@ -630,9 +632,10 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
                       const target = post.reporter?.id || post.reporter?.name;
                       if (target) onReporterClick(target); 
                     }} 
-                    className="text-red-500 font-bold cursor-pointer hover:underline"
+                    className="text-red-500 font-bold cursor-pointer hover:underline inline-flex items-center gap-1"
                   >
-                    {post.reporter?.name || 'Reporter'}
+                    <span>{post.reporter?.name || 'Reporter'}</span>
+                    {isReporterVerified(post.reporter?.id, post.reporter?.name) && <VerifiedBadge size={13} />}
                   </span>
                 )}
                 <span>-</span>
@@ -809,7 +812,10 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
                 {headline}
               </h1>
               <div className="flex items-center gap-2 text-xs text-gray-400 pb-3 mb-3 border-b border-white/10 font-mallanna">
-                <span className="text-red-400 font-bold">{post.reporter?.name || "Alfa News Desk"}</span>
+                <span className="text-red-400 font-bold flex items-center gap-1">
+                  <span>{post.reporter?.name || "Alfa News Desk"}</span>
+                  {isReporterVerified(post.reporter?.id, post.reporter?.name) && <VerifiedBadge size={13} />}
+                </span>
                 <span>|</span>
                 <span>{formattedDate} {formattedTime}</span>
               </div>

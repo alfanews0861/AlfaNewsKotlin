@@ -369,13 +369,23 @@ fun ReporterProfileView(
                                 
                                 Spacer(modifier = Modifier.height(12.dp))
                                 
-                                Text(
-                                    text = reporter?.name ?: "",
-                                    fontSize = 24.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = Ramabhadra,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                                val isVerifiedReporter = com.alfanews.telugu.utils.ReporterVerificationManager.isUserVerified(reporter)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = reporter?.name ?: "",
+                                        fontSize = 24.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = Ramabhadra,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (isVerifiedReporter) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        com.alfanews.telugu.utils.VerifiedBadge(size = 20.dp)
+                                    }
+                                }
                                 
                                 Spacer(modifier = Modifier.height(8.dp))
                                 

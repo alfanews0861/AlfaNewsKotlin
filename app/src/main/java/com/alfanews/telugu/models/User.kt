@@ -107,3 +107,9 @@ data class User(
     val inProbation: Boolean = false,
     val lastPostTimestamp: Long? = null
 )
+
+/**
+ * mandal alias for assignedMandal for backwards compatibility and clarity.
+ */
+val User.mandal: String?
+    get() = assignedMandal

@@ -79,6 +79,9 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
             
             // నోటిఫికేషన్ ఛానెల్‌లను సృష్టించడం (ముఖ్యంగా ఆండ్రాయిడ్ 13+ కోసం)
             createNotificationChannels()
+
+            // మండలానికి కేటాయించిన విలేకరుల వెరిఫైడ్ బ్యాడ్జ్ లిజనర్
+            com.alfanews.telugu.utils.ReporterVerificationManager.startListening()
         } catch (e: Exception) {
             // ఏదైనా ఎర్రర్ వస్తే యాప్ క్రాష్ అవ్వకుండా ఉండటానికి
             e.printStackTrace()

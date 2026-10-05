@@ -1,0 +1,14 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Twitter/X Scalloped Verified Rosette Background in Green -->
+    <path
+        android:fillColor="#00BA7C"
+        android:pathData="M22.25,12c0,-1.43 -0.88,-2.67 -2.19,-3.34 0.46,-1.39 0.2,-2.9 -0.81,-3.91s-2.52,-1.27 -3.91,-0.81c-0.66,-1.31 -1.91,-2.19 -3.34,-2.19s-2.67,0.88 -3.33,2.19c-1.4,-0.46 -2.91,-0.2 -3.92,0.81s-1.26,2.52 -0.8,3.91c-1.31,0.67 -2.2,1.91 -2.2,3.34s0.89,2.67 2.2,3.34c-0.46,1.39 -0.21,2.9 0.8,3.91s2.52,1.26 3.91,0.81c0.67,1.31 1.91,2.19 3.34,2.19s2.68,-0.88 3.34,-2.19c1.39,0.45 2.9,0.2 3.91,-0.81s1.27,-2.52 0.81,-3.91c1.31,-0.67 2.19,-1.91 2.19,-3.34z" />
+    <!-- White Inner Checkmark -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M10.54,16.2l-3.74,-3.74 1.41,-1.42 2.33,2.33 4.88,-5.3 1.47,1.36 -6.35,6.77z" />
+</vector>

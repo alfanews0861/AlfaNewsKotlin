@@ -1018,6 +1018,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         phone: String,
         address: String,
         district: String,
+        mandal: String = "",
         photoUri: Uri?,
         signatureUri: Uri?,
     ) {
@@ -1031,6 +1032,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "address" to address,
                     "district" to district,
                 )
+
+                if (mandal.isNotBlank()) {
+                    updates["assignedMandal"] = mandal
+                    updates["mandal"] = mandal
+                }
 
                 if (photoUri != null) {
                     val url = uploadImageToStorage(getApplication(), photoUri, "profile_images")

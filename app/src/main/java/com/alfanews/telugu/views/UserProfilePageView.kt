@@ -289,13 +289,23 @@ fun UserProfilePageView(
                         }
                     }
 
-                    Text(
-                        text = displayName,
-                        fontSize = 24.sp,
-                        fontFamily = Ramabhadra,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        textAlign = TextAlign.Center
-                    )
+                    val isVerifiedReporter = !isGuest && com.alfanews.telugu.utils.ReporterVerificationManager.isUserVerified(user)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = displayName,
+                            fontSize = 24.sp,
+                            fontFamily = Ramabhadra,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            textAlign = TextAlign.Center
+                        )
+                        if (isVerifiedReporter) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            com.alfanews.telugu.utils.VerifiedBadge(size = 20.dp)
+                        }
+                    }
 
                     // లాగిన్ అయిన ఫోన్ నంబర్ లేదా ఈమెయిల్
                     val contactInfo = if (!isGuest) {
@@ -335,6 +345,35 @@ fun UserProfilePageView(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
+                    }
+
+                    val userDistrict = user.district?.trim() ?: ""
+                    val userMandal = (user.assignedMandal ?: user.mandal)?.trim() ?: ""
+                    if (userDistrict.isNotEmpty() || userMandal.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LocationOn,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            val locText = when {
+                                userDistrict.isNotEmpty() && userMandal.isNotEmpty() -> "$userDistrict - $userMandal మండలం"
+                                userDistrict.isNotEmpty() -> userDistrict
+                                else -> "$userMandal మండలం"
+                            }
+                            Text(
+                                text = locText,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontFamily = Poppins
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(24.dp))
@@ -858,6 +897,22 @@ fun UserProfilePageView(
                         Text(stringResource(R.string.delete_account), color = MaterialTheme.colorScheme.outline, fontSize = 12.sp)
                     }
                 }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // యాప్ వెర్షన్ వివరాలు (App Version Info)
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Alfa News v${com.alfanews.telugu.BuildConfig.VERSION_NAME} (${com.alfanews.telugu.BuildConfig.VERSION_CODE})",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    fontFamily = Poppins
+                )
             }
             
             Spacer(modifier = Modifier.height(32.dp))

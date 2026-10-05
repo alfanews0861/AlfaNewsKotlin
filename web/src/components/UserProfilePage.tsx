@@ -6,6 +6,8 @@ import * as _firestore from 'firebase/firestore';
 import * as _storage from 'firebase/storage';
 import EditProfileModal from './EditProfileModal';
 import IdCardModal from './IdCardModal';
+import { VerifiedBadge } from './VerifiedBadge';
+import { isUserVerifiedReporter } from '../services/reporterVerification';
 
 const { signOut } = _auth as any;
 const { doc, updateDoc, deleteDoc } = _firestore as any;
@@ -61,7 +63,7 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
     }
   };
 
-  const handleSaveProfile = async (newName: string, newAddress: string, newDistrict: string, newPhoto: File | null, newSignature: File | null) => {
+  const handleSaveProfile = async (newName: string, newAddress: string, newDistrict: string, newMandal: string, newPhoto: File | null, newSignature: File | null) => {
     setIsSaving(true);
     try {
       let photoUrl = user.photoUrl;
@@ -87,6 +89,10 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
         photoUrl: photoUrl,
         signatureUrl: signatureUrl
       };
+      if (newMandal) {
+        updates.assignedMandal = newMandal;
+        updates.mandal = newMandal;
+      }
       await updateDoc(userRef, updates);
       setEditModalOpen(false);
     } catch (e: any) {
@@ -147,14 +153,21 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
     <div className="space-y-6 pb-24 relative animate-fade-in bg-gray-50 min-h-full pt-4 font-mallanna text-black">
       <div className="bg-white rounded-3xl mx-3 p-6 shadow-md border border-gray-100 flex flex-col items-center text-center">
         <img src={user.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random`} className="w-24 h-24 rounded-full border-4 border-white shadow-lg object-cover mb-3" alt="Profile" />
-        <h2 className="text-2xl font-ramabhadra text-gray-900 font-bold leading-tight">{user.name}</h2>
+        <div className="flex items-center justify-center gap-1.5">
+          <h2 className="text-2xl font-ramabhadra text-gray-900 font-bold leading-tight">{user.name}</h2>
+          {isUserVerifiedReporter(user) && <VerifiedBadge size={20} />}
+        </div>
         <p className="text-gray-500 text-sm mb-1">{user.email || user.phone}</p>
         
-        {/* ADDED ADDRESS DISPLAY */}
-        {(user.address || user.district) && (
+        {/* ADDED ADDRESS & LOCATION DISPLAY */}
+        {(user.address || user.district || user.assignedMandal || user.mandal) && (
           <div className="mt-1 flex flex-col items-center">
             {user.address && <p className="text-gray-600 text-sm font-bold">{user.address}</p>}
-            {user.district && <p className="text-gray-400 text-xs">{user.district}</p>}
+            {(user.district || user.assignedMandal || user.mandal) && (
+              <p className="text-gray-500 text-xs font-semibold">
+                {[user.district, (user.assignedMandal || user.mandal) ? `${user.assignedMandal || user.mandal} మండలం` : null].filter(Boolean).join(' - ')}
+              </p>
+            )}
           </div>
         )}
 

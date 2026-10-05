@@ -510,8 +510,8 @@ fun MainScreen(
                         EditProfilePageView(
                             user = user,
                             onClose = { showEditProfilePage = false },
-                            onSave = { name: String, phone: String, address: String, district: String, photoUri: Uri?, signatureUri: Uri? ->
-                                mainViewModel.updateUserProfile(name, phone, address, district, photoUri, signatureUri)
+                            onSave = { name: String, phone: String, address: String, district: String, mandal: String, photoUri: Uri?, signatureUri: Uri? ->
+                                mainViewModel.updateUserProfile(name, phone, address, district, mandal, photoUri, signatureUri)
                                 showEditProfilePage = false
                             },
                             saving = false

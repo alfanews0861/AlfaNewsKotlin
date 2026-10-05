@@ -516,18 +516,27 @@ fun NewsCardView(
                                     Text(text = " | ", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
                                 } else if (post.reporter.name.isNotEmpty()) {
                                     val reporterTarget = post.reporter.id.ifEmpty { post.reporter.name }
-                                    Text(
-                                        text = post.reporter.name,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = Mallanna,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
+                                    val isVerified = com.alfanews.telugu.utils.ReporterVerificationManager.isReporterVerified(post.reporter.id, post.reporter.name)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier.weight(1f, fill = false).clickable { 
                                             if (reporterTarget.isNotEmpty()) onReporterClick(reporterTarget)
                                         }
-                                    )
+                                    ) {
+                                        Text(
+                                            text = post.reporter.name,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = Mallanna,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (isVerified) {
+                                            Spacer(Modifier.width(3.dp))
+                                            com.alfanews.telugu.utils.VerifiedBadge(size = 13.dp)
+                                        }
+                                    }
                                     Text(text = " | ", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
                                 }
                                 Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
@@ -1492,6 +1501,10 @@ fun SurveyCardContent(
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.primary
                         )
+                        if (com.alfanews.telugu.utils.ReporterVerificationManager.isReporterVerified(post.reporter.id, post.reporter.name)) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            com.alfanews.telugu.utils.VerifiedBadge(size = 14.dp)
+                        }
                     }
                     
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2525,14 +2538,21 @@ fun FullStoryBottomSheet(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     val reporterName = post.reporter.name.ifBlank { "Alfa News Desk" }
-                    Text(
-                        text = reporterName,
-                        style = TextStyle(
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary
+                    val isVerifiedStory = com.alfanews.telugu.utils.ReporterVerificationManager.isReporterVerified(post.reporter.id, post.reporter.name)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = reporterName,
+                            style = TextStyle(
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         )
-                    )
+                        if (isVerifiedStory) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            com.alfanews.telugu.utils.VerifiedBadge(size = 13.dp)
+                        }
+                    }
                     Text(
                         text = "|",
                         style = TextStyle(fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)

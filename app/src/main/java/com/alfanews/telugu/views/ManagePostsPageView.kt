@@ -38,6 +38,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+// 🚀 IN-MEMORY CACHE: Preserves reporter posts in memory so redirecting to Manage News is instant (0ms) without spinners
+private var cachedManagePosts = listOf<NewsPost>()
+private var cachedManagePostsUserId = ""
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManagePostsPageView(
@@ -46,8 +50,11 @@ fun ManagePostsPageView(
     currentUser: User? = null,
     showTitle: Boolean = true
 ) {
-    var posts by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
+    val currentUserId = currentUser?.id ?: FirebaseService.auth.currentUser?.uid ?: ""
+    val initialPosts = if (currentUserId == cachedManagePostsUserId) cachedManagePosts else emptyList()
+
+    var posts by remember { mutableStateOf(initialPosts) }
+    var loading by remember { mutableStateOf(initialPosts.isEmpty()) }
     var isBroadcasting by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -93,11 +100,20 @@ fun ManagePostsPageView(
         // Merged state map (postId -> NewsPost) to deduplicate across all listeners
         val mergedMap = mutableMapOf<String, NewsPost>()
 
-        fun rebuildPosts() {
-            posts = mergedMap.values
+        fun rebuildPosts(isServerResponse: Boolean = false) {
+            val sorted = mergedMap.values
                 .sortedByDescending { it.timestamp }
                 .take(100)
-            loading = false
+            posts = sorted
+            if (sorted.isNotEmpty()) {
+                cachedManagePosts = sorted
+                cachedManagePostsUserId = uid
+            }
+            // 🛡️ Only dismiss loading if we have posts to show, OR if server explicitly confirmed 0 posts.
+            // Empty local cache snapshots will NEVER prematurely dismiss loading!
+            if (sorted.isNotEmpty() || isServerResponse) {
+                loading = false
+            }
         }
 
         val listeners = mutableListOf<com.google.firebase.firestore.ListenerRegistration>()
@@ -108,7 +124,6 @@ fun ManagePostsPageView(
                 .orderBy("timestamp", Query.Direction.DESCENDING)
                 .limit(100)
             listeners.add(qAdmin.addSnapshotListener { snapshot, e ->
-                loading = false
                 if (e != null) {
                     android.util.Log.e("ManagePostsPageView", "Admin query error: ${e.message}", e)
                     // Fallback: If orderBy fails (e.g. index/missing field), query directly without orderBy
@@ -118,7 +133,8 @@ fun ManagePostsPageView(
                             val data = doc.data ?: return@forEach
                             mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
                         }
-                        rebuildPosts()
+                        val isServer = fbSnap != null && !fbSnap.metadata.isFromCache
+                        rebuildPosts(isServerResponse = isServer)
                     })
                     return@addSnapshotListener
                 }
@@ -126,21 +142,26 @@ fun ManagePostsPageView(
                     val data = doc.data ?: return@forEach
                     mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
                 }
-                rebuildPosts()
+                val isServer = snapshot != null && !snapshot.metadata.isFromCache
+                rebuildPosts(isServerResponse = isServer)
             })
 
             // Admin/Editor: 2. Also watch own posts specifically across candidate IDs
-            candidateIds.forEach { cId ->
-                val qOwn = FirebaseService.db.collection("news")
-                    .whereEqualTo("reporter.id", cId)
-                    .limit(50)
+            val validAdminCandidateIds = candidateIds.filter { it.isNotBlank() }.distinct().take(10)
+            if (validAdminCandidateIds.isNotEmpty()) {
+                val qOwn = if (validAdminCandidateIds.size > 1) {
+                    FirebaseService.db.collection("news").whereIn("reporter.id", validAdminCandidateIds).limit(50)
+                } else {
+                    FirebaseService.db.collection("news").whereEqualTo("reporter.id", validAdminCandidateIds[0]).limit(50)
+                }
                 listeners.add(qOwn.addSnapshotListener { snapshot, e ->
                     if (e != null) return@addSnapshotListener
                     snapshot?.documents?.forEach { doc ->
                         val data = doc.data ?: return@forEach
                         mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
                     }
-                    rebuildPosts()
+                    val isServer = snapshot != null && !snapshot.metadata.isFromCache
+                    rebuildPosts(isServerResponse = isServer)
                 })
             }
         } else if (isRegionalIncharge && currentUser?.assignedDistricts?.isNotEmpty() == true) {
@@ -149,7 +170,6 @@ fun ManagePostsPageView(
                 .whereIn("district", currentUser.assignedDistricts)
                 .limit(100)
             listeners.add(qIncharge.addSnapshotListener { snapshot, e ->
-                loading = false
                 if (e != null) {
                     android.util.Log.e("ManagePostsPageView", "Incharge query error: ${e.message}", e)
                     return@addSnapshotListener
@@ -158,89 +178,72 @@ fun ManagePostsPageView(
                     val data = doc.data ?: return@forEach
                     mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
                 }
-                rebuildPosts()
+                val isServer = snapshot != null && !snapshot.metadata.isFromCache
+                rebuildPosts(isServerResponse = isServer)
             })
 
             // Also include own submitted posts
-            candidateIds.forEach { cId ->
-                val qOwn = FirebaseService.db.collection("news")
-                    .whereEqualTo("reporter.id", cId)
-                    .limit(50)
+            val validInchargeCandidateIds = candidateIds.filter { it.isNotBlank() }.distinct().take(10)
+            if (validInchargeCandidateIds.isNotEmpty()) {
+                val qOwn = if (validInchargeCandidateIds.size > 1) {
+                    FirebaseService.db.collection("news").whereIn("reporter.id", validInchargeCandidateIds).limit(50)
+                } else {
+                    FirebaseService.db.collection("news").whereEqualTo("reporter.id", validInchargeCandidateIds[0]).limit(50)
+                }
                 listeners.add(qOwn.addSnapshotListener { snapshot, _ ->
                     snapshot?.documents?.forEach { doc ->
                         val data = doc.data ?: return@forEach
                         mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
                     }
-                    rebuildPosts()
+                    val isServer = snapshot != null && !snapshot.metadata.isFromCache
+                    rebuildPosts(isServerResponse = isServer)
                 })
             }
         } else {
             // Standard Reporter:
-            // 🛡️ Simple equality queries (whereEqualTo) NEVER require a composite index and work 100% reliably.
-            // Client-side rebuildPosts() already sorts all posts by timestamp descending!
-            if (candidateIds.isNotEmpty()) {
-                candidateIds.forEach { cId ->
-                    // 1. Posts where reporter.id == cId
-                    val q1 = FirebaseService.db.collection("news")
-                        .whereEqualTo("reporter.id", cId)
-                        .limit(100)
-                    listeners.add(q1.addSnapshotListener { snapshot, e ->
-                        loading = false
-                        if (e != null) {
-                            android.util.Log.e("ManagePostsPageView", "Reporter listener1 error: ${e.message}", e)
-                            return@addSnapshotListener
-                        }
-                        snapshot?.documents?.forEach { doc ->
-                            val data = doc.data ?: return@forEach
-                            mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
-                        }
-                        rebuildPosts()
-                    })
-
-                    // 2. Posts where originalReporterId == cId (for cross-mandal posts or attribution preserved posts)
-                    val q2 = FirebaseService.db.collection("news")
-                        .whereEqualTo("originalReporterId", cId)
-                        .limit(100)
-                    listeners.add(q2.addSnapshotListener { snapshot, e ->
-                        if (e != null) {
-                            android.util.Log.e("ManagePostsPageView", "Reporter listener2 error: ${e.message}", e)
-                            return@addSnapshotListener
-                        }
-                        snapshot?.documents?.forEach { doc ->
-                            val data = doc.data ?: return@forEach
-                            mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
-                        }
-                        rebuildPosts()
-                    })
-
-                    // 3. Fallback: Posts where reporter field is direct string uid
-                    val q3 = FirebaseService.db.collection("news")
-                        .whereEqualTo("reporter", cId)
-                        .limit(50)
-                    listeners.add(q3.addSnapshotListener { snapshot, e ->
-                        if (e != null) return@addSnapshotListener
-                        snapshot?.documents?.forEach { doc ->
-                            val data = doc.data ?: return@forEach
-                            mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
-                        }
-                        rebuildPosts()
-                    })
-
-                    // 4. Fallback: Posts where userId == cId
-                    val q4 = FirebaseService.db.collection("news")
-                        .whereEqualTo("userId", cId)
-                        .limit(50)
-                    listeners.add(q4.addSnapshotListener { snapshot, e ->
-                        if (e != null) return@addSnapshotListener
-                        snapshot?.documents?.forEach { doc ->
-                            val data = doc.data ?: return@forEach
-                            mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
-                        }
-                        rebuildPosts()
-                    })
+            // 🛡️ Consolidated whereIn queries NEVER require a composite index and prevent socket contention.
+            // Client-side rebuildPosts() sorts all posts by timestamp descending!
+            val validCandidateIds = candidateIds.filter { it.isNotBlank() }.distinct().take(10)
+            if (validCandidateIds.isNotEmpty()) {
+                // 1. Posts where reporter.id matches any candidate ID (uid, authUid, phone)
+                val q1 = if (validCandidateIds.size > 1) {
+                    FirebaseService.db.collection("news").whereIn("reporter.id", validCandidateIds).limit(100)
+                } else {
+                    FirebaseService.db.collection("news").whereEqualTo("reporter.id", validCandidateIds[0]).limit(100)
                 }
+                listeners.add(q1.addSnapshotListener { snapshot, e ->
+                    if (e != null) {
+                        android.util.Log.e("ManagePostsPageView", "Reporter listener1 error: ${e.message}", e)
+                        return@addSnapshotListener
+                    }
+                    snapshot?.documents?.forEach { doc ->
+                        val data = doc.data ?: return@forEach
+                        mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
+                    }
+                    val isServer = snapshot != null && !snapshot.metadata.isFromCache
+                    rebuildPosts(isServerResponse = isServer)
+                })
 
-                // 5. Fallback lookup by reporter name if available
+                // 2. Posts where originalReporterId matches any candidate ID (cross-mandal or desk attribution posts)
+                val q2 = if (validCandidateIds.size > 1) {
+                    FirebaseService.db.collection("news").whereIn("originalReporterId", validCandidateIds).limit(100)
+                } else {
+                    FirebaseService.db.collection("news").whereEqualTo("originalReporterId", validCandidateIds[0]).limit(100)
+                }
+                listeners.add(q2.addSnapshotListener { snapshot, e ->
+                    if (e != null) {
+                        android.util.Log.e("ManagePostsPageView", "Reporter listener2 error: ${e.message}", e)
+                        return@addSnapshotListener
+                    }
+                    snapshot?.documents?.forEach { doc ->
+                        val data = doc.data ?: return@forEach
+                        mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
+                    }
+                    val isServer = snapshot != null && !snapshot.metadata.isFromCache
+                    rebuildPosts(isServerResponse = isServer)
+                })
+
+                // 3. Fallback lookup by reporter name if available
                 val repName = currentUser?.name?.takeIf { it.isNotBlank() }
                 if (repName != null) {
                     val qName = FirebaseService.db.collection("news")
@@ -252,7 +255,8 @@ fun ManagePostsPageView(
                             val data = doc.data ?: return@forEach
                             mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
                         }
-                        rebuildPosts()
+                        val isServer = snapshot != null && !snapshot.metadata.isFromCache
+                        rebuildPosts(isServerResponse = isServer)
                     })
                 }
             } else {
@@ -355,7 +359,21 @@ fun ManagePostsPageView(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator()
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(36.dp),
+                        strokeWidth = 3.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "వార్తలు లోడ్ అవుతున్నాయి...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         } else {
             LazyColumn(

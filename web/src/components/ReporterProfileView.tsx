@@ -5,6 +5,8 @@ import { db } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import { logAnalyticsEvent } from '../services/analyticsService';
 import StarReporterCard from './StarReporterPoster';
+import { VerifiedBadge } from './VerifiedBadge';
+import { isUserVerifiedReporter } from '../services/reporterVerification';
 
 const { doc, getDoc, collection, query, where, orderBy, getDocs, Timestamp, limit } = _firestore as any;
 
@@ -173,7 +175,10 @@ const ReporterProfileView: React.FC<ReporterProfileViewProps> = ({ reporterId, o
             </div>
             <div className="bg-white p-6 mb-2 flex flex-col items-center text-center shadow-sm">
                 <img src={getProxiedUrl(reporter?.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(reporter?.name || 'R')}&background=random`)} alt={reporter?.name} className="w-24 h-24 rounded-full border-4 border-gray-100 shadow-md object-cover mb-3" />
-                <h1 className="font-ramabhadra text-2xl text-gray-900 mb-1">{reporter?.name}</h1>
+                <div className="flex items-center justify-center gap-1.5 mb-1">
+                  <h1 className="font-ramabhadra text-2xl text-gray-900">{reporter?.name}</h1>
+                  {isUserVerifiedReporter(reporter) && <VerifiedBadge size={20} />}
+                </div>
                 <p className="text-sm font-semibold text-red-600 bg-red-50 px-3 py-1 rounded-full uppercase tracking-wider mb-2">{reporter?.role}</p>
                 <div className="flex gap-8 mt-6 border-t border-gray-100 pt-4 w-full justify-center">
                     <div className="text-center"><span className="block font-bold text-xl text-gray-900">{posts.length}</span><span className="text-xs text-gray-500 uppercase">పోస్ట్లు</span></div>

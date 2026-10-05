@@ -1,6 +1,9 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, UserRole, TS_DISTRICTS, AP_DISTRICTS } from '../types';
+import { db } from '../services/firebase';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { MANDAL_DATA } from '../data/mandalData';
 
 interface EditProfileModalProps {
   isOpen: boolean;
@@ -9,7 +12,7 @@ interface EditProfileModalProps {
   isStaff: boolean;
   defaultPhoto: string;
   defaultSignature: string;
-  onSave: (name: string, address: string, district: string, photo: File | null, signature: File | null) => Promise<void>;
+  onSave: (name: string, address: string, district: string, mandal: string, photo: File | null, signature: File | null) => Promise<void>;
   saving: boolean;
 }
 
@@ -19,6 +22,11 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
   const [editName, setEditName] = useState(user.name);
   const [editAddress, setEditAddress] = useState(user.address || '');
   const [editDistrict, setEditDistrict] = useState(user.district || '');
+  const [editMandal, setEditMandal] = useState(user.assignedMandal || user.mandal || '');
+  const [occupiedMandals, setOccupiedMandals] = useState<Record<string, string>>({});
+  const [occupiedReporterIds, setOccupiedReporterIds] = useState<Record<string, string>>({});
+  const [conflictMessage, setConflictMessage] = useState<string | null>(null);
+  const [isLoadingOccupied, setIsLoadingOccupied] = useState(true);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [signatureFile, setSignatureFile] = useState<File | null>(null);
@@ -30,7 +38,62 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
   // Combine District Lists
   const allDistricts = [...TS_DISTRICTS, ...AP_DISTRICTS].sort();
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+    let isMounted = true;
+    const fetchReporters = async () => {
+      setIsLoadingOccupied(true);
+      try {
+        const q = query(
+          collection(db, 'users'),
+          where('role', 'in', ['REPORTER', 'reporter', 'STAFF_REPORTER', 'REGIONAL_INCHARGE', 2, 2.0, '2', 3, 3.0, '3'])
+        );
+        const snap = await getDocs(q);
+        if (!isMounted) return;
+        const occMap: Record<string, string> = {};
+        const occIdMap: Record<string, string> = {};
+        snap.forEach(docSnap => {
+          const data = docSnap.data();
+          if (data.suspended || data.previouslyDowngraded) return;
+          const dist = (data.district || '').trim();
+          const mandal = (data.assignedMandal || data.mandal || data.mandalam || data.selectedMandal || '').trim();
+          const name = data.name || 'విలేకరి';
+          const phone = data.phone || '';
+          if (dist && mandal) {
+            const key = `${dist}|${mandal}`;
+            occMap[key] = phone ? `${name} (${phone})` : name;
+            occIdMap[key] = docSnap.id;
+          }
+        });
+        setOccupiedMandals(occMap);
+        setOccupiedReporterIds(occIdMap);
+      } catch (err) {
+        console.error('Failed to fetch active reporters:', err);
+      } finally {
+        if (isMounted) setIsLoadingOccupied(false);
+      }
+    };
+    fetchReporters();
+    return () => { isMounted = false; };
+  }, [isOpen]);
+
+  const handleMandalChange = (val: string) => {
+    setEditMandal(val);
+    if (!val) {
+      setConflictMessage(null);
+      return;
+    }
+    const key = `${editDistrict.trim()}|${val.trim()}`;
+    const occId = occupiedReporterIds[key];
+    if (occId && occId !== user.id) {
+      const occupant = occupiedMandals[key] || 'విలేకరి';
+      const msg = `ఇప్పటికే ఈ మండలానికి విలేకరి ఉన్నారు: ${occupant}`;
+      setConflictMessage(msg);
+      alert(`ఇప్పటికే ఈ మండలానికి విలేకరి వున్నారు (${occupant})`);
+    } else {
+      setConflictMessage(null);
+    }
+  };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -42,14 +105,20 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
   const handleSignatureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-        const file = e.target.files[0];
-        setSignatureFile(file);
-        setSignaturePreview(URL.createObjectURL(file));
+      const file = e.target.files[0];
+      setSignatureFile(file);
+      setSignaturePreview(URL.createObjectURL(file));
     }
   };
 
   const handleSaveClick = () => {
-      onSave(editName, editAddress, editDistrict, photoFile, signatureFile);
+    const key = `${editDistrict.trim()}|${editMandal.trim()}`;
+    const occId = occupiedReporterIds[key];
+    if (editMandal && occId && occId !== user.id) {
+      alert(`ఈ మండలానికి ఇప్పటికే విలేకరి (${occupiedMandals[key]}) ఉన్నారు! దయచేసి వేరే మండలాన్ని ఎంచుకోండి.`);
+      return;
+    }
+    onSave(editName, editAddress, editDistrict, editMandal, photoFile, signatureFile);
   };
 
   return (
@@ -83,7 +152,14 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                     </p>
                     <select
                         value={editDistrict}
-                        onChange={(e) => setEditDistrict(e.target.value)}
+                        onChange={(e) => {
+                            const newDist = e.target.value;
+                            setEditDistrict(newDist);
+                            if (newDist !== editDistrict) {
+                                setEditMandal('');
+                                setConflictMessage(null);
+                            }
+                        }}
                         className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 font-medium bg-white"
                     >
                         <option value="">Select District</option>
@@ -92,6 +168,52 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                         ))}
                     </select>
                 </div>
+
+                {/* Mandal Selection (విలేకరి కేటాయించిన మండలం) */}
+                {editDistrict && (
+                    <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                        <div className="flex justify-between items-center mb-1.5">
+                            <label className="block text-xs font-bold text-amber-900 uppercase tracking-wide">
+                                Assigned Mandal (విలేకరి కేటాయించిన మండలం)
+                            </label>
+                            {isLoadingOccupied && (
+                                <span className="text-[10px] text-amber-600 animate-pulse">పరిశీలిస్తోంది...</span>
+                            )}
+                        </div>
+                        <p className="text-[10px] text-amber-700 mb-2">
+                            విలేకరులు వార్తలు రిపోర్ట్ చేయడానికి తమ మండలాన్ని ఇక్కడ ఎంచుకోవాలి.
+                        </p>
+                        <select
+                            value={editMandal}
+                            onChange={(e) => handleMandalChange(e.target.value)}
+                            className={`w-full border rounded-lg p-3 outline-none text-gray-900 font-medium bg-white ${
+                                conflictMessage ? 'border-red-500 ring-2 ring-red-400' : 'border-gray-300 focus:ring-2 focus:ring-amber-500'
+                            }`}
+                        >
+                            <option value="">మండలాన్ని ఎంచుకోండి (Select Mandal)</option>
+                            {((MANDAL_DATA as Record<string, string[]>)[editDistrict] || []).map((m: string) => {
+                                const key = `${editDistrict.trim()}|${m.trim()}`;
+                                const occId = occupiedReporterIds[key];
+                                const isOccupied = occId && occId !== user.id;
+                                const occName = occupiedMandals[key];
+                                return (
+                                    <option key={m} value={m}>
+                                        {m} {isOccupied ? `(ఇప్పటికే విలేకరి ఉన్నారు - ${occName})` : ''}
+                                    </option>
+                                );
+                            })}
+                        </select>
+
+                        {conflictMessage && (
+                            <div className="mt-2 p-2.5 bg-red-100 border border-red-300 rounded-lg text-red-700 text-xs font-bold flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 flex-shrink-0 text-red-600" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                </svg>
+                                <span>{conflictMessage}</span>
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* Address Edit - Free Text for ID Card */}
                 <div>

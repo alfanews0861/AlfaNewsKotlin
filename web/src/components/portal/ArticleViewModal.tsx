@@ -4,6 +4,8 @@ import { X, Clock, MapPin, Share2, Volume2, VolumeX, Type, Sparkles, MessageCirc
 import { formatRelativeTimeTelugu, FALLBACK_NEWS_IMAGE } from './portalUtils';
 import { extractYoutubeVideoId } from '../NewsCard';
 import CommentSection from '../CommentSection';
+import { VerifiedBadge } from '../VerifiedBadge';
+import { isReporterVerified } from '../../services/reporterVerification';
 
 interface ArticleViewModalProps {
   post: NewsPost;
@@ -185,8 +187,9 @@ export const ArticleViewModal: React.FC<ArticleViewModalProps> = ({
                 {author.charAt(0) || 'ఆ'}
               </div>
               <div>
-                <p className="font-ramabhadra text-gray-900 font-semibold text-sm">
-                  {author}
+                <p className="font-ramabhadra text-gray-900 font-semibold text-sm flex items-center gap-1.5">
+                  <span>{author}</span>
+                  {isReporterVerified(post.reporter?.id, post.reporter?.name) && <VerifiedBadge size={14} />}
                 </p>
                 <div className="flex items-center gap-2 text-gray-500 text-xs">
                   <span className="flex items-center gap-1">
