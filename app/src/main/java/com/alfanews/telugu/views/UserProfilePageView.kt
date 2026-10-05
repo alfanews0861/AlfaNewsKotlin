@@ -348,7 +348,7 @@ fun UserProfilePageView(
                     }
 
                     val userDistrict = user.district?.trim() ?: ""
-                    val userMandal = (user.assignedMandal ?: user.mandal)?.trim() ?: ""
+                    val userMandal = user.assignedMandal?.trim() ?: ""
                     if (userDistrict.isNotEmpty() || userMandal.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(

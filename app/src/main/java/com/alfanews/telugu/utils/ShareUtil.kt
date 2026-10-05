@@ -6,6 +6,9 @@ import android.net.Uri
 import android.util.Log
 import com.google.firebase.dynamiclinks.DynamicLink
 import com.google.firebase.dynamiclinks.FirebaseDynamicLinks
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Utility for generating and sharing Firebase Dynamic Links

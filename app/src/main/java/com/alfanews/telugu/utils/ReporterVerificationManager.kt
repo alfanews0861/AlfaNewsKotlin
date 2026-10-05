@@ -11,7 +11,6 @@ import androidx.compose.ui.unit.dp
 import com.alfanews.telugu.R
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
-import com.alfanews.telugu.models.mandal
 import com.alfanews.telugu.services.FirebaseService
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -127,7 +126,7 @@ object ReporterVerificationManager {
         if (user == null) return false
         if (user.role == UserRole.SUBSCRIBER || user.role == UserRole.GUEST) return false
 
-        val mandal = (user.assignedMandal ?: user.mandal)?.trim() ?: ""
+        val mandal = user.assignedMandal?.trim() ?: ""
         if (mandal.isNotEmpty()) {
             return true
         }

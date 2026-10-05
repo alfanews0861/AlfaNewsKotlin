@@ -49,7 +49,7 @@ fun EditProfilePageView(
     var editPhone by remember { mutableStateOf(user.phone ?: "") }
     var editAddress by remember { mutableStateOf(user.address ?: "") }
     var editDistrict by remember { mutableStateOf(user.district ?: "") }
-    var editMandal by remember { mutableStateOf(user.assignedMandal ?: user.mandal ?: "") }
+    var editMandal by remember { mutableStateOf(user.assignedMandal ?: "") }
     var photoUri by remember { mutableStateOf<Uri?>(null) }
     var signatureUri by remember { mutableStateOf<Uri?>(null) }
 
