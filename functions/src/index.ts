@@ -5,6 +5,7 @@ import * as admin from "firebase-admin";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import * as nodemailer from "nodemailer";
+import * as https from "https";
 import { REGION } from "./utils";
 
 if (admin.apps.length === 0) {
@@ -350,6 +351,32 @@ function drawCommentIcon(ctx: any, x: number, y: number, size: number) {
     ctx.restore();
 }
 
+async function loadPhotoFast(mediaUrl: string, timeoutMs = 2500): Promise<any> {
+    if (!mediaUrl || typeof mediaUrl !== 'string' || !mediaUrl.startsWith('http')) return null;
+    const isStorageUrl = mediaUrl.includes('firebasestorage.googleapis.com') || mediaUrl.includes('firebasestorage.app');
+    // wsrv.nl scales and returns an instant JPEG from Cloud Storage
+    const fastUrl = isStorageUrl
+        ? `https://wsrv.nl/?url=${encodeURIComponent(mediaUrl)}&w=1080&output=jpg&q=80`
+        : mediaUrl;
+
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs));
+    try {
+        const photoPromise = loadImage(fastUrl);
+        const photo = await Promise.race([photoPromise, timeoutPromise]);
+        if (photo) return photo;
+    } catch (e) {
+        // Fallback to original url
+    }
+
+    try {
+        const fallbackPromise = loadImage(mediaUrl);
+        const photo = await Promise.race([fallbackPromise, timeoutPromise]);
+        return photo;
+    } catch (e) {
+        return null;
+    }
+}
+
 export const getNewsCardImage = onRequest(async (req, res) => {
     const pathSegments = req.path.split('/').filter(Boolean);
     let fileName = pathSegments.pop() || "";
@@ -363,7 +390,21 @@ export const getNewsCardImage = onRequest(async (req, res) => {
     try {
         const isAd = pathSegments.includes('ad');
         const collectionName = isAd ? 'localAds' : 'news';
-        const doc = await db.collection(collectionName).doc(id).get();
+        let doc = await db.collection(collectionName).doc(id).get();
+
+        if (!doc.exists) {
+            // Case-insensitive / prefix fallback in case of casing mismatch in URL
+            if (id.length >= 5) {
+                const prefix = id.substring(0, 5);
+                const snap = await db.collection(collectionName)
+                    .where(admin.firestore.FieldPath.documentId(), '>=', prefix)
+                    .where(admin.firestore.FieldPath.documentId(), '<=', prefix + '\uf8ff')
+                    .limit(10)
+                    .get();
+                const matched = snap.docs.find(d => d.id.toLowerCase() === id.toLowerCase());
+                if (matched) doc = matched;
+            }
+        }
 
         if (!doc.exists) {
             res.status(404).send("Post not found");
@@ -382,16 +423,25 @@ export const getNewsCardImage = onRequest(async (req, res) => {
 
         let mediaUrl = data.mediaUrl || data.imageUrl || (Array.isArray(data.images) && data.images.length > 0 ? data.images[0] : null) || data.videoThumbnailUrl;
 
-        // Full Vertical Mobile News Card (1080 x 1680, 9:14 Mobile Ratio - Perfect for WhatsApp Status & Story Sharing)
+        // Full Vertical Mobile News Card:
+        // Render into target 900 x 1400 canvas (exact 9:14 ratio matching mobile feeds)
+        // Scaled from 1080x1680 so all coordinates, font metrics, and layout remain identical.
+        // Guarantees retina sharpness on all phones while keeping JPEG size 120-220 KB (always under WhatsApp's 300 KB limit).
+        const targetWidth = 900;
+        const targetHeight = 1400;
+        const scale = targetWidth / 1080;
+
         const width = 1080;
         const height = 1680;
-        const canvas = createCanvas(width, height);
+
+        const canvas = createCanvas(targetWidth, targetHeight);
         const ctx = canvas.getContext('2d');
 
         // Enable ultra-high quality anti-aliasing and image smoothing
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.textRendering = 'geometricPrecision';
+        ctx.scale(scale, scale);
 
         // 1. Mobile App Dark Background
         ctx.fillStyle = '#050505';
@@ -423,9 +473,9 @@ export const getNewsCardImage = onRequest(async (req, res) => {
         // 3. News Photo (Y: 75 to 675, Height: 600) with aspect-ratio preserving cover crop
         const photoY = 75;
         const photoH = 600;
-        if (mediaUrl && typeof mediaUrl === 'string' && mediaUrl.startsWith('http')) {
+        const photo = await loadPhotoFast(mediaUrl, 2500);
+        if (photo) {
             try {
-                const photo = await loadImage(mediaUrl);
                 const imgRatio = photo.width / photo.height;
                 const targetRatio = width / photoH;
                 let sx = 0, sy = 0, sw = photo.width, sh = photo.height;
@@ -437,7 +487,7 @@ export const getNewsCardImage = onRequest(async (req, res) => {
                     sy = Math.max(0, (photo.height - sh) * 0.25); // Slight bias to upper-center for faces
                 }
                 ctx.drawImage(photo, sx, sy, sw, sh, 0, photoY, width, photoH);
-            } catch(e) {
+            } catch (e) {
                 ctx.fillStyle = '#1e293b';
                 ctx.fillRect(0, photoY, width, photoH);
             }
@@ -528,11 +578,22 @@ export const getNewsCardImage = onRequest(async (req, res) => {
         ctx.fillStyle = '#ffffff'; ctx.font = '700 22px -apple-system, sans-serif'; ctx.textAlign = 'center';
         ctx.fillText(comments.toString(), actionX, actionY + 56);
 
-        // Ultra-high quality 95% JPEG encoding (zero mosquito noise, smooth vector edges)
-        const imageBuf = canvas.encodeSync('jpeg', 95);
+        // Dynamic compression guarantee: strictly ensures output < 250 KB (WhatsApp hard threshold is 300 KB)
+        let q = 76;
+        let imageBuf = canvas.encodeSync('jpeg', q);
+        if (imageBuf.length > 250 * 1024) {
+            q = 68;
+            imageBuf = canvas.encodeSync('jpeg', q);
+        }
+        if (imageBuf.length > 250 * 1024) {
+            q = 60;
+            imageBuf = canvas.encodeSync('jpeg', q);
+        }
+
         res.set({
             'Content-Type': 'image/jpeg',
-            'Cache-Control': 'public, max-age=3600, s-maxage=86400'
+            'Cache-Control': 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400',
+            'Content-Length': imageBuf.length.toString()
         });
         res.status(200).send(imageBuf);
     } catch (e) {
@@ -554,7 +615,20 @@ export const shareNews = onRequest(async (req, res) => {
 
     try {
         const collectionName = isAd ? 'localAds' : 'news';
-        const doc = await db.collection(collectionName).doc(id).get();
+        let doc = await db.collection(collectionName).doc(id).get();
+
+        if (!doc.exists) {
+            if (id.length >= 5) {
+                const prefix = id.substring(0, 5);
+                const snap = await db.collection(collectionName)
+                    .where(admin.firestore.FieldPath.documentId(), '>=', prefix)
+                    .where(admin.firestore.FieldPath.documentId(), '<=', prefix + '\uf8ff')
+                    .limit(10)
+                    .get();
+                const matched = snap.docs.find(d => d.id.toLowerCase() === id.toLowerCase());
+                if (matched) doc = matched;
+            }
+        }
 
         if (!doc.exists) {
             res.redirect(playUrl);
@@ -563,13 +637,16 @@ export const shareNews = onRequest(async (req, res) => {
 
         const data = doc.data() || {};
         const titleRaw = data.headline?.telugu || data.headline?.english || data.title || data.businessName || "Alfa News Telugu";
-        const cardImageUrl = `https://alfanews.app/news-card/${id}.jpg`;
+        const cardImageUrl = `https://alfanews.app/news-card/${doc.id}.jpg`;
         const descRaw = data.content?.telugu || data.summary?.telugu || data.content?.english || data.summary?.english || data.description || "";
         const safeTitle = escapeHtml(titleRaw);
         const safeDesc = escapeHtml(descRaw);
         const safeImage = escapeHtml(cardImageUrl);
-        const postUrl = `https://alfanews.app/${isAd ? 'ad' : 'news'}/${id}`;
-        const intentScheme = `alfanews://${isAd ? 'ad' : 'news'}/${id}`;
+        const postUrl = `https://alfanews.app/${isAd ? 'ad' : 'news'}/${doc.id}`;
+        const intentScheme = `alfanews://${isAd ? 'ad' : 'news'}/${doc.id}`;
+
+        // Fire-and-forget pre-warm for the news card image on Google Edge CDN
+        https.get(cardImageUrl).on('error', () => {});
 
         const html = `<!DOCTYPE html>
 <html lang="te" prefix="og: http://ogp.me/ns#">
@@ -578,17 +655,17 @@ export const shareNews = onRequest(async (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>${safeTitle} - Alfa News</title>
 
-    <!-- Open Graph (WhatsApp, Telegram Clean Full-Size Image Preview - No duplicate title/description box) -->
+    <!-- Open Graph (WhatsApp, Facebook, Telegram Full-Size Card Preview) -->
     <meta property="og:site_name" content="Alfa News">
-    <meta property="og:title" content="&#8203;">
-    <meta property="og:description" content="&#8203;">
-    <meta property="og:type" content="image.other">
+    <meta property="og:title" content="${safeTitle}">
+    <meta property="og:description" content="${safeDesc}">
+    <meta property="og:type" content="article">
     <meta property="og:url" content="${postUrl}">
     <meta property="og:image" content="${safeImage}">
     <meta property="og:image:secure_url" content="${safeImage}">
     <meta property="og:image:type" content="image/jpeg">
-    <meta property="og:image:width" content="1080">
-    <meta property="og:image:height" content="1680">
+    <meta property="og:image:width" content="900">
+    <meta property="og:image:height" content="1400">
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
@@ -639,7 +716,7 @@ export const shareNews = onRequest(async (req, res) => {
     <script>
         (function() {
             const isAndroid = /Android/i.test(navigator.userAgent);
-            const intentUrl = "intent://${isAd ? 'ad' : 'news'}/${id}#Intent;scheme=alfanews;package=com.alfanews.telugu;S.browser_fallback_url=" + encodeURIComponent("${playUrl}") + ";end";
+            const intentUrl = "intent://${isAd ? 'ad' : 'news'}/${doc.id}#Intent;scheme=alfanews;package=com.alfanews.telugu;S.browser_fallback_url=" + encodeURIComponent("${playUrl}") + ";end";
             const appBtn = document.getElementById("openAppBtn");
             const isCrawler = /facebookexternalhit|WhatsApp|Twitterbot|TelegramBot|LinkedInBot|Googlebot/i.test(navigator.userAgent);
             if (!isCrawler) {

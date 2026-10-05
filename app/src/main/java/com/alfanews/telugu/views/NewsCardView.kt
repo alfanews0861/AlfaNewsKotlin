@@ -1055,6 +1055,20 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
             val shareUrl = "https://alfanews.app/news/${post.id}"
             val shareText = customShareText ?: "🔴 $headline\n\n$shareUrl"
 
+            // Pre-warm news card image on Google Edge CDN so WhatsApp loads rich preview instantly
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try {
+                    val conn = (java.net.URL("https://alfanews.app/news-card/${post.id}.jpg").openConnection() as java.net.HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 3000
+                        readTimeout = 3000
+                        instanceFollowRedirects = true
+                    }
+                    conn.responseCode
+                    conn.disconnect()
+                } catch (_: Exception) {}
+            }
+
             // Share as Rich Link (text/plain with URL). WhatsApp automatically loads the Open Graph preview card
             // (Image on top, Headline below, Deep link below) and clicking the preview image directly launches the deeplink!
             val intent = Intent(Intent.ACTION_SEND).apply {

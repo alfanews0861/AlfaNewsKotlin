@@ -319,6 +319,7 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
     setIsRead(true);
 
     const shareText = `🔴 ${headline}\n\nhttps://alfanews.app/news/${post.id}`;
+    try { fetch(`https://alfanews.app/news-card/${post.id}.jpg`, { mode: 'no-cors' }).catch(() => {}); } catch (_) {}
     try {
       let shareFile: File | null = null;
       try {

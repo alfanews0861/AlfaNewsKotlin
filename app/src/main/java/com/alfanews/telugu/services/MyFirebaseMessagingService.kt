@@ -6,8 +6,11 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
+import android.text.Html
+import android.text.TextUtils
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.alfanews.telugu.MainActivity
@@ -69,7 +72,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
 
-        val title = remoteMessage.data["title"] ?: remoteMessage.notification?.title
+        val title = remoteMessage.data["htmlTitle"] ?: remoteMessage.data["title"] ?: remoteMessage.notification?.title
         val body = remoteMessage.data["body"] ?: remoteMessage.notification?.body
         val actionUrl = remoteMessage.data["actionUrl"]
         val rawImageUrl = remoteMessage.data["imageUrl"] ?: remoteMessage.data["image"] ?: remoteMessage.notification?.imageUrl?.toString()
@@ -426,6 +429,79 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     /**
+     * డీఫాల్ట్ బ్రాండెడ్ లార్జ్ ఐకాన్ (AlfaNews App Icon).
+     * వార్తకు ఇమేజ్ లేకపోయినా Way2News లాగా ప్రతి నోటిఫికేషన్ కూడా కార్డులా పెద్ద సైజులో కనిపించేందుకు తోడ్పడుతుంది.
+     */
+    private fun getDefaultLargeIcon(): Bitmap? {
+        return try {
+            BitmapFactory.decodeResource(resources, R.drawable.app_icon_new)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * నోటిఫికేషన్ టైటిల్ మరియు బాడీని HTML కలరింగ్ మరియు రామభద్ర ఫాంట్‌తో ఫార్మాట్ చేస్తుంది.
+     * మొదటి హుక్ లేదా ముఖ్య పదాన్ని ఎరుపు రంగు (#E53935) లో చూపిస్తుంది (బోల్డ్ లేకుండా).
+     */
+    private fun formatHtmlNotificationText(rawText: String, isTitle: Boolean = false): CharSequence {
+        if (rawText.isBlank()) return ""
+
+        val trimmed = rawText.trim()
+
+        // ఇప్పటికే HTML ఉంటే బోల్డ్ ట్యాగ్‌లు తీసేసి నేరుగా పార్స్ చేస్తాం ("bold vaddu")
+        if (trimmed.contains("<font") || trimmed.contains("<span") || trimmed.contains("<b") || trimmed.contains("<strong")) {
+            val withoutBold = trimmed
+                .replace("<b>", "", ignoreCase = true)
+                .replace("</b>", "", ignoreCase = true)
+                .replace("<strong>", "", ignoreCase = true)
+                .replace("</strong>", "", ignoreCase = true)
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                Html.fromHtml(withoutBold, Html.FROM_HTML_MODE_LEGACY)
+            } else {
+                @Suppress("DEPRECATION")
+                Html.fromHtml(withoutBold)
+            }
+        }
+
+        val htmlFormatted = if (isTitle) {
+            // టైటిల్ అయితే: మొదటి హుక్/కీవర్డ్‌ను ఎరుపు రంగులోకి (#E53935) మారుస్తాం, రామభద్ర ఫాంట్, బోల్డ్ లేదు
+            val delimiter = when {
+                trimmed.contains("..") -> ".."
+                trimmed.contains(":") -> ":"
+                trimmed.contains(" - ") -> " - "
+                else -> null
+            }
+
+            if (delimiter != null) {
+                val idx = trimmed.indexOf(delimiter)
+                val prefix = trimmed.substring(0, idx + delimiter.length)
+                val suffix = trimmed.substring(idx + delimiter.length)
+                "<font color=\"#E53935\" face=\"ramabhadra\">${TextUtils.htmlEncode(prefix)}</font><font face=\"ramabhadra\">${TextUtils.htmlEncode(suffix)}</font>"
+            } else {
+                val words = trimmed.split(Regex("\\s+"))
+                if (words.size > 2) {
+                    val prefix = words.take(2).joinToString(" ")
+                    val suffix = " " + words.drop(2).joinToString(" ")
+                    "<font color=\"#E53935\" face=\"ramabhadra\">${TextUtils.htmlEncode(prefix)}</font><font face=\"ramabhadra\">${TextUtils.htmlEncode(suffix)}</font>"
+                } else {
+                    "<font color=\"#E53935\" face=\"ramabhadra\">${TextUtils.htmlEncode(trimmed)}</font>"
+                }
+            }
+        } else {
+            // బాడీ అయితే: పూర్తి టెక్స్ట్‌కు ramabhadra ఫాంట్ మాత్రమే అప్లై చేస్తాం
+            "<font face=\"ramabhadra\">${TextUtils.htmlEncode(trimmed)}</font>"
+        }
+
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            Html.fromHtml(htmlFormatted, Html.FROM_HTML_MODE_LEGACY)
+        } else {
+            @Suppress("DEPRECATION")
+            Html.fromHtml(htmlFormatted)
+        }
+    }
+
+    /**
      * సిస్టమ్ ట్రేలో నోటిఫికేషన్‌ను ప్రదర్శిస్తుంది.
      * 
      * @param title నోటిఫికేషన్ శీర్షిక.
@@ -441,6 +517,10 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             try {
                 val notificationId = (System.currentTimeMillis() and 0x7fffffffL).toInt()
                 val newsId = Uri.parse(actionUrl ?: "").lastPathSegment ?: ""
+
+                val styledTitle = formatHtmlNotificationText(title, isTitle = true)
+                val styledBody = formatHtmlNotificationText(messageBody, isTitle = false)
+                val defaultLargeIcon = getDefaultLargeIcon()
 
                 // 1. ప్రధాన క్లిక్ యాక్షన్: వార్తను చదవడం
                 val intent = if (!actionUrl.isNullOrEmpty()) {
@@ -461,7 +541,17 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
                 // 2. షేర్ బటన్ యాక్షన్ (Android 12+ Notification Trampoline Safe)
                 val shareUrl = actionUrl ?: "https://play.google.com/store/apps/details?id=com.alfanews.telugu"
-                val shareText = "🔴 $title\n\n$shareUrl"
+                val plainShareTitle = if (title.contains("<")) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        Html.fromHtml(title, Html.FROM_HTML_MODE_LEGACY).toString().trim()
+                    } else {
+                        @Suppress("DEPRECATION")
+                        Html.fromHtml(title).toString().trim()
+                    }
+                } else {
+                    title.trim()
+                }
+                val shareText = "🔴 $plainShareTitle\n\n$shareUrl"
                 val sendIntent = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_TEXT, shareText)
@@ -477,10 +567,32 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
+                // 🖼️ Rich Notification: ఫోటో ఉంటే Coil 3 ద్వారా Safe గా లోడ్ చేసి చూపిస్తాం (4s Timeout + Disk Cache)
+                var bitmap: Bitmap? = null
+                if (!imageUrl.isNullOrBlank()) {
+                    try {
+                        withTimeoutOrNull(4000L) { // Max 4 seconds timeout so slow connections never hang notifications
+                            val request = ImageRequest.Builder(this@MyFirebaseMessagingService)
+                                .data(imageUrl)
+                                .size(1024, 512)
+                                .allowHardware(false) // Notification view support requires software Bitmaps
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .build()
+                            val result = SingletonImageLoader.get(this@MyFirebaseMessagingService).execute(request)
+                            if (result is SuccessResult) {
+                                bitmap = result.image.toBitmap()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("MyFirebaseMsgService", "Coil image load failed, showing text-only notification", e)
+                    }
+                }
+
                 val notificationBuilder = NotificationCompat.Builder(this@MyFirebaseMessagingService, channelId)
                     .setSmallIcon(R.drawable.app_icon_new)
-                    .setContentTitle(title)
-                    .setContentText(messageBody)
+                    .setContentTitle(styledTitle)
+                    .setContentText(styledBody)
                     .setAutoCancel(true)
                     .setContentIntent(pendingIntent)
                     .setShowWhen(true)
@@ -499,44 +611,26 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     notificationBuilder.setNumber(badgeCount)
                 }
 
-                // 🖼️ Rich Notification: ఫోటో ఉంటే Coil 3 ద్వారా Safe గా లోడ్ చేసి చూపిస్తాం (4s Timeout + Disk Cache)
-                if (!imageUrl.isNullOrBlank()) {
-                    var bitmap: Bitmap? = null
-                    try {
-                        withTimeoutOrNull(4000L) { // Max 4 seconds timeout so slow connections never hang notifications
-                            val request = ImageRequest.Builder(this@MyFirebaseMessagingService)
-                                .data(imageUrl)
-                                .size(1024, 512)
-                                .allowHardware(false) // Notification view support requires software Bitmaps
-                                .diskCachePolicy(CachePolicy.ENABLED)
-                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                .build()
-                            val result = SingletonImageLoader.get(this@MyFirebaseMessagingService).execute(request)
-                            if (result is SuccessResult) {
-                                bitmap = result.image.toBitmap()
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e("MyFirebaseMsgService", "Coil image load failed, showing text-only notification", e)
-                    }
+                // 🖼️ Way2News Style Large Icon: ఫోటో ఉంటే ఆ ఫోటో లేదా బ్రాండెడ్ లార్జ్ ఐకాన్
+                val largeIconBitmap = bitmap ?: defaultLargeIcon
+                if (largeIconBitmap != null) {
+                    notificationBuilder.setLargeIcon(largeIconBitmap)
+                }
 
-                    if (bitmap != null) {
-                        notificationBuilder
-                            .setLargeIcon(bitmap)
-                            .setStyle(
-                                NotificationCompat.BigPictureStyle()
-                                    .bigPicture(bitmap)
-                                    .setBigContentTitle(title)
-                                    .setSummaryText(messageBody)
-                                    .bigLargeIcon(null as Bitmap?)
-                            )
-                    } else {
-                        // Image load fail అయినా notification వస్తుంది
-                        notificationBuilder.setStyle(NotificationCompat.BigTextStyle().bigText(messageBody))
-                    }
+                if (bitmap != null) {
+                    notificationBuilder.setStyle(
+                        NotificationCompat.BigPictureStyle()
+                            .bigPicture(bitmap)
+                            .setBigContentTitle(styledTitle)
+                            .setSummaryText(styledBody)
+                    )
                 } else {
-                    // చిత్రం లేకపోతే BigTextStyle ఉపయోగిస్తాం
-                    notificationBuilder.setStyle(NotificationCompat.BigTextStyle().bigText(messageBody))
+                    // చిత్రం లేకపోయినా BigTextStyle + LargeIcon తో పెద్ద కార్డు రూపంలో కనిపిస్తుంది
+                    notificationBuilder.setStyle(
+                        NotificationCompat.BigTextStyle()
+                            .setBigContentTitle(styledTitle)
+                            .bigText(styledBody)
+                    )
                 }
 
                 // పాత ఆండ్రాయిడ్ వెర్షన్ల కోసం ప్రయారిటీ సెట్ చేయడం

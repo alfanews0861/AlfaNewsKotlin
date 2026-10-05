@@ -69,6 +69,38 @@ function getTitleForHour(hour: number, headline: string, curiosityTitle?: string
 }
 
 // ==========================================
+// WAY2NEWS STYLE TITLE FORMATTING (Red Highlight + Ramabhadra Font, No Bold)
+// ==========================================
+function formatWay2NewsStyleTitle(rawTitle: string): { plainTitle: string; htmlTitle: string } {
+    const trimmed = rawTitle.trim();
+    let hook = "";
+    let rest = "";
+
+    if (trimmed.includes("..")) {
+        const idx = trimmed.indexOf("..");
+        hook = trimmed.substring(0, idx + 2);
+        rest = trimmed.substring(idx + 2);
+    } else if (trimmed.includes(":")) {
+        const idx = trimmed.indexOf(":");
+        hook = trimmed.substring(0, idx + 1);
+        rest = trimmed.substring(idx + 1);
+    } else {
+        const words = trimmed.split(/\s+/);
+        if (words.length > 2) {
+            hook = words.slice(0, 2).join(" ");
+            rest = " " + words.slice(2).join(" ");
+        } else {
+            hook = trimmed;
+            rest = "";
+        }
+    }
+
+    const escape = (str: string) => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const htmlTitle = `<font color="#E53935" face="ramabhadra">${escape(hook)}</font><font face="ramabhadra">${escape(rest)}</font>`;
+    return { plainTitle: trimmed, htmlTitle };
+}
+
+// ==========================================
 // SHARED: Build FCM message with notification & data payloads
 // ==========================================
 function buildNewsMessage(
@@ -83,6 +115,7 @@ function buildNewsMessage(
     const isSilent = !!options.silent;
     const headline = news.headline?.telugu || news.headline?.english || news.headline || "";
     const body = (headline + "").substring(0, 150);
+    const { plainTitle, htmlTitle } = formatWay2NewsStyleTitle(title);
 
     // 🛡️ 100% Zero-Cost Rich Notification Architecture:
     // 1. External CDN (Eenadu, Sakshi, YouTube, TV9) -> 0 Firebase egress cost.
@@ -105,7 +138,7 @@ function buildNewsMessage(
 
     return {
         notification: {
-            title,
+            title: plainTitle,
             body,
             ...(safeDrawerImageUrl ? { imageUrl: safeDrawerImageUrl } : {})
         },
@@ -125,7 +158,8 @@ function buildNewsMessage(
             newsId:    news.id,
             channelId,
             imageUrl:  safeDrawerImageUrl || imageUrl || "",
-            title,
+            title:     plainTitle,
+            htmlTitle: htmlTitle,
             body,
             silent:    isSilent ? "true" : "false",
             district:  news.district || "",
