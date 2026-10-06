@@ -95,7 +95,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     private var pendingLoadMore = false
     private var lastDocument: DocumentSnapshot? = null
     private var lastRefreshTimeLong: Long = 0
-    private val pageSize = 20
+    private val pageSize = 10
     private var loadJob: Job? = null
     private var isFetching = false
     private var consecutiveEmptyLoads = 0
@@ -303,11 +303,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     fun loadNews(language: Language, currentUser: User?) {
         currentLanguage = language
         val userDist = currentUser?.district?.takeIf { it.isNotBlank() } ?: prefs.userDistrict
-        val district = _activeDistrict.value ?: prefs.selectedDistrict ?: userDist ?: prefs.detectedDistrict
-        if (district == null) {
-            _loading.value = false
-            return
-        }
+        val district = _activeDistrict.value ?: prefs.selectedDistrict ?: userDist ?: prefs.detectedDistrict ?: "హైదరాబాద్"
         if (_activeDistrict.value != district) {
             _activeDistrict.value = district
         }

@@ -216,7 +216,7 @@ fun NewsFeedView(
             }
 
             val currentNewsIndex = page - (page / 6)
-            if ((currentNewsIndex >= news.size - 10 || page >= totalCount - 2) && hasMore && !loading) {
+            if ((currentNewsIndex >= news.size - 5 || page >= totalCount - 2) && hasMore && !loading) {
                 viewModel.loadMore(language, currentUser)
             }
 
@@ -302,9 +302,11 @@ fun NewsFeedView(
                 }
             }
         } else if (news.isEmpty()) {
+            var retryCount by remember { mutableIntStateOf(0) }
             LaunchedEffect(loading) {
-                if (!loading) {
-                    kotlinx.coroutines.delay(2000)
+                if (!loading && retryCount < 2) {
+                    kotlinx.coroutines.delay((retryCount + 1) * 3000L)
+                    retryCount++
                     viewModel.loadNews(language, currentUser, initialPostId)
                 }
             }

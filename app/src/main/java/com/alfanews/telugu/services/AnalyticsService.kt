@@ -136,7 +136,6 @@ object AnalyticsService {
     }
 
     private fun syncToFirestore() {
-        syncPendingLongViews() // రెగ్యులర్ సింక్ సమయంలో కూడా పిలవడం
         val uid = currentUserId ?: return
         val now = System.currentTimeMillis()
         if (now - lastFirestoreSyncTime < FIRESTORE_THROTTLE_MS) return // throttled
@@ -670,16 +669,22 @@ object AnalyticsService {
         pendingLongViews.clear()
         
         scope.launch {
-            snapshot.forEach { (postId, count) ->
-                try {
-                    FirebaseService.db.collection("news").document(postId)
-                        .update("longViews", com.google.firebase.firestore.FieldValue.increment(count.toLong()))
-                } catch (e: Exception) {
-                    try {
-                        FirebaseService.db.collection("news").document(postId)
-                            .set(mapOf("longViews" to count), com.google.firebase.firestore.SetOptions.merge())
-                    } catch (e2: Exception) {}
+            try {
+                val batch = FirebaseService.db.batch()
+                var batchCount = 0
+                snapshot.forEach { (postId, count) ->
+                    if (postId.isNotBlank() && count > 0) {
+                        val ref = FirebaseService.db.collection("news").document(postId)
+                        batch.update(ref, "longViews", com.google.firebase.firestore.FieldValue.increment(count.toLong()))
+                        batchCount++
+                    }
                 }
+                if (batchCount > 0) {
+                    batch.commit()
+                }
+            } catch (e: Exception) {
+                // If batch update fails (e.g. document doesn't exist), fail silently
+                Log.w("AnalyticsService", "Batch longViews update skipped: ${e.message}")
             }
         }
     }

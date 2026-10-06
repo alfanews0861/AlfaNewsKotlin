@@ -304,7 +304,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         return true
     }
 
-    private val FETCH_LIMIT = 25 // Decreased to 25 to reduce memory and CPU load during 40/30/30 blending
+    private val FETCH_LIMIT = 10 // Reduced to 10: only fetch fresh latest news, minimize memory and Firestore reads
 
       fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null) {
           currentLanguage = language

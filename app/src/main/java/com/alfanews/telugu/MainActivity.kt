@@ -119,8 +119,7 @@ class MainActivity : ComponentActivity() {
             try {
                 this.cacheDir.deleteRecursively()
                 this.externalCacheDir?.deleteRecursively()
-                com.alfanews.telugu.services.FirebaseService.db.clearPersistence()
-                Log.d("MainActivity", "App updated to version $currentVersion. Cache and Firestore persistence cleared successfully.")
+                Log.d("MainActivity", "App updated to version $currentVersion. Cache cleared successfully.")
             } catch (e: Exception) {
                 Log.e("MainActivity", "Error clearing cache during update: ${e.message}")
             }
