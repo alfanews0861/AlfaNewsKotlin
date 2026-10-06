@@ -302,7 +302,7 @@ fun NewsFeedView(
                 }
             }
         } else if (news.isEmpty()) {
-            var retryCount by remember { mutableIntStateOf(0) }
+            var retryCount by remember { mutableStateOf(0) }
             LaunchedEffect(loading) {
                 if (!loading && retryCount < 2) {
                     kotlinx.coroutines.delay((retryCount + 1) * 3000L)

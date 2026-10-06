@@ -2,6 +2,7 @@ package com.alfanews.telugu.services
 
 import android.content.Context
 import android.os.Bundle
+import android.util.Log
 import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.models.User
 import com.google.firebase.analytics.FirebaseAnalytics
