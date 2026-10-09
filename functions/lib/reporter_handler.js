@@ -328,13 +328,16 @@ async function performRestoreAllReporters() {
         console.warn(`[RESTORE_WARN] Fetch previouslyDowngraded:`, e.message);
     }
     try {
-        const inactivitySnap = await db.collection('users')
-            .where('downgradedReason', '==', 'INACTIVITY')
-            .get();
-        inactivitySnap.docs.forEach(d => candidateUserIds.add(d.id));
+        const inactivitySnap = await db.collection('users').get();
+        inactivitySnap.docs.forEach(d => {
+            const data = d.data();
+            if (data.previouslyDowngraded === true || data.downgradedReason != null || data.lastKnownMandal != null || (data.assignedMandal && data.role !== 'REPORTER')) {
+                candidateUserIds.add(d.id);
+            }
+        });
     }
     catch (e) {
-        console.warn(`[RESTORE_WARN] Fetch downgradedReason:`, e.message);
+        console.warn(`[RESTORE_WARN] Fetch downgraded users:`, e.message);
     }
     // 2. Find all approved/joined reporter applications
     try {
@@ -504,6 +507,13 @@ async function performRestoreAllReporters() {
                         appDistrict = aData.district || aData.state_district || "";
                 }
             }
+            if ((!appMandal || !appDistrict) && userData.lastKnownMandal && userData.lastKnownMandal.includes("|")) {
+                const parts = userData.lastKnownMandal.split("|");
+                if (!appDistrict)
+                    appDistrict = parts[0];
+                if (!appMandal)
+                    appMandal = parts[1];
+            }
             if (!appMandal && newsDocs.length > 0) {
                 const sample = newsDocs[0].data() || {};
                 appMandal = sample.location || sample.mandal || "";
@@ -580,6 +590,7 @@ async function performRestoreAllReporters() {
                 lastPostTimestamp: latestNewsMillis > 0 ? latestNewsMillis : Date.now(),
                 downgradedReason: admin.firestore.FieldValue.delete(),
                 downgradedAt: admin.firestore.FieldValue.delete(),
+                downgradedBy: admin.firestore.FieldValue.delete(),
                 lastWarningDate: admin.firestore.FieldValue.delete(),
                 rejoinedAt: admin.firestore.FieldValue.serverTimestamp(),
                 roleUpdatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -718,6 +729,7 @@ exports.processReporterSubmission = (0, https_1.onCall)(async (request) => {
             status: "PENDING",
             processingType: "REPORTER_SUBMISSION",
             originalReporterId: reporterId,
+            reporterId: reporterId,
             timestamp: postData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         };

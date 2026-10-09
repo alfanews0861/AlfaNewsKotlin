@@ -1384,6 +1384,7 @@ export const onNewsPostCreated = onDocumentWritten({
                     // Cross-mandal posts లో reporter.name = "Alfa News Desk" మారినా
                     // originalReporterId వల్ల ManageNews query లో reporter కి వారి posts కనపడతాయి
                     originalReporterId: originalReporterId || latestData.originalReporterId || latestData.reporter?.id || "",
+                    reporterId: originalReporterId || latestData.reporterId || latestData.originalReporterId || latestData.reporter?.id || "",
                     status: isRejected ? "REJECTED" : (shouldWaitForVideoUpload ? "PROCESSING_VIDEO" : "PUBLISHED"),
                     approved: isRejected ? false : (shouldWaitForVideoUpload ? false : true),
                     lastProcessingError: admin.firestore.FieldValue.delete(),

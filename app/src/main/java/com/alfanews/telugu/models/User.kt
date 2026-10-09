@@ -47,7 +47,7 @@ enum class UserRole {
             when (cleanValue) {
                 "ADMIN" -> return ADMIN
                 "NEWS_DESK", "NEWS DESK", "NEWSDESK" -> return NEWS_DESK
-                "REPORTER" -> return REPORTER
+                "REPORTER", "STAFF_REPORTER", "STAFF REPORTER", "STAFFREPORTER" -> return REPORTER
                 "EDITOR" -> return EDITOR
                 "REGIONAL_INCHARGE", "REGIONAL INCHARGE", "REGIONAL_IN_CHARGE" -> return REGIONAL_INCHARGE
                 "GUEST" -> return GUEST

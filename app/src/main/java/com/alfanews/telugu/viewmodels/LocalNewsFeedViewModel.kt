@@ -72,7 +72,6 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     _news.value = emptyList()
                     _loading.value = true
                     _hasMore.value = true
-                    currentStage = LocalFeedStage.DISTRICT
                     lastDocument = null
                     isFetching = false
                     loadNews(Language.TELUGU, null)
@@ -90,12 +89,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         _shouldScrollToTop.value = false
     }
 
-    enum class LocalFeedStage { DISTRICT, DISTRICT_CATEGORIES, DISTRICT_MANDALS }
-    private var currentStage = LocalFeedStage.DISTRICT
     private var pendingLoadMore = false
     private var lastDocument: DocumentSnapshot? = null
     private var lastRefreshTimeLong: Long = 0
-    private val pageSize = 10
+    private val pageSize = 20
     private var loadJob: Job? = null
     private var isFetching = false
     private var consecutiveEmptyLoads = 0
@@ -106,7 +103,6 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         _news.value = emptyList() // 🔄 Clear old news to avoid confusion when switching districts
         _loading.value = true     // 🔄 Show preparation screen
         _hasMore.value = true
-        currentStage = LocalFeedStage.DISTRICT
         lastDocument = null
         prefs.selectedDistrict = district
         _activeDistrict.value = district
@@ -323,7 +319,6 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             val newsRef = FirebaseService.db.collection("news")
             val districtAliases = Constants.getDistrictAliases(district)
             val primaryAliases = districtAliases.take(10) // 🚀 Max 10 items for Firestore whereIn!
-            val districtMandals = Constants.MANDAL_DATA[district] ?: emptyList()
 
             // 🚀 INSTANT LOCAL CACHE FIRST: Show cached local news instantly (< 20ms) so user never sees blank screen
             if (_news.value.isEmpty()) {
@@ -348,24 +343,6 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     } else if (cachedPosts.isNotEmpty()) {
                         _news.value = cachedPosts
                         _loading.value = false
-                    } else {
-                        // 🚀 Fast local cache scan: Check if general cache has any posts for this district
-                        try {
-                            val generalCachedSnap = newsRef
-                                .whereEqualTo("approved", true)
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(pageSize.toLong())
-                                .get(com.google.firebase.firestore.Source.CACHE)
-                                .await()
-                            val generalPosts = generalCachedSnap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
-                            val districtMatches = generalPosts.filter { post ->
-                                post.district == district || post.categories.contains(district) || Constants.isDistrictMatch(post.district, district)
-                            }
-                            if (districtMatches.isNotEmpty()) {
-                                _news.value = districtMatches
-                                _loading.value = false
-                            }
-                        } catch (e: Exception) { }
                     }
                 } catch (e: Exception) { }
             }
@@ -406,103 +383,43 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             var fetchedAny = false
             
             try {
-                val fetchedMap = mutableMapOf<String, NewsPost>()
-                var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
+                // 🚀 DIRECT SINGLE QUERY (Ultra-Fast < 100ms):
+                // జిల్లా ఫీల్డ్ ఆధారంగా నేరుగా ఒకే క్వెరీతో వేగంగా లోడ్ చేయడం
+                val query = (if (primaryAliases.size > 1) {
+                    newsRef.whereEqualTo("approved", true).whereIn("district", primaryAliases)
+                } else if (primaryAliases.size == 1) {
+                    newsRef.whereEqualTo("approved", true).whereEqualTo("district", primaryAliases[0])
+                } else {
+                    newsRef.whereEqualTo("approved", true).whereEqualTo("district", district)
+                })
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+                .limit(pageSize.toLong())
 
+                var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
                 try {
-                    // 🚀 STEP 1: Search by 'district' field directly with whereIn / whereEqualTo
-                    val step1Query = if (primaryAliases.size > 1) {
-                        newsRef.whereEqualTo("approved", true).whereIn("district", primaryAliases)
-                    } else if (primaryAliases.size == 1) {
-                        newsRef.whereEqualTo("approved", true).whereEqualTo("district", primaryAliases[0])
-                    } else {
-                        newsRef.whereEqualTo("approved", true).whereEqualTo("district", district)
-                    }
-                    val query = step1Query
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(pageSize.toLong())
-                    
-                    val snap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                    val snap = kotlinx.coroutines.withTimeoutOrNull(5000L) {
                         query.get().await()
                     }
                     if (snap != null && !snap.isEmpty) {
-                        currentStage = LocalFeedStage.DISTRICT
                         snapshot = snap
-                        snap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
-                            .forEach { fetchedMap[it.id] = it }
-                    }
-
-                    // 🚀 STEP 2: Multi-source merge - Search by categories array with whereArrayContainsAny if fetched count is low
-                    if (fetchedMap.size < pageSize) {
-                        val categoryAliases = districtAliases.take(10)
-                        val fallbackQuery = newsRef
-                            .whereEqualTo("approved", true)
-                            .whereArrayContainsAny("categories", categoryAliases)
-                            .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(pageSize.toLong())
-                        
-                        val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(7000L) {
-                            fallbackQuery.get().await()
-                        }
-                        if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {
-                            if (snapshot == null) {
-                                currentStage = LocalFeedStage.DISTRICT_CATEGORIES
-                                snapshot = fallbackSnapshot
-                            }
-                            fallbackSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
-                                .forEach { fetchedMap[it.id] = it }
-                        }
-                    }
-
-                    // 🚀 STEP 3: Multi-source merge - Search by mandals array if still low
-                    if (fetchedMap.size < pageSize && districtMandals.isNotEmpty()) {
-                        val mandalQuery = newsRef
-                            .whereEqualTo("approved", true)
-                            .whereArrayContainsAny("categories", districtMandals.take(10))
-                            .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(pageSize.toLong())
-                        
-                        val mandalSnapshot = kotlinx.coroutines.withTimeoutOrNull(7000L) {
-                            mandalQuery.get().await()
-                        }
-                        if (mandalSnapshot != null && !mandalSnapshot.isEmpty) {
-                            if (snapshot == null) {
-                                currentStage = LocalFeedStage.DISTRICT_MANDALS
-                                snapshot = mandalSnapshot
-                            }
-                            mandalSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
-                                .forEach { fetchedMap[it.id] = it }
-                        }
-                    }
-
-                    // 🚀 STEP 4: State / Approved news fallback if local district has zero news
-                    if (fetchedMap.isEmpty()) {
-                        val stateFallbackQuery = newsRef
-                            .whereEqualTo("approved", true)
-                            .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(pageSize.toLong())
-                        val stateSnap = kotlinx.coroutines.withTimeoutOrNull(7000L) {
-                            stateFallbackQuery.get().await()
-                        }
-                        if (stateSnap != null && !stateSnap.isEmpty) {
-                            if (snapshot == null) snapshot = stateSnap
-                            stateSnap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
-                                .forEach { fetchedMap[it.id] = it }
-                        }
                     }
                 } catch (e: Exception) {
-                    android.util.Log.e("LocalNewsFeedViewModel", "News fetch failed for $district: ${e.message}")
+                    android.util.Log.e("LocalNewsFeedViewModel", "News direct fetch failed for $district: ${e.message}")
                 }
-                
+
+                val fetchedPosts = snapshot?.documents?.mapNotNull { doc ->
+                    convertToNewsPost(doc.id, doc.data ?: emptyMap())
+                } ?: emptyList()
+
                 lastDocument = snapshot?.documents?.lastOrNull()
-                _hasMore.value = snapshot != null && !snapshot.isEmpty
+                _hasMore.value = (snapshot?.size() ?: 0) >= pageSize
 
                 val rankedPosts = withContext(Dispatchers.Default) {
-                    rankLocalNews(fetchedMap.values.toList(), district, currentUser)
+                    rankLocalNews(fetchedPosts, district, currentUser)
                 }
 
                 val wasEmpty = _news.value.isEmpty()
-                val finalPosts = rankedPosts
+                val finalPosts = if (rankedPosts.isNotEmpty()) rankedPosts else fetchedPosts.sortedByDescending { it.timestamp }
                 if (finalPosts.isNotEmpty()) {
                     fetchedAny = true
                     _news.value = finalPosts
@@ -512,21 +429,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         _shouldScrollToTop.value = true
                     }
                 } else {
-                    // 🛡️ Firestore returned docs but rankLocalNews filtered ALL of them (too strict).
-                    // Fallback: show raw fetched posts sorted by timestamp so user never sees empty screen.
-                    val fallbackPosts = withContext(Dispatchers.Default) {
-                        fetchedMap.values.toList().sortedByDescending { it.timestamp }
-                    }
-                    if (fallbackPosts.isNotEmpty()) {
-                        fetchedAny = true
-                        _news.value = fallbackPosts
-                        val validIds = fallbackPosts.filter { it.type == "news" }.map { it.id }
-                        prefs.incrementPostViewCounts(validIds)
-                        if (wasEmpty) _shouldScrollToTop.value = true
-                    } else {
-                        // Genuinely empty — no more pages to load
-                        _hasMore.value = false
-                    }
+                    _hasMore.value = false
                 }
                 _loading.value = false 
 
@@ -557,150 +460,67 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             return
         }
 
-        var anyFetched = false
         viewModelScope.launch {
             isFetching = true
             try {
                 val newsRef = FirebaseService.db.collection("news")
                 val districtAliases = Constants.getDistrictAliases(district)
-                val districtMandals = Constants.MANDAL_DATA[district] ?: emptyList()
+                val primaryAliases = districtAliases.take(10)
 
-                var attempts = 0
-                var appendedCount = 0
-
-                while (attempts < 3 && appendedCount == 0 && _hasMore.value) {
-                    attempts++
-                    var snap: com.google.firebase.firestore.QuerySnapshot? = null
-
-                    when (currentStage) {
-                        LocalFeedStage.DISTRICT -> {
-                            val primaryAliases = districtAliases.take(10) // 🚀 Max 10 items for Firestore whereIn
-                            val baseQ = if (primaryAliases.size > 1) {
-                                newsRef.whereEqualTo("approved", true).whereIn("district", primaryAliases)
-                            } else if (primaryAliases.size == 1) {
-                                newsRef.whereEqualTo("approved", true).whereEqualTo("district", primaryAliases[0])
-                            } else {
-                                newsRef.whereEqualTo("approved", true).whereEqualTo("district", district)
-                            }
-                            var q = baseQ
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(pageSize.toLong())
-                            val lastDocDistrict = lastDocument
-                            if (lastDocDistrict != null) {
-                                q = q.startAfter(lastDocDistrict)
-                            }
-                            val res = kotlinx.coroutines.withTimeoutOrNull(7500L) {
-                                try { q.get().await() } catch (e: Exception) { null }
-                            }
-                            if (res != null && !res.isEmpty) {
-                                snap = res
-                            } else {
-                                // Transition to DISTRICT_CATEGORIES
-                                currentStage = LocalFeedStage.DISTRICT_CATEGORIES
-                                lastDocument = null
-                                continue
-                            }
-                        }
-                        LocalFeedStage.DISTRICT_CATEGORIES -> {
-                            val categoryAliases = districtAliases.take(10)
-                            var q = newsRef
-                                .whereEqualTo("approved", true)
-                                .whereArrayContainsAny("categories", categoryAliases)
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(pageSize.toLong())
-                            val lastDocCategory = lastDocument
-                            if (lastDocCategory != null) {
-                                q = q.startAfter(lastDocCategory)
-                            }
-                            val categoryRes = kotlinx.coroutines.withTimeoutOrNull(7000L) {
-                                try { q.get().await() } catch (e: Exception) { null }
-                            }
-                            if (categoryRes != null && !categoryRes.isEmpty) {
-                                snap = categoryRes
-                            } else {
-                                // Transition to DISTRICT_MANDALS
-                                currentStage = LocalFeedStage.DISTRICT_MANDALS
-                                lastDocument = null
-                                continue
-                            }
-                        }
-                        LocalFeedStage.DISTRICT_MANDALS -> {
-                            if (districtMandals.isEmpty()) {
-                                _hasMore.value = false
-                                break
-                            }
-                            val mandalAliases = districtMandals.take(10)
-                            var q = newsRef
-                                .whereEqualTo("approved", true)
-                                .whereArrayContainsAny("categories", mandalAliases)
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(pageSize.toLong())
-                            val lastDocMandal = lastDocument
-                            if (lastDocMandal != null) {
-                                q = q.startAfter(lastDocMandal)
-                            }
-                            val mandalRes = kotlinx.coroutines.withTimeoutOrNull(7000L) {
-                                try { q.get().await() } catch (e: Exception) { null }
-                            }
-                            if (mandalRes != null && !mandalRes.isEmpty) {
-                                snap = mandalRes
-                            } else {
-                                lastDocument = null
-                                _hasMore.value = false
-                                break
-                            }
-                        }
-                    }
-
-                    if (snap != null && !snap.isEmpty) {
-                        lastDocument = snap.documents.lastOrNull()
-                        val fetchedPosts = withContext(Dispatchers.Default) {
-                            snap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
-                        }
-
-                        val currentIds = _news.value.map { it.id }.toSet()
-                        val uniqueNewPosts = fetchedPosts.filter { post -> !currentIds.contains(post.id) }
-
-                        if (uniqueNewPosts.isNotEmpty()) {
-                            val rankedNewPosts = withContext(Dispatchers.Default) {
-                                rankLocalNews(uniqueNewPosts, district, currentUser)
-                            }
-                            if (rankedNewPosts.isNotEmpty()) {
-                                _news.value = _news.value + rankedNewPosts
-                                appendedCount = rankedNewPosts.size
-                                if (appendedCount > 0) anyFetched = true
-                                val validIds = rankedNewPosts.filter { it.type == "news" }.map { it.id }
-                                if (validIds.isNotEmpty()) {
-                                    prefs.incrementPostViewCounts(validIds)
-                                }
-                            } else {
-                                // 🛡️ rankLocalNews filtered ALL unique posts — fallback to raw posts
-                                // so user doesn't get stuck on a spinner that never resolves
-                                val rawPosts = uniqueNewPosts.sortedByDescending { it.timestamp }
-                                _news.value = _news.value + rawPosts
-                                appendedCount = rawPosts.size
-                                if (appendedCount > 0) anyFetched = true
-                                val validIds = rawPosts.filter { it.type == "news" }.map { it.id }
-                                if (validIds.isNotEmpty()) prefs.incrementPostViewCounts(validIds)
-                            }
-                        }
-                    }
+                val baseQ = if (primaryAliases.size > 1) {
+                    newsRef.whereEqualTo("approved", true).whereIn("district", primaryAliases)
+                } else if (primaryAliases.size == 1) {
+                    newsRef.whereEqualTo("approved", true).whereEqualTo("district", primaryAliases[0])
+                } else {
+                    newsRef.whereEqualTo("approved", true).whereEqualTo("district", district)
                 }
-                // 🛡️ INFINITE SPINNER FIX: After while loop exits with 0 appended posts,
-                // stop showing the loading slot so user can keep reading existing articles.
-                if (appendedCount == 0 && _hasMore.value) {
+
+                var q = baseQ
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                    .limit(pageSize.toLong())
+
+                val lastDoc = lastDocument
+                if (lastDoc != null) {
+                    q = q.startAfter(lastDoc)
+                }
+
+                val snap = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                    try { q.get().await() } catch (e: Exception) { null }
+                }
+
+                if (snap != null && !snap.isEmpty) {
+                    lastDocument = snap.documents.lastOrNull()
+                    _hasMore.value = snap.size() >= pageSize
+
+                    val fetchedPosts = withContext(Dispatchers.Default) {
+                        snap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                    }
+
+                    val currentIds = _news.value.map { it.id }.toSet()
+                    val uniqueNewPosts = fetchedPosts.filter { post -> !currentIds.contains(post.id) }
+
+                    if (uniqueNewPosts.isNotEmpty()) {
+                        val rankedNewPosts = withContext(Dispatchers.Default) {
+                            rankLocalNews(uniqueNewPosts, district, currentUser)
+                        }
+                        val postsToAppend = if (rankedNewPosts.isNotEmpty()) rankedNewPosts else uniqueNewPosts.sortedByDescending { it.timestamp }
+                        _news.value = _news.value + postsToAppend
+                        val validIds = postsToAppend.filter { it.type == "news" }.map { it.id }
+                        if (validIds.isNotEmpty()) {
+                            prefs.incrementPostViewCounts(validIds)
+                        }
+                    }
+                } else {
                     _hasMore.value = false
                 }
             } catch (e: Exception) {
                 android.util.Log.e("LocalNewsFeedViewModel", "LoadMore query failed: ${e.message}")
-                _hasMore.value = false // prevent infinite spinner on error
+                _hasMore.value = false
             } finally {
                 isFetching = false
                 if (pendingLoadMore && _hasMore.value) {
                     pendingLoadMore = false
-                    if (anyFetched) {
-                        loadMore(language, currentUser)
-                    }
+                    loadMore(language, currentUser)
                 }
             }
         }
@@ -718,90 +538,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
 
     /**
-     * ఒక వార్తా పోస్ట్ నిజంగా ఎంచుకున్న జిల్లాకు (లేదా ఆ జిల్లా మండలాలకు/అలీయాసెస్‌లకు) చెందుతుందో లేదో తనిఖీ చేస్తుంది.
-     *
-     * NOTE: Firestore query already pre-filtered with whereIn(district) / whereArrayContainsAny(categories).
-     * So most posts will pass quickly via check #1 or #3 below.
-     * The strict "other district" rejection (isGenericOrState) only applies when post.district is a
-     * clearly different specific district (e.g. Kadapa post shown in Guntur feed).
-     */
-    private fun isPostMatchingDistrict(post: NewsPost, targetDistrict: String): Boolean {
-        if (targetDistrict.isBlank()) return false
-
-        val aliases = Constants.getDistrictAliases(targetDistrict)
-        val mandals = Constants.MANDAL_DATA[targetDistrict] ?: emptyList()
-        val lowerAliases = aliases.map { it.lowercase().trim() }
-        val lowerMandals = mandals.map { it.lowercase().trim() }
-
-        val postDist = post.district?.trim()
-
-        // 1. Direct match or alias match on post.district
-        if (!postDist.isNullOrBlank() && Constants.isDistrictMatch(postDist, targetDistrict)) {
-            return true
-        }
-
-        // 2. Check categories and tags for district name or aliases
-        //    (Firestore's whereIn on "district" and whereArrayContainsAny on "categories" already
-        //     pre-selected these posts, so this check catches any remaining matches quickly)
-        val postCatsAndTags = (post.categories + post.tags).map { it.lowercase().trim() }
-        if (postCatsAndTags.any { item ->
-            lowerAliases.any { alias -> alias.isNotBlank() && (item == alias || item.contains(alias)) }
-        }) {
-            return true
-        }
-
-        // 3. Check categories and tags for mandal names
-        if (lowerMandals.isNotEmpty() && postCatsAndTags.any { item ->
-            lowerMandals.any { mandal -> mandal.isNotBlank() && (item == mandal || item.contains(mandal)) }
-        }) {
-            return true
-        }
-
-        // 4. Check location field
-        val postLoc = post.location.lowercase().trim()
-        if (postLoc.isNotBlank()) {
-            if (lowerAliases.any { alias -> alias.isNotBlank() && (postLoc == alias || postLoc.contains(alias) || alias.contains(postLoc)) } ||
-                lowerMandals.any { mandal -> mandal.isNotBlank() && (postLoc == mandal || postLoc.contains(mandal) || mandal.contains(postLoc)) }) {
-                return true
-            }
-        }
-
-        // 5. Check extracted mandal via LocationHierarchyManager
-        val extractedMandal = LocationHierarchyManager.extractMandalFromPost(post, targetDistrict)
-        if (!extractedMandal.isNullOrBlank() && mandals.any { isMandalMatch(it, extractedMandal) }) {
-            return true
-        }
-
-        // 6. Check headline for district alias or mandal
-        val headlineTe = post.headline.telugu
-        if (headlineTe.isNotBlank()) {
-            if (aliases.any { alias -> alias.length >= 3 && headlineTe.contains(alias) } ||
-                mandals.any { mandal -> mandal.length >= 4 && headlineTe.contains(mandal) }) {
-                return true
-            }
-        }
-
-        // 7. LAST RESORT: If postDist is a different SPECIFIC district → reject.
-        //    If postDist is null/blank/generic/state-level → allow (it came from Firestore query match
-        //    via categories/mandals, so it is relevant even if district field is not set precisely).
-        val isGenericOrState = Constants.isStateOrGenericDistrict(postDist)
-        if (!isGenericOrState) {
-            // Explicitly assigned to another specific district — reject
-            return false
-        }
-
-        // postDist is generic/null/state-level and passed Firestore pre-filter → accept
-        return true
-    }
-
-    /**
-     * 3-Tier ప్రాధాన్యత + యూజర్ ఆసక్తులు (Relevance Score) + తాజాదనం (Recency) ఆధారంగా జిల్లా వార్తలను ర్యాంక్ చేస్తుంది:
-     * 1. Tier 1: యూజర్ మండలం (100 pts)
-     * 2. Tier 2: నియోజకవర్గం (50 pts)
-     * 3. Tier 3: ఇతర జిల్లా ప్రాంతాలు (20 pts)
-     * + యూజర్ ఆసక్తుల బోనస్ (Relevance Score * 1.5)
-     * + తాజాదనపు బోనస్ (Recency Bonus up to 35 pts)
-     * + చదవని వార్తలకు ప్రథమ ప్రాధాన్యత (Unread first, Seen deprioritized)
+     * అన్ని జిల్లా వార్తలను తాజాదనం (timestamp descending) ఆధారంగా నేరుగా చూపిస్తాము.
+     * యూజర్/రిపోర్టర్ స్వయంగా పోస్ట్ చేసిన వార్త ఉంటే దాన్ని పైన ఉంచుతాము (తక్షణ ధృవీకరణ కోసం).
      */
     private fun rankLocalNews(
         posts: List<NewsPost>,
@@ -810,66 +548,17 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     ): List<NewsPost> {
         if (posts.isEmpty()) return emptyList()
 
-        // 🚨 STRICT DISTRICT FILTERING:
-        // Only allow posts that actually belong to the selected district or its mandals/aliases!
-        // (Bypass for user's own posts so reporters always see their newly posted news)
-        val filteredPosts = posts.filter { post ->
-            val isOwnPost = currentUser != null && (
-                post.reporter.id == currentUser.id ||
-                post.originalReporterId == currentUser.id ||
-                post.id.startsWith("post_${currentUser.id}_")
-            )
-            isOwnPost || isPostMatchingDistrict(post, district)
-        }
+        val sortedPosts = posts.sortedWith(
+            compareByDescending<NewsPost> { post ->
+                currentUser != null && (
+                    post.reporter.id == currentUser.id ||
+                    post.originalReporterId == currentUser.id ||
+                    post.id.startsWith("post_${currentUser.id}_")
+                )
+            }.thenByDescending { it.timestamp }
+        )
 
-        if (filteredPosts.isEmpty()) return emptyList()
-
-        // 1. యూజర్ యొక్క ప్రాథమిక మండలాన్ని (Primary Mandal) గుర్తించడం
-        val primaryMandal = prefs.getEffectiveUserMandal(district, currentUser)
-        val constituency = if (!primaryMandal.isNullOrBlank()) {
-            LocationHierarchyManager.getConstituencyForMandal(district, primaryMandal)
-        } else null
-        val constituencyMandals = if (!constituency.isNullOrBlank()) {
-            LocationHierarchyManager.getMandalsForConstituency(district, constituency)
-        } else emptyList()
-
-        fun computeLocalScore(post: NewsPost): Double {
-            val isOwnPost = currentUser != null && (
-                post.reporter.id == currentUser.id ||
-                post.originalReporterId == currentUser.id ||
-                post.id.startsWith("post_${currentUser.id}_")
-            )
-            if (isOwnPost) {
-                return 500.0 // Prioritize reporter's own post at the top
-            }
-
-            val postMandal = LocationHierarchyManager.extractMandalFromPost(post, district)
-
-            val tierScore = when {
-                !primaryMandal.isNullOrBlank() && postMandal != null && isMandalMatch(postMandal, primaryMandal) -> 100.0
-                postMandal != null && constituencyMandals.any { isMandalMatch(it, postMandal) } -> 50.0
-                else -> 20.0
-            }
-
-            val relevanceScore = try { AnalyticsService.calculateRelevanceScore(post) } catch (e: Exception) { 0.0 }
-            val relevanceBonus = maxOf(-20.0, relevanceScore * 1.5)
-
-            val hoursOld = maxOf(0.0, (System.currentTimeMillis() - post.timestamp) / (1000.0 * 60 * 60))
-            val recencyBonus = 35.0 * Math.exp(-hoursOld / 24.0)
-
-            return tierScore + relevanceBonus + recencyBonus
-        }
-
-        // 2. ర్యాంకింగ్ స్కోరు ప్రకారం ఆర్డర్ చేయడం
-        val rankedPosts = filteredPosts.sortedByDescending { computeLocalScore(it) }
-
-        return rankedPosts.distinctBy { it.id }
-    }
-
-    private fun isMandalMatch(m1: String, m2: String): Boolean {
-        val clean1 = m1.replace("అర్బన్", "").replace("రూరల్", "").replace("Urban", "", true).replace("Rural", "", true).trim()
-        val clean2 = m2.replace("అర్బన్", "").replace("రూరల్", "").replace("Urban", "", true).replace("Rural", "", true).trim()
-        return clean1.equals(clean2, ignoreCase = true) || clean1.contains(clean2, ignoreCase = true) || clean2.contains(clean1, ignoreCase = true)
+        return sortedPosts.distinctBy { it.id }
     }
 
     private fun convertToNewsPost(id: String, data: Map<String, Any?>): NewsPost? {

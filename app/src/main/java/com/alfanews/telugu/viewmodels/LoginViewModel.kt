@@ -63,7 +63,7 @@ class LoginViewModel : ViewModel() {
         if (!referredBy.isNullOrEmpty() && referredBy != user.uid) {
             userData["referredBy"] = referredBy
         }
-        userRef.set(userData).await()
+        userRef.set(userData, com.google.firebase.firestore.SetOptions.merge()).await()
     }
 
     fun signInWithCredential(credential: AuthCredential, context: Context) {
@@ -105,33 +105,97 @@ class LoginViewModel : ViewModel() {
                         val clean10Digit = phone?.replace("+91", "")?.trim()
                         val fullWith91 = if (phone != null && phone.startsWith("+91")) phone else if (!clean10Digit.isNullOrEmpty()) "+91$clean10Digit" else null
                         
-                        // 1. Search by 10-digit phone and +91 phone
+                        // 1. Search by 10-digit phone and +91 phone across both phone & phoneNumber fields
                         val searchPhones = listOfNotNull(clean10Digit, fullWith91).filter { it.length >= 10 }.distinct()
                         for (p in searchPhones) {
                             if (foundLegacyUser) break
                             try {
                                 val legacyDocs = kotlinx.coroutines.withTimeoutOrNull(3000L) {
-                                    FirebaseService.db.collection("users")
-                                        .whereEqualTo("phone", p)
-                                        .get().await()
+                                    val snap1 = FirebaseService.db.collection("users").whereEqualTo("phone", p).get().await()
+                                    if (!snap1.isEmpty) snap1 else FirebaseService.db.collection("users").whereEqualTo("phoneNumber", p).get().await()
                                 }
                                 if (legacyDocs != null && !legacyDocs.isEmpty) {
                                     val legacyDoc = legacyDocs.documents.first()
                                     val legacyData = legacyDoc.data
                                     val rawLegacyRole = legacyData?.get("role")
-                                    val parsedLegacyRole = if (isAdmin) UserRole.ADMIN else (UserRole.fromStringSafe(rawLegacyRole) ?: UserRole.SUBSCRIBER)
+                                    val legacyMandal = legacyData?.get("assignedMandal") as? String
+                                    val legacyLastKnown = legacyData?.get("lastKnownMandal") as? String
+                                    val hasReporterAttrs = legacyMandal?.isNotBlank() == true ||
+                                            legacyLastKnown?.isNotBlank() == true ||
+                                            legacyData?.get("previouslyDowngraded") == true ||
+                                            legacyData?.get("downgradedReason") != null ||
+                                            ((legacyData?.get("points") as? Number)?.toInt() ?: 0) > 0
+                                    val parsedLegacyRole = if (isAdmin) {
+                                        UserRole.ADMIN
+                                    } else if (hasReporterAttrs) {
+                                        UserRole.REPORTER
+                                    } else {
+                                        UserRole.fromStringSafe(rawLegacyRole) ?: UserRole.SUBSCRIBER
+                                    }
                                     legacyRole = parsedLegacyRole.name
                                     
                                     val updatedLegacyData = legacyData?.toMutableMap() ?: mutableMapOf()
                                     updatedLegacyData["lastLogin"] = Timestamp.now()
-                                    if (isAdmin) {
-                                        updatedLegacyData["role"] = "ADMIN"
+                                    updatedLegacyData["role"] = legacyRole
+                                    if (hasReporterAttrs) {
+                                        updatedLegacyData["previouslyDowngraded"] = false
+                                        updatedLegacyData["suspended"] = false
+                                        updatedLegacyData["warningLevel"] = 0
+                                        updatedLegacyData.remove("downgradedReason")
+                                        updatedLegacyData.remove("downgradedAt")
+                                        updatedLegacyData.remove("downgradedBy")
+                                        if (legacyMandal.isNullOrBlank() && !legacyLastKnown.isNullOrBlank() && legacyLastKnown.contains("|")) {
+                                            val parts = legacyLastKnown.split("|")
+                                            if (parts.size >= 2) {
+                                                updatedLegacyData["district"] = parts[0]
+                                                updatedLegacyData["assignedMandal"] = parts[1]
+                                                updatedLegacyData["mandal"] = parts[1]
+                                            }
+                                        }
                                     }
                                     userRef.set(updatedLegacyData, com.google.firebase.firestore.SetOptions.merge()).await()
                                     foundLegacyUser = true
                                 }
                             } catch (e: Exception) {
                                 android.util.Log.e("LoginViewModel", "Legacy search by phone failed: ${e.message}")
+                            }
+                        }
+
+                        // 1b. Check reporter_applications if user profile not found
+                        if (!foundLegacyUser) {
+                            for (p in searchPhones) {
+                                if (foundLegacyUser) break
+                                try {
+                                    val appDocs = kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                                        val snapApp1 = FirebaseService.db.collection("reporter_applications").whereEqualTo("phone", p).get().await()
+                                        if (!snapApp1.isEmpty) snapApp1 else FirebaseService.db.collection("reporter_applications").whereEqualTo("phoneNumber", p).get().await()
+                                    }
+                                    val validApp = appDocs?.documents?.firstOrNull { 
+                                        val status = it.getString("status")?.uppercase()
+                                        status == "JOINED" || status == "APPROVED" || status == "SUSPENDED"
+                                    }
+                                    if (validApp != null) {
+                                        legacyRole = "REPORTER"
+                                        val appDist = validApp.getString("district") ?: ""
+                                        val appMandal = validApp.getString("assignedMandal") ?: validApp.getString("mandal") ?: ""
+                                        val repData = mutableMapOf<String, Any?>(
+                                            "name" to (validApp.getString("fullName") ?: validApp.getString("name") ?: user.displayName ?: "విలేకరి"),
+                                            "phone" to (user.phoneNumber ?: p),
+                                            "role" to "REPORTER",
+                                            "district" to appDist,
+                                            "assignedMandal" to appMandal,
+                                            "mandal" to appMandal,
+                                            "warningLevel" to 0,
+                                            "inProbation" to false,
+                                            "previouslyDowngraded" to false,
+                                            "lastLogin" to Timestamp.now()
+                                        )
+                                        userRef.set(repData, com.google.firebase.firestore.SetOptions.merge()).await()
+                                        foundLegacyUser = true
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.e("LoginViewModel", "Reporter application search failed: ${e.message}")
+                                }
                             }
                         }
 

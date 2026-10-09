@@ -71,7 +71,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       items: [
         { id: 'profile', label: 'ప్రొఫైల్ (Profile)', icon: '👤', roles: [UserRole.GUEST, UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN] },
         { id: 'post', label: 'వార్తను పోస్ట్ చేయండి', icon: '✍️', roles: [UserRole.REPORTER, UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN] },
-        { id: 'manage', label: 'వార్తల నిర్వహణ (Manage News)', icon: '📑', roles: [UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN] },
+        { id: 'manage', label: 'వార్తల నిర్వహణ (Manage News)', icon: '📑', roles: [UserRole.REPORTER, UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN] },
         { id: 'manageSurveys', label: 'సర్వేల నిర్వహణ (Surveys & Polls)', icon: '📊', roles: [UserRole.REPORTER, UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN] },
         { id: 'dailyReport', label: 'డైలీ రిపోర్ట్ (Daily Report)', icon: '📈', roles: [UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN] },
       ]
@@ -112,9 +112,13 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   ];
 
+  const effectiveRole = (user.role === UserRole.SUBSCRIBER && (user.assignedMandal || (user as any).mandal))
+    ? UserRole.REPORTER
+    : user.role;
+
   // Flatten accessible items
   const allAccessibleItems = navSections.flatMap(section => 
-    section.items.filter(item => item.roles.includes(user.role))
+    section.items.filter(item => item.roles.includes(effectiveRole))
   );
 
   const handleMenuClick = (pageId: string) => {
@@ -259,7 +263,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
         {/* Navigation List */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-5 pb-20 custom-scrollbar">
           {navSections.map((section, sIdx) => {
-            const accessibleSectionItems = section.items.filter(item => item.roles.includes(user.role));
+            const accessibleSectionItems = section.items.filter(item => item.roles.includes(effectiveRole));
             if (accessibleSectionItems.length === 0) return null;
 
             return (

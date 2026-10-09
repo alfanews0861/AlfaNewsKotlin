@@ -235,6 +235,58 @@ export async function runReporterActivityScan() {
 
     const now = new Date();
 
+    // 🛡️ Auto-Restore Step: Automatically recover any reporters demoted or downgraded
+    try {
+        const demotedUsersSnap = await db.collection('users')
+            .where('previouslyDowngraded', '==', true)
+            .get();
+        for (const doc of demotedUsersSnap.docs) {
+            const u = doc.data();
+            let mandal = u.assignedMandal || u.mandal || "";
+            let district = u.district || "";
+            if (!mandal && u.lastKnownMandal && u.lastKnownMandal.includes("|")) {
+                const parts = u.lastKnownMandal.split("|");
+                district = parts[0] || district;
+                mandal = parts[1] || mandal;
+            }
+            await doc.ref.set({
+                role: UserRole.REPORTER,
+                warningLevel: 0,
+                inProbation: false,
+                previouslyDowngraded: false,
+                suspended: false,
+                ...(mandal ? { assignedMandal: mandal, mandal: mandal } : {}),
+                ...(district ? { district: district } : {}),
+                downgradedReason: admin.firestore.FieldValue.delete(),
+                downgradedAt: admin.firestore.FieldValue.delete(),
+                downgradedBy: admin.firestore.FieldValue.delete(),
+                lastWarningDate: admin.firestore.FieldValue.delete(),
+                rejoinedAt: admin.firestore.FieldValue.serverTimestamp(),
+                lastPostTimestamp: u.lastPostTimestamp || admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            console.log(`[REPORTER_MONITOR] 🔄 Auto-restored reporter: ${u.name || doc.id} (${mandal || 'Reporter'})`);
+
+            // Restore associated applications
+            try {
+                const appSnap = await db.collection('reporter_applications')
+                    .where('userId', '==', doc.id)
+                    .where('status', 'in', ['SUSPENDED', 'PENDING'])
+                    .get();
+                for (const appDoc of appSnap.docs) {
+                    await appDoc.ref.update({ 
+                        status: 'JOINED', 
+                        suspendedAt: admin.firestore.FieldValue.delete(), 
+                        reason: admin.firestore.FieldValue.delete() 
+                    });
+                }
+            } catch (appErr: any) {
+                console.warn(`[REPORTER_MONITOR] App restore warn for ${doc.id}:`, appErr.message);
+            }
+        }
+    } catch (restoreErr: any) {
+        console.warn(`[REPORTER_MONITOR] Auto-restore query warn:`, restoreErr.message);
+    }
+
     // Fetch all active reporters (handling string, numeric, and enum role formats)
     const reportersSnapshot = await db.collection('users')
         .where('role', 'in', [UserRole.REPORTER, 'REPORTER', 'reporter', 2, 2.0, '2'])
@@ -421,20 +473,22 @@ export async function handleReporterStatus(
     // Level 0 -> Level 1 (after 5 days inactive)
     // Level 1 -> Level 2 (after 8 days inactive AND at least 48h since Level 1)
     // Level 2 -> Level 3 (after 12 days inactive AND at least 72h since Level 2)
-    // Level 3 -> Demotion (after 15 days inactive AND at least 72h since Level 3 AND 0 lifetime posts)
+    // 🛡️ CRITICAL RULE: Automated demotion to SUBSCRIBER is PERMANENTLY DISABLED.
+    // Downgrading or removing a reporter is exclusively an explicit MANUAL admin action from the Admin Panel.
+    // Inactive reporters receive friendly encouragement reminders, but their REPORTER role and mandal remain safe.
 
-    if (daysInactive >= 15 && currentLevel >= 3 && hoursSinceLastWarning >= 72 && totalNewsPosts === 0) {
-        shouldDowngrade = true;
-        title = "రిపోర్టర్ హోదా తొలగించబడింది";
-        body = "వార్తలు పంపనందున మరియు పదే పదే పంపిన హెచ్చరికలకు స్పందించనందున మిమ్మల్ని రిపోర్టర్ హోదా నుండి తొలగించి సబ్‌స్క్రైబర్‌గా మార్చాము.";
+    if (daysInactive >= 15 && currentLevel >= 3 && hoursSinceLastWarning >= 72) {
+        nextLevel = 3;
+        title = "వార్తల కోసం Alfa News వేచి చూస్తోంది 📰";
+        body = "మీ ప్రాంత తాజా విశేషాలను మరియు ప్రజా సమస్యలను Alfa News లో పంపండి. మీ సహకారం మాకు అత్యంత విలువైనది.";
     } else if (daysInactive >= 12 && currentLevel === 2 && hoursSinceLastWarning >= 72) {
         nextLevel = 3;
-        title = "తుది హెచ్చరిక (Final Warning)";
-        body = "గత 12 రోజులుగా మీరు వార్తలు పంపడం లేదు. రాబోయే 3 రోజుల్లో కనీసం ఒక వార్త అయినా పంపకపోతే మీ రిపోర్టర్ హోదా రద్దు చేయబడుతుంది.";
+        title = "వార్తలు పంపమని విన్నపం 📰";
+        body = "గత కొద్ది రోజులుగా మీ మండల వార్తలు రాలేదు. దయచేసి మీ ప్రాంత వార్తలను పంపగలరని ఆశిస్తున్నాము.";
     } else if (daysInactive >= 8 && currentLevel === 1 && hoursSinceLastWarning >= 48) {
         nextLevel = 2;
-        title = "షోకాజ్ నోటీసు (Show Cause Notice)";
-        body = "మీరు గత 8 రోజులుగా వార్తలు పంపడం లేదు. వార్తలు పంపకపోవడానికి గల కారణాన్ని తెలియజేయండి లేదా వెంటనే మీ మండల వార్తను పోస్ట్ చేయండి.";
+        title = "వార్తలు పంపమని విన్నపం";
+        body = "మీరు గత 8 రోజులుగా వార్తలు పంపలేదు. దయచేసి మీ ప్రాంత తాజా విశేషాలను Alfa News లో పోస్ట్ చేయండి.";
     } else if (daysInactive >= 5 && currentLevel === 0) {
         nextLevel = 1;
         title = "వార్తలు పంపమని విన్నపం";
@@ -442,36 +496,8 @@ export async function handleReporterStatus(
     }
 
     if (shouldDowngrade) {
-        console.log(`[REPORTER_MONITOR] ⚠️ Downgrading inactive account ${reporter.name || reporterId} due to ${daysInactive} days inactivity.`);
-        await db.collection('users').doc(reporterId).set({
-            role: UserRole.SUBSCRIBER,
-            warningLevel: 0,
-            inProbation: false,
-            previouslyDowngraded: true,
-            downgradedReason: "INACTIVITY",
-            downgradedAt: admin.firestore.FieldValue.serverTimestamp(),
-            lastWarningDate: admin.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
-
-        // Update applications to SUSPENDED so mandal is opened up
-        try {
-            const appSnap = await db.collection('reporter_applications')
-                .where('userId', '==', reporterId)
-                .where('status', '==', 'JOINED')
-                .get();
-            for (const appDoc of appSnap.docs) {
-                await appDoc.ref.update({ 
-                    status: 'SUSPENDED', 
-                    suspendedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    reason: 'INACTIVITY' 
-                });
-            }
-        } catch (appErr: any) {
-            console.error(`[APP_SUSPEND_ERR] ${reporterId}:`, appErr.message);
-        }
-
-        await sendInternalMessage(reporterId, title, body, "CRITICAL", reporter, "WARNING");
-        return true;
+        // Kept as safety no-op: automated demotion is disabled
+        return false;
     } else if (nextLevel > currentLevel) {
         console.log(`[REPORTER_MONITOR] 📢 Warning level ${nextLevel} sent to reporter ${reporter.name || reporterId}, inactive ${daysInactive} days.`);
         const importance = nextLevel === 3 ? "HIGH" : "NORMAL";

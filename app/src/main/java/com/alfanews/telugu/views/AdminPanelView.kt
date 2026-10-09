@@ -77,7 +77,7 @@ fun AdminPanelView(
         AppPageConfig("messages", stringResource(R.string.messages), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
         AppPageConfig("post", stringResource(R.string.post_news), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("ads", stringResource(R.string.ads_manager), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
-        AppPageConfig("manage", stringResource(R.string.manage_news), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK)),
+        AppPageConfig("manage", stringResource(R.string.manage_news), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK)),
         AppPageConfig("manageReporters", stringResource(R.string.manage_reporters), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
         AppPageConfig("manageUsers", stringResource(R.string.manage_users), listOf(UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN)),
         AppPageConfig("adminNotify", stringResource(R.string.push_notifications_title), listOf(UserRole.ADMIN)),
@@ -88,10 +88,15 @@ fun AdminPanelView(
     val authUser = com.alfanews.telugu.services.FirebaseService.auth.currentUser
     val isAdminUser = user.role == UserRole.ADMIN ||
         user.phone?.contains("9173811009") == true ||
-        user.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
         authUser?.phoneNumber?.contains("9173811009") == true ||
         authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
-    val effectiveRole = if (isAdminUser) UserRole.ADMIN else user.role
+    val effectiveRole = if (isAdminUser) {
+        UserRole.ADMIN
+    } else if (user.role == UserRole.SUBSCRIBER && !user.assignedMandal.isNullOrBlank()) {
+        UserRole.REPORTER
+    } else {
+        user.role
+    }
     val effectiveUser = remember(user, effectiveRole) { user.copy(role = effectiveRole) }
 
     val accessiblePages = when (effectiveRole) {

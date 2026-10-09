@@ -77,6 +77,7 @@ export interface NewsPost {
   location: string;
   state?: string;
   district?: string;
+  mandal?: string;
   timestamp: number;
   categories: string[];
   likes: number;

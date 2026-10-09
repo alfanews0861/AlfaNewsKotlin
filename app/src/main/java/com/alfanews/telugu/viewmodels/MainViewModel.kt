@@ -227,10 +227,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                          (effectivePhone?.contains("9173811009") == true) ||
                                          (effectiveEmail?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
 
+                        val assignedMandal = snapshot.getString("assignedMandal")?.takeIf { it.isNotBlank() }
+                        val lastKnownMandal = snapshot.getString("lastKnownMandal")?.takeIf { it.isNotBlank() }
+                        val isPrevDowngraded = snapshot.getBoolean("previouslyDowngraded") == true
+                        val downgradedReason = snapshot.getString("downgradedReason")
+                        val userPoints = (snapshot.get("points") as? Number)?.toInt() ?: 0
+
+                        val hasReporterPast = !assignedMandal.isNullOrBlank() ||
+                                !lastKnownMandal.isNullOrBlank() ||
+                                isPrevDowngraded ||
+                                downgradedReason != null ||
+                                userPoints > 0 ||
+                                snapshot.getBoolean("isProtectedSenior") == true
+
                         val parsedRole = if (isAdminDoc) {
                             UserRole.ADMIN
+                        } else if (hasReporterPast) {
+                            // 🛡️ Auto-heal: Restore REPORTER for any previously active, demoted, or credited reporter
+                            UserRole.REPORTER
                         } else {
                             UserRole.fromStringSafe(rawRole) ?: _currentUser.value?.role ?: UserRole.SUBSCRIBER
+                        }
+
+                        if (parsedRole == UserRole.REPORTER && (rawRole?.toString()?.uppercase() == "SUBSCRIBER" || isPrevDowngraded || downgradedReason != null)) {
+                            val autoHealUpdates = mutableMapOf<String, Any>(
+                                "role" to "REPORTER",
+                                "previouslyDowngraded" to false,
+                                "suspended" to false,
+                                "downgradedReason" to com.google.firebase.firestore.FieldValue.delete(),
+                                "downgradedAt" to com.google.firebase.firestore.FieldValue.delete(),
+                                "downgradedBy" to com.google.firebase.firestore.FieldValue.delete(),
+                                "warningLevel" to 0
+                            )
+                            if (assignedMandal.isNullOrBlank() && !lastKnownMandal.isNullOrBlank() && lastKnownMandal.contains("|")) {
+                                val parts = lastKnownMandal.split("|")
+                                if (parts.size >= 2) {
+                                    autoHealUpdates["district"] = parts[0]
+                                    autoHealUpdates["assignedMandal"] = parts[1]
+                                    autoHealUpdates["mandal"] = parts[1]
+                                }
+                            }
+                            snapshot.reference.set(autoHealUpdates, com.google.firebase.firestore.SetOptions.merge())
                         }
 
                         val pushEnabledVal = snapshot.getBoolean("pushEnabled") ?: snapshot.getBoolean("notificationsEnabled") ?: true

@@ -81,28 +81,61 @@ const App: React.FC = () => {
                 snapPhone = await getDocs(qPhone2);
                 if (!snapPhone.empty) {
                   legacyData = snapPhone.docs[0].data();
+                } else {
+                  // Fallback: check phoneNumber field
+                  const qPhone3 = query(collection(db, 'users'), where('phoneNumber', '==', clean10));
+                  snapPhone = await getDocs(qPhone3);
+                  if (!snapPhone.empty) {
+                    legacyData = snapPhone.docs[0].data();
+                  }
                 }
+              }
+              // Check reporter applications if still not found
+              if (!legacyData && clean10) {
+                try {
+                  const qApp = query(collection(db, 'reporter_applications'), where('phone', '==', clean10));
+                  const snapApp = await getDocs(qApp);
+                  if (!snapApp.empty) {
+                    const appData = snapApp.docs[0].data();
+                    legacyData = {
+                      name: appData.fullName || appData.name || firebaseUser.displayName || 'Reporter',
+                      role: UserRole.REPORTER,
+                      district: appData.district || '',
+                      assignedMandal: appData.assignedMandal || appData.mandal || '',
+                      mandal: appData.assignedMandal || appData.mandal || ''
+                    };
+                  }
+                } catch {}
               }
             }
           } catch (e) {
             console.warn('Failed to query legacy user profile:', e);
           }
 
+          const hasReporterAttrs = Boolean(legacyData?.assignedMandal || legacyData?.previouslyDowngraded);
+          const initialRole = (legacyData?.role === UserRole.SUBSCRIBER && hasReporterAttrs) ? UserRole.REPORTER : (legacyData?.role || (hasReporterAttrs ? UserRole.REPORTER : UserRole.SUBSCRIBER));
+
           const newUser: any = {
             id: firebaseUser.uid,
             name: legacyData?.name || firebaseUser.displayName || 'New User',
             email: firebaseUser.email || legacyData?.email || '',
             photoUrl: firebaseUser.photoURL || legacyData?.photoUrl || '',
-            role: legacyData?.role || UserRole.SUBSCRIBER,
+            role: initialRole,
             ...(legacyData || {})
           };
+          if (hasReporterAttrs) {
+            newUser.role = UserRole.REPORTER;
+            newUser.previouslyDowngraded = false;
+          }
           await setDoc(userRef, { ...newUser, createdAt: legacyData?.createdAt || serverTimestamp(), lastLogin: serverTimestamp() }, { merge: true });
         }
 
         userUnsub = onSnapshot(userRef, (docSnap: any) => {
           if (docSnap.exists()) {
             const userData = docSnap.data();
-            setCurrentUser({ id: docSnap.id, ...userData } as User);
+            const hasReporterAttrs = Boolean(userData.assignedMandal || (userData.previouslyDowngraded && userData.downgradedReason === 'INACTIVITY'));
+            const effectiveRole = (userData.role === UserRole.SUBSCRIBER && hasReporterAttrs) ? UserRole.REPORTER : userData.role;
+            setCurrentUser({ id: docSnap.id, ...userData, role: effectiveRole } as User);
           }
         });
         setShowLogin(false);

@@ -9,9 +9,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
+import com.alfanews.telugu.utils.toUserObject
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -53,8 +57,8 @@ fun ManagePostsPageView(
     val currentUserId = currentUser?.id ?: FirebaseService.auth.currentUser?.uid ?: ""
     val initialPosts = if (currentUserId == cachedManagePostsUserId) cachedManagePosts else emptyList()
 
-    var posts by remember { mutableStateOf(initialPosts) }
-    var loading by remember { mutableStateOf(initialPosts.isEmpty()) }
+    var posts by remember(currentUserId) { mutableStateOf(initialPosts) }
+    var loading by remember(currentUserId) { mutableStateOf(initialPosts.isEmpty()) }
     var isBroadcasting by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -63,36 +67,69 @@ fun ManagePostsPageView(
     var showBroadcastDialog by remember { mutableStateOf<NewsPost?>(null) }
     var showStatusDetailDialog by remember { mutableStateOf<NewsPost?>(null) }
 
-    // ✅ REAL-TIME LISTENER: Updates automatically when status changes
-    LaunchedEffect(currentUser) {
-        // Safety watchdog: prevent infinite spinner on slow/offline listeners
+    // 🔍 Search and Reporter filter states
+    var searchQuery by remember { mutableStateOf("") }
+    var loadMoreRequested by remember { mutableStateOf(false) }
+    var selectedReporterId by remember { mutableStateOf<String?>(null) }
+    var selectedReporterName by remember { mutableStateOf("") }
+    var reporterList by remember { mutableStateOf<List<User>>(emptyList()) }
+    var reporterDropdownExpanded by remember { mutableStateOf(false) }
+    val queryLimit = if (loadMoreRequested || searchQuery.isNotBlank()) 50L else 10L
+
+    val authUid = FirebaseService.auth.currentUser?.uid ?: ""
+    val uid = currentUser?.id?.takeIf { it.isNotBlank() } ?: authUid
+    val role = currentUser?.role ?: UserRole.REPORTER
+    val isReporter = role == UserRole.REPORTER || role == UserRole.NEWS_DESK
+    val isSuperAdmin = currentUser?.phone?.contains("9173811009") == true ||
+        currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
+        FirebaseService.auth.currentUser?.phoneNumber?.contains("9173811009") == true ||
+        FirebaseService.auth.currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
+    val isAdminOrEditor = role == UserRole.ADMIN || role == UserRole.EDITOR || isSuperAdmin
+    val isRegionalIncharge = role == UserRole.REGIONAL_INCHARGE
+
+    // Load reporters list for Admin/Editor or Regional Incharge
+    LaunchedEffect(isAdminOrEditor, isRegionalIncharge) {
+        if (isAdminOrEditor || isRegionalIncharge) {
+            try {
+                val usersSnap = FirebaseService.db.collection("users")
+                    .limit(300)
+                    .get()
+                    .await()
+                val list = usersSnap.documents.mapNotNull { it.toUserObject() }.filter { u ->
+                    u.role == UserRole.REPORTER || u.role == UserRole.NEWS_DESK || u.role == UserRole.REGIONAL_INCHARGE || !u.assignedMandal.isNullOrBlank()
+                }.sortedBy { it.name.ifBlank { "Reporter" } }
+                reporterList = list
+            } catch (e: Exception) {
+                android.util.Log.e("ManagePostsPageView", "Error loading reporters: ${e.message}")
+            }
+        }
+    }
+
+    // Safety watchdog: prevent infinite spinner on slow/offline listeners
+    LaunchedEffect(currentUser, selectedReporterId) {
+        loading = true
         kotlinx.coroutines.delay(4000L)
         loading = false
     }
 
-    DisposableEffect(currentUser) {
-        val authUid = FirebaseService.auth.currentUser?.uid ?: ""
-        val uid = currentUser?.id?.takeIf { it.isNotBlank() } ?: authUid
-        val role = currentUser?.role ?: UserRole.REPORTER
-        val isReporter = role == UserRole.REPORTER || role == UserRole.NEWS_DESK
-        val isSuperAdmin = currentUser?.phone?.contains("9173811009") == true ||
-            currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
-            FirebaseService.auth.currentUser?.phoneNumber?.contains("9173811009") == true ||
-            FirebaseService.auth.currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
-        val isAdminOrEditor = role == UserRole.ADMIN || role == UserRole.EDITOR || isSuperAdmin
-        val isRegionalIncharge = role == UserRole.REGIONAL_INCHARGE
-
+    DisposableEffect(currentUser, selectedReporterId, queryLimit) {
         // Candidate IDs to match reporter posts across various auth states and post formats
         val candidateIds = mutableSetOf<String>().apply {
             if (uid.isNotBlank()) add(uid)
             if (authUid.isNotBlank()) add(authUid)
             currentUser?.id?.takeIf { it.isNotBlank() }?.let { add(it) }
-            currentUser?.phone?.takeIf { it.isNotBlank() }?.let { phone ->
-                add(phone)
-                val clean = phone.replace("+91", "").trim()
-                if (clean.isNotBlank()) {
-                    add(clean)
-                    add("+91$clean")
+            val allPhones = listOfNotNull(
+                currentUser?.phone,
+                FirebaseService.auth.currentUser?.phoneNumber
+            )
+            for (phone in allPhones) {
+                if (phone.isNotBlank()) {
+                    add(phone)
+                    val clean = phone.replace("+91", "").trim()
+                    if (clean.isNotBlank()) {
+                        add(clean)
+                        add("+91$clean")
+                    }
                 }
             }
         }.toList()
@@ -101,33 +138,75 @@ fun ManagePostsPageView(
         val mergedMap = mutableMapOf<String, NewsPost>()
 
         fun rebuildPosts(isServerResponse: Boolean = false) {
+            // 🚀 తాజా 10 వార్తలు (అవసరమైనప్పుడు సెర్చ్ లేదా లోడ్ మోర్ ద్వారా మరిన్ని):
             val sorted = mergedMap.values
                 .sortedByDescending { it.timestamp }
-                .take(100)
-            posts = sorted
-            if (sorted.isNotEmpty()) {
-                cachedManagePosts = sorted
+            val result = if (loadMoreRequested || searchQuery.isNotBlank()) sorted else sorted.take(10)
+            posts = result
+            if (result.isNotEmpty()) {
+                cachedManagePosts = result
                 cachedManagePostsUserId = uid
             }
-            // 🛡️ Only dismiss loading if we have posts to show, OR if server explicitly confirmed 0 posts.
-            // Empty local cache snapshots will NEVER prematurely dismiss loading!
-            if (sorted.isNotEmpty() || isServerResponse) {
+            if (result.isNotEmpty() || isServerResponse) {
                 loading = false
             }
         }
 
         val listeners = mutableListOf<com.google.firebase.firestore.ListenerRegistration>()
 
-        if (isAdminOrEditor) {
-            // Admin/Editor: 1. Latest 100 posts (by timestamp)
+        fun attachQueryListener(q: Query) {
+            listeners.add(q.addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    android.util.Log.e("ManagePostsPageView", "Query error: ${e.message}", e)
+                    rebuildPosts(isServerResponse = true)
+                    return@addSnapshotListener
+                }
+                snapshot?.documents?.forEach { doc ->
+                    val data = doc.data ?: return@forEach
+                    mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
+                }
+                val isServer = snapshot != null && !snapshot.metadata.isFromCache
+                rebuildPosts(isServerResponse = isServer)
+            })
+        }
+
+        if (selectedReporterId != null) {
+            // 🎯 Admin selected specific reporter: fetch latest 10 news belonging to this reporter
+            val selRep = reporterList.firstOrNull { it.id == selectedReporterId }
+            val selCandidateIds = mutableSetOf<String>().apply {
+                add(selectedReporterId!!)
+                selRep?.phone?.let { p ->
+                    if (p.isNotBlank()) {
+                        add(p)
+                        val clean = p.replace("+91", "").trim()
+                        if (clean.isNotBlank()) {
+                            add(clean)
+                            add("+91$clean")
+                        }
+                    }
+                }
+            }.toList()
+
+            selCandidateIds.forEach { cId ->
+                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporter.id", cId).limit(queryLimit))
+                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("originalReporterId", cId).limit(queryLimit))
+                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporterId", cId).limit(queryLimit))
+                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporter", cId).limit(queryLimit))
+                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("userId", cId).limit(queryLimit))
+            }
+            val repName = selRep?.name?.takeIf { it.isNotBlank() } ?: selectedReporterName.takeIf { it.isNotBlank() }
+            if (repName != null) {
+                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporter.name", repName).limit(queryLimit))
+            }
+        } else if (isAdminOrEditor) {
+            // Admin/Editor with "All News": latest 10 global posts by default
             val qAdmin = FirebaseService.db.collection("news")
                 .orderBy("timestamp", Query.Direction.DESCENDING)
-                .limit(100)
+                .limit(queryLimit)
             listeners.add(qAdmin.addSnapshotListener { snapshot, e ->
                 if (e != null) {
                     android.util.Log.e("ManagePostsPageView", "Admin query error: ${e.message}", e)
-                    // Fallback: If orderBy fails (e.g. index/missing field), query directly without orderBy
-                    val qAdminFallback = FirebaseService.db.collection("news").limit(100)
+                    val qAdminFallback = FirebaseService.db.collection("news").limit(queryLimit)
                     listeners.add(qAdminFallback.addSnapshotListener { fbSnap, _ ->
                         fbSnap?.documents?.forEach { doc ->
                             val data = doc.data ?: return@forEach
@@ -146,29 +225,17 @@ fun ManagePostsPageView(
                 rebuildPosts(isServerResponse = isServer)
             })
 
-            // Admin/Editor: 2. Also watch own posts specifically across candidate IDs
+            // Admin: also load admin's own submitted posts
             val validAdminCandidateIds = candidateIds.filter { it.isNotBlank() }.distinct().take(10)
-            if (validAdminCandidateIds.isNotEmpty()) {
-                val qOwn = if (validAdminCandidateIds.size > 1) {
-                    FirebaseService.db.collection("news").whereIn("reporter.id", validAdminCandidateIds).limit(50)
-                } else {
-                    FirebaseService.db.collection("news").whereEqualTo("reporter.id", validAdminCandidateIds[0]).limit(50)
-                }
-                listeners.add(qOwn.addSnapshotListener { snapshot, e ->
-                    if (e != null) return@addSnapshotListener
-                    snapshot?.documents?.forEach { doc ->
-                        val data = doc.data ?: return@forEach
-                        mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
-                    }
-                    val isServer = snapshot != null && !snapshot.metadata.isFromCache
-                    rebuildPosts(isServerResponse = isServer)
-                })
+            validAdminCandidateIds.forEach { cId ->
+                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporter.id", cId).limit(queryLimit))
+                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("originalReporterId", cId).limit(queryLimit))
             }
         } else if (isRegionalIncharge && currentUser?.assignedDistricts?.isNotEmpty() == true) {
-            // 🛡️ Regional Incharge: Do NOT use orderBy with whereIn to avoid composite index requirements
+            // Regional Incharge: assigned districts
             val qIncharge = FirebaseService.db.collection("news")
                 .whereIn("district", currentUser.assignedDistricts)
-                .limit(100)
+                .limit(queryLimit)
             listeners.add(qIncharge.addSnapshotListener { snapshot, e ->
                 if (e != null) {
                     android.util.Log.e("ManagePostsPageView", "Incharge query error: ${e.message}", e)
@@ -182,82 +249,27 @@ fun ManagePostsPageView(
                 rebuildPosts(isServerResponse = isServer)
             })
 
-            // Also include own submitted posts
             val validInchargeCandidateIds = candidateIds.filter { it.isNotBlank() }.distinct().take(10)
-            if (validInchargeCandidateIds.isNotEmpty()) {
-                val qOwn = if (validInchargeCandidateIds.size > 1) {
-                    FirebaseService.db.collection("news").whereIn("reporter.id", validInchargeCandidateIds).limit(50)
-                } else {
-                    FirebaseService.db.collection("news").whereEqualTo("reporter.id", validInchargeCandidateIds[0]).limit(50)
-                }
-                listeners.add(qOwn.addSnapshotListener { snapshot, _ ->
-                    snapshot?.documents?.forEach { doc ->
-                        val data = doc.data ?: return@forEach
-                        mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
-                    }
-                    val isServer = snapshot != null && !snapshot.metadata.isFromCache
-                    rebuildPosts(isServerResponse = isServer)
-                })
+            validInchargeCandidateIds.forEach { cId ->
+                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporter.id", cId).limit(queryLimit))
+                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("originalReporterId", cId).limit(queryLimit))
             }
         } else {
-            // Standard Reporter:
-            // 🛡️ Consolidated whereIn queries NEVER require a composite index and prevent socket contention.
-            // Client-side rebuildPosts() sorts all posts by timestamp descending!
-            val validCandidateIds = candidateIds.filter { it.isNotBlank() }.distinct().take(10)
+            // Standard Reporter: latest 10 posts for this reporter across candidate IDs (instant load)
+            val validCandidateIds = candidateIds.filter { it.isNotBlank() }.distinct().take(5)
             if (validCandidateIds.isNotEmpty()) {
-                // 1. Posts where reporter.id matches any candidate ID (uid, authUid, phone)
-                val q1 = if (validCandidateIds.size > 1) {
-                    FirebaseService.db.collection("news").whereIn("reporter.id", validCandidateIds).limit(100)
-                } else {
-                    FirebaseService.db.collection("news").whereEqualTo("reporter.id", validCandidateIds[0]).limit(100)
+                validCandidateIds.forEach { cId ->
+                    attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporter.id", cId).limit(queryLimit))
+                    attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("originalReporterId", cId).limit(queryLimit))
+                    attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporterId", cId).limit(queryLimit))
+                    attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporter", cId).limit(queryLimit))
+                    attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("userId", cId).limit(queryLimit))
                 }
-                listeners.add(q1.addSnapshotListener { snapshot, e ->
-                    if (e != null) {
-                        android.util.Log.e("ManagePostsPageView", "Reporter listener1 error: ${e.message}", e)
-                        return@addSnapshotListener
-                    }
-                    snapshot?.documents?.forEach { doc ->
-                        val data = doc.data ?: return@forEach
-                        mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
-                    }
-                    val isServer = snapshot != null && !snapshot.metadata.isFromCache
-                    rebuildPosts(isServerResponse = isServer)
-                })
 
-                // 2. Posts where originalReporterId matches any candidate ID (cross-mandal or desk attribution posts)
-                val q2 = if (validCandidateIds.size > 1) {
-                    FirebaseService.db.collection("news").whereIn("originalReporterId", validCandidateIds).limit(100)
-                } else {
-                    FirebaseService.db.collection("news").whereEqualTo("originalReporterId", validCandidateIds[0]).limit(100)
-                }
-                listeners.add(q2.addSnapshotListener { snapshot, e ->
-                    if (e != null) {
-                        android.util.Log.e("ManagePostsPageView", "Reporter listener2 error: ${e.message}", e)
-                        return@addSnapshotListener
-                    }
-                    snapshot?.documents?.forEach { doc ->
-                        val data = doc.data ?: return@forEach
-                        mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
-                    }
-                    val isServer = snapshot != null && !snapshot.metadata.isFromCache
-                    rebuildPosts(isServerResponse = isServer)
-                })
-
-                // 3. Fallback lookup by reporter name if available
                 val repName = currentUser?.name?.takeIf { it.isNotBlank() }
+                    ?: FirebaseService.auth.currentUser?.displayName?.takeIf { it.isNotBlank() }
                 if (repName != null) {
-                    val qName = FirebaseService.db.collection("news")
-                        .whereEqualTo("reporter.name", repName)
-                        .limit(50)
-                    listeners.add(qName.addSnapshotListener { snapshot, e ->
-                        if (e != null) return@addSnapshotListener
-                        snapshot?.documents?.forEach { doc ->
-                            val data = doc.data ?: return@forEach
-                            mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
-                        }
-                        val isServer = snapshot != null && !snapshot.metadata.isFromCache
-                        rebuildPosts(isServerResponse = isServer)
-                    })
+                    attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporter.name", repName).limit(queryLimit))
                 }
             } else {
                 loading = false
@@ -321,6 +333,23 @@ fun ManagePostsPageView(
         }
     }
 
+    val displayedPosts = remember(posts, searchQuery) {
+        if (searchQuery.isBlank()) {
+            posts
+        } else {
+            val q = searchQuery.trim().lowercase()
+            posts.filter { post ->
+                post.headline.telugu.lowercase().contains(q) ||
+                post.content.telugu.lowercase().contains(q) ||
+                post.reporter.name.lowercase().contains(q) ||
+                post.categories.any { it.lowercase().contains(q) } ||
+                post.tags.any { it.lowercase().contains(q) } ||
+                post.location.lowercase().contains(q) ||
+                post.district?.lowercase()?.contains(q) == true
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -349,10 +378,129 @@ fun ManagePostsPageView(
                         color = MaterialTheme.colorScheme.onBackground
                     )
                 }
+
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text(
+                        text = if (searchQuery.isNotBlank() || loadMoreRequested) "మొత్తం: ${displayedPosts.size}" else "తాజా 10 వార్తలు",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(14.dp))
         }
+
+        // 🔍 Controls: Search bar & Reporter Filter
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Search bar
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("వార్తలు లేదా విలేకరి పేరు వెతకండి...", fontSize = 13.sp) },
+                leadingIcon = {
+                    Icon(Icons.Default.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.primary)
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                )
+            )
+
+            // Reporter dropdown for Admin / Editor / Incharge
+            if (isAdminOrEditor || isRegionalIncharge) {
+                ExposedDropdownMenuBox(
+                    expanded = reporterDropdownExpanded,
+                    onExpandedChange = { reporterDropdownExpanded = !reporterDropdownExpanded }
+                ) {
+                    val repDisplayText = when {
+                        selectedReporterId == null -> "అన్ని తాజా వార్తలు (All Global News)"
+                        selectedReporterId == uid -> "నా వార్తలు (My Posts)"
+                        else -> selectedReporterName.ifBlank { "ఎంపిక చేసిన విలేకరి" }
+                    }
+                    OutlinedTextField(
+                        value = repDisplayText,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("విలేకరి ఎంపిక (Select Reporter)", fontSize = 12.sp) },
+                        leadingIcon = {
+                            Icon(Icons.Default.Person, contentDescription = "Reporter", tint = MaterialTheme.colorScheme.primary)
+                        },
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = reporterDropdownExpanded)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surface,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                        )
+                    )
+                    ExposedDropdownMenu(
+                        expanded = reporterDropdownExpanded,
+                        onDismissRequest = { reporterDropdownExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("అన్ని తాజా వార్తలు (All Global News)") },
+                            onClick = {
+                                selectedReporterId = null
+                                selectedReporterName = ""
+                                reporterDropdownExpanded = false
+                            }
+                        )
+                        if (uid.isNotBlank()) {
+                            DropdownMenuItem(
+                                text = { Text("నా వార్తలు (My Posts)") },
+                                onClick = {
+                                    selectedReporterId = uid
+                                    selectedReporterName = "నా వార్తలు"
+                                    reporterDropdownExpanded = false
+                                }
+                            )
+                        }
+                        HorizontalDivider()
+                        reporterList.forEach { rep ->
+                            val label = buildString {
+                                append(rep.name.ifBlank { "Reporter" })
+                                if (!rep.assignedMandal.isNullOrBlank()) append(" (${rep.assignedMandal})")
+                                else if (!rep.district.isNullOrBlank()) append(" (${rep.district})")
+                                if (!rep.phone.isNullOrBlank()) append(" - ${rep.phone}")
+                            }
+                            DropdownMenuItem(
+                                text = { Text(label, maxLines = 1) },
+                                onClick = {
+                                    selectedReporterId = rep.id
+                                    selectedReporterName = rep.name.ifBlank { "Reporter" }
+                                    reporterDropdownExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
 
         if (loading) {
             Box(
@@ -380,21 +528,21 @@ fun ManagePostsPageView(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 contentPadding = PaddingValues(bottom = 80.dp)
             ) {
-                if (posts.isEmpty()) {
+                if (displayedPosts.isEmpty()) {
                     item {
                         Box(
                             modifier = Modifier.fillMaxWidth().padding(top = 100.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "వార్తలు ఏవీ లేవు.",
+                                text = if (searchQuery.isNotBlank()) "వెతికిన వార్తలు ఏవీ లేవు." else "వార్తలు ఏవీ లేవు.",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 } else {
-                    items(posts, key = { postItem: NewsPost -> postItem.id }) { post ->
+                    items(displayedPosts, key = { postItem: NewsPost -> postItem.id }) { post ->
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -545,6 +693,27 @@ fun ManagePostsPageView(
                                             )
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+
+                    if (!loadMoreRequested && searchQuery.isBlank() && posts.size >= 10) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                OutlinedButton(
+                                    onClick = { loadMoreRequested = true },
+                                    shape = RoundedCornerShape(20.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = MaterialTheme.colorScheme.primary
+                                    )
+                                ) {
+                                    Text("మరిన్ని పాత వార్తలు (Load More Older News)")
                                 }
                             }
                         }

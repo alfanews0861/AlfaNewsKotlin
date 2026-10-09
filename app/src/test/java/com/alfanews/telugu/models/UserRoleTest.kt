@@ -12,7 +12,7 @@ class UserRoleTest {
         
         return when (role) {
             UserRole.GUEST, UserRole.SUBSCRIBER -> allPages.filter { it == "profile" }
-            UserRole.REPORTER, UserRole.NEWS_DESK -> allPages.filter { listOf("profile", "post", "ads", "edit-profile", "id-card").contains(it) }
+            UserRole.REPORTER, UserRole.NEWS_DESK -> allPages.filter { listOf("profile", "post", "ads", "manage", "edit-profile", "id-card").contains(it) }
             UserRole.REGIONAL_INCHARGE -> allPages.filter { listOf("profile", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card").contains(it) }
             UserRole.EDITOR -> allPages.filter { listOf("profile", "post", "ads", "manage", "manageReporters", "manageUsers", "edit-profile", "id-card").contains(it) }
             UserRole.ADMIN -> allPages
@@ -31,13 +31,23 @@ class UserRoleTest {
     }
 
     @Test
-    fun `Reporter has access to post news and ads but not management`() {
+    fun `Reporter has access to post and manage news but not user management or admin notifications`() {
         val reporterPages = getAccessiblePages(UserRole.REPORTER)
         
         assertTrue(reporterPages.contains("post"))
         assertTrue(reporterPages.contains("ads"))
-        assertFalse(reporterPages.contains("manage"))
+        assertTrue(reporterPages.contains("manage"))
+        assertFalse(reporterPages.contains("manageUsers"))
+        assertFalse(reporterPages.contains("manageReporters"))
         assertFalse(reporterPages.contains("adminNotify"))
+    }
+
+    @Test
+    fun `fromStringSafe maps staff reporter variants to REPORTER`() {
+        assertTrue(UserRole.fromStringSafe("STAFF_REPORTER") == UserRole.REPORTER)
+        assertTrue(UserRole.fromStringSafe("staff_reporter") == UserRole.REPORTER)
+        assertTrue(UserRole.fromStringSafe("STAFF REPORTER") == UserRole.REPORTER)
+        assertTrue(UserRole.fromStringSafe("REPORTER") == UserRole.REPORTER)
     }
 
     @Test

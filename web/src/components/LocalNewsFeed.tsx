@@ -150,7 +150,7 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
         // in categories/tags/location.
         // For simplicity in the web app, we will use array-contains-any on categories if district is set.
 
-        let q;
+        let uniqueTerms: string[] = [];
         if (activeDistrict) {
             // Check for direct district match OR array contains any on categories for the district
             const searchTerms = [activeDistrict];
@@ -178,45 +178,21 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
                 searchTerms.push('గుంటూరు', 'Guntur');
             }
 
-            const uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 10);
-
-            q = query(
-                newsRef,
-                where('approved', '==', true),
-                where('district', 'in', uniqueTerms),
-                orderBy('timestamp', 'desc'),
-                limit(FETCH_LIMIT)
-            );
-        } else {
-             q = query(
-                newsRef,
-                where('approved', '==', true),
-                orderBy('timestamp', 'desc'),
-                limit(FETCH_LIMIT)
-            );
+            uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 10);
         }
 
+        const constraints: any[] = [where('approved', '==', true)];
+        if (uniqueTerms.length > 0) {
+            constraints.push(where('district', 'in', uniqueTerms));
+        }
+        constraints.push(orderBy('timestamp', 'desc'));
         if (!isInitial && lastVisible.current) {
             const ts = _firestore.Timestamp.fromMillis(lastVisible.current);
-            if (activeDistrict) {
-                q = query(
-                    newsRef,
-                    where('approved', '==', true),
-                    where('district', '==', activeDistrict),
-                    orderBy('timestamp', 'desc'),
-                    startAfter(ts),
-                    limit(FETCH_LIMIT)
-                );
-            } else {
-                 q = query(
-                    newsRef,
-                    where('approved', '==', true),
-                    orderBy('timestamp', 'desc'),
-                    startAfter(ts),
-                    limit(FETCH_LIMIT)
-                );
-            }
+            constraints.push(startAfter(ts));
         }
+        constraints.push(limit(FETCH_LIMIT));
+
+        const q = query(newsRef, ...constraints);
 
         const snap = await getDocs(q);
         if (snap.empty) {
@@ -233,25 +209,8 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
             setNews(prev => {
                 const seenIds = new Set(prev.map((p) => p.id));
                 const uniqueNew = fetchedPosts.filter((p: NewsPost) => !seenIds.has(p.id));
-                const userScores = currentUser?.categoryScores || currentUser?.interests;
-                if (userScores && Object.keys(userScores).length > 0) {
-                    const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
-                    uniqueNew.sort((a: NewsPost, b: NewsPost) => {
-                        const getScore = (post: NewsPost) => {
-                            let score = 0;
-                            const features = [...(post.categories || []), ...(post.tags || []), ...(post.keywords || [])];
-                            features.forEach(f => {
-                                score += (userScores[f] || userScores[f.toLowerCase()] || 0);
-                            });
-                            return score;
-                        };
-                        const effA = a.timestamp + (getScore(a) * FOUR_HOURS_MS);
-                        const effB = b.timestamp + (getScore(b) * FOUR_HOURS_MS);
-                        return effB - effA;
-                    });
-                } else {
-                    uniqueNew.sort((a: NewsPost, b: NewsPost) => b.timestamp - a.timestamp);
-                }
+                // 🚀 ఏ విధమైన ఫిల్టర్లు లేకుండా: Sort strictly by timestamp descending (newest first)
+                uniqueNew.sort((a: NewsPost, b: NewsPost) => b.timestamp - a.timestamp);
                 
                 const finalNews = isInitial ? uniqueNew : [...prev, ...uniqueNew];
                 
@@ -296,9 +255,9 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
     return () => observer.disconnect();
   }, [loading, hasMore]);
 
-  // Read News Filter calculation
-  const displayedNews = hideReadNews ? news.filter(p => !readIds.has(p.id)) : news;
-  const hiddenReadCount = news.filter(p => readIds.has(p.id)).length;
+  // ఏ విధమైన ఫిల్టర్లు లేకుండా: Show all district news
+  const displayedNews = news;
+  const hiddenReadCount = 0;
 
   return (
     <div className="relative h-full w-full bg-black overflow-hidden flex flex-col">
