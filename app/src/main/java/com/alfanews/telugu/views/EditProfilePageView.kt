@@ -3,6 +3,7 @@ package com.alfanews.telugu.views
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -111,12 +112,12 @@ fun EditProfilePageView(
     }
 
     val pickPhotoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent(),
+        contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri: Uri? -> photoUri = uri }
     )
 
     val pickSignatureLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent(),
+        contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri: Uri? -> signatureUri = uri }
     )
 
@@ -415,7 +416,7 @@ fun EditProfilePageView(
                                 .clip(RoundedCornerShape(8.dp)),
                             contentScale = ContentScale.Crop
                         )
-                        TextButton(onClick = { pickPhotoLauncher.launch("image/*") }) {
+                        TextButton(onClick = { pickPhotoLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
                             Text(stringResource(R.string.choose_photo))
                         }
                     }
@@ -475,7 +476,7 @@ fun EditProfilePageView(
                                         )
                                     }
                                 }
-                                TextButton(onClick = { pickSignatureLauncher.launch("image/*") }) {
+                                TextButton(onClick = { pickSignatureLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
                                     Text(stringResource(R.string.choose_signature))
                                 }
                             }

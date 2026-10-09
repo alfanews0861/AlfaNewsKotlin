@@ -7,6 +7,7 @@ import android.net.Uri
 import android.widget.Toast
 import android.media.MediaMetadataRetriever
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -131,7 +132,7 @@ fun PostNewsPageView(
     }
 
     val imageLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetMultipleContents()
+        contract = ActivityResultContracts.PickMultipleVisualMedia(3)
     ) { uris: List<Uri> ->
         if (uris.isNotEmpty()) {
             mediaUris = (mediaUris + uris).take(3)
@@ -139,7 +140,7 @@ fun PostNewsPageView(
     }
 
     val videoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
             scope.launch {
@@ -475,7 +476,7 @@ fun PostNewsPageView(
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
                             Button(
-                                onClick = { imageLauncher.launch("image/*") },
+                                onClick = { imageLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                                 modifier = Modifier.weight(1f),
                                 enabled = (mediaUris.size + existingMediaUrls.size) < 3
@@ -486,7 +487,7 @@ fun PostNewsPageView(
                             }
 
                             Button(
-                                onClick = { videoLauncher.launch("video/*") },
+                                onClick = { videoLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4285F4)),
                                 modifier = Modifier.weight(1f),
                                 enabled = mediaUris.none { context.contentResolver.getType(it)?.startsWith("video/") == true } && existingMediaTypes.none { it.uppercase() == "VIDEO" } && (mediaUris.size + existingMediaUrls.size) < 3

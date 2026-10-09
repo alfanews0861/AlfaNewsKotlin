@@ -3,6 +3,7 @@ package com.alfanews.telugu.views
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
@@ -297,7 +298,7 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
             OutlinedTextField(value = htmlContent, onValueChange = { htmlContent = it }, label = { Text("HTML Code") }, modifier = Modifier.fillMaxWidth().height(150.dp))
         } else {
             val launcher = rememberLauncherForActivityResult(
-                contract = ActivityResultContracts.GetContent()
+                contract = ActivityResultContracts.PickVisualMedia()
             ) { uri -> adImageUri = uri }
 
             Card(elevation = CardDefaults.cardElevation(2.dp)) {
@@ -316,8 +317,12 @@ private fun CreateAdView(currentUser: User, onAdCreated: () -> Unit) {
                         }
                     }
                     Button(onClick = { 
-                        val mimeType = if (adMediaType == AdMediaType.VIDEO) "video/*" else "image/*"
-                        launcher.launch(mimeType) 
+                        val mediaRequest = if (adMediaType == AdMediaType.VIDEO) {
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                        } else {
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        }
+                        launcher.launch(mediaRequest) 
                     }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.UploadFile, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
