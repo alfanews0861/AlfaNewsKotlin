@@ -5,7 +5,7 @@ import { db, app } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import * as _functions from 'firebase/functions';
 import { analyzeNewsMetadata } from '../services/geminiService';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, RefreshCw } from 'lucide-react';
 
 const { collection, query, where, orderBy, limit, getDocs, doc, deleteDoc, Timestamp, updateDoc, startAfter } = _firestore as any;
 const { getFunctions, httpsCallable } = _functions as any;
@@ -77,30 +77,14 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
         try {
             const newsCollectionRef = collection(db, 'news');
             const targetReporterId = selectedReporter || (isReporter ? uid : '');
-            const queryLimit = (loadAll || isLoadMore) ? 50 : 10;
+            const queryLimit = (loadAll || isLoadMore) ? 100 : 30;
 
             if (targetReporterId) {
-                // 🛡️ Reporter View: Fetch latest 10 news by default for instant loading
-                const targetRep = isReporter ? currentUser : reporterList.find(r => r.id === targetReporterId);
-                const targetPhone10 = (targetRep?.phone || '').replace(/[^0-9]/g, '').slice(-10);
-                const targetName = targetRep?.name || '';
-
+                // 🛡️ Reporter View: Fetch latest news using reporter's standard UID
                 const queries = [
-                    query(newsCollectionRef, where('reporter.id', '==', targetReporterId), limit(queryLimit)),
-                    query(newsCollectionRef, where('originalReporterId', '==', targetReporterId), limit(queryLimit)),
-                    query(newsCollectionRef, where('reporterId', '==', targetReporterId), limit(queryLimit)),
-                    query(newsCollectionRef, where('userId', '==', targetReporterId), limit(queryLimit)),
-                    query(newsCollectionRef, where('reporter', '==', targetReporterId), limit(queryLimit)),
+                    query(newsCollectionRef, where('originalReporterId', '==', targetReporterId), orderBy('timestamp', 'desc'), limit(queryLimit)),
+                    query(newsCollectionRef, where('reporter.id', '==', targetReporterId), orderBy('timestamp', 'desc'), limit(queryLimit)),
                 ];
-                if (targetPhone10) {
-                    queries.push(query(newsCollectionRef, where('reporter.id', '==', targetPhone10), limit(queryLimit)));
-                    queries.push(query(newsCollectionRef, where('reporter.id', '==', `+91${targetPhone10}`), limit(queryLimit)));
-                    queries.push(query(newsCollectionRef, where('originalReporterId', '==', targetPhone10), limit(queryLimit)));
-                    queries.push(query(newsCollectionRef, where('originalReporterId', '==', `+91${targetPhone10}`), limit(queryLimit)));
-                }
-                if (targetName) {
-                    queries.push(query(newsCollectionRef, where('reporter.name', '==', targetName), limit(queryLimit)));
-                }
 
                 const snapshots = await Promise.all(queries.map(qItem => getDocs(qItem).catch(() => ({ docs: [] }))));
                 const postsMap = new Map<string, NewsPost>();
@@ -118,11 +102,10 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
 
                 const fetchedPosts = Array.from(postsMap.values())
                     .sort((a, b) => b.timestamp - a.timestamp);
-                const limited = loadAll ? fetchedPosts : fetchedPosts.slice(0, 10);
-                setPosts(limited);
-                setHasMore(fetchedPosts.length > 10 && !loadAll);
+                setPosts(fetchedPosts);
+                setHasMore(fetchedPosts.length >= queryLimit && !loadAll);
             } else {
-                // Admin Global Management: Latest 10 posts by default for instant speed
+                // Admin Global Management: Latest posts by default
                 const constraints = [orderBy('timestamp', 'desc'), limit(queryLimit)];
                 if (isLoadMore && lastDoc) {
                     constraints.push(startAfter(lastDoc));
@@ -237,8 +220,16 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
                         వార్తల నిర్వహణ
                     </h2>
                     <span className="text-xs font-semibold px-2.5 py-1 bg-red-100 text-red-700 rounded-full whitespace-nowrap">
-                        {searchTerm || loadAll ? `మొత్తం: ${filteredPosts.length} వార్తలు` : 'తాజా 10 వార్తలు'}
+                        {searchTerm || loadAll ? `మొత్తం: ${filteredPosts.length} వార్తలు` : `తాజా ${filteredPosts.length} వార్తలు`}
                     </span>
+                    <button
+                        onClick={() => fetchPosts(false)}
+                        disabled={loading}
+                        className="p-1.5 border border-gray-200 rounded-lg hover:bg-gray-100 text-gray-600 transition-all disabled:opacity-50"
+                        title="తాజా సమాచారం కోసం రీఫ్రెష్ చేయండి (Refresh)"
+                    >
+                        <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-red-600' : ''}`} />
+                    </button>
                 </div>
                 <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
                     {isAdminOrEditor && (

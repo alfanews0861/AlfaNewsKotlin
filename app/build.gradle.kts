@@ -17,8 +17,8 @@ android {
         applicationId = "com.alfanews.telugu"
         minSdk = 24
         targetSdk = 36
-        versionCode = 616
-        versionName = "Sree_5.6.3"
+        versionCode = 617
+        versionName = "Sree_5.6.4"
         multiDexEnabled = true
 
         val properties = Properties()

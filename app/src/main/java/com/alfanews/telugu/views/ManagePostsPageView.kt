@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import com.alfanews.telugu.utils.toUserObject
 import androidx.compose.material3.*
@@ -35,19 +36,17 @@ import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.services.FirebaseFunctionsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.DateTimeUtils
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
-// 🚀 IN-MEMORY CACHE: Preserves reporter posts in memory so redirecting to Manage News is instant (0ms) without spinners
-private var cachedManagePosts = listOf<NewsPost>()
-private var cachedManagePostsUserId = ""
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,10 +57,11 @@ fun ManagePostsPageView(
     showTitle: Boolean = true
 ) {
     val currentUserId = currentUser?.id ?: FirebaseService.auth.currentUser?.uid ?: ""
-    val initialPosts = if (currentUserId == cachedManagePostsUserId) cachedManagePosts else emptyList()
 
-    var posts by remember(currentUserId) { mutableStateOf(initialPosts) }
-    var loading by remember(currentUserId) { mutableStateOf(initialPosts.isEmpty()) }
+    // 🚀 NO STALE CACHE: ఎల్లప్పుడూ సర్వర్ నుండి తాజా వార్తలను మాత్రమే లోడ్ చేయాలి
+    var posts by remember(currentUserId) { mutableStateOf<List<NewsPost>>(emptyList()) }
+    var loading by remember(currentUserId) { mutableStateOf(true) }
+    var refreshTrigger by remember { mutableStateOf(0) }
     var isBroadcasting by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -77,7 +77,7 @@ fun ManagePostsPageView(
     var selectedReporterName by remember { mutableStateOf("") }
     var reporterList by remember { mutableStateOf<List<User>>(emptyList()) }
     var reporterDropdownExpanded by remember { mutableStateOf(false) }
-    val queryLimit = if (loadMoreRequested || searchQuery.isNotBlank()) 50L else 10L
+    val queryLimit = if (loadMoreRequested || searchQuery.isNotBlank()) 100L else 30L
 
     val authUid = FirebaseService.auth.currentUser?.uid ?: ""
     val uid = currentUser?.id?.takeIf { it.isNotBlank() } ?: authUid
@@ -108,128 +108,110 @@ fun ManagePostsPageView(
         }
     }
 
-    // 🚀 ONE-TIME FETCH ON DEMAND: Eliminates 20+ persistent streaming snapshot listeners that caused multi-gigabyte egress loops
-    LaunchedEffect(currentUser, selectedReporterId, queryLimit) {
-        if (posts.isEmpty()) {
-            loading = true
-        }
-
-        // Candidate IDs to match reporter posts across various auth states and post formats
-        val candidateIds = mutableSetOf<String>().apply {
-            if (uid.isNotBlank()) add(uid)
-            if (authUid.isNotBlank()) add(authUid)
-            currentUser?.id?.takeIf { it.isNotBlank() }?.let { add(it) }
-            val allPhones = listOfNotNull(
-                currentUser?.phone,
-                FirebaseService.auth.currentUser?.phoneNumber
-            )
-            for (phone in allPhones) {
-                if (phone.isNotBlank()) {
-                    add(phone)
-                    val clean = phone.replace("+91", "").trim()
-                    if (clean.isNotBlank()) {
-                        add(clean)
-                        add("+91$clean")
+    // Helper: Safely execute query with orderBy timestamp DESC, fallback to query without orderBy if index issue occurs
+    suspend fun fetchQueryDocuments(baseQ: Query, fallbackQ: Query? = null): List<DocumentSnapshot> {
+        return withContext(Dispatchers.IO) {
+            try {
+                // 1. Try server directly for live, fresh posts
+                val snap = baseQ.get(com.google.firebase.firestore.Source.SERVER).await()
+                snap.documents
+            } catch (eServer: Exception) {
+                try {
+                    // 2. Fallback to default
+                    val snap = baseQ.get().await()
+                    snap.documents
+                } catch (eDefault: Exception) {
+                    if (fallbackQ != null) {
+                        try {
+                            val snap = fallbackQ.get().await()
+                            snap.documents
+                        } catch (eFallback: Exception) {
+                            android.util.Log.w("ManagePostsPageView", "Query completely failed: ${eFallback.message}")
+                            emptyList()
+                        }
+                    } else {
+                        android.util.Log.w("ManagePostsPageView", "Query completely failed: ${eDefault.message}")
+                        emptyList()
                     }
                 }
             }
-        }.toList()
+        }
+    }
 
-        val queriesToRun = mutableListOf<Query>()
+    // 🚀 LIVE FETCH ON DEMAND: తాజా వార్తల లోడింగ్
+    LaunchedEffect(currentUser, selectedReporterId, queryLimit, refreshTrigger) {
+        loading = true
+
+        val queryPairs = mutableListOf<Pair<Query, Query?>>()
 
         if (selectedReporterId != null) {
-            // 🎯 Admin selected specific reporter: fetch latest news belonging to this reporter
-            val selRep = reporterList.firstOrNull { it.id == selectedReporterId }
-            val selCandidateIds = mutableSetOf<String>().apply {
-                add(selectedReporterId!!)
-                selRep?.phone?.let { p ->
-                    if (p.isNotBlank()) {
-                        val clean = p.replace("+91", "").trim()
-                        if (clean.isNotBlank()) {
-                            add(clean)
-                            add("+91$clean")
-                        }
-                    }
-                }
-            }.toList()
-
-            selCandidateIds.forEach { cId ->
-                queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("reporter.id", cId).limit(queryLimit))
-                queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("originalReporterId", cId).limit(queryLimit))
-                queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("userId", cId).limit(queryLimit))
-            }
-            val repName = selRep?.name?.takeIf { it.isNotBlank() } ?: selectedReporterName.takeIf { it.isNotBlank() }
-            if (repName != null) {
-                queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("reporter.name", repName).limit(queryLimit))
-            }
+            // 🎯 Admin selected specific reporter by UID:
+            val selUid = selectedReporterId!!
+            queryPairs.add(
+                Pair(
+                    FirebaseService.db.collection("news").whereEqualTo("originalReporterId", selUid).orderBy("timestamp", Query.Direction.DESCENDING).limit(queryLimit),
+                    FirebaseService.db.collection("news").whereEqualTo("originalReporterId", selUid).limit(queryLimit)
+                )
+            )
+            queryPairs.add(
+                Pair(
+                    FirebaseService.db.collection("news").whereEqualTo("reporter.id", selUid).orderBy("timestamp", Query.Direction.DESCENDING).limit(queryLimit),
+                    FirebaseService.db.collection("news").whereEqualTo("reporter.id", selUid).limit(queryLimit)
+                )
+            )
         } else if (isAdminOrEditor) {
             // Admin/Editor with "All News": latest global posts
-            queriesToRun.add(
-                FirebaseService.db.collection("news")
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(queryLimit)
+            queryPairs.add(
+                Pair(
+                    FirebaseService.db.collection("news").orderBy("timestamp", Query.Direction.DESCENDING).limit(queryLimit),
+                    FirebaseService.db.collection("news").limit(queryLimit)
+                )
             )
-            // Admin: also load admin's own submitted posts
-            val validAdminCandidateIds = candidateIds.filter { it.isNotBlank() }.distinct().take(3)
-            validAdminCandidateIds.forEach { cId ->
-                queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("reporter.id", cId).limit(queryLimit))
-                queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("originalReporterId", cId).limit(queryLimit))
-            }
         } else if (isRegionalIncharge && currentUser?.assignedDistricts?.isNotEmpty() == true) {
             // Regional Incharge: assigned districts
-            queriesToRun.add(
-                FirebaseService.db.collection("news")
-                    .whereIn("district", currentUser.assignedDistricts)
-                    .limit(queryLimit)
+            val dists = currentUser.assignedDistricts.take(10)
+            queryPairs.add(
+                Pair(
+                    FirebaseService.db.collection("news").whereIn("district", dists).orderBy("timestamp", Query.Direction.DESCENDING).limit(queryLimit),
+                    FirebaseService.db.collection("news").whereIn("district", dists).limit(queryLimit)
+                )
             )
-            val validInchargeCandidateIds = candidateIds.filter { it.isNotBlank() }.distinct().take(3)
-            validInchargeCandidateIds.forEach { cId ->
-                queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("reporter.id", cId).limit(queryLimit))
-                queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("originalReporterId", cId).limit(queryLimit))
-            }
         } else {
-            // Standard Reporter: latest posts for this reporter across candidate IDs
-            val validCandidateIds = candidateIds.filter { it.isNotBlank() }.distinct().take(3)
-            if (validCandidateIds.isNotEmpty()) {
-                validCandidateIds.forEach { cId ->
-                    queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("reporter.id", cId).limit(queryLimit))
-                    queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("originalReporterId", cId).limit(queryLimit))
-                    queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("userId", cId).limit(queryLimit))
-                }
-
-                val repName = currentUser?.name?.takeIf { it.isNotBlank() }
-                    ?: FirebaseService.auth.currentUser?.displayName?.takeIf { it.isNotBlank() }
-                if (repName != null) {
-                    queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("reporter.name", repName).limit(queryLimit))
-                }
+            // 🛡️ Standard Reporter: ఖచ్చితంగా విలేకరి యొక్క ప్రామాణిక UID తో మాత్రమే తాజా వార్తలను తెస్తాము
+            val reporterUid = uid.ifBlank { authUid }
+            if (reporterUid.isNotBlank()) {
+                queryPairs.add(
+                    Pair(
+                        FirebaseService.db.collection("news").whereEqualTo("originalReporterId", reporterUid).orderBy("timestamp", Query.Direction.DESCENDING).limit(queryLimit),
+                        FirebaseService.db.collection("news").whereEqualTo("originalReporterId", reporterUid).limit(queryLimit)
+                    )
+                )
+                queryPairs.add(
+                    Pair(
+                        FirebaseService.db.collection("news").whereEqualTo("reporter.id", reporterUid).orderBy("timestamp", Query.Direction.DESCENDING).limit(queryLimit),
+                        FirebaseService.db.collection("news").whereEqualTo("reporter.id", reporterUid).limit(queryLimit)
+                    )
+                )
             }
         }
 
         try {
             val mergedMap = mutableMapOf<String, NewsPost>()
-            val deferreds = queriesToRun.map { q ->
+            val deferreds = queryPairs.map { (baseQ, fallbackQ) ->
                 async(Dispatchers.IO) {
-                    try {
-                        q.get().await()
-                    } catch (e: Exception) {
-                        null
-                    }
+                    fetchQueryDocuments(baseQ, fallbackQ)
                 }
             }
-            deferreds.awaitAll().forEach { snap ->
-                snap?.documents?.forEach { doc ->
+            deferreds.awaitAll().forEach { docs ->
+                docs.forEach { doc ->
                     val data = doc.data ?: return@forEach
                     mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
                 }
             }
 
+            // 🚀 STRICT TIMESTAMP DESCENDING: తాజా వార్తలు ఎల్లప్పుడూ పైనే ఉంటాయి
             val sorted = mergedMap.values.sortedByDescending { it.timestamp }
-            val result = if (loadMoreRequested || searchQuery.isNotBlank()) sorted else sorted.take(10)
-            posts = result
-            if (result.isNotEmpty()) {
-                cachedManagePosts = result
-                cachedManagePostsUserId = uid
-            }
+            posts = sorted
         } catch (e: Exception) {
             android.util.Log.e("ManagePostsPageView", "Error loading manage posts: ${e.message}")
         } finally {
@@ -310,36 +292,50 @@ fun ManagePostsPageView(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        if (showTitle) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Box(
+                    modifier = Modifier
+                        .width(6.dp)
+                        .height(28.dp)
+                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(3.dp))
+                )
+                Text(
+                    text = "వార్తల నిర్వహణ",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = { refreshTrigger++ },
+                    modifier = Modifier.size(36.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .width(6.dp)
-                            .height(28.dp)
-                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(3.dp))
-                    )
-                    Text(
-                        text = "వార్తల నిర్వహణ",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onBackground
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = "Refresh",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
-
                 Surface(
                     color = MaterialTheme.colorScheme.primaryContainer,
                     shape = RoundedCornerShape(16.dp)
                 ) {
                     Text(
-                        text = if (searchQuery.isNotBlank() || loadMoreRequested) "మొత్తం: ${displayedPosts.size}" else "తాజా 10 వార్తలు",
+                        text = "మొత్తం: ${displayedPosts.size}",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -347,9 +343,9 @@ fun ManagePostsPageView(
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.height(14.dp))
         }
+
+        Spacer(modifier = Modifier.height(14.dp))
 
         // 🔍 Controls: Search bar & Reporter Filter
         Column(

@@ -318,73 +318,15 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             
             val newsRef = FirebaseService.db.collection("news")
             val districtAliases = Constants.getDistrictAliases(district)
-            val primaryAliases = districtAliases.take(10) // 🚀 Max 10 items for Firestore whereIn!
+            val primaryAliases = districtAliases.take(10)
 
-            // 🚀 INSTANT LOCAL CACHE FIRST: Show cached local news instantly (< 20ms) so user never sees blank screen
-            if (_news.value.isEmpty()) {
-                try {
-                    val cacheQuery = if (primaryAliases.size > 1) {
-                        newsRef.whereEqualTo("approved", true).whereIn("district", primaryAliases)
-                    } else if (primaryAliases.size == 1) {
-                        newsRef.whereEqualTo("approved", true).whereEqualTo("district", primaryAliases[0])
-                    } else {
-                        newsRef.whereEqualTo("approved", true).whereEqualTo("district", district)
-                    }
-                    val cachedSnap = cacheQuery
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(pageSize.toLong())
-                        .get(com.google.firebase.firestore.Source.CACHE)
-                        .await()
-                    val cachedPosts = cachedSnap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
-                    val rankedCached = rankLocalNews(cachedPosts, district, currentUser)
-                    if (rankedCached.isNotEmpty()) {
-                        _news.value = rankedCached
-                        _loading.value = false
-                    } else if (cachedPosts.isNotEmpty()) {
-                        _news.value = cachedPosts
-                        _loading.value = false
-                    }
-                } catch (e: Exception) { }
-            }
-
-            if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
-                _isOnline.value = false
-                if (_news.value.isEmpty()) {
-                    // 📴 OFFLINE ONLY: Use local cache only when user has no internet connection
-                    try {
-                        val offlineQuery = if (primaryAliases.size > 1) {
-                            newsRef.whereEqualTo("approved", true).whereIn("district", primaryAliases)
-                        } else if (primaryAliases.size == 1) {
-                            newsRef.whereEqualTo("approved", true).whereEqualTo("district", primaryAliases[0])
-                        } else {
-                            newsRef.whereEqualTo("approved", true).whereEqualTo("district", district)
-                        }
-                        val cachedSnap = offlineQuery
-                            .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(pageSize.toLong())
-                            .get(com.google.firebase.firestore.Source.CACHE)
-                            .await()
-                        val cachedPosts = cachedSnap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
-                        if (cachedPosts.isNotEmpty()) {
-                            _news.value = rankLocalNews(cachedPosts, district, currentUser)
-                        }
-                    } catch (e: Exception) { }
-                }
-                _loading.value = false
-                isFetching = false
-                return@launch
-            }
-            _isOnline.value = true
-
+            _isOnline.value = com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())
             lastDocument = null
             _hasMore.value = true
             consecutiveEmptyLoads = 0
-            
-            var fetchedAny = false
-            
+
             try {
-                // 🚀 DIRECT SINGLE QUERY (Ultra-Fast < 100ms):
-                // జిల్లా ఫీల్డ్ ఆధారంగా నేరుగా ఒకే క్వెరీతో వేగంగా లోడ్ చేయడం
+                // 🚀 DIRECT SERVER QUERY: ఆయా జిల్లాకు కేటాయించిన వార్తలను సర్వర్ నుండి నేరుగా తాజాదనం ప్రకారం తెస్తాము (No Cache, No Over-Engineering)
                 val query = (if (primaryAliases.size > 1) {
                     newsRef.whereEqualTo("approved", true).whereIn("district", primaryAliases)
                 } else if (primaryAliases.size == 1) {
@@ -395,33 +337,23 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 .orderBy("timestamp", Query.Direction.DESCENDING)
                 .limit(pageSize.toLong())
 
-                var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
-                try {
-                    val snap = kotlinx.coroutines.withTimeoutOrNull(5000L) {
-                        query.get().await()
-                    }
-                    if (snap != null && !snap.isEmpty) {
-                        snapshot = snap
-                    }
+                val snapshot = try {
+                    query.get(com.google.firebase.firestore.Source.SERVER).await()
                 } catch (e: Exception) {
-                    android.util.Log.e("LocalNewsFeedViewModel", "News direct fetch failed for $district: ${e.message}")
+                    query.get().await()
                 }
 
-                val fetchedPosts = snapshot?.documents?.mapNotNull { doc ->
+                val fetchedPosts = snapshot.documents.mapNotNull { doc ->
                     convertToNewsPost(doc.id, doc.data ?: emptyMap())
-                } ?: emptyList()
-
-                lastDocument = snapshot?.documents?.lastOrNull()
-                _hasMore.value = (snapshot?.size() ?: 0) >= pageSize
-
-                val rankedPosts = withContext(Dispatchers.Default) {
-                    rankLocalNews(fetchedPosts, district, currentUser)
                 }
 
-                val wasEmpty = _news.value.isEmpty()
-                val finalPosts = if (rankedPosts.isNotEmpty()) rankedPosts else fetchedPosts.sortedByDescending { it.timestamp }
+                lastDocument = snapshot.documents.lastOrNull()
+                _hasMore.value = snapshot.size() >= pageSize
+
+                // 🚀 ఎల్లప్పుడూ ఆ జిల్లాలోని తాజా వార్తలే పైన కనిపించాలి
+                val finalPosts = fetchedPosts.sortedByDescending { it.timestamp }.distinctBy { it.id }
                 if (finalPosts.isNotEmpty()) {
-                    fetchedAny = true
+                    val wasEmpty = _news.value.isEmpty()
                     _news.value = finalPosts
                     val validIds = finalPosts.filter { it.type == "news" }.map { it.id }
                     prefs.incrementPostViewCounts(validIds)
@@ -431,7 +363,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 } else {
                     _hasMore.value = false
                 }
-                _loading.value = false 
+                _loading.value = false
 
                 val currentTime = System.currentTimeMillis()
                 lastRefreshTimeLong = currentTime
@@ -443,7 +375,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 isFetching = false
                 if (pendingLoadMore && _hasMore.value) {
                     pendingLoadMore = false
-                    if (fetchedAny) {
+                    if (_news.value.isNotEmpty()) {
                         loadMore(currentLanguage, currentUser)
                     }
                 }
@@ -539,7 +471,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
     /**
      * అన్ని జిల్లా వార్తలను తాజాదనం (timestamp descending) ఆధారంగా నేరుగా చూపిస్తాము.
-     * యూజర్/రిపోర్టర్ స్వయంగా పోస్ట్ చేసిన వార్త ఉంటే దాన్ని పైన ఉంచుతాము (తక్షణ ధృవీకరణ కోసం).
+     * ఎల్లప్పుడూ తాజా వార్తలే (Newest First) మొదట కనిపించాలి.
      */
     private fun rankLocalNews(
         posts: List<NewsPost>,
@@ -548,17 +480,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     ): List<NewsPost> {
         if (posts.isEmpty()) return emptyList()
 
-        val sortedPosts = posts.sortedWith(
-            compareByDescending<NewsPost> { post ->
-                currentUser != null && (
-                    post.reporter.id == currentUser.id ||
-                    post.originalReporterId == currentUser.id ||
-                    post.id.startsWith("post_${currentUser.id}_")
-                )
-            }.thenByDescending { it.timestamp }
-        )
-
-        return sortedPosts.distinctBy { it.id }
+        // 🚀 ఎల్లప్పుడూ తాజా వార్తలే మొదట రావాలి (Strict Timestamp Descending, no pinning of old posts)
+        return posts.sortedByDescending { it.timestamp }.distinctBy { it.id }
     }
 
     private fun convertToNewsPost(id: String, data: Map<String, Any?>): NewsPost? {
