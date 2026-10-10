@@ -20,6 +20,8 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.Source
+import com.google.firebase.firestore.Source
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
@@ -352,12 +354,12 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                 val distDeferred = async(Dispatchers.IO) {
                     kotlinx.coroutines.withTimeoutOrNull(10000L) {
-                        try { distQuery.get().await() } catch (e: Exception) { null }
+                        try { distQuery.get(Source.SERVER).await() } catch (e: Exception) { null }
                     }
                 }
                 val catDeferred = async(Dispatchers.IO) {
                     kotlinx.coroutines.withTimeoutOrNull(10000L) {
-                        try { catQuery.get().await() } catch (e: Exception) { null }
+                        try { catQuery.get(Source.SERVER).await() } catch (e: Exception) { null }
                     }
                 }
 
@@ -381,7 +383,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             newsRef.whereEqualTo("approved", true)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
                                 .limit(pageSize.toLong())
-                                .get().await()
+                                .get(Source.SERVER).await()
                         } catch (e: Exception) { null }
                     }
                     val fallbackPosts = fallbackSnap?.documents?.mapNotNull { doc ->
@@ -461,7 +463,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 }
 
                 val snap = kotlinx.coroutines.withTimeoutOrNull(10000L) {
-                    try { q.get().await() } catch (e: Exception) { null }
+                    try { q.get(Source.SERVER).await() } catch (e: Exception) { null }
                 }
 
                 if (snap != null && !snap.isEmpty) {

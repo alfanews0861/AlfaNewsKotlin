@@ -22,6 +22,8 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.Source
+import com.google.firebase.firestore.Source
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
@@ -373,7 +375,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 // 1. Initial Post (Deep link or Notification target)
                 val initialTargetPost = if (initialPostId != null) {
                     try {
-                        val doc = FirebaseService.db.collection("news").document(initialPostId).get().await()
+                        val doc = FirebaseService.db.collection("news").document(initialPostId).get(Source.SERVER).await()
                         if (doc.exists()) mapDocumentToNewsPost(doc) else null
                     } catch (e: Exception) { null }
                 } else null
@@ -387,7 +389,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
                 val mainSnap = kotlinx.coroutines.withTimeoutOrNull(10000L) {
                     try { 
-                        mainQuery.get().await() 
+                        mainQuery.get(Source.SERVER).await() 
                     } catch (e: Exception) { 
                         Log.e("NewsFeedVM", "Primary query error: ${e.message}", e)
                         null 
@@ -397,7 +399,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 if (mainPosts.isEmpty()) {
                     // 🛡️ Silent instant fallback/retry for cold-start network handshake hiccups
                     val retrySnap = kotlinx.coroutines.withTimeoutOrNull(6000L) {
-                        try { mainQuery.get().await() } catch (e: Exception) { null }
+                        try { mainQuery.get(Source.SERVER).await() } catch (e: Exception) { null }
                     }
                     if (retrySnap != null && !retrySnap.isEmpty) {
                         mainPosts = retrySnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
@@ -451,7 +453,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                     .limit(10)
                             }
                             val localSnap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
-                                try { localQuery.get().await() } catch (e: Exception) { null }
+                                try { localQuery.get(Source.SERVER).await() } catch (e: Exception) { null }
                             }
                             val rawLocal = localSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
                             localCursor = localSnap?.documents?.lastOrNull()
@@ -532,7 +534,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                 .startAfter(mainCursor!!)
                                 .limit(15)
                             val snap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
-                                try { q.get().await() } catch (e: Exception) { null }
+                                try { q.get(Source.SERVER).await() } catch (e: Exception) { null }
                             }
                             val posts = snap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
                             Pair(posts, snap?.documents?.lastOrNull())
@@ -564,7 +566,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                     .limit(10)
                             }
                             val snap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
-                                try { q.get().await() } catch (e: Exception) { null }
+                                try { q.get(Source.SERVER).await() } catch (e: Exception) { null }
                             }
                             val posts = snap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
                             Pair(posts, snap?.documents?.lastOrNull())
@@ -833,7 +835,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         }
         try {
             val snapshot = kotlinx.coroutines.withTimeoutOrNull(2000L) {
-                FirebaseService.db.collection("news").whereEqualTo("type", "greeting").whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(1).get().await()
+                FirebaseService.db.collection("news").whereEqualTo("type", "greeting").whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(1).get(Source.SERVER).await()
             }
             val doc = snapshot?.documents?.firstOrNull() ?: return@withContext null
             val post = mapDocumentToNewsPost(doc)
@@ -864,7 +866,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     .whereEqualTo("approved", true)
                     .orderBy("timestamp", Query.Direction.DESCENDING)
                     .limit(3) // 🚀 Optimized from limit(20) to limit(3) to save 17 reads per load
-                    .get().await()
+                    .get(Source.SERVER).await()
             }
             
             val surveys = snapshot?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
