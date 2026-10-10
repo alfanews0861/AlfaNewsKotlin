@@ -77,7 +77,14 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({ user, language, setLa
       }
   };
 
-  const isStaff = [UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN].includes(user.role);
+  const hasReporterHistory = Boolean(
+      user.assignedMandal ||
+      (user as any).mandal ||
+      (user.points && user.points > 0) ||
+      (user.badges && user.badges.length > 0)
+  );
+
+  const isStaff = [UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.REGIONAL_INCHARGE].includes(user.role) || hasReporterHistory;
 
   const getPolicyIcon = (id: string) => {
       const className = "h-5 w-5 text-gray-500";

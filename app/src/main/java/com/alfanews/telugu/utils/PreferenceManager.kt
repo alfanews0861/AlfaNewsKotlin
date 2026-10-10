@@ -17,6 +17,10 @@ class PreferenceManager(context: Context) {
     private val _districtChanges = MutableSharedFlow<String?>(extraBufferCapacity = 64, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
     val districtChanges: SharedFlow<String?> = _districtChanges.asSharedFlow()
 
+    init {
+        clearAllNewsCache()
+    }
+
     companion object {
         private const val KEY_LANGUAGE = "key_language"
         private const val KEY_THEME_MODE = "key_theme_mode"
@@ -62,6 +66,8 @@ class PreferenceManager(context: Context) {
         private const val KEY_MANDAL_SCORES_PREFIX = "key_mandal_scores_"
         private const val KEY_LAST_LOCATION_DETECTION_TIME = "key_last_location_detection_time"
         private const val KEY_VC_WRITE_COUNTER = "key_vc_write_counter"
+        private const val KEY_HOME_NEWS_CACHE = "key_home_news_cache_v2"
+        private const val KEY_LOCAL_NEWS_CACHE_PREFIX = "key_local_news_cache_v2_"
 
         @Volatile
         private var INSTANCE: PreferenceManager? = null
@@ -370,6 +376,23 @@ class PreferenceManager(context: Context) {
 
     fun getLocalAdsTimestamp(district: String): Long {
         return prefs.getLong("$KEY_LOCAL_ADS_TS_PREFIX$district", 0L)
+    }
+
+    /**
+     * ⚡ గతంలో సేవ్ చేసిన క్యాష్ వార్తలను పూర్తిగా క్లియర్ చేస్తుంది (Cache vaddu - Always fresh live news).
+     */
+    fun clearAllNewsCache() {
+        try {
+            val editor = prefs.edit()
+            editor.remove(KEY_HOME_NEWS_CACHE)
+            val allKeys = prefs.all.keys
+            for (k in allKeys) {
+                if (k.startsWith(KEY_LOCAL_NEWS_CACHE_PREFIX) || k == KEY_HOME_NEWS_CACHE || k == "home_news_cache") {
+                    editor.remove(k)
+                }
+            }
+            editor.apply()
+        } catch (e: Exception) { }
     }
 
     /**

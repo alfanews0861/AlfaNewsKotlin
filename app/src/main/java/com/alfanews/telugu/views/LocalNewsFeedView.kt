@@ -177,11 +177,7 @@ fun LocalNewsFeedView(
         if (newsCount == 0) 0 
         else newsCount + (newsCount - 1) / 5
     }
-    val totalCount = remember(baseCount, hasMore) {
-        if (baseCount == 0) 0 
-        else if (hasMore) baseCount + 1 
-        else baseCount
-    }
+    val totalCount = remember(baseCount) { baseCount }
     val pagerState = rememberPagerState(pageCount = { totalCount })
 
     val flingBehavior = PagerDefaults.flingBehavior(
@@ -345,27 +341,6 @@ fun LocalNewsFeedView(
                     }
                 }
             }
-        } else if ((loading || isDetecting) && news.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(40.dp),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = if (isDetecting) stringResource(R.string.detecting_location) else stringResource(R.string.news_preparing),
-                        color = MaterialTheme.colorScheme.onBackground,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontFamily = Ramabhadra
-                    )
-                }
-            }
         } else if (news.isEmpty()) {
             var retryCount by remember { mutableStateOf(0) }
             LaunchedEffect(loading) {
@@ -375,26 +350,7 @@ fun LocalNewsFeedView(
                     viewModel.loadNews(language, currentUser)
                 }
             }
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(40.dp),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = stringResource(R.string.news_preparing),
-                        color = MaterialTheme.colorScheme.onBackground,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontFamily = Ramabhadra
-                    )
-                }
-            }
+            NewsCardSkeleton()
         } else {
             VerticalPager(
                 state = pagerState,
@@ -403,46 +359,17 @@ fun LocalNewsFeedView(
                 flingBehavior = flingBehavior,
                 beyondViewportPageCount = 1, // 🚀 Pre-compose adjacent pages → zero jank on swipe
                 key = { page ->
-                    if (page >= baseCount) {
-                        "local_feed_loading_slot_$page"
+                    val isAd = (page + 1) % 6 == 0
+                    if (isAd) {
+                        "local_ad_slot_$page"
                     } else {
-                        val isAd = (page + 1) % 6 == 0
-                        if (isAd) {
-                            "local_ad_slot_$page"
-                        } else {
-                            val idx = page - (page / 6)
-                            if (idx >= 0 && idx < news.size) news[idx].id else "local_empty_$page"
-                        }
+                        val idx = page - (page / 6)
+                        if (idx >= 0 && idx < news.size) news[idx].id else "local_empty_$page"
                     }
                 }
             ) { page ->
-                if (page >= baseCount) {
-                    // 🔄 Smooth Infinite Scroll Loading Card
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.background),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                            modifier = Modifier.padding(32.dp)
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(36.dp),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = if (language == Language.TELUGU) "మరిన్ని జిల్లా వార్తలు లోడ్ అవుతున్నాయి..." else "Loading more local news...",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                            )
-                        }
-                    }
-                } else {
-                    val isAdPagePager = (page + 1) % 6 == 0
-                    if (isAdPagePager) {
+                val isAdPagePager = (page + 1) % 6 == 0
+                if (isAdPagePager) {
                         val adIndex = page / 6
                         val adState = preloadedAds[page]
                         val totalLocalCount = localAds.size
@@ -513,7 +440,6 @@ fun LocalNewsFeedView(
                 }
             }
         }
-    }
 
     // Shared DistrictPicker moved to MainScreen
 }

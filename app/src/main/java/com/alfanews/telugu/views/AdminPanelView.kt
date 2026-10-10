@@ -90,9 +90,12 @@ fun AdminPanelView(
         user.phone?.contains("9173811009") == true ||
         authUser?.phoneNumber?.contains("9173811009") == true ||
         authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
+    val hasReporterHistory = !user.assignedMandal.isNullOrBlank() ||
+        user.points > 0 ||
+        user.badges.isNotEmpty()
     val effectiveRole = if (isAdminUser) {
         UserRole.ADMIN
-    } else if (user.role == UserRole.SUBSCRIBER && !user.assignedMandal.isNullOrBlank()) {
+    } else if (user.role == UserRole.SUBSCRIBER && hasReporterHistory) {
         UserRole.REPORTER
     } else {
         user.role
@@ -184,7 +187,7 @@ fun AdminPanelView(
             Box(modifier = Modifier.weight(1f)) {
                 when (activePage) {
                     "profile" -> UserProfilePageView(
-                        user = user,
+                        user = effectiveUser,
                         language = language,
                         setLanguage = setLanguage,
                         themeMode = themeMode,
@@ -202,14 +205,14 @@ fun AdminPanelView(
                     )
 
                     "edit-profile" -> EditProfilePageView(
-                        user = user,
+                        user = effectiveUser,
                         onClose = { activePage = "profile" },
                         onSave = ::saveProfile,
                         saving = savingProfile,
                         showTitle = false
                     )
                     "id-card" -> IdCardPageView(
-                        user = user,
+                        user = effectiveUser,
                         onBack = { activePage = "profile" }
                     )
                     "manageSurveys" -> ManageSurveysPageView(
@@ -270,6 +273,7 @@ fun AdminPanelView(
                             activePage = "post"
                         },
                         onViewPost = { post ->
+                            onClose()
                             onPostPublished(post.id)
                         },
                         currentUser = effectiveUser,

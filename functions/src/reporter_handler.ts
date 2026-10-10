@@ -2920,48 +2920,147 @@ export const runReactivateDemotedReportersHttp = onRequest({ region: REGION }, a
 /**
  * 6.2 Verify Reporter (Web Page)
  */
-export const verifyReporter = onRequest(async (req, res) => {
-    // Extract reporterId from the path: /verify/{reporterId}
-    // Hosting rewrite will point /verify/** to this function
-    const pathParts = req.path.split('/');
-    const reporterId = pathParts[pathParts.length - 1];
+export const verifyReporter = onRequest({
+    region: REGION,
+    invoker: "public",
+    cors: true,
+    maxInstances: 5
+}, async (req, res) => {
+    // Extract reporterId from the path: /verify/{reporterId} or query ?id={id}
+    const pathParts = req.path.split('/').filter(Boolean);
+    let reporterId = ((req.query.id as string) || (req.query.uid as string) || '').trim();
+    if (!reporterId && pathParts.length > 0) {
+        reporterId = pathParts[pathParts.length - 1].trim();
+    }
+    if (reporterId === 'verify') {
+        reporterId = '';
+    }
 
-    if (!reporterId || reporterId === 'verify' || reporterId === '') {
-        res.status(404).send("<h1>Invalid Reporter ID</h1>");
+    if (!reporterId) {
+        res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.status(404).send(`
+            <!DOCTYPE html>
+            <html lang="te">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Invalid Reporter ID - Alfa News</title>
+                <style>
+                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; padding: 40px 16px; background: #f8fafc; color: #1e293b; }
+                    .card { background: white; max-width: 420px; margin: 0 auto; padding: 32px 24px; border-radius: 16px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); border-top: 6px solid #ef4444; }
+                    .logo { font-size: 32px; font-weight: 800; color: #0f172a; margin-bottom: 8px; }
+                    .logo span { color: #dc2626; }
+                    h2 { color: #dc2626; margin-top: 16px; }
+                    p { color: #64748b; font-size: 15px; line-height: 1.5; margin-bottom: 24px; }
+                    .btn { display: inline-block; background: #dc2626; color: white; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; }
+                </style>
+            </head>
+            <body>
+                <div class="card">
+                    <div class="logo">alfa<span>news</span></div>
+                    <h2>చెల్లని రిపోర్టర్ ఐడీ (Invalid ID)</h2>
+                    <p>పరిశీలించడానికి సరైన రిపోర్టర్ ఐడీ లభించలేదు. దయచేసి ఐడీ కార్డుపై ఉన్న క్యూఆర్ కోడ్‌ను మళ్లీ స్కాన్ చేయండి.</p>
+                    <a class="btn" href="https://play.google.com/store/apps/details?id=com.alfanews.telugu">Download Alfa News App</a>
+                </div>
+            </body>
+            </html>
+        `);
         return;
     }
 
     try {
-        const userDoc = await db.collection('users').doc(reporterId).get();
+        let userDoc = await db.collection('users').doc(reporterId).get();
+
+        // Support lookup by custom reporterId or short ID if not found by primary UID
+        if (!userDoc.exists && reporterId.length >= 6) {
+            const shortIdUpper = reporterId.toUpperCase();
+            const shortQuery = await db.collection('users')
+                .where('reporterId', '==', shortIdUpper)
+                .limit(1)
+                .get();
+            if (!shortQuery.empty) {
+                userDoc = shortQuery.docs[0];
+            } else {
+                // Check if shortId matches the end of any reporter's document ID (cards show user.id.takeLast(8))
+                const staffSnap = await db.collection('users')
+                    .where('role', 'in', ['REPORTER', 'STAFF_REPORTER', 'REGIONAL_INCHARGE', 'ADMIN', 'EDITOR', 'NEWS_DESK', '2', '3', '4', '5', '6', '7'])
+                    .get();
+                const match = staffSnap.docs.find(d => d.id.toUpperCase().endsWith(shortIdUpper));
+                if (match) {
+                    userDoc = match;
+                }
+            }
+        }
 
         if (!userDoc.exists) {
+            res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
             res.status(404).send(`
-                <html>
-                    <head>
-                        <title>Reporter Not Found - Alfa News</title>
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                        <style>
-                            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; padding: 50px; background: #f4f4f4; }
-                            .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: inline-block; }
-                            h1 { color: #e74c3c; }
-                        </style>
-                    </head>
-                    <body>
-                        <div class="container">
-                            <h1>Reporter Not Found ❌</h1>
-                            <p>The ID you are verifying is not registered in our system.</p>
-                            <a href="https://play.google.com/store/apps/details?id=com.alfanews.telugu">Download Alfa News App</a>
-                        </div>
-                    </body>
+                <!DOCTYPE html>
+                <html lang="te">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Reporter Not Found - Alfa News</title>
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <style>
+                        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; padding: 40px 16px; background: #f8fafc; color: #1e293b; }
+                        .card { background: white; max-width: 420px; margin: 0 auto; padding: 32px 24px; border-radius: 16px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); border-top: 6px solid #ef4444; }
+                        .logo { font-size: 32px; font-weight: 800; color: #0f172a; margin-bottom: 8px; }
+                        .logo span { color: #dc2626; }
+                        h2 { color: #dc2626; margin-top: 16px; }
+                        p { color: #64748b; font-size: 15px; line-height: 1.5; margin-bottom: 24px; }
+                        .btn { display: inline-block; background: #dc2626; color: white; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="card">
+                        <div class="logo">alfa<span>news</span></div>
+                        <h2>రిపోర్టర్ వివరాలు లభించలేదు ❌</h2>
+                        <p>మీరు పరిశీలిస్తున్న ఐడీ మా రికార్డులలో లేదు లేదా రద్దు చేయబడింది.</p>
+                        <a class="btn" href="https://play.google.com/store/apps/details?id=com.alfanews.telugu">Download Alfa News App</a>
+                    </div>
+                </body>
                 </html>
             `);
             return;
         }
 
         const user = userDoc.data();
-        const isVerified = user?.role === 'REPORTER' || user?.role === 'ADMIN';
-        const statusColor = isVerified ? '#2ecc71' : '#e74c3c';
-        const statusText = isVerified ? 'VERIFIED REPORTER ✅' : 'NOT A REPORTER ❌';
+        const roleStr = String(user?.role || '').toUpperCase();
+        const isVerified = [
+            'REPORTER',
+            'STAFF_REPORTER',
+            'REGIONAL_INCHARGE',
+            'EDITOR',
+            'ADMIN',
+            'NEWS_DESK',
+            '2', '2.0',
+            '3', '3.0',
+            '4', '4.0',
+            '5', '5.0',
+            '6', '6.0',
+            '7', '7.0'
+        ].includes(roleStr) || Boolean(user?.assignedMandal) || Boolean(user?.isReporter);
+
+        let roleDisplay = "PRESS REPORTER";
+        if (roleStr.includes('ADMIN') || roleStr === '5' || roleStr === '5.0') {
+            roleDisplay = "CHIEF EDITOR / ADMIN";
+        } else if (roleStr.includes('EDITOR') || roleStr === '4' || roleStr === '4.0') {
+            roleDisplay = "EDITOR";
+        } else if (roleStr.includes('REGIONAL') || roleStr === '3' || roleStr === '3.0') {
+            roleDisplay = "REGIONAL INCHARGE";
+        } else if (roleStr.includes('NEWS_DESK') || roleStr === '6' || roleStr === '6.0') {
+            roleDisplay = "NEWS DESK";
+        } else if (user?.role && typeof user.role === 'string') {
+            roleDisplay = user.role.replace(/_/g, ' ');
+        }
+
+        const statusBadgeBg = isVerified ? '#ecfdf5' : '#fef2f2';
+        const statusBadgeColor = isVerified ? '#059669' : '#dc2626';
+        const statusBorder = isVerified ? '#10b981' : '#ef4444';
+        const statusText = isVerified ? 'VERIFIED PRESS REPORTER ✅' : 'NOT A VERIFIED REPORTER ❌';
+        const displayId = (userDoc.id || reporterId).slice(-8).toUpperCase();
+        const photoUrl = user?.photoUrl || 'https://via.placeholder.com/180x220?text=No+Photo';
 
         const html = `
             <!DOCTYPE html>
@@ -2971,61 +3070,84 @@ export const verifyReporter = onRequest(async (req, res) => {
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Reporter Verification - Alfa News</title>
                 <style>
-                    body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f5; margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-                    .card { background: white; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); width: 95%; max-width: 400px; overflow: hidden; text-align: center; border-top: 8px solid #ff0000; margin: 20px; }
-                    .header { padding: 20px; background: #fff; }
-                    .logo { font-size: 32px; font-weight: bold; margin-bottom: 5px; color: #000; }
-                    .logo span { color: #ff0000; }
-                    .photo-container { margin: 10px auto; width: 160px; height: 200px; border: 4px solid #eee; border-radius: 8px; overflow: hidden; background: #fafafa; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+                    * { box-sizing: border-box; }
+                    body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f1f5f9; margin: 0; padding: 24px 12px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+                    .card { background: white; border-radius: 20px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1); width: 100%; max-width: 400px; overflow: hidden; text-align: center; border-top: 8px solid #dc2626; position: relative; }
+                    .header { padding: 24px 20px 16px; background: #ffffff; border-bottom: 1px solid #f1f5f9; }
+                    .logo { font-size: 34px; font-weight: 900; margin-bottom: 4px; color: #0f172a; letter-spacing: -0.5px; }
+                    .logo span { color: #dc2626; }
+                    .subtitle { font-size: 11px; color: #64748b; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; }
+                    .photo-wrapper { margin: 20px auto 16px; width: 160px; height: 190px; border-radius: 12px; overflow: hidden; background: #f8fafc; border: 3px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.08); }
                     .photo { width: 100%; height: 100%; object-fit: cover; }
-                    .info { padding: 0 25px 25px; }
-                    .name { font-size: 24px; font-weight: bold; color: #333; margin: 15px 0 5px; }
-                    .role { font-size: 16px; font-weight: bold; color: #ff0000; text-transform: uppercase; margin-bottom: 15px; letter-spacing: 1px; }
-                    .details { text-align: left; margin: 20px 0; border-top: 1px solid #eee; padding-top: 15px; }
-                    .detail-item { margin-bottom: 12px; font-size: 15px; color: #555; display: flex; }
-                    .detail-label { font-weight: bold; color: #333; width: 90px; flex-shrink: 0; }
-                    .status { display: inline-block; padding: 12px 25px; border-radius: 30px; background: ${statusColor}; color: white; font-weight: bold; margin-top: 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-size: 16px; }
-                    .footer { padding: 15px; background: #f9f9f9; font-size: 12px; color: #999; border-top: 1px solid #eee; }
-                    @media (max-width: 480px) {
-                        .card { margin: 10px; }
-                        .info { padding: 0 15px 20px; }
-                    }
+                    .info { padding: 0 24px 24px; }
+                    .name { font-size: 24px; font-weight: 800; color: #0f172a; margin: 12px 0 4px; line-height: 1.2; }
+                    .role { font-size: 15px; font-weight: 700; color: #dc2626; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px; }
+                    .status-badge { display: inline-block; padding: 10px 20px; border-radius: 9999px; background: ${statusBadgeBg}; color: ${statusBadgeColor}; border: 1.5px solid ${statusBorder}; font-weight: 800; font-size: 14px; letter-spacing: 0.5px; margin-bottom: 18px; }
+                    .details { text-align: left; background: #f8fafc; border-radius: 12px; padding: 16px; border: 1px solid #e2e8f0; margin-bottom: 18px; }
+                    .detail-item { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px; }
+                    .detail-item:last-child { margin-bottom: 0; }
+                    .detail-label { font-weight: 600; color: #64748b; }
+                    .detail-val { font-weight: 700; color: #0f172a; text-align: right; max-width: 200px; word-break: break-word; }
+                    .seal-row { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 12px; color: #059669; font-weight: 700; margin-bottom: 16px; }
+                    .footer { padding: 16px 20px; background: #f8fafc; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; line-height: 1.5; }
+                    .app-btn { display: inline-block; background: #dc2626; color: white; text-decoration: none; font-size: 12px; font-weight: 700; padding: 6px 14px; border-radius: 6px; margin-top: 8px; }
                 </style>
             </head>
             <body>
                 <div class="card">
                     <div class="header">
                         <div class="logo">alfa<span>news</span></div>
-                        <div style="font-size: 11px; color: #666; font-weight: bold; letter-spacing: 2px; margin-top: 5px;">OFFICIAL REPORTER VERIFICATION</div>
+                        <div class="subtitle">OFFICIAL PRESS IDENTITY VERIFICATION</div>
                     </div>
 
-                    <div class="photo-container">
-                        <img src="${user?.photoUrl || 'https://via.placeholder.com/160x200?text=No+Photo'}" alt="${user?.name}" class="photo">
+                    <div class="photo-wrapper">
+                        <img src="${photoUrl}" alt="${user?.name || 'Reporter'}" class="photo" onerror="this.src='https://via.placeholder.com/180x220?text=No+Photo'">
                     </div>
 
                     <div class="info">
-                        <div class="name">${user?.name}</div>
-                        <div class="role">${user?.role?.replace('_', ' ')}</div>
+                        <div class="name">${user?.name || 'Authorized Reporter'}</div>
+                        <div class="role">${roleDisplay}</div>
 
-                        <div class="status">${statusText}</div>
+                        <div class="status-badge">${statusText}</div>
 
                         <div class="details">
-                            <div class="detail-item"><span class="detail-label">ID No:</span> <span>${reporterId.slice(-8).toUpperCase()}</span></div>
-                            <div class="detail-item"><span class="detail-label">District:</span> <span>${user?.district || 'N/A'}</span></div>
-                            <div class="detail-item"><span class="detail-label">Mandal:</span> <span>${user?.assignedMandal || user?.mandal || 'N/A'}</span></div>
-                            <div class="detail-item"><span class="detail-label">Valid Upto:</span> <span>31-12-2027</span></div>
+                            <div class="detail-item">
+                                <span class="detail-label">ID No</span>
+                                <span class="detail-val">${displayId}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">District</span>
+                                <span class="detail-val">${user?.district || 'Andhra Pradesh / Telangana'}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Mandal</span>
+                                <span class="detail-val">${user?.assignedMandal || user?.mandal || 'General'}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Valid Upto</span>
+                                <span class="detail-val">31-12-2027</span>
+                            </div>
+                        </div>
+
+                        <div class="seal-row">
+                            <span>🛡️ Digitally Signed & Verified Official Record</span>
+                        </div>
+
+                        <div>
+                            <a href="https://play.google.com/store/apps/details?id=com.alfanews.telugu" class="app-btn">Alfa News App</a>
                         </div>
                     </div>
 
                     <div class="footer">
-                        © 2026 Alfa News Media Group. This is a digitally verified identity. <br>
-                        Verification Date: ${new Date().toLocaleDateString('te-IN')}
+                        © 2026 Alfa News Media Group. All rights reserved.<br>
+                        Verification Timestamp: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST
                     </div>
                 </div>
             </body>
             </html>
         `;
 
+        res.set('Cache-Control', 'public, max-age=60, s-maxage=300');
         res.status(200).send(html);
     } catch (error: any) {
         console.error("Verification error:", error);

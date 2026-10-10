@@ -145,11 +145,7 @@ fun NewsFeedView(
         if (newsCount == 0) 0 
         else newsCount + (newsCount - 1) / 5
     }
-    val totalCount = remember(baseCount, hasMore) {
-        if (baseCount == 0) 0 
-        else if (hasMore) baseCount + 1 
-        else baseCount
-    }
+    val totalCount = remember(baseCount) { baseCount }
     val pagerState = rememberPagerState(pageCount = { totalCount })
 
     val flingBehavior = PagerDefaults.flingBehavior(
@@ -310,12 +306,7 @@ fun NewsFeedView(
                     viewModel.loadNews(language, currentUser, initialPostId)
                 }
             }
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    CircularProgressIndicator(modifier = Modifier.size(40.dp), color = MaterialTheme.colorScheme.primary)
-                    Text(text = stringResource(R.string.news_preparing), color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge)
-                }
-            }
+            NewsCardSkeleton()
         } else {
             VerticalPager(
                 state = pagerState,
@@ -323,50 +314,21 @@ fun NewsFeedView(
                 flingBehavior = flingBehavior,
                 beyondViewportPageCount = 1, // 🚀 Pre-compose adjacent pages → zero jank on swipe
                 key = { page ->
-                    if (page >= baseCount) {
-                        "home_feed_loading_slot_$page"
-                    } else {
-                        val isAd = (page + 1) % 6 == 0
-                        if (isAd) "home_ad_slot_$page" else {
-                            val idx = page - (page / 6)
-                            if (idx < news.size) news[idx].id else "empty_$page"
-                        }
+                    val isAd = (page + 1) % 6 == 0
+                    if (isAd) "home_ad_slot_$page" else {
+                        val idx = page - (page / 6)
+                        if (idx < news.size) news[idx].id else "empty_$page"
                     }
                 }
             ) { page ->
                 Box(modifier = Modifier.fillMaxSize()) {
-                    if (page >= baseCount) {
-                        // 🚀 End of feed loading slot - keeps infinite scroll seamless
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.background),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(16.dp),
-                                modifier = Modifier.padding(32.dp)
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(36.dp),
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Text(
-                                    text = if (language == Language.TELUGU) "మరిన్ని వార్తలు లోడ్ అవుతున్నాయి..." else "Loading more news...",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                                )
-                            }
-                        }
-                    } else {
-                        val isAdPage = (page + 1) % 6 == 0
-                        if (isAdPage) {
-                            val adIndex = page / 6
-                            val adState = preloadedAds[page]
-                            val totalLocalCount = localAds.size
-                            // 🚀 derivedStateOf → recompose only when actual active state changes
-                            val isCurrentPage by remember(page) { derivedStateOf { pagerState.currentPage == page } }
+                    val isAdPage = (page + 1) % 6 == 0
+                    if (isAdPage) {
+                        val adIndex = page / 6
+                        val adState = preloadedAds[page]
+                        val totalLocalCount = localAds.size
+                        // 🚀 derivedStateOf → recompose only when actual active state changes
+                        val isCurrentPage by remember(page) { derivedStateOf { pagerState.currentPage == page } }
                             
                             // 🚀 PRIORITY LOGIC:
                             // Slot 1 (Page 6) & Slot 2 (Page 12) -> Prefer Local Ads
@@ -439,4 +401,3 @@ fun NewsFeedView(
             }
         }
     }
-}

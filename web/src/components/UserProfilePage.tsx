@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Language, UserRole } from '../types';
 import { auth, db, storage } from '../services/firebase';
 import * as _auth from 'firebase/auth';
@@ -10,7 +10,7 @@ import { VerifiedBadge } from './VerifiedBadge';
 import { isUserVerifiedReporter } from '../services/reporterVerification';
 
 const { signOut } = _auth as any;
-const { doc, updateDoc, deleteDoc } = _firestore as any;
+const { doc, updateDoc, deleteDoc, getDoc } = _firestore as any;
 const { ref, uploadBytes, getDownloadURL } = _storage as any;
 
 interface UserProfilePageProps {
@@ -34,6 +34,21 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
   const [showIdCard, setShowIdCard] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(user.pushEnabled !== false && user.notificationsEnabled !== false);
+  const [authorizedSignature, setAuthorizedSignature] = useState<string>('');
+
+  useEffect(() => {
+    const fetchSignature = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'settings', 'android_config'));
+        if (snap.exists() && snap.data()?.authorized_signature) {
+          setAuthorizedSignature(snap.data().authorized_signature);
+        }
+      } catch (err) {
+        console.warn("Could not load authorized signature", err);
+      }
+    };
+    fetchSignature();
+  }, []);
 
   const toggleNotifications = async () => {
     const newValue = !pushEnabled;
@@ -103,7 +118,14 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
     }
   };
 
-  const isStaff = [UserRole.REPORTER, UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN].includes(user.role);
+  const hasReporterHistory = Boolean(
+    user.assignedMandal ||
+    (user as any).mandal ||
+    (user.points && user.points > 0) ||
+    (user.badges && user.badges.length > 0)
+  );
+
+  const isStaff = [UserRole.REPORTER, UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN].includes(user.role) || hasReporterHistory;
 
   // Single-color icons for policy links
   const getPolicyIcon = (id: string) => {
@@ -255,7 +277,7 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
       </div>
 
       <EditProfileModal isOpen={isEditModalOpen} onClose={() => setEditModalOpen(false)} user={user} isStaff={isStaff} defaultPhoto={`https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random`} defaultSignature="https://via.placeholder.com/150?text=Signature" onSave={handleSaveProfile} saving={isSaving} />
-      <IdCardModal show={showIdCard} onClose={() => setShowIdCard(false)} user={user} displayPhoto={user.photoUrl || "https://via.placeholder.com/150"} displaySignature={user.signatureUrl || "https://via.placeholder.com/150?text=Signature"} />
+      <IdCardModal show={showIdCard} onClose={() => setShowIdCard(false)} user={user} displayPhoto={user.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random`} displaySignature={authorizedSignature || user.signatureUrl || "https://via.placeholder.com/150?text=Signature"} />
     </div>
   );
 };

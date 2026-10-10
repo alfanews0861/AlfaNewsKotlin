@@ -63,9 +63,12 @@ fun WeatherCardView(
     // post coords were set at loadNews time — if user moved or GPS updated later, those are stale.
     val prefs = remember { PreferenceManager.getInstance(context) }
 
-    // State
-    var weatherData by remember { mutableStateOf<WeatherService.WeatherData?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
+    // State - ⚡ Instant 0ms cached weather lookup
+    val cachedInitialWeather = remember(post.location) {
+        WeatherService.getCachedWeather(post.location, post.latitude, post.longitude)
+    }
+    var weatherData by remember { mutableStateOf<WeatherService.WeatherData?>(cachedInitialWeather) }
+    var isLoading by remember { mutableStateOf(cachedInitialWeather == null) }
     var hasError by remember { mutableStateOf(false) }
     var retryTrigger by remember { mutableStateOf(0) }
 
@@ -105,14 +108,22 @@ fun WeatherCardView(
     // ✅ FIX: Use effectiveLat/Lon (live prefs) instead of post.latitude/longitude
     // This means weather re-fetches whenever GPS coords change in prefs
     LaunchedEffect(effectiveLocation, effectiveLat, effectiveLon, retryTrigger) {
-        isLoading = true
+        if (weatherData == null) {
+            isLoading = true
+        }
         hasError = false
         try {
             val data = WeatherService.fetchWeather(effectiveLocation, effectiveLat, effectiveLon)
-            weatherData = data
-            hasError = data == null
+            if (data != null) {
+                weatherData = data
+                hasError = false
+            } else if (weatherData == null) {
+                hasError = true
+            }
         } catch (e: Exception) {
-            hasError = true
+            if (weatherData == null) {
+                hasError = true
+            }
         }
         isLoading = false
     }

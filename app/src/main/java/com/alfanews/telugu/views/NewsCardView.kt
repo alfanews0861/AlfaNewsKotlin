@@ -1419,7 +1419,8 @@ fun SurveyCardContent(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     
-    var hasVoted by remember(post.id, currentUser?.id) { mutableStateOf<Boolean?>(null) }
+    val prefs = remember { com.alfanews.telugu.utils.PreferenceManager.getInstance(context) }
+    var hasVoted by remember(post.id, currentUser?.id) { mutableStateOf(prefs.isSurveyAnswered(post.id)) }
     var isSubmittingVote by remember { mutableStateOf(false) }
 
     // Real-time votes state
@@ -1483,18 +1484,13 @@ fun SurveyCardContent(
             .fillMaxSize()
             .background(gradientBackground)
     ) {
-        if (hasVoted == null) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 20.dp, vertical = 24.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 20.dp, vertical = 24.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
                 // Header (Post info, reporter, district)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2015,7 +2011,6 @@ fun SurveyCardContent(
             }
         }
     }
-}
 
 private fun submitSurveyVotes(
     postId: String,
@@ -2743,4 +2738,118 @@ fun getOptimizedImageUrl(url: String): String {
         return url
     }
     return "https://wsrv.nl/?url=${Uri.encode(url)}&output=webp"
+}
+
+@Composable
+fun NewsCardSkeleton() {
+    val infiniteTransition = rememberInfiniteTransition(label = "skeleton_shimmer")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 0.65f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(700, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+    val shimmerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha * 0.12f)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Header Bar Skeleton
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 110.dp, height = 24.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(shimmerColor)
+                )
+                Box(
+                    modifier = Modifier
+                        .size(width = 50.dp, height = 24.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(shimmerColor)
+                )
+            }
+
+            // Image Placeholder (Center)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(230.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(shimmerColor)
+            )
+
+            // Headline & Content Placeholder
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.92f)
+                        .height(22.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(shimmerColor)
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.72f)
+                        .height(22.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(shimmerColor)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(shimmerColor)
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.85f)
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(shimmerColor)
+                )
+            }
+
+            // Bottom Actions Skeleton
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 90.dp, height = 32.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(shimmerColor)
+                )
+                Box(
+                    modifier = Modifier
+                        .size(width = 90.dp, height = 32.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(shimmerColor)
+                )
+            }
+        }
+    }
 }

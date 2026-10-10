@@ -172,6 +172,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
               setActivePage('post');
             }}
             currentUser={user}
+            onViewPost={(p) => {
+              onClose();
+              window.location.hash = `#/news/${p.id}`;
+            }}
           />
         );
       case 'manageSurveys':

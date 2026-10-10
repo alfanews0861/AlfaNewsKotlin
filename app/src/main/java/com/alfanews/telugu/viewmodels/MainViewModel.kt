@@ -228,6 +228,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                          (effectiveEmail?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
 
                         val assignedMandal = snapshot.getString("assignedMandal")?.takeIf { it.isNotBlank() }
+                            ?: snapshot.getString("mandal")?.takeIf { it.isNotBlank() }
                         val lastKnownMandal = snapshot.getString("lastKnownMandal")?.takeIf { it.isNotBlank() }
                         val isPrevDowngraded = snapshot.getBoolean("previouslyDowngraded") == true
                         val downgradedReason = snapshot.getString("downgradedReason")
@@ -294,7 +295,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             referralCount = refCount,
                             signatureUrl = snapshot.getString("signatureUrl"),
                             idCardUrl = snapshot.getString("idCardUrl"),
-                            assignedMandal = snapshot.getString("assignedMandal"),
+                            assignedMandal = assignedMandal,
                             assignedDistricts = assignedDistList,
                             fcmTokens = fcmTokensList,
                             lastTokenUpdate = snapshot.getLong("lastTokenUpdate"),

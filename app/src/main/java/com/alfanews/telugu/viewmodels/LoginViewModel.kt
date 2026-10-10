@@ -88,12 +88,18 @@ class LoginViewModel : ViewModel() {
                 var isNewUser = false
                 try {
                     val userRef = FirebaseService.db.collection("users").document(user.uid)
-                    val existingUserDoc = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                    var existingUserDoc = kotlinx.coroutines.withTimeoutOrNull(10000L) {
                         try {
                             userRef.get().await()
                         } catch (e: Exception) {
                             null
                         }
+                    }
+                    if (existingUserDoc == null) {
+                        try {
+                            val cached = userRef.get(com.google.firebase.firestore.Source.CACHE).await()
+                            if (cached.exists()) existingUserDoc = cached
+                        } catch (_: Exception) {}
                     }
 
                     if (existingUserDoc != null && !existingUserDoc.exists()) {
@@ -110,7 +116,7 @@ class LoginViewModel : ViewModel() {
                         for (p in searchPhones) {
                             if (foundLegacyUser) break
                             try {
-                                val legacyDocs = kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                                val legacyDocs = kotlinx.coroutines.withTimeoutOrNull(8000L) {
                                     val snap1 = FirebaseService.db.collection("users").whereEqualTo("phone", p).get().await()
                                     if (!snap1.isEmpty) snap1 else FirebaseService.db.collection("users").whereEqualTo("phoneNumber", p).get().await()
                                 }
@@ -124,7 +130,8 @@ class LoginViewModel : ViewModel() {
                                             legacyLastKnown?.isNotBlank() == true ||
                                             legacyData?.get("previouslyDowngraded") == true ||
                                             legacyData?.get("downgradedReason") != null ||
-                                            ((legacyData?.get("points") as? Number)?.toInt() ?: 0) > 0
+                                            ((legacyData?.get("points") as? Number)?.toInt() ?: 0) > 0 ||
+                                            legacyDoc.getBoolean("isProtectedSenior") == true
                                     val parsedLegacyRole = if (isAdmin) {
                                         UserRole.ADMIN
                                     } else if (hasReporterAttrs) {
@@ -154,6 +161,12 @@ class LoginViewModel : ViewModel() {
                                         }
                                     }
                                     userRef.set(updatedLegacyData, com.google.firebase.firestore.SetOptions.merge()).await()
+                                    val legacyName = legacyDoc.getString("name")?.trim()
+                                    if (!legacyName.isNullOrBlank() && !legacyName.equals("User", ignoreCase = true) && !legacyName.equals("యూజర్", ignoreCase = true)) {
+                                        prefs.userName = legacyName
+                                    } else if (hasReporterAttrs) {
+                                        prefs.userName = "విలేకరి"
+                                    }
                                     foundLegacyUser = true
                                 }
                             } catch (e: Exception) {
@@ -166,7 +179,7 @@ class LoginViewModel : ViewModel() {
                             for (p in searchPhones) {
                                 if (foundLegacyUser) break
                                 try {
-                                    val appDocs = kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                                    val appDocs = kotlinx.coroutines.withTimeoutOrNull(8000L) {
                                         val snapApp1 = FirebaseService.db.collection("reporter_applications").whereEqualTo("phone", p).get().await()
                                         if (!snapApp1.isEmpty) snapApp1 else FirebaseService.db.collection("reporter_applications").whereEqualTo("phoneNumber", p).get().await()
                                     }
@@ -178,8 +191,9 @@ class LoginViewModel : ViewModel() {
                                         legacyRole = "REPORTER"
                                         val appDist = validApp.getString("district") ?: ""
                                         val appMandal = validApp.getString("assignedMandal") ?: validApp.getString("mandal") ?: ""
+                                        val resolvedRepName = validApp.getString("fullName") ?: validApp.getString("name") ?: user.displayName ?: "విలేకరి"
                                         val repData = mutableMapOf<String, Any?>(
-                                            "name" to (validApp.getString("fullName") ?: validApp.getString("name") ?: user.displayName ?: "విలేకరి"),
+                                            "name" to resolvedRepName,
                                             "phone" to (user.phoneNumber ?: p),
                                             "role" to "REPORTER",
                                             "district" to appDist,
@@ -191,6 +205,7 @@ class LoginViewModel : ViewModel() {
                                             "lastLogin" to Timestamp.now()
                                         )
                                         userRef.set(repData, com.google.firebase.firestore.SetOptions.merge()).await()
+                                        prefs.userName = resolvedRepName
                                         foundLegacyUser = true
                                     }
                                 } catch (e: Exception) {
@@ -202,7 +217,7 @@ class LoginViewModel : ViewModel() {
                         // 2. Search by email if not found yet
                         if (!foundLegacyUser && !email.isNullOrBlank()) {
                             try {
-                                val emailDocs = kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                                val emailDocs = kotlinx.coroutines.withTimeoutOrNull(8000L) {
                                     FirebaseService.db.collection("users")
                                         .whereEqualTo("email", email.trim().lowercase())
                                         .get().await()
@@ -220,6 +235,10 @@ class LoginViewModel : ViewModel() {
                                         updatedLegacyData["role"] = "ADMIN"
                                     }
                                     userRef.set(updatedLegacyData, com.google.firebase.firestore.SetOptions.merge()).await()
+                                    val legacyName = legacyDoc.getString("name")?.trim()
+                                    if (!legacyName.isNullOrBlank() && !legacyName.equals("User", ignoreCase = true)) {
+                                        prefs.userName = legacyName
+                                    }
                                     foundLegacyUser = true
                                 }
                             } catch (e: Exception) {
@@ -240,9 +259,29 @@ class LoginViewModel : ViewModel() {
                     } else if (existingUserDoc != null && existingUserDoc.exists()) {
                         // EXISTING USER: Only update metadata, NEVER downgrade role
                         val rawRole = existingUserDoc.get("role")
-                        val roleFromDb = if (isAdmin) "ADMIN" else ((UserRole.fromStringSafe(rawRole) ?: UserRole.SUBSCRIBER).name)
+                        val assignedMandal = existingUserDoc.getString("assignedMandal")?.takeIf { it.isNotBlank() }
+                            ?: existingUserDoc.getString("mandal")?.takeIf { it.isNotBlank() }
+                        val points = (existingUserDoc.get("points") as? Number)?.toLong() ?: 0L
+                        val badges = (existingUserDoc.get("badges") as? List<*>) ?: emptyList<Any>()
+                        val isProtectedSenior = existingUserDoc.getBoolean("isProtectedSenior") == true
+                        val hasReporterPast = !assignedMandal.isNullOrBlank() || points > 0L || badges.isNotEmpty() || isProtectedSenior
+
+                        var parsedRole = UserRole.fromStringSafe(rawRole) ?: UserRole.SUBSCRIBER
+                        if (parsedRole == UserRole.SUBSCRIBER && hasReporterPast) {
+                            parsedRole = UserRole.REPORTER
+                        }
+                        val roleFromDb = if (isAdmin) "ADMIN" else parsedRole.name
                         
-                        prefs.userName = existingUserDoc.getString("name") ?: user.displayName ?: (if (isAdmin) "శ్రీకాంత్ రెడ్డి" else "User")
+                        val dbName = existingUserDoc.getString("name")?.trim()
+                        val resolvedName = when {
+                            !dbName.isNullOrBlank() && !dbName.equals("User", ignoreCase = true) && !dbName.equals("యూజర్", ignoreCase = true) -> dbName
+                            !user.displayName.isNullOrBlank() -> user.displayName
+                            isAdmin -> "శ్రీకాంత్ రెడ్డి"
+                            hasReporterPast || parsedRole == UserRole.REPORTER -> "విలేకరి"
+                            else -> "User"
+                        }
+                        
+                        prefs.userName = resolvedName
                         prefs.userRole = roleFromDb
                         val dist = existingUserDoc.getString("district")
                         prefs.userDistrict = dist
@@ -256,6 +295,8 @@ class LoginViewModel : ViewModel() {
                         )
                         if (isAdmin && rawRole?.toString()?.uppercase() != "ADMIN") {
                             updateData["role"] = "ADMIN"
+                        } else if (roleFromDb == "REPORTER" && (rawRole?.toString()?.uppercase() == "SUBSCRIBER" || rawRole == null)) {
+                            updateData["role"] = "REPORTER"
                         }
                         
                         user.phoneNumber?.let { if (it.isNotEmpty()) updateData["phone"] = it }

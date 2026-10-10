@@ -70,6 +70,7 @@ fun ReporterProfileView(
     reporterId: String,
     language: Language,
     currentUser: User?,
+    showHeader: Boolean = true,
     onBack: () -> Unit
 ) {
     var reporter by remember { mutableStateOf<User?>(null) }
@@ -118,14 +119,24 @@ fun ReporterProfileView(
             } else {
                 try {
                     val userRef = FirebaseService.db.collection("users").document(targetId)
-                    val userSnap = kotlinx.coroutines.withTimeoutOrNull(3000L) {
-                        userRef.get().await()
+                    var userSnap = kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                        try {
+                            userRef.get().await()
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+                    if (userSnap == null || !userSnap.exists()) {
+                        try {
+                            val cachedSnap = userRef.get(com.google.firebase.firestore.Source.CACHE).await()
+                            if (cachedSnap.exists()) userSnap = cachedSnap
+                        } catch (_: Exception) {}
                     }
                     if (userSnap != null && userSnap.exists()) {
                         reporter = userSnap.toUserObject()
                     } else {
                         // Fallback lookup by name in users collection
-                        val nameSnap = kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                        val nameSnap = kotlinx.coroutines.withTimeoutOrNull(6000L) {
                             FirebaseService.db.collection("users")
                                 .whereEqualTo("name", targetId)
                                 .limit(1)
@@ -140,20 +151,25 @@ fun ReporterProfileView(
                 }
             }
             
-            // 2. Fetch posts by this reporter (try reporter.id, fallback to reporter.name, originalReporterId, userId)
+            // 2. Fetch posts by this reporter (query both reporter.id and originalReporterId)
             val newsRef = FirebaseService.db.collection("news")
-            var querySnapshot = try {
-                kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                    newsRef.whereEqualTo("reporter.id", targetId).limit(100).get().await()
+            val candidateDocs = mutableListOf<com.google.firebase.firestore.DocumentSnapshot>()
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                    val s1 = try { newsRef.whereEqualTo("reporter.id", targetId).limit(50).get().await() } catch (_: Exception) { null }
+                    val s2 = try { newsRef.whereEqualTo("originalReporterId", targetId).limit(50).get().await() } catch (_: Exception) { null }
+                    if (s1 != null) candidateDocs.addAll(s1.documents)
+                    if (s2 != null) candidateDocs.addAll(s2.documents)
                 }
             } catch (e: Exception) {
-                null
+                // Ignore
             }
 
-            if (querySnapshot == null || querySnapshot.isEmpty) {
+            if (candidateDocs.isEmpty()) {
                 try {
-                    querySnapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                        newsRef.whereEqualTo("reporter.name", targetId).limit(100).get().await()
+                    kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                        val s3 = newsRef.whereEqualTo("reporter.name", targetId).limit(50).get().await()
+                        candidateDocs.addAll(s3.documents)
                     }
                 } catch (e: Exception) {
                     // Ignore
@@ -161,17 +177,20 @@ fun ReporterProfileView(
             }
 
             val currentRep = reporter
-            if ((querySnapshot == null || querySnapshot.isEmpty) && currentRep != null && currentRep.id != targetId) {
+            if (candidateDocs.isEmpty() && currentRep != null && currentRep.id != targetId) {
                 try {
-                    querySnapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                        newsRef.whereEqualTo("reporter.id", currentRep.id).limit(100).get().await()
+                    kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                        val s4 = newsRef.whereEqualTo("reporter.id", currentRep.id).limit(50).get().await()
+                        candidateDocs.addAll(s4.documents)
                     }
                 } catch (e: Exception) {
                     // Ignore
                 }
             }
             
-            val fetchedPosts = querySnapshot?.documents?.mapNotNull { doc ->
+            val seenDocIds = mutableSetOf<String>()
+            val fetchedPosts = candidateDocs.mapNotNull { doc ->
+                if (!seenDocIds.add(doc.id)) return@mapNotNull null
                 try {
                     val data = doc.data ?: return@mapNotNull null
                     val approved = data["approved"] as? Boolean ?: true
@@ -180,13 +199,26 @@ fun ReporterProfileView(
                 } catch (e: Exception) {
                     null
                 }
-            } ?: emptyList()
+            }
             
             // Sort by timestamp (newest first)
             posts = fetchedPosts.sortedByDescending { it.timestamp }
 
             // 3. Guaranteed fallback if user doc was not found in users collection, or dynamic points calculation
-            val repName = reporter?.name?.ifEmpty { null } ?: posts.firstOrNull()?.reporter?.name?.ifEmpty { null } ?: targetId
+            val postRep = posts.firstOrNull()?.reporter
+            val postAuthorName = postRep?.name?.takeIf { it.isNotBlank() && it != "Alfa News Desk" && it != "అజ్ఞాత పౌరుడు" && it != "సిటిజెన్ పోస్ట్" }
+
+            val rawCandidateName = reporter?.name?.takeIf { it.isNotBlank() }
+                ?: postAuthorName
+                ?: ""
+
+            // 🛡️ Never display raw 20+ character Firebase UID as reporter's display name
+            val isRawUid = rawCandidateName.length >= 18 && !rawCandidateName.contains(" ") && rawCandidateName.matches(Regex("^[a-zA-Z0-9_-]+$"))
+            val repName = if (rawCandidateName.isBlank() || isRawUid) {
+                if (language == Language.TELUGU) "విలేకరి" else "Reporter"
+            } else {
+                rawCandidateName
+            }
             
             var calculatedPoints = 0
             posts.forEach { p ->
@@ -212,7 +244,7 @@ fun ReporterProfileView(
                     role = UserRole.REPORTER,
                     points = effectivePoints,
                     badges = badges,
-                    photoUrl = "https://ui-avatars.com/api/?name=${repName}&background=random"
+                    photoUrl = if (isRawUid) null else "https://ui-avatars.com/api/?name=${java.net.URLEncoder.encode(repName, "UTF-8")}&background=random"
                 )
             } else if (currentPoints == 0 && calculatedPoints > 0) {
                 reporter = rep.copy(
@@ -308,34 +340,36 @@ fun ReporterProfileView(
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background)
             ) {
-                // Top Bar
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.surface,
-                    shadowElevation = 2.dp
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(horizontal = 8.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                // Top Bar (only if showHeader is true)
+                if (showHeader) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.surface,
+                        shadowElevation = 2.dp
                     ) {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                Icons.Default.ArrowBack,
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.onSurface
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .statusBarsPadding()
+                                .padding(horizontal = 8.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = onBack) {
+                                Icon(
+                                    Icons.Default.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (language == Language.TELUGU) "రిపోర్టర్ ప్రొఫైల్" else "Reporter Profile",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = Ramabhadra,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (language == Language.TELUGU) "రిపోర్టర్ ప్రొఫైల్" else "Reporter Profile",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = Ramabhadra,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
                     }
                 }
 

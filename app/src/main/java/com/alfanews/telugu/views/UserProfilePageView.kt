@@ -77,16 +77,68 @@ fun UserProfilePageView(
     val leaderboardLoading by leaderboardViewModel.loading.collectAsStateWithLifecycle()
 
     val authUser = FirebaseService.auth.currentUser
-    val isGuest = authUser == null || user.id.isBlank() || user.id == "guest" || user.role == UserRole.GUEST
-    val isAdminUser = user.role == UserRole.ADMIN ||
-        user.phone?.contains("9173811009") == true ||
-        authUser?.phoneNumber?.contains("9173811009") == true ||
-        user.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
-        authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
-    val effectiveRole = if (isAdminUser) UserRole.ADMIN else user.role
-    val isStaff = !isGuest && (isAdminUser || listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.REGIONAL_INCHARGE, UserRole.NEWS_DESK).contains(user.role))
+    var liveUser by remember(user) { mutableStateOf(user) }
 
-    var pushEnabled by remember { mutableStateOf(user.pushEnabled) }
+    LaunchedEffect(user.id, authUser?.uid) {
+        val targetUid = user.id.takeIf { it.isNotBlank() && it != "guest" } ?: authUser?.uid
+        if (targetUid != null) {
+            try {
+                val doc = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                    FirebaseService.db.collection("users").document(targetUid).get().await()
+                } ?: run {
+                    try {
+                        FirebaseService.db.collection("users").document(targetUid).get(com.google.firebase.firestore.Source.CACHE).await()
+                    } catch (_: Exception) { null }
+                }
+                if (doc != null && doc.exists()) {
+                    val rawRole = doc.get("role")
+                    val assignedMandal = doc.getString("assignedMandal")?.takeIf { it.isNotBlank() }
+                        ?: doc.getString("mandal")?.takeIf { it.isNotBlank() }
+                    val pts = (doc.get("points") as? Number)?.toInt() ?: 0
+                    val badges = (doc.get("badges") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                    val isSenior = doc.getBoolean("isProtectedSenior") == true
+                    val hasHistory = !assignedMandal.isNullOrBlank() || pts > 0 || badges.isNotEmpty() || isSenior
+                    
+                    var newRole = UserRole.fromStringSafe(rawRole) ?: UserRole.SUBSCRIBER
+                    if (newRole == UserRole.SUBSCRIBER && hasHistory) {
+                        newRole = UserRole.REPORTER
+                    }
+                    val dbName = doc.getString("name")?.trim()
+                    liveUser = liveUser.copy(
+                        name = if (!dbName.isNullOrBlank() && !dbName.equals("User", true) && !dbName.equals("యూజర్", true)) dbName else liveUser.name,
+                        role = newRole,
+                        assignedMandal = assignedMandal ?: liveUser.assignedMandal,
+                        district = doc.getString("district") ?: liveUser.district,
+                        points = if (pts > 0) pts else liveUser.points,
+                        badges = if (badges.isNotEmpty()) badges else liveUser.badges,
+                        photoUrl = doc.getString("photoUrl") ?: liveUser.photoUrl
+                    )
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    val isGuest = authUser == null || liveUser.id.isBlank() || liveUser.id == "guest" || liveUser.role == UserRole.GUEST
+    val isAdminUser = liveUser.role == UserRole.ADMIN ||
+        liveUser.phone?.contains("9173811009") == true ||
+        authUser?.phoneNumber?.contains("9173811009") == true ||
+        liveUser.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
+        authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
+    val hasReporterHistory = !liveUser.assignedMandal.isNullOrBlank() ||
+        liveUser.points > 0 ||
+        liveUser.badges.isNotEmpty()
+    val effectiveRole = when {
+        isAdminUser -> UserRole.ADMIN
+        liveUser.role == UserRole.SUBSCRIBER && hasReporterHistory -> UserRole.REPORTER
+        else -> liveUser.role
+    }
+    val effectiveUser = remember(liveUser, effectiveRole) {
+        if (liveUser.role != effectiveRole) liveUser.copy(role = effectiveRole) else liveUser
+    }
+    val isStaff = !isGuest && (isAdminUser || listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.REGIONAL_INCHARGE, UserRole.NEWS_DESK).contains(effectiveRole) || hasReporterHistory)
+    val canViewIdCard = !isGuest && (isStaff || hasReporterHistory || !effectiveUser.assignedMandal.isNullOrBlank())
+
+    var pushEnabled by remember { mutableStateOf(effectiveUser.pushEnabled) }
 
     /** ప్రస్తుత కాష్ పరిమాణాన్ని లెక్కిస్తుంది. */
     fun getCacheSize(): String {
@@ -142,7 +194,7 @@ fun UserProfilePageView(
         scope.launch {
             try {
                 FirebaseService.db.collection("users")
-                    .document(user.id)
+                    .document(effectiveUser.id)
                     .delete()
                     .await()
                 if (onLogout != null) {
@@ -221,12 +273,12 @@ fun UserProfilePageView(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Box(contentAlignment = Alignment.BottomEnd) {
-                        val avatarUrl = if (!isGuest && !user.photoUrl.isNullOrBlank()) {
-                            user.photoUrl
+                        val avatarUrl = if (!isGuest && !effectiveUser.photoUrl.isNullOrBlank()) {
+                            effectiveUser.photoUrl
                         } else if (!isGuest && authUser?.photoUrl != null) {
                             authUser.photoUrl.toString()
-                        } else if (!isGuest && user.name.isNotBlank()) {
-                            "https://ui-avatars.com/api/?name=${URLEncoder.encode(user.name, "UTF-8")}&background=random"
+                        } else if (!isGuest && effectiveUser.name.isNotBlank() && !effectiveUser.name.equals("User", true) && !effectiveUser.name.equals("యూజర్", true)) {
+                            "https://ui-avatars.com/api/?name=${URLEncoder.encode(effectiveUser.name, "UTF-8")}&background=random"
                         } else {
                             null
                         }
@@ -234,7 +286,7 @@ fun UserProfilePageView(
                         if (avatarUrl != null) {
                             AsyncImage(
                                 model = avatarUrl,
-                                contentDescription = user.name,
+                                contentDescription = effectiveUser.name,
                                 modifier = Modifier
                                     .size(110.dp)
                                     .clip(CircleShape)
@@ -281,15 +333,18 @@ fun UserProfilePageView(
                     val displayName = if (isGuest) {
                         if (language == Language.TELUGU) "అతిథి వినియోగదారుడు" else "Guest User"
                     } else {
-                        user.name.ifBlank {
+                        val n = effectiveUser.name.trim()
+                        if (n.isNotBlank() && !n.equals("User", true) && !n.equals("యూజర్", true)) {
+                            n
+                        } else {
                             FirebaseService.auth.currentUser?.displayName?.ifBlank { null }
-                                ?: user.phone
+                                ?: effectiveUser.phone
                                 ?: FirebaseService.auth.currentUser?.phoneNumber
-                                ?: stringResource(R.string.user_default_name)
+                                ?: if (effectiveRole == UserRole.REPORTER) (if (language == Language.TELUGU) "విలేకరి" else "Reporter") else stringResource(R.string.user_default_name)
                         }
                     }
 
-                    val isVerifiedReporter = !isGuest && com.alfanews.telugu.utils.ReporterVerificationManager.isUserVerified(user)
+                    val isVerifiedReporter = !isGuest && com.alfanews.telugu.utils.ReporterVerificationManager.isUserVerified(effectiveUser)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
@@ -309,9 +364,9 @@ fun UserProfilePageView(
 
                     // లాగిన్ అయిన ఫోన్ నంబర్ లేదా ఈమెయిల్
                     val contactInfo = if (!isGuest) {
-                        user.phone?.ifBlank { null }
+                        effectiveUser.phone?.ifBlank { null }
                             ?: FirebaseService.auth.currentUser?.phoneNumber
-                            ?: user.email?.ifBlank { null }
+                            ?: effectiveUser.email?.ifBlank { null }
                             ?: FirebaseService.auth.currentUser?.email
                     } else null
 
@@ -347,8 +402,8 @@ fun UserProfilePageView(
                         )
                     }
 
-                    val userDistrict = user.district?.trim() ?: ""
-                    val userMandal = user.assignedMandal?.trim() ?: ""
+                    val userDistrict = effectiveUser.district?.trim() ?: ""
+                    val userMandal = effectiveUser.assignedMandal?.trim() ?: ""
                     if (userDistrict.isNotEmpty() || userMandal.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(
@@ -402,13 +457,20 @@ fun UserProfilePageView(
                             ) {
                                 Text(stringResource(R.string.edit_profile), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
                             }
-                            if (isStaff) {
+                            if (canViewIdCard) {
                                 OutlinedButton(
                                     onClick = { onNavigate("id-card") },
                                     modifier = Modifier.weight(1f).height(48.dp),
                                     shape = MaterialTheme.shapes.medium,
                                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
                                 ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Badge,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     Text(stringResource(R.string.id_card), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                                 }
                             }
@@ -457,7 +519,7 @@ fun UserProfilePageView(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
-                        val referralLink = "https://play.google.com/store/apps/details?id=com.alfanews.telugu&referrer=ref_${user.id}"
+                        val referralLink = "https://play.google.com/store/apps/details?id=com.alfanews.telugu&referrer=ref_${effectiveUser.id}"
 
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
@@ -515,9 +577,9 @@ fun UserProfilePageView(
                                 )
                                 Text(
                                     text = if (language == Language.TELUGU) 
-                                        "మొత్తం ఇన్‌స్టాల్స్: ${user.referralCount}" 
+                                        "మొత్తం ఇన్‌స్టాల్స్: ${effectiveUser.referralCount}" 
                                     else 
-                                        "Total Installs: ${user.referralCount}",
+                                        "Total Installs: ${effectiveUser.referralCount}",
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface

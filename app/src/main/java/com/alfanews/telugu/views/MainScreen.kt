@@ -51,8 +51,18 @@ fun MainScreen(
         rawCurrentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
         authUser?.phoneNumber?.contains("9173811009") == true
     val user = rawCurrentUser
-    val currentUser = if (isAdmin && user != null && user.role != UserRole.ADMIN) {
-        user.copy(role = UserRole.ADMIN)
+    val hasReporterHistory = user != null && (
+        !user.assignedMandal.isNullOrBlank() ||
+        user.points > 0 ||
+        user.badges.isNotEmpty()
+    )
+    val effectiveRole = when {
+        isAdmin -> UserRole.ADMIN
+        user?.role == UserRole.SUBSCRIBER && hasReporterHistory -> UserRole.REPORTER
+        else -> user?.role ?: UserRole.GUEST
+    }
+    val currentUser = if (user != null && user.role != effectiveRole) {
+        user.copy(role = effectiveRole)
     } else {
         user
     }
@@ -74,6 +84,7 @@ fun MainScreen(
     var showPostSurveyPage by remember { mutableStateOf(false) }
     var showJoinReporterPage by remember { mutableStateOf(false) }
     var showEditProfilePage by remember { mutableStateOf(false) }
+    var showIdCardPage by remember { mutableStateOf(false) }
     var editingNewsPost by remember { mutableStateOf<NewsPost?>(null) }
     
     var classifiedsInitialMode by remember { mutableStateOf(ClassifiedsViewMode.CATEGORIES) }
@@ -90,6 +101,7 @@ fun MainScreen(
             showPostSurveyPage ||
             showJoinReporterPage ||
             showEditProfilePage ||
+            showIdCardPage ||
             (activeTab == "profile" && adminActivePage != "profile") ||
             activeTab != "home"
 
@@ -109,6 +121,7 @@ fun MainScreen(
                 }
                 showJoinReporterPage -> showJoinReporterPage = false
                 showEditProfilePage -> showEditProfilePage = false
+                showIdCardPage -> showIdCardPage = false
                 activeTab == "profile" && adminActivePage != "profile" -> mainViewModel.setAdminActivePage("profile")
                 activeTab != "home" -> mainViewModel.setActiveTab("home")
             }
@@ -116,27 +129,12 @@ fun MainScreen(
     }
 
     val context = LocalContext.current
-    val isUpdateDownloaded by mainViewModel.isUpdateDownloaded.collectAsStateWithLifecycle()
-    
     val notificationsGranted by mainViewModel.notificationsGranted.collectAsStateWithLifecycle()
     val unreadMessagesCount by mainViewModel.unreadMessagesCount.collectAsStateWithLifecycle()
     val unreadAdminNotices by mainViewModel.unreadAdminNotices.collectAsStateWithLifecycle()
     var isNoticeDismissed by remember(unreadAdminNotices) { mutableStateOf(false) }
     val showNoticePopup = unreadAdminNotices.isNotEmpty() && !isNoticeDismissed && activeTab != "messages"
     var showNotifBannerSession by remember { mutableStateOf(true) }
-
-    LaunchedEffect(isUpdateDownloaded) {
-        if (isUpdateDownloaded) {
-            val result = snackbarHostState.showSnackbar(
-                message = context.getString(R.string.update_downloaded),
-                actionLabel = context.getString(R.string.update_now),
-                duration = SnackbarDuration.Indefinite
-            )
-            if (result == SnackbarResult.ActionPerformed) {
-                completeUpdate()
-            }
-        }
-    }
 
     val isDark = when (themeMode) {
         ThemeMode.LIGHT -> false
@@ -160,6 +158,7 @@ fun MainScreen(
                     showPostSurveyPage = false
                     showJoinReporterPage = false
                     showEditProfilePage = false
+                    showIdCardPage = false
                     mainViewModel.setReporterIdToShow(null)
                     editingNewsPost = null
                     
@@ -169,6 +168,9 @@ fun MainScreen(
                             if (page == "profile" || page == "messages") {
                                 mainViewModel.setAdminActivePage(page)
                             }
+                        }
+                        "id-card" -> {
+                            showIdCardPage = true
                         }
                         "post" -> {
                             showPostNewsPage = true
@@ -189,6 +191,7 @@ fun MainScreen(
                     showPostSurveyPage = false
                     showJoinReporterPage = false
                     showEditProfilePage = false
+                    showIdCardPage = false
                     mainViewModel.setReporterIdToShow(null)
                     editingNewsPost = null
                     mainViewModel.signOut()
@@ -232,7 +235,7 @@ fun MainScreen(
                     Column {
                         LogoHeader(
                             district = activeDistrict,
-                            showDistrictSelector = (activeTab == "home" || activeTab == "local") && !showPostNewsPage && !showPostSurveyPage && !showJoinReporterPage && !showEditProfilePage && (reporterIdToShow == null),
+                            showDistrictSelector = (activeTab == "home" || activeTab == "local") && !showPostNewsPage && !showPostSurveyPage && !showJoinReporterPage && !showEditProfilePage && !showIdCardPage && (reporterIdToShow == null),
                             onDistrictClick = { mainViewModel.setShowDistrictPicker(true) },
                             onMenuClick = { scope.launch { drawerState.open() } }
                         )
@@ -252,6 +255,7 @@ fun MainScreen(
                             showPostSurveyPage -> stringResource(R.string.post_survey)
                             showJoinReporterPage -> stringResource(R.string.join_reporter)
                             showEditProfilePage -> stringResource(R.string.edit_profile)
+                            showIdCardPage -> stringResource(R.string.id_card)
                             activeTab == "reporters" -> stringResource(R.string.reporters)
                             activeTab == "leaderboard" -> if (language == Language.TELUGU) "మంత్లీ లీడర్ బోర్డ్" else "Monthly Leaderboard"
                             activeTab == "messages" -> if (language == Language.TELUGU) "సందేశాలు" else "Messages"
@@ -303,6 +307,7 @@ fun MainScreen(
                                     }
                                     showJoinReporterPage -> showJoinReporterPage = false
                                     showEditProfilePage -> showEditProfilePage = false
+                                    showIdCardPage -> showIdCardPage = false
                                     activeTab == "profile" && adminActivePage != "profile" -> mainViewModel.setAdminActivePage("profile")
                                     else -> mainViewModel.setActiveTab("profile")
                                 }
@@ -348,6 +353,7 @@ fun MainScreen(
                             showPostNewsPage = false
                             showJoinReporterPage = false
                             showEditProfilePage = false
+                            showIdCardPage = false
                             mainViewModel.setReporterIdToShow(null)
                             editingNewsPost = null
                             
@@ -460,6 +466,7 @@ fun MainScreen(
                             reporterId = currentReporterId,
                             language = language,
                             currentUser = user,
+                            showHeader = false,
                             onBack = { mainViewModel.setReporterIdToShow(null) }
                         )
                     } else if (showPostSurveyPage && user != null) {
@@ -515,6 +522,18 @@ fun MainScreen(
                                 showEditProfilePage = false
                             },
                             saving = false
+                        )
+                    } else if (showIdCardPage && (user != null || com.alfanews.telugu.services.FirebaseService.auth.currentUser != null)) {
+                        val authUser = com.alfanews.telugu.services.FirebaseService.auth.currentUser
+                        val effectiveIdCardUser = user ?: User(
+                            id = authUser?.uid ?: "user",
+                            name = authUser?.displayName ?: "విలేకరి",
+                            phone = authUser?.phoneNumber,
+                            role = UserRole.REPORTER
+                        )
+                        IdCardPageView(
+                            user = effectiveIdCardUser,
+                            onBack = { showIdCardPage = false }
                         )
                     } else {
                         when (activeTab) {
@@ -605,6 +624,8 @@ fun MainScreen(
                                 onNavigate = { pageId ->
                                     if (pageId == "edit-profile") {
                                         showEditProfilePage = true
+                                    } else if (pageId == "id-card") {
+                                        showIdCardPage = true
                                     } else {
                                         val topLevelPages = listOf(
                                             "about", "contact", "privacy-policy", "terms", 
@@ -775,13 +796,23 @@ fun ProfileContainer(
         authUser?.phoneNumber?.contains("9173811009") == true ||
         authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
     )
-    val user = if (isAdmin && currentUser != null && currentUser.role != UserRole.ADMIN) {
-        currentUser.copy(role = UserRole.ADMIN)
+    val hasReporterHistory = currentUser != null && (
+        !currentUser.assignedMandal.isNullOrBlank() ||
+        currentUser.points > 0 ||
+        currentUser.badges.isNotEmpty()
+    )
+    val effectiveUserRole = when {
+        isAdmin -> UserRole.ADMIN
+        currentUser?.role == UserRole.SUBSCRIBER && hasReporterHistory -> UserRole.REPORTER
+        else -> currentUser?.role ?: UserRole.GUEST
+    }
+    val user = if (currentUser != null && currentUser.role != effectiveUserRole) {
+        currentUser.copy(role = effectiveUserRole)
     } else {
         currentUser
     }
 
-    val isStaff = user != null && (isAdmin || user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.REGIONAL_INCHARGE || user.role == UserRole.REPORTER || user.role == UserRole.NEWS_DESK)
+    val isStaff = user != null && (effectiveUserRole == UserRole.ADMIN || effectiveUserRole == UserRole.EDITOR || effectiveUserRole == UserRole.REGIONAL_INCHARGE || effectiveUserRole == UserRole.REPORTER || effectiveUserRole == UserRole.NEWS_DESK)
     
     if (isStaff && user != null) {
         AdminPanelView(

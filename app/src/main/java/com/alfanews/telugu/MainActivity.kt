@@ -36,13 +36,7 @@ import com.alfanews.telugu.viewmodels.MainViewModel
 import com.alfanews.telugu.viewmodels.NewsFeedViewModel
 import com.alfanews.telugu.views.MainScreen
 import com.alfanews.telugu.views.SplashScreenView
-import com.google.android.play.core.appupdate.AppUpdateManager
-import com.google.android.play.core.appupdate.AppUpdateManagerFactory
-import com.google.android.play.core.appupdate.AppUpdateOptions
-import com.google.android.play.core.install.InstallStateUpdatedListener
-import com.google.android.play.core.install.model.AppUpdateType
-import com.google.android.play.core.install.model.InstallStatus
-import com.google.android.play.core.install.model.UpdateAvailability
+
 import com.google.firebase.dynamiclinks.FirebaseDynamicLinks
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
@@ -69,20 +63,6 @@ class MainActivity : ComponentActivity() {
 
     private var showAnimatedSplash by mutableStateOf(true)
 
-    private lateinit var appUpdateManager: AppUpdateManager
-    private val updateActivityResultLauncher = registerForActivityResult(
-        ActivityResultContracts.StartIntentSenderForResult()
-    ) { result ->
-        if (result.resultCode != RESULT_OK) {
-            Log.d("MainActivity", "Flexible update flow cancelled or failed: ${result.resultCode}")
-        }
-    }
-    
-    private val installStateUpdatedListener = InstallStateUpdatedListener { state ->
-        if (state.installStatus() == InstallStatus.DOWNLOADED) {
-            mainViewModel.setUpdateDownloaded(true)
-        }
-    }
 
     private val mainViewModel: MainViewModel by viewModels { ViewModelFactory(application) }
     private val newsFeedViewModel: NewsFeedViewModel by viewModels { ViewModelFactory(application) }
@@ -127,11 +107,7 @@ class MainActivity : ComponentActivity() {
 
         checkInstallReferrer(this)
 
-        appUpdateManager = AppUpdateManagerFactory.create(this)
-        appUpdateManager.registerListener(installStateUpdatedListener)
-        
-        // Silent / Flexible In-App Update check (Background download, non-blocking)
-        checkFlexibleAppUpdate()
+
 
         // Hand over control to our custom Animated Splash Screen immediately
         splashScreen.setKeepOnScreenCondition { false }
@@ -157,7 +133,10 @@ class MainActivity : ComponentActivity() {
         val language = mainViewModel.language.value
         val currentUser = mainViewModel.currentUser.value
         newsFeedViewModel.loadNews(language, currentUser, initialPostId = initialPostId)
-        localNewsFeedViewModel.loadNews(language, currentUser)
+        lifecycleScope.launch {
+            kotlinx.coroutines.delay(400L)
+            localNewsFeedViewModel.loadNews(language, currentUser)
+        }
 
         // Handle Firebase Dynamic Links (for deferred deep links when app wasn't installed)
         // This must be done BEFORE handleDeepLink() to catch dynamic links properly
@@ -253,7 +232,7 @@ class MainActivity : ComponentActivity() {
                 }
                 
                 SplashScreenView(
-                    isReady = newsLoaded.isNotEmpty() || !isLoading,
+                    isReady = newsLoaded.isNotEmpty(),
                     onFinished = { showAnimatedSplash = false }
                 )
             } else {
@@ -286,51 +265,12 @@ class MainActivity : ComponentActivity() {
                             MainScreen(
                                 mainViewModel = mainViewModel, 
                                 newsFeedViewModel = newsFeedViewModel,
-                                localNewsFeedViewModel = localNewsFeedViewModel,
-                                completeUpdate = this@MainActivity::completeAppUpdate
+                                localNewsFeedViewModel = localNewsFeedViewModel
                             )
                         }
                     }
                 }
             }
-        }
-    }
-
-    private fun checkFlexibleAppUpdate() {
-        if (this@MainActivity.isFinishing || this@MainActivity.isDestroyed) return
-        
-        try {
-            val appUpdateInfoTask = appUpdateManager.appUpdateInfo
-            appUpdateInfoTask.addOnSuccessListener { appUpdateInfo ->
-                if (this@MainActivity.isFinishing || this@MainActivity.isDestroyed) return@addOnSuccessListener
-                
-                // Silent / Flexible Update only - Never force/immediate update
-                if (appUpdateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
-                    appUpdateInfo.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE)) {
-                    
-                    try {
-                        appUpdateManager.startUpdateFlowForResult(
-                            appUpdateInfo,
-                            updateActivityResultLauncher,
-                            AppUpdateOptions.newBuilder(AppUpdateType.FLEXIBLE).build()
-                        )
-                    } catch (e: Throwable) {
-                        Log.e("MainActivity", "Failed to start flexible update flow", e)
-                    }
-                }
-            }.addOnFailureListener { e ->
-                Log.w("MainActivity", "Failed to check appUpdateInfo", e)
-            }
-        } catch (e: Throwable) {
-            Log.e("MainActivity", "Error in checkFlexibleAppUpdate", e)
-        }
-    }
-
-    private fun completeAppUpdate() {
-        try {
-            appUpdateManager.completeUpdate()
-        } catch (e: Throwable) {
-            Log.e("MainActivity", "Failed to complete app update", e)
         }
     }
 
@@ -379,29 +319,6 @@ class MainActivity : ComponentActivity() {
             mainViewModel.syncUserFcmToken(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
         }
         mainViewModel.recordAppOpen(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
-
-        try {
-            appUpdateManager.appUpdateInfo.addOnSuccessListener { appUpdateInfo ->
-                if (this@MainActivity.isFinishing || this@MainActivity.isDestroyed) return@addOnSuccessListener
-                
-                if (appUpdateInfo.installStatus() == InstallStatus.DOWNLOADED) {
-                    mainViewModel.setUpdateDownloaded(true)
-                }
-            }.addOnFailureListener { e ->
-                Log.w("MainActivity", "Failed to check update info onResume", e)
-            }
-        } catch (e: Throwable) {
-            Log.e("MainActivity", "Error checking update onResume", e)
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        try {
-            appUpdateManager.unregisterListener(installStateUpdatedListener)
-        } catch (e: Exception) {
-            Log.w("MainActivity", "Error unregistering update listener", e)
-        }
     }
 
     // యాప్ రన్ అవుతున్నప్పుడు కొత్త ఇంటెంట్ వస్తే

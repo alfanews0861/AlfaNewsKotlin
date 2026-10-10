@@ -102,6 +102,7 @@ export interface NewsPost {
   isReporter?: boolean;
   isSpecialStory?: boolean;
   webOnly?: boolean;
+  originalReporterId?: string;
   surveyQuestions?: SurveyQuestion[];
   votes?: Record<string, number>;
   realVotesCount?: number;

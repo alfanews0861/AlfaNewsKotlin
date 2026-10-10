@@ -65,12 +65,13 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     val shouldScrollToTop: StateFlow<Boolean> = _shouldScrollToTop.asStateFlow()
 
     init {
+        val initialDist = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: prefs.userDistrict ?: "హైదరాబాద్"
+        _activeDistrict.value = initialDist
+
         viewModelScope.launch {
             prefs.districtChanges.collectLatest { district ->
-                if (district != _activeDistrict.value) {
+                if (district != null && district != _activeDistrict.value) {
                     _activeDistrict.value = district
-                    _news.value = emptyList()
-                    _loading.value = true
                     _hasMore.value = true
                     lastDocument = null
                     isFetching = false
@@ -78,11 +79,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 }
             }
         }
-        val initialDist = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: prefs.userDistrict
-        if (initialDist != null) {
-            _activeDistrict.value = initialDist
-            loadNews(Language.TELUGU, null)
-        }
+        loadNews(Language.TELUGU, null)
     }
 
     fun resetScrollSignal() {
@@ -100,12 +97,14 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     fun setDistrict(district: String) {
         if (prefs.selectedDistrict == district && _activeDistrict.value == district) return
         val oldDistrict = prefs.selectedDistrict ?: prefs.detectedDistrict
-        _news.value = emptyList() // 🔄 Clear old news to avoid confusion when switching districts
-        _loading.value = true     // 🔄 Show preparation screen
-        _hasMore.value = true
-        lastDocument = null
         prefs.selectedDistrict = district
         _activeDistrict.value = district
+        
+        if (_news.value.isEmpty()) {
+            _loading.value = true
+        }
+        _hasMore.value = true
+        lastDocument = null
         AnalyticsService.logDistrictSelected(district, oldDistrict)
         viewModelScope.launch {
             NotificationHelper.syncDistrictTopic(getApplication(), district)
@@ -318,7 +317,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             
             val newsRef = FirebaseService.db.collection("news")
             val districtAliases = Constants.getDistrictAliases(district)
-            val primaryAliases = districtAliases.take(10)
+            val primaryAliases = districtAliases.take(3)
 
             _isOnline.value = com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())
             lastDocument = null
@@ -337,18 +336,22 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 .orderBy("timestamp", Query.Direction.DESCENDING)
                 .limit(pageSize.toLong())
 
-                val snapshot = try {
-                    query.get(com.google.firebase.firestore.Source.SERVER).await()
-                } catch (e: Exception) {
-                    query.get().await()
+                val snapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                    try {
+                        query.get().await()
+                    } catch (e: Exception) {
+                        null
+                    }
                 }
 
-                val fetchedPosts = snapshot.documents.mapNotNull { doc ->
+                val fetchedPosts = snapshot?.documents?.mapNotNull { doc ->
                     convertToNewsPost(doc.id, doc.data ?: emptyMap())
-                }
+                } ?: emptyList()
 
-                lastDocument = snapshot.documents.lastOrNull()
-                _hasMore.value = snapshot.size() >= pageSize
+                lastDocument = snapshot?.documents?.lastOrNull() ?: lastDocument
+                if (snapshot != null) {
+                    _hasMore.value = snapshot.size() >= pageSize
+                }
 
                 // 🚀 ఎల్లప్పుడూ ఆ జిల్లాలోని తాజా వార్తలే పైన కనిపించాలి
                 val finalPosts = fetchedPosts.sortedByDescending { it.timestamp }.distinctBy { it.id }
@@ -360,8 +363,6 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     if (wasEmpty) {
                         _shouldScrollToTop.value = true
                     }
-                } else {
-                    _hasMore.value = false
                 }
                 _loading.value = false
 
@@ -397,7 +398,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             try {
                 val newsRef = FirebaseService.db.collection("news")
                 val districtAliases = Constants.getDistrictAliases(district)
-                val primaryAliases = districtAliases.take(10)
+                val primaryAliases = districtAliases.take(3)
 
                 val baseQ = if (primaryAliases.size > 1) {
                     newsRef.whereEqualTo("approved", true).whereIn("district", primaryAliases)

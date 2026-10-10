@@ -1,101 +1,88 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
-import { NewsPost, User, UserRole, TS_DISTRICTS, AP_DISTRICTS } from '../types';
-import { db, app } from '../services/firebase';
+import { NewsPost, User, UserRole } from '../types';
+import { db } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
-import * as _functions from 'firebase/functions';
-import { analyzeNewsMetadata } from '../services/geminiService';
-import { Sparkles, RefreshCw } from 'lucide-react';
+import { RefreshCw, Search, Trash2, Edit3 } from 'lucide-react';
 
-const { collection, query, where, orderBy, limit, getDocs, doc, deleteDoc, Timestamp, updateDoc, startAfter } = _firestore as any;
-const { getFunctions, httpsCallable } = _functions as any;
-
-const BroadcastIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/></svg>;
-const DeleteIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>;
+const { collection, query, where, orderBy, limit, getDocs, doc, deleteDoc, Timestamp } = _firestore as any;
 
 interface ManagePostsPageProps {
   onEditPost: (post: NewsPost) => void;
   currentUser?: User; 
+  onViewPost?: (post: NewsPost) => void;
 }
 
-const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUser }) => {
+const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUser, onViewPost }) => {
     const [posts, setPosts] = useState<NewsPost[]>([]);
     const [loading, setLoading] = useState(true);
-    const [loadingMore, setLoadingMore] = useState(false);
-    const [isBroadcasting, setIsBroadcasting] = useState<string | null>(null);
-    const [isCategorizing, setIsCategorizing] = useState(false);
-    const [categorizationProgress, setCategorizationProgress] = useState(0);
     const [searchTerm, setSearchTerm] = useState('');
-    const [lastDoc, setLastDoc] = useState<any>(null);
-    const [hasMore, setHasMore] = useState(true);
+    const [viewMode, setViewMode] = useState<'all' | 'my'>('all');
 
-    const isReporter = Boolean(currentUser && (
-        currentUser.role === UserRole.REPORTER || 
-        currentUser.role === UserRole.STAFF_REPORTER ||
-        Boolean(currentUser.assignedMandal || (currentUser as any).mandal)
-    ));
-    const isAdminOrEditor = Boolean(currentUser && (
+    const uid = currentUser?.id || '';
+    const isAdmin = Boolean(currentUser && (
         currentUser.role === UserRole.ADMIN ||
         (currentUser.role as any) === 'EDITOR' ||
         currentUser.email === 'alfanews0861@gmail.com' ||
         currentUser.phone?.includes('9173811009')
     ));
-    const uid = currentUser?.id || '';
-    const phone10 = (currentUser?.phone || '').replace(/[^0-9]/g, '').slice(-10);
 
-    const [selectedReporter, setSelectedReporter] = useState<string>('');
-    const [reporterList, setReporterList] = useState<User[]>([]);
-    const [loadAll, setLoadAll] = useState(false);
-
-    useEffect(() => {
-        if (isAdminOrEditor) {
-            const loadReporters = async () => {
-                try {
-                    const snap = await getDocs(query(collection(db, 'users'), limit(300)));
-                    const reps: User[] = [];
-                    snap.docs.forEach((d: any) => {
-                        const data = d.data();
-                        const u = { id: d.id, ...data } as User;
-                        if (u.role === UserRole.REPORTER || u.role === UserRole.STAFF_REPORTER || (u as any).role === 'NEWS_DESK' || u.assignedMandal || (u as any).mandal) {
-                            reps.push(u);
-                        }
-                    });
-                    reps.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-                    setReporterList(reps);
-                } catch (e) {
-                    console.error("Error loading reporters:", e);
-                }
-            };
-            loadReporters();
-        }
-    }, [isAdminOrEditor]);
-
-    const fetchPosts = useCallback(async (isLoadMore = false) => {
-        if (isLoadMore) setLoadingMore(true);
-        else setLoading(true);
-        
+    const fetchPosts = useCallback(async () => {
+        setLoading(true);
         try {
             const newsCollectionRef = collection(db, 'news');
-            const targetReporterId = selectedReporter || (isReporter ? uid : '');
-            const queryLimit = (loadAll || isLoadMore) ? 100 : 30;
+            const shouldFetchAll = isAdmin && viewMode === 'all';
 
-            if (targetReporterId) {
-                // 🛡️ Reporter View: Fetch latest news using reporter's standard UID
+            if (shouldFetchAll) {
+                // 🚀 ADMIN VIEW: తాజా గ్లోబల్ వార్తలు (Live latest news from all reporters ordered by timestamp desc)
+                const q = query(newsCollectionRef, orderBy('timestamp', 'desc'), limit(100));
+                const snap = await getDocs(q);
+                const fetchedPosts = snap.docs.map((docItem: any) => {
+                    const data = docItem.data();
+                    let ts = data.timestamp;
+                    if (ts && typeof ts.toMillis === 'function') {
+                        ts = ts.toMillis();
+                    } else if (typeof ts !== 'number') {
+                        ts = Date.now();
+                    }
+                    return {
+                        id: docItem.id,
+                        ...data,
+                        timestamp: ts
+                    } as NewsPost;
+                });
+                setPosts(fetchedPosts);
+            } else {
+                // 🛡️ REPORTER VIEW: కేవలం విలేకరి UID ఆధారంగా మాత్రమే
+                const targetUid = uid;
+                if (!targetUid) {
+                    setPosts([]);
+                    setLoading(false);
+                    return;
+                }
+
                 const queries = [
-                    query(newsCollectionRef, where('originalReporterId', '==', targetReporterId), orderBy('timestamp', 'desc'), limit(queryLimit)),
-                    query(newsCollectionRef, where('reporter.id', '==', targetReporterId), orderBy('timestamp', 'desc'), limit(queryLimit)),
+                    query(newsCollectionRef, where('originalReporterId', '==', targetUid), orderBy('timestamp', 'desc'), limit(100)),
+                    query(newsCollectionRef, where('reporter.id', '==', targetUid), orderBy('timestamp', 'desc'), limit(100)),
                 ];
 
-                const snapshots = await Promise.all(queries.map(qItem => getDocs(qItem).catch(() => ({ docs: [] }))));
+                const snapshots = await Promise.all(
+                    queries.map(qItem => getDocs(qItem).catch(() => ({ docs: [] })))
+                );
                 const postsMap = new Map<string, NewsPost>();
 
                 snapshots.forEach((snap: any) => {
                     snap.docs?.forEach((docItem: any) => {
                         const data = docItem.data();
+                        let ts = data.timestamp;
+                        if (ts && typeof ts.toMillis === 'function') {
+                            ts = ts.toMillis();
+                        } else if (typeof ts !== 'number') {
+                            ts = Date.now();
+                        }
                         postsMap.set(docItem.id, {
                             id: docItem.id,
                             ...data,
-                            timestamp: data.timestamp instanceof Timestamp ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now())
+                            timestamp: ts
                         } as NewsPost);
                     });
                 });
@@ -103,113 +90,39 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
                 const fetchedPosts = Array.from(postsMap.values())
                     .sort((a, b) => b.timestamp - a.timestamp);
                 setPosts(fetchedPosts);
-                setHasMore(fetchedPosts.length >= queryLimit && !loadAll);
-            } else {
-                // Admin Global Management: Latest posts by default
-                const constraints = [orderBy('timestamp', 'desc'), limit(queryLimit)];
-                if (isLoadMore && lastDoc) {
-                    constraints.push(startAfter(lastDoc));
-                }
-                
-                const q = query(newsCollectionRef, ...constraints);
-                const querySnapshot = await getDocs(q);
-                const fetchedPosts = querySnapshot.docs.map((doc: any) => ({
-                     id: doc.id, 
-                     ...doc.data(), 
-                     timestamp: doc.data().timestamp instanceof Timestamp ? doc.data().timestamp.toMillis() : (typeof doc.data().timestamp === 'number' ? doc.data().timestamp : Date.now())
-                } as NewsPost));
-
-                if (isLoadMore) {
-                    setPosts(prev => [...prev, ...fetchedPosts]);
-                } else {
-                    setPosts(fetchedPosts);
-                }
-                
-                setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1]);
-                setHasMore(querySnapshot.docs.length === queryLimit);
             }
         } catch (error) { 
-            console.error(error); 
+            console.error("Error fetching posts:", error); 
         } finally { 
             setLoading(false); 
-            setLoadingMore(false);
         }
-    }, [isReporter, uid, phone10, selectedReporter, reporterList, lastDoc, loadAll]);
+    }, [isAdmin, viewMode, uid]);
 
     useEffect(() => { 
-        setLastDoc(null);
-        setLoadAll(false);
-        fetchPosts(false); 
-    }, [selectedReporter]);
+        fetchPosts(); 
+    }, [fetchPosts]);
 
     const handleDelete = async (postId: string) => {
         if (!window.confirm("ఈ వార్తను శాశ్వతంగా తొలగించాలా?")) return;
         try {
             await deleteDoc(doc(db, 'news', postId));
             setPosts(prev => prev.filter(p => p.id !== postId));
-        } catch (e) { alert("తొలగించడం విఫలమైంది."); }
-    };
-
-    const handleBroadcast = async (post: NewsPost) => {
-        const mode = window.confirm(`"${post.headline.telugu}"\n\nఈ వార్తను సౌండ్ (Alert) తో పంపాలా? \n(Cancel నొక్కితే నిశ్శబ్దంగా (Silent) వెళ్తుంది)`) ? 'alert' : 'silent';
-        if (!window.confirm(`${mode === 'alert' ? '🔊 అలర్ట్' : '🔇 నిశ్శబ్దం'} పద్ధతిలో అందరికీ పంపాలా?`)) return;
-
-        setIsBroadcasting(post.id);
-        try {
-            const functions = getFunctions(app, 'asia-south1');
-            const sendPush = httpsCallable(functions, 'triggerPushBroadcast');
-            await sendPush({
-                title: "🔴 బ్రేకింగ్ న్యూస్",
-                body: post.headline.telugu,
-                actionUrl: `#/s/${post.id}`,
-                topic: 'all_users',
-                silent: mode === 'silent'
-            });
-            alert(`పుష్ నోటిఫికేషన్ పంపబడింది!`);
-        } catch (e: any) { alert("విఫలమైంది: " + e.message); } finally { setIsBroadcasting(null); }
-    };
-
-    const handleSmartCategorizeAll = async () => {
-        if (!window.confirm("లోడ్ అయిన వార్తలన్నింటినీ AI ద్వారా తిరిగి కేటగిరీలుగా విభజించాలా? ఇది కొంచెం సమయం పట్టవచ్చు.")) return;
-        
-        setIsCategorizing(true);
-        setCategorizationProgress(0);
-        
-        let successCount = 0;
-        for (let i = 0; i < posts.length; i++) {
-            const post = posts[i];
-            try {
-                const metadata = await analyzeNewsMetadata(post.headline.telugu, post.content.telugu);
-                
-                // Update categories array: keep 'Local' and District if they exist, but replace the main category
-                const otherCats = post.categories?.filter(c => c === 'Local' || [...TS_DISTRICTS, ...AP_DISTRICTS].includes(c)) || [];
-                const finalCategories = Array.from(new Set([metadata.category, ...otherCats]));
-                
-                await updateDoc(doc(db, 'news', post.id), {
-                    categories: finalCategories,
-                    keywords: metadata.keywords || [],
-                    tone: metadata.tone || 'తటస్థ వార్త'
-                });
-                successCount++;
-            } catch (e) {
-                console.error(`Failed to categorize post ${post.id}:`, e);
-            }
-            setCategorizationProgress(Math.round(((i + 1) / posts.length) * 100));
+        } catch (e) {
+            alert("తొలగించడం విఫలమైంది.");
         }
-        
-        setIsCategorizing(false);
-        alert(`${successCount} వార్తలు విజయవంతంగా కేటగిరీలుగా విభజించబడ్డాయి!`);
-        fetchPosts();
     };
 
-    const filteredPosts = posts.filter(post => 
-        (post.headline?.telugu || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-        (post.content?.telugu || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (post.reporter?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (post.mandal || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (post.district || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (post.categories || []).some(c => c.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    const filteredPosts = posts.filter(post => {
+        const q = searchTerm.toLowerCase();
+        return (post.headline?.telugu || '').toLowerCase().includes(q) || 
+            (post.content?.telugu || '').toLowerCase().includes(q) ||
+            (post.reporter?.name || '').toLowerCase().includes(q) ||
+            (post.reporter?.id || '').toLowerCase().includes(q) ||
+            (post.originalReporterId || '').toLowerCase().includes(q) ||
+            (post.categories || []).some(c => c.toLowerCase().includes(q)) ||
+            (post.location || '').toLowerCase().includes(q) ||
+            (post.district || '').toLowerCase().includes(q);
+    });
 
     return (
         <div className="bg-white p-4 md:p-6 rounded-lg shadow-lg font-mallanna text-black">
@@ -220,69 +133,75 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
                         వార్తల నిర్వహణ
                     </h2>
                     <span className="text-xs font-semibold px-2.5 py-1 bg-red-100 text-red-700 rounded-full whitespace-nowrap">
-                        {searchTerm || loadAll ? `మొత్తం: ${filteredPosts.length} వార్తలు` : `తాజా ${filteredPosts.length} వార్తలు`}
+                        మొత్తం: {filteredPosts.length} వార్తలు
                     </span>
                     <button
-                        onClick={() => fetchPosts(false)}
+                        onClick={fetchPosts}
                         disabled={loading}
                         className="p-1.5 border border-gray-200 rounded-lg hover:bg-gray-100 text-gray-600 transition-all disabled:opacity-50"
-                        title="తాజా సమాచారం కోసం రీఫ్రెష్ చేయండి (Refresh)"
+                        title="రీఫ్రెష్ చేయండి"
                     >
                         <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-red-600' : ''}`} />
                     </button>
                 </div>
                 <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-                    {isAdminOrEditor && (
-                        <select
-                            value={selectedReporter}
-                            onChange={(e) => setSelectedReporter(e.target.value)}
-                            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
-                        >
-                            <option value="">అన్ని తాజా వార్తలు (All Global News)</option>
-                            {uid && <option value={uid}>నా వార్తలు (My Posts)</option>}
-                            <optgroup label="విలేకరులు (Reporters)">
-                                {reporterList.map((r) => (
-                                    <option key={r.id} value={r.id}>
-                                        {r.name || 'Reporter'} {r.assignedMandal ? `(${r.assignedMandal})` : (r.district ? `(${r.district})` : '')} {r.phone ? `- ${r.phone}` : ''}
-                                    </option>
-                                ))}
-                            </optgroup>
-                        </select>
+                    {isAdmin && (
+                        <div className="flex items-center bg-gray-100 p-1 rounded-lg text-xs font-bold border border-gray-200">
+                            <button
+                                onClick={() => setViewMode('all')}
+                                className={`px-3 py-1.5 rounded-md transition-all ${viewMode === 'all' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-600 hover:text-black'}`}
+                            >
+                                అన్ని తాజా వార్తలు
+                            </button>
+                            <button
+                                onClick={() => setViewMode('my')}
+                                className={`px-3 py-1.5 rounded-md transition-all ${viewMode === 'my' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-600 hover:text-black'}`}
+                            >
+                                నా వార్తలు
+                            </button>
+                        </div>
                     )}
-                    <input 
-                        type="text" 
-                        placeholder="వార్తలను వెతకండి..." 
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="border border-gray-300 rounded-lg px-4 py-2 w-full md:w-56 focus:outline-none focus:ring-2 focus:ring-red-500"
-                    />
-                    {currentUser?.role === UserRole.ADMIN && (
-                        <button 
-                            onClick={handleSmartCategorizeAll} 
-                            disabled={isCategorizing || loading}
-                            className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-purple-700 transition-all disabled:opacity-50 whitespace-nowrap"
-                        >
-                            {isCategorizing ? (
-                                <div className="flex items-center gap-2">
-                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                    <span>{categorizationProgress}%</span>
-                                </div>
-                            ) : (
-                                <>
-                                    <Sparkles className="w-4 h-4" />
-                                    <span className="hidden md:inline">AI Smart Categorize</span>
-                                </>
-                            )}
-                        </button>
-                    )}
+                    <div className="relative w-full md:w-64">
+                        <Search className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
+                        <input 
+                            type="text" 
+                            placeholder="వార్త లేదా విలేకరి పేరు / UID వెతకండి..." 
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="border border-gray-300 rounded-lg pl-9 pr-4 py-2 w-full text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                        />
+                    </div>
                 </div>
             </div>
-            {loading ? <div className="flex justify-center py-10"><div className="w-8 h-8 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div></div> : (
+            {loading ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-3">
+                    <div className="w-8 h-8 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-sm text-gray-500">వార్తలు లోడ్ అవుతున్నాయి...</span>
+                </div>
+            ) : (
                 <div className="space-y-4">
-                    {filteredPosts.length === 0 && <p className="text-center text-gray-500 py-10">వార్తలు ఏవీ లేవు.</p>}
+                    {filteredPosts.length === 0 && (
+                        <p className="text-center text-gray-500 py-10">
+                            {searchTerm ? "వెతికిన వార్తలు ఏవీ లేవు." : "వార్తలు ఏవీ లేవు."}
+                        </p>
+                    )}
                     {filteredPosts.map(post => (
-                        <div key={post.id} className="flex flex-col md:flex-row items-start md:items-center gap-4 p-3 rounded-xl border bg-gray-50">
-                            <img src={post.mediaUrl} className="w-16 h-16 shrink-0 rounded-lg object-cover bg-gray-200" alt="News" referrerPolicy="no-referrer" />
+                        <div 
+                            key={post.id} 
+                            onClick={() => {
+                                if (onViewPost) {
+                                    onViewPost(post);
+                                } else {
+                                    window.location.hash = `#/news/${post.id}`;
+                                }
+                            }}
+                            className="flex flex-col md:flex-row items-start md:items-center gap-4 p-3 rounded-xl border bg-gray-50 hover:bg-gray-100/70 transition-colors cursor-pointer group"
+                        >
+                            {post.mediaUrl ? (
+                                <img src={post.mediaUrl} className="w-16 h-16 shrink-0 rounded-lg object-cover bg-gray-200" alt="News" referrerPolicy="no-referrer" />
+                            ) : (
+                                <div className="w-16 h-16 shrink-0 rounded-lg bg-gray-200 flex items-center justify-center text-gray-400 text-xs">No Image</div>
+                            )}
                             <div className="flex-grow min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap mb-1">
                                     {(() => {
@@ -308,25 +227,15 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
                                             </span>
                                         );
                                     })()}
-                                    <p className="font-bold truncate text-lg">{post.headline?.telugu || 'No Headline'}</p>
+                                    <p className="font-bold truncate text-base md:text-lg group-hover:text-red-600 transition-colors">{post.headline?.telugu || 'No Headline'}</p>
                                 </div>
                                 <p className="text-sm text-gray-500">
-                                    {(post.categories?.[0] === 'General' ? 'జనరల్' : (post.categories?.[0] || 'జనరల్'))} • {post.reporter?.name || 'Unknown'}
-                                    {post.originalUrl && post.originalUrl.startsWith('http') && (
-                                        <a href={post.originalUrl} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline ml-2">
-                                            (Source: {(() => {
-                                                try {
-                                                    return new URL(post.originalUrl).hostname.replace('www.', '');
-                                                } catch (e) {
-                                                    return 'Link';
-                                                }
-                                            })()})
-                                        </a>
-                                    )}
+                                    {(post.categories?.[0] === 'General' ? 'జనరల్' : (post.categories?.[0] || 'జనరల్'))} • {post.reporter?.name || 'Alfa News'}
+                                    {post.district ? ` (${post.district})` : ''}
                                 </p>
                                 {post.timestamp && (
                                     <p className="text-xs text-gray-400 mt-1">
-                                        📅 పబ్లిష్ అయిన సమయం: {(() => {
+                                        📅 {(() => {
                                             try {
                                                 const d = new Date(post.timestamp);
                                                 const dateStr = d.toLocaleDateString('te-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -339,41 +248,30 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
                                     </p>
                                 )}
                             </div>
-                            <div className="flex items-center gap-1 mt-2 md:mt-0 self-end md:self-auto">
-                                {currentUser?.role === UserRole.ADMIN && (
-                                    <button onClick={() => handleBroadcast(post)} disabled={!!isBroadcasting} className={`p-2 rounded-full ${isBroadcasting === post.id ? 'text-orange-500' : 'text-blue-600 hover:bg-blue-100'}`} title="Broadcast">
-                                        {isBroadcasting === post.id ? <div className="w-5 h-5 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div> : <BroadcastIcon />}
-                                    </button>
-                                )}
-                                <button onClick={() => onEditPost(post)} className="p-2 text-green-600 hover:bg-green-50 rounded-full" title="Edit">✎</button>
-                                <button onClick={() => handleDelete(post.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-full" title="Delete"><DeleteIcon /></button>
-                                {currentUser?.role === UserRole.ADMIN && (
-                                    <button 
-                                        onClick={() => handleBroadcast(post)} 
-                                        disabled={!!isBroadcasting} 
-                                        className="ml-2 bg-blue-600 text-white px-3 py-1 rounded-lg text-sm font-bold hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
-                                    >
-                                        సెండ్ నోటిఫికేషన్
-                                    </button>
-                                )}
+                            <div className="flex items-center gap-2 mt-2 md:mt-0 self-end md:self-auto">
+                                <button 
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onEditPost(post);
+                                    }} 
+                                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-full border border-gray-200" 
+                                    title="Edit"
+                                >
+                                    <Edit3 className="w-4 h-4" />
+                                </button>
+                                <button 
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDelete(post.id);
+                                    }} 
+                                    className="p-2 text-red-600 hover:bg-red-50 rounded-full border border-gray-200" 
+                                    title="Delete"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
                             </div>
                         </div>
                     ))}
-
-                    {hasMore && (
-                        <div className="pt-6 flex justify-center">
-                            <button 
-                                onClick={() => {
-                                    setLoadAll(true);
-                                    fetchPosts(true);
-                                }}
-                                disabled={loadingMore}
-                                className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2 px-8 rounded-xl transition-all disabled:opacity-50 border border-gray-200"
-                            >
-                                {loadingMore ? 'లోడ్ అవుతోంది...' : 'మరిన్ని పాత వార్తలు (Load More Older News)'}
-                            </button>
-                        </div>
-                    )}
                 </div>
             )}
         </div>
