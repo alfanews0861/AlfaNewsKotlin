@@ -163,7 +163,7 @@ fun LocalNewsFeedView(
     }
 
     LaunchedEffect(viewModelActiveDistrict) {
-        if (viewModelActiveDistrict != null) {
+        if (viewModelActiveDistrict != null && news.isEmpty()) {
             viewModel.loadNews(language, currentUser)
         }
     }
@@ -308,7 +308,7 @@ fun LocalNewsFeedView(
         } else if (news.isEmpty()) {
             LaunchedEffect(loading, isOnline) {
                 if (!loading) {
-                    kotlinx.coroutines.delay(3000L)
+                    kotlinx.coroutines.delay(6000L)
                     viewModel.loadNews(language, currentUser)
                 }
             }

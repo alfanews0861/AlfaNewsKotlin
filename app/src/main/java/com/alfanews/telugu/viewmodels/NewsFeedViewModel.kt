@@ -26,6 +26,7 @@ import com.google.firebase.firestore.Source
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,7 +46,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             prefs.districtChanges.collectLatest { district ->
                 if (district != _userDistrict.value) {
                     _userDistrict.value = district
-                    loadNews(Language.TELUGU, null)
+                    loadNews(Language.TELUGU, null, forceRefresh = true)
                 }
             }
         }
@@ -337,10 +338,19 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     private val FETCH_LIMIT = 25
 
-    fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null) {
+    fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null, forceRefresh: Boolean = false) {
         currentLanguage = language
-        currentFetchJob?.cancel()
-        isFetching = false
+        val district = prefs.selectedDistrict ?: currentUser?.district ?: prefs.detectedDistrict
+        val districtChanged = (_userDistrict.value != district)
+        if (districtChanged) {
+            _userDistrict.value = district
+        }
+
+        // 🛡️ DEDUPLICATION GUARD: జిల్లా మారకుండా లేదా టార్గెట్ పోస్ట్ లేకుండా ఇప్పటికే లోడింగ్ నడుస్తుంటే రద్దు చేయవద్దు
+        if (isFetching && !districtChanged && initialPostId == null && !forceRefresh) {
+            Log.d("NewsFeedVM", "Fetch already in progress, skipping redundant call")
+            return
+        }
 
         if (initialPostId != null && _news.value.isEmpty()) {
             _loading.value = true
@@ -351,6 +361,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         } else {
             _loading.value = false
         }
+        
+        currentFetchJob?.cancel()
         isFetching = true
 
         currentFetchJob = viewModelScope.launch {
@@ -501,8 +513,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             } catch (e: Exception) {
                 if (_news.value.isEmpty()) _hasMore.value = false
             } finally {
-                _loading.value = false
-                isFetching = false
+                // 🛡️ RACE CONDITION SHIELD: ఈ కొరుటీన్ ఇంకా యాక్టివ్ జాబ్ అయితేనే స్టేట్ రీసెట్ చేయాలి
+                if (coroutineContext[Job] == currentFetchJob) {
+                    _loading.value = false
+                    isFetching = false
+                }
             }
         }
     }
@@ -1006,7 +1021,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             NotificationHelper.syncDistrictTopic(getApplication(), district)
         }
-        loadNews(Language.TELUGU, currentUser)
+        loadNews(Language.TELUGU, currentUser, forceRefresh = true)
     }
 
     fun onAppResume(language: Language, currentUser: User?) {

@@ -296,7 +296,7 @@ fun NewsFeedView(
         if (news.isEmpty()) {
             LaunchedEffect(loading, isOnline) {
                 if (!loading) {
-                    kotlinx.coroutines.delay(3000L)
+                    kotlinx.coroutines.delay(6000L)
                     viewModel.loadNews(language, currentUser, initialPostId)
                 }
             }

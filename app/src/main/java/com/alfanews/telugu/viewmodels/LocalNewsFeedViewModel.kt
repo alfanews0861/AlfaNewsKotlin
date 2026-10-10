@@ -76,8 +76,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     _activeDistrict.value = district
                     _hasMore.value = true
                     lastDocument = null
-                    isFetching = false
-                    loadNews(Language.TELUGU, null)
+                    loadNews(Language.TELUGU, null, forceRefresh = true)
                 }
             }
         }
@@ -297,26 +296,30 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
-    fun loadNews(language: Language, currentUser: User?) {
+    fun loadNews(language: Language, currentUser: User?, forceRefresh: Boolean = false) {
         currentLanguage = language
         val userDist = currentUser?.district?.takeIf { it.isNotBlank() } ?: prefs.userDistrict
         val district = _activeDistrict.value ?: prefs.selectedDistrict ?: userDist ?: prefs.detectedDistrict ?: "హైదరాబాద్"
-        if (_activeDistrict.value != district) {
+        val districtChanged = (_activeDistrict.value != district)
+        if (districtChanged) {
             _activeDistrict.value = district
         }
         
+        // 🛡️ DEDUPLICATION GUARD: జిల్లా మారకుండా ఇప్పటికే లోడింగ్ నడుస్తుంటే అనవసరంగా రద్దు చేసి మళ్లీ మొదలుపెట్టవద్దు
+        if (isFetching && !districtChanged && !forceRefresh) {
+            Log.d("LocalNewsFeedVM", "Fetch already in progress for district: $district, skipping redundant call")
+            return
+        }
+
         // 🔄 BACKGROUND LOAD: Only show full-screen loading if we have no news to show.
         if (_news.value.isEmpty()) {
             _loading.value = true 
         }
         loadLocalAds(district) 
         loadJob?.cancel()
-        isFetching = false
+        isFetching = true
         
         loadJob = viewModelScope.launch {
-            if (isFetching) return@launch
-            isFetching = true
-            
             val newsRef = FirebaseService.db.collection("news")
             val cleanAliases = Constants.getDistrictAliases(district)
                 .map { it.trim() }
@@ -352,13 +355,19 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 .limit(pageSize.toLong())
 
                 val distDeferred = async(Dispatchers.IO) {
-                    kotlinx.coroutines.withTimeoutOrNull(10000L) {
-                        try { distQuery.get(Source.SERVER).await() } catch (e: Exception) { null }
+                    kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                        try { distQuery.get(Source.SERVER).await() } catch (e: Exception) {
+                            Log.e("LocalNewsFeedVM", "distQuery error: ${e.message}")
+                            null
+                        }
                     }
                 }
                 val catDeferred = async(Dispatchers.IO) {
-                    kotlinx.coroutines.withTimeoutOrNull(10000L) {
-                        try { catQuery.get(Source.SERVER).await() } catch (e: Exception) { null }
+                    kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                        try { catQuery.get(Source.SERVER).await() } catch (e: Exception) {
+                            Log.e("LocalNewsFeedVM", "catQuery error: ${e.message}")
+                            null
+                        }
                     }
                 }
 
@@ -377,13 +386,17 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                 // 🛡️ ZERO-EMPTY GUARANTEE: ఒకవేళ ఆ జిల్లాకు నేరుగా వార్తలు లేకుంటే తాజా రాష్ట్ర వార్తలను చూపిస్తాం
                 if (finalPosts.isEmpty()) {
-                    val fallbackSnap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                    Log.d("LocalNewsFeedVM", "No direct posts for $district, fetching fallback latest news")
+                    val fallbackSnap = kotlinx.coroutines.withTimeoutOrNull(6000L) {
                         try {
                             newsRef.whereEqualTo("approved", true)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
                                 .limit(pageSize.toLong())
                                 .get(Source.SERVER).await()
-                        } catch (e: Exception) { null }
+                        } catch (e: Exception) {
+                            Log.e("LocalNewsFeedVM", "fallbackSnap error: ${e.message}")
+                            null
+                        }
                     }
                     val fallbackPosts = fallbackSnap?.documents?.mapNotNull { doc ->
                         convertToNewsPost(doc.id, doc.data ?: emptyMap())
@@ -411,14 +424,17 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 lastRefreshTimeLong = currentTime
                 _lastRefreshTime.value = currentTime
             } catch (e: Exception) {
-                 // Do not disable hasMore on network failure; allow user retry by swiping
+                 Log.e("LocalNewsFeedVM", "loadNews exception: ${e.message}", e)
             } finally {
-                _loading.value = false
-                isFetching = false
-                if (pendingLoadMore && _hasMore.value) {
-                    pendingLoadMore = false
-                    if (_news.value.isNotEmpty()) {
-                        loadMore(currentLanguage, currentUser)
+                // 🛡️ RACE CONDITION SHIELD: ఈ కొరుటీన్ ఇంకా యాక్టివ్ జాబ్ అయితేనే లోడింగ్ మరియు ఫెచింగ్ స్టేట్ రీసెట్ చేయాలి
+                if (coroutineContext[Job] == loadJob) {
+                    _loading.value = false
+                    isFetching = false
+                    if (pendingLoadMore && _hasMore.value) {
+                        pendingLoadMore = false
+                        if (_news.value.isNotEmpty()) {
+                            loadMore(currentLanguage, currentUser)
+                        }
                     }
                 }
             }
