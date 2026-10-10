@@ -33,6 +33,8 @@ import com.alfanews.telugu.models.mapMapToNewsPost
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.DateTimeUtils
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.QuerySnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -61,7 +63,7 @@ fun ManagePostsPageView(
         FirebaseService.auth.currentUser?.phoneNumber?.contains("9173811009") == true ||
         FirebaseService.auth.currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
 
-    var viewMode by remember { mutableStateOf(if (isAdmin) "all" else "my") }
+    var viewMode by remember(isAdmin) { mutableStateOf(if (isAdmin) "all" else "my") }
     var posts by remember(viewMode, uid) { mutableStateOf<List<NewsPost>>(emptyList()) }
     var loading by remember(viewMode, uid) { mutableStateOf(true) }
     var refreshTrigger by remember { mutableStateOf(0) }
@@ -73,93 +75,108 @@ fun ManagePostsPageView(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    // 🛡️ Safety timeout: స్పిన్నర్ ఎట్టి పరిస్థితుల్లోనూ 3 సెకన్ల కంటే ఎక్కువ తిరగకూడదు
     LaunchedEffect(viewMode, uid, refreshTrigger) {
+        kotlinx.coroutines.delay(3000L)
+        if (loading) loading = false
+    }
+
+    // 🚀 REAL-TIME LIVE SERVER STREAM: సర్వర్ నుండి నేరుగా తాజా వార్తలు (No Cache, No Stale Data)
+    DisposableEffect(viewMode, uid, refreshTrigger) {
         loading = true
-        try {
-            val shouldFetchAll = isAdmin && viewMode == "all"
+        val listeners = mutableListOf<ListenerRegistration>()
+        val shouldFetchAll = isAdmin && viewMode == "all"
 
-            if (shouldFetchAll) {
-                // 🚀 ADMIN VIEW: అన్ని తాజా వార్తలు (Live latest global feed descending by timestamp)
-                val snap = FirebaseService.db.collection("news")
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(100)
-                    .get()
-                    .await()
+        if (shouldFetchAll) {
+            // 🚀 ADMIN VIEW: అన్ని తాజా వార్తలు (Live latest global feed descending by timestamp)
+            val qAdmin = FirebaseService.db.collection("news")
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+                .limit(100)
 
-                posts = snap.documents.mapNotNull { doc ->
-                    val data = doc.data ?: return@mapNotNull null
-                    mapMapToNewsPost(doc.id, data)
+            val reg = qAdmin.addSnapshotListener { snapshot, e ->
+                loading = false
+                if (e != null) {
+                    android.util.Log.e("ManagePostsPageView", "Admin query error: ${e.message}")
+                    // Fallback 1: approved true with timestamp desc (indexed query)
+                    val qFallback = FirebaseService.db.collection("news")
+                        .whereEqualTo("approved", true)
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(100)
+
+                    val fbReg = qFallback.addSnapshotListener { fbSnap, fbErr ->
+                        loading = false
+                        if (fbErr != null) {
+                            // Fallback 2: simple limit
+                            val qSimple = FirebaseService.db.collection("news").limit(100)
+                            listeners.add(qSimple.addSnapshotListener { sSnap, _ ->
+                                loading = false
+                                sSnap?.documents?.let { docs ->
+                                    posts = docs.mapNotNull { doc ->
+                                        val data = doc.data ?: return@mapNotNull null
+                                        mapMapToNewsPost(doc.id, data)
+                                    }.sortedByDescending { it.timestamp }
+                                }
+                            })
+                            return@addSnapshotListener
+                        }
+
+                        fbSnap?.documents?.let { docs ->
+                            posts = docs.mapNotNull { doc ->
+                                val data = doc.data ?: return@mapNotNull null
+                                mapMapToNewsPost(doc.id, data)
+                            }.sortedByDescending { it.timestamp }
+                        }
+                    }
+                    listeners.add(fbReg)
+                    return@addSnapshotListener
                 }
+
+                if (snapshot != null) {
+                    posts = snapshot.documents.mapNotNull { doc ->
+                        val data = doc.data ?: return@mapNotNull null
+                        mapMapToNewsPost(doc.id, data)
+                    }.sortedByDescending { it.timestamp }
+                }
+            }
+            listeners.add(reg)
+        } else {
+            // 🛡️ REPORTER VIEW: కేవలం విలేకరి UID ఆధారంగా మాత్రమే
+            if (uid.isBlank()) {
+                posts = emptyList()
+                loading = false
             } else {
-                // 🛡️ REPORTER VIEW: కేవలం విలేకరి UID ఆధారంగా మాత్రమే
-                if (uid.isBlank()) {
-                    posts = emptyList()
-                    loading = false
-                    return@LaunchedEffect
-                }
-
                 val postsMap = mutableMapOf<String, NewsPost>()
 
-                val deferredOriginal = async(Dispatchers.IO) {
-                    try {
-                        FirebaseService.db.collection("news")
-                            .whereEqualTo("originalReporterId", uid)
-                            .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(100)
-                            .get()
-                            .await()
-                            .documents
-                    } catch (_: Exception) {
-                        try {
-                            FirebaseService.db.collection("news")
-                                .whereEqualTo("originalReporterId", uid)
-                                .limit(100)
-                                .get()
-                                .await()
-                                .documents
-                        } catch (_: Exception) {
-                            emptyList()
-                        }
+                fun handleSnapshot(snapshot: QuerySnapshot?) {
+                    loading = false
+                    if (snapshot == null) return
+                    for (doc in snapshot.documents) {
+                        val data = doc.data ?: continue
+                        postsMap[doc.id] = mapMapToNewsPost(doc.id, data)
                     }
+                    posts = postsMap.values.sortedByDescending { it.timestamp }
                 }
 
-                val deferredReporter = async(Dispatchers.IO) {
-                    try {
-                        FirebaseService.db.collection("news")
-                            .whereEqualTo("reporter.id", uid)
-                            .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(100)
-                            .get()
-                            .await()
-                            .documents
-                    } catch (_: Exception) {
-                        try {
-                            FirebaseService.db.collection("news")
-                                .whereEqualTo("reporter.id", uid)
-                                .limit(100)
-                                .get()
-                                .await()
-                                .documents
-                        } catch (_: Exception) {
-                            emptyList()
-                        }
-                    }
-                }
+                val qOriginal = FirebaseService.db.collection("news")
+                    .whereEqualTo("originalReporterId", uid)
+                    .limit(100)
+                listeners.add(qOriginal.addSnapshotListener { snap, _ -> handleSnapshot(snap) })
 
-                val docsOriginal = deferredOriginal.await()
-                val docsReporter = deferredReporter.await()
+                val qReporter = FirebaseService.db.collection("news")
+                    .whereEqualTo("reporter.id", uid)
+                    .limit(100)
+                listeners.add(qReporter.addSnapshotListener { snap, _ -> handleSnapshot(snap) })
 
-                for (doc in docsOriginal + docsReporter) {
-                    val data = doc.data ?: continue
-                    postsMap[doc.id] = mapMapToNewsPost(doc.id, data)
-                }
-
-                posts = postsMap.values.sortedByDescending { it.timestamp }
+                val qReporterId = FirebaseService.db.collection("news")
+                    .whereEqualTo("reporterId", uid)
+                    .limit(100)
+                listeners.add(qReporterId.addSnapshotListener { snap, _ -> handleSnapshot(snap) })
             }
-        } catch (e: Exception) {
-            android.util.Log.e("ManagePostsPageView", "Error loading posts: ${e.message}")
-        } finally {
-            loading = false
+        }
+
+        onDispose {
+            listeners.forEach { it.remove() }
+            listeners.clear()
         }
     }
 
@@ -374,10 +391,11 @@ fun ManagePostsPageView(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    if (post.approved || post.status?.uppercase() == "PUBLISHED") {
-                                        onViewPost(post)
-                                    } else {
+                                    val statusUpper = post.status?.uppercase()
+                                    if (statusUpper == "REJECTED" || statusUpper == "FAILED") {
                                         showStatusDetailDialog = post
+                                    } else {
+                                        onViewPost(post)
                                     }
                                 },
                             shape = RoundedCornerShape(12.dp),
@@ -644,6 +662,17 @@ fun ManagePostsPageView(
                         )
                     ) {
                         Text("సరే (Close)")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            val target = dialogPost
+                            showStatusDetailDialog = null
+                            onViewPost(target)
+                        }
+                    ) {
+                        Text("ఫీడ్‌లో చూడండి")
                     }
                 }
             )

@@ -42,9 +42,11 @@ fun IdCardPageView(
             try {
                 val userDoc = withTimeoutOrNull(3000L) {
                     try {
-                        FirebaseService.db.collection("users").document(user.id).get(com.google.firebase.firestore.Source.CACHE).await()
-                    } catch (_: Exception) {
                         FirebaseService.db.collection("users").document(user.id).get().await()
+                    } catch (_: Exception) {
+                        try {
+                            FirebaseService.db.collection("users").document(user.id).get(com.google.firebase.firestore.Source.CACHE).await()
+                        } catch (_: Exception) { null }
                     }
                 }
                 if (userDoc != null && userDoc.exists()) {
@@ -76,9 +78,11 @@ fun IdCardPageView(
         try {
             val configDoc = withTimeoutOrNull(3000L) {
                 try {
-                    FirebaseService.db.collection("settings").document("android_config").get(com.google.firebase.firestore.Source.CACHE).await()
-                } catch (_: Exception) {
                     FirebaseService.db.collection("settings").document("android_config").get().await()
+                } catch (_: Exception) {
+                    try {
+                        FirebaseService.db.collection("settings").document("android_config").get(com.google.firebase.firestore.Source.CACHE).await()
+                    } catch (_: Exception) { null }
                 }
             }
             var signature = configDoc?.getString("authorized_signature")

@@ -57,6 +57,7 @@ fun AdminPanelView(
     isModal: Boolean = false,
     onNavigate: (String) -> Unit = {},
     onPostPublished: (String) -> Unit = {},
+    onViewPost: (NewsPost) -> Unit = {},
     onMenuClick: (() -> Unit)? = null,
     onPageChange: (String) -> Unit = {}
 ) {
@@ -273,8 +274,8 @@ fun AdminPanelView(
                             activePage = "post"
                         },
                         onViewPost = { post ->
+                            onViewPost(post)
                             onClose()
-                            onPostPublished(post.id)
                         },
                         currentUser = effectiveUser,
                         showTitle = false

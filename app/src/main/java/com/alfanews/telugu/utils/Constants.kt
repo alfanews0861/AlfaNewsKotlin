@@ -273,7 +273,7 @@ object Constants {
             district.contains("కడప") || district.contains("వైఎస్ఆర్") || district.contains("వైఎస్సార్") || district.contains("Kadapa", ignoreCase = true) ->
                 list.addAll(listOf("వైఎస్ఆర్ కడప", "వైఎస్సార్ కడప", "కడప", "YSR Kadapa", "Kadapa"))
         }
-        return list.distinct()
+        return list.map { it.trim() }.filter { it.isNotBlank() }.distinct()
     }
 
     fun isDistrictMatch(postDistrict: String?, targetDistrict: String?): Boolean {

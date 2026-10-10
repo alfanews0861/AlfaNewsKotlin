@@ -176,6 +176,38 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         _sharedPostId.value = postId
     }
 
+    fun navigateToPost(post: NewsPost) {
+        _sharedPostId.value = post.id
+        val current = _news.value
+        val index = current.indexOfFirst { it.id == post.id }
+        if (index < 0) {
+            _news.value = listOf(post) + current
+        }
+    }
+
+    fun navigateToPostId(postId: String) {
+        if (postId.isBlank()) return
+        _sharedPostId.value = postId
+        val current = _news.value
+        val index = current.indexOfFirst { it.id == postId }
+        if (index < 0) {
+            viewModelScope.launch {
+                try {
+                    val doc = FirebaseService.db.collection("news").document(postId).get().await()
+                    if (doc.exists()) {
+                        val post = mapDocumentToNewsPost(doc)
+                        if (post != null) {
+                            _news.value = (listOf(post) + _news.value).distinctBy { it.id }
+                            _sharedPostId.value = postId
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("NewsFeedVM", "navigateToPostId error: ${e.message}")
+                }
+            }
+        }
+    }
+
     private var prefCursor: DocumentSnapshot? = null
     private var mainCursor: DocumentSnapshot? = null
     private var localCursor: DocumentSnapshot? = null
@@ -309,8 +341,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         currentFetchJob?.cancel()
         isFetching = false
 
-        if (initialPostId != null) {
-            _news.value = emptyList()
+        if (initialPostId != null && _news.value.isEmpty()) {
+            _loading.value = true
         }
 
         if (_news.value.isEmpty()) {
@@ -353,22 +385,44 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     .orderBy("timestamp", Query.Direction.DESCENDING)
                     .limit(FETCH_LIMIT.toLong())
 
-                val mainSnap = kotlinx.coroutines.withTimeoutOrNull(4000L) { mainQuery.get().await() }
-                val mainPosts = mainSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
-                mainCursor = mainSnap?.documents?.lastOrNull()
-                prefCursor = mainCursor
+                val mainSnap = kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                    try { 
+                        mainQuery.get().await() 
+                    } catch (e: Exception) { 
+                        Log.e("NewsFeedVM", "Primary query error: ${e.message}", e)
+                        null 
+                    }
+                }
+                var mainPosts = mainSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
+                if (mainPosts.isEmpty()) {
+                    // 🛡️ Silent instant fallback/retry for cold-start network handshake hiccups
+                    val retrySnap = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                        try { mainQuery.get().await() } catch (e: Exception) { null }
+                    }
+                    if (retrySnap != null && !retrySnap.isEmpty) {
+                        mainPosts = retrySnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                        mainCursor = retrySnap.documents.lastOrNull()
+                        prefCursor = mainCursor
+                    }
+                } else {
+                    mainCursor = mainSnap?.documents?.lastOrNull()
+                    prefCursor = mainCursor
+                }
 
-                val stateMain = mainPosts.filter { isPostAllowedForState(it, userState) }
+                val stateFiltered = mainPosts.filter { isPostAllowedForState(it, userState) }
+                val stateMain = if (stateFiltered.isNotEmpty()) stateFiltered else mainPosts
 
                 // 🚀 SHOW FRESH LIVE NEWS IMMEDIATELY! (< 300ms, zero spinner wait)
-                if (stateMain.isNotEmpty()) {
-                    var immediatePosts = stateMain
-                    initialTargetPost?.let { post ->
-                        immediatePosts = (listOf(post) + immediatePosts).distinctBy { it.id }
-                    }
-                    _news.value = immediatePosts
+                val combinedImmediate = if (initialTargetPost != null) {
+                    (listOf(initialTargetPost) + stateMain).distinctBy { it.id }
+                } else {
+                    stateMain
+                }
+
+                if (combinedImmediate.isNotEmpty()) {
+                    _news.value = combinedImmediate
                     _loading.value = false
-                    val validIds = immediatePosts.filter { it.type == "news" }.map { it.id }
+                    val validIds = combinedImmediate.filter { it.type == "news" }.map { it.id }
                     prefs.incrementPostViewCounts(validIds)
                 }
 
@@ -378,7 +432,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     try {
                         var stateLocal = emptyList<NewsPost>()
                         if (!district.isNullOrBlank()) {
-                            val aliases = Constants.getDistrictAliases(district).take(3)
+                            val aliases = Constants.getDistrictAliases(district)
+                                .map { it.trim() }
+                                .filter { it.isNotBlank() }
+                                .distinct()
+                                .take(10)
                             val localQuery = if (aliases.size > 1) {
                                 FirebaseService.db.collection("news")
                                     .whereEqualTo("approved", true)
@@ -392,7 +450,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                     .orderBy("timestamp", Query.Direction.DESCENDING)
                                     .limit(10)
                             }
-                            val localSnap = kotlinx.coroutines.withTimeoutOrNull(3000L) { localQuery.get().await() }
+                            val localSnap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                try { localQuery.get().await() } catch (e: Exception) { null }
+                            }
                             val rawLocal = localSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
                             localCursor = localSnap?.documents?.lastOrNull()
                             stateLocal = rawLocal.filter { isPostAllowedForState(it, userState) }
@@ -471,7 +531,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
                                 .startAfter(mainCursor!!)
                                 .limit(15)
-                            val snap = kotlinx.coroutines.withTimeoutOrNull(4000L) { q.get().await() }
+                            val snap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                try { q.get().await() } catch (e: Exception) { null }
+                            }
                             val posts = snap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
                             Pair(posts, snap?.documents?.lastOrNull())
                         } catch (e: Exception) { Pair<List<NewsPost>, DocumentSnapshot?>(emptyList(), null) }
@@ -481,7 +543,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 val localDeferred = async {
                     if (shouldFetchLocal) {
                         try {
-                            val aliases = Constants.getDistrictAliases(district).take(5)
+                            val aliases = Constants.getDistrictAliases(district)
+                                .map { it.trim() }
+                                .filter { it.isNotBlank() }
+                                .distinct()
+                                .take(10)
                             val q = if (aliases.size > 1) {
                                 FirebaseService.db.collection("news")
                                     .whereEqualTo("approved", true)
@@ -497,7 +563,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                     .startAfter(localCursor!!)
                                     .limit(10)
                             }
-                            val snap = kotlinx.coroutines.withTimeoutOrNull(4000L) { q.get().await() }
+                            val snap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                try { q.get().await() } catch (e: Exception) { null }
+                            }
                             val posts = snap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
                             Pair(posts, snap?.documents?.lastOrNull())
                         } catch (e: Exception) { Pair<List<NewsPost>, DocumentSnapshot?>(emptyList(), null) }
@@ -945,6 +1013,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun refreshIfStale(language: Language, currentUser: User?) {
+        if (_sharedPostId.value != null) return
         val now = System.currentTimeMillis()
         if (now - lastRefreshTimeLong > 60000 || _news.value.isEmpty()) { loadNews(language, currentUser) }
     }

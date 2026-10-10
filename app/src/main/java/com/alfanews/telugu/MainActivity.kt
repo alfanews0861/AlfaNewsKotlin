@@ -97,11 +97,14 @@ class MainActivity : ComponentActivity() {
         if (prefs.lastAppVersionCode < currentVersion) {
             prefs.lastAppVersionCode = currentVersion
             try {
-                this.cacheDir.deleteRecursively()
-                this.externalCacheDir?.deleteRecursively()
-                Log.d("MainActivity", "App updated to version $currentVersion. Cache cleared successfully.")
+                // Safe cache cleanup: Only remove temporary image cache, preserve Firestore/database files
+                val imgCache = this.cacheDir.resolve("image_cache")
+                if (imgCache.exists()) {
+                    imgCache.deleteRecursively()
+                }
+                Log.d("MainActivity", "App updated to version $currentVersion. Image cache cleared safely.")
             } catch (e: Exception) {
-                Log.e("MainActivity", "Error clearing cache during update: ${e.message}")
+                Log.e("MainActivity", "Error clearing image cache: ${e.message}")
             }
         }
 

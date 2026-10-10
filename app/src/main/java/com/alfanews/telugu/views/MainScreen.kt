@@ -218,9 +218,8 @@ fun MainScreen(
                     post = post,
                     onDismiss = { mainViewModel.dismissInAppNotification() },
                     onClick = {
-                        newsFeedViewModel.setSharedPostId(post.id)
+                        newsFeedViewModel.navigateToPost(post)
                         mainViewModel.setActiveTab("home")
-                        newsFeedViewModel.loadNews(language, currentUser, initialPostId = post.id)
                         mainViewModel.dismissInAppNotification()
                     }
                 )
@@ -494,9 +493,8 @@ fun MainScreen(
                                     if (postId == "HOME_ONLY") {
                                         mainViewModel.setActiveTab("home")
                                     } else if (postId != "") {
+                                        newsFeedViewModel.navigateToPostId(postId)
                                         mainViewModel.setActiveTab("home")
-                                        newsFeedViewModel.setSharedPostId(postId)
-                                        newsFeedViewModel.loadNews(language, user, initialPostId = postId)
                                     }
                                 }
                             }
@@ -642,10 +640,13 @@ fun MainScreen(
                                 },
                                 onPostPublished = { postId ->
                                     if (postId != "") {
+                                        newsFeedViewModel.navigateToPostId(postId)
                                         mainViewModel.setActiveTab("home")
-                                        newsFeedViewModel.setSharedPostId(postId)
-                                        newsFeedViewModel.loadNews(language, user, initialPostId = postId)
                                     }
+                                },
+                                onViewPost = { post ->
+                                    newsFeedViewModel.navigateToPost(post)
+                                    mainViewModel.setActiveTab("home")
                                 },
                                 onMenuClick = { scope.launch { drawerState.open() } }
                             )
@@ -782,6 +783,7 @@ fun ProfileContainer(
     viewModel: MainViewModel,
     onNavigate: (String) -> Unit,
     onPostPublished: (String) -> Unit = {},
+    onViewPost: (NewsPost) -> Unit = {},
     onMenuClick: (() -> Unit)? = null
 ) {
     var showLogin by remember { mutableStateOf(false) }
@@ -829,6 +831,7 @@ fun ProfileContainer(
             initialPage = adminActivePage,
             onNavigate = onNavigate,
             onPostPublished = onPostPublished,
+            onViewPost = onViewPost,
             onMenuClick = onMenuClick,
             onPageChange = { viewModel.setAdminActivePage(it) }
         )

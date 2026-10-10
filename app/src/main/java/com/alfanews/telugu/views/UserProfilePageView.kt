@@ -84,7 +84,9 @@ fun UserProfilePageView(
         if (targetUid != null) {
             try {
                 val doc = kotlinx.coroutines.withTimeoutOrNull(5000L) {
-                    FirebaseService.db.collection("users").document(targetUid).get().await()
+                    try {
+                        FirebaseService.db.collection("users").document(targetUid).get().await()
+                    } catch (_: Exception) { null }
                 } ?: run {
                     try {
                         FirebaseService.db.collection("users").document(targetUid).get(com.google.firebase.firestore.Source.CACHE).await()

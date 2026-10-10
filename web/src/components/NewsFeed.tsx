@@ -251,30 +251,8 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
         (localStorage.getItem('alfa_explicit_prefs') ? JSON.parse(localStorage.getItem('alfa_explicit_prefs')!) : null);
     
     const userDistrict = currentUser?.district || localStorage.getItem('user_local_district');
-    const cacheKey = `alfa_news_cache_${userDistrict || 'global'}_${implicitCategory || 'none'}`;
 
     try {
-        if (isInitial) {
-            const cachedStr = sessionStorage.getItem(cacheKey);
-            if (cachedStr) {
-                try {
-                    const cached = JSON.parse(cachedStr);
-                    if (Date.now() - cached.timestamp < 3 * 60 * 1000) {
-                        setNews(cached.news);
-                        prefCursor.current = cached.cursors.pref;
-                        localCursor.current = cached.cursors.local;
-                        globalCursor.current = cached.cursors.global;
-                        greetingCursor.current = cached.cursors.greeting;
-                        setLoading(false);
-                        fetchingRef.current = false;
-                        if (onLoadComplete) onLoadComplete();
-                        return;
-                    }
-                } catch (e) {
-                    console.error("Cache parse error", e);
-                }
-            }
-        }
 
         // 40/30/30 MIXING LOGIC:
         let prefPromise = Promise.resolve({posts:[], cursor:null, count:0});
@@ -336,20 +314,6 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
             const rankedNewPosts = rankPosts(newPosts, userPrefs.interests, userPrefs.categoryScores);
             
             const finalNews = isInitial ? rankedNewPosts : [...prev, ...rankedNewPosts];
-            
-            if (isInitial) {
-                sessionStorage.setItem(cacheKey, JSON.stringify({
-                    timestamp: Date.now(),
-                    news: finalNews,
-                    cursors: {
-                        pref: prefCursor.current,
-                        local: localCursor.current,
-                        global: globalCursor.current,
-                        greeting: greetingCursor.current
-                    }
-                }));
-            }
-            
             return finalNews;
         });
 

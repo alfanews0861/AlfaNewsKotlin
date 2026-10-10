@@ -24,6 +24,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -316,8 +317,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             isFetching = true
             
             val newsRef = FirebaseService.db.collection("news")
-            val districtAliases = Constants.getDistrictAliases(district)
-            val primaryAliases = districtAliases.take(3)
+            val cleanAliases = Constants.getDistrictAliases(district)
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .take(10)
 
             _isOnline.value = com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())
             lastDocument = null
@@ -325,36 +329,72 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             consecutiveEmptyLoads = 0
 
             try {
-                // 🚀 DIRECT SERVER QUERY: ఆయా జిల్లాకు కేటాయించిన వార్తలను సర్వర్ నుండి నేరుగా తాజాదనం ప్రకారం తెస్తాము (No Cache, No Over-Engineering)
-                val query = (if (primaryAliases.size > 1) {
-                    newsRef.whereEqualTo("approved", true).whereIn("district", primaryAliases)
-                } else if (primaryAliases.size == 1) {
-                    newsRef.whereEqualTo("approved", true).whereEqualTo("district", primaryAliases[0])
+                // 🚀 PARALLEL FAST QUERY: జిల్లా ఫీల్డ్ మరియు క్యాటగిరీస్ అరే రెండింటినీ సమాంతరంగా తెస్తాము
+                val distQuery = (if (cleanAliases.size > 1) {
+                    newsRef.whereEqualTo("approved", true).whereIn("district", cleanAliases)
+                } else if (cleanAliases.size == 1) {
+                    newsRef.whereEqualTo("approved", true).whereEqualTo("district", cleanAliases[0])
                 } else {
                     newsRef.whereEqualTo("approved", true).whereEqualTo("district", district)
                 })
                 .orderBy("timestamp", Query.Direction.DESCENDING)
                 .limit(pageSize.toLong())
 
-                val snapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                    try {
-                        query.get().await()
-                    } catch (e: Exception) {
-                        null
+                val catQuery = (if (cleanAliases.size > 1) {
+                    newsRef.whereEqualTo("approved", true).whereArrayContainsAny("categories", cleanAliases)
+                } else if (cleanAliases.size == 1) {
+                    newsRef.whereEqualTo("approved", true).whereArrayContainsAny("categories", listOf(cleanAliases[0]))
+                } else {
+                    newsRef.whereEqualTo("approved", true).whereArrayContainsAny("categories", listOf(district))
+                })
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+                .limit(pageSize.toLong())
+
+                val distDeferred = async(Dispatchers.IO) {
+                    kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                        try { distQuery.get().await() } catch (e: Exception) { null }
+                    }
+                }
+                val catDeferred = async(Dispatchers.IO) {
+                    kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                        try { catQuery.get().await() } catch (e: Exception) { null }
                     }
                 }
 
-                val fetchedPosts = snapshot?.documents?.mapNotNull { doc ->
+                val distSnap = distDeferred.await()
+                val catSnap = catDeferred.await()
+
+                val distPosts = distSnap?.documents?.mapNotNull { doc ->
                     convertToNewsPost(doc.id, doc.data ?: emptyMap())
                 } ?: emptyList()
 
-                lastDocument = snapshot?.documents?.lastOrNull() ?: lastDocument
-                if (snapshot != null) {
-                    _hasMore.value = snapshot.size() >= pageSize
+                val catPosts = catSnap?.documents?.mapNotNull { doc ->
+                    convertToNewsPost(doc.id, doc.data ?: emptyMap())
+                } ?: emptyList()
+
+                var finalPosts = (distPosts + catPosts).distinctBy { it.id }.sortedByDescending { it.timestamp }
+
+                // 🛡️ ZERO-EMPTY GUARANTEE: ఒకవేళ ఆ జిల్లాకు నేరుగా వార్తలు లేకుంటే తాజా రాష్ట్ర వార్తలను చూపిస్తాం
+                if (finalPosts.isEmpty()) {
+                    val fallbackSnap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                        try {
+                            newsRef.whereEqualTo("approved", true)
+                                .orderBy("timestamp", Query.Direction.DESCENDING)
+                                .limit(pageSize.toLong())
+                                .get().await()
+                        } catch (e: Exception) { null }
+                    }
+                    val fallbackPosts = fallbackSnap?.documents?.mapNotNull { doc ->
+                        convertToNewsPost(doc.id, doc.data ?: emptyMap())
+                    } ?: emptyList()
+                    if (fallbackPosts.isNotEmpty()) {
+                        finalPosts = fallbackPosts
+                    }
                 }
 
-                // 🚀 ఎల్లప్పుడూ ఆ జిల్లాలోని తాజా వార్తలే పైన కనిపించాలి
-                val finalPosts = fetchedPosts.sortedByDescending { it.timestamp }.distinctBy { it.id }
+                lastDocument = distSnap?.documents?.lastOrNull() ?: catSnap?.documents?.lastOrNull()
+                _hasMore.value = ((distSnap?.size() ?: 0) >= pageSize || (catSnap?.size() ?: 0) >= pageSize)
+
                 if (finalPosts.isNotEmpty()) {
                     val wasEmpty = _news.value.isEmpty()
                     _news.value = finalPosts
@@ -397,13 +437,16 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             isFetching = true
             try {
                 val newsRef = FirebaseService.db.collection("news")
-                val districtAliases = Constants.getDistrictAliases(district)
-                val primaryAliases = districtAliases.take(3)
+                val cleanAliases = Constants.getDistrictAliases(district)
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .take(10)
 
-                val baseQ = if (primaryAliases.size > 1) {
-                    newsRef.whereEqualTo("approved", true).whereIn("district", primaryAliases)
-                } else if (primaryAliases.size == 1) {
-                    newsRef.whereEqualTo("approved", true).whereEqualTo("district", primaryAliases[0])
+                val baseQ = if (cleanAliases.size > 1) {
+                    newsRef.whereEqualTo("approved", true).whereIn("district", cleanAliases)
+                } else if (cleanAliases.size == 1) {
+                    newsRef.whereEqualTo("approved", true).whereEqualTo("district", cleanAliases[0])
                 } else {
                     newsRef.whereEqualTo("approved", true).whereEqualTo("district", district)
                 }
@@ -417,7 +460,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     q = q.startAfter(lastDoc)
                 }
 
-                val snap = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                val snap = kotlinx.coroutines.withTimeoutOrNull(10000L) {
                     try { q.get().await() } catch (e: Exception) { null }
                 }
 

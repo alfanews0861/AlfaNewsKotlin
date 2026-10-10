@@ -108,31 +108,7 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
   const fetchLocalNews = useCallback(async (isInitial = false) => {
     if (fetchingRef.current || (!isInitial && !hasMoreRef.current)) return;
     fetchingRef.current = true;
-    
-    const cacheKey = `alfa_local_news_cache_${activeDistrict || 'none'}`;
-
     if (isInitial) {
-        const cachedStr = sessionStorage.getItem(cacheKey);
-        if (cachedStr) {
-            try {
-                const cached = JSON.parse(cachedStr);
-                if (Date.now() - cached.timestamp < 3 * 60 * 1000) {
-                    setNews(cached.news);
-                    lastVisible.current = cached.cursor;
-                    setLoading(false);
-                    fetchingRef.current = false;
-                    setHasMore(true);
-                    if (onLoadComplete) {
-                        onLoadComplete();
-                        setTimeout(() => { if (feedRef.current) feedRef.current.scrollTop = 0; }, 100);
-                    }
-                    return;
-                }
-            } catch (e) {
-                console.error("Cache parse error", e);
-            }
-        }
-
         setLoading(true);
         lastVisible.current = null;
         setHasMore(true);
@@ -213,15 +189,6 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
                 uniqueNew.sort((a: NewsPost, b: NewsPost) => b.timestamp - a.timestamp);
                 
                 const finalNews = isInitial ? uniqueNew : [...prev, ...uniqueNew];
-                
-                if (isInitial) {
-                    sessionStorage.setItem(cacheKey, JSON.stringify({
-                        timestamp: Date.now(),
-                        news: finalNews,
-                        cursor: lastVisible.current
-                    }));
-                }
-                
                 return finalNews;
             });
 

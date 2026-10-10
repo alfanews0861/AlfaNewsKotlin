@@ -42,6 +42,8 @@ import com.alfanews.telugu.services.AdState
 import com.alfanews.telugu.viewmodels.NewsFeedViewModel
 import com.google.android.gms.ads.nativead.NativeAd
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -102,9 +104,10 @@ fun NewsFeedView(
     }
 
     LaunchedEffect(Unit) {
+        val targetId = sharedPostId ?: initialPostId
         if (news.isEmpty()) {
-            viewModel.loadNews(language, currentUser, initialPostId)
-        } else {
+            viewModel.loadNews(language, currentUser, targetId)
+        } else if (targetId == null) {
             viewModel.refreshIfStale(language, currentUser)
         }
         
@@ -159,8 +162,16 @@ fun NewsFeedView(
             val postIndex = news.indexOfFirst { it.id == targetId }
             if (postIndex >= 0) {
                 val pageIndex = postIndex + (postIndex / 5)
-                pagerState.scrollToPage(pageIndex)
-                viewModel.setSharedPostId(null)
+                try {
+                    snapshotFlow { pagerState.pageCount }
+                        .filter { it > pageIndex }
+                        .first()
+                    pagerState.scrollToPage(pageIndex)
+                } catch (e: Exception) {
+                    android.util.Log.e("NewsFeedView", "Scroll to page $pageIndex failed: ${e.message}")
+                } finally {
+                    viewModel.setSharedPostId(null)
+                }
             }
         }
     }

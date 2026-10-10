@@ -83,6 +83,9 @@ private var prefCursor: DocumentSnapshot? = null  // Tracks pagination state
   When a reporter posts news for a mandal other than their assigned mandal, public author credits are displayed as `"Alfa News Desk"`, while incentive reward points and notifications are still credited to the submitting reporter (`originalReporterId`).
 - **NEVER Add Empty News Fallback Screen (ఖాళీ వార్తల ఫాల్‌బ్యాక్ స్క్రీన్‌ను ఎట్టి పరిస్థితుల్లోనూ పెట్టవద్దు)**:
   `NewsFeedView.kt` and `LocalNewsFeedView.kt` must NEVER render the `news_not_available` ("వార్త అందుబాటులో లేదు.") or `retry` button screen. With 98,000+ articles in Firestore, an empty feed indicates temporary network latency or filtering, NOT lack of news. Always auto-retry silently in the background with `LaunchedEffect` while displaying the `news_preparing` indicator. Never show a static error screen with a retry button.
+- **STRICT NO CACHE FOR NEWS ONLY (వార్తలకు మాత్రమే క్యాష్ నిషేధం)**:
+  News feed and articles must NEVER be served from stale/persistent cache. News queries must always fetch live from the server to prevent showing old news.
+  HOWEVER, unchanging user data (login credentials, user profiles, roles, ID card data, and app configuration) MUST remain cached locally (`PersistentCacheSettings` / `Source.CACHE` / `SharedPreferences`) so user sessions, profiles, and credentials are preserved across app restarts and offline periods.
 
 ### Building Android Release APK (Only when explicitly requested by user)
 

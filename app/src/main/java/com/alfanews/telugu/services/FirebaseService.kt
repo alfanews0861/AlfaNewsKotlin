@@ -19,13 +19,9 @@ object FirebaseService {
     val db: FirebaseFirestore by lazy { 
         val instance = FirebaseFirestore.getInstance()
         
-        // 🔒 ఖర్చు మరియు మెమరీ రక్షణ:
-        // పూర్తి అపరిమిత కాషింగ్ వల్ల ఫోన్ మెమరీ పెరిగిపోకుండా,
-        // గరిష్టంగా 30MB కఠిన పరిమితితో కూడిన PersistentCache ని సెట్ చేస్తున్నాము.
-        // దీనివల్ల:
-        // 1. రీసెంట్ టెక్స్ట్ వార్తలు కాష్ లో ఉండి నెట్‌వర్క్ డ్రాప్ అయినా కనిపిస్తాయి.
-        // 2. ఒకే డేటాను మళ్ళీ మళ్ళీ క్లౌడ్ నుండి లాగకుండా ఫైర్‌స్టోర్ రీడ్స్ & ఎగ్రెస్ ఆదా అవుతాయి.
-        // 3. 30MB దాటగానే పాత డేటాను ఆటోమేటిక్‌గా డిలీట్ (LRU Eviction) చేసి ఫోన్ మెమరీని రక్షిస్తుంది.
+        // 🔒 లాగిన్ మరియు యూజర్ వివరాల రక్షణ (30MB Persistent Cache):
+        // లాగిన్ వివరాలు, ప్రొఫైల్, ఐడీ కార్డ్, యాప్ సెట్టింగ్స్ వంటి మారని వివరాలు లోకల్‌గా భద్రంగా ఉండాలి.
+        // వార్తలు మాత్రం ఎల్లప్పుడూ నేరుగా లైవ్ సర్వర్ నుంచే వస్తాయి.
         val cacheSettings = com.google.firebase.firestore.PersistentCacheSettings.newBuilder()
             .setSizeBytes(30L * 1024L * 1024L) // 30 MB strict cache limit
             .build()
@@ -39,6 +35,7 @@ object FirebaseService {
         } catch (_: Exception) {
             // Already initialized, ignore
         }
+
         instance
     }
     

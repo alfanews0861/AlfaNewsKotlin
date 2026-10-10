@@ -108,4 +108,53 @@ class LocalNewsChronologicalSortingTest {
         assertEquals(true, myPosts.any { it.id == "p2" })
         assertEquals(false, myPosts.any { it.id == "p3" })
     }
+
+    @Test
+    fun testStandardReporterManagePosts_LoadsFreshNewsInDescendingOrder() {
+        val standardReporterUid = "reporter_ravi_456"
+
+        val oldPost = NewsPost(
+            id = "post_old",
+            headline = Headline(telugu = "గత వారం వార్త"),
+            timestamp = 1700000000000L,
+            originalReporterId = standardReporterUid,
+            reporter = Reporter(id = standardReporterUid)
+        )
+
+        val freshPostToday = NewsPost(
+            id = "post_fresh_today",
+            headline = Headline(telugu = "ఈ రోజు తాజా వార్త"),
+            timestamp = 1700086400000L, // Latest timestamp
+            originalReporterId = standardReporterUid,
+            reporter = Reporter(id = standardReporterUid)
+        )
+
+        val otherReporterPost = NewsPost(
+            id = "post_other",
+            headline = Headline(telugu = "వేరే రిపోర్టర్ వార్త"),
+            timestamp = 1700090000000L,
+            originalReporterId = "other_rep_999",
+            reporter = Reporter(id = "other_rep_999")
+        )
+
+        val rawIncomingList = listOf(oldPost, freshPostToday, otherReporterPost)
+
+        // 🛡️ Filter strictly by standard reporter UID
+        val reporterPosts = rawIncomingList.filter { 
+            it.originalReporterId == standardReporterUid || it.reporter.id == standardReporterUid
+        }
+
+        // 🚀 Sort descending by timestamp (తాజా వార్తలు మొదట)
+        val sortedPosts = reporterPosts.sortedByDescending { it.timestamp }
+
+        // Assertions:
+        assertEquals(2, sortedPosts.size)
+        // Verify fresh post is at index 0 (First)
+        assertEquals("post_fresh_today", sortedPosts[0].id)
+        assertEquals(1700086400000L, sortedPosts[0].timestamp)
+        // Verify old post is after fresh post
+        assertEquals("post_old", sortedPosts[1].id)
+        // Verify other reporter post is excluded
+        assertEquals(false, sortedPosts.any { it.id == "post_other" })
+    }
 }

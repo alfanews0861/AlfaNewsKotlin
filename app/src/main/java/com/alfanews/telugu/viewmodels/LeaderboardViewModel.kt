@@ -1,6 +1,7 @@
 package com.alfanews.telugu.viewmodels
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.alfanews.telugu.models.User
@@ -36,14 +37,16 @@ class LeaderboardViewModel(application: Application) : AndroidViewModel(applicat
                 var month = (calendar.get(Calendar.MONTH) + 1).toString().padStart(2, '0')
                 var monthlyId = "${year}_${month}"
 
-                var snapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
-                    FirebaseService.db.collection("monthly_leaderboard")
-                        .document(monthlyId)
-                        .collection("reporters")
-                        .orderBy("points", Query.Direction.DESCENDING)
-                        .limit(10)
-                        .get()
-                        .await()
+                var snapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                    try {
+                        FirebaseService.db.collection("monthly_leaderboard")
+                            .document(monthlyId)
+                            .collection("reporters")
+                            .orderBy("points", Query.Direction.DESCENDING)
+                            .limit(10)
+                            .get()
+                            .await()
+                    } catch (e: Exception) { null }
                 }
 
                 // If current month is empty, try previous month
@@ -53,18 +56,20 @@ class LeaderboardViewModel(application: Application) : AndroidViewModel(applicat
                     month = (calendar.get(Calendar.MONTH) + 1).toString().padStart(2, '0')
                     monthlyId = "${year}_${month}"
                     
-                    snapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
-                        FirebaseService.db.collection("monthly_leaderboard")
-                            .document(monthlyId)
-                            .collection("reporters")
-                            .orderBy("points", Query.Direction.DESCENDING)
-                            .limit(10)
-                            .get()
-                            .await()
+                    snapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                        try {
+                            FirebaseService.db.collection("monthly_leaderboard")
+                                .document(monthlyId)
+                                .collection("reporters")
+                                .orderBy("points", Query.Direction.DESCENDING)
+                                .limit(10)
+                                .get()
+                                .await()
+                        } catch (e: Exception) { null }
                     }
                 }
 
-                val entries = snapshot?.documents?.mapNotNull { doc ->
+                var entries = snapshot?.documents?.mapNotNull { doc ->
                     val data = doc.data ?: return@mapNotNull null
                     User(
                         id = doc.id,
@@ -75,6 +80,37 @@ class LeaderboardViewModel(application: Application) : AndroidViewModel(applicat
                         points = (data["points"] as? Number)?.toInt() ?: 0
                     )
                 } ?: emptyList()
+
+                // 🚀 FALLBACK: If monthly leaderboard is still empty, load top reporters directly from users collection
+                if (entries.isEmpty()) {
+                    try {
+                        val usersSnap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                            FirebaseService.db.collection("users")
+                                .whereEqualTo("role", "REPORTER")
+                                .limit(100)
+                                .get()
+                                .await()
+                        }
+                        if (usersSnap != null && !usersSnap.isEmpty) {
+                            entries = usersSnap.documents.mapNotNull { doc ->
+                                val data = doc.data ?: return@mapNotNull null
+                                val pts = (data["points"] as? Number)?.toInt() ?: 0
+                                if (pts <= 0) return@mapNotNull null
+                                User(
+                                    id = doc.id,
+                                    name = data["name"] as? String ?: "Reporter",
+                                    photoUrl = data["photoUrl"] as? String,
+                                    district = data["district"] as? String,
+                                    assignedMandal = data["assignedMandal"] as? String,
+                                    points = pts
+                                )
+                            }.sortedByDescending { it.points }.take(10)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("LeaderboardVM", "Fallback users query failed: ${e.message}")
+                    }
+                }
+
                 _leaderboard.value = entries
             } catch (e: Exception) {
                 e.printStackTrace()
