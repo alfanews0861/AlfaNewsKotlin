@@ -10,6 +10,13 @@ const client = new OAuth2Client();
 client.setCredentials({ access_token: configData.tokens.access_token });
 const firestore = new Firestore({ projectId: 'alfa-news-31bf7', authClient: client });
 
+// 🛡️ Safety lock: Prevent accidental execution which causes multi-gigabyte egress costs
+if (process.env.CONFIRM_UPGRADE !== 'true') {
+  console.log('🔒 Safety lock: This one-time upgrade script has already been completed.');
+  console.log('To re-run intentionally, execute with: CONFIRM_UPGRADE=true node upgrade_all_reporters.js');
+  process.exit(0);
+}
+
 async function executeReporterUpgrades() {
   console.log('🚀 Starting system-wide Reporter Upgrade & Restoration...');
 

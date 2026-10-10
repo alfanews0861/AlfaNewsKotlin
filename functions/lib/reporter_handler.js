@@ -679,20 +679,18 @@ exports.onNewsViewCountUpdated = (0, firestore_1.onDocumentWritten)({
     const viewsBefore = before?.longViews || 0;
     const viewsAfter = after.longViews || 0;
     // ✅ Quick guard: exit if longViews hasn't increased (saves execution time)
-    if (viewsAfter <= viewsBefore)
+    // Award points for milestones
+    const milestonesBefore = Math.floor(viewsBefore / MILESTONE_SIZE);
+    const milestonesAfter = Math.floor(viewsAfter / MILESTONE_SIZE);
+    if (milestonesAfter <= milestonesBefore)
         return;
     const reporterId = after.reporter?.id || (typeof after.reporter === 'string' ? after.reporter : null);
     if (!reporterId || reporterId.startsWith('BOT_') || reporterId.startsWith('SYSTEM_'))
         return;
-    // Award points for milestones
-    const milestonesBefore = Math.floor(viewsBefore / MILESTONE_SIZE);
-    const milestonesAfter = Math.floor(viewsAfter / MILESTONE_SIZE);
-    if (milestonesAfter > milestonesBefore) {
-        const newMilestones = milestonesAfter - milestonesBefore;
-        const totalPointsToAdd = newMilestones * POINTS_PER_MILESTONE;
-        console.log(`[MILESTONE] News ${event.params.postId} reached ${viewsAfter} views. Awarding ${totalPointsToAdd} points to ${reporterId}`);
-        await awardPointsToReporter(reporterId, totalPointsToAdd);
-    }
+    const newMilestones = milestonesAfter - milestonesBefore;
+    const totalPointsToAdd = newMilestones * POINTS_PER_MILESTONE;
+    console.log(`[MILESTONE] News ${event.params.postId} reached ${viewsAfter} views. Awarding ${totalPointsToAdd} points to ${reporterId}`);
+    await awardPointsToReporter(reporterId, totalPointsToAdd);
 });
 /**
  * 6.1 Process Reporter Submission
@@ -2293,25 +2291,25 @@ exports.onNewsPostApproved = (0, firestore_1.onDocumentWritten)({
     const before = event.data?.before.data();
     const after = event.data?.after.data();
     // Trigger only if status changes to published or approved becomes true
-    if (after && after.approved === true && before?.approved !== true) {
-        const assignedReporterId = (typeof after.reporter === 'string' ? after.reporter : after.reporter?.id) || after.reporterId;
-        const originalReporterId = after.originalReporterId;
-        const reporterIdsToUpdate = new Set();
-        if (assignedReporterId && !assignedReporterId.startsWith('BOT_') && !assignedReporterId.startsWith('SYSTEM_')) {
-            reporterIdsToUpdate.add(assignedReporterId);
-        }
-        if (originalReporterId && !originalReporterId.startsWith('BOT_') && !originalReporterId.startsWith('SYSTEM_')) {
-            reporterIdsToUpdate.add(originalReporterId);
-        }
-        for (const rId of reporterIdsToUpdate) {
-            console.log(`[POST_APPROVED] Updating lastPostTimestamp and clearing warnings for reporter: ${rId}`);
-            await db.collection('users').doc(rId).set({
-                lastPostTimestamp: after.timestamp || admin.firestore.FieldValue.serverTimestamp(),
-                warningLevel: 0,
-                inProbation: false,
-                lastWarningDate: admin.firestore.FieldValue.delete()
-            }, { merge: true });
-        }
+    if (!after || after.approved !== true || before?.approved === true)
+        return;
+    const assignedReporterId = (typeof after.reporter === 'string' ? after.reporter : after.reporter?.id) || after.reporterId;
+    const originalReporterId = after.originalReporterId;
+    const reporterIdsToUpdate = new Set();
+    if (assignedReporterId && !assignedReporterId.startsWith('BOT_') && !assignedReporterId.startsWith('SYSTEM_')) {
+        reporterIdsToUpdate.add(assignedReporterId);
+    }
+    if (originalReporterId && !originalReporterId.startsWith('BOT_') && !originalReporterId.startsWith('SYSTEM_')) {
+        reporterIdsToUpdate.add(originalReporterId);
+    }
+    for (const rId of reporterIdsToUpdate) {
+        console.log(`[POST_APPROVED] Updating lastPostTimestamp and clearing warnings for reporter: ${rId}`);
+        await db.collection('users').doc(rId).set({
+            lastPostTimestamp: after.timestamp || admin.firestore.FieldValue.serverTimestamp(),
+            warningLevel: 0,
+            inProbation: false,
+            lastWarningDate: admin.firestore.FieldValue.delete()
+        }, { merge: true });
     }
 });
 /**

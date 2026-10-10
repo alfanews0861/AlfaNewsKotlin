@@ -36,6 +36,9 @@ import com.alfanews.telugu.services.FirebaseFunctionsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.DateTimeUtils
 import com.google.firebase.firestore.Query
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
@@ -105,14 +108,12 @@ fun ManagePostsPageView(
         }
     }
 
-    // Safety watchdog: prevent infinite spinner on slow/offline listeners
-    LaunchedEffect(currentUser, selectedReporterId) {
-        loading = true
-        kotlinx.coroutines.delay(4000L)
-        loading = false
-    }
+    // 🚀 ONE-TIME FETCH ON DEMAND: Eliminates 20+ persistent streaming snapshot listeners that caused multi-gigabyte egress loops
+    LaunchedEffect(currentUser, selectedReporterId, queryLimit) {
+        if (posts.isEmpty()) {
+            loading = true
+        }
 
-    DisposableEffect(currentUser, selectedReporterId, queryLimit) {
         // Candidate IDs to match reporter posts across various auth states and post formats
         val candidateIds = mutableSetOf<String>().apply {
             if (uid.isNotBlank()) add(uid)
@@ -134,50 +135,15 @@ fun ManagePostsPageView(
             }
         }.toList()
 
-        // Merged state map (postId -> NewsPost) to deduplicate across all listeners
-        val mergedMap = mutableMapOf<String, NewsPost>()
-
-        fun rebuildPosts(isServerResponse: Boolean = false) {
-            // 🚀 తాజా 10 వార్తలు (అవసరమైనప్పుడు సెర్చ్ లేదా లోడ్ మోర్ ద్వారా మరిన్ని):
-            val sorted = mergedMap.values
-                .sortedByDescending { it.timestamp }
-            val result = if (loadMoreRequested || searchQuery.isNotBlank()) sorted else sorted.take(10)
-            posts = result
-            if (result.isNotEmpty()) {
-                cachedManagePosts = result
-                cachedManagePostsUserId = uid
-            }
-            if (result.isNotEmpty() || isServerResponse) {
-                loading = false
-            }
-        }
-
-        val listeners = mutableListOf<com.google.firebase.firestore.ListenerRegistration>()
-
-        fun attachQueryListener(q: Query) {
-            listeners.add(q.addSnapshotListener { snapshot, e ->
-                if (e != null) {
-                    android.util.Log.e("ManagePostsPageView", "Query error: ${e.message}", e)
-                    rebuildPosts(isServerResponse = true)
-                    return@addSnapshotListener
-                }
-                snapshot?.documents?.forEach { doc ->
-                    val data = doc.data ?: return@forEach
-                    mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
-                }
-                val isServer = snapshot != null && !snapshot.metadata.isFromCache
-                rebuildPosts(isServerResponse = isServer)
-            })
-        }
+        val queriesToRun = mutableListOf<Query>()
 
         if (selectedReporterId != null) {
-            // 🎯 Admin selected specific reporter: fetch latest 10 news belonging to this reporter
+            // 🎯 Admin selected specific reporter: fetch latest news belonging to this reporter
             val selRep = reporterList.firstOrNull { it.id == selectedReporterId }
             val selCandidateIds = mutableSetOf<String>().apply {
                 add(selectedReporterId!!)
                 selRep?.phone?.let { p ->
                     if (p.isNotBlank()) {
-                        add(p)
                         val clean = p.replace("+91", "").trim()
                         if (clean.isNotBlank()) {
                             add(clean)
@@ -188,97 +154,86 @@ fun ManagePostsPageView(
             }.toList()
 
             selCandidateIds.forEach { cId ->
-                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporter.id", cId).limit(queryLimit))
-                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("originalReporterId", cId).limit(queryLimit))
-                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporterId", cId).limit(queryLimit))
-                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporter", cId).limit(queryLimit))
-                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("userId", cId).limit(queryLimit))
+                queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("reporter.id", cId).limit(queryLimit))
+                queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("originalReporterId", cId).limit(queryLimit))
+                queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("userId", cId).limit(queryLimit))
             }
             val repName = selRep?.name?.takeIf { it.isNotBlank() } ?: selectedReporterName.takeIf { it.isNotBlank() }
             if (repName != null) {
-                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporter.name", repName).limit(queryLimit))
+                queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("reporter.name", repName).limit(queryLimit))
             }
         } else if (isAdminOrEditor) {
-            // Admin/Editor with "All News": latest 10 global posts by default
-            val qAdmin = FirebaseService.db.collection("news")
-                .orderBy("timestamp", Query.Direction.DESCENDING)
-                .limit(queryLimit)
-            listeners.add(qAdmin.addSnapshotListener { snapshot, e ->
-                if (e != null) {
-                    android.util.Log.e("ManagePostsPageView", "Admin query error: ${e.message}", e)
-                    val qAdminFallback = FirebaseService.db.collection("news").limit(queryLimit)
-                    listeners.add(qAdminFallback.addSnapshotListener { fbSnap, _ ->
-                        fbSnap?.documents?.forEach { doc ->
-                            val data = doc.data ?: return@forEach
-                            mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
-                        }
-                        val isServer = fbSnap != null && !fbSnap.metadata.isFromCache
-                        rebuildPosts(isServerResponse = isServer)
-                    })
-                    return@addSnapshotListener
-                }
-                snapshot?.documents?.forEach { doc ->
-                    val data = doc.data ?: return@forEach
-                    mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
-                }
-                val isServer = snapshot != null && !snapshot.metadata.isFromCache
-                rebuildPosts(isServerResponse = isServer)
-            })
-
+            // Admin/Editor with "All News": latest global posts
+            queriesToRun.add(
+                FirebaseService.db.collection("news")
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                    .limit(queryLimit)
+            )
             // Admin: also load admin's own submitted posts
-            val validAdminCandidateIds = candidateIds.filter { it.isNotBlank() }.distinct().take(10)
+            val validAdminCandidateIds = candidateIds.filter { it.isNotBlank() }.distinct().take(3)
             validAdminCandidateIds.forEach { cId ->
-                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporter.id", cId).limit(queryLimit))
-                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("originalReporterId", cId).limit(queryLimit))
+                queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("reporter.id", cId).limit(queryLimit))
+                queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("originalReporterId", cId).limit(queryLimit))
             }
         } else if (isRegionalIncharge && currentUser?.assignedDistricts?.isNotEmpty() == true) {
             // Regional Incharge: assigned districts
-            val qIncharge = FirebaseService.db.collection("news")
-                .whereIn("district", currentUser.assignedDistricts)
-                .limit(queryLimit)
-            listeners.add(qIncharge.addSnapshotListener { snapshot, e ->
-                if (e != null) {
-                    android.util.Log.e("ManagePostsPageView", "Incharge query error: ${e.message}", e)
-                    return@addSnapshotListener
-                }
-                snapshot?.documents?.forEach { doc ->
-                    val data = doc.data ?: return@forEach
-                    mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
-                }
-                val isServer = snapshot != null && !snapshot.metadata.isFromCache
-                rebuildPosts(isServerResponse = isServer)
-            })
-
-            val validInchargeCandidateIds = candidateIds.filter { it.isNotBlank() }.distinct().take(10)
+            queriesToRun.add(
+                FirebaseService.db.collection("news")
+                    .whereIn("district", currentUser.assignedDistricts)
+                    .limit(queryLimit)
+            )
+            val validInchargeCandidateIds = candidateIds.filter { it.isNotBlank() }.distinct().take(3)
             validInchargeCandidateIds.forEach { cId ->
-                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporter.id", cId).limit(queryLimit))
-                attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("originalReporterId", cId).limit(queryLimit))
+                queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("reporter.id", cId).limit(queryLimit))
+                queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("originalReporterId", cId).limit(queryLimit))
             }
         } else {
-            // Standard Reporter: latest 10 posts for this reporter across candidate IDs (instant load)
-            val validCandidateIds = candidateIds.filter { it.isNotBlank() }.distinct().take(5)
+            // Standard Reporter: latest posts for this reporter across candidate IDs
+            val validCandidateIds = candidateIds.filter { it.isNotBlank() }.distinct().take(3)
             if (validCandidateIds.isNotEmpty()) {
                 validCandidateIds.forEach { cId ->
-                    attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporter.id", cId).limit(queryLimit))
-                    attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("originalReporterId", cId).limit(queryLimit))
-                    attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporterId", cId).limit(queryLimit))
-                    attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporter", cId).limit(queryLimit))
-                    attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("userId", cId).limit(queryLimit))
+                    queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("reporter.id", cId).limit(queryLimit))
+                    queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("originalReporterId", cId).limit(queryLimit))
+                    queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("userId", cId).limit(queryLimit))
                 }
 
                 val repName = currentUser?.name?.takeIf { it.isNotBlank() }
                     ?: FirebaseService.auth.currentUser?.displayName?.takeIf { it.isNotBlank() }
                 if (repName != null) {
-                    attachQueryListener(FirebaseService.db.collection("news").whereEqualTo("reporter.name", repName).limit(queryLimit))
+                    queriesToRun.add(FirebaseService.db.collection("news").whereEqualTo("reporter.name", repName).limit(queryLimit))
                 }
-            } else {
-                loading = false
             }
         }
 
-        onDispose {
-            listeners.forEach { it.remove() }
-            listeners.clear()
+        try {
+            val mergedMap = mutableMapOf<String, NewsPost>()
+            val deferreds = queriesToRun.map { q ->
+                async(Dispatchers.IO) {
+                    try {
+                        q.get().await()
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+            }
+            deferreds.awaitAll().forEach { snap ->
+                snap?.documents?.forEach { doc ->
+                    val data = doc.data ?: return@forEach
+                    mergedMap[doc.id] = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, data)
+                }
+            }
+
+            val sorted = mergedMap.values.sortedByDescending { it.timestamp }
+            val result = if (loadMoreRequested || searchQuery.isNotBlank()) sorted else sorted.take(10)
+            posts = result
+            if (result.isNotEmpty()) {
+                cachedManagePosts = result
+                cachedManagePostsUserId = uid
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ManagePostsPageView", "Error loading manage posts: ${e.message}")
+        } finally {
+            loading = false
         }
     }
 

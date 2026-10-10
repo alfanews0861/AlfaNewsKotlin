@@ -1,4 +1,4 @@
-import { collection, query, where, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, limit, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 
 let verifiedReporterIds = new Set<string>();
@@ -25,11 +25,11 @@ export const initReporterVerification = () => {
     const roles = ['REPORTER', 'reporter', 'STAFF_REPORTER', 'REGIONAL_INCHARGE', 2, 2.0, '2', 3, 3.0, '3'];
     const q = query(collection(db, 'users'), where('role', 'in', roles), limit(500));
 
-    onSnapshot(q, (snapshot) => {
+    getDocs(q).then((snapshot: any) => {
       const validIds = new Set<string>();
       const validNames = new Set<string>();
 
-      snapshot.docs.forEach((doc) => {
+      snapshot.docs.forEach((doc: any) => {
         const data = doc.data();
         if (data.suspended || data.previouslyDowngraded) return;
         const roleStr = String(data.role || '').toUpperCase();
@@ -50,7 +50,7 @@ export const initReporterVerification = () => {
 
       verifiedReporterIds = validIds;
       verifiedReporterNames = validNames;
-    }, (err) => {
+    }).catch((err: any) => {
       console.warn('[REPORTER_VERIFY_SYNC_WARN]', err.message);
     });
   } catch (e) {

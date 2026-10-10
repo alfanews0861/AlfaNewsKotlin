@@ -578,7 +578,12 @@ export const onNewsPostSocialAutoPost = onDocumentWritten({
         return;
     }
 
-    // 2. Guard: Strictly check if post is published/approved (ignore drafts, pending, or rejected)
+    // 2. Guard: Strictly check if post is newly published/approved (ignore if was already published/approved, drafts, pending, or rejected)
+    const wasAlreadyApproved = beforeData && (beforeData.approved === true || (beforeData.status || "").toLowerCase() === 'published');
+    if (wasAlreadyApproved) {
+        return;
+    }
+
     const rawStatus = (data.status || "").toLowerCase();
     const isApproved = (data.approved === true || rawStatus === 'published') && rawStatus !== 'rejected' && rawStatus !== 'draft' && rawStatus !== 'pending' && rawStatus !== 'suspended';
     if (!isApproved) {

@@ -1075,27 +1075,6 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
             return;
         }
     }
-    // 🚀 One-time background check to self-heal and restore any demoted reporters
-    try {
-        const restoreLogRef = db.collection('system_logs').doc('reporter_reactivation_status');
-        const restoreLogDoc = await restoreLogRef.get();
-        if (!restoreLogDoc.exists || (Date.now() - (restoreLogDoc.data()?.lastRunTime || 0)) > 60000) {
-            await restoreLogRef.set({ lastRunTime: Date.now(), status: "IN_PROGRESS" }, { merge: true });
-            const { executeReactivateFalselyDemotedReporters } = await Promise.resolve().then(() => __importStar(require("./reporter_handler")));
-            const res = await executeReactivateFalselyDemotedReporters(false);
-            await restoreLogRef.set({
-                lastRunTime: Date.now(),
-                status: "COMPLETED",
-                reactivatedCount: res.reactivatedCount,
-                names: res.reactivated.map((r) => `${r.name} (${r.phone || 'No phone'}) - ${r.district || ''} / ${r.mandal || ''}`),
-                summary: res
-            }, { merge: true });
-            console.log(`[ONE_TIME_RESTORE_TRIGGER] Completed: reactivated ${res.reactivatedCount} reporters.`);
-        }
-    }
-    catch (e) {
-        console.warn("[ONE_TIME_RESTORE_TRIGGER_ERR]", e.message);
-    }
     const beforeData = event.data?.before?.data() || {};
     const status = (data.status || "").toUpperCase();
     // Fields that should NOT trigger re-processing (views, likes, maintenance, reports)
