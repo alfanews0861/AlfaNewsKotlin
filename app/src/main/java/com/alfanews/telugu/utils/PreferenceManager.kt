@@ -17,9 +17,7 @@ class PreferenceManager(context: Context) {
     private val _districtChanges = MutableSharedFlow<String?>(extraBufferCapacity = 64, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
     val districtChanges: SharedFlow<String?> = _districtChanges.asSharedFlow()
 
-    init {
-        clearAllNewsCache()
-    }
+    // Cache is preserved across app starts for instant display
 
     companion object {
         private const val KEY_LANGUAGE = "key_language"

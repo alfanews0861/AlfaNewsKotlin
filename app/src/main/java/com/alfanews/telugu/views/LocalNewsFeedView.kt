@@ -155,15 +155,19 @@ fun LocalNewsFeedView(
                         Manifest.permission.ACCESS_FINE_LOCATION,
                         Manifest.permission.ACCESS_COARSE_LOCATION
                     )
-                )
-            }
-        } else if (news.isEmpty()) {
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (news.isEmpty()) {
             viewModel.loadNews(language, currentUser)
+        } else {
+            viewModel.refreshIfStale(language, currentUser)
         }
     }
 
     LaunchedEffect(viewModelActiveDistrict) {
-        if (viewModelActiveDistrict != null) {
+        if (viewModelActiveDistrict != null && news.isEmpty()) {
             viewModel.loadNews(language, currentUser)
         }
     }

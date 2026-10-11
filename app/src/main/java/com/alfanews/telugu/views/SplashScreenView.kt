@@ -54,17 +54,17 @@ fun SplashScreenView(
         step.value = 2 // Start tagline animation
         delay(600)
         
-        // Wait until data is ready or max 2.5 seconds total
+        // Quick check for data, or max 600ms hold so animation flows naturally
         var waitTime = 0
-        while (!currentIsReady && waitTime < 2500) {
+        while (!currentIsReady && waitTime < 600) {
             delay(50)
             waitTime += 50
         }
         
         step.value = 3 // Hold
-        delay(300)
+        delay(200)
         step.value = 4 // Fade out
-        delay(300)
+        delay(200)
         animationFinished.value = true
     }
 

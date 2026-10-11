@@ -1015,7 +1015,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     fun refreshIfStale(language: Language, currentUser: User?) {
         if (_sharedPostId.value != null) return
         val now = System.currentTimeMillis()
-        if (now - lastRefreshTimeLong > 60000 || _news.value.isEmpty()) { loadNews(language, currentUser) }
+        if (now - lastRefreshTimeLong > 30000 || _news.value.isEmpty()) { 
+            loadNews(language, currentUser) 
+        }
     }
 
      private fun mapDistrictToState(district: String?): String? {

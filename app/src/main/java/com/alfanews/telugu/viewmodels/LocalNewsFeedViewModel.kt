@@ -508,7 +508,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
     fun refreshIfStale(language: Language, currentUser: User?) {
         val now = System.currentTimeMillis()
-        if (now - lastRefreshTimeLong > 60000 || _news.value.isEmpty()) {
+        if (now - lastRefreshTimeLong > 30000 || _news.value.isEmpty()) {
             loadNews(language, currentUser)
         }
     }
