@@ -157,8 +157,14 @@ fun LocalNewsFeedView(
                     )
                 )
             }
-        } else if (news.isEmpty()) {
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (news.isEmpty()) {
             viewModel.loadNews(language, currentUser)
+        } else {
+            viewModel.refreshIfStale(language, currentUser)
         }
     }
 

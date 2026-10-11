@@ -356,24 +356,36 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 // ⚡ 1. INSTANT LOCAL CACHE: ఫోన్‌లో క్యాష్ ఉంటే ఏ ఆంక్షలు లేకుండా వెంటనే (< 30ms) స్క్రీన్‌పై చూపించు
                 if (_news.value.isEmpty()) {
                     try {
-                        val cachedSnap = newsRef
-                            .whereEqualTo("approved", true)
-                            .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(60)
-                            .get(Source.CACHE)
-                            .await()
-                        val allCached = cachedSnap.documents.mapNotNull { doc ->
+                        // First, try targeted district cache query
+                        val directCachedSnap = distQuery.get(Source.CACHE).await()
+                        val directCachedPosts = directCachedSnap.documents.mapNotNull { doc ->
                             convertToNewsPost(doc.id, doc.data ?: emptyMap())
                         }
-                        val districtCached = allCached.filter { post ->
-                            Constants.isDistrictMatch(post.district, district) ||
-                            post.categories.any { Constants.isDistrictMatch(it, district) }
-                        }.sortedByDescending { it.timestamp }.distinctBy { it.id }
-
-                        if (districtCached.isNotEmpty() && _news.value.isEmpty()) {
-                            _news.value = districtCached
+                        if (directCachedPosts.isNotEmpty()) {
+                            _news.value = directCachedPosts.sortedByDescending { it.timestamp }
                             _loading.value = false
-                            Log.d("LocalNewsFeedVM", "⚡ Instant Local Cache: ${districtCached.size} posts for $district")
+                            Log.d("LocalNewsFeedVM", "⚡ Instant Direct District Cache: ${directCachedPosts.size} posts for $district")
+                        } else {
+                            // Secondary fallback: Scan general cached pool for this district
+                            val cachedSnap = newsRef
+                                .whereEqualTo("approved", true)
+                                .orderBy("timestamp", Query.Direction.DESCENDING)
+                                .limit(60)
+                                .get(Source.CACHE)
+                                .await()
+                            val allCached = cachedSnap.documents.mapNotNull { doc ->
+                                convertToNewsPost(doc.id, doc.data ?: emptyMap())
+                            }
+                            val districtCached = allCached.filter { post ->
+                                Constants.isDistrictMatch(post.district, district) ||
+                                post.categories.any { Constants.isDistrictMatch(it, district) }
+                            }.sortedByDescending { it.timestamp }.distinctBy { it.id }
+
+                            if (districtCached.isNotEmpty() && _news.value.isEmpty()) {
+                                _news.value = districtCached
+                                _loading.value = false
+                                Log.d("LocalNewsFeedVM", "⚡ Instant Fallback Cache: ${districtCached.size} posts for $district")
+                            }
                         }
                     } catch (e: Exception) {
                         Log.d("LocalNewsFeedVM", "Cache check: ${e.message}")
@@ -387,19 +399,20 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             distQuery.get().await()
                         }
                     } catch (e: Exception) {
-                        Log.e("LocalNewsFeedVM", "distQuery error: ${e.message}")
+                        Log.e("LocalNewsFeedVM", "distQuery live error: ${e.message}")
                         null
                     } ?: try {
                         distQuery.get(Source.CACHE).await()
                     } catch (e: Exception) { null }
                 }
+
                 val catDeferred = async(Dispatchers.IO) {
                     try {
                         kotlinx.coroutines.withTimeoutOrNull(5000L) {
                             catQuery.get().await()
                         }
                     } catch (e: Exception) {
-                        Log.e("LocalNewsFeedVM", "catQuery error: ${e.message}")
+                        Log.e("LocalNewsFeedVM", "catQuery live error: ${e.message}")
                         null
                     } ?: try {
                         catQuery.get(Source.CACHE).await()
