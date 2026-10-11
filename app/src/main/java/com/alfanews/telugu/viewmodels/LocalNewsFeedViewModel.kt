@@ -398,13 +398,14 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     }
                 }
 
-                // 🚀 2. FAST PATH: Quick top 5 district news from SERVER (< 300ms)
-                // క్యాష్ లేకపోతే లేదా 5 గంటల కంటే పాతదైతే, సర్వర్ నుండి టాప్ 5 వార్తలను ఫాస్ట్‌గా లాగు
+                // 🚀 2. FAST PATH: Quick top 5 district news (< 300ms)
+                // క్యాష్ లేకపోతే లేదా 5 గంటల కంటే పాతదైతే, సర్వర్ లేదా లోకల్ క్యాష్ నుండి టాప్ 5 వార్తలను ఫాస్ట్‌గా లాగు
                 if (_news.value.isEmpty()) {
                     try {
-                        val fastSnap = kotlinx.coroutines.withTimeoutOrNull(2500L) {
-                            try { distQuery.limit(5).get(Source.SERVER).await() } catch (e: Exception) { null }
-                        }
+                        val fastSnap = kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                            try { distQuery.limit(5).get().await() } catch (e: Exception) { null }
+                        } ?: try { distQuery.limit(5).get(Source.CACHE).await() } catch (e: Exception) { null }
+
                         if (fastSnap != null && !fastSnap.isEmpty) {
                             val fastPosts = fastSnap.documents.mapNotNull { doc ->
                                 convertToNewsPost(doc.id, doc.data ?: emptyMap())
@@ -425,19 +426,23 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                 val distDeferred = async(Dispatchers.IO) {
                     kotlinx.coroutines.withTimeoutOrNull(6000L) {
-                        try { distQuery.get(Source.SERVER).await() } catch (e: Exception) {
+                        try { distQuery.get().await() } catch (e: Exception) {
                             Log.e("LocalNewsFeedVM", "distQuery error: ${e.message}")
                             null
                         }
-                    }
+                    } ?: try {
+                        distQuery.get(Source.CACHE).await()
+                    } catch (e: Exception) { null }
                 }
                 val catDeferred = async(Dispatchers.IO) {
                     kotlinx.coroutines.withTimeoutOrNull(6000L) {
-                        try { catQuery.get(Source.SERVER).await() } catch (e: Exception) {
+                        try { catQuery.get().await() } catch (e: Exception) {
                             Log.e("LocalNewsFeedVM", "catQuery error: ${e.message}")
                             null
                         }
-                    }
+                    } ?: try {
+                        catQuery.get(Source.CACHE).await()
+                    } catch (e: Exception) { null }
                 }
 
                 val distSnap = distDeferred.await()
@@ -529,8 +534,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     q = q.startAfter(lastDoc)
                 }
 
-                val snap = kotlinx.coroutines.withTimeoutOrNull(10000L) {
-                    try { q.get(Source.SERVER).await() } catch (e: Exception) { null }
+                val snap = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                    try { q.get().await() } catch (e: Exception) { null }
                 }
 
                 if (snap != null && !snap.isEmpty) {

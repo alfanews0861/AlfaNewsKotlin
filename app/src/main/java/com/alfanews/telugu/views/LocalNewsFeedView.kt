@@ -311,16 +311,16 @@ fun LocalNewsFeedView(
                 if (!loading && isOnline) {
                     if (retryCount < 3) {
                         val backoffDelay = when (retryCount) {
-                            0 -> 3000L
-                            1 -> 8000L
-                            else -> 20000L
+                            0 -> 1200L
+                            1 -> 4000L
+                            else -> 10000L
                         }
                         kotlinx.coroutines.delay(backoffDelay)
                         retryCount++
                         viewModel.loadNews(language, currentUser)
                     } else {
-                        // 🛡️ BILLING CIRCUIT BREAKER: 3 విఫల ప్రయత్నాల తర్వాత, లూప్‌లో పడకుండా 90 సెకన్లు ఆగి మాత్రమే నిశ్శబ్దంగా రీట్రై చేయాలి
-                        kotlinx.coroutines.delay(90000L)
+                        // 🛡️ CIRCUIT BREAKER: 3 విఫల ప్రయత్నాల తర్వాత, 30 సెకన్లు ఆగి నిశ్శబ్దంగా రీట్రై చేయాలి
+                        kotlinx.coroutines.delay(30000L)
                         retryCount = 0
                         viewModel.loadNews(language, currentUser)
                     }
