@@ -20,6 +20,7 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.Source
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
@@ -110,7 +111,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         viewModelScope.launch {
             NotificationHelper.syncDistrictTopic(getApplication(), district)
         }
-        loadNews(Language.TELUGU, null) 
+        loadNews(Language.TELUGU, null, forceRefresh = true) 
     }
     
     @SuppressLint("MissingPermission")
@@ -296,7 +297,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
-    fun loadNews(language: Language, currentUser: User?) {
+    fun loadNews(language: Language, currentUser: User?, forceRefresh: Boolean = false) {
         currentLanguage = language
         val userDist = currentUser?.district?.takeIf { it.isNotBlank() } ?: prefs.userDistrict
         val district = _activeDistrict.value ?: prefs.selectedDistrict ?: userDist ?: prefs.detectedDistrict ?: "హైదరాబాద్"
@@ -304,6 +305,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             _activeDistrict.value = district
         }
         
+        // 🛡️ RACE & CANCEL SHIELD: ఆల్రెడీ ఫెచ్ అవుతుంటే డూప్లికేట్ కాల్స్ వల్ల రద్దవకుండా రక్షణ
+        if (isFetching && loadJob?.isActive == true && !forceRefresh) {
+            return
+        }
+
         // 🔄 BACKGROUND LOAD: Only show full-screen loading if we have no news to show.
         if (_news.value.isEmpty()) {
             _loading.value = true 
@@ -313,7 +319,6 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         isFetching = false
         
         loadJob = viewModelScope.launch {
-            if (isFetching) return@launch
             isFetching = true
             
             val newsRef = FirebaseService.db.collection("news")
@@ -329,7 +334,65 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             consecutiveEmptyLoads = 0
 
             try {
-                // 🚀 PARALLEL FAST QUERY: జిల్లా ఫీల్డ్ మరియు క్యాటగిరీస్ అరే రెండింటినీ సమాంతరంగా తెస్తాము
+                // ⚡ 1. SMART INSTANT LOCAL CACHE: స్థానిక వార్తలు లోకల్ క్యాష్‌లో ఉంటే వెంటనే (< 20ms) చూపించు
+                if (_news.value.isEmpty()) {
+                    try {
+                        val cachedSnap = (if (cleanAliases.size > 1) {
+                            newsRef.whereEqualTo("approved", true).whereIn("district", cleanAliases)
+                        } else if (cleanAliases.size == 1) {
+                            newsRef.whereEqualTo("approved", true).whereEqualTo("district", cleanAliases[0])
+                        } else {
+                            newsRef.whereEqualTo("approved", true).whereEqualTo("district", district)
+                        })
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(pageSize.toLong())
+                        .get(Source.CACHE)
+                        .await()
+
+                        val cachedPosts = cachedSnap.documents.mapNotNull { doc ->
+                            convertToNewsPost(doc.id, doc.data ?: emptyMap())
+                        }
+                        if (cachedPosts.isNotEmpty() && _news.value.isEmpty()) {
+                            _news.value = cachedPosts
+                            _loading.value = false
+                            Log.d("LocalNewsFeedVM", "⚡ Instant Local Cache Display: ${cachedPosts.size} posts in < 20ms")
+                        }
+                    } catch (e: Exception) {
+                        Log.d("LocalNewsFeedVM", "Local cache check: ${e.message}")
+                    }
+                }
+
+                // 🚀 2. FAST PATH: కొత్త యూజర్లకు టాప్ 5 స్థానిక వార్తలను వేగంగా (< 300ms) చూపించు
+                if (_news.value.isEmpty()) {
+                    try {
+                        val fastDistQuery = (if (cleanAliases.size > 1) {
+                            newsRef.whereEqualTo("approved", true).whereIn("district", cleanAliases)
+                        } else if (cleanAliases.size == 1) {
+                            newsRef.whereEqualTo("approved", true).whereEqualTo("district", cleanAliases[0])
+                        } else {
+                            newsRef.whereEqualTo("approved", true).whereEqualTo("district", district)
+                        })
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(5)
+
+                        val fastSnap = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                            try { fastDistQuery.get().await() } catch (e: Exception) { null }
+                        } ?: try { fastDistQuery.get(Source.CACHE).await() } catch (e: Exception) { null }
+
+                        if (fastSnap != null && !fastSnap.isEmpty) {
+                            val fastPosts = fastSnap.documents.mapNotNull { doc ->
+                                convertToNewsPost(doc.id, doc.data ?: emptyMap())
+                            }
+                            if (fastPosts.isNotEmpty() && _news.value.isEmpty()) {
+                                _news.value = fastPosts
+                                _loading.value = false
+                                Log.d("LocalNewsFeedVM", "🚀 Fast Path displayed ${fastPosts.size} posts")
+                            }
+                        }
+                    } catch (e: Exception) { }
+                }
+
+                // 3. ⚡ PARALLEL FULL QUERY: సర్వర్ నుండి జిల్లా మరియు క్యాటగిరీస్ వార్తలను లైవ్‌గా తెచ్చు
                 val distQuery = (if (cleanAliases.size > 1) {
                     newsRef.whereEqualTo("approved", true).whereIn("district", cleanAliases)
                 } else if (cleanAliases.size == 1) {
@@ -351,14 +414,14 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 .limit(pageSize.toLong())
 
                 val distDeferred = async(Dispatchers.IO) {
-                    kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                    kotlinx.coroutines.withTimeoutOrNull(8000L) {
                         try { distQuery.get().await() } catch (e: Exception) { null }
-                    }
+                    } ?: try { distQuery.get(Source.CACHE).await() } catch (e: Exception) { null }
                 }
                 val catDeferred = async(Dispatchers.IO) {
-                    kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                    kotlinx.coroutines.withTimeoutOrNull(8000L) {
                         try { catQuery.get().await() } catch (e: Exception) { null }
-                    }
+                    } ?: try { catQuery.get(Source.CACHE).await() } catch (e: Exception) { null }
                 }
 
                 val distSnap = distDeferred.await()
@@ -376,14 +439,20 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                 // 🛡️ ZERO-EMPTY GUARANTEE: ఒకవేళ ఆ జిల్లాకు నేరుగా వార్తలు లేకుంటే తాజా రాష్ట్ర వార్తలను చూపిస్తాం
                 if (finalPosts.isEmpty()) {
-                    val fallbackSnap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                    val fallbackSnap = kotlinx.coroutines.withTimeoutOrNull(6000L) {
                         try {
                             newsRef.whereEqualTo("approved", true)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
                                 .limit(pageSize.toLong())
                                 .get().await()
                         } catch (e: Exception) { null }
-                    }
+                    } ?: try {
+                        newsRef.whereEqualTo("approved", true)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(pageSize.toLong())
+                            .get(Source.CACHE).await()
+                    } catch (e: Exception) { null }
+
                     val fallbackPosts = fallbackSnap?.documents?.mapNotNull { doc ->
                         convertToNewsPost(doc.id, doc.data ?: emptyMap())
                     } ?: emptyList()
@@ -509,7 +578,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     fun refreshIfStale(language: Language, currentUser: User?) {
         val now = System.currentTimeMillis()
         if (now - lastRefreshTimeLong > 30000 || _news.value.isEmpty()) {
-            loadNews(language, currentUser)
+            loadNews(language, currentUser, forceRefresh = true)
         }
     }
 

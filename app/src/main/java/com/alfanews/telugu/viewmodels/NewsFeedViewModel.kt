@@ -22,6 +22,7 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.Source
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
@@ -336,8 +337,14 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     private val FETCH_LIMIT = 25
 
-    fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null) {
+    fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null, forceRefresh: Boolean = false) {
         currentLanguage = language
+        
+        // 🛡️ RACE & CANCEL SHIELD: ఆల్రెడీ ఫెచ్ అవుతుంటే డూప్లికేట్ కాల్స్ వల్ల రద్దవకుండా రక్షణ
+        if (isFetching && currentFetchJob?.isActive == true && !forceRefresh) {
+            return
+        }
+
         currentFetchJob?.cancel()
         isFetching = false
 
@@ -378,25 +385,85 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     } catch (e: Exception) { null }
                 } else null
 
-                // 2. ⚡ LIGHTNING-FAST PRIMARY QUERY:
-                // Single indexed query directly from Firestore (no cache, fresh live news)
+                // ⚡ 1. SMART INSTANT CACHE: ఫోన్‌లో లోకల్ క్యాష్ ఉంటే ఏ ఆలస్యం లేకుండా వెంటనే (< 20ms) స్క్రీన్‌పై చూపించు
+                if (_news.value.isEmpty()) {
+                    try {
+                        val cachedSnap = FirebaseService.db.collection("news")
+                            .whereEqualTo("approved", true)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(FETCH_LIMIT.toLong())
+                            .get(Source.CACHE)
+                            .await()
+                        val cachedPosts = cachedSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                        if (cachedPosts.isNotEmpty()) {
+                            val stateFilteredCache = cachedPosts.filter { isPostAllowedForState(it, userState) }
+                            val immediate = if (stateFilteredCache.isNotEmpty()) stateFilteredCache else cachedPosts
+                            val combined = if (initialTargetPost != null) {
+                                (listOf(initialTargetPost) + immediate).distinctBy { it.id }
+                            } else immediate
+                            if (combined.isNotEmpty() && _news.value.isEmpty()) {
+                                _news.value = combined
+                                _loading.value = false
+                                Log.d("NewsFeedVM", "⚡ Instant Cache Display: ${combined.size} posts in < 20ms")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.d("NewsFeedVM", "Local cache check: ${e.message}")
+                    }
+                }
+
+                // 🚀 2. FAST PATH: కొత్తగా ఇన్‌స్టాల్ చేసుకున్న వారికి టాప్ 5 వార్తలు వేగంగా (< 300ms) చూపించు
+                if (_news.value.isEmpty()) {
+                    try {
+                        val fastQuery = FirebaseService.db.collection("news")
+                            .whereEqualTo("approved", true)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(5)
+                        val fastSnap = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                            try { fastQuery.get().await() } catch (e: Exception) { null }
+                        } ?: try { fastQuery.get(Source.CACHE).await() } catch (e: Exception) { null }
+
+                        if (fastSnap != null && !fastSnap.isEmpty) {
+                            val fastPosts = fastSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                            val fastStateFiltered = fastPosts.filter { isPostAllowedForState(it, userState) }
+                            val fastFinal = if (fastStateFiltered.isNotEmpty()) fastStateFiltered else fastPosts
+                            val fastCombined = if (initialTargetPost != null) {
+                                (listOf(initialTargetPost) + fastFinal).distinctBy { it.id }
+                            } else fastFinal
+                            if (fastCombined.isNotEmpty() && _news.value.isEmpty()) {
+                                _news.value = fastCombined
+                                _loading.value = false
+                                Log.d("NewsFeedVM", "🚀 Fast Path (< 300ms) displayed ${fastCombined.size} posts")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("NewsFeedVM", "Fast path fetch error: ${e.message}")
+                    }
+                }
+
+                // 3. ⚡ FULL PRIMARY QUERY (25 items):
+                // సర్వర్ నుండి పూర్తి 25 వార్తలను తెచ్చి క్యాష్ మరియు ఫీడ్‌ను అప్‌డేట్ చేయి
                 val mainQuery = FirebaseService.db.collection("news")
                     .whereEqualTo("approved", true)
                     .orderBy("timestamp", Query.Direction.DESCENDING)
                     .limit(FETCH_LIMIT.toLong())
 
-                val mainSnap = kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                val mainSnap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
                     try { 
                         mainQuery.get().await() 
                     } catch (e: Exception) { 
                         Log.e("NewsFeedVM", "Primary query error: ${e.message}", e)
                         null 
                     }
-                }
+                } ?: try {
+                    // నెట్‌వర్క్ హ్యాండ్‌షేక్ ఆలస్యమైతే లోకల్ క్యాష్ ఫాల్‌బ్యాక్
+                    mainQuery.get(Source.CACHE).await()
+                } catch (e: Exception) { null }
+
                 var mainPosts = mainSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
                 if (mainPosts.isEmpty()) {
                     // 🛡️ Silent instant fallback/retry for cold-start network handshake hiccups
-                    val retrySnap = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                    val retrySnap = kotlinx.coroutines.withTimeoutOrNull(4000L) {
                         try { mainQuery.get().await() } catch (e: Exception) { null }
                     }
                     if (retrySnap != null && !retrySnap.isEmpty) {
@@ -412,7 +479,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 val stateFiltered = mainPosts.filter { isPostAllowedForState(it, userState) }
                 val stateMain = if (stateFiltered.isNotEmpty()) stateFiltered else mainPosts
 
-                // 🚀 SHOW FRESH LIVE NEWS IMMEDIATELY! (< 300ms, zero spinner wait)
+                // 🚀 SHOW FRESH LIVE NEWS IMMEDIATELY!
                 val combinedImmediate = if (initialTargetPost != null) {
                     (listOf(initialTargetPost) + stateMain).distinctBy { it.id }
                 } else {
@@ -1005,18 +1072,18 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             NotificationHelper.syncDistrictTopic(getApplication(), district)
         }
-        loadNews(Language.TELUGU, currentUser)
+        loadNews(Language.TELUGU, currentUser, forceRefresh = true)
     }
 
     fun onAppResume(language: Language, currentUser: User?) {
-        loadNews(language, currentUser)
+        refreshIfStale(language, currentUser)
     }
 
     fun refreshIfStale(language: Language, currentUser: User?) {
         if (_sharedPostId.value != null) return
         val now = System.currentTimeMillis()
         if (now - lastRefreshTimeLong > 30000 || _news.value.isEmpty()) { 
-            loadNews(language, currentUser) 
+            loadNews(language, currentUser, forceRefresh = true) 
         }
     }
 

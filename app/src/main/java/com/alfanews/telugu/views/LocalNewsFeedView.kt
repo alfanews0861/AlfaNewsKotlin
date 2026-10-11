@@ -168,12 +168,6 @@ fun LocalNewsFeedView(
         }
     }
 
-    LaunchedEffect(viewModelActiveDistrict) {
-        if (viewModelActiveDistrict != null && news.isEmpty()) {
-            viewModel.loadNews(language, currentUser)
-        }
-    }
-
     val onReporterClickRemembered = remember(onReporterClick) { onReporterClick }
     val onProfileClickRemembered = remember(onProfileClick) { onProfileClick }
     val onEditClickRemembered = remember(onEditClick) { onEditClick }
@@ -353,7 +347,7 @@ fun LocalNewsFeedView(
                 if (!loading && retryCount < 2) {
                     kotlinx.coroutines.delay((retryCount + 1) * 3000L)
                     retryCount++
-                    viewModel.loadNews(language, currentUser)
+                    viewModel.loadNews(language, currentUser, forceRefresh = true)
                 }
             }
             NewsCardSkeleton()

@@ -314,7 +314,7 @@ fun NewsFeedView(
                 if (!loading && retryCount < 2) {
                     kotlinx.coroutines.delay((retryCount + 1) * 3000L)
                     retryCount++
-                    viewModel.loadNews(language, currentUser, initialPostId)
+                    viewModel.loadNews(language, currentUser, initialPostId, forceRefresh = true)
                 }
             }
             NewsCardSkeleton()
