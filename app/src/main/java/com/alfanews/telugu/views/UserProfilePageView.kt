@@ -77,7 +77,23 @@ fun UserProfilePageView(
     val leaderboardLoading by leaderboardViewModel.loading.collectAsStateWithLifecycle()
 
     val authUser = FirebaseService.auth.currentUser
-    var liveUser by remember(user) { mutableStateOf(user) }
+    var liveUser by remember(user, authUser?.uid) { 
+        mutableStateOf(
+            if ((user.id.isBlank() || user.id == "guest" || user.role == UserRole.GUEST) && authUser != null) {
+                val isAdminAuth = (authUser.phoneNumber?.contains("9173811009") == true) ||
+                                  (authUser.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
+                User(
+                    id = authUser.uid,
+                    name = authUser.displayName?.ifBlank { null } ?: if (isAdminAuth) "శ్రీకాంత్ రెడ్డి" else "User",
+                    phone = authUser.phoneNumber,
+                    email = authUser.email,
+                    role = if (isAdminAuth) UserRole.ADMIN else UserRole.SUBSCRIBER
+                )
+            } else {
+                user
+            }
+        ) 
+    }
 
     LaunchedEffect(user.id, authUser?.uid) {
         val targetUid = user.id.takeIf { it.isNotBlank() && it != "guest" } ?: authUser?.uid
@@ -101,31 +117,79 @@ fun UserProfilePageView(
                     val isSenior = doc.getBoolean("isProtectedSenior") == true
                     val hasHistory = !assignedMandal.isNullOrBlank() || pts > 0 || badges.isNotEmpty() || isSenior
                     
-                    var newRole = UserRole.fromStringSafe(rawRole) ?: UserRole.SUBSCRIBER
-                    if (newRole == UserRole.SUBSCRIBER && hasHistory) {
-                        newRole = UserRole.REPORTER
+                    val isAdminDoc = (rawRole?.toString()?.uppercase() == "ADMIN") ||
+                                     (doc.getString("phone")?.contains("9173811009") == true) ||
+                                     (doc.getString("email")?.equals("alfanews0861@gmail.com", ignoreCase = true) == true) ||
+                                     (authUser?.phoneNumber?.contains("9173811009") == true) ||
+                                     (authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
+
+                    var newRole = if (isAdminDoc) {
+                        UserRole.ADMIN
+                    } else {
+                        val parsed = UserRole.fromStringSafe(rawRole) ?: UserRole.SUBSCRIBER
+                        if (parsed == UserRole.SUBSCRIBER && hasHistory) UserRole.REPORTER else parsed
                     }
                     val dbName = doc.getString("name")?.trim()
                     liveUser = liveUser.copy(
-                        name = if (!dbName.isNullOrBlank() && !dbName.equals("User", true) && !dbName.equals("యూజర్", true)) dbName else liveUser.name,
+                        id = targetUid,
+                        name = if (!dbName.isNullOrBlank() && !dbName.equals("User", true) && !dbName.equals("యూజర్", true)) dbName else (authUser?.displayName ?: liveUser.name),
                         role = newRole,
                         assignedMandal = assignedMandal ?: liveUser.assignedMandal,
                         district = doc.getString("district") ?: liveUser.district,
+                        phone = doc.getString("phone") ?: authUser?.phoneNumber ?: liveUser.phone,
+                        email = doc.getString("email") ?: authUser?.email ?: liveUser.email,
                         points = if (pts > 0) pts else liveUser.points,
                         badges = if (badges.isNotEmpty()) badges else liveUser.badges,
                         photoUrl = doc.getString("photoUrl") ?: liveUser.photoUrl
+                    )
+                } else if (authUser != null) {
+                    val cleanAuthPhone = authUser.phoneNumber?.replace("+91", "")?.trim()
+                    val isAdminAuth = (authUser.phoneNumber?.contains("9173811009") == true) ||
+                                      (cleanAuthPhone == "9173811009") ||
+                                      (authUser.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
+                    var discoveredRole = if (isAdminAuth) UserRole.ADMIN else if (liveUser.role == UserRole.GUEST) UserRole.SUBSCRIBER else liveUser.role
+                    var discoveredName = authUser.displayName ?: liveUser.name
+                    var discoveredDist = liveUser.district
+                    var discoveredMandal = liveUser.assignedMandal
+                    if (!cleanAuthPhone.isNullOrBlank() && discoveredRole == UserRole.SUBSCRIBER) {
+                        try {
+                            val snap = FirebaseService.db.collection("reporter_applications").whereEqualTo("phone", cleanAuthPhone).get().await()
+                            val app = snap.documents.firstOrNull { 
+                                val s = it.getString("status")?.uppercase()
+                                s == "JOINED" || s == "APPROVED" || s == "SUSPENDED"
+                            }
+                            if (app != null) {
+                                discoveredRole = UserRole.REPORTER
+                                discoveredName = app.getString("fullName") ?: app.getString("name") ?: discoveredName
+                                discoveredDist = app.getString("district") ?: discoveredDist
+                                discoveredMandal = app.getString("assignedMandal") ?: app.getString("mandal") ?: discoveredMandal
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    liveUser = liveUser.copy(
+                        id = targetUid,
+                        name = discoveredName,
+                        phone = authUser.phoneNumber ?: liveUser.phone,
+                        email = authUser.email ?: liveUser.email,
+                        role = discoveredRole,
+                        district = discoveredDist,
+                        assignedMandal = discoveredMandal
                     )
                 }
             } catch (_: Exception) {}
         }
     }
 
-    val isGuest = authUser == null || liveUser.id.isBlank() || liveUser.id == "guest" || liveUser.role == UserRole.GUEST
+    val cleanLivePhone = liveUser.phone?.replace("+91", "")?.trim()
+    val cleanAuthPhone = authUser?.phoneNumber?.replace("+91", "")?.trim()
     val isAdminUser = liveUser.role == UserRole.ADMIN ||
+        cleanLivePhone == "9173811009" ||
         liveUser.phone?.contains("9173811009") == true ||
+        cleanAuthPhone == "9173811009" ||
         authUser?.phoneNumber?.contains("9173811009") == true ||
         liveUser.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
         authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
+    val isGuest = authUser == null && !isAdminUser && (liveUser.id.isBlank() || liveUser.id == "guest" || liveUser.role == UserRole.GUEST)
     val hasReporterHistory = !liveUser.assignedMandal.isNullOrBlank() ||
         liveUser.points > 0 ||
         liveUser.badges.isNotEmpty()
@@ -340,9 +404,11 @@ fun UserProfilePageView(
                             n
                         } else {
                             FirebaseService.auth.currentUser?.displayName?.ifBlank { null }
-                                ?: effectiveUser.phone
-                                ?: FirebaseService.auth.currentUser?.phoneNumber
-                                ?: if (effectiveRole == UserRole.REPORTER) (if (language == Language.TELUGU) "విలేకరి" else "Reporter") else stringResource(R.string.user_default_name)
+                                ?: effectiveUser.phone?.ifBlank { null }
+                                ?: FirebaseService.auth.currentUser?.phoneNumber?.ifBlank { null }
+                                ?: if (isAdminUser) "శ్రీకాంత్ రెడ్డి"
+                                else if (effectiveRole == UserRole.REPORTER) (if (language == Language.TELUGU) "విలేకరి" else "Reporter")
+                                else if (language == Language.TELUGU) "వినియోగదారుడు" else stringResource(R.string.user_default_name)
                         }
                     }
 
@@ -390,8 +456,8 @@ fun UserProfilePageView(
                     ) {
                         Text(
                             text = when {
+                                isAdminUser || effectiveRole == UserRole.ADMIN -> stringResource(R.string.admin)
                                 isGuest -> stringResource(R.string.guest)
-                                effectiveRole == UserRole.ADMIN -> stringResource(R.string.admin)
                                 effectiveRole == UserRole.EDITOR -> stringResource(R.string.editor)
                                 effectiveRole == UserRole.REPORTER -> stringResource(R.string.reporter)
                                 effectiveRole == UserRole.SUBSCRIBER -> stringResource(R.string.subscriber)

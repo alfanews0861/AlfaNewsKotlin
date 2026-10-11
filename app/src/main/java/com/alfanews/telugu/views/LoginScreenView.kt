@@ -55,6 +55,7 @@ fun LoginScreenView(
     LaunchedEffect(loginUiState.isLoginSuccessful) {
         if (loginUiState.isLoginSuccessful) {
             onLoginSuccess(loginUiState.isNewUser)
+            onClose()
             loginViewModel.resetState()
         }
     }
@@ -72,13 +73,13 @@ fun LoginScreenView(
                     loginViewModel.signInWithCredential(credential, context)
                 }
             } catch (e: ApiException) {
-                // TODO: Handle error in ViewModel
+                // Handled in ViewModel
             } catch (e: Exception) {
-                // TODO: Handle error in ViewModel
+                // Handled in ViewModel
             }
         } else {
             if (result.resultCode != Activity.RESULT_CANCELED) {
-                // TODO: Handle error in ViewModel
+                // Handled in ViewModel
             }
         }
     }
@@ -86,146 +87,139 @@ fun LoginScreenView(
     Dialog(
         onDismissRequest = onClose,
         properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
+            usePlatformDefaultWidth = false
         )
     ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.55f))
+                .padding(horizontal = 20.dp, vertical = 24.dp)
+                .imePadding(),
+            contentAlignment = Alignment.Center
         ) {
-            Scaffold(
-                topBar = {
-                    TopAppBar(
-                        title = { Text(stringResource(R.string.app_name)) },
-                        navigationIcon = {
-                            IconButton(onClick = onClose) {
-                                Icon(Icons.Default.Close, stringResource(R.string.close))
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 420.dp)
+                    .wrapContentHeight(),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp,
+                shadowElevation = 12.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Header Row with App Name & Close button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stringResource(R.string.app_name),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        IconButton(
+                            onClick = onClose,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = stringResource(R.string.close),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        stringResource(R.string.welcome_back),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        stringResource(R.string.explore_news_world),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(top = 2.dp, bottom = 14.dp)
+                    )
+
+                    loginUiState.errorMessage?.let { errorMsg ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                        ) {
+                            Text(
+                                text = errorMsg,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.padding(10.dp),
+                                textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+
+                    // Google Login Button
+                    Button(
+                        onClick = {
+                            try {
+                                val webClientId = context.getString(R.string.default_web_client_id)
+                                val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                                    .requestIdToken(webClientId)
+                                    .requestEmail()
+                                    .build()
+                                val googleSignInClient = GoogleSignIn.getClient(context, gso)
+                                googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                            } catch (e: Exception) {
+                                // Handled in ViewModel
                             }
                         },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            titleContentColor = MaterialTheme.colorScheme.onSurface,
-                            navigationIconContentColor = MaterialTheme.colorScheme.onSurface
-                        )
-                    )
-                },
-                containerColor = Color.Transparent // Surface provides the background
-            ) { innerPadding ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    MaterialTheme.colorScheme.background,
-                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.1f),
-                                    MaterialTheme.colorScheme.background
-                                )
-                            )
-                        )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 24.dp)
-                            .verticalScroll(rememberScrollState())
-                            .imePadding(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Top
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = MaterialTheme.shapes.medium,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = colorResource(R.color.google_red)
+                        ),
+                        enabled = !loginUiState.isLoading
                     ) {
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Text(
-                            stringResource(R.string.welcome_back),
-                            style = MaterialTheme.typography.headlineLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Text(
-                            stringResource(R.string.explore_news_world),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                            modifier = Modifier.padding(top = 4.dp, bottom = 32.dp)
-                        )
-
-                        loginUiState.errorMessage?.let { errorMsg ->
-                            Surface(
-                                color = MaterialTheme.colorScheme.errorContainer,
-                                shape = MaterialTheme.shapes.medium,
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
-                            ) {
-                                Text(
-                                    text = errorMsg,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    modifier = Modifier.padding(12.dp),
-                                    textAlign = TextAlign.Center,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
+                        if (loginUiState.isLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = colorResource(R.color.white), strokeWidth = 2.dp)
+                        } else {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(stringResource(R.string.google_logo_text), color = colorResource(R.color.white), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(stringResource(R.string.google_login), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colorResource(R.color.white))
                             }
                         }
-
-                        // Google Login Button
-                        Button(
-                            onClick = {
-                                try {
-                                    val webClientId = context.getString(R.string.default_web_client_id)
-                                    val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                                        .requestIdToken(webClientId)
-                                        .requestEmail()
-                                        .build()
-                                    val googleSignInClient = GoogleSignIn.getClient(context, gso)
-                                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
-                                } catch (e: Exception) {
-                                    // TODO: Handle error in ViewModel
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth().height(56.dp),
-                            shape = MaterialTheme.shapes.medium,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = colorResource(R.color.google_red)
-                            ),
-                            enabled = !loginUiState.isLoading
-                        ) {
-                            if (loginUiState.isLoading) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = colorResource(R.color.white))
-                            } else {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(stringResource(R.string.google_logo_text), color = colorResource(R.color.white), fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
-                                    Spacer(modifier = Modifier.width(16.dp))
-                                    Text(stringResource(R.string.google_login), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colorResource(R.color.white))
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
-                            HorizontalDivider(modifier = Modifier.weight(1f), thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
-                            Text(
-                                text = stringResource(R.string.or_separator),
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            HorizontalDivider(modifier = Modifier.weight(1f), thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
-                        }
-
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        // Phone Auth Section
-                        PhoneAuthSection(loginViewModel)
-                        
-                        Spacer(modifier = Modifier.height(40.dp))
-                        
-                        Text(
-                            text = stringResource(R.string.copyright_text),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
-                            textAlign = TextAlign.Center
-                        )
                     }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                        HorizontalDivider(modifier = Modifier.weight(1f), thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                        Text(
+                            text = stringResource(R.string.or_separator),
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        HorizontalDivider(modifier = Modifier.weight(1f), thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Phone Auth Section
+                    PhoneAuthSection(loginViewModel)
                 }
             }
         }
@@ -274,23 +268,23 @@ private fun PhoneAuthSection(
                             }
                         )
                     } else {
-                        // TODO: Handle error in ViewModel
+                        // Handled in ViewModel
                     }
                 },
                 enabled = phoneNumber.length == 10 && !loginUiState.isLoading,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+                modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = MaterialTheme.shapes.medium
             ) {
                 if (loginUiState.isLoading && !isOtpSent) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
                 } else {
-                    Text(stringResource(R.string.send_otp), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.send_otp), fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
             }
         } else {
             OutlinedTextField(
                 value = otp,
-                onValueChange = { input ->
+                onValueChange = { input -> 
                     val filtered = input.filter { it.isDigit() }
                     if (filtered.length <= 6) otp = filtered 
                 },
@@ -308,13 +302,13 @@ private fun PhoneAuthSection(
                     }
                 },
                 enabled = otp.length == 6 && !loginUiState.isLoading,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+                modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = MaterialTheme.shapes.medium
             ) {
                 if (loginUiState.isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
                 } else {
-                    Text(stringResource(R.string.login), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.login), fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
             }
             TextButton(

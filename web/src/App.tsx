@@ -112,18 +112,22 @@ const App: React.FC = () => {
             console.warn('Failed to query legacy user profile:', e);
           }
 
+          const isAdminAuth = firebaseUser.email?.toLowerCase() === 'alfanews0861@gmail.com' ||
+            Boolean(firebaseUser.phoneNumber?.includes('9173811009'));
           const hasReporterAttrs = Boolean(legacyData?.assignedMandal || legacyData?.previouslyDowngraded);
-          const initialRole = (legacyData?.role === UserRole.SUBSCRIBER && hasReporterAttrs) ? UserRole.REPORTER : (legacyData?.role || (hasReporterAttrs ? UserRole.REPORTER : UserRole.SUBSCRIBER));
+          const initialRole = isAdminAuth ? UserRole.ADMIN : ((legacyData?.role === UserRole.SUBSCRIBER && hasReporterAttrs) ? UserRole.REPORTER : (legacyData?.role || (hasReporterAttrs ? UserRole.REPORTER : UserRole.SUBSCRIBER)));
 
           const newUser: any = {
             id: firebaseUser.uid,
-            name: legacyData?.name || firebaseUser.displayName || 'New User',
+            name: legacyData?.name || firebaseUser.displayName || (isAdminAuth ? 'శ్రీకాంత్ రెడ్డి' : 'New User'),
             email: firebaseUser.email || legacyData?.email || '',
             photoUrl: firebaseUser.photoURL || legacyData?.photoUrl || '',
             role: initialRole,
             ...(legacyData || {})
           };
-          if (hasReporterAttrs) {
+          if (isAdminAuth) {
+            newUser.role = UserRole.ADMIN;
+          } else if (hasReporterAttrs) {
             newUser.role = UserRole.REPORTER;
             newUser.previouslyDowngraded = false;
           }
@@ -133,8 +137,11 @@ const App: React.FC = () => {
         userUnsub = onSnapshot(userRef, (docSnap: any) => {
           if (docSnap.exists()) {
             const userData = docSnap.data();
+            const isAdmin = firebaseUser.email?.toLowerCase() === 'alfanews0861@gmail.com' ||
+              Boolean(firebaseUser.phoneNumber?.includes('9173811009')) ||
+              userData.role === UserRole.ADMIN;
             const hasReporterAttrs = Boolean(userData.assignedMandal || (userData.previouslyDowngraded && userData.downgradedReason === 'INACTIVITY'));
-            const effectiveRole = (userData.role === UserRole.SUBSCRIBER && hasReporterAttrs) ? UserRole.REPORTER : userData.role;
+            const effectiveRole = isAdmin ? UserRole.ADMIN : ((userData.role === UserRole.SUBSCRIBER && hasReporterAttrs) ? UserRole.REPORTER : userData.role);
             setCurrentUser({ id: docSnap.id, ...userData, role: effectiveRole } as User);
           }
         });

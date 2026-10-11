@@ -87,9 +87,14 @@ fun AdminPanelView(
     )
 
     val authUser = com.alfanews.telugu.services.FirebaseService.auth.currentUser
+    val cleanUserPhone = user.phone?.replace("+91", "")?.trim()
+    val cleanAuthPhone = authUser?.phoneNumber?.replace("+91", "")?.trim()
     val isAdminUser = user.role == UserRole.ADMIN ||
+        cleanUserPhone == "9173811009" ||
         user.phone?.contains("9173811009") == true ||
+        cleanAuthPhone == "9173811009" ||
         authUser?.phoneNumber?.contains("9173811009") == true ||
+        user.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
         authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
     val hasReporterHistory = !user.assignedMandal.isNullOrBlank() ||
         user.points > 0 ||

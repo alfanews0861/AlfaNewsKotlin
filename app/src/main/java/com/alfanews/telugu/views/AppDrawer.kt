@@ -31,24 +31,40 @@ fun AppDrawerContent(
     onLogout: () -> Unit
 ) {
     val authUser = com.alfanews.telugu.services.FirebaseService.auth.currentUser
-    val isAdminUser = user != null && (
-        user.role == UserRole.ADMIN ||
-        user.phone?.contains("9173811009") == true ||
-        user.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
-        authUser?.phoneNumber?.contains("9173811009") == true ||
-        authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
-    )
-    val hasReporterHistory = user != null && (
-        !user.assignedMandal.isNullOrBlank() ||
-        user.points > 0 ||
-        user.badges.isNotEmpty()
+    val cleanUserPhone = user?.phone?.replace("+91", "")?.trim()
+    val cleanAuthPhone = authUser?.phoneNumber?.replace("+91", "")?.trim()
+    val isAdminUser = (user?.role == UserRole.ADMIN) ||
+        (cleanUserPhone == "9173811009") ||
+        (user?.phone?.contains("9173811009") == true) ||
+        (user?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true) ||
+        (cleanAuthPhone == "9173811009") ||
+        (authUser?.phoneNumber?.contains("9173811009") == true) ||
+        (authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
+    val effectiveDrawerUser = if (user == null && authUser != null) {
+        val prefs = com.alfanews.telugu.utils.PreferenceManager.getInstance(androidx.compose.ui.platform.LocalContext.current)
+        val cachedRole = if (isAdminUser) "ADMIN" else (prefs.userRole ?: "SUBSCRIBER")
+        User(
+            id = authUser.uid,
+            name = prefs.userName ?: authUser.displayName ?: if (isAdminUser) "శ్రీకాంత్ రెడ్డి" else "User",
+            phone = authUser.phoneNumber ?: prefs.userPhone,
+            email = authUser.email,
+            role = if (isAdminUser) UserRole.ADMIN else UserRole.fromString(cachedRole),
+            district = prefs.userDistrict
+        )
+    } else {
+        user
+    }
+    val hasReporterHistory = effectiveDrawerUser != null && (
+        !effectiveDrawerUser.assignedMandal.isNullOrBlank() ||
+        effectiveDrawerUser.points > 0 ||
+        effectiveDrawerUser.badges.isNotEmpty()
     )
     val role = if (isAdminUser) {
         UserRole.ADMIN
-    } else if (user?.role == UserRole.SUBSCRIBER && hasReporterHistory) {
+    } else if (effectiveDrawerUser?.role == UserRole.SUBSCRIBER && hasReporterHistory) {
         UserRole.REPORTER
     } else {
-        user?.role ?: UserRole.GUEST
+        effectiveDrawerUser?.role ?: if (authUser != null) UserRole.SUBSCRIBER else UserRole.GUEST
     }
 
     val allPages = listOf(
@@ -129,8 +145,17 @@ fun AppDrawerContent(
                         color = MaterialTheme.colorScheme.primary
                     )
                 )
+                val headerDisplayName = when {
+                    effectiveDrawerUser != null && effectiveDrawerUser.name.isNotBlank() && !effectiveDrawerUser.name.equals("User", true) && !effectiveDrawerUser.name.equals("యూజర్", true) -> effectiveDrawerUser.name
+                    authUser?.displayName?.isNotBlank() == true -> authUser.displayName!!
+                    authUser?.phoneNumber?.isNotBlank() == true -> authUser.phoneNumber!!
+                    isAdminUser -> "శ్రీకాంత్ రెడ్డి"
+                    role == UserRole.REPORTER -> "విలేకరి"
+                    authUser != null -> "వినియోగదారుడు"
+                    else -> stringResource(R.string.guest)
+                }
                 Text(
-                    user?.name ?: stringResource(R.string.guest),
+                    headerDisplayName,
                     style = MaterialTheme.typography.labelMedium.copy(
                         fontFamily = Poppins,
                         color = MaterialTheme.colorScheme.secondary

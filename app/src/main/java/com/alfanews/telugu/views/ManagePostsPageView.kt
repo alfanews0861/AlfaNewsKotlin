@@ -57,10 +57,14 @@ fun ManagePostsPageView(
     val uid = currentUser?.id?.takeIf { it.isNotBlank() } ?: authUid
     val role = currentUser?.role ?: UserRole.REPORTER
 
+    val cleanCurrentPhone = currentUser?.phone?.replace("+91", "")?.trim()
+    val cleanAuthPhone = FirebaseService.auth.currentUser?.phoneNumber?.replace("+91", "")?.trim()
     val isAdmin = role == UserRole.ADMIN || role == UserRole.EDITOR ||
+        cleanCurrentPhone == "9173811009" ||
         currentUser?.phone?.contains("9173811009") == true ||
-        currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
+        cleanAuthPhone == "9173811009" ||
         FirebaseService.auth.currentUser?.phoneNumber?.contains("9173811009") == true ||
+        currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
         FirebaseService.auth.currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
 
     var viewMode by remember(isAdmin) { mutableStateOf(if (isAdmin) "all" else "my") }

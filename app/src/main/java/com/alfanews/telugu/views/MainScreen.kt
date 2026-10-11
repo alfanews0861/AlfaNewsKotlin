@@ -46,11 +46,30 @@ fun MainScreen(
 ) {
     val rawCurrentUser: User? by mainViewModel.currentUser.collectAsStateWithLifecycle()
     val authUser = com.alfanews.telugu.services.FirebaseService.auth.currentUser
+    val cleanRawPhone = rawCurrentUser?.phone?.replace("+91", "")?.trim()
+    val cleanAuthPhone = authUser?.phoneNumber?.replace("+91", "")?.trim()
     val isAdmin = rawCurrentUser?.role == UserRole.ADMIN ||
+        cleanRawPhone == "9173811009" ||
         rawCurrentUser?.phone?.contains("9173811009") == true ||
+        cleanAuthPhone == "9173811009" ||
+        authUser?.phoneNumber?.contains("9173811009") == true ||
         rawCurrentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
-        authUser?.phoneNumber?.contains("9173811009") == true
-    val user = rawCurrentUser
+        authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
+    val effectiveUserFromAuth = if (rawCurrentUser == null && authUser != null) {
+        val prefs = com.alfanews.telugu.utils.PreferenceManager.getInstance(androidx.compose.ui.platform.LocalContext.current)
+        val cachedRole = if (isAdmin) "ADMIN" else (prefs.userRole ?: "SUBSCRIBER")
+        User(
+            id = authUser.uid,
+            name = prefs.userName ?: authUser.displayName ?: if (isAdmin) "శ్రీకాంత్ రెడ్డి" else "User",
+            phone = authUser.phoneNumber ?: prefs.userPhone,
+            email = authUser.email,
+            role = if (isAdmin) UserRole.ADMIN else UserRole.fromString(cachedRole),
+            district = prefs.userDistrict
+        )
+    } else {
+        rawCurrentUser
+    }
+    val user = effectiveUserFromAuth
     val hasReporterHistory = user != null && (
         !user.assignedMandal.isNullOrBlank() ||
         user.points > 0 ||
@@ -59,7 +78,7 @@ fun MainScreen(
     val effectiveRole = when {
         isAdmin -> UserRole.ADMIN
         user?.role == UserRole.SUBSCRIBER && hasReporterHistory -> UserRole.REPORTER
-        else -> user?.role ?: UserRole.GUEST
+        else -> user?.role ?: if (authUser != null) UserRole.SUBSCRIBER else UserRole.GUEST
     }
     val currentUser = if (user != null && user.role != effectiveRole) {
         user.copy(role = effectiveRole)
@@ -791,27 +810,43 @@ fun ProfileContainer(
     val adminActivePage by viewModel.adminActivePage.collectAsState()
     val unreadMessagesCount by viewModel.unreadMessagesCount.collectAsState()
     val authUser = com.alfanews.telugu.services.FirebaseService.auth.currentUser
-    val isAdmin = currentUser != null && (
-        currentUser.role == UserRole.ADMIN ||
-        currentUser.phone?.contains("9173811009") == true ||
-        currentUser.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
-        authUser?.phoneNumber?.contains("9173811009") == true ||
-        authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
-    )
-    val hasReporterHistory = currentUser != null && (
-        !currentUser.assignedMandal.isNullOrBlank() ||
-        currentUser.points > 0 ||
-        currentUser.badges.isNotEmpty()
+    val cleanCurrentPhone = currentUser?.phone?.replace("+91", "")?.trim()
+    val cleanAuthPhone = authUser?.phoneNumber?.replace("+91", "")?.trim()
+    val isAdmin = (currentUser?.role == UserRole.ADMIN) ||
+        (cleanCurrentPhone == "9173811009") ||
+        (currentUser?.phone?.contains("9173811009") == true) ||
+        (cleanAuthPhone == "9173811009") ||
+        (authUser?.phoneNumber?.contains("9173811009") == true) ||
+        (currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true) ||
+        (authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
+    val effectiveCurrentUser = if (currentUser == null && authUser != null) {
+        val prefs = com.alfanews.telugu.utils.PreferenceManager.getInstance(androidx.compose.ui.platform.LocalContext.current)
+        val cachedRole = if (isAdmin) "ADMIN" else (prefs.userRole ?: "SUBSCRIBER")
+        User(
+            id = authUser.uid,
+            name = prefs.userName ?: authUser.displayName ?: if (isAdmin) "శ్రీకాంత్ రెడ్డి" else "User",
+            phone = authUser.phoneNumber ?: prefs.userPhone,
+            email = authUser.email,
+            role = if (isAdmin) UserRole.ADMIN else UserRole.fromString(cachedRole),
+            district = prefs.userDistrict
+        )
+    } else {
+        currentUser
+    }
+    val hasReporterHistory = effectiveCurrentUser != null && (
+        !effectiveCurrentUser.assignedMandal.isNullOrBlank() ||
+        effectiveCurrentUser.points > 0 ||
+        effectiveCurrentUser.badges.isNotEmpty()
     )
     val effectiveUserRole = when {
         isAdmin -> UserRole.ADMIN
-        currentUser?.role == UserRole.SUBSCRIBER && hasReporterHistory -> UserRole.REPORTER
-        else -> currentUser?.role ?: UserRole.GUEST
+        effectiveCurrentUser?.role == UserRole.SUBSCRIBER && hasReporterHistory -> UserRole.REPORTER
+        else -> effectiveCurrentUser?.role ?: if (authUser != null) UserRole.SUBSCRIBER else UserRole.GUEST
     }
-    val user = if (currentUser != null && currentUser.role != effectiveUserRole) {
-        currentUser.copy(role = effectiveUserRole)
+    val user = if (effectiveCurrentUser != null && effectiveCurrentUser.role != effectiveUserRole) {
+        effectiveCurrentUser.copy(role = effectiveUserRole)
     } else {
-        currentUser
+        effectiveCurrentUser
     }
 
     val isStaff = user != null && (effectiveUserRole == UserRole.ADMIN || effectiveUserRole == UserRole.EDITOR || effectiveUserRole == UserRole.REGIONAL_INCHARGE || effectiveUserRole == UserRole.REPORTER || effectiveUserRole == UserRole.NEWS_DESK)
@@ -837,7 +872,7 @@ fun ProfileContainer(
         )
     } else {
         UserProfilePageView(
-            user = user ?: User(id = "guest", name = "Guest", role = UserRole.GUEST),
+            user = user ?: User(id = authUser?.uid ?: "guest", name = if (authUser != null) "User" else "Guest", role = if (authUser != null) UserRole.SUBSCRIBER else UserRole.GUEST),
             language = language,
             setLanguage = { newLanguage -> viewModel.setLanguage(newLanguage) },
             themeMode = themeMode,

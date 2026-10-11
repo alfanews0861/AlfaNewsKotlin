@@ -138,7 +138,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val cachedId = prefs.userId ?: firebaseAuthUser?.uid
         val cachedPhone = firebaseAuthUser?.phoneNumber ?: prefs.userPhone
         val cachedEmail = firebaseAuthUser?.email
+        val cleanPhoneCached = cachedPhone?.replace("+91", "")?.trim()
         val isAdminCached = (cachedPhone?.contains("9173811009") == true) ||
+                            (cleanPhoneCached == "9173811009") ||
                             (cachedEmail?.equals("alfanews0861@gmail.com", ignoreCase = true) == true) ||
                             (prefs.userRole == "ADMIN")
         val effectiveCachedRole = if (isAdminCached) "ADMIN" else (prefs.userRole ?: "SUBSCRIBER")
@@ -149,7 +151,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (cachedId != null) {
             _currentUser.value = User(
                 id = cachedId,
-                name = prefs.userName ?: firebaseAuthUser?.displayName ?: "User",
+                name = prefs.userName ?: firebaseAuthUser?.displayName ?: if (isAdminCached) "శ్రీకాంత్ రెడ్డి" else "User",
                 role = if (isAdminCached) UserRole.ADMIN else UserRole.fromString(effectiveCachedRole),
                 district = prefs.userDistrict,
                 phone = cachedPhone,
@@ -170,10 +172,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return@AuthStateListener
             }
 
+            val cleanPhone = firebaseUser.phoneNumber?.replace("+91", "")?.trim()
             val isAdminAccount = (firebaseUser.phoneNumber?.contains("9173811009") == true) ||
+                                 (cleanPhone == "9173811009") ||
                                  (firebaseUser.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true) ||
                                  (prefs.userPhone?.contains("9173811009") == true) ||
                                  (prefs.userRole == "ADMIN")
+
+            // Eagerly populate _currentUser immediately upon auth callback to eliminate transient Guest UI
+            val eagerRole = if (isAdminAccount) UserRole.ADMIN else UserRole.fromString(prefs.userRole ?: "SUBSCRIBER")
+            if (_currentUser.value == null || _currentUser.value?.id != firebaseUser.uid) {
+                _currentUser.value = User(
+                    id = firebaseUser.uid,
+                    name = prefs.userName ?: firebaseUser.displayName ?: if (isAdminAccount) "శ్రీకాంత్ రెడ్డి" else "User",
+                    phone = firebaseUser.phoneNumber ?: prefs.userPhone ?: if (isAdminAccount) "+919173811009" else null,
+                    role = eagerRole,
+                    email = firebaseUser.email,
+                    district = prefs.userDistrict
+                )
+                prefs.userId = firebaseUser.uid
+                if (isAdminAccount) prefs.userRole = "ADMIN"
+            }
 
             userListener = FirebaseService.db.collection("users").document(firebaseUser.uid)
                 .addSnapshotListener { snapshot, e ->
@@ -194,21 +213,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     if (snapshot != null && !snapshot.exists()) {
-                        if (isAdminAccount) {
-                            val adminUser = User(
-                                id = firebaseUser.uid,
-                                name = firebaseUser.displayName ?: "శ్రీకాంత్ రెడ్డి",
-                                phone = firebaseUser.phoneNumber ?: "+919173811009",
-                                role = UserRole.ADMIN,
-                                email = firebaseUser.email
-                            )
-                            _currentUser.value = adminUser
-                            prefs.userId = firebaseUser.uid
-                            prefs.userRole = "ADMIN"
-                            return@addSnapshotListener
+                        val fallbackRole = if (isAdminAccount) UserRole.ADMIN else UserRole.fromString(prefs.userRole ?: "SUBSCRIBER")
+                        val activeUser = User(
+                            id = firebaseUser.uid,
+                            name = prefs.userName ?: firebaseUser.displayName ?: if (isAdminAccount) "శ్రీకాంత్ రెడ్డి" else "User",
+                            phone = firebaseUser.phoneNumber ?: prefs.userPhone ?: if (isAdminAccount) "+919173811009" else null,
+                            role = fallbackRole,
+                            email = firebaseUser.email,
+                            district = prefs.userDistrict
+                        )
+                        _currentUser.value = activeUser
+                        prefs.userId = firebaseUser.uid
+                        prefs.userRole = fallbackRole.name
+
+                        // 🔍 Async check if user has reporter application or admin document
+                        if (!cleanPhone.isNullOrBlank()) {
+                            viewModelScope.launch(Dispatchers.IO) {
+                                try {
+                                    val snap = FirebaseService.db.collection("reporter_applications").whereEqualTo("phone", cleanPhone).get().await()
+                                    val app = snap.documents.firstOrNull { 
+                                        val s = it.getString("status")?.uppercase()
+                                        s == "JOINED" || s == "APPROVED" || s == "SUSPENDED"
+                                    }
+                                    if (app != null) {
+                                        val repName = app.getString("fullName") ?: app.getString("name") ?: activeUser.name
+                                        val repDist = app.getString("district") ?: activeUser.district
+                                        val repMandal = app.getString("assignedMandal") ?: app.getString("mandal")
+                                        val restoredUser = activeUser.copy(
+                                            name = repName,
+                                            role = UserRole.REPORTER,
+                                            district = repDist,
+                                            assignedMandal = repMandal
+                                        )
+                                        _currentUser.value = restoredUser
+                                        prefs.userRole = "REPORTER"
+                                        prefs.userName = repName
+                                        if (!repDist.isNullOrBlank()) prefs.userDistrict = repDist
+                                    }
+                                } catch (_: Exception) {}
+                            }
                         }
-                        _currentUser.value = null
-                        prefs.clearUserData()
                         return@addSnapshotListener
                     }
 
@@ -223,7 +267,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val effectiveEmail = emailFromDb ?: firebaseUser.email
                         val effectivePhoto = photoUrlFromDb ?: firebaseUser.photoUrl?.toString()
 
+                        val cleanEffectivePhone = effectivePhone?.replace("+91", "")?.trim()
                         val isAdminDoc = isAdminAccount ||
+                                         (cleanEffectivePhone == "9173811009") ||
                                          (effectivePhone?.contains("9173811009") == true) ||
                                          (effectiveEmail?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
 
@@ -250,6 +296,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             UserRole.fromStringSafe(rawRole) ?: _currentUser.value?.role ?: UserRole.SUBSCRIBER
                         }
 
+                        // Check if reporter in reporter_applications if still subscriber
+                        if (parsedRole == UserRole.SUBSCRIBER && !cleanEffectivePhone.isNullOrBlank()) {
+                            viewModelScope.launch(Dispatchers.IO) {
+                                try {
+                                    val snap = FirebaseService.db.collection("reporter_applications").whereEqualTo("phone", cleanEffectivePhone).get().await()
+                                    val app = snap.documents.firstOrNull { 
+                                        val s = it.getString("status")?.uppercase()
+                                        s == "JOINED" || s == "APPROVED" || s == "SUSPENDED"
+                                    }
+                                    if (app != null) {
+                                        val repName = app.getString("fullName") ?: app.getString("name") ?: effectiveName
+                                        val repDist = app.getString("district")
+                                        val repMandal = app.getString("assignedMandal") ?: app.getString("mandal")
+                                        _currentUser.value = _currentUser.value?.copy(
+                                            name = repName,
+                                            role = UserRole.REPORTER,
+                                            district = repDist ?: _currentUser.value?.district,
+                                            assignedMandal = repMandal ?: _currentUser.value?.assignedMandal
+                                        )
+                                        prefs.userRole = "REPORTER"
+                                        prefs.userName = repName
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+
                         if (parsedRole == UserRole.REPORTER && (rawRole?.toString()?.uppercase() == "SUBSCRIBER" || isPrevDowngraded || downgradedReason != null)) {
                             val autoHealUpdates = mutableMapOf<String, Any>(
                                 "role" to "REPORTER",
@@ -268,7 +340,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     autoHealUpdates["mandal"] = parts[1]
                                 }
                             }
-                            snapshot.reference.set(autoHealUpdates, com.google.firebase.firestore.SetOptions.merge())
+                            try {
+                                snapshot.reference.set(autoHealUpdates, com.google.firebase.firestore.SetOptions.merge())
+                            } catch (_: Exception) {}
                         }
 
                         val pushEnabledVal = snapshot.getBoolean("pushEnabled") ?: snapshot.getBoolean("notificationsEnabled") ?: true

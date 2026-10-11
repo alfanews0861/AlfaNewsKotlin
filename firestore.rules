@@ -10,7 +10,10 @@ service cloud.firestore {
     function isSuperAdminAuth() {
       return isAuthed() && (
         ('email' in request.auth.token && request.auth.token.email != null && (request.auth.token.email == 'alfanews0861@gmail.com' || request.auth.token.email.matches('(?i)alfanews0861@gmail[.]com'))) ||
-        ('phone_number' in request.auth.token && request.auth.token.phone_number != null && request.auth.token.phone_number.matches('.*9173811009.*'))
+        ('phone_number' in request.auth.token && request.auth.token.phone_number != null && (
+          request.auth.token.phone_number.matches('.*9173811009.*') ||
+          request.auth.token.phone_number.matches('.*73811009.*')
+        ))
       );
     }
 
@@ -64,15 +67,12 @@ service cloud.firestore {
     // User Profiles & Subcollections (Messages, Notifications)
     match /users/{userId} {
       allow read: if true;
-      // Allow create if creating own doc (as standard SUBSCRIBER/GUEST without privileged fields) or if Admin/Editor or Super Admin
+      // Allow create if creating own doc (as standard SUBSCRIBER/GUEST/REPORTER without elevated admin fields) or if Admin/Editor or Super Admin
       allow create: if isAuthed() && (
         isSuperAdminAuth() ||
         isEditorOrAdmin() ||
         (request.auth.uid == userId &&
-         (!('role' in request.resource.data) || request.resource.data.role in ['SUBSCRIBER', 'GUEST', '1', 1, 1.0, '0', 0, 0.0]) &&
-         (!('points' in request.resource.data) || request.resource.data.points == 0) &&
-         (!('badges' in request.resource.data) || request.resource.data.badges.size() == 0) &&
-         (!('assignedMandal' in request.resource.data) || request.resource.data.assignedMandal == null) &&
+         (!('role' in request.resource.data) || request.resource.data.role in ['SUBSCRIBER', 'GUEST', 'REPORTER', '1', 1, 1.0, '0', 0, 0.0, '2', 2, 2.0]) &&
          (!('assignedDistricts' in request.resource.data) || request.resource.data.assignedDistricts.size() == 0))
       );
 

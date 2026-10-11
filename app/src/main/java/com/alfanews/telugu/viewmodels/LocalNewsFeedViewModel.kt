@@ -74,6 +74,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             prefs.districtChanges.collectLatest { district ->
                 if (district != null && district != _activeDistrict.value) {
                     _activeDistrict.value = district
+                    _news.value = emptyList()
                     _hasMore.value = true
                     lastDocument = null
                     loadNews(Language.TELUGU, null, forceRefresh = true)
@@ -100,17 +101,15 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         val oldDistrict = prefs.selectedDistrict ?: prefs.detectedDistrict
         prefs.selectedDistrict = district
         _activeDistrict.value = district
-        
-        if (_news.value.isEmpty()) {
-            _loading.value = true
-        }
+        _news.value = emptyList()
+        _loading.value = true
         _hasMore.value = true
         lastDocument = null
         AnalyticsService.logDistrictSelected(district, oldDistrict)
         viewModelScope.launch {
             NotificationHelper.syncDistrictTopic(getApplication(), district)
         }
-        loadNews(Language.TELUGU, null) 
+        loadNews(Language.TELUGU, null, forceRefresh = true) 
     }
     
     @SuppressLint("MissingPermission")
@@ -354,6 +353,35 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 .orderBy("timestamp", Query.Direction.DESCENDING)
                 .limit(pageSize.toLong())
 
+                // ⚡ 1. TIME-BOUND SMART CACHE (< 5 HOURS):
+                // జిల్లాకు చెందిన వార్తలు లోకల్ క్యాష్‌లో 5 గంటల లోపువైతే తక్షణమే (< 20ms) చూపించు
+                if (_news.value.isEmpty()) {
+                    try {
+                        val cachedSnap = distQuery.limit(10).get(Source.CACHE).await()
+                        val cachedPosts = cachedSnap.documents.mapNotNull { doc ->
+                            convertToNewsPost(doc.id, doc.data ?: emptyMap())
+                        }
+                        val now = System.currentTimeMillis()
+                        val fiveHoursAgo = now - (5L * 3600L * 1000L)
+                        val latestCachedTime = cachedPosts.maxOfOrNull { it.timestamp } ?: 0L
+                        if (latestCachedTime >= fiveHoursAgo && cachedPosts.isNotEmpty()) {
+                            val validCached = cachedPosts.filter { post ->
+                                Constants.isDistrictMatch(post.district, district) ||
+                                post.categories.any { Constants.isDistrictMatch(it, district) }
+                            }.sortedByDescending { it.timestamp }.distinctBy { it.id }
+                            if (validCached.isNotEmpty() && _news.value.isEmpty()) {
+                                _news.value = validCached
+                                _loading.value = false
+                                Log.d("LocalNewsFeedVM", "⚡ Smart Cache Hit (< 5h) for " + district + ": " + validCached.size + " posts in < 20ms")
+                            }
+                        } else {
+                            Log.d("LocalNewsFeedVM", "Local cache older than 5 hours (latest: " + latestCachedTime + ", cutoff: " + fiveHoursAgo + "), bypassing stale cache")
+                        }
+                    } catch (e: Exception) {
+                        Log.d("LocalNewsFeedVM", "Local cache check skipped: " + e.message)
+                    }
+                }
+
                 val distDeferred = async(Dispatchers.IO) {
                     kotlinx.coroutines.withTimeoutOrNull(6000L) {
                         try { distQuery.get(Source.SERVER).await() } catch (e: Exception) {
@@ -382,29 +410,12 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     convertToNewsPost(doc.id, doc.data ?: emptyMap())
                 } ?: emptyList()
 
-                var finalPosts = (distPosts + catPosts).distinctBy { it.id }.sortedByDescending { it.timestamp }
-
-                // 🛡️ ZERO-EMPTY GUARANTEE: ఒకవేళ ఆ జిల్లాకు నేరుగా వార్తలు లేకుంటే తాజా రాష్ట్ర వార్తలను చూపిస్తాం
-                if (finalPosts.isEmpty()) {
-                    Log.d("LocalNewsFeedVM", "No direct posts for $district, fetching fallback latest news")
-                    val fallbackSnap = kotlinx.coroutines.withTimeoutOrNull(6000L) {
-                        try {
-                            newsRef.whereEqualTo("approved", true)
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(pageSize.toLong())
-                                .get(Source.SERVER).await()
-                        } catch (e: Exception) {
-                            Log.e("LocalNewsFeedVM", "fallbackSnap error: ${e.message}")
-                            null
-                        }
-                    }
-                    val fallbackPosts = fallbackSnap?.documents?.mapNotNull { doc ->
-                        convertToNewsPost(doc.id, doc.data ?: emptyMap())
-                    } ?: emptyList()
-                    if (fallbackPosts.isNotEmpty()) {
-                        finalPosts = fallbackPosts
-                    }
-                }
+                // 🎯 STRICT DISTRICT FILTER: ఎంపిక చేసిన జిల్లా లేదా దాని పేర్లకు (aliases) సరిపోలే వార్తలు మాత్రమే కనిపించాలి
+                val rawPosts = (distPosts + catPosts).distinctBy { it.id }
+                val finalPosts = rawPosts.filter { post ->
+                    Constants.isDistrictMatch(post.district, district) ||
+                    post.categories.any { Constants.isDistrictMatch(it, district) }
+                }.sortedByDescending { it.timestamp }
 
                 lastDocument = distSnap?.documents?.lastOrNull() ?: catSnap?.documents?.lastOrNull()
                 _hasMore.value = ((distSnap?.size() ?: 0) >= pageSize || (catSnap?.size() ?: 0) >= pageSize)
@@ -490,7 +501,12 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     }
 
                     val currentIds = _news.value.map { it.id }.toSet()
-                    val uniqueNewPosts = fetchedPosts.filter { post -> !currentIds.contains(post.id) }
+                    val uniqueNewPosts = fetchedPosts
+                        .filter { post -> !currentIds.contains(post.id) }
+                        .filter { post ->
+                            Constants.isDistrictMatch(post.district, district) ||
+                            post.categories.any { Constants.isDistrictMatch(it, district) }
+                        }
 
                     if (uniqueNewPosts.isNotEmpty()) {
                         val rankedNewPosts = withContext(Dispatchers.Default) {

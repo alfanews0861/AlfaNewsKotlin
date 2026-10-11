@@ -336,7 +336,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         return true
     }
 
-    private val FETCH_LIMIT = 25
+    private val FETCH_LIMIT = 5 // First 5 articles instantly � rest come via background blend
 
     fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null, forceRefresh: Boolean = false) {
         currentLanguage = language
@@ -391,6 +391,39 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     } catch (e: Exception) { null }
                 } else null
 
+                // ⚡ TIME-BOUND SMART CACHE (< 5 HOURS):
+                // If feed is currently empty, instantly load cache if the latest post was published < 5 hours ago (< 20ms)
+                if (_news.value.isEmpty()) {
+                    try {
+                        val cachedSnap = FirebaseService.db.collection("news")
+                            .whereEqualTo("approved", true)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(10)
+                            .get(Source.CACHE)
+                            .await()
+                        val cachedPosts = cachedSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                        val now = System.currentTimeMillis()
+                        val fiveHoursAgo = now - (5L * 3600L * 1000L)
+                        val latestCachedTime = cachedPosts.maxOfOrNull { it.timestamp } ?: 0L
+                        if (latestCachedTime >= fiveHoursAgo && cachedPosts.isNotEmpty()) {
+                            val stateFilteredCache = cachedPosts.filter { isPostAllowedForState(it, userState) }
+                            val immediateCached = if (stateFilteredCache.isNotEmpty()) stateFilteredCache else cachedPosts
+                            val combinedCached = if (initialTargetPost != null) {
+                                (listOf(initialTargetPost) + immediateCached).distinctBy { it.id }
+                            } else immediateCached
+                            if (combinedCached.isNotEmpty() && _news.value.isEmpty()) {
+                                _news.value = combinedCached
+                                _loading.value = false
+                                Log.d("NewsFeedVM", "⚡ Smart Cache Hit (< 5h): " + combinedCached.size + " posts displayed in < 20ms")
+                            }
+                        } else {
+                            Log.d("NewsFeedVM", "Local cache older than 5 hours (latest: " + latestCachedTime + ", cutoff: " + fiveHoursAgo + "), bypassing stale cache")
+                        }
+                    } catch (e: Exception) {
+                        Log.d("NewsFeedVM", "Cache check skipped: " + e.message)
+                    }
+                }
+
                 // 2. ⚡ LIGHTNING-FAST PRIMARY QUERY:
                 // Single indexed query directly from Firestore (no cache, fresh live news)
                 val mainQuery = FirebaseService.db.collection("news")
@@ -439,50 +472,68 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     prefs.incrementPostViewCounts(validIds)
                 }
 
-                // 3. 🔄 BACKGROUND ENHANCEMENTS:
+                // 3. 🔄 BACKGROUND ENHANCEMENTS (PARALLEL):
                 // Blend district news, surveys, and greetings in background without blocking the UI
+                // ⚡ Parallel async: local query + greeting + survey + preferredCats అన్నీ ఒకేసారి fetch
                 launch {
                     try {
-                        var stateLocal = emptyList<NewsPost>()
-                        if (!district.isNullOrBlank()) {
-                            val aliases = Constants.getDistrictAliases(district)
-                                .map { it.trim() }
-                                .filter { it.isNotBlank() }
-                                .distinct()
-                                .take(10)
-                            val localQuery = if (aliases.size > 1) {
-                                FirebaseService.db.collection("news")
-                                    .whereEqualTo("approved", true)
-                                    .whereIn("district", aliases)
-                                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                                    .limit(10)
+                        // 🚀 PARALLEL FETCH: అన్ని background queries ఒకేసారి run చేయి — sequential కాదు
+                        val localDeferred = async(Dispatchers.IO) {
+                            if (!district.isNullOrBlank()) {
+                                val aliases = Constants.getDistrictAliases(district)
+                                    .map { it.trim() }
+                                    .filter { it.isNotBlank() }
+                                    .distinct()
+                                    .take(10)
+                                val localQuery = if (aliases.size > 1) {
+                                    FirebaseService.db.collection("news")
+                                        .whereEqualTo("approved", true)
+                                        .whereIn("district", aliases)
+                                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                                        .limit(10)
+                                } else {
+                                    FirebaseService.db.collection("news")
+                                        .whereEqualTo("approved", true)
+                                        .whereEqualTo("district", aliases.firstOrNull() ?: district)
+                                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                                        .limit(10)
+                                }
+                                val localSnap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                    try { localQuery.get(Source.SERVER).await() } catch (e: Exception) { null }
+                                }
+                                Pair(localSnap?.documents?.lastOrNull(), localSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList())
                             } else {
-                                FirebaseService.db.collection("news")
-                                    .whereEqualTo("approved", true)
-                                    .whereEqualTo("district", aliases.firstOrNull() ?: district)
-                                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                                    .limit(10)
+                                Pair(null, emptyList())
                             }
-                            val localSnap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
-                                try { localQuery.get(Source.SERVER).await() } catch (e: Exception) { null }
-                            }
-                            val rawLocal = localSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
-                            localCursor = localSnap?.documents?.lastOrNull()
-                            stateLocal = rawLocal.filter { isPostAllowedForState(it, userState) }
                         }
 
-                        val greeting = if (initialPostId == null) {
-                            try {
-                                val post = fetchGreetingPost()
-                                if (post != null && prefs.getPostViewCount(post.id) < 2) post else null
-                            } catch (e: Exception) { null }
-                        } else null
+                        val greetingDeferred = async(Dispatchers.IO) {
+                            if (initialPostId == null) {
+                                try {
+                                    val post = fetchGreetingPost()
+                                    if (post != null && prefs.getPostViewCount(post.id) < 2) post else null
+                                } catch (e: Exception) { null }
+                            } else null
+                        }
 
-                        val survey = if (initialPostId == null) {
-                            try { fetchActiveSurvey() } catch (e: Exception) { null }
-                        } else null
+                        val surveyDeferred = async(Dispatchers.IO) {
+                            if (initialPostId == null) {
+                                try { fetchActiveSurvey() } catch (e: Exception) { null }
+                            } else null
+                        }
 
-                        val preferredCats = try { AnalyticsService.getUserPreferredCategories().toSet() } catch (e: Exception) { emptySet() }
+                        val preferredCatsDeferred = async(Dispatchers.IO) {
+                            try { AnalyticsService.getUserPreferredCategories().toSet() } catch (e: Exception) { emptySet() }
+                        }
+
+                        // అన్నీ ఒకేసారి await చేయి
+                        val (localCursorDoc, rawLocal) = localDeferred.await()
+                        val greeting = greetingDeferred.await()
+                        val survey = surveyDeferred.await()
+                        val preferredCats = preferredCatsDeferred.await()
+
+                        if (localCursorDoc != null) localCursor = localCursorDoc
+                        val stateLocal = rawLocal.filter { isPostAllowedForState(it, userState) }
                         val prefPosts = stateMain.filter { p -> p.categories.any { it in preferredCats } }
 
                         val blended = withContext(Dispatchers.Default) {
@@ -804,7 +855,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            }
 
            if (isFirstPage) {
-               val activeSurvey = injectedSurvey ?: fetchActiveSurvey()
+               // ? injectedSurvey ???????? parallel fetch ????????? � redundant Firestore call ?????
+                val activeSurvey = injectedSurvey
                
                // Inject active survey at 3rd card (index 2)
                activeSurvey?.let { insertSafely(blendedNews, it, 2) }
