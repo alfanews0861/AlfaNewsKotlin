@@ -293,25 +293,28 @@ fun NewsFeedView(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        if (news.isEmpty()) {
-            var retryCount by remember { mutableIntStateOf(0) }
-            LaunchedEffect(loading, isOnline) {
-                if (!loading && isOnline) {
-                    if (retryCount < 3) {
-                        val backoffDelay = when (retryCount) {
-                            0 -> 1200L
-                            1 -> 4000L
-                            else -> 10000L
-                        }
-                        kotlinx.coroutines.delay(backoffDelay)
-                        retryCount++
-                        viewModel.loadNews(language, currentUser, initialPostId)
-                    } else {
-                        // 🛡️ CIRCUIT BREAKER: 3 విఫల ప్రయత్నాల తర్వాత, 30 సెకన్లు ఆగి నిశ్శబ్దంగా రీట్రై చేయాలి
-                        kotlinx.coroutines.delay(30000L)
-                        retryCount = 0
-                        viewModel.loadNews(language, currentUser, initialPostId)
+        if (!isOnline && news.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(32.dp)
+                ) {
+                    Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                    Text(text = stringResource(R.string.no_internet), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
+                    Text(text = stringResource(R.string.check_internet), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                    Button(onClick = { viewModel.loadNews(language, currentUser, initialPostId) }) {
+                        Text(text = stringResource(R.string.retry))
                     }
+                }
+            }
+        } else if (news.isEmpty()) {
+            var retryCount by remember { mutableStateOf(0) }
+            LaunchedEffect(loading) {
+                if (!loading && retryCount < 2) {
+                    kotlinx.coroutines.delay((retryCount + 1) * 3000L)
+                    retryCount++
+                    viewModel.loadNews(language, currentUser, initialPostId)
                 }
             }
             NewsCardSkeleton()

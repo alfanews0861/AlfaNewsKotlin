@@ -20,7 +20,6 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
-import com.google.firebase.firestore.Source
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
@@ -74,10 +73,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             prefs.districtChanges.collectLatest { district ->
                 if (district != null && district != _activeDistrict.value) {
                     _activeDistrict.value = district
-                    _news.value = emptyList()
                     _hasMore.value = true
                     lastDocument = null
-                    loadNews(Language.TELUGU, null, forceRefresh = true)
+                    isFetching = false
+                    loadNews(Language.TELUGU, null)
                 }
             }
         }
@@ -101,15 +100,17 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         val oldDistrict = prefs.selectedDistrict ?: prefs.detectedDistrict
         prefs.selectedDistrict = district
         _activeDistrict.value = district
-        _news.value = emptyList()
-        _loading.value = true
+        
+        if (_news.value.isEmpty()) {
+            _loading.value = true
+        }
         _hasMore.value = true
         lastDocument = null
         AnalyticsService.logDistrictSelected(district, oldDistrict)
         viewModelScope.launch {
             NotificationHelper.syncDistrictTopic(getApplication(), district)
         }
-        loadNews(Language.TELUGU, null, forceRefresh = true) 
+        loadNews(Language.TELUGU, null) 
     }
     
     @SuppressLint("MissingPermission")
@@ -295,30 +296,26 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
-    fun loadNews(language: Language, currentUser: User?, forceRefresh: Boolean = false) {
+    fun loadNews(language: Language, currentUser: User?) {
         currentLanguage = language
         val userDist = currentUser?.district?.takeIf { it.isNotBlank() } ?: prefs.userDistrict
         val district = _activeDistrict.value ?: prefs.selectedDistrict ?: userDist ?: prefs.detectedDistrict ?: "హైదరాబాద్"
-        val districtChanged = (_activeDistrict.value != district)
-        if (districtChanged) {
+        if (_activeDistrict.value != district) {
             _activeDistrict.value = district
         }
         
-        // 🛡️ DEDUPLICATION GUARD: జిల్లా మారకుండా ఇప్పటికే లోడింగ్ నడుస్తుంటే అనవసరంగా రద్దు చేసి మళ్లీ మొదలుపెట్టవద్దు
-        if (isFetching && !districtChanged && !forceRefresh) {
-            Log.d("LocalNewsFeedVM", "Fetch already in progress for district: $district, skipping redundant call")
-            return
-        }
-
         // 🔄 BACKGROUND LOAD: Only show full-screen loading if we have no news to show.
         if (_news.value.isEmpty()) {
             _loading.value = true 
         }
         loadLocalAds(district) 
         loadJob?.cancel()
-        isFetching = true
+        isFetching = false
         
         loadJob = viewModelScope.launch {
+            if (isFetching) return@launch
+            isFetching = true
+            
             val newsRef = FirebaseService.db.collection("news")
             val cleanAliases = Constants.getDistrictAliases(district)
                 .map { it.trim() }
@@ -353,70 +350,15 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 .orderBy("timestamp", Query.Direction.DESCENDING)
                 .limit(pageSize.toLong())
 
-                // ⚡ 1. INSTANT LOCAL CACHE: ఫోన్‌లో క్యాష్ ఉంటే ఏ ఆంక్షలు లేకుండా వెంటనే (< 30ms) స్క్రీన్‌పై చూపించు
-                if (_news.value.isEmpty()) {
-                    try {
-                        // First, try targeted district cache query
-                        val directCachedSnap = distQuery.get(Source.CACHE).await()
-                        val directCachedPosts = directCachedSnap.documents.mapNotNull { doc ->
-                            convertToNewsPost(doc.id, doc.data ?: emptyMap())
-                        }
-                        if (directCachedPosts.isNotEmpty()) {
-                            _news.value = directCachedPosts.sortedByDescending { it.timestamp }
-                            _loading.value = false
-                            Log.d("LocalNewsFeedVM", "⚡ Instant Direct District Cache: ${directCachedPosts.size} posts for $district")
-                        } else {
-                            // Secondary fallback: Scan general cached pool for this district
-                            val cachedSnap = newsRef
-                                .whereEqualTo("approved", true)
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(60)
-                                .get(Source.CACHE)
-                                .await()
-                            val allCached = cachedSnap.documents.mapNotNull { doc ->
-                                convertToNewsPost(doc.id, doc.data ?: emptyMap())
-                            }
-                            val districtCached = allCached.filter { post ->
-                                Constants.isDistrictMatch(post.district, district) ||
-                                post.categories.any { Constants.isDistrictMatch(it, district) }
-                            }.sortedByDescending { it.timestamp }.distinctBy { it.id }
-
-                            if (districtCached.isNotEmpty() && _news.value.isEmpty()) {
-                                _news.value = districtCached
-                                _loading.value = false
-                                Log.d("LocalNewsFeedVM", "⚡ Instant Fallback Cache: ${districtCached.size} posts for $district")
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.d("LocalNewsFeedVM", "Cache check: ${e.message}")
+                val distDeferred = async(Dispatchers.IO) {
+                    kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                        try { distQuery.get().await() } catch (e: Exception) { null }
                     }
                 }
-
-                // 🚀 2. LIVE FETCH: తాజా జిల్లా వార్తలను ఫైర్‌స్టోర్ నుండి తెచ్చి ఫీడ్‌ను అప్‌డేట్ చేయి
-                val distDeferred = async(Dispatchers.IO) {
-                    try {
-                        kotlinx.coroutines.withTimeoutOrNull(5000L) {
-                            distQuery.get().await()
-                        }
-                    } catch (e: Exception) {
-                        Log.e("LocalNewsFeedVM", "distQuery live error: ${e.message}")
-                        null
-                    } ?: try {
-                        distQuery.get(Source.CACHE).await()
-                    } catch (e: Exception) { null }
-                }
-
                 val catDeferred = async(Dispatchers.IO) {
-                    try {
-                        kotlinx.coroutines.withTimeoutOrNull(5000L) {
-                            catQuery.get().await()
-                        }
-                    } catch (e: Exception) {
-                        Log.e("LocalNewsFeedVM", "catQuery live error: ${e.message}")
-                        null
-                    } ?: try {
-                        catQuery.get(Source.CACHE).await()
-                    } catch (e: Exception) { null }
+                    kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                        try { catQuery.get().await() } catch (e: Exception) { null }
+                    }
                 }
 
                 val distSnap = distDeferred.await()
@@ -430,12 +372,25 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     convertToNewsPost(doc.id, doc.data ?: emptyMap())
                 } ?: emptyList()
 
-                // 🎯 STRICT DISTRICT FILTER: ఎంపిక చేసిన జిల్లా వార్తలు మాత్రమే
-                val rawPosts = (distPosts + catPosts).distinctBy { it.id }
-                val finalPosts = rawPosts.filter { post ->
-                    Constants.isDistrictMatch(post.district, district) ||
-                    post.categories.any { Constants.isDistrictMatch(it, district) }
-                }.sortedByDescending { it.timestamp }
+                var finalPosts = (distPosts + catPosts).distinctBy { it.id }.sortedByDescending { it.timestamp }
+
+                // 🛡️ ZERO-EMPTY GUARANTEE: ఒకవేళ ఆ జిల్లాకు నేరుగా వార్తలు లేకుంటే తాజా రాష్ట్ర వార్తలను చూపిస్తాం
+                if (finalPosts.isEmpty()) {
+                    val fallbackSnap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                        try {
+                            newsRef.whereEqualTo("approved", true)
+                                .orderBy("timestamp", Query.Direction.DESCENDING)
+                                .limit(pageSize.toLong())
+                                .get().await()
+                        } catch (e: Exception) { null }
+                    }
+                    val fallbackPosts = fallbackSnap?.documents?.mapNotNull { doc ->
+                        convertToNewsPost(doc.id, doc.data ?: emptyMap())
+                    } ?: emptyList()
+                    if (fallbackPosts.isNotEmpty()) {
+                        finalPosts = fallbackPosts
+                    }
+                }
 
                 lastDocument = distSnap?.documents?.lastOrNull() ?: catSnap?.documents?.lastOrNull()
                 _hasMore.value = ((distSnap?.size() ?: 0) >= pageSize || (catSnap?.size() ?: 0) >= pageSize)
@@ -455,17 +410,14 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 lastRefreshTimeLong = currentTime
                 _lastRefreshTime.value = currentTime
             } catch (e: Exception) {
-                 Log.e("LocalNewsFeedVM", "loadNews exception: ${e.message}", e)
+                 // Do not disable hasMore on network failure; allow user retry by swiping
             } finally {
-                // 🛡️ RACE CONDITION SHIELD: ఈ కొరుటీన్ ఇంకా యాక్టివ్ జాబ్ అయితేనే లోడింగ్ మరియు ఫెచింగ్ స్టేట్ రీసెట్ చేయాలి
-                if (coroutineContext[Job] == loadJob) {
-                    _loading.value = false
-                    isFetching = false
-                    if (pendingLoadMore && _hasMore.value) {
-                        pendingLoadMore = false
-                        if (_news.value.isNotEmpty()) {
-                            loadMore(currentLanguage, currentUser)
-                        }
+                _loading.value = false
+                isFetching = false
+                if (pendingLoadMore && _hasMore.value) {
+                    pendingLoadMore = false
+                    if (_news.value.isNotEmpty()) {
+                        loadMore(currentLanguage, currentUser)
                     }
                 }
             }
@@ -508,7 +460,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     q = q.startAfter(lastDoc)
                 }
 
-                val snap = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                val snap = kotlinx.coroutines.withTimeoutOrNull(10000L) {
                     try { q.get().await() } catch (e: Exception) { null }
                 }
 
@@ -521,12 +473,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     }
 
                     val currentIds = _news.value.map { it.id }.toSet()
-                    val uniqueNewPosts = fetchedPosts
-                        .filter { post -> !currentIds.contains(post.id) }
-                        .filter { post ->
-                            Constants.isDistrictMatch(post.district, district) ||
-                            post.categories.any { Constants.isDistrictMatch(it, district) }
-                        }
+                    val uniqueNewPosts = fetchedPosts.filter { post -> !currentIds.contains(post.id) }
 
                     if (uniqueNewPosts.isNotEmpty()) {
                         val rankedNewPosts = withContext(Dispatchers.Default) {

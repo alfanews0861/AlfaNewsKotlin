@@ -157,19 +157,13 @@ fun LocalNewsFeedView(
                     )
                 )
             }
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        if (news.isEmpty()) {
+        } else if (news.isEmpty()) {
             viewModel.loadNews(language, currentUser)
-        } else {
-            viewModel.refreshIfStale(language, currentUser)
         }
     }
 
     LaunchedEffect(viewModelActiveDistrict) {
-        if (viewModelActiveDistrict != null && news.isEmpty()) {
+        if (viewModelActiveDistrict != null) {
             viewModel.loadNews(language, currentUser)
         }
     }
@@ -285,7 +279,43 @@ fun LocalNewsFeedView(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        if (news.isEmpty() && viewModelActiveDistrict == null && !isDetecting) {
+        if (!isOnline && news.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                    )
+                    Text(
+                        text = stringResource(R.string.no_internet),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontFamily = Ramabhadra
+                    )
+                    Text(
+                        text = stringResource(R.string.check_internet),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        fontFamily = Ramabhadra
+                    )
+                    Button(
+                        onClick = { viewModel.loadNews(language, currentUser) }
+                    ) {
+                        Text(text = stringResource(R.string.retry), fontFamily = Ramabhadra)
+                    }
+                }
+            }
+        } else if (news.isEmpty() && viewModelActiveDistrict == null && !isDetecting) {
             LaunchedEffect(Unit) {
                 onDistrictClick()
             }
@@ -312,24 +342,12 @@ fun LocalNewsFeedView(
                 }
             }
         } else if (news.isEmpty()) {
-            var retryCount by remember { mutableIntStateOf(0) }
-            LaunchedEffect(loading, isOnline, viewModelActiveDistrict) {
-                if (!loading && isOnline) {
-                    if (retryCount < 3) {
-                        val backoffDelay = when (retryCount) {
-                            0 -> 1200L
-                            1 -> 4000L
-                            else -> 10000L
-                        }
-                        kotlinx.coroutines.delay(backoffDelay)
-                        retryCount++
-                        viewModel.loadNews(language, currentUser)
-                    } else {
-                        // 🛡️ CIRCUIT BREAKER: 3 విఫల ప్రయత్నాల తర్వాత, 30 సెకన్లు ఆగి నిశ్శబ్దంగా రీట్రై చేయాలి
-                        kotlinx.coroutines.delay(30000L)
-                        retryCount = 0
-                        viewModel.loadNews(language, currentUser)
-                    }
+            var retryCount by remember { mutableStateOf(0) }
+            LaunchedEffect(loading) {
+                if (!loading && retryCount < 2) {
+                    kotlinx.coroutines.delay((retryCount + 1) * 3000L)
+                    retryCount++
+                    viewModel.loadNews(language, currentUser)
                 }
             }
             NewsCardSkeleton()
