@@ -382,6 +382,31 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     }
                 }
 
+                // 🚀 2. FAST PATH: Quick top 5 district news from SERVER (< 300ms)
+                // క్యాష్ లేకపోతే లేదా 5 గంటల కంటే పాతదైతే, సర్వర్ నుండి టాప్ 5 వార్తలను ఫాస్ట్‌గా లాగు
+                if (_news.value.isEmpty()) {
+                    try {
+                        val fastSnap = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                            try { distQuery.limit(5).get(Source.SERVER).await() } catch (e: Exception) { null }
+                        }
+                        if (fastSnap != null && !fastSnap.isEmpty) {
+                            val fastPosts = fastSnap.documents.mapNotNull { doc ->
+                                convertToNewsPost(doc.id, doc.data ?: emptyMap())
+                            }.filter { post ->
+                                Constants.isDistrictMatch(post.district, district) ||
+                                post.categories.any { Constants.isDistrictMatch(it, district) }
+                            }.sortedByDescending { it.timestamp }.distinctBy { it.id }
+                            if (fastPosts.isNotEmpty() && _news.value.isEmpty()) {
+                                _news.value = fastPosts
+                                _loading.value = false
+                                Log.d("LocalNewsFeedVM", "🚀 Fast Path (< 300ms) displayed " + fastPosts.size + " posts for " + district)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.d("LocalNewsFeedVM", "Fast path fetch skipped: " + e.message)
+                    }
+                }
+
                 val distDeferred = async(Dispatchers.IO) {
                     kotlinx.coroutines.withTimeoutOrNull(6000L) {
                         try { distQuery.get(Source.SERVER).await() } catch (e: Exception) {

@@ -336,7 +336,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         return true
     }
 
-    private val FETCH_LIMIT = 5 // First 5 articles instantly � rest come via background blend
+    private val FETCH_LIMIT = 20
 
     fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null, forceRefresh: Boolean = false) {
         currentLanguage = language
@@ -391,14 +391,14 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     } catch (e: Exception) { null }
                 } else null
 
-                // ⚡ TIME-BOUND SMART CACHE (< 5 HOURS):
+                // ⚡ 1. TIME-BOUND SMART CACHE (< 5 HOURS):
                 // If feed is currently empty, instantly load cache if the latest post was published < 5 hours ago (< 20ms)
                 if (_news.value.isEmpty()) {
                     try {
                         val cachedSnap = FirebaseService.db.collection("news")
                             .whereEqualTo("approved", true)
                             .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(10)
+                            .limit(20)
                             .get(Source.CACHE)
                             .await()
                         val cachedPosts = cachedSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
@@ -424,8 +424,37 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
 
-                // 2. ⚡ LIGHTNING-FAST PRIMARY QUERY:
-                // Single indexed query directly from Firestore (no cache, fresh live news)
+                // 🚀 2. FAST PATH: Quick top 5 news query from SERVER (< 300ms)
+                // If feed is still empty (e.g. fresh install or stale cache), quickly fetch 5 items from server so splash screen dismisses instantly!
+                if (_news.value.isEmpty()) {
+                    try {
+                        val fastQuery = FirebaseService.db.collection("news")
+                            .whereEqualTo("approved", true)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(5)
+                        val fastSnap = kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                            try { fastQuery.get(Source.SERVER).await() } catch (e: Exception) { null }
+                        }
+                        if (fastSnap != null && !fastSnap.isEmpty) {
+                            val fastPosts = fastSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                            val fastStateFiltered = fastPosts.filter { isPostAllowedForState(it, userState) }
+                            val fastFinal = if (fastStateFiltered.isNotEmpty()) fastStateFiltered else fastPosts
+                            val fastCombined = if (initialTargetPost != null) {
+                                (listOf(initialTargetPost) + fastFinal).distinctBy { it.id }
+                            } else fastFinal
+                            if (fastCombined.isNotEmpty() && _news.value.isEmpty()) {
+                                _news.value = fastCombined
+                                _loading.value = false
+                                Log.d("NewsFeedVM", "🚀 Fast Path (< 300ms) displayed " + fastCombined.size + " fresh posts from server")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("NewsFeedVM", "Fast path fetch error: " + e.message)
+                    }
+                }
+
+                // 3. ⚡ FULL PRIMARY QUERY (20 items):
+                // Full batch query directly from Firestore to ensure feed has 20+ articles and smooth pagination
                 val mainQuery = FirebaseService.db.collection("news")
                     .whereEqualTo("approved", true)
                     .orderBy("timestamp", Query.Direction.DESCENDING)
@@ -654,25 +683,31 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     rankAndBlendPosts(prefPosts, stateMain, stateLocal, isFirstPage = false, reporterUserId = currentUser?.id)
                 }
 
+                // If rankAndBlendPosts returns empty (e.g. over-filtered), fall back to raw stateMain + stateLocal
                 val postsToAppend = if (newPosts.isNotEmpty()) newPosts else (stateMain + stateLocal).distinctBy { it.id }
 
-                if (postsToAppend.isNotEmpty()) {
-                    val currentIds = _news.value.map { it.id }.toSet()
-                    val unique = postsToAppend.filter { it.id !in currentIds }
-                    if (unique.isNotEmpty()) {
-                        _news.value = _news.value + unique
-                        val validIds = unique.filter { it.type == "news" || it.type == "greeting" }.map { it.id }
-                        prefs.incrementPostViewCounts(validIds)
-                    }
+                val currentIds = _news.value.map { it.id }.toSet()
+                val unique = postsToAppend.filter { it.id !in currentIds }
+
+                if (unique.isNotEmpty()) {
+                    _news.value = _news.value + unique
+                    val validIds = unique.filter { it.type == "news" || it.type == "greeting" }.map { it.id }
+                    prefs.incrementPostViewCounts(validIds)
                     consecutiveEmptyLoads = 0
+                    _hasMore.value = (mainBatch.first.size >= 10 || localBatch.first.size >= 5)
                 } else {
                     consecutiveEmptyLoads++
-                    if (consecutiveEmptyLoads >= 2 || (mainBatch.first.isEmpty() && localBatch.first.isEmpty())) {
+                    // Only disable after 3 consecutive truly empty batches to prevent premature pagination stop
+                    if (consecutiveEmptyLoads >= 3) {
                         _hasMore.value = false
                     }
                 }
             } catch (e: Exception) {
-                _hasMore.value = false
+                Log.e("NewsFeedVM", "loadMore error: ${e.message}", e)
+                consecutiveEmptyLoads++
+                if (consecutiveEmptyLoads >= 3) {
+                    _hasMore.value = false
+                }
             } finally {
                 isFetching = false
                 if (pendingLoadMore && _hasMore.value) {

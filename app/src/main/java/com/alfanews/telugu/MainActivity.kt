@@ -119,9 +119,11 @@ class MainActivity : ComponentActivity() {
         // Status bar is transparent - phone default settings handle icon colors automatically
         WindowCompat.setDecorFitsSystemWindows(window, false)
         // 🚀 PRE-WARM: Early trigger for Firestore network engine (gRPC/TLS warm-up)
-        try {
-            FirebaseService.db
-        } catch (_: Exception) {}
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                FirebaseService.db.collection("news").limit(1).get()
+            } catch (_: Exception) {}
+        }
         AdMobService.initialize(this)
 
         // ఆండ్రాయిడ్ 13+ కోసం నోటిఫికేషన్ పర్మిషన్ అడగడం
@@ -140,7 +142,7 @@ class MainActivity : ComponentActivity() {
         val language = mainViewModel.language.value
         val currentUser = mainViewModel.currentUser.value
         newsFeedViewModel.loadNews(language, currentUser, initialPostId = initialPostId)
-        // Local news is loaded lazily on-demand when the user views the Local News tab
+        localNewsFeedViewModel.loadNews(language, currentUser)
 
         // Handle Firebase Dynamic Links (for deferred deep links when app wasn't installed)
         // This must be done BEFORE handleDeepLink() to catch dynamic links properly
