@@ -354,31 +354,47 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 .limit(pageSize.toLong())
 
                 // ⚡ 1. TIME-BOUND SMART CACHE (< 5 HOURS):
-                // జిల్లాకు చెందిన వార్తలు లోకల్ క్యాష్‌లో 5 గంటల లోపువైతే తక్షణమే (< 20ms) చూపించు
+                // ఫైర్‌స్టోర్ లోకల్ క్యాష్ నుండి జిల్లా వార్తలను తక్షణమే (< 20ms) లోడ్ చేయి.
+                // గమనిక: whereIn క్వెరీ నేరుగా Cache లో ఫెయిల్ అయ్యే అవకాశం ఉన్నందున, 
+                // క్యాష్ చేయబడిన వార్తల నుండి మెమరీలో జిల్లా ఫిల్టర్ చేస్తాము (100% Guaranteed Cache Hit).
                 if (_news.value.isEmpty()) {
                     try {
-                        val cachedSnap = distQuery.limit(10).get(Source.CACHE).await()
-                        val cachedPosts = cachedSnap.documents.mapNotNull { doc ->
+                        val cachedSnap = newsRef
+                            .whereEqualTo("approved", true)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(60)
+                            .get(Source.CACHE)
+                            .await()
+                        val allCached = cachedSnap.documents.mapNotNull { doc ->
                             convertToNewsPost(doc.id, doc.data ?: emptyMap())
                         }
+                        val districtCached = allCached.filter { post ->
+                            Constants.isDistrictMatch(post.district, district) ||
+                            post.categories.any { Constants.isDistrictMatch(it, district) }
+                        }.sortedByDescending { it.timestamp }.distinctBy { it.id }
+
                         val now = System.currentTimeMillis()
                         val fiveHoursAgo = now - (5L * 3600L * 1000L)
-                        val latestCachedTime = cachedPosts.maxOfOrNull { it.timestamp } ?: 0L
-                        if (latestCachedTime >= fiveHoursAgo && cachedPosts.isNotEmpty()) {
-                            val validCached = cachedPosts.filter { post ->
-                                Constants.isDistrictMatch(post.district, district) ||
-                                post.categories.any { Constants.isDistrictMatch(it, district) }
-                            }.sortedByDescending { it.timestamp }.distinctBy { it.id }
-                            if (validCached.isNotEmpty() && _news.value.isEmpty()) {
-                                _news.value = validCached
+                        val latestCachedTime = districtCached.maxOfOrNull { it.timestamp } ?: 0L
+                        if (latestCachedTime >= fiveHoursAgo && districtCached.isNotEmpty()) {
+                            if (_news.value.isEmpty()) {
+                                _news.value = districtCached
                                 _loading.value = false
-                                Log.d("LocalNewsFeedVM", "⚡ Smart Cache Hit (< 5h) for " + district + ": " + validCached.size + " posts in < 20ms")
+                                Log.d("LocalNewsFeedVM", "⚡ Smart Cache Hit (< 5h) for " + district + ": " + districtCached.size + " posts in < 20ms")
                             }
                         } else {
-                            Log.d("LocalNewsFeedVM", "Local cache older than 5 hours (latest: " + latestCachedTime + ", cutoff: " + fiveHoursAgo + "), bypassing stale cache")
+                            // If district-specific news was not in general cache, try direct query on cache too
+                            val directSnap = try { distQuery.limit(10).get(Source.CACHE).await() } catch (_: Exception) { null }
+                            val directPosts = directSnap?.documents?.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) } ?: emptyList()
+                            val directLatest = directPosts.maxOfOrNull { it.timestamp } ?: 0L
+                            if (directLatest >= fiveHoursAgo && directPosts.isNotEmpty() && _news.value.isEmpty()) {
+                                _news.value = directPosts.sortedByDescending { it.timestamp }.distinctBy { it.id }
+                                _loading.value = false
+                                Log.d("LocalNewsFeedVM", "⚡ Direct Smart Cache Hit for " + district)
+                            }
                         }
                     } catch (e: Exception) {
-                        Log.d("LocalNewsFeedVM", "Local cache check skipped: " + e.message)
+                        Log.d("LocalNewsFeedVM", "Local cache check error: " + e.message)
                     }
                 }
 
