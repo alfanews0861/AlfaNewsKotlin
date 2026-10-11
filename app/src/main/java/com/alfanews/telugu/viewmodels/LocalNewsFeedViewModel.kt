@@ -353,10 +353,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 .orderBy("timestamp", Query.Direction.DESCENDING)
                 .limit(pageSize.toLong())
 
-                // ⚡ 1. TIME-BOUND SMART CACHE (< 5 HOURS):
-                // ఫైర్‌స్టోర్ లోకల్ క్యాష్ నుండి జిల్లా వార్తలను తక్షణమే (< 20ms) లోడ్ చేయి.
-                // గమనిక: whereIn క్వెరీ నేరుగా Cache లో ఫెయిల్ అయ్యే అవకాశం ఉన్నందున, 
-                // క్యాష్ చేయబడిన వార్తల నుండి మెమరీలో జిల్లా ఫిల్టర్ చేస్తాము (100% Guaranteed Cache Hit).
+                // ⚡ 1. INSTANT LOCAL CACHE: ఫోన్‌లో క్యాష్ ఉంటే ఏ ఆంక్షలు లేకుండా వెంటనే (< 30ms) స్క్రీన్‌పై చూపించు
                 if (_news.value.isEmpty()) {
                     try {
                         val cachedSnap = newsRef
@@ -373,73 +370,37 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             post.categories.any { Constants.isDistrictMatch(it, district) }
                         }.sortedByDescending { it.timestamp }.distinctBy { it.id }
 
-                        val now = System.currentTimeMillis()
-                        val fiveHoursAgo = now - (5L * 3600L * 1000L)
-                        val latestCachedTime = districtCached.maxOfOrNull { it.timestamp } ?: 0L
-                        if (latestCachedTime >= fiveHoursAgo && districtCached.isNotEmpty()) {
-                            if (_news.value.isEmpty()) {
-                                _news.value = districtCached
-                                _loading.value = false
-                                Log.d("LocalNewsFeedVM", "⚡ Smart Cache Hit (< 5h) for " + district + ": " + districtCached.size + " posts in < 20ms")
-                            }
-                        } else {
-                            // If district-specific news was not in general cache, try direct query on cache too
-                            val directSnap = try { distQuery.limit(10).get(Source.CACHE).await() } catch (e: Exception) { null }
-                            val directPosts = directSnap?.documents?.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) } ?: emptyList()
-                            val directLatest = directPosts.maxOfOrNull { it.timestamp } ?: 0L
-                            if (directLatest >= fiveHoursAgo && directPosts.isNotEmpty() && _news.value.isEmpty()) {
-                                _news.value = directPosts.sortedByDescending { it.timestamp }.distinctBy { it.id }
-                                _loading.value = false
-                                Log.d("LocalNewsFeedVM", "⚡ Direct Smart Cache Hit for " + district)
-                            }
+                        if (districtCached.isNotEmpty() && _news.value.isEmpty()) {
+                            _news.value = districtCached
+                            _loading.value = false
+                            Log.d("LocalNewsFeedVM", "⚡ Instant Local Cache: ${districtCached.size} posts for $district")
                         }
                     } catch (e: Exception) {
-                        Log.d("LocalNewsFeedVM", "Local cache check error: " + e.message)
+                        Log.d("LocalNewsFeedVM", "Cache check: ${e.message}")
                     }
                 }
 
-                // 🚀 2. FAST PATH: Quick top 5 district news (< 300ms)
-                // క్యాష్ లేకపోతే లేదా 5 గంటల కంటే పాతదైతే, సర్వర్ లేదా లోకల్ క్యాష్ నుండి టాప్ 5 వార్తలను ఫాస్ట్‌గా లాగు
-                if (_news.value.isEmpty()) {
-                    try {
-                        val fastSnap = kotlinx.coroutines.withTimeoutOrNull(2000L) {
-                            try { distQuery.limit(5).get().await() } catch (e: Exception) { null }
-                        } ?: try { distQuery.limit(5).get(Source.CACHE).await() } catch (e: Exception) { null }
-
-                        if (fastSnap != null && !fastSnap.isEmpty) {
-                            val fastPosts = fastSnap.documents.mapNotNull { doc ->
-                                convertToNewsPost(doc.id, doc.data ?: emptyMap())
-                            }.filter { post ->
-                                Constants.isDistrictMatch(post.district, district) ||
-                                post.categories.any { Constants.isDistrictMatch(it, district) }
-                            }.sortedByDescending { it.timestamp }.distinctBy { it.id }
-                            if (fastPosts.isNotEmpty() && _news.value.isEmpty()) {
-                                _news.value = fastPosts
-                                _loading.value = false
-                                Log.d("LocalNewsFeedVM", "🚀 Fast Path (< 300ms) displayed " + fastPosts.size + " posts for " + district)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.d("LocalNewsFeedVM", "Fast path fetch skipped: " + e.message)
-                    }
-                }
-
+                // 🚀 2. LIVE FETCH: తాజా జిల్లా వార్తలను ఫైర్‌స్టోర్ నుండి తెచ్చి ఫీడ్‌ను అప్‌డేట్ చేయి
                 val distDeferred = async(Dispatchers.IO) {
-                    kotlinx.coroutines.withTimeoutOrNull(6000L) {
-                        try { distQuery.get().await() } catch (e: Exception) {
-                            Log.e("LocalNewsFeedVM", "distQuery error: ${e.message}")
-                            null
+                    try {
+                        kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                            distQuery.get().await()
                         }
+                    } catch (e: Exception) {
+                        Log.e("LocalNewsFeedVM", "distQuery error: ${e.message}")
+                        null
                     } ?: try {
                         distQuery.get(Source.CACHE).await()
                     } catch (e: Exception) { null }
                 }
                 val catDeferred = async(Dispatchers.IO) {
-                    kotlinx.coroutines.withTimeoutOrNull(6000L) {
-                        try { catQuery.get().await() } catch (e: Exception) {
-                            Log.e("LocalNewsFeedVM", "catQuery error: ${e.message}")
-                            null
+                    try {
+                        kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                            catQuery.get().await()
                         }
+                    } catch (e: Exception) {
+                        Log.e("LocalNewsFeedVM", "catQuery error: ${e.message}")
+                        null
                     } ?: try {
                         catQuery.get(Source.CACHE).await()
                     } catch (e: Exception) { null }
@@ -456,7 +417,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     convertToNewsPost(doc.id, doc.data ?: emptyMap())
                 } ?: emptyList()
 
-                // 🎯 STRICT DISTRICT FILTER: ఎంపిక చేసిన జిల్లా లేదా దాని పేర్లకు (aliases) సరిపోలే వార్తలు మాత్రమే కనిపించాలి
+                // 🎯 STRICT DISTRICT FILTER: ఎంపిక చేసిన జిల్లా వార్తలు మాత్రమే
                 val rawPosts = (distPosts + catPosts).distinctBy { it.id }
                 val finalPosts = rawPosts.filter { post ->
                     Constants.isDistrictMatch(post.district, district) ||

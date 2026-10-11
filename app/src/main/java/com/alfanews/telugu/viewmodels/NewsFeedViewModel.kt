@@ -391,8 +391,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     } catch (e: Exception) { null }
                 } else null
 
-                // ⚡ 1. TIME-BOUND SMART CACHE (< 5 HOURS):
-                // If feed is currently empty, instantly load cache if the latest post was published < 5 hours ago (< 20ms)
+                // ⚡ 1. INSTANT LOCAL CACHE: ఫోన్‌లో క్యాష్ ఉంటే ఏ ఆంక్షలు లేకుండా వెంటనే (< 30ms) స్క్రీన్‌పై చూపించు
                 if (_news.value.isEmpty()) {
                     try {
                         val cachedSnap = FirebaseService.db.collection("news")
@@ -402,90 +401,43 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                             .get(Source.CACHE)
                             .await()
                         val cachedPosts = cachedSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
-                        val now = System.currentTimeMillis()
-                        val fiveHoursAgo = now - (5L * 3600L * 1000L)
-                        val latestCachedTime = cachedPosts.maxOfOrNull { it.timestamp } ?: 0L
-                        if (latestCachedTime >= fiveHoursAgo && cachedPosts.isNotEmpty()) {
+                        if (cachedPosts.isNotEmpty()) {
                             val stateFilteredCache = cachedPosts.filter { isPostAllowedForState(it, userState) }
-                            val immediateCached = if (stateFilteredCache.isNotEmpty()) stateFilteredCache else cachedPosts
-                            val combinedCached = if (initialTargetPost != null) {
-                                (listOf(initialTargetPost) + immediateCached).distinctBy { it.id }
-                            } else immediateCached
-                            if (combinedCached.isNotEmpty() && _news.value.isEmpty()) {
-                                _news.value = combinedCached
+                            val immediate = if (stateFilteredCache.isNotEmpty()) stateFilteredCache else cachedPosts
+                            val combined = if (initialTargetPost != null) {
+                                (listOf(initialTargetPost) + immediate).distinctBy { it.id }
+                            } else immediate
+                            if (combined.isNotEmpty() && _news.value.isEmpty()) {
+                                _news.value = combined
                                 _loading.value = false
-                                Log.d("NewsFeedVM", "⚡ Smart Cache Hit (< 5h): " + combinedCached.size + " posts displayed in < 20ms")
-                            }
-                        } else {
-                            Log.d("NewsFeedVM", "Local cache older than 5 hours (latest: " + latestCachedTime + ", cutoff: " + fiveHoursAgo + "), bypassing stale cache")
-                        }
-                    } catch (e: Exception) {
-                        Log.d("NewsFeedVM", "Cache check skipped: " + e.message)
-                    }
-                }
-
-                // 🚀 2. FAST PATH: Quick top 5 news query (< 300ms)
-                // If feed is still empty, query top 5 with default get() [checks server + local cache seamlessly]
-                if (_news.value.isEmpty()) {
-                    try {
-                        val fastQuery = FirebaseService.db.collection("news")
-                            .whereEqualTo("approved", true)
-                            .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(5)
-                        val fastSnap = kotlinx.coroutines.withTimeoutOrNull(2000L) {
-                            try { fastQuery.get().await() } catch (e: Exception) { null }
-                        } ?: try { fastQuery.get(Source.CACHE).await() } catch (e: Exception) { null }
-
-                        if (fastSnap != null && !fastSnap.isEmpty) {
-                            val fastPosts = fastSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
-                            val fastStateFiltered = fastPosts.filter { isPostAllowedForState(it, userState) }
-                            val fastFinal = if (fastStateFiltered.isNotEmpty()) fastStateFiltered else fastPosts
-                            val fastCombined = if (initialTargetPost != null) {
-                                (listOf(initialTargetPost) + fastFinal).distinctBy { it.id }
-                            } else fastFinal
-                            if (fastCombined.isNotEmpty() && _news.value.isEmpty()) {
-                                _news.value = fastCombined
-                                _loading.value = false
-                                Log.d("NewsFeedVM", "🚀 Fast Path (< 300ms) displayed " + fastCombined.size + " posts")
+                                Log.d("NewsFeedVM", "⚡ Instant Cache Display: ${combined.size} posts")
                             }
                         }
                     } catch (e: Exception) {
-                        Log.e("NewsFeedVM", "Fast path fetch error: " + e.message)
+                        Log.d("NewsFeedVM", "Cache check: ${e.message}")
                     }
                 }
 
-                // 3. ⚡ FULL PRIMARY QUERY (20 items):
-                // Full batch query directly from Firestore to ensure feed has 20+ articles and smooth pagination.
-                // Uses default query.get() with cache fallback so it NEVER hangs indefinitely!
+                // 🚀 2. LIVE FETCH: తాజా వార్తలను సర్వర్/ఫైర్‌స్టోర్ నుండి తెచ్చి ఫీడ్‌ను అప్‌డేట్ చేయి
                 val mainQuery = FirebaseService.db.collection("news")
                     .whereEqualTo("approved", true)
                     .orderBy("timestamp", Query.Direction.DESCENDING)
                     .limit(FETCH_LIMIT.toLong())
 
-                val mainSnap = kotlinx.coroutines.withTimeoutOrNull(6000L) {
-                    try { 
-                        mainQuery.get().await() 
-                    } catch (e: Exception) { 
-                        Log.e("NewsFeedVM", "Primary query error: ${e.message}", e)
-                        null 
+                val mainSnap = try {
+                    kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                        mainQuery.get().await()
                     }
+                } catch (e: Exception) {
+                    Log.e("NewsFeedVM", "Live query error: ${e.message}")
+                    null
                 } ?: try {
-                    // Cache fallback if network was slow during cold-start handshake
+                    // ನೆಟ್‌వర్క్ ఆలస్యమైతే క్యాష్ ఫాల్‌బ్యాక్
                     mainQuery.get(Source.CACHE).await()
                 } catch (e: Exception) { null }
 
                 var mainPosts = mainSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
-                if (mainPosts.isEmpty()) {
-                    // 🛡️ Silent instant fallback/retry
-                    val retrySnap = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                        try { mainQuery.get().await() } catch (e: Exception) { null }
-                    }
-                    if (retrySnap != null && !retrySnap.isEmpty) {
-                        mainPosts = retrySnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
-                        mainCursor = retrySnap.documents.lastOrNull()
-                        prefCursor = mainCursor
-                    }
-                } else {
+                if (mainPosts.isNotEmpty()) {
                     mainCursor = mainSnap?.documents?.lastOrNull()
                     prefCursor = mainCursor
                 }
@@ -493,7 +445,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 val stateFiltered = mainPosts.filter { isPostAllowedForState(it, userState) }
                 val stateMain = if (stateFiltered.isNotEmpty()) stateFiltered else mainPosts
 
-                // 🚀 SHOW FRESH LIVE NEWS IMMEDIATELY! (< 300ms, zero spinner wait)
                 val combinedImmediate = if (initialTargetPost != null) {
                     (listOf(initialTargetPost) + stateMain).distinctBy { it.id }
                 } else {
