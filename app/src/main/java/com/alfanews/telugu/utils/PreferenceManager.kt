@@ -120,7 +120,16 @@ class PreferenceManager(context: Context) {
      * ఎంచుకున్న జిల్లా ఉంటే అది, లేకపోతే గుర్తించిన జిల్లా, అది కూడా లేకపోతే null.
      */
     fun getEffectiveDistrict(): String? {
-        return selectedDistrict ?: userDistrict ?: detectedDistrict
+        val dist = selectedDistrict ?: userDistrict ?: detectedDistrict
+        if (!dist.isNullOrBlank()) return dist
+        if (lastLat != 0.0 && lastLon != 0.0) {
+            val matched = com.alfanews.telugu.services.WeatherService.getClosestDistrictFromCoords(lastLat, lastLon)
+            if (matched != null) {
+                detectedDistrict = matched
+                return matched
+            }
+        }
+        return null
     }
 
     var shouldShowOnboarding: Boolean

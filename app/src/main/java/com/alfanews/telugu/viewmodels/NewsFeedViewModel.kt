@@ -272,10 +272,22 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    private var activeCurrentUser: User? = null
+
+    fun prependPost(post: NewsPost) {
+        _news.value = (listOf(post) + _news.value).distinctBy { it.id }
+        _loading.value = false
+    }
+
     /**
      * 🛑 STRICT STATE ISOLATION (తెలంగాణ & ఆంధ్రప్రదేశ్ వార్తల విభజన):
      */
     private fun isPostAllowedForState(post: NewsPost, userState: String?): Boolean {
+        // 0. రచయిత/రిపోర్టర్ స్వంత పోస్ట్ అయితే ఎల్లప్పుడూ అనుమతించు
+        if (activeCurrentUser?.id != null && (post.originalReporterId == activeCurrentUser?.id || post.reporter.id == activeCurrentUser?.id)) {
+            return true
+        }
+
         if (userState.isNullOrBlank() || userState == "BOTH") return true
 
         // 1. పోస్ట్ నేరుగా వేరొక రాష్ట్రానికి చెందినదిగా గుర్తిస్తే తిరస్కరించు (రాజకీయాలు, నాయకులు, సంస్థలు, కంటెంట్)
@@ -335,10 +347,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         return true
     }
 
-    private val FETCH_LIMIT = 25
+    private val FETCH_LIMIT = 50
 
     fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null, forceRefresh: Boolean = false) {
         currentLanguage = language
+        activeCurrentUser = currentUser
         
         // 🛡️ RACE & CANCEL SHIELD: ఆల్రెడీ ఫెచ్ అవుతుంటే డూప్లికేట్ కాల్స్ వల్ల రద్దవకుండా రక్షణ
         if (isFetching && currentFetchJob?.isActive == true && !forceRefresh) {
@@ -361,7 +374,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
         currentFetchJob = viewModelScope.launch {
             try {
-                val district = prefs.selectedDistrict ?: currentUser?.district ?: prefs.detectedDistrict
+                val district = prefs.getEffectiveDistrict() ?: currentUser?.district?.takeIf { it.isNotBlank() }
                 _userDistrict.value = district
                 val userState = mapDistrictToState(district)
 
@@ -385,7 +398,23 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     } catch (e: Exception) { null }
                 } else null
 
-                // ⚡ 1. SMART INSTANT CACHE: ఫోన్‌లో లోకల్ క్యాష్ ఉంటే ఏ ఆలస్యం లేకుండా వెంటనే (< 20ms) స్క్రీన్‌పై చూపించు
+                // 🌟 2. AUTHOR / REPORTER PRIORITY INJECTION:
+                // లాగిన్ అయిన రిపోర్టర్/వినియోగదారుడి తాజా పోస్ట్‌లను ముందుగా తెచ్చి ఫీడ్ పైన చూపిస్తాం
+                val myPosts = if (currentUser != null && !currentUser.id.isNullOrBlank()) {
+                    try {
+                        val myQuery = FirebaseService.db.collection("news")
+                            .whereEqualTo("originalReporterId", currentUser.id)
+                            .whereEqualTo("approved", true)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(5)
+                        val mySnap = kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                            try { myQuery.get().await() } catch (e: Exception) { null }
+                        } ?: try { myQuery.get(Source.CACHE).await() } catch (e: Exception) { null }
+                        mySnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
+                    } catch (e: Exception) { emptyList() }
+                } else emptyList()
+
+                // ⚡ 3. SMART INSTANT CACHE: ఫోన్‌లో లోకల్ క్యాష్ ఉంటే ఏ ఆలస్యం లేకుండా వెంటనే (< 20ms) స్క్రీన్‌పై చూపించు
                 if (_news.value.isEmpty()) {
                     try {
                         val cachedSnap = FirebaseService.db.collection("news")
@@ -398,9 +427,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         if (cachedPosts.isNotEmpty()) {
                             val stateFilteredCache = cachedPosts.filter { isPostAllowedForState(it, userState) }
                             val immediate = if (stateFilteredCache.isNotEmpty()) stateFilteredCache else cachedPosts
-                            val combined = if (initialTargetPost != null) {
-                                (listOf(initialTargetPost) + immediate).distinctBy { it.id }
-                            } else immediate
+                            val combined = ((if (initialTargetPost != null) listOf(initialTargetPost) else emptyList()) + myPosts + immediate).distinctBy { it.id }
                             if (combined.isNotEmpty() && _news.value.isEmpty()) {
                                 _news.value = combined
                                 _loading.value = false
@@ -412,43 +439,14 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
 
-                // 🚀 2. FAST PATH: కొత్తగా ఇన్‌స్టాల్ చేసుకున్న వారికి టాప్ 5 వార్తలు వేగంగా (< 300ms) చూపించు
-                if (_news.value.isEmpty()) {
-                    try {
-                        val fastQuery = FirebaseService.db.collection("news")
-                            .whereEqualTo("approved", true)
-                            .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(5)
-                        val fastSnap = kotlinx.coroutines.withTimeoutOrNull(2500L) {
-                            try { fastQuery.get().await() } catch (e: Exception) { null }
-                        } ?: try { fastQuery.get(Source.CACHE).await() } catch (e: Exception) { null }
-
-                        if (fastSnap != null && !fastSnap.isEmpty) {
-                            val fastPosts = fastSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
-                            val fastStateFiltered = fastPosts.filter { isPostAllowedForState(it, userState) }
-                            val fastFinal = if (fastStateFiltered.isNotEmpty()) fastStateFiltered else fastPosts
-                            val fastCombined = if (initialTargetPost != null) {
-                                (listOf(initialTargetPost) + fastFinal).distinctBy { it.id }
-                            } else fastFinal
-                            if (fastCombined.isNotEmpty() && _news.value.isEmpty()) {
-                                _news.value = fastCombined
-                                _loading.value = false
-                                Log.d("NewsFeedVM", "🚀 Fast Path (< 300ms) displayed ${fastCombined.size} posts")
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e("NewsFeedVM", "Fast path fetch error: ${e.message}")
-                    }
-                }
-
-                // 3. ⚡ FULL PRIMARY QUERY (25 items):
-                // సర్వర్ నుండి పూర్తి 25 వార్తలను తెచ్చి క్యాష్ మరియు ఫీడ్‌ను అప్‌డేట్ చేయి
+                // 4. ⚡ FULL PRIMARY SERVER QUERY (3.5s Lean Timeout - no cascading delays):
+                // సర్వర్ నుండి పూర్తి తాజా వార్తలను తెచ్చి క్యాష్ మరియు ఫీడ్‌ను అప్‌డేట్ చేయి
                 val mainQuery = FirebaseService.db.collection("news")
                     .whereEqualTo("approved", true)
                     .orderBy("timestamp", Query.Direction.DESCENDING)
                     .limit(FETCH_LIMIT.toLong())
 
-                val mainSnap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                val mainSnap = kotlinx.coroutines.withTimeoutOrNull(3500L) {
                     try { 
                         mainQuery.get().await() 
                     } catch (e: Exception) { 
@@ -456,35 +454,19 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         null 
                     }
                 } ?: try {
-                    // నెట్‌వర్క్ హ్యాండ్‌షేక్ ఆలస్యమైతే లోకల్ క్యాష్ ఫాల్‌బ్యాక్
+                    // నెట్‌వర్క్ ఆలస్యమైతే లోకల్ క్యాష్ ఫాల్‌బ్యాక్
                     mainQuery.get(Source.CACHE).await()
                 } catch (e: Exception) { null }
 
                 var mainPosts = mainSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
-                if (mainPosts.isEmpty()) {
-                    // 🛡️ Silent instant fallback/retry for cold-start network handshake hiccups
-                    val retrySnap = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                        try { mainQuery.get().await() } catch (e: Exception) { null }
-                    }
-                    if (retrySnap != null && !retrySnap.isEmpty) {
-                        mainPosts = retrySnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
-                        mainCursor = retrySnap.documents.lastOrNull()
-                        prefCursor = mainCursor
-                    }
-                } else {
-                    mainCursor = mainSnap?.documents?.lastOrNull()
-                    prefCursor = mainCursor
-                }
+                mainCursor = mainSnap?.documents?.lastOrNull()
+                prefCursor = mainCursor
 
                 val stateFiltered = mainPosts.filter { isPostAllowedForState(it, userState) }
                 val stateMain = if (stateFiltered.isNotEmpty()) stateFiltered else mainPosts
 
                 // 🚀 SHOW FRESH LIVE NEWS IMMEDIATELY!
-                val combinedImmediate = if (initialTargetPost != null) {
-                    (listOf(initialTargetPost) + stateMain).distinctBy { it.id }
-                } else {
-                    stateMain
-                }
+                val combinedImmediate = ((if (initialTargetPost != null) listOf(initialTargetPost) else emptyList()) + myPosts + stateMain).distinctBy { it.id }
 
                 if (combinedImmediate.isNotEmpty()) {
                     _news.value = combinedImmediate
@@ -493,7 +475,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     prefs.incrementPostViewCounts(validIds)
                 }
 
-                // 3. 🔄 BACKGROUND ENHANCEMENTS:
+                // 5. 🔄 BACKGROUND ENHANCEMENTS:
                 // Blend district news, surveys, and greetings in background without blocking the UI
                 launch {
                     try {
@@ -517,7 +499,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                     .orderBy("timestamp", Query.Direction.DESCENDING)
                                     .limit(10)
                             }
-                            val localSnap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                            val localSnap = kotlinx.coroutines.withTimeoutOrNull(3500L) {
                                 try { localQuery.get().await() } catch (e: Exception) { null }
                             }
                             val rawLocal = localSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()

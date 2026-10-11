@@ -273,6 +273,12 @@ fun PostNewsPageView(
                     val serverMessage = result["message"] as? String
                     val newPostId = result["postId"] as? String ?: postToEdit?.id ?: ""
 
+                    if (district.isNotBlank() && !isGlobalNews) {
+                        try {
+                            com.alfanews.telugu.utils.PreferenceManager.getInstance(context).selectedDistrict = district
+                        } catch (e: Exception) { }
+                    }
+
                     if (postToEdit != null) {
                         Toast.makeText(context, "వార్త విజయవంతంగా నవీకరించబడింది!", Toast.LENGTH_LONG).show()
                         onActionComplete(postToEdit.id)

@@ -222,11 +222,26 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         loadNews(Language.TELUGU, currentUser)
     }
 
+    fun prependPost(post: NewsPost) {
+        _news.value = (listOf(post) + _news.value).distinctBy { it.id }
+        _loading.value = false
+        _shouldScrollToTop.value = true
+    }
+
     private fun findMatchingDistrict(name: String?): String? {
-        if (name == null) return null
-        return Constants.ALL_DISTRICTS.find { 
-            it.contains(name, ignoreCase = true) || name.contains(it, ignoreCase = true)
+        if (name.isNullOrBlank()) return null
+        val clean = name.trim()
+        Constants.ALL_DISTRICTS.find { 
+            it.contains(clean, ignoreCase = true) || clean.contains(it, ignoreCase = true)
+        }?.let { return it }
+        com.alfanews.telugu.services.WeatherService.getTeluguNameForEnglish(clean)?.let { return it }
+        for (d in Constants.ALL_DISTRICTS) {
+            val aliases = Constants.getDistrictAliases(d)
+            if (aliases.any { it.contains(clean, ignoreCase = true) || clean.contains(it, ignoreCase = true) }) {
+                return d
+            }
         }
+        return null
     }
 
     private fun getDistrictAliases(district: String?): List<String> {
@@ -300,7 +315,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     fun loadNews(language: Language, currentUser: User?, forceRefresh: Boolean = false) {
         currentLanguage = language
         val userDist = currentUser?.district?.takeIf { it.isNotBlank() } ?: prefs.userDistrict
-        val district = _activeDistrict.value ?: prefs.selectedDistrict ?: userDist ?: prefs.detectedDistrict ?: "హైదరాబాద్"
+        val district = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: userDist ?: "హైదరాబాద్"
         if (_activeDistrict.value != district) {
             _activeDistrict.value = district
         }
@@ -362,37 +377,23 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     }
                 }
 
-                // 🚀 2. FAST PATH: కొత్త యూజర్లకు టాప్ 5 స్థానిక వార్తలను వేగంగా (< 300ms) చూపించు
-                if (_news.value.isEmpty()) {
+                // 🌟 2. AUTHOR / REPORTER PRIORITY INJECTION:
+                // లాగిన్ అయిన రిపోర్టర్/వినియోగదారుడి తాజా పోస్ట్‌లను ముందుగా తెచ్చి ఫీడ్ పైన చూపిస్తాం
+                val myPosts = if (currentUser != null && !currentUser.id.isNullOrBlank()) {
                     try {
-                        val fastDistQuery = (if (cleanAliases.size > 1) {
-                            newsRef.whereEqualTo("approved", true).whereIn("district", cleanAliases)
-                        } else if (cleanAliases.size == 1) {
-                            newsRef.whereEqualTo("approved", true).whereEqualTo("district", cleanAliases[0])
-                        } else {
-                            newsRef.whereEqualTo("approved", true).whereEqualTo("district", district)
-                        })
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(5)
+                        val myQuery = newsRef
+                            .whereEqualTo("originalReporterId", currentUser.id)
+                            .whereEqualTo("approved", true)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(5)
+                        val mySnap = kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                            try { myQuery.get().await() } catch (e: Exception) { null }
+                        } ?: try { myQuery.get(Source.CACHE).await() } catch (e: Exception) { null }
+                        mySnap?.documents?.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) } ?: emptyList()
+                    } catch (e: Exception) { emptyList() }
+                } else emptyList()
 
-                        val fastSnap = kotlinx.coroutines.withTimeoutOrNull(2500L) {
-                            try { fastDistQuery.get().await() } catch (e: Exception) { null }
-                        } ?: try { fastDistQuery.get(Source.CACHE).await() } catch (e: Exception) { null }
-
-                        if (fastSnap != null && !fastSnap.isEmpty) {
-                            val fastPosts = fastSnap.documents.mapNotNull { doc ->
-                                convertToNewsPost(doc.id, doc.data ?: emptyMap())
-                            }
-                            if (fastPosts.isNotEmpty() && _news.value.isEmpty()) {
-                                _news.value = fastPosts
-                                _loading.value = false
-                                Log.d("LocalNewsFeedVM", "🚀 Fast Path displayed ${fastPosts.size} posts")
-                            }
-                        }
-                    } catch (e: Exception) { }
-                }
-
-                // 3. ⚡ PARALLEL FULL QUERY: సర్వర్ నుండి జిల్లా మరియు క్యాటగిరీస్ వార్తలను లైవ్‌గా తెచ్చు
+                // 3. ⚡ PARALLEL FULL QUERY (3.5s Lean Timeout - no cascading delays):
                 val distQuery = (if (cleanAliases.size > 1) {
                     newsRef.whereEqualTo("approved", true).whereIn("district", cleanAliases)
                 } else if (cleanAliases.size == 1) {
@@ -414,12 +415,12 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 .limit(pageSize.toLong())
 
                 val distDeferred = async(Dispatchers.IO) {
-                    kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                    kotlinx.coroutines.withTimeoutOrNull(3500L) {
                         try { distQuery.get().await() } catch (e: Exception) { null }
                     } ?: try { distQuery.get(Source.CACHE).await() } catch (e: Exception) { null }
                 }
                 val catDeferred = async(Dispatchers.IO) {
-                    kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                    kotlinx.coroutines.withTimeoutOrNull(3500L) {
                         try { catQuery.get().await() } catch (e: Exception) { null }
                     } ?: try { catQuery.get(Source.CACHE).await() } catch (e: Exception) { null }
                 }
@@ -435,11 +436,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     convertToNewsPost(doc.id, doc.data ?: emptyMap())
                 } ?: emptyList()
 
-                var finalPosts = (distPosts + catPosts).distinctBy { it.id }.sortedByDescending { it.timestamp }
+                var finalPosts = (myPosts + distPosts + catPosts).distinctBy { it.id }.sortedByDescending { it.timestamp }
 
                 // 🛡️ ZERO-EMPTY GUARANTEE: ఒకవేళ ఆ జిల్లాకు నేరుగా వార్తలు లేకుంటే తాజా రాష్ట్ర వార్తలను చూపిస్తాం
                 if (finalPosts.isEmpty()) {
-                    val fallbackSnap = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                    val fallbackSnap = kotlinx.coroutines.withTimeoutOrNull(2000L) {
                         try {
                             newsRef.whereEqualTo("approved", true)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
@@ -457,7 +458,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         convertToNewsPost(doc.id, doc.data ?: emptyMap())
                     } ?: emptyList()
                     if (fallbackPosts.isNotEmpty()) {
-                        finalPosts = fallbackPosts
+                        finalPosts = (myPosts + fallbackPosts).distinctBy { it.id }
                     }
                 }
 

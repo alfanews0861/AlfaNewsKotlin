@@ -427,6 +427,26 @@ object WeatherService {
     }
 
     /**
+     * GPS కోఆర్డినేట్స్ (Latitude, Longitude) నుండి సమీప జిల్లాను 0ms లో గుర్తిస్తుంది.
+     */
+    fun getClosestDistrictFromCoords(lat: Double, lon: Double): String? {
+        if (lat == 0.0 || lon == 0.0) return null
+        var closestDistrict: String? = null
+        var minDistanceSq = Double.MAX_VALUE
+        for (district in Constants.ALL_DISTRICTS) {
+            val coords = DISTRICT_COORDINATES[district] ?: continue
+            val dLat = lat - coords.first
+            val dLon = lon - coords.second
+            val distSq = dLat * dLat + dLon * dLon
+            if (distSq < minDistanceSq) {
+                minDistanceSq = distSq
+                closestDistrict = district
+            }
+        }
+        return if (minDistanceSq < 3.0) closestDistrict else null
+    }
+
+    /**
      * జిల్లా పేరు లేదా కోఆర్డినేట్స్ ఆధారంగా నిజమైన వాతావరణ సమాచారాన్ని తెస్తుంది.
      */
     data class WeatherData(

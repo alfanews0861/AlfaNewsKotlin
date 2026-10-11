@@ -502,6 +502,10 @@ fun MainScreen(
                             onActionComplete = { postId: String -> 
                                 showPostNewsPage = false
                                 editingNewsPost = null
+
+                                // 🔄 ఫీడ్‌లను వెంటనే రిఫ్రెష్ చేసి కొత్త వార్త కనిపించేలా చేయండి
+                                newsFeedViewModel.loadNews(language, user, forceRefresh = true)
+                                localNewsFeedViewModel?.loadNews(language, user, forceRefresh = true)
                                 
                                 val isStaff = listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK).contains(user.role)
                                 
