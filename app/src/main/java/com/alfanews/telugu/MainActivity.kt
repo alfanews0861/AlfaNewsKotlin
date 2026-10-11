@@ -48,6 +48,7 @@ import com.android.installreferrer.api.InstallReferrerClient
 import com.android.installreferrer.api.InstallReferrerStateListener
 import com.android.installreferrer.api.ReferrerDetails
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import coil3.SingletonImageLoader
@@ -122,7 +123,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 FirebaseService.db.collection("news").limit(1).get()
-            } catch (_: Exception) {}
+            } catch (e: Exception) {}
         }
         AdMobService.initialize(this)
 

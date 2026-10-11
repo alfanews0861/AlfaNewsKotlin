@@ -384,7 +384,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             }
                         } else {
                             // If district-specific news was not in general cache, try direct query on cache too
-                            val directSnap = try { distQuery.limit(10).get(Source.CACHE).await() } catch (_: Exception) { null }
+                            val directSnap = try { distQuery.limit(10).get(Source.CACHE).await() } catch (e: Exception) { null }
                             val directPosts = directSnap?.documents?.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) } ?: emptyList()
                             val directLatest = directPosts.maxOfOrNull { it.timestamp } ?: 0L
                             if (directLatest >= fiveHoursAgo && directPosts.isNotEmpty() && _news.value.isEmpty()) {
