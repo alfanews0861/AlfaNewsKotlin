@@ -4,7 +4,7 @@ import { NewsPost, Language, User, TS_DISTRICTS, AP_DISTRICTS } from '../types';
 import { db } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 
-const { collection, query, where, orderBy, limit, getDocs, startAfter } = _firestore as any;
+const { collection, query, where, orderBy, limit, getDocs, startAfter, onSnapshot } = _firestore as any;
 
 interface LocalNewsFeedProps {
   language: Language;
@@ -208,6 +208,67 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
   
   useEffect(() => { 
     fetchLocalNews(true); 
+
+    // 📡 Real-time listener for active district news stream
+    const newsRef = collection(db, 'news');
+    let uniqueTerms: string[] = [];
+    if (activeDistrict) {
+        const searchTerms = [activeDistrict];
+        if (activeDistrict.includes('నెల్లూరు') || activeDistrict.includes('Nellore')) {
+            searchTerms.push('శ్రీ పొట్టి శ్రీరాములు నెల్లూరు', 'నెల్లూరు', 'Nellore', 'SPSR Nellore');
+        } else if (activeDistrict.includes('విజయనగరం') || activeDistrict.includes('Vizianagaram')) {
+            searchTerms.push('విజయనగరం', 'Vizianagaram');
+        } else if (activeDistrict.includes('హైదరాబాద్')) {
+            searchTerms.push('Hyderabad', 'సికింద్రాబాద్', 'సైబరాబాద్');
+        } else if (activeDistrict.includes('రంగారెడ్డి')) {
+            searchTerms.push('Rangareddy', 'Ranga Reddy');
+        } else if (activeDistrict.includes('విశాఖపట్నం')) {
+            searchTerms.push('Visakhapatnam', 'Vizag', 'వైజాగ్');
+        } else if (activeDistrict.includes('ఎన్టీఆర్')) {
+            searchTerms.push('విజయవాడ', 'Vijayawada', 'NTR');
+        } else if (activeDistrict.includes('హన్మకొండ')) {
+            searchTerms.push('వరంగల్ అర్బన్', 'Hanamkonda');
+        } else if (activeDistrict.includes('కడప') || activeDistrict.includes('YSR')) {
+            searchTerms.push('వైఎస్ఆర్ కడప', 'వైఎస్సార్ కడప', 'కడప', 'Kadapa', 'YSR Kadapa');
+        } else if (activeDistrict.includes('కర్నూలు')) {
+            searchTerms.push('కర్నూలు', 'Kurnool');
+        } else if (activeDistrict.includes('గుంటూరు')) {
+            searchTerms.push('గుంటూరు', 'Guntur');
+        }
+        uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 10);
+    }
+
+    const constraints: any[] = [where('approved', '==', true)];
+    if (uniqueTerms.length > 0) {
+        constraints.push(where('district', 'in', uniqueTerms));
+    }
+    constraints.push(orderBy('timestamp', 'desc'));
+    constraints.push(limit(10));
+
+    const q = query(newsRef, ...constraints);
+    const unsubscribe = onSnapshot(q, (snap: any) => {
+        if (!snap || snap.empty) return;
+        const livePosts = snap.docs.map((d: any) => ({
+            id: d.id,
+            ...d.data(),
+            timestamp: getTimestampValue(d.data().timestamp)
+        } as NewsPost));
+
+        setNews(prev => {
+            const liveIds = new Set(livePosts.map((p: NewsPost) => p.id));
+            const olderPosts = prev.filter((p: NewsPost) => !liveIds.has(p.id));
+            const combined = [...livePosts, ...olderPosts];
+            combined.sort((a: NewsPost, b: NewsPost) => b.timestamp - a.timestamp);
+            return combined;
+        });
+        setLoading(false);
+    }, (err: any) => {
+        console.warn('Realtime local news listener error:', err);
+    });
+
+    return () => {
+        if (typeof unsubscribe === 'function') unsubscribe();
+    };
   }, [activeDistrict]);
 
   useEffect(() => {

@@ -18,7 +18,9 @@ import com.alfanews.telugu.utils.Constants
 import com.alfanews.telugu.utils.LocationHierarchyManager
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.Source
 import com.google.gson.Gson
@@ -38,6 +40,7 @@ import java.util.Locale
 class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = PreferenceManager.getInstance(application)
     private var currentLanguage: Language = Language.TELUGU
+    private var activeCurrentUser: User? = null
     
     private val _news = MutableStateFlow<List<NewsPost>>(emptyList())
     val news: StateFlow<List<NewsPost>> = _news.asStateFlow()
@@ -66,6 +69,15 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     private val _shouldScrollToTop = MutableStateFlow(false)
     val shouldScrollToTop: StateFlow<Boolean> = _shouldScrollToTop.asStateFlow()
 
+    // 📡 REAL-TIME LISTENERS & STATE
+    private var distListenerRegistration: ListenerRegistration? = null
+    private var catListenerRegistration: ListenerRegistration? = null
+    private var reporterListenerRegistration: ListenerRegistration? = null
+
+    private var liveDistPosts: List<NewsPost> = emptyList()
+    private var liveCatPosts: List<NewsPost> = emptyList()
+    private var liveReporterPosts: List<NewsPost> = emptyList()
+
     init {
         val initialDist = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: prefs.userDistrict ?: "హైదరాబాద్"
         _activeDistrict.value = initialDist
@@ -74,10 +86,16 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             prefs.districtChanges.collectLatest { district ->
                 if (district != null && district != _activeDistrict.value) {
                     _activeDistrict.value = district
+                    stopRealtimeNewsListeners()
+                    liveDistPosts = emptyList()
+                    liveCatPosts = emptyList()
+                    liveReporterPosts = emptyList()
                     _hasMore.value = true
                     lastDocument = null
                     isFetching = false
-                    loadNews(Language.TELUGU, null)
+                    _news.value = emptyList()
+                    _loading.value = true
+                    loadNews(Language.TELUGU, activeCurrentUser, forceRefresh = true)
                 }
             }
         }
@@ -97,21 +115,28 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     private var consecutiveEmptyLoads = 0
     
     fun setDistrict(district: String) {
-        if (prefs.selectedDistrict == district && _activeDistrict.value == district) return
+        if (prefs.selectedDistrict == district && _activeDistrict.value == district) {
+            startRealtimeNewsListeners(district, activeCurrentUser)
+            return
+        }
         val oldDistrict = prefs.selectedDistrict ?: prefs.detectedDistrict
         prefs.selectedDistrict = district
         _activeDistrict.value = district
         
-        if (_news.value.isEmpty()) {
-            _loading.value = true
-        }
+        stopRealtimeNewsListeners()
+        liveDistPosts = emptyList()
+        liveCatPosts = emptyList()
+        liveReporterPosts = emptyList()
         _hasMore.value = true
         lastDocument = null
+        _news.value = emptyList()
+        _loading.value = true
+        
         AnalyticsService.logDistrictSelected(district, oldDistrict)
         viewModelScope.launch {
             NotificationHelper.syncDistrictTopic(getApplication(), district)
         }
-        loadNews(Language.TELUGU, null, forceRefresh = true) 
+        loadNews(Language.TELUGU, activeCurrentUser, forceRefresh = true) 
     }
     
     @SuppressLint("MissingPermission")
@@ -216,10 +241,167 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         _activeDistrict.value = district
         _loading.value = false
         _isDetecting.value = false
+        stopRealtimeNewsListeners()
+        liveDistPosts = emptyList()
+        liveCatPosts = emptyList()
+        liveReporterPosts = emptyList()
+        lastDocument = null
+        _hasMore.value = true
+        _news.value = emptyList()
+        _loading.value = true
         viewModelScope.launch {
             NotificationHelper.syncDistrictTopic(getApplication(), prefs.getEffectiveDistrict())
         }
-        loadNews(Language.TELUGU, currentUser)
+        loadNews(Language.TELUGU, currentUser, forceRefresh = true)
+    }
+
+    private fun stopRealtimeNewsListeners() {
+        distListenerRegistration?.remove()
+        distListenerRegistration = null
+        catListenerRegistration?.remove()
+        catListenerRegistration = null
+        reporterListenerRegistration?.remove()
+        reporterListenerRegistration = null
+    }
+
+    private fun startRealtimeNewsListeners(district: String, currentUser: User?) {
+        stopRealtimeNewsListeners()
+
+        val newsRef = FirebaseService.db.collection("news")
+        val cleanAliases = Constants.getDistrictAliases(district)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(10)
+
+        // 1. District Live Listener (Where district matches activeDistrict aliases and approved == true)
+        val distQuery = (if (cleanAliases.size > 1) {
+            newsRef.whereEqualTo("approved", true).whereIn("district", cleanAliases)
+        } else if (cleanAliases.size == 1) {
+            newsRef.whereEqualTo("approved", true).whereEqualTo("district", cleanAliases[0])
+        } else {
+            newsRef.whereEqualTo("approved", true).whereEqualTo("district", district)
+        })
+        .orderBy("timestamp", Query.Direction.DESCENDING)
+        .limit(pageSize.toLong())
+
+        distListenerRegistration = distQuery.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                Log.w("LocalNewsFeedVM", "Realtime distListener error: ${error.message}")
+                return@addSnapshotListener
+            }
+            if (snapshot != null) {
+                for (change in snapshot.documentChanges) {
+                    if (change.type == DocumentChange.Type.REMOVED) {
+                        val removedId = change.document.id
+                        _news.value = _news.value.filter { it.id != removedId }
+                    }
+                }
+                liveDistPosts = snapshot.documents.mapNotNull { doc ->
+                    convertToNewsPost(doc.id, doc.data ?: emptyMap())
+                }
+                if (lastDocument == null) {
+                    lastDocument = snapshot.documents.lastOrNull()
+                    _hasMore.value = snapshot.size() >= pageSize
+                }
+                mergeAndEmitRealtimePosts()
+            }
+        }
+
+        // 2. Category Live Listener (Where categories array contains activeDistrict aliases and approved == true)
+        val catQuery = (if (cleanAliases.size > 1) {
+            newsRef.whereEqualTo("approved", true).whereArrayContainsAny("categories", cleanAliases)
+        } else if (cleanAliases.size == 1) {
+            newsRef.whereEqualTo("approved", true).whereArrayContainsAny("categories", listOf(cleanAliases[0]))
+        } else {
+            newsRef.whereEqualTo("approved", true).whereArrayContainsAny("categories", listOf(district))
+        })
+        .orderBy("timestamp", Query.Direction.DESCENDING)
+        .limit(pageSize.toLong())
+
+        catListenerRegistration = catQuery.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                Log.w("LocalNewsFeedVM", "Realtime catListener error: ${error.message}")
+                return@addSnapshotListener
+            }
+            if (snapshot != null) {
+                for (change in snapshot.documentChanges) {
+                    if (change.type == DocumentChange.Type.REMOVED) {
+                        val removedId = change.document.id
+                        _news.value = _news.value.filter { it.id != removedId }
+                    }
+                }
+                liveCatPosts = snapshot.documents.mapNotNull { doc ->
+                    convertToNewsPost(doc.id, doc.data ?: emptyMap())
+                }
+                mergeAndEmitRealtimePosts()
+            }
+        }
+
+        // 3. Reporter's Own Posts Live Listener
+        val reporterId = currentUser?.id?.takeIf { it.isNotBlank() } ?: activeCurrentUser?.id?.takeIf { it.isNotBlank() }
+        if (!reporterId.isNullOrBlank()) {
+            val repQuery = newsRef
+                .whereEqualTo("originalReporterId", reporterId)
+                .whereEqualTo("approved", true)
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+                .limit(5)
+
+            reporterListenerRegistration = repQuery.addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.w("LocalNewsFeedVM", "Realtime reporterListener error: ${error.message}")
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    for (change in snapshot.documentChanges) {
+                        if (change.type == DocumentChange.Type.REMOVED) {
+                            val removedId = change.document.id
+                            _news.value = _news.value.filter { it.id != removedId }
+                        }
+                    }
+                    liveReporterPosts = snapshot.documents.mapNotNull { doc ->
+                        convertToNewsPost(doc.id, doc.data ?: emptyMap())
+                    }
+                    mergeAndEmitRealtimePosts()
+                }
+            }
+        }
+    }
+
+    @Synchronized
+    private fun mergeAndEmitRealtimePosts() {
+        val liveTopPosts = (liveReporterPosts + liveDistPosts + liveCatPosts)
+            .distinctBy { it.id }
+            .sortedByDescending { it.timestamp }
+
+        if (liveTopPosts.isNotEmpty()) {
+            val currentList = _news.value
+            val liveIds = liveTopPosts.map { it.id }.toSet()
+            
+            // Retain older paginated posts (loaded via loadMore)
+            val olderPosts = currentList.filter { it.id !in liveIds }
+            val merged = (liveTopPosts + olderPosts).distinctBy { it.id }.sortedByDescending { it.timestamp }
+
+            val hadPosts = currentList.isNotEmpty()
+            val oldTopId = currentList.firstOrNull()?.id
+            val newTopId = merged.firstOrNull()?.id
+            val isBrandNewTopPost = hadPosts && oldTopId != null && newTopId != null && oldTopId != newTopId
+
+            _news.value = merged
+            _loading.value = false
+
+            val currentTime = System.currentTimeMillis()
+            lastRefreshTimeLong = currentTime
+            _lastRefreshTime.value = currentTime
+
+            val validIds = merged.filter { it.type == "news" }.map { it.id }
+            prefs.incrementPostViewCounts(validIds)
+
+            // When a brand new post appears at the top (e.g. reporter just published and it became live)
+            if (isBrandNewTopPost || !hadPosts) {
+                _shouldScrollToTop.value = true
+            }
+        }
     }
 
     fun prependPost(post: NewsPost) {
@@ -314,7 +496,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
     fun loadNews(language: Language, currentUser: User?, forceRefresh: Boolean = false) {
         currentLanguage = language
-        val userDist = currentUser?.district?.takeIf { it.isNotBlank() } ?: prefs.userDistrict
+        if (currentUser != null) {
+            activeCurrentUser = currentUser
+        }
+        val userDist = currentUser?.district?.takeIf { it.isNotBlank() } ?: activeCurrentUser?.district?.takeIf { it.isNotBlank() } ?: prefs.userDistrict
         val district = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: userDist ?: "హైదరాబాద్"
         if (_activeDistrict.value != district) {
             _activeDistrict.value = district
@@ -332,6 +517,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         loadLocalAds(district) 
         loadJob?.cancel()
         isFetching = false
+        
+        // 📡 REALTIME STREAM: సక్రియ జిల్లాకు రియల్ టైమ్ లిజనర్‌లను కనెక్ట్ చేసి ఉంచుతాం
+        startRealtimeNewsListeners(district, currentUser ?: activeCurrentUser)
         
         loadJob = viewModelScope.launch {
             isFetching = true
@@ -573,6 +761,13 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
     
     fun onAppResume(language: Language, currentUser: User?) {
+        if (currentUser != null) {
+            activeCurrentUser = currentUser
+        }
+        val district = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: "హైదరాబాద్"
+        if (distListenerRegistration == null) {
+            startRealtimeNewsListeners(district, currentUser ?: activeCurrentUser)
+        }
         refreshIfStale(language, currentUser)
     }
 
@@ -581,6 +776,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         if (now - lastRefreshTimeLong > 30000 || _news.value.isEmpty()) {
             loadNews(language, currentUser, forceRefresh = true)
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        stopRealtimeNewsListeners()
     }
 
     /**
