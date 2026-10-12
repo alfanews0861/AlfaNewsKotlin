@@ -632,7 +632,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                     .orderBy("timestamp", Query.Direction.DESCENDING)
                             }
                             if (localCursor != null) {
-                                q = q.startAfter(localCursor!)
+                                q = q.startAfter(localCursor!!)
                             }
                             val snap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
                                 try { q.limit(10).get().await() } catch (e: Exception) { null }

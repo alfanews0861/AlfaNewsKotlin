@@ -28,6 +28,7 @@ jobs:
 
     - name: Build Release (AAB & APK)
       run: |
+        set -e -o pipefail
         ./gradlew bundleRelease assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
       env:
         RELEASE_STORE_FILE: release.jks
@@ -42,19 +43,20 @@ jobs:
         ERR_MSG=$(tail -n 35 build.log | tr '\r\n' '  ')
         echo "::error title=Gradle Build Failure::$ERR_MSG"
 
-    - name: Verify Signed APK
+    - name: Verify Signed APK and AAB
       run: |
         echo "Verifying build outputs..."
-        find app/build/outputs/ -type f || true
-        ls -la app/build/outputs/bundle/release/ || true
+        ls -la app/build/outputs/bundle/release/*.aab
+        ls -la app/build/outputs/apk/release/*.apk
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: release-artifacts
+        if-no-files-found: error
         path: |
           app/build/outputs/bundle/release/*.aab
-          app/build/outputs/apk/**/*.apk
+          app/build/outputs/apk/release/*.apk
 
     - name: Upload Build Log on Failure
       if: failure()
