@@ -39,8 +39,8 @@ jobs:
     - name: Print Build Error Log
       if: failure()
       run: |
-        echo "=== LAST 200 LINES OF BUILD LOG ==="
-        tail -n 200 build.log || true
+        ERR_MSG=$(tail -n 35 build.log | tr '\r\n' '  ')
+        echo "::error title=Gradle Build Failure::$ERR_MSG"
 
     - name: Verify Signed APK
       run: |
