@@ -60,6 +60,7 @@ fun ManagePostsPageView(
     val cleanCurrentPhone = currentUser?.phone?.replace("+91", "")?.trim()
     val cleanAuthPhone = FirebaseService.auth.currentUser?.phoneNumber?.replace("+91", "")?.trim()
     val isAdmin = role == UserRole.ADMIN || role == UserRole.EDITOR ||
+        role == UserRole.NEWS_DESK || role == UserRole.REGIONAL_INCHARGE ||
         cleanCurrentPhone == "9173811009" ||
         currentUser?.phone?.contains("9173811009") == true ||
         cleanAuthPhone == "9173811009" ||
@@ -72,6 +73,7 @@ fun ManagePostsPageView(
     var loading by remember(viewMode, uid) { mutableStateOf(true) }
     var refreshTrigger by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
+    var statusFilter by remember { mutableStateOf("ALL") } // "ALL", "LIVE", "PENDING", "REJECTED"
 
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
     var showStatusDetailDialog by remember { mutableStateOf<NewsPost?>(null) }
@@ -144,37 +146,62 @@ fun ManagePostsPageView(
             }
             listeners.add(reg)
         } else {
-            // 🛡️ REPORTER VIEW: కేవలం విలేకరి UID ఆధారంగా మాత్రమే
+            // 🛡️ REPORTER VIEW: కేవలం విలేకరి UID ఆధారంగా తాజా వార్తలు (Descending Order)
             if (uid.isBlank()) {
                 posts = emptyList()
                 loading = false
             } else {
-                val postsMap = mutableMapOf<String, NewsPost>()
+                val originalDocs = mutableMapOf<String, NewsPost>()
+                val reporterDocs = mutableMapOf<String, NewsPost>()
+                val reporterIdDocs = mutableMapOf<String, NewsPost>()
+                val userIdDocs = mutableMapOf<String, NewsPost>()
 
-                fun handleSnapshot(snapshot: QuerySnapshot?) {
+                fun updateCombinedPosts() {
                     loading = false
-                    if (snapshot == null) return
-                    for (doc in snapshot.documents) {
-                        val data = doc.data ?: continue
-                        postsMap[doc.id] = mapMapToNewsPost(doc.id, data)
-                    }
-                    posts = postsMap.values.sortedByDescending { it.timestamp }
+                    val combined = mutableMapOf<String, NewsPost>()
+                    combined.putAll(userIdDocs)
+                    combined.putAll(reporterIdDocs)
+                    combined.putAll(reporterDocs)
+                    combined.putAll(originalDocs)
+                    posts = combined.values.sortedByDescending { it.timestamp }
                 }
 
-                val qOriginal = FirebaseService.db.collection("news")
-                    .whereEqualTo("originalReporterId", uid)
-                    .limit(100)
-                listeners.add(qOriginal.addSnapshotListener { snap, _ -> handleSnapshot(snap) })
+                fun setupReporterQuery(field: String, targetMap: MutableMap<String, NewsPost>) {
+                    val qOrdered = FirebaseService.db.collection("news")
+                        .whereEqualTo(field, uid)
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(100)
 
-                val qReporter = FirebaseService.db.collection("news")
-                    .whereEqualTo("reporter.id", uid)
-                    .limit(100)
-                listeners.add(qReporter.addSnapshotListener { snap, _ -> handleSnapshot(snap) })
+                    val reg = qOrdered.addSnapshotListener { snap, err ->
+                        if (err != null) {
+                            android.util.Log.w("ManagePostsPageView", "Reporter query error on $field with order: ${err.message}, falling back")
+                            val qFallback = FirebaseService.db.collection("news")
+                                .whereEqualTo(field, uid)
+                                .limit(100)
+                            listeners.add(qFallback.addSnapshotListener { fbSnap, _ ->
+                                targetMap.clear()
+                                fbSnap?.documents?.forEach { doc ->
+                                    val data = doc.data ?: return@forEach
+                                    targetMap[doc.id] = mapMapToNewsPost(doc.id, data)
+                                }
+                                updateCombinedPosts()
+                            })
+                            return@addSnapshotListener
+                        }
+                        targetMap.clear()
+                        snap?.documents?.forEach { doc ->
+                            val data = doc.data ?: return@forEach
+                            targetMap[doc.id] = mapMapToNewsPost(doc.id, data)
+                        }
+                        updateCombinedPosts()
+                    }
+                    listeners.add(reg)
+                }
 
-                val qReporterId = FirebaseService.db.collection("news")
-                    .whereEqualTo("reporterId", uid)
-                    .limit(100)
-                listeners.add(qReporterId.addSnapshotListener { snap, _ -> handleSnapshot(snap) })
+                setupReporterQuery("originalReporterId", originalDocs)
+                setupReporterQuery("reporter.id", reporterDocs)
+                setupReporterQuery("reporterId", reporterIdDocs)
+                setupReporterQuery("userId", userIdDocs)
             }
         }
 
@@ -203,12 +230,26 @@ fun ManagePostsPageView(
         }
     }
 
-    val displayedPosts = remember(posts, searchQuery) {
+    val displayedPosts = remember(posts, searchQuery, statusFilter) {
+        val statusFiltered = when (statusFilter) {
+            "LIVE" -> posts.filter { it.approved || it.status?.uppercase() == "PUBLISHED" }
+            "PENDING" -> posts.filter {
+                val st = it.status?.uppercase()
+                !it.approved && st != "PUBLISHED" && st != "REJECTED" && st != "FAILED" &&
+                it.rejectionReason.isNullOrBlank() && !it.isDuplicate
+            }
+            "REJECTED" -> posts.filter {
+                val st = it.status?.uppercase()
+                st == "REJECTED" || st == "FAILED" || !it.rejectionReason.isNullOrBlank() || it.isDuplicate
+            }
+            else -> posts
+        }
+
         if (searchQuery.isBlank()) {
-            posts
+            statusFiltered
         } else {
             val q = searchQuery.trim().lowercase()
-            posts.filter { post ->
+            statusFiltered.filter { post ->
                 post.headline.telugu.lowercase().contains(q) ||
                 post.content.telugu.lowercase().contains(q) ||
                 post.reporter.name.lowercase().contains(q) ||
@@ -342,7 +383,40 @@ fun ManagePostsPageView(
             )
         )
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // స్టేటస్ ఫిల్టర్ చిప్స్ (Status Filter Chips)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            listOf(
+                "ALL" to "అన్నీ",
+                "LIVE" to "LIVE",
+                "PENDING" to "పరిశీలనలో",
+                "REJECTED" to "తిరస్కరించినవి"
+            ).forEach { (key, label) ->
+                FilterChip(
+                    selected = statusFilter == key,
+                    onClick = { statusFilter = key },
+                    label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    modifier = Modifier.weight(1f),
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = when (key) {
+                            "LIVE" -> Color(0xFF4CAF50)
+                            "REJECTED" -> Color(0xFFE53935)
+                            "PENDING" -> Color(0xFFFF9800)
+                            else -> MaterialTheme.colorScheme.primary
+                        },
+                        selectedLabelColor = Color.White
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
 
         if (loading) {
             Box(
@@ -381,6 +455,7 @@ fun ManagePostsPageView(
                             Text(
                                 text = when {
                                     searchQuery.isNotBlank() -> "వెతికిన వార్తలు ఏవీ లేవు."
+                                    statusFilter != "ALL" -> "ఈ విభాగంలో వార్తలు ఏవీ లేవు."
                                     viewMode == "my" -> "మీరు పోస్ట్ చేసిన వార్తలు ఏవీ లేవు."
                                     else -> "వార్తలు ఏవీ లేవు."
                                 },
@@ -391,12 +466,17 @@ fun ManagePostsPageView(
                     }
                 } else {
                     items(displayedPosts, key = { it.id }) { post ->
+                        val statusUpper = post.status?.uppercase()
+                        val isRejected = statusUpper == "REJECTED" || !post.rejectionReason.isNullOrBlank() || post.isDuplicate
+                        val isFailed = statusUpper == "FAILED" || !post.error.isNullOrBlank()
+                        val isPublished = post.approved || statusUpper == "PUBLISHED"
+                        val isProcessing = statusUpper == "REVIEWING_CONTENT" || statusUpper == "PROCESSING_VIDEO" || statusUpper == "PROCESSING_VIDEO_START"
+
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    val statusUpper = post.status?.uppercase()
-                                    if (statusUpper == "REJECTED" || statusUpper == "FAILED") {
+                                    if (isRejected || isFailed) {
                                         showStatusDetailDialog = post
                                     } else {
                                         onViewPost(post)
@@ -465,20 +545,20 @@ fun ManagePostsPageView(
                                         Spacer(modifier = Modifier.height(6.dp))
 
                                         val statusColor = when {
-                                            post.approved || post.status?.uppercase() == "PUBLISHED" -> Color(0xFF4CAF50)
-                                            post.status?.uppercase() == "REJECTED" -> Color(0xFFE53935)
-                                            post.status?.uppercase() == "FAILED" -> Color(0xFFD32F2F)
+                                            isRejected -> Color(0xFFE53935)
+                                            isFailed -> Color(0xFFD32F2F)
+                                            isPublished -> Color(0xFF4CAF50)
+                                            isProcessing -> Color(0xFF1976D2)
                                             else -> Color(0xFFFF9800)
                                         }
-                                        val statusLabel = when (post.status?.uppercase()) {
-                                            "PENDING" -> "పరిశీలనలో ఉంది..."
-                                            "REVIEWING_CONTENT" -> "సిద్ధమవుతోంది..."
-                                            "PROCESSING_VIDEO" -> "వీడియో తయారవుతోంది..."
-                                            "PROCESSING_VIDEO_START" -> "ప్రచురించబడుతోంది..."
-                                            "PUBLISHED" -> "LIVE"
-                                            "FAILED" -> "విఫలమైంది"
-                                            "REJECTED" -> "తిరస్కరించబడింది"
-                                            else -> if (post.approved) "LIVE" else "పరిశీలనలో ఉంది..."
+                                        val statusLabel = when {
+                                            isRejected -> "తిరస్కరించబడింది"
+                                            isFailed -> "విఫలమైంది"
+                                            isPublished -> "LIVE"
+                                            statusUpper == "REVIEWING_CONTENT" -> "సిద్ధమవుతోంది..."
+                                            statusUpper == "PROCESSING_VIDEO" -> "వీడియో తయారవుతోంది..."
+                                            statusUpper == "PROCESSING_VIDEO_START" -> "ప్రచురించబడుతోంది..."
+                                            else -> "పరిశీలనలో ఉంది..."
                                         }
 
                                         Surface(
@@ -558,7 +638,7 @@ fun ManagePostsPageView(
 
         showStatusDetailDialog?.let { dialogPost ->
             val rawStatus = (dialogPost.status ?: "").uppercase()
-            val isRejected = rawStatus == "REJECTED" || !dialogPost.rejectionReason.isNullOrBlank()
+            val isRejected = rawStatus == "REJECTED" || !dialogPost.rejectionReason.isNullOrBlank() || dialogPost.isDuplicate
             val isFailed = rawStatus == "FAILED" || !dialogPost.error.isNullOrBlank()
 
             val dialogTitle = when {
@@ -651,7 +731,7 @@ fun ManagePostsPageView(
 
                         if (isRejected) {
                             Text(
-                                text = "గమనిక: నిబంధనలకు విరుద్ధంగా ఉన్న వార్తలు, డూప్లికేట్లు ప్రచురించబడవు. దయచేసి వివరాలను సరిచూసి కొత్త వార్తను పోస్ట్ చేయండి.",
+                                text = "గమనిక: నిబంధనలకు విరుద్ధంగా ఉన్న వార్తలు, డూప్లికేట్లు ప్రచురించబడవు. దయచేసి వివరాలను సరిచూసి సవరించి మళ్ళీ పంపండి.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                             )
@@ -669,14 +749,25 @@ fun ManagePostsPageView(
                     }
                 },
                 dismissButton = {
-                    TextButton(
-                        onClick = {
-                            val target = dialogPost
-                            showStatusDetailDialog = null
-                            onViewPost(target)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        TextButton(
+                            onClick = {
+                                val target = dialogPost
+                                showStatusDetailDialog = null
+                                onEditPost(target)
+                            }
+                        ) {
+                            Text("సవరించండి")
                         }
-                    ) {
-                        Text("ఫీడ్‌లో చూడండి")
+                        TextButton(
+                            onClick = {
+                                val target = dialogPost
+                                showStatusDetailDialog = null
+                                onViewPost(target)
+                            }
+                        ) {
+                            Text("చూడండి")
+                        }
                     }
                 }
             )

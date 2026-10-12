@@ -258,7 +258,7 @@ fun AdminPanelView(
                         postToEdit = editingPost,
                         onActionComplete = { postId -> 
                             editingPost = null
-                            activePage = if (listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN).contains(effectiveRole)) "manage" else "profile"
+                            activePage = if (listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK).contains(effectiveRole)) "manage" else "profile"
                             if (postId.isNotBlank() && postId != "HOME_ONLY") {
                                 onPostPublished(postId)
                             }

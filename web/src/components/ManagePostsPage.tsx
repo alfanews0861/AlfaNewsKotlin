@@ -17,11 +17,15 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState<'all' | 'my'>('all');
+    const [statusFilter, setStatusFilter] = useState<'ALL' | 'LIVE' | 'PENDING' | 'REJECTED'>('ALL');
+    const [selectedStatusPost, setSelectedStatusPost] = useState<NewsPost | null>(null);
 
     const uid = currentUser?.id || '';
     const isAdmin = Boolean(currentUser && (
         currentUser.role === UserRole.ADMIN ||
         (currentUser.role as any) === 'EDITOR' ||
+        (currentUser.role as any) === 'NEWS_DESK' ||
+        (currentUser.role as any) === 'REGIONAL_INCHARGE' ||
         currentUser.email === 'alfanews0861@gmail.com' ||
         currentUser.phone?.includes('9173811009')
     ));
@@ -52,7 +56,7 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
                 });
                 setPosts(fetchedPosts);
             } else {
-                // 🛡️ REPORTER VIEW: కేవలం విలేకరి UID ఆధారంగా మాత్రమే
+                // 🛡️ REPORTER VIEW: కేవలం విలేకరి UID ఆధారంగా మాత్రమే (Descending Order)
                 const targetUid = uid;
                 if (!targetUid) {
                     setPosts([]);
@@ -63,6 +67,8 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
                 const queries = [
                     query(newsCollectionRef, where('originalReporterId', '==', targetUid), orderBy('timestamp', 'desc'), limit(100)),
                     query(newsCollectionRef, where('reporter.id', '==', targetUid), orderBy('timestamp', 'desc'), limit(100)),
+                    query(newsCollectionRef, where('reporterId', '==', targetUid), orderBy('timestamp', 'desc'), limit(100)),
+                    query(newsCollectionRef, where('userId', '==', targetUid), orderBy('timestamp', 'desc'), limit(100)),
                 ];
 
                 const snapshots = await Promise.all(
@@ -113,6 +119,15 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
     };
 
     const filteredPosts = posts.filter(post => {
+        const rawStatus = (post.status || '').toUpperCase();
+        const isRejected = rawStatus === 'REJECTED' || Boolean(post.rejectionReason) || Boolean(post.isDuplicate);
+        const isFailed = rawStatus === 'FAILED' || Boolean(post.error);
+        const isPublished = post.approved || rawStatus === 'PUBLISHED';
+
+        if (statusFilter === 'LIVE' && !isPublished) return false;
+        if (statusFilter === 'REJECTED' && !isRejected && !isFailed) return false;
+        if (statusFilter === 'PENDING' && (isPublished || isRejected || isFailed)) return false;
+
         const q = searchTerm.toLowerCase();
         return (post.headline?.telugu || '').toLowerCase().includes(q) || 
             (post.content?.telugu || '').toLowerCase().includes(q) ||
@@ -173,6 +188,30 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
                     </div>
                 </div>
             </div>
+
+            {/* స్టేటస్ ఫిల్టర్ బటన్లు (Status Filters) */}
+            <div className="flex items-center gap-2 mb-4 pb-2 border-b overflow-x-auto">
+                {(['ALL', 'LIVE', 'PENDING', 'REJECTED'] as const).map(key => (
+                    <button
+                        key={key}
+                        onClick={() => setStatusFilter(key)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                            statusFilter === key
+                                ? key === 'LIVE' ? 'bg-green-600 text-white shadow-sm' :
+                                  key === 'REJECTED' ? 'bg-red-600 text-white shadow-sm' :
+                                  key === 'PENDING' ? 'bg-amber-600 text-white shadow-sm' :
+                                  'bg-gray-800 text-white shadow-sm'
+                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                    >
+                        {key === 'ALL' && 'అన్నీ (All)'}
+                        {key === 'LIVE' && 'LIVE'}
+                        {key === 'PENDING' && 'పరిశీలనలో (Pending)'}
+                        {key === 'REJECTED' && 'తిరస్కరించినవి (Rejected)'}
+                    </button>
+                ))}
+            </div>
+
             {loading ? (
                 <div className="flex flex-col items-center justify-center py-12 gap-3">
                     <div className="w-8 h-8 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
@@ -185,93 +224,158 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
                             {searchTerm ? "వెతికిన వార్తలు ఏవీ లేవు." : "వార్తలు ఏవీ లేవు."}
                         </p>
                     )}
-                    {filteredPosts.map(post => (
-                        <div 
-                            key={post.id} 
-                            onClick={() => {
-                                if (onViewPost) {
-                                    onViewPost(post);
-                                } else {
-                                    window.location.hash = `#/news/${post.id}`;
-                                }
-                            }}
-                            className="flex flex-col md:flex-row items-start md:items-center gap-4 p-3 rounded-xl border bg-gray-50 hover:bg-gray-100/70 transition-colors cursor-pointer group"
-                        >
-                            {post.mediaUrl ? (
-                                <img src={post.mediaUrl} className="w-16 h-16 shrink-0 rounded-lg object-cover bg-gray-200" alt="News" referrerPolicy="no-referrer" />
-                            ) : (
-                                <div className="w-16 h-16 shrink-0 rounded-lg bg-gray-200 flex items-center justify-center text-gray-400 text-xs">No Image</div>
-                            )}
-                            <div className="flex-grow min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap mb-1">
-                                    {(() => {
-                                        const status = (post.status || (post.approved ? 'PUBLISHED' : 'PENDING')).toUpperCase();
-                                        let badgeClass = 'bg-amber-100 text-amber-800 border-amber-300';
-                                        let badgeText = 'పరిశీలనలో ఉంది... (PENDING)';
-                                        if (post.approved || status === 'PUBLISHED') {
-                                            badgeClass = 'bg-green-100 text-green-800 border-green-300';
-                                            badgeText = 'LIVE';
-                                        } else if (status === 'REJECTED') {
-                                            badgeClass = 'bg-red-100 text-red-800 border-red-300';
-                                            badgeText = 'తిరస్కరించబడింది';
-                                        } else if (status === 'FAILED') {
-                                            badgeClass = 'bg-red-100 text-red-800 border-red-300';
-                                            badgeText = 'విఫలమైంది';
-                                        } else if (status === 'PROCESSING_VIDEO' || status === 'PROCESSING_VIDEO_START') {
-                                            badgeClass = 'bg-blue-100 text-blue-800 border-blue-300';
-                                            badgeText = 'సిద్ధమవుతోంది...';
-                                        }
-                                        return (
-                                            <span className={`inline-block px-2 py-0.5 text-xs font-bold rounded border ${badgeClass}`}>
-                                                {badgeText}
-                                            </span>
-                                        );
-                                    })()}
-                                    <p className="font-bold truncate text-base md:text-lg group-hover:text-red-600 transition-colors">{post.headline?.telugu || 'No Headline'}</p>
-                                </div>
-                                <p className="text-sm text-gray-500">
-                                    {(post.categories?.[0] === 'General' ? 'జనరల్' : (post.categories?.[0] || 'జనరల్'))} • {post.reporter?.name || 'Alfa News'}
-                                    {post.district ? ` (${post.district})` : ''}
-                                </p>
-                                {post.timestamp && (
-                                    <p className="text-xs text-gray-400 mt-1">
-                                        📅 {(() => {
-                                            try {
-                                                const d = new Date(post.timestamp);
-                                                const dateStr = d.toLocaleDateString('te-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-                                                const timeStr = d.toLocaleTimeString('te-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-                                                return `${dateStr} ${timeStr}`;
-                                            } catch (e) {
-                                                return new Date(post.timestamp).toLocaleString();
-                                            }
-                                        })()}
-                                    </p>
+                    {filteredPosts.map(post => {
+                        const rawStatus = (post.status || '').toUpperCase();
+                        const isRejected = rawStatus === 'REJECTED' || Boolean(post.rejectionReason) || Boolean(post.isDuplicate);
+                        const isFailed = rawStatus === 'FAILED' || Boolean(post.error);
+                        const isPublished = post.approved || rawStatus === 'PUBLISHED';
+                        const isProcessing = rawStatus === 'PROCESSING_VIDEO' || rawStatus === 'PROCESSING_VIDEO_START' || rawStatus === 'REVIEWING_CONTENT';
+
+                        return (
+                            <div 
+                                key={post.id} 
+                                onClick={() => {
+                                    if (isRejected || isFailed) {
+                                        setSelectedStatusPost(post);
+                                    } else if (onViewPost) {
+                                        onViewPost(post);
+                                    } else {
+                                        window.location.hash = `#/news/${post.id}`;
+                                    }
+                                }}
+                                className="flex flex-col md:flex-row items-start md:items-center gap-4 p-3 rounded-xl border bg-gray-50 hover:bg-gray-100/70 transition-colors cursor-pointer group"
+                            >
+                                {post.mediaUrl ? (
+                                    <img src={post.mediaUrl} className="w-16 h-16 shrink-0 rounded-lg object-cover bg-gray-200" alt="News" referrerPolicy="no-referrer" />
+                                ) : (
+                                    <div className="w-16 h-16 shrink-0 rounded-lg bg-gray-200 flex items-center justify-center text-gray-400 text-xs">No Image</div>
                                 )}
+                                <div className="flex-grow min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                                        {(() => {
+                                            let badgeClass = 'bg-amber-100 text-amber-800 border-amber-300';
+                                            let badgeText = 'పరిశీలనలో ఉంది... (PENDING)';
+                                            if (isPublished) {
+                                                badgeClass = 'bg-green-100 text-green-800 border-green-300';
+                                                badgeText = 'LIVE';
+                                            } else if (isRejected) {
+                                                badgeClass = 'bg-red-100 text-red-800 border-red-300';
+                                                badgeText = 'తిరస్కరించబడింది';
+                                            } else if (isFailed) {
+                                                badgeClass = 'bg-red-100 text-red-800 border-red-300';
+                                                badgeText = 'విఫలమైంది';
+                                            } else if (isProcessing) {
+                                                badgeClass = 'bg-blue-100 text-blue-800 border-blue-300';
+                                                badgeText = 'సిద్ధమవుతోంది...';
+                                            }
+                                            return (
+                                                <span className={`inline-block px-2 py-0.5 text-xs font-bold rounded border ${badgeClass}`}>
+                                                    {badgeText}
+                                                </span>
+                                            );
+                                        })()}
+                                        <p className="font-bold truncate text-base md:text-lg group-hover:text-red-600 transition-colors">{post.headline?.telugu || 'No Headline'}</p>
+                                    </div>
+                                    <p className="text-sm text-gray-500">
+                                        {(post.categories?.[0] === 'General' ? 'జనరల్' : (post.categories?.[0] || 'జనరల్'))} • {post.reporter?.name || 'Alfa News'}
+                                        {post.district ? ` (${post.district})` : ''}
+                                    </p>
+                                    {post.timestamp && (
+                                        <p className="text-xs text-gray-400 mt-1">
+                                            📅 {(() => {
+                                                try {
+                                                    const d = new Date(post.timestamp);
+                                                    const dateStr = d.toLocaleDateString('te-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+                                                    const timeStr = d.toLocaleTimeString('te-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+                                                    return `${dateStr} ${timeStr}`;
+                                                } catch (e) {
+                                                    return new Date(post.timestamp).toLocaleString();
+                                                }
+                                            })()}
+                                        </p>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-2 mt-2 md:mt-0 self-end md:self-auto">
+                                    <button 
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onEditPost(post);
+                                        }} 
+                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-full border border-gray-200" 
+                                        title="Edit"
+                                    >
+                                        <Edit3 className="w-4 h-4" />
+                                    </button>
+                                    <button 
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDelete(post.id);
+                                        }} 
+                                        className="p-2 text-red-600 hover:bg-red-50 rounded-full border border-gray-200" 
+                                        title="Delete"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-2 mt-2 md:mt-0 self-end md:self-auto">
-                                <button 
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onEditPost(post);
-                                    }} 
-                                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-full border border-gray-200" 
-                                    title="Edit"
-                                >
-                                    <Edit3 className="w-4 h-4" />
-                                </button>
-                                <button 
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDelete(post.id);
-                                    }} 
-                                    className="p-2 text-red-600 hover:bg-red-50 rounded-full border border-gray-200" 
-                                    title="Delete"
-                                >
-                                    <Trash2 className="w-4 h-4" />
-                                </button>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* Rejected / Failed Post Status Details Modal */}
+            {selectedStatusPost && (
+                <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+                        <div className="flex items-center gap-3">
+                            <span className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold text-xl">
+                                ⚠️
+                            </span>
+                            <div>
+                                <h3 className="font-bold text-lg text-red-600">
+                                    {selectedStatusPost.rejectionReason || selectedStatusPost.isDuplicate 
+                                        ? "ఎడిటోరియల్ డెస్క్ పరిశీలన" 
+                                        : "ప్రచురణలో అంతరాయం"}
+                                </h3>
+                                <p className="text-xs text-gray-500">వార్త స్థితి వివరాలు</p>
                             </div>
                         </div>
-                    ))}
+
+                        {selectedStatusPost.headline?.telugu && (
+                            <p className="font-semibold text-gray-800 text-sm border-l-4 border-red-500 pl-3 py-1">
+                                {selectedStatusPost.headline.telugu}
+                            </p>
+                        )}
+
+                        <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-2">
+                            <h4 className="text-xs font-bold text-red-700">కారణం / వివరాలు:</h4>
+                            <p className="text-sm text-gray-700 leading-relaxed">
+                                {selectedStatusPost.rejectionReason 
+                                    || (selectedStatusPost.isDuplicate ? "ఈ మండలంలో గత కొన్ని గంటల్లో ఈ వార్తాంశం ఇప్పటికే ప్రచురించబడింది." : "")
+                                    || selectedStatusPost.error
+                                    || "సాంకేతిక అంతరాయం వల్ల ప్రచురణ ప్రక్రియ నిలిచింది. డెస్క్ దీనిని మళ్ళీ పరిశీలిస్తుంది."}
+                            </p>
+                        </div>
+
+                        <div className="flex justify-end gap-3 pt-3 border-t">
+                            <button
+                                onClick={() => {
+                                    const post = selectedStatusPost;
+                                    setSelectedStatusPost(null);
+                                    onEditPost(post);
+                                }}
+                                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors"
+                            >
+                                సవరించండి (Edit)
+                            </button>
+                            <button
+                                onClick={() => setSelectedStatusPost(null)}
+                                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-300 transition-colors"
+                            >
+                                సరే (Close)
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
