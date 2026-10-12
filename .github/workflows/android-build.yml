@@ -27,7 +27,7 @@ jobs:
       run: chmod +x gradlew
 
     - name: Build Release (AAB & APK)
-      run: ./gradlew bundleRelease assembleRelease
+      run: ./gradlew bundleRelease assembleRelease --no-daemon --stacktrace
       env:
         RELEASE_STORE_FILE: release.jks
         RELEASE_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -47,3 +47,11 @@ jobs:
         path: |
           app/build/outputs/bundle/release/*.aab
           app/build/outputs/apk/release/*.apk
+
+    - name: Upload Build Reports on Failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-failure-reports
+        path: |
+          app/build/reports/
