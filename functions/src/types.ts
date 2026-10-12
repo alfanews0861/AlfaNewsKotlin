@@ -77,6 +77,9 @@ export interface NewsPost {
   isReporter?: boolean;
   isSpecialStory?: boolean;
   webOnly?: boolean;
+  rejectionReason?: string;
+  isDuplicate?: boolean;
+  error?: string;
 }
 
 export enum Language {

@@ -68,9 +68,20 @@ fun ManagePostsPageView(
         currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
         FirebaseService.auth.currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
 
+    val candidateIds = remember(authUid, currentUser?.id, cleanCurrentPhone, cleanAuthPhone) {
+        buildSet {
+            if (authUid.isNotBlank()) add(authUid)
+            currentUser?.id?.trim()?.let { if (it.isNotBlank()) add(it) }
+            cleanCurrentPhone?.let { if (it.isNotBlank()) add(it) }
+            cleanAuthPhone?.let { if (it.isNotBlank()) add(it) }
+            currentUser?.phone?.trim()?.let { if (it.isNotBlank()) add(it) }
+            FirebaseService.auth.currentUser?.phoneNumber?.trim()?.let { if (it.isNotBlank()) add(it) }
+        }.filter { it.isNotBlank() }.distinct()
+    }
+
     var viewMode by remember(isAdmin) { mutableStateOf(if (isAdmin) "all" else "my") }
-    var posts by remember(viewMode, uid) { mutableStateOf<List<NewsPost>>(emptyList()) }
-    var loading by remember(viewMode, uid) { mutableStateOf(true) }
+    var posts by remember(viewMode, candidateIds) { mutableStateOf<List<NewsPost>>(emptyList()) }
+    var loading by remember(viewMode, candidateIds) { mutableStateOf(true) }
     var refreshTrigger by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
     var statusFilter by remember { mutableStateOf("ALL") } // "ALL", "LIVE", "PENDING", "REJECTED"
@@ -81,14 +92,14 @@ fun ManagePostsPageView(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 🛡️ Safety timeout: స్పిన్నర్ ఎట్టి పరిస్థితుల్లోనూ 3 సెకన్ల కంటే ఎక్కువ తిరగకూడదు
-    LaunchedEffect(viewMode, uid, refreshTrigger) {
-        kotlinx.coroutines.delay(3000L)
+    // 🛡️ Safety timeout: స్పిన్నర్ ఎట్టి పరిస్థితుల్లోనూ 3.5 సెకన్ల కంటే ఎక్కువ తిరగకూడదు
+    LaunchedEffect(viewMode, candidateIds, refreshTrigger) {
+        kotlinx.coroutines.delay(3500L)
         if (loading) loading = false
     }
 
     // 🚀 REAL-TIME LIVE SERVER STREAM: సర్వర్ నుండి నేరుగా తాజా వార్తలు (No Cache, No Stale Data)
-    DisposableEffect(viewMode, uid, refreshTrigger) {
+    DisposableEffect(viewMode, candidateIds, refreshTrigger) {
         loading = true
         val listeners = mutableListOf<ListenerRegistration>()
         val shouldFetchAll = isAdmin && viewMode == "all"
@@ -100,7 +111,6 @@ fun ManagePostsPageView(
                 .limit(100)
 
             val reg = qAdmin.addSnapshotListener { snapshot, e ->
-                loading = false
                 if (e != null) {
                     android.util.Log.e("ManagePostsPageView", "Admin query error: ${e.message}")
                     // Fallback 1: approved true with timestamp desc (indexed query)
@@ -110,14 +120,13 @@ fun ManagePostsPageView(
                         .limit(100)
 
                     val fbReg = qFallback.addSnapshotListener { fbSnap, fbErr ->
-                        loading = false
                         if (fbErr != null) {
                             // Fallback 2: simple limit
                             val qSimple = FirebaseService.db.collection("news").limit(100)
                             listeners.add(qSimple.addSnapshotListener { sSnap, _ ->
-                                loading = false
-                                sSnap?.documents?.let { docs ->
-                                    posts = docs.mapNotNull { doc ->
+                                if (sSnap != null && (!sSnap.metadata.isFromCache || !sSnap.isEmpty)) {
+                                    loading = false
+                                    posts = sSnap.documents.mapNotNull { doc ->
                                         val data = doc.data ?: return@mapNotNull null
                                         mapMapToNewsPost(doc.id, data)
                                     }.sortedByDescending { it.timestamp }
@@ -126,8 +135,9 @@ fun ManagePostsPageView(
                             return@addSnapshotListener
                         }
 
-                        fbSnap?.documents?.let { docs ->
-                            posts = docs.mapNotNull { doc ->
+                        if (fbSnap != null && (!fbSnap.metadata.isFromCache || !fbSnap.isEmpty)) {
+                            loading = false
+                            posts = fbSnap.documents.mapNotNull { doc ->
                                 val data = doc.data ?: return@mapNotNull null
                                 mapMapToNewsPost(doc.id, data)
                             }.sortedByDescending { it.timestamp }
@@ -138,6 +148,9 @@ fun ManagePostsPageView(
                 }
 
                 if (snapshot != null) {
+                    if (!snapshot.metadata.isFromCache || !snapshot.isEmpty) {
+                        loading = false
+                    }
                     posts = snapshot.documents.mapNotNull { doc ->
                         val data = doc.data ?: return@mapNotNull null
                         mapMapToNewsPost(doc.id, data)
@@ -146,62 +159,152 @@ fun ManagePostsPageView(
             }
             listeners.add(reg)
         } else {
-            // 🛡️ REPORTER VIEW: కేవలం విలేకరి UID ఆధారంగా తాజా వార్తలు (Descending Order)
-            if (uid.isBlank()) {
+            // 🛡️ REPORTER VIEW: విలేకరి candidate IDs ఆధారంగా అన్ని ఫీల్డ్స్ నుండి తాజా వార్తలు (Descending Order)
+            if (candidateIds.isEmpty()) {
                 posts = emptyList()
                 loading = false
             } else {
-                val originalDocs = mutableMapOf<String, NewsPost>()
-                val reporterDocs = mutableMapOf<String, NewsPost>()
-                val reporterIdDocs = mutableMapOf<String, NewsPost>()
-                val userIdDocs = mutableMapOf<String, NewsPost>()
+                val queryResults = mutableMapOf<String, Map<String, NewsPost>>()
+                val serverRespondedQueries = mutableSetOf<String>()
+                val totalQueriesExpected = mutableSetOf<String>()
 
-                fun updateCombinedPosts() {
-                    loading = false
-                    val combined = mutableMapOf<String, NewsPost>()
-                    combined.putAll(userIdDocs)
-                    combined.putAll(reporterIdDocs)
-                    combined.putAll(reporterDocs)
-                    combined.putAll(originalDocs)
-                    posts = combined.values.sortedByDescending { it.timestamp }
-                }
-
-                fun setupReporterQuery(field: String, targetMap: MutableMap<String, NewsPost>) {
-                    val qOrdered = FirebaseService.db.collection("news")
-                        .whereEqualTo(field, uid)
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(100)
-
-                    val reg = qOrdered.addSnapshotListener { snap, err ->
-                        if (err != null) {
-                            android.util.Log.w("ManagePostsPageView", "Reporter query error on $field with order: ${err.message}, falling back")
-                            val qFallback = FirebaseService.db.collection("news")
-                                .whereEqualTo(field, uid)
-                                .limit(100)
-                            listeners.add(qFallback.addSnapshotListener { fbSnap, _ ->
-                                targetMap.clear()
-                                fbSnap?.documents?.forEach { doc ->
-                                    val data = doc.data ?: return@forEach
-                                    targetMap[doc.id] = mapMapToNewsPost(doc.id, data)
-                                }
-                                updateCombinedPosts()
-                            })
-                            return@addSnapshotListener
-                        }
-                        targetMap.clear()
-                        snap?.documents?.forEach { doc ->
-                            val data = doc.data ?: return@forEach
-                            targetMap[doc.id] = mapMapToNewsPost(doc.id, data)
-                        }
-                        updateCombinedPosts()
+                fun updatePosts() {
+                    val merged = mutableMapOf<String, NewsPost>()
+                    queryResults.values.forEach { map ->
+                        merged.putAll(map)
                     }
-                    listeners.add(reg)
+
+                    // Only dismiss loading if we found posts OR all registered queries responded from server
+                    val hasFoundPosts = merged.isNotEmpty()
+                    val allServerResponded = totalQueriesExpected.isNotEmpty() &&
+                        serverRespondedQueries.containsAll(totalQueriesExpected)
+
+                    if (hasFoundPosts || allServerResponded) {
+                        loading = false
+                    }
+
+                    posts = merged.values.sortedByDescending { it.timestamp }
                 }
 
-                setupReporterQuery("originalReporterId", originalDocs)
-                setupReporterQuery("reporter.id", reporterDocs)
-                setupReporterQuery("reporterId", reporterIdDocs)
-                setupReporterQuery("userId", userIdDocs)
+                fun registerQuery(queryKey: String, queryProvider: () -> Query, fallbackProvider: (() -> Query)? = null) {
+                    totalQueriesExpected.add(queryKey)
+                    try {
+                        val q = queryProvider()
+                        val reg = q.addSnapshotListener { snap, err ->
+                            if (err != null) {
+                                android.util.Log.w("ManagePostsPageView", "Query error on $queryKey: ${err.message}")
+                                if (fallbackProvider != null) {
+                                    try {
+                                        val fbQ = fallbackProvider()
+                                        listeners.add(fbQ.addSnapshotListener { fbSnap, fbErr ->
+                                            if (fbErr != null) {
+                                                serverRespondedQueries.add(queryKey)
+                                                updatePosts()
+                                                return@addSnapshotListener
+                                            }
+                                            if (fbSnap != null) {
+                                                if (!fbSnap.metadata.isFromCache) {
+                                                    serverRespondedQueries.add(queryKey)
+                                                }
+                                                val docMap = mutableMapOf<String, NewsPost>()
+                                                fbSnap.documents.forEach { doc ->
+                                                    val data = doc.data ?: return@forEach
+                                                    docMap[doc.id] = mapMapToNewsPost(doc.id, data)
+                                                }
+                                                queryResults[queryKey] = docMap
+                                                updatePosts()
+                                            }
+                                        })
+                                        return@addSnapshotListener
+                                    } catch (ex: Exception) {
+                                        serverRespondedQueries.add(queryKey)
+                                        updatePosts()
+                                        return@addSnapshotListener
+                                    }
+                                } else {
+                                    serverRespondedQueries.add(queryKey)
+                                    updatePosts()
+                                    return@addSnapshotListener
+                                }
+                            }
+
+                            if (snap != null) {
+                                if (!snap.metadata.isFromCache) {
+                                    serverRespondedQueries.add(queryKey)
+                                }
+                                val docMap = mutableMapOf<String, NewsPost>()
+                                snap.documents.forEach { doc ->
+                                    val data = doc.data ?: return@forEach
+                                    docMap[doc.id] = mapMapToNewsPost(doc.id, data)
+                                }
+                                queryResults[queryKey] = docMap
+                                updatePosts()
+                            }
+                        }
+                        listeners.add(reg)
+                    } catch (e: Exception) {
+                        serverRespondedQueries.add(queryKey)
+                        updatePosts()
+                    }
+                }
+
+                val idFields = listOf("originalReporterId", "reporter.id", "reporterId", "userId")
+                for (candId in candidateIds) {
+                    for (field in idFields) {
+                        val key = "$field-$candId"
+                        registerQuery(
+                            queryKey = key,
+                            queryProvider = {
+                                FirebaseService.db.collection("news")
+                                    .whereEqualTo(field, candId)
+                                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                                    .limit(50)
+                            },
+                            fallbackProvider = {
+                                FirebaseService.db.collection("news")
+                                    .whereEqualTo(field, candId)
+                                    .limit(50)
+                            }
+                        )
+                    }
+
+                    if (candId.all { it.isDigit() || it == '+' }) {
+                        val keyPhone = "reporter.phone-$candId"
+                        registerQuery(
+                            queryKey = keyPhone,
+                            queryProvider = {
+                                FirebaseService.db.collection("news")
+                                    .whereEqualTo("reporter.phone", candId)
+                                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                                    .limit(50)
+                            },
+                            fallbackProvider = {
+                                FirebaseService.db.collection("news")
+                                    .whereEqualTo("reporter.phone", candId)
+                                    .limit(50)
+                            }
+                        )
+                    }
+                }
+
+                val repName = currentUser?.name?.trim()
+                if (!repName.isNullOrBlank() && !listOf("Admin", "User", "Guest", "Alfa News Desk", "AlfaNews Admin", "విలేకరి", "సిటిజెన్ పోస్ట్", "అజ్ఞాత పౌరుడు").contains(repName)) {
+                    val keyName = "reporter.name-$repName"
+                    registerQuery(
+                        queryKey = keyName,
+                        queryProvider = {
+                            FirebaseService.db.collection("news")
+                                .whereEqualTo("reporter.name", repName)
+                                .orderBy("timestamp", Query.Direction.DESCENDING)
+                                .limit(50)
+                        },
+                        fallbackProvider = {
+                            FirebaseService.db.collection("news")
+                                .whereEqualTo("reporter.name", repName)
+                                .limit(50)
+                        }
+                    )
+                }
             }
         }
 
@@ -449,19 +552,36 @@ fun ManagePostsPageView(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 80.dp),
+                                .padding(top = 60.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = when {
-                                    searchQuery.isNotBlank() -> "వెతికిన వార్తలు ఏవీ లేవు."
-                                    statusFilter != "ALL" -> "ఈ విభాగంలో వార్తలు ఏవీ లేవు."
-                                    viewMode == "my" -> "మీరు పోస్ట్ చేసిన వార్తలు ఏవీ లేవు."
-                                    else -> "వార్తలు ఏవీ లేవు."
-                                },
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Text(
+                                    text = when {
+                                        searchQuery.isNotBlank() -> "వెతికిన వార్తలు ఏవీ లేవు."
+                                        statusFilter != "ALL" -> "ఈ విభాగంలో వార్తలు ఏవీ లేవు."
+                                        viewMode == "my" -> "మీరు పోస్ట్ చేసిన వార్తలు ఏవీ లేవు."
+                                        else -> "వార్తలు ఏవీ లేవు."
+                                    },
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                OutlinedButton(
+                                    onClick = { refreshTrigger++ },
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Refresh,
+                                        contentDescription = "Refresh",
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("రిఫ్రెష్ చేయండి", fontSize = 13.sp)
+                                }
+                            }
                         }
                     }
                 } else {

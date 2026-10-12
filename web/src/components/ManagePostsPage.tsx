@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { NewsPost, User, UserRole } from '../types';
-import { db } from '../services/firebase';
+import { db, auth } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import { RefreshCw, Search, Trash2, Edit3 } from 'lucide-react';
 
@@ -16,11 +16,9 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
     const [posts, setPosts] = useState<NewsPost[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
-    const [viewMode, setViewMode] = useState<'all' | 'my'>('all');
     const [statusFilter, setStatusFilter] = useState<'ALL' | 'LIVE' | 'PENDING' | 'REJECTED'>('ALL');
     const [selectedStatusPost, setSelectedStatusPost] = useState<NewsPost | null>(null);
 
-    const uid = currentUser?.id || '';
     const isAdmin = Boolean(currentUser && (
         currentUser.role === UserRole.ADMIN ||
         (currentUser.role as any) === 'EDITOR' ||
@@ -29,6 +27,21 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
         currentUser.email === 'alfanews0861@gmail.com' ||
         currentUser.phone?.includes('9173811009')
     ));
+
+    const [viewMode, setViewMode] = useState<'all' | 'my'>(isAdmin ? 'all' : 'my');
+
+    const authUid = (auth?.currentUser as any)?.uid || '';
+    const cleanUserPhone = currentUser?.phone?.replace('+91', '').trim() || '';
+    const cleanAuthPhone = (auth?.currentUser as any)?.phoneNumber?.replace('+91', '').trim() || '';
+
+    const candidateIds = Array.from(new Set([
+        authUid,
+        currentUser?.id,
+        cleanUserPhone,
+        cleanAuthPhone,
+        currentUser?.phone?.trim(),
+        (auth?.currentUser as any)?.phoneNumber?.trim()
+    ].filter(Boolean) as string[]));
 
     const fetchPosts = useCallback(async () => {
         setLoading(true);
@@ -56,26 +69,46 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
                 });
                 setPosts(fetchedPosts);
             } else {
-                // 🛡️ REPORTER VIEW: కేవలం విలేకరి UID ఆధారంగా మాత్రమే (Descending Order)
-                const targetUid = uid;
-                if (!targetUid) {
+                // 🛡️ REPORTER VIEW: విలేకరి candidate IDs ఆధారంగా అన్ని ఫీల్డ్స్ నుండి తాజా వార్తలు
+                if (candidateIds.length === 0) {
                     setPosts([]);
                     setLoading(false);
                     return;
                 }
 
-                const queries = [
-                    query(newsCollectionRef, where('originalReporterId', '==', targetUid), orderBy('timestamp', 'desc'), limit(100)),
-                    query(newsCollectionRef, where('reporter.id', '==', targetUid), orderBy('timestamp', 'desc'), limit(100)),
-                    query(newsCollectionRef, where('reporterId', '==', targetUid), orderBy('timestamp', 'desc'), limit(100)),
-                    query(newsCollectionRef, where('userId', '==', targetUid), orderBy('timestamp', 'desc'), limit(100)),
-                ];
-
-                const snapshots = await Promise.all(
-                    queries.map(qItem => getDocs(qItem).catch(() => ({ docs: [] })))
-                );
                 const postsMap = new Map<string, NewsPost>();
+                const idFields = ['originalReporterId', 'reporter.id', 'reporterId', 'userId'];
 
+                const fetchWithFallback = async (field: string, value: string) => {
+                    try {
+                        const qOrdered = query(newsCollectionRef, where(field, '==', value), orderBy('timestamp', 'desc'), limit(100));
+                        return await getDocs(qOrdered);
+                    } catch (e) {
+                        try {
+                            const qSimple = query(newsCollectionRef, where(field, '==', value), limit(100));
+                            return await getDocs(qSimple);
+                        } catch (err) {
+                            return { docs: [] };
+                        }
+                    }
+                };
+
+                const queryPromises: Promise<any>[] = [];
+                for (const candId of candidateIds) {
+                    for (const field of idFields) {
+                        queryPromises.push(fetchWithFallback(field, candId));
+                    }
+                    if (/^\+?\d+$/.test(candId)) {
+                        queryPromises.push(fetchWithFallback('reporter.phone', candId));
+                    }
+                }
+
+                const repName = currentUser?.name?.trim();
+                if (repName && !['Admin', 'User', 'Guest', 'Alfa News Desk', 'AlfaNews Admin', 'విలేకరి', 'సిటిజెన్ పోస్ట్', 'అజ్ఞాత పౌరుడు'].includes(repName)) {
+                    queryPromises.push(fetchWithFallback('reporter.name', repName));
+                }
+
+                const snapshots = await Promise.all(queryPromises);
                 snapshots.forEach((snap: any) => {
                     snap.docs?.forEach((docItem: any) => {
                         const data = docItem.data();
@@ -102,7 +135,7 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
         } finally { 
             setLoading(false); 
         }
-    }, [isAdmin, viewMode, uid]);
+    }, [isAdmin, viewMode, candidateIds.join(',')]);
 
     useEffect(() => { 
         fetchPosts(); 

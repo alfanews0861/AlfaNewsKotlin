@@ -108,6 +108,9 @@ export interface NewsPost {
   realVotesCount?: number;
   fakeVotesBase?: number;
   surveyCreatedAt?: number;
+  rejectionReason?: string;
+  isDuplicate?: boolean;
+  error?: string;
 }
 
 export interface SurveyOption {

@@ -232,10 +232,19 @@ fun PostNewsPageView(
                 
                 val finalCategories = listOf(category, if (isGlobalNews) "State" else district).filter { it.isNotBlank() }
 
+                val reporterPhone = user.phone?.trim() ?: ""
                 val reporterData = if (postToEdit != null) {
-                    mapOf("id" to postToEdit.reporter.id, "name" to postToEdit.reporter.name)
+                    mapOf(
+                        "id" to postToEdit.reporter.id,
+                        "name" to postToEdit.reporter.name,
+                        "phone" to (reporterPhone.ifBlank { "" })
+                    )
                 } else {
-                    mapOf("id" to user.id, "name" to user.name)
+                    mapOf(
+                        "id" to user.id,
+                        "name" to user.name,
+                        "phone" to (reporterPhone.ifBlank { "" })
+                    )
                 }
 
                 val postData = hashMapOf(
@@ -261,7 +270,10 @@ fun PostNewsPageView(
                     "meta" to mapOf("location" to location),
                     "headline" to mapOf("telugu" to headline),
                     "content" to mapOf("telugu" to content),
-                    "originalReporterId" to (postToEdit?.originalReporterId ?: user.id)
+                    "originalReporterId" to (postToEdit?.originalReporterId ?: user.id),
+                    "reporterId" to (postToEdit?.reporter?.id ?: user.id),
+                    "userId" to user.id,
+                    "reporterPhone" to reporterPhone
                 )
 
                 try {
