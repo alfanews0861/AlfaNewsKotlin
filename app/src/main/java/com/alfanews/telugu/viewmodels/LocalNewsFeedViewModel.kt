@@ -628,6 +628,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                 // 🛡️ ZERO-EMPTY GUARANTEE: ఒకవేళ ఆ జిల్లాకు నేరుగా వార్తలు లేకుంటే తాజా రాష్ట్ర వార్తలను చూపిస్తాం
                 if (finalPosts.isEmpty()) {
+                    val userState = Constants.mapDistrictToState(district)
                     val fallbackSnap = kotlinx.coroutines.withTimeoutOrNull(2000L) {
                         try {
                             newsRef.whereEqualTo("approved", true)
@@ -645,7 +646,15 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     val fallbackPosts = fallbackSnap?.documents?.mapNotNull { doc ->
                         convertToNewsPost(doc.id, doc.data ?: emptyMap())
                     } ?: emptyList()
-                    if (fallbackPosts.isNotEmpty()) {
+                    val filteredFallback = if (userState != null) {
+                        fallbackPosts.filter { post ->
+                            val pState = Constants.mapDistrictToState(post.district ?: post.state)
+                            pState == null || pState == userState
+                        }
+                    } else fallbackPosts
+                    if (filteredFallback.isNotEmpty()) {
+                        finalPosts = (myPosts + filteredFallback).distinctBy { it.id }
+                    } else if (fallbackPosts.isNotEmpty()) {
                         finalPosts = (myPosts + fallbackPosts).distinctBy { it.id }
                     }
                 }

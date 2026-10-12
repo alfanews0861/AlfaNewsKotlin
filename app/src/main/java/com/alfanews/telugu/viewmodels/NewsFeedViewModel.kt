@@ -45,7 +45,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             prefs.districtChanges.collectLatest { district ->
                 if (district != _userDistrict.value) {
                     _userDistrict.value = district
-                    loadNews(Language.TELUGU, null)
+                    loadNews(Language.TELUGU, activeCurrentUser, forceRefresh = true)
                 }
             }
         }
@@ -212,6 +212,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private var prefCursor: DocumentSnapshot? = null
     private var mainCursor: DocumentSnapshot? = null
     private var localCursor: DocumentSnapshot? = null
+    private var mainHasMore = true
+    private var localHasMore = true
     @Volatile private var isFetching = false
     private var currentFetchJob: kotlinx.coroutines.Job? = null
     private var lastRefreshTimeLong: Long = 0
@@ -351,7 +353,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null, forceRefresh: Boolean = false) {
         currentLanguage = language
-        activeCurrentUser = currentUser
+        if (currentUser != null) {
+            activeCurrentUser = currentUser
+        }
+        val effectiveUser = currentUser ?: activeCurrentUser
         
         // 🛡️ RACE & CANCEL SHIELD: ఆల్రెడీ ఫెచ్ అవుతుంటే డూప్లికేట్ కాల్స్ వల్ల రద్దవకుండా రక్షణ
         if (isFetching && currentFetchJob?.isActive == true && !forceRefresh) {
@@ -374,7 +379,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
         currentFetchJob = viewModelScope.launch {
             try {
-                val district = prefs.getEffectiveDistrict() ?: currentUser?.district?.takeIf { it.isNotBlank() }
+                val district = prefs.getEffectiveDistrict() ?: effectiveUser?.district?.takeIf { it.isNotBlank() }
                 _userDistrict.value = district
                 val userState = mapDistrictToState(district)
 
@@ -384,6 +389,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 prefCursor = null
                 mainCursor = null
                 localCursor = null
+                mainHasMore = true
+                localHasMore = true
                 _hasMore.value = true
                 consecutiveEmptyLoads = 0
 
@@ -400,10 +407,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
                 // 🌟 2. AUTHOR / REPORTER PRIORITY INJECTION:
                 // లాగిన్ అయిన రిపోర్టర్/వినియోగదారుడి తాజా పోస్ట్‌లను ముందుగా తెచ్చి ఫీడ్ పైన చూపిస్తాం
-                val myPosts = if (currentUser != null && !currentUser.id.isNullOrBlank()) {
+                val myPosts = if (effectiveUser != null && !effectiveUser.id.isNullOrBlank()) {
                     try {
                         val myQuery = FirebaseService.db.collection("news")
-                            .whereEqualTo("originalReporterId", currentUser.id)
+                            .whereEqualTo("originalReporterId", effectiveUser.id)
                             .whereEqualTo("approved", true)
                             .orderBy("timestamp", Query.Direction.DESCENDING)
                             .limit(5)
@@ -461,6 +468,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 var mainPosts = mainSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
                 mainCursor = mainSnap?.documents?.lastOrNull()
                 prefCursor = mainCursor
+                mainHasMore = (mainPosts.size >= FETCH_LIMIT)
 
                 val stateFiltered = mainPosts.filter { isPostAllowedForState(it, userState) }
                 val stateMain = if (stateFiltered.isNotEmpty()) stateFiltered else mainPosts
@@ -504,6 +512,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                             }
                             val rawLocal = localSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
                             localCursor = localSnap?.documents?.lastOrNull()
+                            localHasMore = (rawLocal.size >= 10)
                             stateLocal = rawLocal.filter { isPostAllowedForState(it, userState) }
                         }
 
@@ -528,16 +537,24 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                 local = stateLocal,
                                 isFirstPage = true,
                                 injectedSurvey = survey,
-                                reporterUserId = currentUser?.id
+                                injectedGreeting = greeting,
+                                reporterUserId = effectiveUser?.id
                             )
                         }
 
                         var finalBlended = if (blended.isNotEmpty()) blended else stateMain
-                        greeting?.let { finalBlended = (listOf(it) + finalBlended).distinctBy { p -> p.id } }
+                        // 🌟 PRESERVE REPORTER'S MYPOSTS AT TOP
+                        if (myPosts.isNotEmpty()) {
+                            finalBlended = (myPosts + finalBlended).distinctBy { p -> p.id }
+                        }
                         initialTargetPost?.let { post -> finalBlended = (listOf(post) + finalBlended).distinctBy { p -> p.id } }
 
                         if (finalBlended.isNotEmpty()) {
-                            _news.value = finalBlended
+                            // 🛡️ PRESERVE PAGINATED POSTS: if loadMore ran while enhancement was processing
+                            val currentNews = _news.value
+                            val blendedIds = finalBlended.map { it.id }.toSet()
+                            val extraPaginated = currentNews.filter { it.id !in blendedIds }
+                            _news.value = finalBlended + extraPaginated
                         }
                     } catch (e: Exception) {
                         Log.e("NewsFeedVM", "Background enhancement error: ${e.message}")
@@ -557,6 +574,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     fun loadMore(language: Language, currentUser: User?) {
         currentLanguage = language
+        if (currentUser != null) {
+            activeCurrentUser = currentUser
+        }
+        val effectiveUser = currentUser ?: activeCurrentUser
+
         if (!_hasMore.value) return
         if (isFetching) {
             pendingLoadMore = true
@@ -569,19 +591,20 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 val userState = mapDistrictToState(district)
                 val preferredCats = try { AnalyticsService.getUserPreferredCategories().toSet() } catch (e: Exception) { emptySet() }
 
-                val shouldFetchLocal = localCursor != null && !district.isNullOrBlank()
-                val shouldFetchMain = mainCursor != null
+                val shouldFetchLocal = !district.isNullOrBlank() && localHasMore
+                val shouldFetchMain = mainHasMore
 
                 val mainDeferred = async {
                     if (shouldFetchMain) {
                         try {
-                            val q = FirebaseService.db.collection("news")
+                            var q = FirebaseService.db.collection("news")
                                 .whereEqualTo("approved", true)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .startAfter(mainCursor!!)
-                                .limit(15)
+                            if (mainCursor != null) {
+                                q = q.startAfter(mainCursor!!)
+                            }
                             val snap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
-                                try { q.get().await() } catch (e: Exception) { null }
+                                try { q.limit(15).get().await() } catch (e: Exception) { null }
                             }
                             val posts = snap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
                             Pair(posts, snap?.documents?.lastOrNull())
@@ -597,23 +620,22 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                 .filter { it.isNotBlank() }
                                 .distinct()
                                 .take(10)
-                            val q = if (aliases.size > 1) {
+                            var q = if (aliases.size > 1) {
                                 FirebaseService.db.collection("news")
                                     .whereEqualTo("approved", true)
                                     .whereIn("district", aliases)
                                     .orderBy("timestamp", Query.Direction.DESCENDING)
-                                    .startAfter(localCursor!!)
-                                    .limit(10)
                             } else {
                                 FirebaseService.db.collection("news")
                                     .whereEqualTo("approved", true)
                                     .whereEqualTo("district", aliases.firstOrNull() ?: district)
                                     .orderBy("timestamp", Query.Direction.DESCENDING)
-                                    .startAfter(localCursor!!)
-                                    .limit(10)
+                            }
+                            if (localCursor != null) {
+                                q = q.startAfter(localCursor!)
                             }
                             val snap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
-                                try { q.get().await() } catch (e: Exception) { null }
+                                try { q.limit(10).get().await() } catch (e: Exception) { null }
                             }
                             val posts = snap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
                             Pair(posts, snap?.documents?.lastOrNull())
@@ -628,12 +650,15 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 if (localBatch.second != null) localCursor = localBatch.second
                 prefCursor = mainCursor
 
+                if (mainBatch.first.size < 15) mainHasMore = false
+                if (localBatch.first.size < 10) localHasMore = false
+
                 val stateMain = mainBatch.first.filter { isPostAllowedForState(it, userState) }
                 val stateLocal = localBatch.first.filter { isPostAllowedForState(it, userState) }
                 val prefPosts = stateMain.filter { p -> p.categories.any { it in preferredCats } }
 
                 val newPosts = withContext(Dispatchers.Default) {
-                    rankAndBlendPosts(prefPosts, stateMain, stateLocal, isFirstPage = false, reporterUserId = currentUser?.id)
+                    rankAndBlendPosts(prefPosts, stateMain, stateLocal, isFirstPage = false, reporterUserId = effectiveUser?.id)
                 }
 
                 val postsToAppend = if (newPosts.isNotEmpty()) newPosts else (stateMain + stateLocal).distinctBy { it.id }
@@ -649,7 +674,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     consecutiveEmptyLoads = 0
                 } else {
                     consecutiveEmptyLoads++
-                    if (consecutiveEmptyLoads >= 2 || (mainBatch.first.isEmpty() && localBatch.first.isEmpty())) {
+                    if (consecutiveEmptyLoads >= 2 || (!mainHasMore && !localHasMore)) {
                         _hasMore.value = false
                     }
                 }
@@ -659,7 +684,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 isFetching = false
                 if (pendingLoadMore && _hasMore.value) {
                     pendingLoadMore = false
-                    loadMore(language, currentUser)
+                    loadMore(language, effectiveUser)
                 }
             }
         }
@@ -674,6 +699,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
            local: List<NewsPost>,
            isFirstPage: Boolean = false,
            injectedSurvey: NewsPost? = null,
+           injectedGreeting: NewsPost? = null,
            reporterUserId: String? = null
         ): List<NewsPost> = withContext(Dispatchers.Default) {
             val allRaw = (pref + main + local).distinctBy { it.id }
@@ -686,6 +712,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             val userState: String? = mapDistrictToState(currentDist)
 
             val allPosts = (filteredPref + filteredMain + filteredLocal).distinctBy { it.id }.filter { post ->
+                // 0. రచయిత/రిపోర్టర్ స్వంత పోస్ట్ అయితే ఎల్లప్పుడూ అనుమతించు
+                if (reporterUserId != null && (post.originalReporterId == reporterUserId || post.reporter.id == reporterUserId)) {
+                    return@filter true
+                }
+
                 if (post.type == "survey") {
                     if (userState != null && post.state != null && post.state != userState) return@filter false
                     if (post.isReporter) {
@@ -706,10 +737,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     return@filter false
                 }
                 
-                // 2. 🛡️ REPORTER DISTRICT NEWS FILTER
-                // Only show 'District News' from reporters if it's the user's own district.
-                val isDistrictNewsCategory = post.categories.contains("జిల్లా వార్త")
-                if (isDistrictNewsCategory && post.isReporter) {
+                // 2. 🛡️ DISTRICT NEWS FILTER
+                // ఇతర జిల్లాల లోకల్ "జిల్లా వార్త" హోమ్ ఫీడ్‌లోకి రాకుండా నిరోధిస్తాం
+                val isDistrictNewsCategory = post.categories.contains("జిల్లా వార్త") || post.category == "జిల్లా వార్త"
+                if (isDistrictNewsCategory) {
                     if (currentDist != null) {
                         val matchesUserDistrict = (post.district == currentDist || post.categories.contains(currentDist) || Constants.isDistrictMatch(post.district, currentDist))
                         if (!matchesUserDistrict) return@filter false
@@ -721,11 +752,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
            if (allPosts.isEmpty() && !isFirstPage) return@withContext emptyList<NewsPost>()
 
-           val festivalGreetings = allPosts.filter {
-               it.type == "greeting" && (it.category == "పండుగలు" || it.headline.telugu.contains("శుభాకాంక్షలు") || it.likes == 0)
+           val allGreetings = (allPosts.filter { it.type == "greeting" } + (if (injectedGreeting != null) listOf(injectedGreeting) else emptyList())).distinctBy { it.id }
+
+           val festivalGreetings = allGreetings.filter {
+               (it.category == "పండుగలు" || it.headline.telugu.contains("శుభాకాంక్షలు") || it.likes == 0) &&
+               prefs.getPostViewCount(it.id) < 2
            }
-           val quoteGreetings = allPosts.filter {
-               it.type == "greeting" && (it.category == "ప్రేరణ" || it.headline.telugu.contains("మంచి మాట") || it.headline.english.equals("Quote of the Day", ignoreCase = true) || it.likes == 1) && it !in festivalGreetings
+           val quoteGreetings = allGreetings.filter {
+               (it.category == "ప్రేరణ" || it.headline.telugu.contains("మంచి మాట") || it.headline.english.equals("Quote of the Day", ignoreCase = true) || it.likes == 1) &&
+               it !in festivalGreetings &&
+               prefs.getPostViewCount(it.id) < 2
            }
            val historyPosts = allPosts.filter { it.type == "history" }
            val cartoonPosts = allPosts.filter { it.type == "cartoon" }
@@ -771,12 +807,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             .map { it.first }
             .toMutableList()
 
-           // 2. Fresh pool: Newest general news by timestamp DESC (preferred categories given gentle boost in fresh slot)
-           val preferredGeneral = generalCandidates.filter { post -> post.categories.any { it in preferredCategories } }
-               .sortedByDescending { it.timestamp }
-           val otherGeneral = generalCandidates.filter { it !in preferredGeneral }
-               .sortedByDescending { it.timestamp }
-           val freshCandidates = (preferredGeneral + otherGeneral).toMutableList()
+           // 2. Fresh pool: Strictly sorted by timestamp DESC (Newest Breaking News First)
+           val freshCandidates = generalCandidates.sortedByDescending { it.timestamp }.toMutableList()
 
            // 3. Discovery pool: Posts exploring categories not yet in user's top preferences
            val discoveryCandidates = generalCandidates.filter { post ->
@@ -798,7 +830,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                return null
            }
 
-           // 🔄 Interleaved Cadence:
+           // 🔄 Interleaved Cadence (40% Fresh, 30% Personalized, 30% Local/Discovery):
            // Slot 0: Fresh #1 (Top Breaking)
            // Slot 1: Personalized #1 (Top User Interest)
            // Slot 2: Local #1 (District News)
@@ -845,7 +877,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                if (quoteGreetings.isNotEmpty()) { insertSafely(blendedNews, quoteGreetings.first(), 7) }
                
                // ✅ WEATHER CARD FIX:
-               // Moved to index 9 (was 8) due to survey at index 2
                val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
                 val isMorning = currentHour in 5..10
 
