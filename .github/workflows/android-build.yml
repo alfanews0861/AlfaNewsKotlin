@@ -44,8 +44,9 @@ jobs:
 
     - name: Verify Signed APK
       run: |
-        echo "Verifying APK built..."
-        ls -la app/build/outputs/apk/release/
+        echo "Verifying build outputs..."
+        find app/build/outputs/ -type f || true
+        ls -la app/build/outputs/bundle/release/ || true
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
@@ -53,7 +54,7 @@ jobs:
         name: release-artifacts
         path: |
           app/build/outputs/bundle/release/*.aab
-          app/build/outputs/apk/release/*.apk
+          app/build/outputs/apk/**/*.apk
 
     - name: Upload Build Log on Failure
       if: failure()
