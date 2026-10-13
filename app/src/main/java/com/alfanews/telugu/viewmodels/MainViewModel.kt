@@ -111,9 +111,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // 🧪 TEST LAB BRIDGE: Firebase Test Lab లో టెస్టింగ్ కోసం మారుపేరు (Mock) యూజర్ ని సెట్ చేయడం.
-        val isTestLab = Settings.System.getString(application.contentResolver, "firebase.test.lab") == "true"
+        val isTestLab = try {
+            Settings.System.getString(application.contentResolver, "firebase.test.lab") == "true"
+        } catch (_: Throwable) {
+            false
+        }
         if (isTestLab) {
-            val testRoleSetting = Settings.System.getString(application.contentResolver, "firebase.test.lab.role") ?: "REPORTER"
+            val testRoleSetting = try {
+                Settings.System.getString(application.contentResolver, "firebase.test.lab.role") ?: "REPORTER"
+            } catch (_: Throwable) {
+                "REPORTER"
+            }
             val mockUser = when (testRoleSetting) {
                 "REPORTER" -> User(
                     id = "ftl_reporter",

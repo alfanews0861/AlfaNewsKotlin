@@ -120,16 +120,24 @@ class PreferenceManager(context: Context) {
      * ఎంచుకున్న జిల్లా ఉంటే అది, లేకపోతే గుర్తించిన జిల్లా, అది కూడా లేకపోతే null.
      */
     fun getEffectiveDistrict(): String? {
-        val dist = selectedDistrict ?: userDistrict ?: detectedDistrict
-        if (!dist.isNullOrBlank()) return dist
-        if (lastLat != 0.0 && lastLon != 0.0) {
-            val matched = com.alfanews.telugu.services.WeatherService.getClosestDistrictFromCoords(lastLat, lastLon)
-            if (matched != null) {
-                detectedDistrict = matched
-                return matched
+        return try {
+            val dist = selectedDistrict ?: userDistrict ?: detectedDistrict
+            if (!dist.isNullOrBlank()) return dist
+            if (lastLat != 0.0 && lastLon != 0.0) {
+                val matched = com.alfanews.telugu.services.WeatherService.getClosestDistrictFromCoords(lastLat, lastLon)
+                if (matched != null) {
+                    detectedDistrict = matched
+                    return matched
+                }
+            }
+            null
+        } catch (e: Throwable) {
+            try {
+                selectedDistrict ?: userDistrict ?: detectedDistrict
+            } catch (_: Throwable) {
+                null
             }
         }
-        return null
     }
 
     var shouldShowOnboarding: Boolean
@@ -193,16 +201,22 @@ class PreferenceManager(context: Context) {
 
     /** యాప్ వెర్షన్ - అప్‌డేట్ అయినప్పుడు కాష్ క్లియర్ చేయడానికి. */
     var lastAppVersionCode: Int
-        get() = prefs.getInt("key_last_app_version_code", 0)
+        get() = try {
+            prefs.getInt("key_last_app_version_code", 0)
+        } catch (e: Throwable) {
+            0
+        }
         set(value) {
-            prefs.edit().putInt("key_last_app_version_code", value).apply()
+            try {
+                prefs.edit().putInt("key_last_app_version_code", value).apply()
+            } catch (_: Throwable) {}
         }
 
     /** యూజర్ ప్రస్తుత స్థానం (మండలం/ఊరు) - వాతావరణం కోసం. */
     var localPlace: String?
-        get() = prefs.getString(KEY_LOCAL_PLACE, null)
+        get() = try { prefs.getString(KEY_LOCAL_PLACE, null) } catch (_: Throwable) { null }
         set(value) {
-            prefs.edit().putString(KEY_LOCAL_PLACE, value).apply()
+            try { prefs.edit().putString(KEY_LOCAL_PLACE, value).apply() } catch (_: Throwable) {}
         }
 
     // ✅ FIX: Store as Long bits to preserve full Double precision.
@@ -210,28 +224,42 @@ class PreferenceManager(context: Context) {
     // which means GPS coords pointed to wrong location for weather!
     var lastLat: Double
         get() {
-            val bits = prefs.getLong(KEY_LAST_LAT_D, 0L)
-            return if (bits == 0L) prefs.getFloat(KEY_LAST_LAT, 0f).toDouble() // fallback for old installs
-            else Double.fromBits(bits)
+            return try {
+                val bits = prefs.getLong(KEY_LAST_LAT_D, 0L)
+                if (bits == 0L) {
+                    try { prefs.getFloat(KEY_LAST_LAT, 0f).toDouble() } catch (_: Throwable) { 0.0 }
+                } else Double.fromBits(bits)
+            } catch (e: Throwable) {
+                try { prefs.getFloat(KEY_LAST_LAT, 0f).toDouble() } catch (_: Throwable) { 0.0 }
+            }
         }
         set(value) {
-            prefs.edit()
-                .putLong(KEY_LAST_LAT_D, value.toBits())
-                .putFloat(KEY_LAST_LAT, value.toFloat()) // keep old key for backward compat
-                .apply()
+            try {
+                prefs.edit()
+                    .putLong(KEY_LAST_LAT_D, value.toBits())
+                    .putFloat(KEY_LAST_LAT, value.toFloat()) // keep old key for backward compat
+                    .apply()
+            } catch (_: Throwable) {}
         }
 
     var lastLon: Double
         get() {
-            val bits = prefs.getLong(KEY_LAST_LON_D, 0L)
-            return if (bits == 0L) prefs.getFloat(KEY_LAST_LON, 0f).toDouble() // fallback for old installs
-            else Double.fromBits(bits)
+            return try {
+                val bits = prefs.getLong(KEY_LAST_LON_D, 0L)
+                if (bits == 0L) {
+                    try { prefs.getFloat(KEY_LAST_LON, 0f).toDouble() } catch (_: Throwable) { 0.0 }
+                } else Double.fromBits(bits)
+            } catch (e: Throwable) {
+                try { prefs.getFloat(KEY_LAST_LON, 0f).toDouble() } catch (_: Throwable) { 0.0 }
+            }
         }
         set(value) {
-            prefs.edit()
-                .putLong(KEY_LAST_LON_D, value.toBits())
-                .putFloat(KEY_LAST_LON, value.toFloat()) // keep old key for backward compat
-                .apply()
+            try {
+                prefs.edit()
+                    .putLong(KEY_LAST_LON_D, value.toBits())
+                    .putFloat(KEY_LAST_LON, value.toFloat()) // keep old key for backward compat
+                    .apply()
+            } catch (_: Throwable) {}
         }
 
     /**

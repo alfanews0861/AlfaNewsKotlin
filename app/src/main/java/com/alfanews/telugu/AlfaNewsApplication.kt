@@ -43,48 +43,77 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
         super.onCreate()
 
         try {
+            val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+            Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+                try {
+                    val crashFile = File(filesDir, "crash_log.txt")
+                    crashFile.writeText("Time: ${java.util.Date()}\nThread: ${thread.name}\n${Log.getStackTraceString(throwable)}\n")
+                } catch (_: Throwable) {}
+                defaultHandler?.uncaughtException(thread, throwable)
+            }
+        } catch (_: Throwable) {}
+
+        try {
             // ఫైర్‌బేస్‌ను ప్రారంభించడం
             FirebaseApp.initializeApp(this)
 
             // 🛠️ కొత్త అప్‌డేట్ లో పాత డేటాను క్లియర్ చేయడం (GBs లో ఉన్న కాష్ ని తీసివేయడం)
-            clearLegacyAppCache()
+            try {
+                clearLegacyAppCache()
+            } catch (e: Throwable) {
+                Log.e("AlfaNewsApp", "clearLegacyAppCache error: ${e.message}")
+            }
 
             // 🛡️ స్టోరేజ్ గార్డ్ - పరిమితి మించకుండా చూస్తుంది
-            runStorageGuard()
+            try {
+                runStorageGuard()
+            } catch (e: Throwable) {
+                Log.e("AlfaNewsApp", "runStorageGuard error: ${e.message}")
+            }
 
             // 🛑 పాత వర్కర్లను ఆపడం (Billing costs తగ్గించడానికి)
-            cancelRedundantWorkers()
-
-            // 🛡️ ఫైర్‌బేస్ యాప్ చెక్:
-            // వెబ్ (web/src/services/firebase.ts) లో మాదిరిగానే, ఫైర్‌బేస్ కన్సోల్‌లో App Check ఎన్‌ఫోర్స్ చేయనప్పుడు
-            // డైరెక్ట్ APK అప్‌డేట్‌లలో Play Integrity అటెస్టేషన్ ఆలస్యం వల్ల ఫైర్‌స్టోర్ కాల్స్ స్టాల్ అవ్వకుండా నివారించాము.
-            // val firebaseAppCheck = FirebaseAppCheck.getInstance()
-            // firebaseAppCheck.installAppCheckProviderFactory(
-            //     PlayIntegrityAppCheckProviderFactory.getInstance()
-            // )
+            try {
+                cancelRedundantWorkers()
+            } catch (e: Throwable) {
+                Log.e("AlfaNewsApp", "cancelRedundantWorkers error: ${e.message}")
+            }
 
             // ఫైర్‌బేస్ అనలిటిక్స్
-            FirebaseAnalytics.getInstance(this)
-
-            // అనలిటిక్స్ సర్వీస్
-            AnalyticsService.initialize(this)
+            try {
+                FirebaseAnalytics.getInstance(this)
+                AnalyticsService.initialize(this)
+            } catch (e: Throwable) {
+                Log.e("AlfaNewsApp", "Analytics init error: ${e.message}")
+            }
 
             // పుష్ నోటిఫికేషన్లు (యూజర్ ప్రిఫరెన్స్ ఆధారంగా మాత్రమే)
-            val prefs = PreferenceManager.getInstance(this)
-            if (prefs.isNotificationsEnabled) {
-                FirebaseMessaging.getInstance().subscribeToTopic("all_users")
-            } else {
-                FirebaseMessaging.getInstance().unsubscribeFromTopic("all_users")
+            try {
+                val prefs = PreferenceManager.getInstance(this)
+                if (prefs.isNotificationsEnabled) {
+                    FirebaseMessaging.getInstance().subscribeToTopic("all_users")
+                } else {
+                    FirebaseMessaging.getInstance().unsubscribeFromTopic("all_users")
+                }
+            } catch (e: Throwable) {
+                Log.e("AlfaNewsApp", "FCM topic init error: ${e.message}")
             }
             
             // నోటిఫికేషన్ ఛానెల్‌లను సృష్టించడం (ముఖ్యంగా ఆండ్రాయిడ్ 13+ కోసం)
-            createNotificationChannels()
+            try {
+                createNotificationChannels()
+            } catch (e: Throwable) {
+                Log.e("AlfaNewsApp", "createNotificationChannels error: ${e.message}")
+            }
 
             // మండలానికి కేటాయించిన విలేకరుల వెరిఫైడ్ బ్యాడ్జ్ లిజనర్
-            com.alfanews.telugu.utils.ReporterVerificationManager.startListening()
-        } catch (e: Exception) {
+            try {
+                com.alfanews.telugu.utils.ReporterVerificationManager.startListening()
+            } catch (e: Throwable) {
+                Log.e("AlfaNewsApp", "ReporterVerificationManager error: ${e.message}")
+            }
+        } catch (e: Throwable) {
             // ఏదైనా ఎర్రర్ వస్తే యాప్ క్రాష్ అవ్వకుండా ఉండటానికి
-            e.printStackTrace()
+            Log.e("AlfaNewsApp", "Critical error in AlfaNewsApplication.onCreate: ${e.message}", e)
         }
     }
 

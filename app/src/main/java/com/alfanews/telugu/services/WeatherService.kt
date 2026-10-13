@@ -128,32 +128,38 @@ interface WeatherApiService {
 }
 
 object WeatherService {
-    private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
-        .addInterceptor { chain ->
-            val req = chain.request().newBuilder()
-                .header("User-Agent", "Mozilla/5.0 AlfaNews/5.4")
-                .build()
-            chain.proceed(req)
-        }
-        .build()
+    private val okHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val req = chain.request().newBuilder()
+                    .header("User-Agent", "Mozilla/5.0 AlfaNews/5.4")
+                    .build()
+                chain.proceed(req)
+            }
+            .build()
+    }
 
-    private val wttrRetrofit = Retrofit.Builder()
-        .baseUrl("https://wttr.in/")
-        .client(okHttpClient)
-        .addConverterFactory(GsonConverterFactory.create())
-        .build()
+    private val wttrRetrofit: Retrofit by lazy {
+        Retrofit.Builder()
+            .baseUrl("https://wttr.in/")
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+    }
 
-    private val wttrApi = wttrRetrofit.create(WttrApiService::class.java)
+    private val wttrApi: WttrApiService by lazy { wttrRetrofit.create(WttrApiService::class.java) }
 
-    private val retrofit = Retrofit.Builder()
-        .baseUrl("https://api.open-meteo.com/")
-        .client(okHttpClient)
-        .addConverterFactory(GsonConverterFactory.create())
-        .build()
+    private val retrofit: Retrofit by lazy {
+        Retrofit.Builder()
+            .baseUrl("https://api.open-meteo.com/")
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+    }
 
-    private val api = retrofit.create(WeatherApiService::class.java)
+    private val api: WeatherApiService by lazy { retrofit.create(WeatherApiService::class.java) }
 
     // ✅ In-memory cache: 5-min TTL per location
     private data class CachedWeather(val data: WeatherData, val fetchedAt: Long)

@@ -119,3 +119,18 @@
     public static void checkParameterIsNotNull(...);
 }
 
+# Retrofit 2
+-dontwarn retrofit2.**
+-keep class retrofit2.** { *; }
+-keepattributes Signature, InnerClasses, EnclosingMethod
+-keepclasseswithmembers class * {
+    @retrofit2.http.* <methods>;
+}
+-keep interface com.alfanews.telugu.services.** { *; }
+-keep class com.alfanews.telugu.services.** { *; }
+
+# Gson serialization models for Retrofit and Services
+-keepclassmembers class com.alfanews.telugu.services.** {
+    @com.google.gson.annotations.SerializedName <fields>;
+}
+

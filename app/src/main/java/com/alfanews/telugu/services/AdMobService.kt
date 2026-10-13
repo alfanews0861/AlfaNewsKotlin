@@ -44,9 +44,26 @@ object AdMobService {
      * యాడ్ మాబ్ SDK ని ప్రారంభిస్తుంది.
      */
     fun initialize(activity: Activity, onInitializationComplete: () -> Unit = {}) {
-        MobileAds.initialize(activity) { initializationStatus ->
-            Log.d(TAG, "AdMob initialized: ${initializationStatus.adapterStatusMap}")
-            preloadNativeAds(activity)
+        try {
+            MobileAds.initialize(activity) { initializationStatus ->
+                try {
+                    Log.d(TAG, "AdMob initialized: ${initializationStatus.adapterStatusMap}")
+                    activity.runOnUiThread {
+                        try {
+                            preloadNativeAds(activity)
+                            onInitializationComplete()
+                        } catch (e: Throwable) {
+                            Log.e(TAG, "Error preloading native ads: ${e.message}")
+                            onInitializationComplete()
+                        }
+                    }
+                } catch (e: Throwable) {
+                    Log.e(TAG, "AdMob post-init error: ${e.message}", e)
+                    onInitializationComplete()
+                }
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "MobileAds.initialize failed: ${e.message}", e)
             onInitializationComplete()
         }
     }

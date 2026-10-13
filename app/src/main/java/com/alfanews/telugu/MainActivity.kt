@@ -93,92 +93,122 @@ class MainActivity : ComponentActivity() {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
 
-        val prefs = PreferenceManager.getInstance(this)
-        val currentVersion = BuildConfig.VERSION_CODE
-        if (prefs.lastAppVersionCode < currentVersion) {
-            prefs.lastAppVersionCode = currentVersion
-            try {
-                // Safe cache cleanup: Only remove temporary image cache, preserve Firestore/database files
-                val imgCache = this.cacheDir.resolve("image_cache")
-                if (imgCache.exists()) {
-                    imgCache.deleteRecursively()
+        try {
+            val prefs = PreferenceManager.getInstance(this)
+            val currentVersion = BuildConfig.VERSION_CODE
+            if (prefs.lastAppVersionCode < currentVersion) {
+                prefs.lastAppVersionCode = currentVersion
+                try {
+                    // Safe cache cleanup: Only remove temporary image cache, preserve Firestore/database files
+                    val imgCache = this.cacheDir.resolve("image_cache")
+                    if (imgCache.exists()) {
+                        imgCache.deleteRecursively()
+                    }
+                    Log.d("MainActivity", "App updated to version $currentVersion. Image cache cleared safely.")
+                } catch (e: Throwable) {
+                    Log.e("MainActivity", "Error clearing image cache: ${e.message}")
                 }
-                Log.d("MainActivity", "App updated to version $currentVersion. Image cache cleared safely.")
-            } catch (e: Exception) {
-                Log.e("MainActivity", "Error clearing image cache: ${e.message}")
             }
+        } catch (e: Throwable) {
+            Log.e("MainActivity", "Version code check error: ${e.message}")
         }
 
-        checkInstallReferrer(this)
-
-
+        try {
+            checkInstallReferrer(this)
+        } catch (e: Throwable) {
+            Log.e("MainActivity", "checkInstallReferrer error: ${e.message}")
+        }
 
         // Hand over control to our custom Animated Splash Screen immediately
-        splashScreen.setKeepOnScreenCondition { false }
+        try {
+            splashScreen.setKeepOnScreenCondition { false }
+        } catch (_: Throwable) {}
 
         // Edge-to-edge: app content extends behind system bars (Play Store required for targetSdk 35+)
         // Status bar is transparent - phone default settings handle icon colors automatically
-        WindowCompat.setDecorFitsSystemWindows(window, false)
+        try {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+        } catch (_: Throwable) {}
+
         // 🚀 PRE-WARM: Early trigger for Firestore network engine (gRPC/TLS warm-up)
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                FirebaseService.db.collection("news").limit(1).get()
-            } catch (e: Exception) {}
+        try {
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    FirebaseService.db.collection("news").limit(1).get()
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
+
+        try {
+            AdMobService.initialize(this)
+        } catch (e: Throwable) {
+            Log.e("MainActivity", "AdMob init error: ${e.message}")
         }
-        AdMobService.initialize(this)
 
         // ఆండ్రాయిడ్ 13+ కోసం నోటిఫికేషన్ పర్మిషన్ అడగడం
-        askNotificationPermission()
-        mainViewModel.recordAppOpen(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
+        try {
+            askNotificationPermission()
+        } catch (e: Throwable) {
+            Log.e("MainActivity", "Notification perm error: ${e.message}")
+        }
+
+        try {
+            mainViewModel.recordAppOpen(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
+        } catch (e: Throwable) {
+            Log.e("MainActivity", "recordAppOpen error: ${e.message}")
+        }
 
         // Preload news - if intent contains a postId (notification or deep link),
         // pass initialPostId immediately so fast path loads the target post at index 0 without delay.
-        val initialPostId = extractPostIdFromIntent(intent)
-        coldStartInitialPostId = initialPostId
-        if (initialPostId != null) {
-            newsFeedViewModel.setSharedPostId(initialPostId)
-            mainViewModel.setActiveTab("home")
-            AnalyticsService.logNotificationOpened(postId = initialPostId, actionUrl = intent?.getStringExtra("actionUrl"))
+        try {
+            val initialPostId = extractPostIdFromIntent(intent)
+            coldStartInitialPostId = initialPostId
+            if (initialPostId != null) {
+                newsFeedViewModel.setSharedPostId(initialPostId)
+                mainViewModel.setActiveTab("home")
+                AnalyticsService.logNotificationOpened(postId = initialPostId, actionUrl = intent?.getStringExtra("actionUrl"))
+            }
+            val language = mainViewModel.language.value
+            val currentUser = mainViewModel.currentUser.value
+            newsFeedViewModel.loadNews(language, currentUser, initialPostId = initialPostId)
+            localNewsFeedViewModel.loadNews(language, currentUser)
+        } catch (e: Throwable) {
+            Log.e("MainActivity", "Initial news load error: ${e.message}", e)
         }
-        val language = mainViewModel.language.value
-        val currentUser = mainViewModel.currentUser.value
-        newsFeedViewModel.loadNews(language, currentUser, initialPostId = initialPostId)
-        localNewsFeedViewModel.loadNews(language, currentUser)
 
         // Handle Firebase Dynamic Links (for deferred deep links when app wasn't installed)
         // This must be done BEFORE handleDeepLink() to catch dynamic links properly
-        FirebaseDynamicLinks.getInstance()
-            .getDynamicLink(intent)
-            .addOnSuccessListener(this) { pendingDynamicLinkData ->
-                try {
-                    var deepLink: Uri? = null
-                    if (pendingDynamicLinkData != null) {
-                        deepLink = pendingDynamicLinkData.link
+        try {
+            FirebaseDynamicLinks.getInstance()
+                .getDynamicLink(intent)
+                .addOnSuccessListener(this) { pendingDynamicLinkData ->
+                    try {
+                        var deepLink: Uri? = null
+                        if (pendingDynamicLinkData != null) {
+                            deepLink = pendingDynamicLinkData.link
+                            Log.d("DynamicLinks", "Dynamic link received: ${deepLink?.toString() ?: "null"}")
+                        }
 
-                        // Log for analytics/debugging
-                        // This shows whether the link came from a share (deferred deep link)
-                        Log.d("DynamicLinks", "Dynamic link received: ${deepLink?.toString() ?: "null"}")
-                    }
-
-                    // Handle the deeplink using the same handler
-                    if (deepLink != null) {
-                        val dynamicIntent = Intent(Intent.ACTION_VIEW)
-                        dynamicIntent.data = deepLink
-                        handleDeepLink(dynamicIntent)
-                    } else {
-                        // No dynamic link or it's a regular deep link
+                        if (deepLink != null) {
+                            val dynamicIntent = Intent(Intent.ACTION_VIEW)
+                            dynamicIntent.data = deepLink
+                            handleDeepLink(dynamicIntent)
+                        } else {
+                            handleDeepLink(intent)
+                        }
+                    } catch (e: Throwable) {
+                        Log.w("DynamicLinks", "Error processing dynamic link", e)
                         handleDeepLink(intent)
                     }
-                } catch (e: Exception) {
-                    Log.w("DynamicLinks", "Error processing dynamic link", e)
+                }
+                .addOnFailureListener(this) { e ->
+                    Log.w("DynamicLinks", "getDynamicLink failed", e)
                     handleDeepLink(intent)
                 }
-            }
-            .addOnFailureListener(this) { e ->
-                Log.w("DynamicLinks", "getDynamicLink failed", e)
-                // Fallback to regular deep link handling
-                handleDeepLink(intent)
-            }
+        } catch (e: Throwable) {
+            Log.w("DynamicLinks", "DynamicLinks setup failed: ${e.message}")
+            try { handleDeepLink(intent) } catch (_: Throwable) {}
+        }
 
         // Intent డేటాను ఇక్కడే ప్రాసెస్ చేయడం
         // This handles custom scheme deeplinks (alfanews://news/POST_ID)
