@@ -367,6 +367,14 @@ fun MainScreen(
                         unreadMessagesCount = unreadMessagesCount,
                         language = language,
                         onTabChange = { tab: String -> 
+                            if (activeTab == tab) {
+                                if (tab == "home") {
+                                    newsFeedViewModel.requestScrollToTop()
+                                } else if (tab == "local") {
+                                    localNewsFeedViewModel?.requestScrollToTop()
+                                }
+                            }
+
                             // Reset overlay states when switching tabs via footer
                             showPostNewsPage = false
                             showJoinReporterPage = false

@@ -216,7 +216,7 @@ fun LocalNewsFeedView(
 
             if (page < baseCount) {
                 // 🚀 FAST SWIPE PRELOADING: వేగంగా స్వైప్ చేసే యూజర్ల కోసం 5 పేజీల ముందస్తు ఇమేజ్ ప్రీ-లోడింగ్ (IO thread)
-                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                launch(Dispatchers.IO) {
                     (1..5).forEach { offset ->
                         val nextPageIndex = page + offset
                         val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
@@ -279,78 +279,44 @@ fun LocalNewsFeedView(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        if (!isOnline && news.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.padding(32.dp)
+        if (news.isEmpty()) {
+            if (viewModelActiveDistrict == null && !isDetecting) {
+                LaunchedEffect(Unit) {
+                    onDistrictClick()
+                }
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                    )
-                    Text(
-                        text = stringResource(R.string.no_internet),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        fontFamily = Ramabhadra
-                    )
-                    Text(
-                        text = stringResource(R.string.check_internet),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        fontFamily = Ramabhadra
-                    )
-                    Button(
-                        onClick = { viewModel.loadNews(language, currentUser) }
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Text(text = stringResource(R.string.retry), fontFamily = Ramabhadra)
+                        Text(
+                            text = stringResource(R.string.select_district_prompt),
+                            color = MaterialTheme.colorScheme.onBackground,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontFamily = Ramabhadra
+                        )
+                        Button(
+                            onClick = onDistrictClick,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Text(stringResource(R.string.select_district), fontFamily = Ramabhadra)
+                        }
                     }
                 }
-            }
-        } else if (news.isEmpty() && viewModelActiveDistrict == null && !isDetecting) {
-            LaunchedEffect(Unit) {
-                onDistrictClick()
-            }
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.select_district_prompt),
-                        color = MaterialTheme.colorScheme.onBackground,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontFamily = Ramabhadra
-                    )
-                    Button(
-                        onClick = onDistrictClick,
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        Text(stringResource(R.string.select_district), fontFamily = Ramabhadra)
+            } else {
+                var retryCount by remember { mutableStateOf(0) }
+                LaunchedEffect(loading) {
+                    if (!loading && retryCount < 2) {
+                        kotlinx.coroutines.delay((retryCount + 1) * 3000L)
+                        retryCount++
+                        viewModel.loadNews(language, currentUser, forceRefresh = true)
                     }
                 }
+                NewsCardSkeleton()
             }
-        } else if (news.isEmpty()) {
-            var retryCount by remember { mutableStateOf(0) }
-            LaunchedEffect(loading) {
-                if (!loading && retryCount < 2) {
-                    kotlinx.coroutines.delay((retryCount + 1) * 3000L)
-                    retryCount++
-                    viewModel.loadNews(language, currentUser, forceRefresh = true)
-                }
-            }
-            NewsCardSkeleton()
         } else {
             VerticalPager(
                 state = pagerState,
