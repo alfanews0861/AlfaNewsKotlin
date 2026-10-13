@@ -38,6 +38,10 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 
 class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(application) {
+    companion object {
+        private const val PAGE_SIZE = 20
+    }
+
     private val prefs = PreferenceManager.getInstance(application)
     private var currentLanguage: Language = Language.TELUGU
     private var activeCurrentUser: User? = null
@@ -78,6 +82,14 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     private var liveCatPosts: List<NewsPost> = emptyList()
     private var liveReporterPosts: List<NewsPost> = emptyList()
 
+    private var pendingLoadMore = false
+    private var lastDocument: DocumentSnapshot? = null
+    private var lastRefreshTimeLong: Long = 0
+    private val pageSize = PAGE_SIZE
+    private var loadJob: Job? = null
+    private var isFetching = false
+    private var consecutiveEmptyLoads = 0
+
     init {
         val initialDist = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: prefs.userDistrict ?: "హైదరాబాద్"
         _activeDistrict.value = initialDist
@@ -105,14 +117,6 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     fun resetScrollSignal() {
         _shouldScrollToTop.value = false
     }
-
-    private var pendingLoadMore = false
-    private var lastDocument: DocumentSnapshot? = null
-    private var lastRefreshTimeLong: Long = 0
-    private val pageSize = 20
-    private var loadJob: Job? = null
-    private var isFetching = false
-    private var consecutiveEmptyLoads = 0
     
     fun setDistrict(district: String) {
         if (prefs.selectedDistrict == district && _activeDistrict.value == district) {
@@ -283,7 +287,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             newsRef.whereEqualTo("approved", true).whereEqualTo("district", district)
         })
         .orderBy("timestamp", Query.Direction.DESCENDING)
-        .limit(pageSize.toLong())
+        .limit(PAGE_SIZE.toLong().coerceAtLeast(1L))
 
         distListenerRegistration = distQuery.addSnapshotListener { snapshot, error ->
             if (error != null) {
@@ -317,7 +321,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             newsRef.whereEqualTo("approved", true).whereArrayContainsAny("categories", listOf(district))
         })
         .orderBy("timestamp", Query.Direction.DESCENDING)
-        .limit(pageSize.toLong())
+        .limit(PAGE_SIZE.toLong().coerceAtLeast(1L))
 
         catListenerRegistration = catQuery.addSnapshotListener { snapshot, error ->
             if (error != null) {
@@ -548,7 +552,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             newsRef.whereEqualTo("approved", true).whereEqualTo("district", district)
                         })
                         .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(pageSize.toLong())
+                        .limit(PAGE_SIZE.toLong().coerceAtLeast(1L))
                         .get(Source.CACHE)
                         .await()
 
@@ -590,7 +594,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     newsRef.whereEqualTo("approved", true).whereEqualTo("district", district)
                 })
                 .orderBy("timestamp", Query.Direction.DESCENDING)
-                .limit(pageSize.toLong())
+                .limit(PAGE_SIZE.toLong().coerceAtLeast(1L))
 
                 val catQuery = (if (cleanAliases.size > 1) {
                     newsRef.whereEqualTo("approved", true).whereArrayContainsAny("categories", cleanAliases)
@@ -600,7 +604,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     newsRef.whereEqualTo("approved", true).whereArrayContainsAny("categories", listOf(district))
                 })
                 .orderBy("timestamp", Query.Direction.DESCENDING)
-                .limit(pageSize.toLong())
+                .limit(PAGE_SIZE.toLong().coerceAtLeast(1L))
 
                 val distDeferred = async(Dispatchers.IO) {
                     kotlinx.coroutines.withTimeoutOrNull(3500L) {
@@ -633,13 +637,13 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         try {
                             newsRef.whereEqualTo("approved", true)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(pageSize.toLong())
+                                .limit(PAGE_SIZE.toLong().coerceAtLeast(1L))
                                 .get().await()
                         } catch (e: Exception) { null }
                     } ?: try {
                         newsRef.whereEqualTo("approved", true)
                             .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(pageSize.toLong())
+                            .limit(PAGE_SIZE.toLong().coerceAtLeast(1L))
                             .get(Source.CACHE).await()
                     } catch (e: Exception) { null }
 
@@ -720,7 +724,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                 var q = baseQ
                     .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(pageSize.toLong())
+                    .limit(PAGE_SIZE.toLong().coerceAtLeast(1L))
 
                 val lastDoc = lastDocument
                 if (lastDoc != null) {

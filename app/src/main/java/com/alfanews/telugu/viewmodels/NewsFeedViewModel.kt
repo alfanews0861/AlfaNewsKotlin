@@ -37,20 +37,14 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 
 class NewsFeedViewModel(application: Application) : AndroidViewModel(application) {
+    companion object {
+        private const val FETCH_LIMIT = 50
+    }
+
     private val prefs = PreferenceManager.getInstance(application)
     private var currentLanguage: Language = Language.TELUGU
+    private var activeCurrentUser: User? = null
 
-    init {
-        viewModelScope.launch {
-            prefs.districtChanges.collectLatest { district ->
-                if (district != _userDistrict.value) {
-                    _userDistrict.value = district
-                    loadNews(Language.TELUGU, activeCurrentUser, forceRefresh = true)
-                }
-            }
-        }
-    }
-    
     private val _news = MutableStateFlow<kotlin.collections.List<NewsPost>>(emptyList())
     val news: StateFlow<kotlin.collections.List<NewsPost>> = _news.asStateFlow()
 
@@ -74,6 +68,17 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     private val _localAds = MutableStateFlow<kotlin.collections.List<com.alfanews.telugu.models.LocalAd>>(emptyList())
     val localAds: StateFlow<kotlin.collections.List<com.alfanews.telugu.models.LocalAd>> = _localAds.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            prefs.districtChanges.collectLatest { district ->
+                if (district != _userDistrict.value) {
+                    _userDistrict.value = district
+                    loadNews(Language.TELUGU, activeCurrentUser, forceRefresh = true)
+                }
+            }
+        }
+    }
 
     fun resetScrollSignal() {
         _shouldScrollToTop.value = false
@@ -274,8 +279,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private var activeCurrentUser: User? = null
-
     fun prependPost(post: NewsPost) {
         _news.value = (listOf(post) + _news.value).distinctBy { it.id }
         _loading.value = false
@@ -348,8 +351,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
         return true
     }
-
-    private val FETCH_LIMIT = 50
 
     fun loadNews(language: Language, currentUser: User?, initialPostId: String? = null, forceRefresh: Boolean = false) {
         currentLanguage = language
@@ -427,7 +428,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         val cachedSnap = FirebaseService.db.collection("news")
                             .whereEqualTo("approved", true)
                             .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(FETCH_LIMIT.toLong())
+                            .limit(FETCH_LIMIT.toLong().coerceAtLeast(1L))
                             .get(Source.CACHE)
                             .await()
                         val cachedPosts = cachedSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
@@ -451,7 +452,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 val mainQuery = FirebaseService.db.collection("news")
                     .whereEqualTo("approved", true)
                     .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(FETCH_LIMIT.toLong())
+                    .limit(FETCH_LIMIT.toLong().coerceAtLeast(1L))
 
                 val mainSnap = kotlinx.coroutines.withTimeoutOrNull(3500L) {
                     try { 
