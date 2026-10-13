@@ -86,8 +86,8 @@ private var prefCursor: DocumentSnapshot? = null  // Tracks pagination state
 - **SMART CACHE & FAST PATH FOR NEWS (వార్తలకు స్మార్ట్ క్యాష్ & ఫాస్ట్ పాత్)**:
   News feed allows instant display (< 20ms) using local cache (`Source.CACHE`) ONLY if the latest post is fresh (< 5 hours old). If cache is older than 5 hours or empty, it bypasses stale cache and fetches top 5 posts from the server via Fast Path (< 300ms), followed by background live server updates.
   Unchanging user data (login credentials, user profiles, roles, ID card data, and app configuration) MUST remain cached locally (`PersistentCacheSettings` / `Source.CACHE` / `SharedPreferences`) so user sessions, profiles, and credentials are preserved across app restarts and offline periods.
-- **Version Bump & GitHub Actions Monitoring (ప్రతీ పుష్ కు వెర్షన్ మార్పు & యాక్షన్స్ మానిటరింగ్)**:
-  Whenever committing and pushing changes to GitHub, always bump `versionCode` (+1) and update `versionName` in `app/build.gradle.kts`. After pushing, monitor the GitHub Actions workflow until the build succeeds. If there are any build errors, inspect logs and adjust the code accordingly until the build succeeds.
+- **NO Push Without Explicit User Instruction (ప్రతీ చిన్న మార్పుకి పుష్ చేసి బిల్డ్ చేయవద్దు - యూజర్ చెబితేనే పుష్ చేయాలి)**:
+  Do NOT automatically push to GitHub or trigger remote builds for every small change. Push to GitHub ONLY when the user explicitly instructs to push (e.g., "పుష్ చేయి", "GitHub కి పుష్ చెయ్"). When explicitly instructed by the user to push, bump `versionCode` (+1) and update `versionName` in `app/build.gradle.kts`, push to remote, and monitor the GitHub Actions workflow until the build succeeds. If there are any build errors, inspect logs and adjust the code accordingly until the build succeeds.
 
 
 ### Building Android Release APK (Only when explicitly requested by user)

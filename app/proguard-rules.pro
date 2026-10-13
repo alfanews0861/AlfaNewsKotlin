@@ -37,6 +37,8 @@
 -keep class com.google.firebase.** { *; }
 
 # Coil 3 / OkHttp / Okio
+-keep class coil3.** { *; }
+-dontwarn coil3.**
 -if class okhttp3.OkHttpClient
 -keep,allowobfuscation class okhttp3.** { *; }
 -keep,allowobfuscation class okio.** { *; }

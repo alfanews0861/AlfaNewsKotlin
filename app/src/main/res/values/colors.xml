@@ -9,4 +9,5 @@
     <color name="white">#FFFFFFFF</color>
     <color name="ic_launcher_background">#0D204C</color>
     <color name="google_red">#FFD93025</color>
+    <color name="splash_background_color">#020A1A</color>
 </resources>

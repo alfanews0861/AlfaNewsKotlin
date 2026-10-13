@@ -83,14 +83,23 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun attachBaseContext(newBase: Context) {
-        val prefs = PreferenceManager.getInstance(newBase)
-        val languageCode = prefs.language.code
-        val context = LocaleHelper.wrap(newBase, languageCode)
-        super.attachBaseContext(context)
+        val wrappedContext = try {
+            val prefs = PreferenceManager.getInstance(newBase)
+            val languageCode = prefs.language.code
+            LocaleHelper.wrap(newBase, languageCode)
+        } catch (_: Throwable) {
+            newBase
+        }
+        super.attachBaseContext(wrappedContext)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        val splashScreen = installSplashScreen()
+        val splashScreen = try {
+            installSplashScreen()
+        } catch (e: Throwable) {
+            Log.e("MainActivity", "installSplashScreen error: ${e.message}")
+            null
+        }
         super.onCreate(savedInstanceState)
 
         try {
@@ -121,7 +130,7 @@ class MainActivity : ComponentActivity() {
 
         // Hand over control to our custom Animated Splash Screen immediately
         try {
-            splashScreen.setKeepOnScreenCondition { false }
+            splashScreen?.setKeepOnScreenCondition { false }
         } catch (_: Throwable) {}
 
         // Edge-to-edge: app content extends behind system bars (Play Store required for targetSdk 35+)
