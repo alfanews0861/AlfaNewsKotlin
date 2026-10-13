@@ -64,8 +64,7 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
                         "version" to BuildConfig.VERSION_NAME
                     )
                     val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
-                    val task = db.collection("user_analytics").add(crashDoc)
-                    com.google.android.gms.tasks.Tasks.await(task, 2, TimeUnit.SECONDS)
+                    db.collection("user_analytics").add(crashDoc)
                 } catch (_: Throwable) {}
 
                 defaultHandler?.uncaughtException(thread, throwable)
@@ -90,11 +89,13 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
                 Log.e("AlfaNewsApp", "runStorageGuard error: ${e.message}")
             }
 
-            // 🛑 పాత వర్కర్లను ఆపడం (Billing costs తగ్గించడానికి)
-            try {
-                cancelRedundantWorkers()
-            } catch (e: Throwable) {
-                Log.e("AlfaNewsApp", "cancelRedundantWorkers error: ${e.message}")
+            // 🛑 పాత వర్కర్లను ఆపడం (Billing costs తగ్గించడానికి - Offloaded to IO)
+            scope.launch(Dispatchers.IO) {
+                try {
+                    cancelRedundantWorkers()
+                } catch (e: Throwable) {
+                    Log.e("AlfaNewsApp", "cancelRedundantWorkers error: ${e.message}")
+                }
             }
 
             // ఫైర్‌బేస్ అనలిటిక్స్
@@ -124,11 +125,13 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
                 Log.e("AlfaNewsApp", "createNotificationChannels error: ${e.message}")
             }
 
-            // మండలానికి కేటాయించిన విలేకరుల వెరిఫైడ్ బ్యాడ్జ్ లిజనర్
-            try {
-                com.alfanews.telugu.utils.ReporterVerificationManager.startListening()
-            } catch (e: Throwable) {
-                Log.e("AlfaNewsApp", "ReporterVerificationManager error: ${e.message}")
+            // మండలానికి కేటాయించిన విలేకరుల వెరిఫైడ్ బ్యాడ్జ్ లిజనర్ (Offloaded to IO)
+            scope.launch(Dispatchers.IO) {
+                try {
+                    com.alfanews.telugu.utils.ReporterVerificationManager.startListening()
+                } catch (e: Throwable) {
+                    Log.e("AlfaNewsApp", "ReporterVerificationManager error: ${e.message}")
+                }
             }
         } catch (e: Throwable) {
             // ఏదైనా ఎర్రర్ వస్తే యాప్ క్రాష్ అవ్వకుండా ఉండటానికి

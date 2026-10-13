@@ -94,44 +94,38 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        val splashScreen = try {
+        try {
             installSplashScreen()
         } catch (e: Throwable) {
             Log.e("MainActivity", "installSplashScreen error: ${e.message}")
-            null
         }
+        setTheme(R.style.Theme_AlfaNews)
         super.onCreate(savedInstanceState)
 
-        try {
-            val prefs = PreferenceManager.getInstance(this)
-            val currentVersion = BuildConfig.VERSION_CODE
-            if (prefs.lastAppVersionCode < currentVersion) {
-                prefs.lastAppVersionCode = currentVersion
-                try {
-                    // Safe cache cleanup: Only remove temporary image cache, preserve Firestore/database files
-                    val imgCache = this.cacheDir.resolve("image_cache")
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val prefs = PreferenceManager.getInstance(applicationContext)
+                val currentVersion = BuildConfig.VERSION_CODE
+                if (prefs.lastAppVersionCode < currentVersion) {
+                    prefs.lastAppVersionCode = currentVersion
+                    val imgCache = applicationContext.cacheDir.resolve("image_cache")
                     if (imgCache.exists()) {
                         imgCache.deleteRecursively()
                     }
                     Log.d("MainActivity", "App updated to version $currentVersion. Image cache cleared safely.")
-                } catch (e: Throwable) {
-                    Log.e("MainActivity", "Error clearing image cache: ${e.message}")
                 }
+            } catch (e: Throwable) {
+                Log.e("MainActivity", "Version code check error: ${e.message}")
             }
-        } catch (e: Throwable) {
-            Log.e("MainActivity", "Version code check error: ${e.message}")
         }
 
-        try {
-            checkInstallReferrer(this)
-        } catch (e: Throwable) {
-            Log.e("MainActivity", "checkInstallReferrer error: ${e.message}")
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                checkInstallReferrer(this@MainActivity)
+            } catch (e: Throwable) {
+                Log.e("MainActivity", "checkInstallReferrer error: ${e.message}")
+            }
         }
-
-        // Hand over control to our custom Animated Splash Screen immediately
-        try {
-            splashScreen?.setKeepOnScreenCondition { false }
-        } catch (_: Throwable) {}
 
         // Edge-to-edge: app content extends behind system bars (Play Store required for targetSdk 35+)
         // Status bar is transparent - phone default settings handle icon colors automatically
