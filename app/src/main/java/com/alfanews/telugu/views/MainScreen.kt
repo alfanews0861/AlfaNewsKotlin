@@ -367,11 +367,12 @@ fun MainScreen(
                         unreadMessagesCount = unreadMessagesCount,
                         language = language,
                         onTabChange = { tab: String -> 
-                            if (activeTab == tab) {
-                                if (tab == "home") {
+                            if (tab == "local") {
+                                localNewsFeedViewModel?.loadNews(language, user, forceRefresh = true)
+                                localNewsFeedViewModel?.requestScrollToTop()
+                            } else if (tab == "home") {
+                                if (activeTab == "home") {
                                     newsFeedViewModel.requestScrollToTop()
-                                } else if (tab == "local") {
-                                    localNewsFeedViewModel?.requestScrollToTop()
                                 }
                             }
 
@@ -513,7 +514,14 @@ fun MainScreen(
 
                                 // 🔄 ఫీడ్‌లను వెంటనే రిఫ్రెష్ చేసి కొత్త వార్త కనిపించేలా చేయండి
                                 newsFeedViewModel.loadNews(language, user, forceRefresh = true)
-                                localNewsFeedViewModel?.loadNews(language, user, forceRefresh = true)
+                                localNewsFeedViewModel?.forceReload(language, user)
+
+                                // 🔄 క్లౌడ్ ఫంక్షన్స్ / Gemini AI ప్రాసెసింగ్ (8 సెకన్లలో) పూర్తయ్యాక స్వయంచాలకంగా మరోసారి తాజా వార్తలను లోడ్ చేయండి
+                                scope.launch {
+                                    kotlinx.coroutines.delay(8000L)
+                                    localNewsFeedViewModel?.forceReload(language, user)
+                                    newsFeedViewModel.loadNews(language, user, forceRefresh = true)
+                                }
                                 
                                 val isStaff = listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK).contains(user.role)
                                 
@@ -677,7 +685,14 @@ fun MainScreen(
                                 },
                                 onViewPost = { post ->
                                     newsFeedViewModel.navigateToPost(post)
-                                    mainViewModel.setActiveTab("home")
+                                    val isDistrictStory = !post.district.isNullOrBlank() && post.district != "State"
+                                    if (isDistrictStory) {
+                                        localNewsFeedViewModel?.setDistrict(post.district!!)
+                                        localNewsFeedViewModel?.prependPost(post)
+                                        mainViewModel.setActiveTab("local")
+                                    } else {
+                                        mainViewModel.setActiveTab("home")
+                                    }
                                 },
                                 onMenuClick = { scope.launch { drawerState.open() } }
                             )

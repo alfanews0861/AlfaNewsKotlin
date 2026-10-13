@@ -441,7 +441,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     fun refreshIfStale(language: Language, currentUser: User?) {
         val now = System.currentTimeMillis()
-        if (now - lastRefreshTimeLong > 300000L || _news.value.isEmpty()) { // 5 minutes
+        if (now - lastRefreshTimeLong > 15000L || _news.value.isEmpty()) { // 15 seconds (was 5 minutes)
             loadNews(language, currentUser, forceRefresh = true)
         }
     }

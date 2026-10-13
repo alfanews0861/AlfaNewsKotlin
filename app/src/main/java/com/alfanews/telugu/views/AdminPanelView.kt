@@ -280,7 +280,6 @@ fun AdminPanelView(
                         },
                         onViewPost = { post ->
                             onViewPost(post)
-                            onClose()
                         },
                         currentUser = effectiveUser,
                         showTitle = false

@@ -9,11 +9,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,19 +30,16 @@ import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.models.mapMapToNewsPost
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.DateTimeUtils
-import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.QuerySnapshot
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
+import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
 /**
  * ManagePostsPageView (వార్తల నిర్వహణ)
- * - Admin కు అన్ని తాజా వార్తలను ఆర్డర్‌లో చూపిస్తుంది (All Latest News).
- * - విలేకరులకు కేవలం వారి UID ఆధారంగా మాత్రమే వార్తలను చూపిస్తుంది.
- * - అన్ని అనవసరపు logicలు (ఫోన్ నంబర్, పేరు మ్యాచింగ్) తొలగించబడ్డాయి.
+ * - కేవలం ఆ విలేకరి పంపిన తాజా 10 వార్తలు (Latest 10 posts).
+ * - అనవసరపు ఫిల్టర్లు, సెర్చ్ బార్ మరియు ఓవర్-ఇంజనీరింగ్ తొలగించబడ్డాయి.
+ * - రియల్‌టైమ్ లైవ్ సర్వర్ అప్‌డేట్‌లు (Live status updates).
  */
 @Composable
 fun ManagePostsPageView(
@@ -68,23 +63,14 @@ fun ManagePostsPageView(
         currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
         FirebaseService.auth.currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
 
-    val candidateIds = remember(authUid, currentUser?.id, cleanCurrentPhone, cleanAuthPhone) {
-        buildSet {
-            if (authUid.isNotBlank()) add(authUid)
-            currentUser?.id?.trim()?.let { if (it.isNotBlank()) add(it) }
-            cleanCurrentPhone?.let { if (it.isNotBlank()) add(it) }
-            cleanAuthPhone?.let { if (it.isNotBlank()) add(it) }
-            currentUser?.phone?.trim()?.let { if (it.isNotBlank()) add(it) }
-            FirebaseService.auth.currentUser?.phoneNumber?.trim()?.let { if (it.isNotBlank()) add(it) }
-        }.filter { it.isNotBlank() }.distinct()
+    val repIds = remember(authUid, uid) {
+        listOfNotNull(uid.takeIf { it.isNotBlank() }, authUid.takeIf { it.isNotBlank() }).distinct()
     }
 
     var viewMode by remember(isAdmin) { mutableStateOf(if (isAdmin) "all" else "my") }
-    var posts by remember(viewMode, candidateIds) { mutableStateOf<List<NewsPost>>(emptyList()) }
-    var loading by remember(viewMode, candidateIds) { mutableStateOf(true) }
+    var posts by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
     var refreshTrigger by remember { mutableStateOf(0) }
-    var searchQuery by remember { mutableStateOf("") }
-    var statusFilter by remember { mutableStateOf("ALL") } // "ALL", "LIVE", "PENDING", "REJECTED"
 
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
     var showStatusDetailDialog by remember { mutableStateOf<NewsPost?>(null) }
@@ -92,218 +78,106 @@ fun ManagePostsPageView(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 🛡️ Safety timeout: స్పిన్నర్ ఎట్టి పరిస్థితుల్లోనూ 3.5 సెకన్ల కంటే ఎక్కువ తిరగకూడదు
-    LaunchedEffect(viewMode, candidateIds, refreshTrigger) {
-        kotlinx.coroutines.delay(3500L)
+    // 🛡️ Safety timeout: 2.5 సెకన్లలో స్పిన్నర్ ఆగిపోవాలి
+    LaunchedEffect(viewMode, repIds, refreshTrigger) {
+        kotlinx.coroutines.delay(2500L)
         if (loading) loading = false
     }
 
-    // 🚀 REAL-TIME LIVE SERVER STREAM: సర్వర్ నుండి నేరుగా తాజా వార్తలు (No Cache, No Stale Data)
-    DisposableEffect(viewMode, candidateIds, refreshTrigger) {
+    // 🚀 రియల్‌టైమ్ సర్వర్ కనెక్షన్ (కేవలం తాజా 10 వార్తలు)
+    DisposableEffect(viewMode, repIds, refreshTrigger) {
         loading = true
         val listeners = mutableListOf<ListenerRegistration>()
-        val shouldFetchAll = isAdmin && viewMode == "all"
 
-        if (shouldFetchAll) {
-            // 🚀 ADMIN VIEW: అన్ని తాజా వార్తలు (Live latest global feed descending by timestamp)
+        if (isAdmin && viewMode == "all") {
+            // ADMIN: అన్ని తాజా 10 వార్తలు
             val qAdmin = FirebaseService.db.collection("news")
                 .orderBy("timestamp", Query.Direction.DESCENDING)
-                .limit(100)
+                .limit(10)
 
             val reg = qAdmin.addSnapshotListener { snapshot, e ->
+                loading = false
                 if (e != null) {
                     android.util.Log.e("ManagePostsPageView", "Admin query error: ${e.message}")
-                    // Fallback 1: approved true with timestamp desc (indexed query)
-                    val qFallback = FirebaseService.db.collection("news")
-                        .whereEqualTo("approved", true)
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(100)
-
-                    val fbReg = qFallback.addSnapshotListener { fbSnap, fbErr ->
-                        if (fbErr != null) {
-                            // Fallback 2: simple limit
-                            val qSimple = FirebaseService.db.collection("news").limit(100)
-                            listeners.add(qSimple.addSnapshotListener { sSnap, _ ->
-                                if (sSnap != null && (!sSnap.metadata.isFromCache || !sSnap.isEmpty)) {
-                                    loading = false
-                                    posts = sSnap.documents.mapNotNull { doc ->
-                                        val data = doc.data ?: return@mapNotNull null
-                                        mapMapToNewsPost(doc.id, data)
-                                    }.sortedByDescending { it.timestamp }
-                                }
-                            })
-                            return@addSnapshotListener
-                        }
-
-                        if (fbSnap != null && (!fbSnap.metadata.isFromCache || !fbSnap.isEmpty)) {
-                            loading = false
-                            posts = fbSnap.documents.mapNotNull { doc ->
-                                val data = doc.data ?: return@mapNotNull null
-                                mapMapToNewsPost(doc.id, data)
-                            }.sortedByDescending { it.timestamp }
-                        }
-                    }
-                    listeners.add(fbReg)
                     return@addSnapshotListener
                 }
-
                 if (snapshot != null) {
-                    if (!snapshot.metadata.isFromCache || !snapshot.isEmpty) {
-                        loading = false
-                    }
                     posts = snapshot.documents.mapNotNull { doc ->
                         val data = doc.data ?: return@mapNotNull null
                         mapMapToNewsPost(doc.id, data)
-                    }.sortedByDescending { it.timestamp }
+                    }.sortedByDescending { it.timestamp }.take(10)
                 }
             }
             listeners.add(reg)
         } else {
-            // 🛡️ REPORTER VIEW: విలేకరి candidate IDs ఆధారంగా అన్ని ఫీల్డ్స్ నుండి తాజా వార్తలు (Descending Order)
-            if (candidateIds.isEmpty()) {
+            // REPORTER: కేవలం ఈ విలేకరి పంపిన తాజా 10 వార్తలు
+            if (repIds.isEmpty()) {
                 posts = emptyList()
                 loading = false
             } else {
-                val queryResults = mutableMapOf<String, Map<String, NewsPost>>()
-                val serverRespondedQueries = mutableSetOf<String>()
-                val totalQueriesExpected = mutableSetOf<String>()
+                val resultsMap = mutableMapOf<String, Map<String, NewsPost>>()
 
-                fun updatePosts() {
+                fun syncPosts() {
                     val merged = mutableMapOf<String, NewsPost>()
-                    queryResults.values.forEach { map ->
-                        merged.putAll(map)
-                    }
-
-                    // Only dismiss loading if we found posts OR all registered queries responded from server
-                    val hasFoundPosts = merged.isNotEmpty()
-                    val allServerResponded = totalQueriesExpected.isNotEmpty() &&
-                        serverRespondedQueries.containsAll(totalQueriesExpected)
-
-                    if (hasFoundPosts || allServerResponded) {
-                        loading = false
-                    }
-
-                    posts = merged.values.sortedByDescending { it.timestamp }
+                    resultsMap.values.forEach { map -> merged.putAll(map) }
+                    posts = merged.values.sortedByDescending { it.timestamp }.take(10)
+                    loading = false
                 }
 
-                fun registerQuery(queryKey: String, queryProvider: () -> Query, fallbackProvider: (() -> Query)? = null) {
-                    totalQueriesExpected.add(queryKey)
-                    try {
-                        val q = queryProvider()
-                        val reg = q.addSnapshotListener { snap, err ->
-                            if (err != null) {
-                                android.util.Log.w("ManagePostsPageView", "Query error on $queryKey: ${err.message}")
-                                if (fallbackProvider != null) {
-                                    try {
-                                        val fbQ = fallbackProvider()
-                                        listeners.add(fbQ.addSnapshotListener { fbSnap, fbErr ->
-                                            if (fbErr != null) {
-                                                serverRespondedQueries.add(queryKey)
-                                                updatePosts()
-                                                return@addSnapshotListener
-                                            }
-                                            if (fbSnap != null) {
-                                                if (!fbSnap.metadata.isFromCache) {
-                                                    serverRespondedQueries.add(queryKey)
-                                                }
-                                                val docMap = mutableMapOf<String, NewsPost>()
-                                                fbSnap.documents.forEach { doc ->
-                                                    val data = doc.data ?: return@forEach
-                                                    docMap[doc.id] = mapMapToNewsPost(doc.id, data)
-                                                }
-                                                queryResults[queryKey] = docMap
-                                                updatePosts()
-                                            }
-                                        })
-                                        return@addSnapshotListener
-                                    } catch (ex: Exception) {
-                                        serverRespondedQueries.add(queryKey)
-                                        updatePosts()
-                                        return@addSnapshotListener
-                                    }
-                                } else {
-                                    serverRespondedQueries.add(queryKey)
-                                    updatePosts()
-                                    return@addSnapshotListener
-                                }
-                            }
-
-                            if (snap != null) {
-                                if (!snap.metadata.isFromCache) {
-                                    serverRespondedQueries.add(queryKey)
-                                }
-                                val docMap = mutableMapOf<String, NewsPost>()
-                                snap.documents.forEach { doc ->
-                                    val data = doc.data ?: return@forEach
-                                    docMap[doc.id] = mapMapToNewsPost(doc.id, data)
-                                }
-                                queryResults[queryKey] = docMap
-                                updatePosts()
-                            }
+                for (rId in repIds) {
+                    // 1. originalReporterId (క్రాస్-మండల్ లేదా సాధారణ పోస్టులు)
+                    val q1 = FirebaseService.db.collection("news")
+                        .whereEqualTo("originalReporterId", rId)
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(10)
+                    listeners.add(q1.addSnapshotListener { snap, err ->
+                        if (err == null && snap != null) {
+                            val map = snap.documents.mapNotNull { doc ->
+                                val data = doc.data ?: return@mapNotNull null
+                                mapMapToNewsPost(doc.id, data)
+                            }.associateBy { it.id }
+                            resultsMap["orig-$rId"] = map
+                            syncPosts()
+                        } else {
+                            loading = false
                         }
-                        listeners.add(reg)
-                    } catch (e: Exception) {
-                        serverRespondedQueries.add(queryKey)
-                        updatePosts()
-                    }
-                }
+                    })
 
-                val idFields = listOf("originalReporterId", "reporter.id", "reporterId", "userId")
-                for (candId in candidateIds) {
-                    for (field in idFields) {
-                        val key = "$field-$candId"
-                        registerQuery(
-                            queryKey = key,
-                            queryProvider = {
-                                FirebaseService.db.collection("news")
-                                    .whereEqualTo(field, candId)
-                                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                                    .limit(50)
-                            },
-                            fallbackProvider = {
-                                FirebaseService.db.collection("news")
-                                    .whereEqualTo(field, candId)
-                                    .limit(50)
-                            }
-                        )
-                    }
-
-                    if (candId.all { it.isDigit() || it == '+' }) {
-                        val keyPhone = "reporter.phone-$candId"
-                        registerQuery(
-                            queryKey = keyPhone,
-                            queryProvider = {
-                                FirebaseService.db.collection("news")
-                                    .whereEqualTo("reporter.phone", candId)
-                                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                                    .limit(50)
-                            },
-                            fallbackProvider = {
-                                FirebaseService.db.collection("news")
-                                    .whereEqualTo("reporter.phone", candId)
-                                    .limit(50)
-                            }
-                        )
-                    }
-                }
-
-                val repName = currentUser?.name?.trim()
-                if (!repName.isNullOrBlank() && !listOf("Admin", "User", "Guest", "Alfa News Desk", "AlfaNews Admin", "విలేకరి", "సిటిజెన్ పోస్ట్", "అజ్ఞాత పౌరుడు").contains(repName)) {
-                    val keyName = "reporter.name-$repName"
-                    registerQuery(
-                        queryKey = keyName,
-                        queryProvider = {
-                            FirebaseService.db.collection("news")
-                                .whereEqualTo("reporter.name", repName)
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(50)
-                        },
-                        fallbackProvider = {
-                            FirebaseService.db.collection("news")
-                                .whereEqualTo("reporter.name", repName)
-                                .limit(50)
+                    // 2. reporter.id
+                    val q2 = FirebaseService.db.collection("news")
+                        .whereEqualTo("reporter.id", rId)
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(10)
+                    listeners.add(q2.addSnapshotListener { snap, err ->
+                        if (err == null && snap != null) {
+                            val map = snap.documents.mapNotNull { doc ->
+                                val data = doc.data ?: return@mapNotNull null
+                                mapMapToNewsPost(doc.id, data)
+                            }.associateBy { it.id }
+                            resultsMap["rep-$rId"] = map
+                            syncPosts()
+                        } else {
+                            loading = false
                         }
-                    )
+                    })
+
+                    // 3. reporterId
+                    val q3 = FirebaseService.db.collection("news")
+                        .whereEqualTo("reporterId", rId)
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(10)
+                    listeners.add(q3.addSnapshotListener { snap, err ->
+                        if (err == null && snap != null) {
+                            val map = snap.documents.mapNotNull { doc ->
+                                val data = doc.data ?: return@mapNotNull null
+                                mapMapToNewsPost(doc.id, data)
+                            }.associateBy { it.id }
+                            resultsMap["repId-$rId"] = map
+                            syncPosts()
+                        } else {
+                            loading = false
+                        }
+                    })
                 }
             }
         }
@@ -329,39 +203,6 @@ fun ManagePostsPageView(
                 }
             } finally {
                 showDeleteDialog = null
-            }
-        }
-    }
-
-    val displayedPosts = remember(posts, searchQuery, statusFilter) {
-        val statusFiltered = when (statusFilter) {
-            "LIVE" -> posts.filter { it.approved || it.status?.uppercase() == "PUBLISHED" }
-            "PENDING" -> posts.filter {
-                val st = it.status?.uppercase()
-                !it.approved && st != "PUBLISHED" && st != "REJECTED" && st != "FAILED" &&
-                it.rejectionReason.isNullOrBlank() && !it.isDuplicate
-            }
-            "REJECTED" -> posts.filter {
-                val st = it.status?.uppercase()
-                st == "REJECTED" || st == "FAILED" || !it.rejectionReason.isNullOrBlank() || it.isDuplicate
-            }
-            else -> posts
-        }
-
-        if (searchQuery.isBlank()) {
-            statusFiltered
-        } else {
-            val q = searchQuery.trim().lowercase()
-            statusFiltered.filter { post ->
-                post.headline.telugu.lowercase().contains(q) ||
-                post.content.telugu.lowercase().contains(q) ||
-                post.reporter.name.lowercase().contains(q) ||
-                post.reporter.id.lowercase().contains(q) ||
-                post.originalReporterId?.lowercase()?.contains(q) == true ||
-                post.categories.any { it.lowercase().contains(q) } ||
-                post.tags.any { it.lowercase().contains(q) } ||
-                post.location.lowercase().contains(q) ||
-                post.district?.lowercase()?.contains(q) == true
             }
         }
     }
@@ -417,7 +258,7 @@ fun ManagePostsPageView(
                     shape = RoundedCornerShape(16.dp)
                 ) {
                     Text(
-                        text = "మొత్తం: ${displayedPosts.size}",
+                        text = "తాజా వార్తలు: ${posts.size}",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -427,9 +268,9 @@ fun ManagePostsPageView(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // అడ్మిన్ కోసం మోడ్ సెలెక్టర్ (All News vs My Posts)
+        // అడ్మిన్ కోసం మాత్రమే మోడ్ సెలెక్టర్ (All News vs My Posts)
         if (isAdmin) {
             Row(
                 modifier = Modifier
@@ -462,65 +303,6 @@ fun ManagePostsPageView(
             Spacer(modifier = Modifier.height(10.dp))
         }
 
-        // శోధన బార్ (Search Bar)
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("వార్తలు, విలేకరి పేరు లేదా UID వెతకండి...", fontSize = 13.sp) },
-            leadingIcon = {
-                Icon(Icons.Default.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.primary)
-            },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { searchQuery = "" }) {
-                        Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
-                    }
-                }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surface
-            )
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // స్టేటస్ ఫిల్టర్ చిప్స్ (Status Filter Chips)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            listOf(
-                "ALL" to "అన్నీ",
-                "LIVE" to "LIVE",
-                "PENDING" to "పరిశీలనలో",
-                "REJECTED" to "తిరస్కరించినవి"
-            ).forEach { (key, label) ->
-                FilterChip(
-                    selected = statusFilter == key,
-                    onClick = { statusFilter = key },
-                    label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                    modifier = Modifier.weight(1f),
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = when (key) {
-                            "LIVE" -> Color(0xFF4CAF50)
-                            "REJECTED" -> Color(0xFFE53935)
-                            "PENDING" -> Color(0xFFFF9800)
-                            else -> MaterialTheme.colorScheme.primary
-                        },
-                        selectedLabelColor = Color.White
-                    )
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
         if (loading) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -547,7 +329,7 @@ fun ManagePostsPageView(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 contentPadding = PaddingValues(bottom = 80.dp)
             ) {
-                if (displayedPosts.isEmpty()) {
+                if (posts.isEmpty()) {
                     item {
                         Box(
                             modifier = Modifier
@@ -560,12 +342,7 @@ fun ManagePostsPageView(
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 Text(
-                                    text = when {
-                                        searchQuery.isNotBlank() -> "వెతికిన వార్తలు ఏవీ లేవు."
-                                        statusFilter != "ALL" -> "ఈ విభాగంలో వార్తలు ఏవీ లేవు."
-                                        viewMode == "my" -> "మీరు పోస్ట్ చేసిన వార్తలు ఏవీ లేవు."
-                                        else -> "వార్తలు ఏవీ లేవు."
-                                    },
+                                    text = if (viewMode == "my") "మీరు పోస్ట్ చేసిన వార్తలు ఏవీ లేవు." else "వార్తలు ఏవీ లేవు.",
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -585,7 +362,7 @@ fun ManagePostsPageView(
                         }
                     }
                 } else {
-                    items(displayedPosts, key = { it.id }) { post ->
+                    items(posts, key = { it.id }) { post ->
                         val statusUpper = post.status?.uppercase()
                         val isRejected = statusUpper == "REJECTED" || !post.rejectionReason.isNullOrBlank() || post.isDuplicate
                         val isFailed = statusUpper == "FAILED" || !post.error.isNullOrBlank()
@@ -657,7 +434,7 @@ fun ManagePostsPageView(
                                         val repLabel = post.reporter.name.ifBlank { "Alfa News" }
                                         val distLabel = if (!post.district.isNullOrBlank()) " • ${post.district}" else ""
                                         Text(
-                                            text = "${post.categories.firstOrNull() ?: "General"} • $repLabel$distLabel • $timeString",
+                                            text = "${post.categories.firstOrNull() ?: "జిల్లా వార్త"} • $repLabel$distLabel • $timeString",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -735,6 +512,7 @@ fun ManagePostsPageView(
             }
         }
 
+        // తొలగింపు కన్ఫర్మేషన్ డైలాగ్
         showDeleteDialog?.let { postId ->
             AlertDialog(
                 onDismissRequest = { showDeleteDialog = null },
@@ -756,6 +534,7 @@ fun ManagePostsPageView(
             )
         }
 
+        // స్టేటస్ వివరాల డైలాగ్ (తిరస్కరణ కారణం చూసేందుకు)
         showStatusDetailDialog?.let { dialogPost ->
             val rawStatus = (dialogPost.status ?: "").uppercase()
             val isRejected = rawStatus == "REJECTED" || !dialogPost.rejectionReason.isNullOrBlank() || dialogPost.isDuplicate

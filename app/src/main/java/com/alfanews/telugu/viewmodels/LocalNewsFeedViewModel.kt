@@ -292,14 +292,15 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         if (currentUser != null) {
             activeCurrentUser = currentUser
         }
-        refreshIfStale(language, currentUser)
+        loadNews(language, currentUser, forceRefresh = true)
+    }
+
+    fun forceReload(language: Language, currentUser: User?) {
+        loadNews(language, currentUser, forceRefresh = true)
     }
 
     fun refreshIfStale(language: Language, currentUser: User?) {
-        val now = System.currentTimeMillis()
-        if (now - lastRefreshTimeLong > 300000L || _news.value.isEmpty()) {
-            loadNews(language, currentUser, forceRefresh = true)
-        }
+        loadNews(language, currentUser, forceRefresh = true)
     }
 
     private fun convertToNewsPost(id: String, data: Map<String, Any?>): NewsPost? {
