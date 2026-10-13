@@ -375,20 +375,30 @@ class PreferenceManager(context: Context) {
     }
 
     fun getPostViewCount(postId: String): Int {
-        return prefs.getInt("vc_$postId", 0)
+        return try {
+            prefs.getInt("vc_$postId", 0)
+        } catch (_: Exception) {
+            0
+        }
     }
 
     /**
      * లోకల్ యాడ్ చూసినట్లుగా గుర్తు పెట్టుకుంటుంది.
      */
     fun markLocalAdSeen(adId: String) {
-        val seenIds = getSeenLocalAdIds().toMutableSet()
-        seenIds.add(adId)
-        prefs.edit().putStringSet(KEY_SEEN_LOCAL_ADS, seenIds).apply()
+        try {
+            val seenIds = getSeenLocalAdIds().toMutableSet()
+            seenIds.add(adId)
+            prefs.edit().putStringSet(KEY_SEEN_LOCAL_ADS, seenIds).apply()
+        } catch (_: Exception) {}
     }
 
     fun getSeenLocalAdIds(): Set<String> {
-        return prefs.getStringSet(KEY_SEEN_LOCAL_ADS, emptySet()) ?: emptySet()
+        return try {
+            prefs.getStringSet(KEY_SEEN_LOCAL_ADS, emptySet())?.toSet() ?: emptySet()
+        } catch (_: Exception) {
+            emptySet()
+        }
     }
 
     fun clearSeenLocalAds() {
@@ -410,7 +420,11 @@ class PreferenceManager(context: Context) {
     }
 
     fun getLocalAdsTimestamp(district: String): Long {
-        return prefs.getLong("$KEY_LOCAL_ADS_TS_PREFIX$district", 0L)
+        return try {
+            prefs.getLong("$KEY_LOCAL_ADS_TS_PREFIX$district", 0L)
+        } catch (_: Exception) {
+            0L
+        }
     }
 
     /**
@@ -434,13 +448,19 @@ class PreferenceManager(context: Context) {
      * యూజర్ ఒక సర్వేకు సమాధానం ఇచ్చినట్లుగా గుర్తు పెట్టుకుంటుంది.
      */
     fun markSurveyAnswered(surveyId: String) {
-        val answeredIds = getAnsweredSurveyIds().toMutableSet()
-        answeredIds.add(surveyId)
-        prefs.edit().putStringSet("key_answered_surveys", answeredIds).apply()
+        try {
+            val answeredIds = getAnsweredSurveyIds().toMutableSet()
+            answeredIds.add(surveyId)
+            prefs.edit().putStringSet("key_answered_surveys", answeredIds).apply()
+        } catch (_: Exception) {}
     }
 
     fun getAnsweredSurveyIds(): Set<String> {
-        return prefs.getStringSet("key_answered_surveys", emptySet()) ?: emptySet()
+        return try {
+            prefs.getStringSet("key_answered_surveys", emptySet())?.toSet() ?: emptySet()
+        } catch (_: Exception) {
+            emptySet()
+        }
     }
 
     fun isSurveyAnswered(surveyId: String): Boolean {

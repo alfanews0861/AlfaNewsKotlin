@@ -233,47 +233,51 @@ class MainActivity : ComponentActivity() {
                 // 🚀 PRELOAD IMAGES & ADS DURING SPLASH ANIMATION:
                 // While splash screen animates (2-3 seconds), pre-fetch images for top 5 home news + top 5 local news + 5th card local ad into Coil cache
                 LaunchedEffect(newsLoaded, localNewsLoaded, localAds) {
-                    if (newsLoaded.isNotEmpty()) {
-                        newsLoaded.take(5).forEach { post ->
-                            if (post.mediaUrl.isNotEmpty()) {
-                                val request = ImageRequest.Builder(this@MainActivity)
-                                    .data(post.mediaUrl)
-                                    .allowHardware(true)
-                                    .crossfade(false)
-                                    .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .diskCachePolicy(CachePolicy.ENABLED)
-                                    .build()
-                                SingletonImageLoader.get(this@MainActivity).enqueue(request)
+                    try {
+                        if (newsLoaded.isNotEmpty()) {
+                            newsLoaded.take(5).forEach { post ->
+                                if (post.mediaUrl.isNotEmpty()) {
+                                    val request = ImageRequest.Builder(this@MainActivity)
+                                        .data(post.mediaUrl)
+                                        .allowHardware(true)
+                                        .crossfade(false)
+                                        .memoryCachePolicy(CachePolicy.ENABLED)
+                                        .diskCachePolicy(CachePolicy.ENABLED)
+                                        .build()
+                                    SingletonImageLoader.get(this@MainActivity).enqueue(request)
+                                }
                             }
                         }
-                    }
-                    if (localNewsLoaded.isNotEmpty()) {
-                        localNewsLoaded.take(5).forEach { post ->
-                            if (post.mediaUrl.isNotEmpty()) {
-                                val request = ImageRequest.Builder(this@MainActivity)
-                                    .data(post.mediaUrl)
-                                    .allowHardware(true)
-                                    .crossfade(false)
-                                    .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .diskCachePolicy(CachePolicy.ENABLED)
-                                    .build()
-                                SingletonImageLoader.get(this@MainActivity).enqueue(request)
+                        if (localNewsLoaded.isNotEmpty()) {
+                            localNewsLoaded.take(5).forEach { post ->
+                                if (post.mediaUrl.isNotEmpty()) {
+                                    val request = ImageRequest.Builder(this@MainActivity)
+                                        .data(post.mediaUrl)
+                                        .allowHardware(true)
+                                        .crossfade(false)
+                                        .memoryCachePolicy(CachePolicy.ENABLED)
+                                        .diskCachePolicy(CachePolicy.ENABLED)
+                                        .build()
+                                    SingletonImageLoader.get(this@MainActivity).enqueue(request)
+                                }
                             }
                         }
-                    }
-                    if (localAds.isNotEmpty()) {
-                        localAds.take(2).forEach { ad ->
-                            if (ad.bannerUrl.isNotEmpty()) {
-                                val adRequest = ImageRequest.Builder(this@MainActivity)
-                                    .data(ad.bannerUrl)
-                                    .allowHardware(true)
-                                    .crossfade(false)
-                                    .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .diskCachePolicy(CachePolicy.ENABLED)
-                                    .build()
-                                SingletonImageLoader.get(this@MainActivity).enqueue(adRequest)
+                        if (localAds.isNotEmpty()) {
+                            localAds.take(2).forEach { ad ->
+                                if (ad.bannerUrl.isNotEmpty()) {
+                                    val adRequest = ImageRequest.Builder(this@MainActivity)
+                                        .data(ad.bannerUrl)
+                                        .allowHardware(true)
+                                        .crossfade(false)
+                                        .memoryCachePolicy(CachePolicy.ENABLED)
+                                        .diskCachePolicy(CachePolicy.ENABLED)
+                                        .build()
+                                    SingletonImageLoader.get(this@MainActivity).enqueue(adRequest)
+                                }
                             }
                         }
+                    } catch (e: Throwable) {
+                        Log.e("MainActivity", "Error during splash image preloading: ${e.message}")
                     }
                 }
                 

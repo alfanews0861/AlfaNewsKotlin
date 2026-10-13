@@ -48,23 +48,23 @@ fun SplashScreenView(
     val randomCaption = remember { captions.random() }
 
     LaunchedEffect(Unit) {
-        delay(100)
+        delay(200)
         step.value = 1 // Start logo animation
-        delay(400)
+        delay(700)
         step.value = 2 // Start tagline animation
-        delay(600)
+        delay(1200)
         
-        // Quick check for data, or max 600ms hold so animation flows naturally
+        // Hold so user can comfortably read "సూటిగా, సుత్తి లేకుండా, క్లుప్తంగా", waiting for data or max 2.5s
         var waitTime = 0
-        while (!currentIsReady && waitTime < 600) {
-            delay(50)
-            waitTime += 50
+        while (!currentIsReady && waitTime < 2500) {
+            delay(100)
+            waitTime += 100
         }
         
         step.value = 3 // Hold
-        delay(200)
+        delay(400)
         step.value = 4 // Fade out
-        delay(200)
+        delay(300)
         animationFinished.value = true
     }
 

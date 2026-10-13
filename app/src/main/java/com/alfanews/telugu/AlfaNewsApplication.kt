@@ -45,10 +45,29 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
         try {
             val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
             Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+                val stackTrace = Log.getStackTraceString(throwable)
                 try {
                     val crashFile = File(filesDir, "crash_log.txt")
-                    crashFile.writeText("Time: ${java.util.Date()}\nThread: ${thread.name}\n${Log.getStackTraceString(throwable)}\n")
+                    crashFile.writeText("Time: ${java.util.Date()}\nThread: ${thread.name}\n$stackTrace\n")
                 } catch (_: Throwable) {}
+
+                // 🛰️ Remote crash reporting to Firestore (/user_analytics)
+                try {
+                    val crashDoc = hashMapOf(
+                        "eventType" to "app_crash",
+                        "timestamp" to com.google.firebase.Timestamp.now(),
+                        "thread" to thread.name,
+                        "error" to (throwable.message ?: throwable.javaClass.simpleName),
+                        "stackTrace" to stackTrace.take(3000),
+                        "device" to "${Build.MANUFACTURER} ${Build.MODEL}",
+                        "sdk" to Build.VERSION.SDK_INT,
+                        "version" to BuildConfig.VERSION_NAME
+                    )
+                    val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                    val task = db.collection("user_analytics").add(crashDoc)
+                    com.google.android.gms.tasks.Tasks.await(task, 2, TimeUnit.SECONDS)
+                } catch (_: Throwable) {}
+
                 defaultHandler?.uncaughtException(thread, throwable)
             }
         } catch (_: Throwable) {}
@@ -204,28 +223,37 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
      * యూజర్ ఎంచుకున్న స్టోరేజ్ లిమిట్ లో 70% ఇమేజెస్ కి కేటాయిస్తున్నాము.
      */
     override fun newImageLoader(context: PlatformContext): ImageLoader {
-        val prefs = PreferenceManager.getInstance(context)
-        val limitMB = prefs.storageLimitMB
-        // గరిష్టంగా 50MB సీలింగ్ (ఫోన్ స్టోరేజ్ & ఎగ్రెస్ ఖర్చుల రక్షణ)
-        val diskLimitBytes = if (limitMB <= 0) 50 * 1024 * 1024L else minOf(50L * 1024 * 1024L, (limitMB * 0.7).toLong() * 1024 * 1024L)
+        return try {
+            val prefs = PreferenceManager.getInstance(context)
+            val limitMB = prefs.storageLimitMB
+            // గరిష్టంగా 50MB సీలింగ్ (ఫోన్ స్టోరేజ్ & ఎగ్రెస్ ఖర్చుల రక్షణ)
+            val diskLimitBytes = if (limitMB <= 0) 50 * 1024 * 1024L else minOf(50L * 1024 * 1024L, (limitMB * 0.7).toLong() * 1024 * 1024L)
 
-        return ImageLoader.Builder(context)
-            .components {
-                add(OkHttpNetworkFetcherFactory(callFactory = { sharedOkHttpClient }))
-            }
-            .memoryCache {
-                MemoryCache.Builder()
-                    .maxSizePercent(context, 0.10) // మెమరీలో 10% (Safe ceiling to prevent OOM)
-                    .build()
-            }
-            .diskCache {
-                DiskCache.Builder()
-                    .directory(context.cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(diskLimitBytes)
-                    .build()
-            }
-            .crossfade(true)
-            .build()
+            ImageLoader.Builder(context)
+                .components {
+                    try {
+                        add(OkHttpNetworkFetcherFactory(callFactory = { sharedOkHttpClient }))
+                    } catch (e: Throwable) {
+                        Log.e("AlfaNewsApp", "Failed to add OkHttpNetworkFetcherFactory: ${e.message}")
+                    }
+                }
+                .memoryCache {
+                    MemoryCache.Builder()
+                        .maxSizePercent(context, 0.10) // మెమరీలో 10% (Safe ceiling to prevent OOM)
+                        .build()
+                }
+                .diskCache {
+                    DiskCache.Builder()
+                        .directory(context.cacheDir.resolve("image_cache"))
+                        .maxSizeBytes(diskLimitBytes)
+                        .build()
+                }
+                .crossfade(true)
+                .build()
+        } catch (e: Throwable) {
+            Log.e("AlfaNewsApp", "Fallback simple ImageLoader: ${e.message}")
+            ImageLoader.Builder(context).build()
+        }
     }
 
     /**

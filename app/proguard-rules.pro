@@ -39,9 +39,8 @@
 # Coil 3 / OkHttp / Okio
 -keep class coil3.** { *; }
 -dontwarn coil3.**
--if class okhttp3.OkHttpClient
--keep,allowobfuscation class okhttp3.** { *; }
--keep,allowobfuscation class okio.** { *; }
+-keep class okhttp3.** { *; }
+-keep class okio.** { *; }
 -dontwarn okhttp3.**
 -dontwarn okio.**
 -keep class org.conscrypt.** { *; }
