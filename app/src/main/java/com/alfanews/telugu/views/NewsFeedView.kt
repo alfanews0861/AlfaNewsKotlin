@@ -308,9 +308,8 @@ fun NewsFeedView(
             val isOnline = remember(loading) { NetworkUtils.isOnline(context) }
 
             LaunchedEffect(loading) {
-                if (!loading && retryCount < 3 && isOnline) {
-                    val backoffDelay = (retryCount + 1) * 3000L
-                    kotlinx.coroutines.delay(backoffDelay)
+                if (!loading && retryCount < 2 && isOnline) {
+                    kotlinx.coroutines.delay(500L)
                     retryCount++
                     viewModel.loadNews(language, currentUser, initialPostId, forceRefresh = false)
                 }

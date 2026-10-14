@@ -174,7 +174,11 @@ class MainActivity : ComponentActivity() {
             val language = mainViewModel.language.value
             val currentUser = mainViewModel.currentUser.value
             newsFeedViewModel.loadNews(language, currentUser, initialPostId = initialPostId)
-            localNewsFeedViewModel.loadNews(language, currentUser)
+            // Preload local news with slight delay so Home Feed gets 100% network priority on launch
+            lifecycleScope.launch(Dispatchers.IO) {
+                kotlinx.coroutines.delay(1200L)
+                localNewsFeedViewModel.loadNews(language, currentUser)
+            }
         } catch (e: Throwable) {
             Log.e("MainActivity", "Initial news load error: ${e.message}", e)
         }

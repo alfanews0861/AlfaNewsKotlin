@@ -175,16 +175,16 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 .take(10)
 
             try {
+                val query = if (aliases.size > 1) {
+                    newsRef.whereEqualTo("approved", true).whereIn("district", aliases)
+                } else {
+                    newsRef.whereEqualTo("approved", true).whereEqualTo("district", aliases.firstOrNull() ?: district)
+                }.orderBy("timestamp", Query.Direction.DESCENDING).limit(PAGE_SIZE.toLong())
+
                 // 1. ⚡ INSTANT CACHE DISPLAY (< 20ms) - మెమరీ ఖాళీగా ఉంటే లోకల్ క్యాష్ వెంటనే చూపిస్తుంది
                 if (_news.value.isEmpty()) {
                     try {
-                        val cacheQuery = if (aliases.size > 1) {
-                            newsRef.whereEqualTo("approved", true).whereIn("district", aliases)
-                        } else {
-                            newsRef.whereEqualTo("approved", true).whereEqualTo("district", aliases.firstOrNull() ?: district)
-                        }.orderBy("timestamp", Query.Direction.DESCENDING).limit(PAGE_SIZE.toLong())
-
-                        val cachedSnap = cacheQuery.get(Source.CACHE).await()
+                        val cachedSnap = query.get(Source.CACHE).await()
                         val cachedPosts = cachedSnap.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
                         if (cachedPosts.isNotEmpty()) {
                             _news.value = cachedPosts
@@ -199,35 +199,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     _loading.value = true
                 }
 
-                val serverQuery = if (aliases.size > 1) {
-                    newsRef.whereEqualTo("approved", true).whereIn("district", aliases)
-                } else {
-                    newsRef.whereEqualTo("approved", true).whereEqualTo("district", aliases.firstOrNull() ?: district)
-                }.orderBy("timestamp", Query.Direction.DESCENDING).limit(PAGE_SIZE.toLong())
-
-                // 🚀 2. FAST PATH (< 300ms) - మెమరీ ఖాళీగా ఉంటే టాప్ 5 జిల్లా వార్తలను వెనువెంటనే చూపించు
-                if (_news.value.isEmpty()) {
-                    try {
-                        val fastSnap = (if (aliases.size > 1) {
-                            newsRef.whereEqualTo("approved", true).whereIn("district", aliases)
-                        } else {
-                            newsRef.whereEqualTo("approved", true).whereEqualTo("district", aliases.firstOrNull() ?: district)
-                        }).orderBy("timestamp", Query.Direction.DESCENDING).limit(5).get().await()
-
-                        val fastPosts = fastSnap.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
-                        if (fastPosts.isNotEmpty() && _news.value.isEmpty()) {
-                            _news.value = fastPosts
-                            _loading.value = false
-                            Log.d("LocalNewsFeedVM", "⚡ Fast Path displayed ${fastPosts.size} posts in < 300ms")
-                        }
-                    } catch (e: Exception) {
-                        Log.d("LocalNewsFeedVM", "Fast path query: ${e.message}")
-                    }
-                }
-
-                // 3. ⚡ FULL DIRECT SERVER QUERY (< 200ms)
+                // 2. ⚡ DIRECT SERVER QUERY (< 300ms) with 6s lean timeout
                 val snap = try {
-                    serverQuery.get().await()
+                    kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                        query.get().await()
+                    }
                 } catch (e: Exception) {
                     Log.w("LocalNewsFeedVM", "Network query failed, falling back to cache: ${e.message}")
                     null
@@ -238,7 +214,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 // సర్వర్ నుండి స్పందన రాలేకపోయినా, మెమరీ ఖాళీగా ఉంటే లోకల్ క్యాష్ బ్యాకప్ తీసుకుంటాం
                 if (posts.isEmpty() && _news.value.isEmpty()) {
                     try {
-                        val fallbackCachedSnap = serverQuery.get(Source.CACHE).await()
+                        val fallbackCachedSnap = query.get(Source.CACHE).await()
                         posts = fallbackCachedSnap.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
                         if (posts.isNotEmpty()) {
                             lastDistrictDocument = fallbackCachedSnap.documents.lastOrNull()

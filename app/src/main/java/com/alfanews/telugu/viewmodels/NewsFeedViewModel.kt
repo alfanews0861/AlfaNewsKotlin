@@ -73,9 +73,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
-    private var prefCursor: DocumentSnapshot? = null
-    private var localCursor: DocumentSnapshot? = null
-    private var generalCursor: DocumentSnapshot? = null
+    private var lastDocument: DocumentSnapshot? = null
     private var currentFetchJob: Job? = null
     @Volatile private var isFetching = false
     private var lastRefreshTimeLong: Long = 0
@@ -139,10 +137,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * ⚡ Ultra-fast 40/30/30 Stream Mixing + User Interest Personalization.
-     * 1. Smart Local Cache Check (< 20ms) for instant display.
-     * 2. Parallel Streams (40% General, 30% Local District, 30% User Preferences) via async (< 200ms).
-     * 3. In-memory User Interest Ranking based on categoryScores and preferred categories.
+     * ⚡ Ultra-fast Single Direct Query for Home News Feed.
+     * 1. Smart Local Cache (< 20ms) for instant display on cold start / reopen.
+     * 2. Direct Firestore query (< 300ms) with orderBy timestamp DESC limit 20.
+     * 3. Zero multi-stream cascade, zero unnecessary blocking, zero post-filtering.
      */
     fun loadNews(
         language: Language,
@@ -165,7 +163,6 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
         val district = prefs.getEffectiveDistrict() ?: effectiveUser?.district?.takeIf { it.isNotBlank() }
         _userDistrict.value = district
-        val userState = Constants.mapDistrictToState(district)
 
         // Asynchronously load local ads in background (does NOT block news feed)
         loadLocalAds(district)
@@ -174,9 +171,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             isFetching = true
             if (forceRefresh) {
                 _isRefreshing.value = true
-                prefCursor = null
-                localCursor = null
-                generalCursor = null
+                lastDocument = null
             }
             _isOnline.value = NetworkUtils.isOnline(getApplication())
 
@@ -189,150 +184,63 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     } catch (_: Exception) { null }
                 } else null
 
-                // 2. ⚡ SMART INSTANT CACHE (< 20ms) - మెమరీ ఖాళీగా ఉంటే లోకల్ క్యాష్ వెంటనే చూపిస్తుంది
-                var hasFreshCache = false
+                val newsRef = FirebaseService.db.collection("news")
+                val primaryQuery = newsRef.whereEqualTo("approved", true)
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                    .limit(PAGE_SIZE.toLong())
 
-                val categoryScores = effectiveUser?.categoryScores ?: emptyMap()
-                val preferredCategories = try { AnalyticsService.getUserPreferredCategories().toSet() } catch (_: Exception) { emptySet() }
-                val topCategories = (categoryScores.filter { it.value > 0 }.keys + preferredCategories).distinct().take(10)
-
+                // 2. ⚡ INSTANT CACHE DISPLAY (< 20ms)
                 if (_news.value.isEmpty()) {
                     try {
-                        val cachedSnap = FirebaseService.db.collection("news")
-                            .whereEqualTo("approved", true)
-                            .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(PAGE_SIZE.toLong())
-                            .get(Source.CACHE)
-                            .await()
-
+                        val cachedSnap = primaryQuery.get(Source.CACHE).await()
                         val cachedPosts = cachedSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
-
                         if (cachedPosts.isNotEmpty()) {
-                            val stateFiltered = cachedPosts.filter { isPostAllowedForState(it, userState) }.ifEmpty { cachedPosts }
-                            val ranked = rankPostsByInterest(stateFiltered, categoryScores, preferredCategories)
-                            val combined = (listOfNotNull(initialTargetPost) + ranked).distinctBy { it.id }
-                            if (combined.isNotEmpty()) {
-                                _news.value = combined
-                                _loading.value = false
-                                hasFreshCache = true
-                                Log.d("NewsFeedVM", "⚡ Instant Fresh Cache Display: ${combined.size} posts in < 20ms")
-                            }
+                            val combined = (listOfNotNull(initialTargetPost) + cachedPosts).distinctBy { it.id }
+                            _news.value = combined
+                            _loading.value = false
+                            lastDocument = cachedSnap.documents.lastOrNull()
+                            Log.d("NewsFeedVM", "⚡ Instant Cache Display: ${combined.size} posts in < 20ms")
                         }
                     } catch (_: Exception) {}
                 }
 
-                if (!hasFreshCache && _news.value.isEmpty()) {
+                if (_news.value.isEmpty()) {
                     _loading.value = true
                 }
 
-                val newsRef = FirebaseService.db.collection("news")
+                // 3. ⚡ DIRECT SERVER QUERY (< 300ms) with 6s lean timeout
+                val snap = try {
+                    kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                        primaryQuery.get().await()
+                    }
+                } catch (e: Exception) {
+                    Log.w("NewsFeedVM", "Server query failed, falling back to cache: ${e.message}")
+                    null
+                }
 
-                // 🚀 2. FAST PATH (< 300ms) - మెమరీ ఖాళీగా ఉంటే టాప్ 5 తాజా వార్తలను వెనువెంటనే చూపించు
-                if (_news.value.isEmpty()) {
+                var freshPosts = snap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
+
+                // If network failed/empty and memory is empty, fallback to local cache
+                if (freshPosts.isEmpty() && _news.value.isEmpty()) {
                     try {
-                        val fastSnap = newsRef.whereEqualTo("approved", true)
-                            .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(5)
-                            .get()
-                            .await()
-
-                        val fastPosts = fastSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
-                        if (fastPosts.isNotEmpty() && _news.value.isEmpty()) {
-                            val stateFiltered = fastPosts.filter { isPostAllowedForState(it, userState) }.ifEmpty { fastPosts }
-                            val combined = (listOfNotNull(initialTargetPost) + stateFiltered).distinctBy { it.id }
-                            if (combined.isNotEmpty()) {
-                                _news.value = combined
-                                _loading.value = false
-                                Log.d("NewsFeedVM", "⚡ Fast Path: ${combined.size} posts displayed in < 300ms")
-                            }
+                        val fallbackCachedSnap = primaryQuery.get(Source.CACHE).await()
+                        freshPosts = fallbackCachedSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                        if (freshPosts.isNotEmpty()) {
+                            lastDocument = fallbackCachedSnap.documents.lastOrNull()
                         }
-                    } catch (e: Exception) {
-                        Log.d("NewsFeedVM", "Fast path query: ${e.message}")
-                    }
+                    } catch (_: Exception) {}
+                } else if (snap?.documents?.isNotEmpty() == true) {
+                    lastDocument = snap.documents.lastOrNull()
                 }
 
-                // 3. ⚡ PARALLEL 40/30/30 STREAMS (< 200ms total latency)
-                // Stream 1: 30% User Preferred Categories / Interests (6 posts)
-                val prefDeferred = async(Dispatchers.IO) {
-                    if (topCategories.isNotEmpty()) {
-                        try {
-                            newsRef.whereEqualTo("approved", true)
-                                .whereArrayContainsAny("categories", topCategories)
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(6)
-                                .get().await()
-                        } catch (_: Exception) { null }
-                    } else null
-                }
-
-                // Stream 2: 30% Local District News (6 posts)
-                val localDeferred = async(Dispatchers.IO) {
-                    if (!district.isNullOrBlank()) {
-                        val aliases = Constants.getDistrictAliases(district).take(10)
-                        try {
-                            val q = if (aliases.size > 1) {
-                                newsRef.whereEqualTo("approved", true).whereIn("district", aliases)
-                            } else {
-                                newsRef.whereEqualTo("approved", true).whereEqualTo("district", aliases.firstOrNull() ?: district)
-                            }.orderBy("timestamp", Query.Direction.DESCENDING).limit(6)
-                            q.get().await()
-                        } catch (_: Exception) { null }
-                    } else null
-                }
-
-                // Stream 3: 40% General / Breaking News (8 posts)
-                val generalDeferred = async(Dispatchers.IO) {
-                    try {
-                        newsRef.whereEqualTo("approved", true)
-                            .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(8)
-                            .get().await()
-                    } catch (_: Exception) { null }
-                }
-
-                val prefSnap = prefDeferred.await()
-                val localSnap = localDeferred.await()
-                val generalSnap = generalDeferred.await()
-
-                prefCursor = prefSnap?.documents?.lastOrNull()
-                localCursor = localSnap?.documents?.lastOrNull()
-                generalCursor = generalSnap?.documents?.lastOrNull()
-
-                val prefPosts = prefSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
-                val localPosts = localSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
-                val generalPosts = generalSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
-
-                var combinedRaw = (prefPosts + localPosts + generalPosts).distinctBy { it.id }
-
-                // Fallback to direct general query if streams were empty (e.g., offline or network error)
-                if (combinedRaw.isEmpty()) {
-                    val fallbackSnap = try {
-                        newsRef.whereEqualTo("approved", true)
-                            .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(PAGE_SIZE.toLong())
-                            .get().await()
-                    } catch (_: Exception) {
-                        try { newsRef.whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(PAGE_SIZE.toLong()).get(Source.CACHE).await() } catch (_: Exception) { null }
-                    }
-                    combinedRaw = fallbackSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
-                    generalCursor = fallbackSnap?.documents?.lastOrNull()
-                }
-
-                _hasMore.value = combinedRaw.isNotEmpty()
-
-                // State Isolation
-                val stateFiltered = combinedRaw.filter { isPostAllowedForState(it, userState) }.ifEmpty { combinedRaw }
-
-                // In-memory User Interest Personalization
-                val rankedPosts = rankPostsByInterest(stateFiltered, categoryScores, preferredCategories)
-                val finalPosts = (listOfNotNull(initialTargetPost) + rankedPosts).distinctBy { it.id }
-
-                if (finalPosts.isNotEmpty()) {
-                    _news.value = finalPosts
+                if (freshPosts.isNotEmpty()) {
+                    val combined = (listOfNotNull(initialTargetPost) + freshPosts).distinctBy { it.id }
+                    _news.value = combined
+                    _hasMore.value = (freshPosts.size >= PAGE_SIZE)
                     lastRefreshTimeLong = System.currentTimeMillis()
                     _lastRefreshTime.value = lastRefreshTimeLong
 
-                    val validIds = finalPosts.filter { it.type == "news" }.map { it.id }
+                    val validIds = combined.filter { it.type == "news" }.map { it.id }
                     prefs.incrementPostViewCounts(validIds)
                 }
             } catch (e: Exception) {
@@ -350,92 +258,36 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * 📄 Paginated infinite scroll loader using 40/30/30 cursors.
+     * 📄 Paginated infinite scroll loader using direct cursor.
      */
     fun loadMore(language: Language, currentUser: User?) {
         if (!_hasMore.value || isFetching) return
-        if (prefCursor == null && localCursor == null && generalCursor == null) return
+        val cursor = lastDocument ?: return
 
         viewModelScope.launch {
             isFetching = true
             try {
-                val effectiveUser = currentUser ?: activeCurrentUser
-                val district = _userDistrict.value
-                val userState = Constants.mapDistrictToState(district)
-                val categoryScores = effectiveUser?.categoryScores ?: emptyMap()
-                val preferredCategories = try { AnalyticsService.getUserPreferredCategories().toSet() } catch (_: Exception) { emptySet() }
-                val topCategories = (categoryScores.filter { it.value > 0 }.keys + preferredCategories).distinct().take(10)
-
                 val newsRef = FirebaseService.db.collection("news")
+                val q = newsRef.whereEqualTo("approved", true)
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                    .startAfter(cursor)
+                    .limit(PAGE_SIZE.toLong())
 
-                val prefDeferred = async(Dispatchers.IO) {
-                    if (topCategories.isNotEmpty() && prefCursor != null) {
-                        try {
-                            newsRef.whereEqualTo("approved", true)
-                                .whereArrayContainsAny("categories", topCategories)
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .startAfter(prefCursor!!)
-                                .limit(6)
-                                .get().await()
-                        } catch (_: Exception) { null }
-                    } else null
-                }
+                val snap = q.get().await()
+                val newPosts = snap.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                lastDocument = snap.documents.lastOrNull()
 
-                val localDeferred = async(Dispatchers.IO) {
-                    if (!district.isNullOrBlank() && localCursor != null) {
-                        val aliases = Constants.getDistrictAliases(district).take(10)
-                        try {
-                            val q = if (aliases.size > 1) {
-                                newsRef.whereEqualTo("approved", true).whereIn("district", aliases)
-                            } else {
-                                newsRef.whereEqualTo("approved", true).whereEqualTo("district", aliases.firstOrNull() ?: district)
-                            }.orderBy("timestamp", Query.Direction.DESCENDING).startAfter(localCursor!!).limit(6)
-                            q.get().await()
-                        } catch (_: Exception) { null }
-                    } else null
-                }
-
-                val generalDeferred = async(Dispatchers.IO) {
-                    if (generalCursor != null) {
-                        try {
-                            newsRef.whereEqualTo("approved", true)
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .startAfter(generalCursor!!)
-                                .limit(8)
-                                .get().await()
-                        } catch (_: Exception) { null }
-                    } else null
-                }
-
-                val prefSnap = prefDeferred.await()
-                val localSnap = localDeferred.await()
-                val generalSnap = generalDeferred.await()
-
-                if (prefSnap?.documents?.isNotEmpty() == true) prefCursor = prefSnap.documents.lastOrNull()
-                if (localSnap?.documents?.isNotEmpty() == true) localCursor = localSnap.documents.lastOrNull()
-                if (generalSnap?.documents?.isNotEmpty() == true) generalCursor = generalSnap.documents.lastOrNull()
-
-                val prefPosts = prefSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
-                val localPosts = localSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
-                val generalPosts = generalSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
-
-                val newBatch = (prefPosts + localPosts + generalPosts).distinctBy { it.id }
-
-                if (newBatch.isEmpty()) {
+                if (newPosts.isEmpty()) {
                     _hasMore.value = false
                 } else {
-                    val stateFiltered = newBatch.filter { isPostAllowedForState(it, userState) }.ifEmpty { newBatch }
                     val currentIds = _news.value.map { it.id }.toSet()
-                    val uniqueNew = stateFiltered.filter { it.id !in currentIds }
-
-                    if (uniqueNew.isNotEmpty()) {
-                        val ranked = rankPostsByInterest(uniqueNew, categoryScores, preferredCategories)
-                        _news.value = _news.value + ranked
-                        val validIds = ranked.filter { it.type == "news" }.map { it.id }
+                    val unique = newPosts.filter { it.id !in currentIds }
+                    if (unique.isNotEmpty()) {
+                        _news.value = _news.value + unique
+                        val validIds = unique.filter { it.type == "news" }.map { it.id }
                         prefs.incrementPostViewCounts(validIds)
                     }
-
-                    if (newBatch.size < 10) {
+                    if (newPosts.size < PAGE_SIZE) {
                         _hasMore.value = false
                     }
                 }
@@ -448,51 +300,12 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /**
-     * 🎯 User Interest Personalization Ranking (exact logic matching web app).
-     * 1 score point in user interest category boosts the post by +4 hours effective freshness.
-     * High interest categories surface to the top while preserving newest breaking news!
-     */
-    private fun rankPostsByInterest(
-        posts: List<NewsPost>,
-        categoryScores: Map<String, Int>,
-        preferredCategories: Set<String>
-    ): List<NewsPost> {
-        if (categoryScores.isEmpty() && preferredCategories.isEmpty()) {
-            return posts.sortedByDescending { it.timestamp }
-        }
-
-        val FOUR_HOURS_MS = 4 * 60 * 60 * 1000L
-
-        return posts.distinctBy { it.id }.sortedByDescending { post ->
-            var score = 0
-            post.categories.forEach { cat ->
-                score += categoryScores[cat] ?: categoryScores[cat.lowercase()] ?: 0
-                if (cat in preferredCategories) score += 2
-            }
-            post.tags.forEach { tag ->
-                score += categoryScores[tag] ?: categoryScores[tag.lowercase()] ?: 0
-            }
-            post.timestamp + (score * FOUR_HOURS_MS)
-        }
-    }
-
     fun refreshIfStale(language: Language, currentUser: User?) {
         if (isFetching) return // 🛡️ Prevent duplicate concurrent reads
         val now = System.currentTimeMillis()
         if (now - lastRefreshTimeLong > 5 * 60 * 1000L || (lastRefreshTimeLong == 0L && _news.value.isEmpty())) {
             loadNews(language, currentUser, forceRefresh = true)
         }
-    }
-
-    private fun isPostAllowedForState(post: NewsPost, userState: String?): Boolean {
-        if (userState.isNullOrBlank() || userState == "BOTH") return true
-
-        val postState = Constants.mapDistrictToState(post.state) ?: Constants.mapDistrictToState(post.district)
-        if (postState != null && postState != userState) {
-            return false
-        }
-        return true
     }
 
     private fun mapDocumentToNewsPost(doc: DocumentSnapshot): NewsPost? {
