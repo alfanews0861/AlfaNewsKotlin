@@ -63,8 +63,13 @@ fun ManagePostsPageView(
         currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
         FirebaseService.auth.currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
 
-    val repIds = remember(authUid, uid) {
-        listOfNotNull(uid.takeIf { it.isNotBlank() }, authUid.takeIf { it.isNotBlank() }).distinct()
+    val repIds = remember(authUid, uid, cleanCurrentPhone, cleanAuthPhone) {
+        listOfNotNull(
+            uid.takeIf { it.isNotBlank() },
+            authUid.takeIf { it.isNotBlank() },
+            cleanCurrentPhone?.takeIf { it.isNotBlank() },
+            cleanAuthPhone?.takeIf { it.isNotBlank() }
+        ).distinct()
     }
 
     var viewMode by remember(isAdmin) { mutableStateOf(if (isAdmin) "all" else "my") }
@@ -78,107 +83,97 @@ fun ManagePostsPageView(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 🛡️ Safety timeout: 2.5 సెకన్లలో స్పిన్నర్ ఆగిపోవాలి
+    // 🛡️ పాత లోకల్ క్యాష్ ఖాళీగా ఉంటే "వార్తలు లేవు" అని చూపించకూడదు.
+    // సర్వర్ నుండి నిర్ధారణ వచ్చే వరకు లోడింగ్ చూపిస్తాం; స్పందన రాకపోతే నిశ్శబ్దంగా మళ్ళీ ప్రయత్నిస్తాం.
+    var retryCount by remember { mutableStateOf(0) }
     LaunchedEffect(viewMode, repIds, refreshTrigger) {
-        kotlinx.coroutines.delay(2500L)
-        if (loading) loading = false
+        kotlinx.coroutines.delay(8000L)
+        if (loading && retryCount < 5) {
+            retryCount++
+            refreshTrigger++
+        } else if (loading) {
+            loading = false
+        }
     }
 
     // 🚀 రియల్‌టైమ్ సర్వర్ కనెక్షన్ (కేవలం తాజా 10 వార్తలు)
     DisposableEffect(viewMode, repIds, refreshTrigger) {
-        loading = true
+        loading = posts.isEmpty()
         val listeners = mutableListOf<ListenerRegistration>()
 
-        if (isAdmin && viewMode == "all") {
-            // ADMIN: అన్ని తాజా 10 వార్తలు
-            val qAdmin = FirebaseService.db.collection("news")
-                .orderBy("timestamp", Query.Direction.DESCENDING)
-                .limit(10)
+        fun toPosts(snap: com.google.firebase.firestore.QuerySnapshot): Map<String, NewsPost> =
+            snap.documents.mapNotNull { doc ->
+                val data = doc.data ?: return@mapNotNull null
+                mapMapToNewsPost(doc.id, data)
+            }.associateBy { it.id }
 
-            val reg = qAdmin.addSnapshotListener { snapshot, e ->
-                loading = false
-                if (e != null) {
-                    android.util.Log.e("ManagePostsPageView", "Admin query error: ${e.message}")
-                    return@addSnapshotListener
-                }
-                if (snapshot != null) {
-                    posts = snapshot.documents.mapNotNull { doc ->
-                        val data = doc.data ?: return@mapNotNull null
-                        mapMapToNewsPost(doc.id, data)
-                    }.sortedByDescending { it.timestamp }.take(10)
+        var retryScheduled = false
+        fun scheduleRetry() {
+            if (retryScheduled || retryCount >= 5) {
+                if (retryCount >= 5) loading = false
+                return
+            }
+            retryScheduled = true
+            scope.launch {
+                kotlinx.coroutines.delay(3000L)
+                retryCount++
+                refreshTrigger++
+            }
+        }
+
+        val queries: List<Pair<String, Query>> = if (isAdmin && viewMode == "all") {
+            listOf(
+                "all" to FirebaseService.db.collection("news")
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                    .limit(10)
+            )
+        } else {
+            repIds.flatMap { rId ->
+                listOf("originalReporterId", "reporter.id", "reporterId").map { field ->
+                    "$field-$rId" to FirebaseService.db.collection("news")
+                        .whereEqualTo(field, rId)
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(10)
                 }
             }
-            listeners.add(reg)
-        } else {
-            // REPORTER: కేవలం ఈ విలేకరి పంపిన తాజా 10 వార్తలు
-            if (repIds.isEmpty()) {
-                posts = emptyList()
-                loading = false
-            } else {
-                val resultsMap = mutableMapOf<String, Map<String, NewsPost>>()
+        }
 
-                fun syncPosts() {
-                    val merged = mutableMapOf<String, NewsPost>()
-                    resultsMap.values.forEach { map -> merged.putAll(map) }
-                    posts = merged.values.sortedByDescending { it.timestamp }.take(10)
+        if (queries.isEmpty()) {
+            // యూజర్/లాగిన్ వివరాలు లోడ్ అవుతుంటే వెంటనే "వార్తలు లేవు" అని చూపించకుండా వేచి ఉండాలి
+            if (!isAdmin && repIds.isEmpty() && (currentUser == null || FirebaseService.auth.currentUser == null)) {
+                loading = true
+            } else {
+                loading = false
+            }
+        } else {
+            val resultsMap = mutableMapOf<String, Map<String, NewsPost>>()
+            val serverConfirmed = mutableSetOf<String>()
+
+            fun syncPosts() {
+                val merged = mutableMapOf<String, NewsPost>()
+                resultsMap.values.forEach { merged.putAll(it) }
+                val list = merged.values.sortedByDescending { it.timestamp }.take(10)
+                // ఖాళీ ఫలితాన్ని సర్వర్ అన్ని క్వెరీలకు నిర్ధారించిన తర్వాతే చూపించాలి
+                if (list.isNotEmpty() || serverConfirmed.size == queries.size) {
+                    posts = list
                     loading = false
                 }
+            }
 
-                for (rId in repIds) {
-                    // 1. originalReporterId (క్రాస్-మండల్ లేదా సాధారణ పోస్టులు)
-                    val q1 = FirebaseService.db.collection("news")
-                        .whereEqualTo("originalReporterId", rId)
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(10)
-                    listeners.add(q1.addSnapshotListener { snap, err ->
-                        if (err == null && snap != null) {
-                            val map = snap.documents.mapNotNull { doc ->
-                                val data = doc.data ?: return@mapNotNull null
-                                mapMapToNewsPost(doc.id, data)
-                            }.associateBy { it.id }
-                            resultsMap["orig-$rId"] = map
-                            syncPosts()
-                        } else {
-                            loading = false
-                        }
-                    })
-
-                    // 2. reporter.id
-                    val q2 = FirebaseService.db.collection("news")
-                        .whereEqualTo("reporter.id", rId)
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(10)
-                    listeners.add(q2.addSnapshotListener { snap, err ->
-                        if (err == null && snap != null) {
-                            val map = snap.documents.mapNotNull { doc ->
-                                val data = doc.data ?: return@mapNotNull null
-                                mapMapToNewsPost(doc.id, data)
-                            }.associateBy { it.id }
-                            resultsMap["rep-$rId"] = map
-                            syncPosts()
-                        } else {
-                            loading = false
-                        }
-                    })
-
-                    // 3. reporterId
-                    val q3 = FirebaseService.db.collection("news")
-                        .whereEqualTo("reporterId", rId)
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(10)
-                    listeners.add(q3.addSnapshotListener { snap, err ->
-                        if (err == null && snap != null) {
-                            val map = snap.documents.mapNotNull { doc ->
-                                val data = doc.data ?: return@mapNotNull null
-                                mapMapToNewsPost(doc.id, data)
-                            }.associateBy { it.id }
-                            resultsMap["repId-$rId"] = map
-                            syncPosts()
-                        } else {
-                            loading = false
-                        }
-                    })
-                }
+            queries.forEach { (key, q) ->
+                listeners.add(q.addSnapshotListener { snap, err ->
+                    if (err != null) {
+                        android.util.Log.w("ManagePostsPageView", "Query error on $key: ${err.message}")
+                        scheduleRetry()
+                        return@addSnapshotListener
+                    }
+                    if (snap == null) return@addSnapshotListener
+                    // పాత క్యాష్ నుండి వచ్చిన ఖాళీ స్నాప్‌షాట్‌ను పట్టించుకోవద్దు — సర్వర్ కోసం వేచి ఉండాలి
+                    if (snap.metadata.isFromCache && snap.isEmpty) return@addSnapshotListener
+                    if (!snap.metadata.isFromCache) serverConfirmed.add(key)
+                    resultsMap[key] = toPosts(snap)
+                    syncPosts()
+                })
             }
         }
 

@@ -69,14 +69,7 @@ fun LocalNewsFeedView(
     val preloadedAds = remember { mutableStateMapOf<Int, AdState>() }
 
     DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                viewModel.onAppResume(language, currentUser)
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
             preloadedAds.values.forEach { adState ->
                 if (adState is AdState.Success) {
                     try {
@@ -163,8 +156,6 @@ fun LocalNewsFeedView(
     LaunchedEffect(Unit) {
         if (news.isEmpty()) {
             viewModel.loadNews(language, currentUser)
-        } else {
-            viewModel.refreshIfStale(language, currentUser)
         }
     }
 
@@ -309,8 +300,8 @@ fun LocalNewsFeedView(
             } else {
                 var retryCount by remember { mutableStateOf(0) }
                 LaunchedEffect(loading) {
-                    if (!loading && retryCount < 2) {
-                        kotlinx.coroutines.delay((retryCount + 1) * 3000L)
+                    if (!loading && retryCount < 5) {
+                        kotlinx.coroutines.delay(2000L)
                         retryCount++
                         viewModel.loadNews(language, currentUser, forceRefresh = true)
                     }

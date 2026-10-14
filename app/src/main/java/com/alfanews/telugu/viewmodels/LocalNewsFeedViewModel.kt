@@ -38,7 +38,6 @@ import java.util.Locale
 class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val PAGE_SIZE = 20
-        private const val CACHE_FRESHNESS_TTL = 5 * 60 * 60 * 1000L // 5 hours
     }
 
     private val prefs = PreferenceManager.getInstance(application)
@@ -85,8 +84,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             prefs.districtChanges.collectLatest { district ->
                 if (district != null && district != _activeDistrict.value) {
                     _activeDistrict.value = district
-                    _news.value = emptyList()
-                    _loading.value = true
+                    _loading.value = _news.value.isEmpty()
                     _hasMore.value = true
                     lastDistrictDocument = null
                     loadNews(Language.TELUGU, activeCurrentUser, forceRefresh = true)
@@ -111,8 +109,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         prefs.selectedDistrict = district
         _activeDistrict.value = district
 
-        _news.value = emptyList()
-        _loading.value = true
+        _loading.value = _news.value.isEmpty()
         _hasMore.value = true
         lastDistrictDocument = null
 
@@ -148,10 +145,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             _activeDistrict.value = district
         }
 
+        // ఇప్పటికే అదే జిల్లా కోసం క్వెరీ రన్ అవుతుంటే అనవసరంగా రద్దు చేసి మళ్ళీ స్టార్ట్ చేయవద్దు
         if (isFetching && loadJob?.isActive == true && !forceRefresh) {
             return
         }
-        loadJob?.cancel()
 
         // Load local ads in background (non-blocking)
         loadLocalAds(district)
@@ -168,11 +165,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 .take(10)
 
             try {
-                // 1. ⚡ SMART INSTANT CACHE (< 20ms)
-                val now = System.currentTimeMillis()
-                val freshCutoff = now - CACHE_FRESHNESS_TTL
-                var hasFreshCache = false
-
+                // 1. ⚡ INSTANT CACHE DISPLAY (< 20ms) - మెమరీ ఖాళీగా ఉంటే లోకల్ క్యాష్ వెంటనే చూపిస్తుంది
                 if (_news.value.isEmpty()) {
                     try {
                         val cacheQuery = if (aliases.size > 1) {
@@ -183,22 +176,20 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                         val cachedSnap = cacheQuery.get(Source.CACHE).await()
                         val cachedPosts = cachedSnap.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
-                        val latestTime = cachedPosts.maxOfOrNull { it.timestamp } ?: 0L
-
-                        if (cachedPosts.isNotEmpty() && latestTime >= freshCutoff) {
+                        if (cachedPosts.isNotEmpty()) {
                             _news.value = cachedPosts
                             _loading.value = false
-                            hasFreshCache = true
+                            lastDistrictDocument = cachedSnap.documents.lastOrNull()
                             Log.d("LocalNewsFeedVM", "⚡ Instant Local Cache Display: ${cachedPosts.size} posts in < 20ms")
                         }
                     } catch (_: Exception) {}
                 }
 
-                if (!hasFreshCache && _news.value.isEmpty()) {
+                if (_news.value.isEmpty()) {
                     _loading.value = true
                 }
 
-                // 2. ⚡ FAST SINGLE SERVER QUERY (< 200ms - Web App parity)
+                // 2. ⚡ DIRECT SERVER QUERY (< 200ms) with safe 10s timeout
                 val serverQuery = if (aliases.size > 1) {
                     newsRef.whereEqualTo("approved", true).whereIn("district", aliases)
                 } else {
@@ -206,21 +197,33 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 }.orderBy("timestamp", Query.Direction.DESCENDING).limit(PAGE_SIZE.toLong())
 
                 val snap = try {
-                    serverQuery.get().await()
+                    kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                        serverQuery.get().await()
+                    }
                 } catch (e: Exception) {
                     Log.w("LocalNewsFeedVM", "Network query failed, falling back to cache: ${e.message}")
-                    try { serverQuery.get(Source.CACHE).await() } catch (_: Exception) { null }
+                    null
                 }
 
-                val posts = snap?.documents?.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) } ?: emptyList()
-                lastDistrictDocument = snap?.documents?.lastOrNull()
+                var posts = snap?.documents?.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) } ?: emptyList()
 
-                // 🛑 STRICT DISTRICT ISOLATION: కేవలం ఎంపిక చేసిన జిల్లా వార్తలు మాత్రమే (రాష్ట్ర లేదా ఇతర జిల్లాల వార్తలు కలపవద్దు)
-                _hasMore.value = (posts.size >= PAGE_SIZE)
+                // సర్వర్ నుండి స్పందన రాలేకపోయినా, మెమరీ ఖాళీగా ఉంటే లోకల్ క్యాష్ బ్యాకప్ తీసుకుంటాం
+                if (posts.isEmpty() && _news.value.isEmpty()) {
+                    try {
+                        val fallbackCachedSnap = serverQuery.get(Source.CACHE).await()
+                        posts = fallbackCachedSnap.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
+                        if (posts.isNotEmpty()) {
+                            lastDistrictDocument = fallbackCachedSnap.documents.lastOrNull()
+                        }
+                    } catch (_: Exception) {}
+                } else if (snap?.documents?.isNotEmpty() == true) {
+                    lastDistrictDocument = snap.documents.lastOrNull()
+                }
 
                 if (posts.isNotEmpty()) {
                     val wasEmpty = _news.value.isEmpty()
                     _news.value = posts
+                    _hasMore.value = (posts.size >= PAGE_SIZE)
                     val validIds = posts.filter { it.type == "news" }.map { it.id }
                     prefs.incrementPostViewCounts(validIds)
                     if (wasEmpty) {
