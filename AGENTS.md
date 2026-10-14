@@ -88,6 +88,8 @@ private var prefCursor: DocumentSnapshot? = null  // Tracks pagination state
   Unchanging user data (login credentials, user profiles, roles, ID card data, and app configuration) MUST remain cached locally (`PersistentCacheSettings` / `Source.CACHE` / `SharedPreferences`) so user sessions, profiles, and credentials are preserved across app restarts and offline periods.
 - **NO Push Without Explicit User Instruction (ప్రతీ చిన్న మార్పుకి పుష్ చేసి బిల్డ్ చేయవద్దు - యూజర్ చెబితేనే పుష్ చేయాలి)**:
   Do NOT automatically push to GitHub or trigger remote builds for every small change. Push to GitHub ONLY when the user explicitly instructs to push (e.g., "పుష్ చేయి", "GitHub కి పుష్ చెయ్"). When explicitly instructed by the user to push, bump `versionCode` (+1) and update `versionName` in `app/build.gradle.kts`, push to remote, and monitor the GitHub Actions workflow until the build succeeds. If there are any build errors, inspect logs and adjust the code accordingly until the build succeeds.
+- **DO NOT BREAK WORKING FEATURES WHILE FIXING (ఒకటి బాగుచేసే క్రమంలో ఇంకో బాగున్నదానిని ఎట్టి పరిస్థితుల్లోనూ చెడగొట్టవద్దు - ZERO REGRESSION)**:
+  ఎదైనా సమస్యను పరిష్కరించేటప్పుడు లేదా ఆప్టిమైజ్ చేసేటప్పుడు, అంతకుముందు సజావుగా పనిచేస్తున్న ఫీచర్లు, లాజిక్‌లు, క్వెరీలు మరియు క్యాష్ విధానాలను అనవసరంగా మార్చి చెడగొట్టవద్దు (Do NOT break or degrade existing working functionality while fixing a bug). ప్రతీ మార్పు చేసేముందు అది ప్రస్తుతం పనిచేస్తున్న ఇతర భాగాలపై ఎలాంటి దుష్ప్రభావం చూపుతుందో కూలంకషంగా విశ్లేషించి మాత్రమే మార్పు చేయాలి.
 
 
 ### Building Android Release APK (Only when explicitly requested by user)

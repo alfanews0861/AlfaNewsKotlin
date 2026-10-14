@@ -40,16 +40,25 @@ fun AppDrawerContent(
         (cleanAuthPhone == "9173811009") ||
         (authUser?.phoneNumber?.contains("9173811009") == true) ||
         (authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
+    val isPermanentReporter = (user?.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true) ||
+        (authUser?.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true)
     val effectiveDrawerUser = if (user == null && authUser != null) {
         val prefs = com.alfanews.telugu.utils.PreferenceManager.getInstance(androidx.compose.ui.platform.LocalContext.current)
-        val cachedRole = if (isAdminUser) "ADMIN" else (prefs.userRole ?: "SUBSCRIBER")
+        val cachedRole = if (isAdminUser) "ADMIN" else if (isPermanentReporter) "REPORTER" else (prefs.userRole ?: "SUBSCRIBER")
         User(
             id = authUser.uid,
-            name = prefs.userName ?: authUser.displayName ?: if (isAdminUser) "శ్రీకాంత్ రెడ్డి" else "User",
+            name = prefs.userName ?: authUser.displayName ?: if (isAdminUser) "శ్రీకాంత్ రెడ్డి" else if (isPermanentReporter) "Alfa News Service" else "User",
             phone = authUser.phoneNumber ?: prefs.userPhone,
             email = authUser.email,
-            role = if (isAdminUser) UserRole.ADMIN else UserRole.fromString(cachedRole),
-            district = prefs.userDistrict
+            role = if (isAdminUser) UserRole.ADMIN else if (isPermanentReporter) UserRole.REPORTER else UserRole.fromString(cachedRole),
+            district = if (isPermanentReporter) "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" else prefs.userDistrict,
+            assignedMandal = if (isPermanentReporter) "నెల్లూరు అర్బన్" else prefs.userAssignedMandal
+        )
+    } else if (user != null && isPermanentReporter) {
+        user.copy(
+            role = UserRole.REPORTER,
+            district = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+            assignedMandal = "నెల్లూరు అర్బన్"
         )
     } else {
         user
@@ -57,10 +66,13 @@ fun AppDrawerContent(
     val hasReporterHistory = effectiveDrawerUser != null && (
         !effectiveDrawerUser.assignedMandal.isNullOrBlank() ||
         effectiveDrawerUser.points > 0 ||
-        effectiveDrawerUser.badges.isNotEmpty()
+        effectiveDrawerUser.badges.isNotEmpty() ||
+        isPermanentReporter
     )
     val role = if (isAdminUser) {
         UserRole.ADMIN
+    } else if (isPermanentReporter) {
+        UserRole.REPORTER
     } else if (effectiveDrawerUser?.role == UserRole.SUBSCRIBER && hasReporterHistory) {
         UserRole.REPORTER
     } else {

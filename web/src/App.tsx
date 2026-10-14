@@ -114,20 +114,22 @@ const App: React.FC = () => {
 
           const isAdminAuth = firebaseUser.email?.toLowerCase() === 'alfanews0861@gmail.com' ||
             Boolean(firebaseUser.phoneNumber?.includes('9173811009'));
-          const hasReporterAttrs = Boolean(legacyData?.assignedMandal || legacyData?.previouslyDowngraded);
-          const initialRole = isAdminAuth ? UserRole.ADMIN : ((legacyData?.role === UserRole.SUBSCRIBER && hasReporterAttrs) ? UserRole.REPORTER : (legacyData?.role || (hasReporterAttrs ? UserRole.REPORTER : UserRole.SUBSCRIBER)));
+          const isPermanentReporterAuth = firebaseUser.email?.toLowerCase() === 'alfanewsservice@gmail.com';
+          const hasReporterAttrs = Boolean(legacyData?.assignedMandal || legacyData?.previouslyDowngraded || isPermanentReporterAuth);
+          const initialRole = isAdminAuth ? UserRole.ADMIN : (isPermanentReporterAuth ? UserRole.REPORTER : ((legacyData?.role === UserRole.SUBSCRIBER && hasReporterAttrs) ? UserRole.REPORTER : (legacyData?.role || (hasReporterAttrs ? UserRole.REPORTER : UserRole.SUBSCRIBER))));
 
           const newUser: any = {
             id: firebaseUser.uid,
-            name: legacyData?.name || firebaseUser.displayName || (isAdminAuth ? 'శ్రీకాంత్ రెడ్డి' : 'New User'),
+            name: legacyData?.name || firebaseUser.displayName || (isAdminAuth ? 'శ్రీకాంత్ రెడ్డి' : (isPermanentReporterAuth ? 'Alfa News Service' : 'New User')),
             email: firebaseUser.email || legacyData?.email || '',
             photoUrl: firebaseUser.photoURL || legacyData?.photoUrl || '',
             role: initialRole,
+            ...(isPermanentReporterAuth ? { assignedMandal: 'నెల్లూరు అర్బన్', mandal: 'నెల్లూరు అర్బన్', district: 'శ్రీ పొట్టి శ్రీరాములు నెల్లూరు', isProtectedSenior: true } : {}),
             ...(legacyData || {})
           };
           if (isAdminAuth) {
             newUser.role = UserRole.ADMIN;
-          } else if (hasReporterAttrs) {
+          } else if (hasReporterAttrs || isPermanentReporterAuth) {
             newUser.role = UserRole.REPORTER;
             newUser.previouslyDowngraded = false;
           }
@@ -140,9 +142,13 @@ const App: React.FC = () => {
             const isAdmin = firebaseUser.email?.toLowerCase() === 'alfanews0861@gmail.com' ||
               Boolean(firebaseUser.phoneNumber?.includes('9173811009')) ||
               userData.role === UserRole.ADMIN;
-            const hasReporterAttrs = Boolean(userData.assignedMandal || (userData.previouslyDowngraded && userData.downgradedReason === 'INACTIVITY'));
-            const effectiveRole = isAdmin ? UserRole.ADMIN : ((userData.role === UserRole.SUBSCRIBER && hasReporterAttrs) ? UserRole.REPORTER : userData.role);
-            setCurrentUser({ id: docSnap.id, ...userData, role: effectiveRole } as User);
+            const isPermanentReporter = firebaseUser.email?.toLowerCase() === 'alfanewsservice@gmail.com' ||
+              userData.email?.toLowerCase() === 'alfanewsservice@gmail.com';
+            const hasReporterAttrs = Boolean(userData.assignedMandal || (userData.previouslyDowngraded && userData.downgradedReason === 'INACTIVITY') || isPermanentReporter);
+            const effectiveRole = isAdmin ? UserRole.ADMIN : (isPermanentReporter ? UserRole.REPORTER : ((userData.role === UserRole.SUBSCRIBER && hasReporterAttrs) ? UserRole.REPORTER : userData.role));
+            const effectiveDistrict = isPermanentReporter ? 'శ్రీ పొట్టి శ్రీరాములు నెల్లూరు' : (userData.district || '');
+            const effectiveMandal = isPermanentReporter ? 'నెల్లూరు అర్బన్' : (userData.assignedMandal || userData.mandal || '');
+            setCurrentUser({ id: docSnap.id, ...userData, role: effectiveRole, district: effectiveDistrict, assignedMandal: effectiveMandal, mandal: effectiveMandal } as User);
           }
         });
         setShowLogin(false);

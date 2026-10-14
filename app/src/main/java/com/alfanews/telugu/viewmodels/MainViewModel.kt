@@ -146,23 +146,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val firebaseAuthUser = FirebaseService.auth.currentUser
         val cachedId = prefs.userId ?: firebaseAuthUser?.uid
         val cachedPhone = firebaseAuthUser?.phoneNumber ?: prefs.userPhone
-        val cachedEmail = firebaseAuthUser?.email
+        val cachedEmail = firebaseAuthUser?.email ?: prefs.userEmail
         val cleanPhoneCached = cachedPhone?.replace("+91", "")?.trim()
         val isAdminCached = (cachedPhone?.contains("9173811009") == true) ||
                             (cleanPhoneCached == "9173811009") ||
                             (cachedEmail?.equals("alfanews0861@gmail.com", ignoreCase = true) == true) ||
                             (prefs.userRole == "ADMIN")
-        val effectiveCachedRole = if (isAdminCached) "ADMIN" else (prefs.userRole ?: "SUBSCRIBER")
+        val isPermanentReporterCached = (cachedEmail?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true)
+        val effectiveCachedRole = if (isAdminCached) "ADMIN" else if (isPermanentReporterCached) "REPORTER" else (prefs.userRole ?: "SUBSCRIBER")
         if (isAdminCached) {
             prefs.userRole = "ADMIN"
+        } else if (isPermanentReporterCached) {
+            prefs.userRole = "REPORTER"
+            prefs.userAssignedMandal = "నెల్లూరు అర్బన్"
+            if (prefs.userDistrict.isNullOrBlank() || prefs.userDistrict == "ఖమ్మం") {
+                prefs.userDistrict = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు"
+            }
         }
 
         if (cachedId != null) {
             _currentUser.value = User(
                 id = cachedId,
-                name = prefs.userName ?: firebaseAuthUser?.displayName ?: if (isAdminCached) "శ్రీకాంత్ రెడ్డి" else "User",
-                role = if (isAdminCached) UserRole.ADMIN else UserRole.fromString(effectiveCachedRole),
-                district = prefs.userDistrict,
+                name = prefs.userName ?: firebaseAuthUser?.displayName ?: if (isAdminCached) "శ్రీకాంత్ రెడ్డి" else if (isPermanentReporterCached) "Alfa News Service" else "User",
+                role = if (isAdminCached) UserRole.ADMIN else if (isPermanentReporterCached) UserRole.REPORTER else UserRole.fromString(effectiveCachedRole),
+                district = if (isPermanentReporterCached) "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" else prefs.userDistrict,
+                assignedMandal = if (isPermanentReporterCached) "నెల్లూరు అర్బన్" else prefs.userAssignedMandal,
                 phone = cachedPhone,
                 email = cachedEmail
             )
@@ -182,25 +190,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             val cleanPhone = firebaseUser.phoneNumber?.replace("+91", "")?.trim()
+            val userEmail = firebaseUser.email ?: prefs.userEmail
             val isAdminAccount = (firebaseUser.phoneNumber?.contains("9173811009") == true) ||
                                  (cleanPhone == "9173811009") ||
-                                 (firebaseUser.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true) ||
+                                 (userEmail?.equals("alfanews0861@gmail.com", ignoreCase = true) == true) ||
                                  (prefs.userPhone?.contains("9173811009") == true) ||
                                  (prefs.userRole == "ADMIN")
+            val isPermanentReporter = (userEmail?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true)
 
             // Eagerly populate _currentUser immediately upon auth callback to eliminate transient Guest UI
-            val eagerRole = if (isAdminAccount) UserRole.ADMIN else UserRole.fromString(prefs.userRole ?: "SUBSCRIBER")
+            val eagerRole = if (isAdminAccount) UserRole.ADMIN else if (isPermanentReporter) UserRole.REPORTER else UserRole.fromString(prefs.userRole ?: "SUBSCRIBER")
             if (_currentUser.value == null || _currentUser.value?.id != firebaseUser.uid) {
                 _currentUser.value = User(
                     id = firebaseUser.uid,
-                    name = prefs.userName ?: firebaseUser.displayName ?: if (isAdminAccount) "శ్రీకాంత్ రెడ్డి" else "User",
+                    name = prefs.userName ?: firebaseUser.displayName ?: if (isAdminAccount) "శ్రీకాంత్ రెడ్డి" else if (isPermanentReporter) "Alfa News Service" else "User",
                     phone = firebaseUser.phoneNumber ?: prefs.userPhone ?: if (isAdminAccount) "+919173811009" else null,
                     role = eagerRole,
-                    email = firebaseUser.email,
-                    district = prefs.userDistrict
+                    email = userEmail,
+                    district = if (isPermanentReporter) "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" else prefs.userDistrict,
+                    assignedMandal = if (isPermanentReporter) "నెల్లూరు అర్బన్" else prefs.userAssignedMandal
                 )
                 prefs.userId = firebaseUser.uid
-                if (isAdminAccount) prefs.userRole = "ADMIN"
+                if (isAdminAccount) {
+                    prefs.userRole = "ADMIN"
+                } else if (isPermanentReporter) {
+                    prefs.userRole = "REPORTER"
+                    prefs.userAssignedMandal = "నెల్లూరు అర్బన్"
+                    if (prefs.userDistrict.isNullOrBlank() || prefs.userDistrict == "ఖమ్మం") {
+                        prefs.userDistrict = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు"
+                    }
+                }
             }
 
             userListener = FirebaseService.db.collection("users").document(firebaseUser.uid)
@@ -217,22 +236,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             )
                             prefs.userId = firebaseUser.uid
                             prefs.userRole = "ADMIN"
+                        } else if (isPermanentReporter && (_currentUser.value == null || _currentUser.value?.role != UserRole.REPORTER)) {
+                            _currentUser.value = User(
+                                id = firebaseUser.uid,
+                                name = firebaseUser.displayName ?: "Alfa News Service",
+                                role = UserRole.REPORTER,
+                                email = userEmail,
+                                district = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+                                assignedMandal = "నెల్లూరు అర్బన్"
+                            )
+                            prefs.userId = firebaseUser.uid
+                            prefs.userRole = "REPORTER"
+                            prefs.userDistrict = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు"
+                            prefs.userAssignedMandal = "నెల్లూరు అర్బన్"
                         }
                         return@addSnapshotListener
                     }
 
                     if (snapshot != null && !snapshot.exists()) {
-                        val fallbackRole = if (isAdminAccount) UserRole.ADMIN else UserRole.fromString(prefs.userRole ?: "SUBSCRIBER")
+                        val fallbackRole = if (isAdminAccount) UserRole.ADMIN else if (isPermanentReporter) UserRole.REPORTER else UserRole.fromString(prefs.userRole ?: "SUBSCRIBER")
                         val activeUser = User(
                             id = firebaseUser.uid,
-                            name = prefs.userName ?: firebaseUser.displayName ?: if (isAdminAccount) "శ్రీకాంత్ రెడ్డి" else "User",
+                            name = prefs.userName ?: firebaseUser.displayName ?: if (isAdminAccount) "శ్రీకాంత్ రెడ్డి" else if (isPermanentReporter) "Alfa News Service" else "User",
                             phone = firebaseUser.phoneNumber ?: prefs.userPhone ?: if (isAdminAccount) "+919173811009" else null,
                             role = fallbackRole,
-                            email = firebaseUser.email,
-                            district = prefs.userDistrict
+                            email = userEmail,
+                            district = if (isPermanentReporter) "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" else prefs.userDistrict,
+                            assignedMandal = if (isPermanentReporter) "నెల్లూరు అర్బన్" else prefs.userAssignedMandal
                         )
                         _currentUser.value = activeUser
                         prefs.userId = firebaseUser.uid
+                        prefs.userRole = fallbackRole.name
+                        if (isPermanentReporter) {
+                            prefs.userRole = "REPORTER"
+                            prefs.userAssignedMandal = "నెల్లూరు అర్బన్"
+                            prefs.userDistrict = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు"
+                        }
                         prefs.userRole = fallbackRole.name
 
                         // 🔍 Async check if user has reporter application or admin document
@@ -281,9 +320,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                          (cleanEffectivePhone == "9173811009") ||
                                          (effectivePhone?.contains("9173811009") == true) ||
                                          (effectiveEmail?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
+                        val isPermanentReporterDoc = isPermanentReporter ||
+                                                     (effectiveEmail?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true)
 
-                        val assignedMandal = snapshot.getString("assignedMandal")?.takeIf { it.isNotBlank() }
-                            ?: snapshot.getString("mandal")?.takeIf { it.isNotBlank() }
+                        val assignedMandal = if (isPermanentReporterDoc) "నెల్లూరు అర్బన్" else (snapshot.getString("assignedMandal")?.takeIf { it.isNotBlank() }
+                            ?: snapshot.getString("mandal")?.takeIf { it.isNotBlank() })
                         val lastKnownMandal = snapshot.getString("lastKnownMandal")?.takeIf { it.isNotBlank() }
                         val isPrevDowngraded = snapshot.getBoolean("previouslyDowngraded") == true
                         val downgradedReason = snapshot.getString("downgradedReason")
@@ -294,11 +335,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 isPrevDowngraded ||
                                 downgradedReason != null ||
                                 userPoints > 0 ||
-                                snapshot.getBoolean("isProtectedSenior") == true
+                                snapshot.getBoolean("isProtectedSenior") == true ||
+                                isPermanentReporterDoc
 
                         val parsedRole = if (isAdminDoc) {
                             UserRole.ADMIN
-                        } else if (hasReporterPast) {
+                        } else if (hasReporterPast || isPermanentReporterDoc) {
                             // 🛡️ Auto-heal: Restore REPORTER for any previously active, demoted, or credited reporter
                             UserRole.REPORTER
                         } else {
@@ -319,11 +361,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                         val repDist = app.getString("district")
                                         val repMandal = app.getString("assignedMandal") ?: app.getString("mandal")
                                         _currentUser.value = _currentUser.value?.copy(
-                                            name = repName,
-                                            role = UserRole.REPORTER,
-                                            district = repDist ?: _currentUser.value?.district,
-                                            assignedMandal = repMandal ?: _currentUser.value?.assignedMandal
-                                        )
+                                             name = repName,
+                                             role = UserRole.REPORTER,
+                                             district = repDist ?: _currentUser.value?.district,
+                                             assignedMandal = repMandal ?: _currentUser.value?.assignedMandal
+                                         )
                                         prefs.userRole = "REPORTER"
                                         prefs.userName = repName
                                     }
@@ -331,7 +373,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         }
 
-                        if (parsedRole == UserRole.REPORTER && (rawRole?.toString()?.uppercase() == "SUBSCRIBER" || isPrevDowngraded || downgradedReason != null)) {
+                        if (parsedRole == UserRole.REPORTER && (rawRole?.toString()?.uppercase() == "SUBSCRIBER" || isPrevDowngraded || downgradedReason != null || isPermanentReporterDoc)) {
                             val autoHealUpdates = mutableMapOf<String, Any>(
                                 "role" to "REPORTER",
                                 "previouslyDowngraded" to false,
@@ -348,6 +390,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     autoHealUpdates["assignedMandal"] = parts[1]
                                     autoHealUpdates["mandal"] = parts[1]
                                 }
+                            } else if (isPermanentReporterDoc) {
+                                autoHealUpdates["role"] = "REPORTER"
+                                autoHealUpdates["assignedMandal"] = "నెల్లూరు అర్బన్"
+                                autoHealUpdates["mandal"] = "నెల్లూరు అర్బన్"
+                                autoHealUpdates["district"] = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు"
+                                autoHealUpdates["isProtectedSenior"] = true
                             }
                             try {
                                 snapshot.reference.set(autoHealUpdates, com.google.firebase.firestore.SetOptions.merge())
@@ -369,7 +417,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             photoUrl = effectivePhoto,
                             role = parsedRole,
                             address = snapshot.getString("address"),
-                            district = snapshot.getString("district"),
+                            district = if (isPermanentReporterDoc) "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" else (snapshot.getString("district") ?: _currentUser.value?.district),
                             pushEnabled = pushEnabledVal,
                             constituency = snapshot.getString("constituency"),
                             state = snapshot.getString("state"),
@@ -378,7 +426,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             referralCount = refCount,
                             signatureUrl = snapshot.getString("signatureUrl"),
                             idCardUrl = snapshot.getString("idCardUrl"),
-                            assignedMandal = assignedMandal,
+                            assignedMandal = if (isPermanentReporterDoc) "నెల్లూరు అర్బన్" else assignedMandal,
                             assignedDistricts = assignedDistList,
                             fcmTokens = fcmTokensList,
                             lastTokenUpdate = snapshot.getLong("lastTokenUpdate"),
@@ -398,7 +446,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         prefs.userId = userObj.id
                         prefs.userName = snapshot.getString("name") ?: userObj.name
                         prefs.userRole = userObj.role.name
-                        prefs.userDistrict = snapshot.getString("district") ?: userObj.district
+                        prefs.userDistrict = if (isPermanentReporterDoc) "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" else (snapshot.getString("district") ?: userObj.district)
+                        if (isPermanentReporterDoc) {
+                            prefs.userAssignedMandal = "నెల్లూరు అర్బన్"
+                        } else if (!userObj.assignedMandal.isNullOrBlank()) {
+                            prefs.userAssignedMandal = userObj.assignedMandal
+                        }
+                        if (!effectiveEmail.isNullOrBlank()) {
+                            prefs.userEmail = effectiveEmail
+                        }
                         if (!effectivePhone.isNullOrBlank()) {
                             prefs.userPhone = effectivePhone
                         }
@@ -1108,13 +1164,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         updateActiveWeatherAlert()
         AnalyticsService.logDistrictSelected(district, oldDistrict)
         viewModelScope.launch {
-            // Update Firestore user record
-            val uid = _currentUser.value?.id
-            if (!uid.isNullOrBlank() && uid != "guest") {
+            // Update Firestore user record only for normal subscribers.
+            // Reporters, admins, and staff have official reporting jurisdictions that must NEVER be overwritten when browsing news.
+            val currentUser = _currentUser.value
+            val authEmail = FirebaseService.auth.currentUser?.email
+            val isStaff = currentUser?.role in listOf(UserRole.REPORTER, UserRole.ADMIN, UserRole.EDITOR, UserRole.NEWS_DESK, UserRole.REGIONAL_INCHARGE) ||
+                          (currentUser?.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true) ||
+                          (authEmail?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true)
+            val uid = currentUser?.id
+            if (!uid.isNullOrBlank() && uid != "guest" && !isStaff) {
                 try {
                     FirebaseService.db.collection("users").document(uid).update("district", district)
                 } catch (e: Exception) { }
-            } else {
+            } else if (uid.isNullOrBlank() || uid == "guest") {
                 syncUserFcmToken(null)
             }
             // ✅ FIX: Update FCM topic subscriptions when district changes

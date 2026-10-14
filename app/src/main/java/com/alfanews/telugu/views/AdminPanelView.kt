@@ -96,17 +96,32 @@ fun AdminPanelView(
         authUser?.phoneNumber?.contains("9173811009") == true ||
         user.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
         authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
+    val isPermanentReporter = user.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true ||
+        authUser?.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true
     val hasReporterHistory = !user.assignedMandal.isNullOrBlank() ||
         user.points > 0 ||
-        user.badges.isNotEmpty()
+        user.badges.isNotEmpty() ||
+        isPermanentReporter
     val effectiveRole = if (isAdminUser) {
         UserRole.ADMIN
+    } else if (isPermanentReporter) {
+        UserRole.REPORTER
     } else if (user.role == UserRole.SUBSCRIBER && hasReporterHistory) {
         UserRole.REPORTER
     } else {
         user.role
     }
-    val effectiveUser = remember(user, effectiveRole) { user.copy(role = effectiveRole) }
+    val effectiveUser = remember(user, effectiveRole) {
+        if (isPermanentReporter) {
+            user.copy(
+                role = UserRole.REPORTER,
+                district = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+                assignedMandal = "నెల్లూరు అర్బన్"
+            )
+        } else {
+            user.copy(role = effectiveRole)
+        }
+    }
 
     val accessiblePages = when (effectiveRole) {
         UserRole.GUEST, UserRole.SUBSCRIBER -> allPages.filter { it.id == "profile" }

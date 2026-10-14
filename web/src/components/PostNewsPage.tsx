@@ -159,7 +159,8 @@ const PostNewsPage: React.FC<PostNewsPageProps> = ({ user, postToEdit, onActionC
     user.role === UserRole.REGIONAL_INCHARGE ||
     String(user.role).toUpperCase() === 'NEWS_DESK' ||
     String(user.role).toUpperCase() === 'EDITOR' ||
-    user.email === 'alfanews0861@gmail.com';
+    user.email === 'alfanews0861@gmail.com' ||
+    user.email === 'alfanewsservice@gmail.com';
 
   const districts = React.useMemo(() => {
     const base = state === 'TS' ? TS_DISTRICTS : AP_DISTRICTS;

@@ -43,6 +43,7 @@ import com.alfanews.telugu.services.AdMobService
 import com.alfanews.telugu.services.AdState
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.utils.Constants
+import com.alfanews.telugu.utils.NetworkUtils
 import com.alfanews.telugu.viewmodels.LocalNewsFeedViewModel
 import com.google.android.gms.ads.nativead.NativeAd
 import com.alfanews.telugu.views.LocalAdCardView
@@ -212,7 +213,7 @@ fun LocalNewsFeedView(
     LaunchedEffect(pagerState) { 
         snapshotFlow { pagerState.currentPage }.collect { page ->
             val newsIndex = page - (page / 6)
-            if ((newsIndex >= news.size - 5 || page >= totalCount - 2) && hasMore && !loading) {
+            if (news.size >= 8 && (newsIndex >= news.size - 4 || page >= totalCount - 2) && hasMore && !loading) {
                 viewModel.loadMore(language, currentUser)
             }
 
@@ -315,11 +316,14 @@ fun LocalNewsFeedView(
                 }
             } else {
                 var retryCount by remember { mutableIntStateOf(0) }
+                val isOnline = remember(loading) { NetworkUtils.isOnline(context) }
+
                 LaunchedEffect(loading) {
-                    if (!loading && retryCount < 2) {
-                        kotlinx.coroutines.delay(5000L)
+                    if (!loading && retryCount < 3 && isOnline) {
+                        val backoffDelay = (retryCount + 1) * 3000L
+                        kotlinx.coroutines.delay(backoffDelay)
                         retryCount++
-                        viewModel.loadNews(language, currentUser)
+                        viewModel.loadNews(language, currentUser, forceRefresh = false)
                     }
                 }
                 NewsCardSkeleton()

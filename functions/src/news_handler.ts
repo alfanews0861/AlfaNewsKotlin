@@ -708,10 +708,10 @@ export async function performAIProcessing(
     const singleStorySchema = {
         type: Type.OBJECT,
         properties: {
-            headline: { type: Type.STRING, description: "Pure Telugu punchy journalistic headline strictly in 8-10 words, optional single colon hook" },
+            headline: { type: Type.STRING, description: "Pure Telugu punchy journalistic headline strictly in 6-9 words as ONE continuous flowing sentence without any colons (:) or dashes (-)" },
             content: { type: Type.STRING, description: "Pure Telugu short news story strictly 52-60 words (minimum 52 words, maximum 60 words), single paragraph" },
             fullStoryTe: { type: Type.STRING, description: "Senior Editor full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if source is brief (< 120 words)" },
-            headlineEn: { type: Type.STRING, description: "English headline translated from Telugu headline (8-10 words)" },
+            headlineEn: { type: Type.STRING, description: "English headline translated from Telugu headline (6-9 words)" },
             contentEn: { type: Type.STRING },
             fullStoryEn: { type: Type.STRING, description: "Senior Editor full story in English across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if source is brief (< 120 words)" },
             location: { type: Type.STRING },
@@ -814,7 +814,7 @@ ${videoSpeechContext}
 ⚠️ వీడియో జర్నలిజం సమగ్ర కథన నిబంధనలు (CRITICAL VIDEO JOURNALISM MANDATE):
 - ఈ వార్త క్షేత్రస్థాయి వీడియో ఆధారంగా సమర్పించబడింది. పైన సేకరించిన [వీడియోలో మాట్లాడిన అసలు మాటలు] నుండి మాట్లాడిన వ్యక్తి వివరాలు, వారి అసలు ప్రకటనలు, ఆరోపణలు, సంఖ్యలు మరియు ప్రజా సమస్యలను తప్పనిసరిగా కథనంలో సమగ్రంగా చేర్చండి.
 - మాట్లాడిన మాటలను సదరు నేత/బాధితుడికే ఆపాదించాలి (ఉదా: "...అని వీడియోలో వెల్లడించిన ఫలానా నేత", "...అంటూ వాపోయిన బాధితులు").
-- సందర్భానుసార శీర్షిక (8-10 పదాలు): వీడియోలోని అత్యంత కీలకమైన ప్రకటన లేదా సవాలు ఆధారంగా శీర్షిక ఉండాలి (లీడ్ హుక్ కోసం ఒకే ఒక్క కోలన్ : వాడవచ్చు).
+- సందర్భానుసార శీర్షిక (6-9 పదాలు): వీడియోలోని అత్యంత కీలకమైన ప్రకటన లేదా సవాలు ఆధారంగా కోలన్ (:) లేకుండా ఒకే సంపూర్ణ వాక్యంగా పదునైన శీర్షిక ఉండాలి.
 - 360° సమతుల్యత: వీడియోలో ఒక పక్షం ఘాటైన ఆరోపణలు చేస్తే, 3వ పేరాలో ఎదుటి పక్షం వివరణ లేదా ప్రభుత్వ/అధికారుల స్పందనను సమతుల్యంగా చేర్చండి.
 - స్వీయ ప్రచారం / భజన / పీఆర్ రీల్ అయితే: వీడియోలో ఎటువంటి వార్తా విలువ లేకుండా కేవలం నాయకుడి భజన, పొగడ్తలు ఉంటే తిరస్కరించండి (rejectionReason రాయండి).` : ''}
 
@@ -871,8 +871,8 @@ NOTIFICATION INSTRUCTIONS (CRITICAL - STRICT RELEVANCE & URGENCY):
   * Inspiring human achievements, significant regional or state developments.
   * STRICTLY FALSE for: Routine political statement battles ("నాయకుడి విమర్శలు-ప్రతివిమర్శలు"), routine photo-ops, birthday celebrations, shawl felicitations, personal praise/flattery (భజన వార్తలు), small ward drainage/street light complaints.
 - notificationTitle:
-  * If isBreaking is true: Generate a crisp, urgent, 100% FACTUAL Telugu title stating WHAT happened and WHERE (strictly 8-10 words, optional single colon hook e.g. 'హైవేపై లారీ బీభత్సం: నలుగురు దుర్మరణం'). NEVER use clickbait questions or mystery teasers for tragic/breaking news!
-  * If notificationWorthy is true (and NOT breaking): Generate an engaging, intriguing Telugu curiosity hook title (strictly 8-10 words, optional single colon hook).
+  * If isBreaking is true: Generate a crisp, urgent, 100% FACTUAL Telugu title stating WHAT happened and WHERE (strictly 6-9 words as ONE continuous flowing sentence without colons or double dots). NEVER use clickbait questions or mystery teasers for tragic/breaking news!
+  * If notificationWorthy is true (and NOT breaking): Generate an engaging, intriguing Telugu curiosity hook title (strictly 6-9 words as ONE continuous flowing sentence without colons or double dots).
   * If neither, leave as empty string "".
 - tone options: BREAKING | URGENT | IMPORTANT | NORMAL | SOFT
   * BREAKING: Only for genuine high-magnitude breaking news matching isBreaking above.

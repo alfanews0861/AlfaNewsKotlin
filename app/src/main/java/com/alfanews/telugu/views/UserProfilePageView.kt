@@ -82,12 +82,15 @@ fun UserProfilePageView(
             if ((user.id.isBlank() || user.id == "guest" || user.role == UserRole.GUEST) && authUser != null) {
                 val isAdminAuth = (authUser.phoneNumber?.contains("9173811009") == true) ||
                                   (authUser.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
+                val isPermanentReporterAuth = (authUser.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true)
                 User(
                     id = authUser.uid,
-                    name = authUser.displayName?.ifBlank { null } ?: if (isAdminAuth) "శ్రీకాంత్ రెడ్డి" else "User",
+                    name = authUser.displayName?.ifBlank { null } ?: if (isAdminAuth) "శ్రీకాంత్ రెడ్డి" else if (isPermanentReporterAuth) "Alfa News Service" else "User",
                     phone = authUser.phoneNumber,
                     email = authUser.email,
-                    role = if (isAdminAuth) UserRole.ADMIN else UserRole.SUBSCRIBER
+                    role = if (isAdminAuth) UserRole.ADMIN else if (isPermanentReporterAuth) UserRole.REPORTER else UserRole.SUBSCRIBER,
+                    assignedMandal = if (isPermanentReporterAuth) "నెల్లూరు అర్బన్" else null,
+                    district = if (isPermanentReporterAuth) "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" else null
                 )
             } else {
                 user
@@ -110,12 +113,14 @@ fun UserProfilePageView(
                 }
                 if (doc != null && doc.exists()) {
                     val rawRole = doc.get("role")
-                    val assignedMandal = doc.getString("assignedMandal")?.takeIf { it.isNotBlank() }
-                        ?: doc.getString("mandal")?.takeIf { it.isNotBlank() }
+                    val isPermanentReporterDoc = (doc.getString("email")?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true) ||
+                                                 (authUser?.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true)
+                    val assignedMandal = if (isPermanentReporterDoc) "నెల్లూరు అర్బన్" else (doc.getString("assignedMandal")?.takeIf { it.isNotBlank() }
+                        ?: doc.getString("mandal")?.takeIf { it.isNotBlank() })
                     val pts = (doc.get("points") as? Number)?.toInt() ?: 0
                     val badges = (doc.get("badges") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
                     val isSenior = doc.getBoolean("isProtectedSenior") == true
-                    val hasHistory = !assignedMandal.isNullOrBlank() || pts > 0 || badges.isNotEmpty() || isSenior
+                    val hasHistory = !assignedMandal.isNullOrBlank() || pts > 0 || badges.isNotEmpty() || isSenior || isPermanentReporterDoc
                     
                     val isAdminDoc = (rawRole?.toString()?.uppercase() == "ADMIN") ||
                                      (doc.getString("phone")?.contains("9173811009") == true) ||
@@ -125,6 +130,8 @@ fun UserProfilePageView(
 
                     var newRole = if (isAdminDoc) {
                         UserRole.ADMIN
+                    } else if (isPermanentReporterDoc) {
+                        UserRole.REPORTER
                     } else {
                         val parsed = UserRole.fromStringSafe(rawRole) ?: UserRole.SUBSCRIBER
                         if (parsed == UserRole.SUBSCRIBER && hasHistory) UserRole.REPORTER else parsed
@@ -132,10 +139,10 @@ fun UserProfilePageView(
                     val dbName = doc.getString("name")?.trim()
                     liveUser = liveUser.copy(
                         id = targetUid,
-                        name = if (!dbName.isNullOrBlank() && !dbName.equals("User", true) && !dbName.equals("యూజర్", true)) dbName else (authUser?.displayName ?: liveUser.name),
+                        name = if (!dbName.isNullOrBlank() && !dbName.equals("User", true) && !dbName.equals("యూజర్", true)) dbName else (if (isPermanentReporterDoc) "Alfa News Service" else (authUser?.displayName ?: liveUser.name)),
                         role = newRole,
-                        assignedMandal = assignedMandal ?: liveUser.assignedMandal,
-                        district = doc.getString("district") ?: liveUser.district,
+                        assignedMandal = if (isPermanentReporterDoc) "నెల్లూరు అర్బన్" else (assignedMandal ?: liveUser.assignedMandal),
+                        district = if (isPermanentReporterDoc) "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" else (doc.getString("district") ?: liveUser.district),
                         phone = doc.getString("phone") ?: authUser?.phoneNumber ?: liveUser.phone,
                         email = doc.getString("email") ?: authUser?.email ?: liveUser.email,
                         points = if (pts > 0) pts else liveUser.points,
@@ -147,10 +154,11 @@ fun UserProfilePageView(
                     val isAdminAuth = (authUser.phoneNumber?.contains("9173811009") == true) ||
                                       (cleanAuthPhone == "9173811009") ||
                                       (authUser.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
-                    var discoveredRole = if (isAdminAuth) UserRole.ADMIN else if (liveUser.role == UserRole.GUEST) UserRole.SUBSCRIBER else liveUser.role
-                    var discoveredName = authUser.displayName ?: liveUser.name
-                    var discoveredDist = liveUser.district
-                    var discoveredMandal = liveUser.assignedMandal
+                    val isPermanentReporterAuth = (authUser.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true)
+                    var discoveredRole = if (isAdminAuth) UserRole.ADMIN else if (isPermanentReporterAuth) UserRole.REPORTER else if (liveUser.role == UserRole.GUEST) UserRole.SUBSCRIBER else liveUser.role
+                    var discoveredName = if (isPermanentReporterAuth) "Alfa News Service" else (authUser.displayName ?: liveUser.name)
+                    var discoveredDist = if (isPermanentReporterAuth) "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" else liveUser.district
+                    var discoveredMandal = if (isPermanentReporterAuth) "నెల్లూరు అర్బన్" else liveUser.assignedMandal
                     if (!cleanAuthPhone.isNullOrBlank() && discoveredRole == UserRole.SUBSCRIBER) {
                         try {
                             val snap = FirebaseService.db.collection("reporter_applications").whereEqualTo("phone", cleanAuthPhone).get().await()
@@ -189,17 +197,31 @@ fun UserProfilePageView(
         authUser?.phoneNumber?.contains("9173811009") == true ||
         liveUser.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
         authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
-    val isGuest = authUser == null && !isAdminUser && (liveUser.id.isBlank() || liveUser.id == "guest" || liveUser.role == UserRole.GUEST)
+    val isPermanentReporterUser = liveUser.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true ||
+        authUser?.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true
+    val isGuest = authUser == null && !isAdminUser && !isPermanentReporterUser && (liveUser.id.isBlank() || liveUser.id == "guest" || liveUser.role == UserRole.GUEST)
     val hasReporterHistory = !liveUser.assignedMandal.isNullOrBlank() ||
         liveUser.points > 0 ||
-        liveUser.badges.isNotEmpty()
+        liveUser.badges.isNotEmpty() ||
+        isPermanentReporterUser
     val effectiveRole = when {
         isAdminUser -> UserRole.ADMIN
+        isPermanentReporterUser -> UserRole.REPORTER
         liveUser.role == UserRole.SUBSCRIBER && hasReporterHistory -> UserRole.REPORTER
         else -> liveUser.role
     }
     val effectiveUser = remember(liveUser, effectiveRole) {
-        if (liveUser.role != effectiveRole) liveUser.copy(role = effectiveRole) else liveUser
+        if (isPermanentReporterUser) {
+            liveUser.copy(
+                role = UserRole.REPORTER,
+                district = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+                assignedMandal = "నెల్లూరు అర్బన్"
+            )
+        } else if (liveUser.role != effectiveRole) {
+            liveUser.copy(role = effectiveRole)
+        } else {
+            liveUser
+        }
     }
     val isStaff = !isGuest && (isAdminUser || listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.REGIONAL_INCHARGE, UserRole.NEWS_DESK).contains(effectiveRole) || hasReporterHistory)
     val canViewIdCard = !isGuest && (isStaff || hasReporterHistory || !effectiveUser.assignedMandal.isNullOrBlank())

@@ -4,26 +4,35 @@ exports.processProductWithAI = exports.processContentWithAI = exports.processCit
 const genai_1 = require("@google/genai");
 const utils_1 = require("./utils");
 const PRIMARY_MODEL = utils_1.PRO_MODEL;
-const PREMIUM_HEADLINE_SYSTEM_INSTRUCTION = `మీరు ఆల్ఫా న్యూస్ (Alfa News) ప్రధాన శీర్షికా రచయిత (Chief Headline Editor).
-మీకు ఇవ్వబడిన 52-60 పదాల తెలుగు వార్తా సారాంశాన్ని చదివి, పాఠకుడిని వెంటనే కట్టిపడేసేలా అత్యున్నత జర్నలిస్టిక్ విలువలతో కూడిన పదునైన శీర్షికను (8 నుండి 10 పదాలలో) మాత్రమే రాయాలి.
+const PREMIUM_HEADLINE_SYSTEM_INSTRUCTION = `మీరు ఆల్ఫా న్యూస్ (Alfa News) ప్రధాన శీర్షికా సంపాదకుడు (Chief Headline Editor).
+మీకు ఇచ్చిన వార్తను చదివి, ఎక్కడా కోలన్ (:), డాష్ (-), చుక్కలు (..) వంటి ఎటువంటి విరామాలు లేకుండా, కేవలం ఒకే ఒక్క సంపూర్ణ వాక్యంలో (6 నుండి 9 పదాలలో) పాఠకుడిని కట్టిపడేసే పవర్-పంచ్ శీర్షికను మాత్రమే రాయాలి.
 
-ముఖ్యమైన నిబంధనలు (CRITICAL HEADLINE RULES):
-1. పదాల పరిమాణం: ఖచ్చితంగా 8 నుండి 10 పదాలు మాత్రమే (కనీసం 8 పదాలు, గరిష్టంగా 10 పదాలు).
-2. లీడ్ హుక్ కోలన్ (JOURNALISTIC LEAD COLON): లీడ్ యాంకర్ కోసం ఒకే ఒక్క కోలన్ (:) వాడవచ్చు (ఉదా: "హైవేపై లారీ బీభత్సం: క్షణాల్లో నుజ్జునుజ్జైన కారుతో నలుగురు దుర్మరణం"). కొటేషన్లు ('...', "...") నిషిద్ధం.
-3. సజీవ జర్నలిస్టిక్ పవర్ వర్డ్స్:
-   - లీడ్ యాంకర్లు: తీపి కబురు, భారీ ఊరట, షాకింగ్ ఘటన, బీభత్సం, కలకలం, ఉలిక్కిపడ్డ, ఘోరం, బట్టబయలు, బరితెగింపు, భారీ ఝలక్, ఉచ్చు, కొరడా, ఆక్రోశం, ఆవేదన, గుడ్ న్యూస్, సంచలనం, నిప్పుల కొలిమి, దారుణం, అలర్ట్.
-   - క్రియా పదాలు (యాక్షన్ ముగింపులు): నిప్పులు, సవాల్, నిలదీత, కౌంటర్, చురకలు, హెచ్చరిక, విరుచుకుపడ్డారు, స్పష్టం చేశారు, తేల్చిచెప్పారు, గుట్టురట్టు, కటకటాల్లోకి, గ్రీన్ సిగ్నల్, పంజా విసిరిన, భారీ షాక్.
-4. రాజకీయ విమర్శలు/సవాళ్లు: నాయకుడి ఘాటైన పంచ్ వ్యాఖ్యనే లీడ్ గా తీసుకోవాలి: [పంచ్ వ్యాఖ్య]: [ఎవరిపై] [నాయకుడి పేరు] [క్రియా పదం].
-   - ఉదా: "రైతులను నిలువునా ముంచేశారు: కూటమి సర్కార్‌పై వైఎస్ జగన్ నిప్పులు" (8 పదాలు)
-   - ఉదా: "నన్ను అక్రమ కేసులతో బెదిరించలేరు: కాంగ్రెస్ సర్కార్‌కు కేటీఆర్ బహిరంగ సవాల్" (9 పదాలు)
-   - ఉదా: "ఓట్ల కోసం ఇంత బరితెగింపా: ఎన్నికల సంఘం నిర్ణయంపై రాహుల్ గాంధీ ఆగ్రహం" (9 పదాలు)
-5. ప్రభుత్వ పథకాలు/శుభవార్తలు: ప్రజలకు కలిగే ప్రత్యక్ష లబ్ధి/ప్రయోజనం:
-   - ఉదా: "అన్నదాతలకు భారీ ఊరట: నేడే రైతుల ఖాతాల్లోకి రైతు భరోసా నిధులు" (9 పదాలు)
-   - ఉదా: "నిరుద్యోగులకు తీపి కబురు: రాష్ట్రంలో పదివేల ఉపాధ్యాయ పోస్టుల భర్తీకి గ్రీన్ సిగ్నల్" (10 పదాలు)
-6. 🛑 చప్పని ముగింపుల సంపూర్ణ నిషేధం: వాక్యం చివర '...విమర్శలు', '...ప్రకటన', '...సమీక్ష', '...స్పందన' వంటి చప్పని నామవాచకాలతో లేదా '...చేసిన ఫలానా' వంటి పాసివ్ ముగింపులతో ముగించరాదు.
-7. సంఖ్యలు & ఫ్యాక్ట్స్: వార్తలోని ఖచ్చితమైన బడ్జెట్ అంకెలు, ఉద్యోగాల సంఖ్య, ప్రాంతాల పేర్లు శీర్షికలో రావాలి.
-8. 100% స్వచ్ఛమైన తెలుగు లిపి (Unicode U+0C00-U+0C7F). ఒక్క ఇంగ్లీష్ పదం కూడా ఉండకూడదు.
-Output must be strictly JSON format: {"headline": "...", "headlineEn": "..."}`;
+ముఖ్యమైన నిబంధనలు (CRITICAL PUNCH HEADLINE RULES):
+1. 🛑 ఎటువంటి విరామ చిహ్నాలు నిషిద్ధం (STRICTLY NO COLONS, NO DASHES, NO DOTS):
+   - కోలన్ (:), సెమీకోలన్ (;), డాష్ (-), రెండు చుక్కలు (..) ఏవీ ఉండకూడదు.
+   - ప్రారంభం నుండి చివరి వరకు ఒకే ఒక్క సహజ ప్రవాహం కలిగిన సంపూర్ణ వాక్యంగా (Single Continuous Punchy Sentence) మాత్రమే సాగాలి.
+   - కొటేషన్లు ('...', "...") నిషిద్ధం.
+
+2. 🛑 చప్పని ముగింపుల సంపూర్ణ నిషేధం (ZERO BUREAUCRATIC/POLICE/FLAT ENDINGS):
+   - శీర్షిక చివర '...శంకుస్థాపన', '...ఆగ్రహం', '...విమర్శలు', '...మహాధర్నా', '...స్పందన', '...సమీక్ష', '...ప్రకటన', '...దుర్మరణం', '...నిరసన' వంటి నిస్తేజమైన నామవాచకాలతో ముగించరాదు! ఇవి శీర్షికను ప్రభుత్వ ప్రకటనలా లేదా పోలీస్ ఎఫ్‌ఐఆర్‌లా చప్పగా మారుస్తాయి.
+
+3. ⚡ శక్తివంతమైన తెలుగు నుడికారాలు, క్రియా పదాలు & ఫలితం (DYNAMIC VERNACULAR PUNCH):
+   - అభివృద్ధి/నిధులు: కేవలం 'శంకుస్థాపన చేశారు' అని కాకుండా, ప్రజలకు జరిగే మార్పును సాధికారికంగా చెప్పాలి (రూ. సంఖ్యను స్పష్టంగా 'రూ. 10 కోట్లతో' అని ఉంచాలి).
+     (ఉదా: 'పెద్దాపురంలో రూ. 10 కోట్లతో మారనున్న గ్రామీణ రోడ్ల రూపురేఖలు', 'రూ. 10 కోట్లతో పెద్దాపురం రోడ్ల దశ మార్చనున్న నూతన ప్రాజెక్ట్')
+   - రాజకీయ విమర్శలు/వేడి: కేవలం 'ఆగ్రహం వ్యక్తం చేశారు' అని కాకుండా, ఆ దాడిలోని వాడి, వేడి చూపాలి.
+     (ఉదా: 'రైతులను నట్టేట ముంచిన కూటమి సర్కార్‌పై విరుచుకుపడ్డ వైఎస్ జగన్', 'రైతులకు చేసిన ద్రోహానికి కూటమి సర్కార్ మూల్యం చెల్లించుకోక తప్పదన్న జగన్')
+   - ప్రమాదాలు/విషాదాలు: కేవలం 'లారీ ఢీకొని నలుగురు దుర్మరణం' అని కాకుండా, తీవ్రత స్పష్టంగా ఉండాలి.
+     (ఉదా: 'హైవేపై కారును లారీ నలిపేసిన ఘోర దుర్ఘటనలో నలుగురు అక్కడికక్కడే బలి', 'హైదరాబాద్ హైవేపై లారీ అతివేగానికి నలుగురు ప్రయాణికులు ఛిద్రం')
+   - రైతాంగం/ప్రజా సమస్యలు: కేవలం 'ధర్నా చేశారు' అని కాకుండా, వారి ఆక్రోశం ప్రతిధ్వనించాలి.
+     (ఉదా: 'గిట్టుబాటు ధర కోసం గుంటూరు మార్కెట్‌ను ముట్టడించి రైతన్నల కన్నెర్ర', 'మిర్చి పంటకు న్యాయమైన ధర ఇవ్వకపోతే బతికేదెలా అంటూ రైతుల ఆక్రోశం')
+
+4. 🛑 రొటీన్ బాట్ క్లీషేల నిషేధం:
+   - 'తీపి కబురు', 'భారీ ఊరట', 'షాకింగ్ ఘటన', 'గుడ్ న్యూస్', 'సంచలనం', 'అలర్ట్' వంటి మూస బాట్ పదాలు శీర్షికలో అస్సలు ఉండకూడదు!
+
+5. 📏 పరిమాణం: ఖచ్చితంగా 6 నుండి 9 పదాలు మాత్రమే.
+6. 100% స్వచ్ఛమైన తెలుగు లిపి (Unicode U+0C00-U+0C7F).
+
+Output format: {"headline": "...", "headlineEn": "..."}`;
 /**
  * Generates a premium journalistic headline using PAID_GEMINI_API_KEY and Gemini 3.7/3.8 Flash.
  * If PAID_GEMINI_API_KEY is not set or if any error occurs, safely falls back to the original headline.
@@ -47,18 +56,23 @@ async function refineHeadlineWithPaidAI(teluguContent, fallbackHeadline, fallbac
             properties: {
                 headline: {
                     type: genai_1.Type.STRING,
-                    description: "Step 1: 100% Pure Telugu punchy journalistic headline strictly in 8-10 words, with optional single colon hook (e.g. లీడ్: వివరాలు)"
+                    description: "Step 1: 100% Pure Telugu punchy journalistic headline strictly in 6-9 words as ONE continuous flowing sentence without any colons (:) or dashes (-)"
                 },
                 headlineEn: {
                     type: genai_1.Type.STRING,
-                    description: "Step 2: English headline translated from Telugu headline (8-10 words)"
+                    description: "Step 2: English headline translated from Telugu headline (6-9 words)"
                 }
             },
             required: ["headline", "headlineEn"]
         };
         const authorHint = authorName ? `రచయిత/నాయకుడి పేరు: ${authorName}\n` : "";
-        const userPrompt = `${authorHint}వార్తా సారాంశం (News Summary):\n${teluguContent}\n\nపై తెలుగు వార్తా సారాంశానికి మాత్రమే 8 నుండి 10 పదాలలో పదునైన జర్నలిస్టిక్ శీర్షిక (తెలుగు మరియు ఇంగ్లీష్) రాయండి.`;
-        const models = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"];
+        const userPrompt = `${authorHint}వార్తా సారాంశం (News Summary):\n${teluguContent}\n\nపై తెలుగు వార్తా సారాంశానికి మాత్రమే 6 నుండి 9 పదాలలో కోలన్ (:) లేకుండా ఒకే సంపూర్ణ వాక్యంగా పదునైన జర్నలిస్టిక్ శీర్షిక (తెలుగు మరియు ఇంగ్లీష్) రాయండి.`;
+        const models = [
+            "gemini-3.8-flash",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash"
+        ];
         for (const modelName of models) {
             try {
                 const response = await ai.models.generateContent({
@@ -67,9 +81,12 @@ async function refineHeadlineWithPaidAI(teluguContent, fallbackHeadline, fallbac
                     config: {
                         systemInstruction: PREMIUM_HEADLINE_SYSTEM_INSTRUCTION,
                         temperature: 0.5,
-                        maxOutputTokens: 256,
+                        maxOutputTokens: 1024,
                         responseMimeType: "application/json",
                         responseSchema: headlineSchema,
+                        thinkingConfig: {
+                            thinkingBudget: 0
+                        }
                     }
                 });
                 const text = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -111,7 +128,7 @@ const EDITORIAL_SYSTEM_INSTRUCTION = `మీరు ఆల్ఫా న్యూ�
    ఇన్‌పుట్ సమాచారం/పోస్ట్ ఏ భాషలో ఉన్నప్పటికీ (ఇంగ్లీష్, తెలుగు, హిందీ లేదా ఇతర ఏ భాషలో ఉన్నా సరే):
    - దశ 1 (ముందుగా తెలుగు వార్త - STEP 1: PURE TELUGU NEWS FIRST):
      * ఇన్‌పుట్ ఏ భాషలో ఉన్నా, అందులోని వాస్తవాలను, సంఘటనను మాత్రమే ఆధారం చేసుకొని, ముందుగా 100% స్వచ్ఛమైన తెలుగు లిపిలో (Unicode U+0C00-U+0C7F) కచ్చితంగా 52 నుండి 60 పదాల (కనీసం 52 పదాలు, గరిష్టంగా 60 పదాలు) ప్రామాణిక జర్నలిస్టిక్ వార్తను రూపొందించాలి ('content').
-     * అలాగే శీర్షికను కూడా ముందుగా స్వచ్ఛమైన తెలుగులోనే 8 నుండి 10 పదాల (కనీసం 8 పదాలు, గరిష్టంగా 10 పదాలు) పదునైన, ఆకర్షణీయమైన జర్నలిస్టిక్ శైలిలో రాయాలి ('headline'). లీడ్ హుక్ కోసం ఒకే ఒక్క కోలన్ (:) వాడవచ్చు.
+     * అలాగే శీర్షికను కూడా ముందుగా స్వచ్ఛమైన తెలుగులోనే 6 నుండి 9 పదాలలో కోలన్ (:) లేకుండా, ఒకే ఒక్క సంపూర్ణ వాక్యంగా పదునైన జర్నలిస్టిక్ శైలిలో రాయాలి ('headline'). బలవంతపు కోలన్లు (:), డాష్‌లు (-) సంపూర్ణ నిషిద్ధం.
      * ⚠️ అత్యంత కఠిన నిబంధన: 'content' మరియు 'headline' లలో ఒక్క ఇంగ్లీష్ వాక్యం లేదా పదం కూడా ఉండకూడదు! ఇన్‌పుట్ మొత్తం ఇంగ్లీష్ లో ఉన్నప్పటికీ, దానిని పూర్తిగా స్వచ్ఛమైన తెలుగు వార్తగా మార్చాలి.
    - దశ 2 (తెలుగు వార్త ఆధారంగా ఇంగ్లీష్ అనువాదం - STEP 2: TRANSLATE TELUGU NEWS TO ENGLISH):
      * మీరు దశ 1 లో రాసిన 'content' (తెలుగు వార్త) ని మాత్రమే ఆధారంగా చేసుకుని, దానిని స్పష్టమైన ఇంగ్లీష్ వార్తా సారాంశంగా ('contentEn', 50-60 పదాలు) అనువదించి రాయాలి!
@@ -181,46 +198,24 @@ const EDITORIAL_SYSTEM_INSTRUCTION = `మీరు ఆల్ఫా న్యూ�
    - ⚠️ సోషల్ మీడియా / ట్విట్టర్ అకౌంట్ ఆపాదింపు: పోస్ట్ రాసిన వారి (Post Author) పూర్తి క్రెడిట్ వార్తా సారాంశం (content) లోని మొదటి వాక్యంలో తప్పక ఇవ్వాలి.
    - G (HARD NUMBERS & FACTS PRESERVATION): ఇన్‌పుట్‌లోని ప్రతి సంఖ్య, బడ్జెట్ అంకె (రూ. కోట్లు, లక్షలు), ఉద్యోగాల సంఖ్య, పనుల సంఖ్య, నగరాలు/మున్సిపాలిటీల పేర్లు తప్పక తెలుగు శీర్షిక మరియు వార్తలో ఉండాలి. అంకెలను వదిలేసి "పలు అభివృద్ధి పనులు" అని రాయరాదు!
 
-8. 🏆 అత్యున్నత ప్రాధాన్యత: సందర్భానుసార శీర్షికా నైపుణ్యం & పవర్ వర్డ్స్ (CONTEXT-AWARE HEADLINE MASTERY & POWER VERBS - 8 TO 10 WORDS):
-   హెడ్‌లైన్ చప్పగా లేదా ప్రభుత్వ ప్రకటనలా ఉండకూడదు! పాఠకుడిని వెంటనే కట్టిపడేసే పదునైన పత్రికా శైలిలో ఉండాలి:
+8. 🏆 అత్యున్నత ప్రాధాన్యత: సందర్భానుసార శీర్షికా నైపుణ్యం & పవర్ వర్డ్స్ (CONTEXT-AWARE HEADLINE MASTERY & PUNCH OUTCOMES - 6 TO 9 WORDS):
+   హెడ్‌లైన్ చప్పగా లేదా బాట్ టెంప్లేట్‌లా ఉండకూడదు! మూల వార్తలోని అసలు తీవ్రత, భావోద్వేగం ఏమాత్రం తగ్గకుండా ఒకే ఒక్క పదునైన సంపూర్ణ వాక్యంలా ఉండాలి:
    
-   - పదాల పరిమాణం: ఖచ్చితంగా 8 నుండి 10 పదాలు మాత్రమే (కనీసం 8 పదాలు, గరిష్టంగా 10 పదాలు).
-   - లీడ్ హుక్ కోలన్ (JOURNALISTIC LEAD COLON ALLOWED): పాఠకుడిని వెంటనే ఆకట్టుకునే లీడ్ యాంకర్ కోసం ఒకే ఒక్క కోలన్ (:) వాడవచ్చు (ఉదా: "హైవేపై లారీ బీభత్సం: నలుగురు దుర్మరణం"). కొటేషన్లు ('...', "...") నిషిద్ధం.
+   - పదాల పరిమాణం: ఖచ్చితంగా 6 నుండి 9 పదాలు మాత్రమే. అనవసర పదాలతో సాగదీయరాదు.
+   - 🛑 బలవంతపు కోలన్ (:) లు, డాష్‌లు (-), చుక్కలు (..) సంపూర్ణ నిషేధం: శీర్షిక ఎట్టి పరిస్థితుల్లోనూ ముక్కలుగా విరిగిపోకూడదు. కోలన్ (:) లేకుండా ఒకే ఒక్క సంపూర్ణ ప్రవాహం కలిగిన వాక్యంగా (Single continuous sentence) మాత్రమే ఉండాలి. కొటేషన్లు ('...', "...") నిషిద్ధం.
    
-   - సజీవ జర్నలిస్టిక్ పదజాలం (JOURNALISTIC POWER WORDS):
-     * లీడ్ యాంకర్లు: తీపి కబురు, భారీ ఊరట, షాకింగ్ ఘటన, బీభత్సం, కలకలం, ఉలిక్కిపడ్డ, ఘోరం, బట్టబయలు, బరితెగింపు, భారీ ఝలక్, ఉచ్చు, కొరడా, ఆక్రోశం, ఆవేదన, గుడ్ న్యూస్, సంచలనం, నిప్పుల కొలిమి, దారుణం, అలర్ట్.
-     * యాక్షన్ ముగింపులు (క్రియా పదాలు): కేవలం రొటీన్ 'ఆగ్రహం', 'ధ్వజం' మాత్రమే కాకుండా నిప్పులు, సవాల్, నిలదీత, కౌంటర్, చురకలు, హెచ్చరిక, విరుచుకుపడ్డారు, స్పష్టం చేశారు, తేల్చిచెప్పారు, గుట్టురట్టు, కటకటాల్లోకి, గ్రీన్ సిగ్నల్, పంజా విసిరిన, నివ్వెరపోయిన, భారీ షాక్ వంటి వైవిధ్యమైన శక్తివంతమైన పదాలు వాడాలి.
-
-   - సందర్భానుసార శైలులు (CONTEXT-AWARE PATTERNS):
-     1. రాజకీయ విమర్శలు, సవాళ్లు, ఆరోపణలు (POLITICAL CHARGES & CLASHES):
-        * నాయకుడి ఘాటైన పంచ్ డైలాగ్/ఆరోపణనే లీడ్ గా తీసుకోవాలి: [ఘాటైన పంచ్ వ్యాఖ్య]: [ఎవరిపై] [నాయకుడి పేరు] [క్రియా పదం].
-        * ఉదాహరణ: "రైతులను నిలువునా ముంచేశారు: కూటమి సర్కార్‌పై వైఎస్ జగన్ నిప్పులు" (8 పదాలు)
-        * ఉదాహరణ: "నన్ను అక్రమ కేసులతో బెదిరించలేరు: కాంగ్రెస్ సర్కార్‌కు కేటీఆర్ బహిరంగ సవాల్" (9 పదాలు)
-        * ఉదాహరణ: "ఓట్ల కోసం ఇంత బరితెగింపా: ఎన్నికల సంఘం నిర్ణయంపై రాహుల్ గాంధీ ఆగ్రహం" (9 పదాలు)
-
-     2. ప్రమాదాలు, విషాదాలు, విపత్తులు (ACCIDENTS, TRAGEDIES & DISASTERS):
-        * వాస్తవికత, వేదన, సంఘటన తీవ్రత తెలిపే శైలి.
-        * ఉదాహరణ: "హైవేపై లారీ బీభత్సం: క్షణాల్లో నుజ్జునుజ్జైన కారుతో నలుగురు దుర్మరణం" (9 పదాలు)
-        * ఉదాహరణ: "కొండచరియలు విరిగిపడి బీభత్సం: సీలేరు ఘాట్ రోడ్డులో స్తంభించిన రాకపోకలు" (9 పదాలు)
-        * ఉదాహరణ: "వరద ఉధృతిలో కొట్టుకుపోయిన కారు: నదిలో గల్లంతైన ఇద్దరి కోసం గాలింపు" (10 పదాలు)
-
-     3. ప్రభుత్వ పథకాలు, అభివృద్ధి పనులు, శుభవార్తలు (GOVT SCHEMES & PUBLIC BENEFITS):
-        * ప్రజలకు కలిగే ప్రత్యక్ష ప్రయోజనం, సంతోషాన్ని తెలిపే శైలి (ప్రభుత్వ ప్రకటనలా కాకుండా ఉల్లాసంగా).
-        * ఉదాహరణ: "అన్నదాతలకు భారీ ఊరట: నేడే రైతుల ఖాతాల్లోకి రైతు భరోసా నిధులు" (9 పదాలు)
-        * ఉదాహరణ: "నిరుద్యోగులకు తీపి కబురు: రాష్ట్రంలో పదివేల ఉపాధ్యాయ పోస్టుల భర్తీకి గ్రీన్ సిగ్నల్" (10 పదాలు)
-        * ఉదాహరణ: "రాయలసీమ రైతులకు గుడ్ న్యూస్: లక్ష కోట్లతో మెగా హార్టికల్చర్ హబ్" (9 పదాలు)
-
-     4. నేరాలు, దోపిడీలు, పోలీస్ దాడులు, మోసాలు (CRIMES & POLICE RAIDS):
-        * పదునైన క్రైమ్ ఇన్వెస్టిగేషన్ శైలి.
-        * ఉదాహరణ: "నకిలీ సర్టిఫికెట్ల దందా బట్టబయలు: రంగంలోకి దిగి కీలక సూత్రధారి అరెస్ట్" (9 పదాలు)
-        * ఉదాహరణ: "సికింద్రాబాద్‌లో సినీ ఫక్కీలో భారీ దోపిడీ: నిమిషాల్లో అంతర్రాష్ట్ర ముఠా అరెస్ట్" (9 పదాలు)
-
-     5. వాతావరణం & ప్రజా హెచ్చరికలు (WEATHER & PUBLIC ALERTS):
-        * ఉదాహరణ: "నిప్పుల కొలిమిలా మారిన రాష్ట్రం: రాబోయే 3 రోజులు తీవ్ర వడగాడ్పుల హెచ్చరిక" (9 పదాలు)
-
-   - 🛑 చప్పని ముగింపుల సంపూర్ణ నిషేధం:
-     * వాక్యం చివర '...విమర్శలు', '...ప్రకటన', '...నిలిపివేత', '...సమీక్ష', '...స్పందన', '...వేడుకలు', '...పర్యటన' వంటి చప్పని నామవాచకాలతో లేదా '...చేసిన ఫలానా' వంటి పాసివ్ ముగింపులతో ఎట్టిపరిస్థితుల్లోనూ ముగించరాదు!
-     * న్యూట్రాలిటీ అంటే నిస్తేజమైన సమాచార బులెటిన్ కాదు: ఆల్ఫా న్యూస్ ఎవరి పక్షానా తీర్పులు ఇవ్వదు, కానీ అసలు సంఘటనలోని వాడి, వేడి, నాటకీయతను శీర్షికలో పాఠకుడికి సూటిగా చేరవేయాలి.
+   - 🛑 చప్పని ముగింపుల సంపూర్ణ నిషేధం (ZERO BUREAUCRATIC/POLICE/FLAT ENDINGS):
+     * శీర్షిక చివర '...శంకుస్థాపన', '...ఆగ్రహం', '...విమర్శలు', '...మహాధర్నా', '...స్పందన', '...సమీక్ష', '...ప్రకటన', '...దుర్మరణం', '...నిరసన' వంటి నిస్తేజమైన నామవాచకాలతో ముగించరాదు! ఇవి శీర్షికను ప్రభుత్వ ప్రెస్‌నోట్‌లా లేదా పోలీస్ ఎఫ్‌ఐఆర్‌లా చప్పగా మారుస్తాయి.
+   
+   - ⚡ శక్తివంతమైన తెలుగు నుడికారాలు, క్రియా పదాలు & ఫలితం (DYNAMIC VERNACULAR PUNCH):
+     * అభివృద్ధి/నిధులు: కేవలం 'శంకుస్థాపన చేశారు' అని కాకుండా, ప్రజలకు జరిగే మార్పును సాధికారికంగా చెప్పాలి (ఉదా: 'పెద్దాపురంలో రూ. 10 కోట్లతో మారనున్న గ్రామీణ రోడ్ల రూపురేఖలు', 'రూ. 10 కోట్లతో పెద్దాపురం రోడ్ల దశ మార్చనున్న నూతన ప్రాజెక్ట్').
+     * రాజకీయ విమర్శలు/వేడి: కేవలం 'ఆగ్రహం వ్యక్తం చేశారు' అని కాకుండా, ఆ దాడిలోని వాడి, వేడి చూపాలి (ఉదా: 'రైతులను నట్టేట ముంచిన కూటమి సర్కార్‌పై విరుచుకుపడ్డ వైఎస్ జగన్', 'రైతులకు చేసిన ద్రోహానికి కూటమి సర్కార్ మూల్యం చెల్లించుకోక తప్పదన్న జగన్').
+     * ప్రమాదాలు/విషాదాలు: కేవలం 'లారీ ఢీకొని నలుగురు దుర్మరణం' అని కాకుండా, తీవ్రత స్పష్టంగా ఉండాలి (ఉదా: 'హైవేపై కారును లారీ నలిపేసిన ఘోర దుర్ఘటనలో నలుగురు అక్కడికక్కడే బలి', 'హైదరాబాద్ హైవేపై లారీ అతివేగానికి నలుగురు ప్రయాణికులు ఛిద్రం').
+     * రైతాంగం/ప్రజా సమస్యలు: కేవలం 'ధర్నా చేశారు' అని కాకుండా, వారి ఆక్రోశం ప్రతిధ్వనించాలి (ఉదా: 'గిట్టుబాటు ధర కోసం గుంటూరు మార్కెట్‌ను ముట్టడించి రైతన్నల కన్నెర్ర', 'మిర్చి పంటకు న్యాయమైన ధర ఇవ్వకపోతే బతికేదెలా అంటూ రైతుల ఆక్రోశం').
+     * నేరాలు/పోలీస్ దాడులు: పదునైన ఇన్వెస్టిగేషన్ శైలి (ఉదా: 'నకిలీ సర్టిఫికెట్ల దందాలో కీలక సూత్రధారిని అరెస్ట్ చేసిన పోలీసులు').
+   
+   - 🛑 రొటీన్ బాట్ క్లీషేల నిషేధం:
+     * 'తీపి కబురు', 'భారీ ఊరట', 'షాకింగ్ ఘటన', 'గుడ్ న్యూస్', 'సంచలనం', 'అలర్ట్' వంటి మూస పదాలు శీర్షికలో అస్సలు ఉండకూడదు! సూటిగా వాస్తవ వార్తనే చెప్పాలి.
 
 9. స్వచ్ఛమైన తెలుగు లిపి (NO FOREIGN SCRIPTS): కన్నడ, హిందీ/దేవనాగరి లిపి అక్షరాలు రాకూడదు. 100% తెలుగు లిపి వాడాలి.
 10. ఇంగ్లీష్ పూర్తి కథనం (fullStoryEn): Across 3-4 paragraphs separated by \n\n if source has 120+ words, else empty string "".
@@ -277,10 +272,10 @@ const processSocialPostWithAI = async (socialText, platform, category, authorNam
         type: genai_1.Type.OBJECT,
         properties: {
             isNewsFound: { type: genai_1.Type.BOOLEAN },
-            headline: { type: genai_1.Type.STRING, description: "Step 1: 100% Pure Telugu punchy journalistic headline strictly in 8-10 words, with optional single colon hook (e.g. లీడ్: వివరాలు)" },
+            headline: { type: genai_1.Type.STRING, description: "Step 1: 100% Pure Telugu punchy journalistic headline strictly in 6-9 words as ONE continuous flowing sentence without any colons (:) or dashes (-)" },
             content: { type: genai_1.Type.STRING, description: "Step 1: 100% Pure Telugu journalistic news story (strictly 52-60 words, minimum 52 words, maximum 60 words, single paragraph) created from input regardless of input language" },
             fullStoryTe: { type: genai_1.Type.STRING, description: "Senior editor comprehensive full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
-            headlineEn: { type: genai_1.Type.STRING, description: "Step 2: English headline translated from Telugu headline (8-10 words)" },
+            headlineEn: { type: genai_1.Type.STRING, description: "Step 2: English headline translated from Telugu headline (6-9 words)" },
             contentEn: { type: genai_1.Type.STRING, description: "Step 2: English news story translated from the Telugu story (50-60 words)" },
             fullStoryEn: { type: genai_1.Type.STRING, description: "Senior editor full story in English across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
             category: { type: genai_1.Type.STRING }
@@ -362,10 +357,10 @@ const processCitizenContentWithAI = async (rawContent) => {
             processed: {
                 type: genai_1.Type.OBJECT,
                 properties: {
-                    headline: { type: genai_1.Type.STRING, description: "Pure Telugu punchy journalistic headline strictly in 8-10 words, optional single colon hook" },
+                    headline: { type: genai_1.Type.STRING, description: "Pure Telugu punchy journalistic headline strictly in 6-9 words as ONE continuous flowing sentence without any colons (:) or dashes (-)" },
                     content: { type: genai_1.Type.STRING, description: "Strictly 52-60 words in pure Telugu (minimum 52 words), single paragraph" },
                     fullStoryTe: { type: genai_1.Type.STRING, description: "Senior editor comprehensive full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
-                    headlineEn: { type: genai_1.Type.STRING, description: "English headline translated from Telugu headline (8-10 words)" },
+                    headlineEn: { type: genai_1.Type.STRING, description: "English headline translated from Telugu headline (6-9 words)" },
                     contentEn: { type: genai_1.Type.STRING },
                     fullStoryEn: { type: genai_1.Type.STRING, description: "Senior editor full story in English across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
                     category: { type: genai_1.Type.STRING }
@@ -425,9 +420,9 @@ const processContentWithAI = async (rawContent, rawHeadline) => {
         type: genai_1.Type.OBJECT,
         properties: {
             summarizedTeluguContent: { type: genai_1.Type.STRING, description: "Strictly 52-60 words in pure Telugu (minimum 52 words), single paragraph" },
-            generatedTeluguHeadline: { type: genai_1.Type.STRING, description: "Pure Telugu punchy journalistic headline strictly in 8-10 words, optional single colon hook" },
+            generatedTeluguHeadline: { type: genai_1.Type.STRING, description: "Pure Telugu punchy journalistic headline strictly in 6-9 words as ONE continuous flowing sentence without any colons (:) or dashes (-)" },
             fullStoryTe: { type: genai_1.Type.STRING, description: "Senior editor comprehensive full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
-            englishHeadline: { type: genai_1.Type.STRING, description: "English headline translated from Telugu headline (8-10 words)" },
+            englishHeadline: { type: genai_1.Type.STRING, description: "English headline translated from Telugu headline (6-9 words)" },
             englishContent: { type: genai_1.Type.STRING },
             fullStoryEn: { type: genai_1.Type.STRING, description: "Senior editor full story in English across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if brief" },
         },

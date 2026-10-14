@@ -55,16 +55,19 @@ fun MainScreen(
         authUser?.phoneNumber?.contains("9173811009") == true ||
         rawCurrentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
         authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
+    val isPermanentReporter = rawCurrentUser?.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true ||
+        authUser?.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true
     val effectiveUserFromAuth = if (rawCurrentUser == null && authUser != null) {
         val prefs = com.alfanews.telugu.utils.PreferenceManager.getInstance(androidx.compose.ui.platform.LocalContext.current)
-        val cachedRole = if (isAdmin) "ADMIN" else (prefs.userRole ?: "SUBSCRIBER")
+        val cachedRole = if (isAdmin) "ADMIN" else if (isPermanentReporter) "REPORTER" else (prefs.userRole ?: "SUBSCRIBER")
         User(
             id = authUser.uid,
-            name = prefs.userName ?: authUser.displayName ?: if (isAdmin) "శ్రీకాంత్ రెడ్డి" else "User",
+            name = prefs.userName ?: authUser.displayName ?: if (isAdmin) "శ్రీకాంత్ రెడ్డి" else if (isPermanentReporter) "Alfa News Service" else "User",
             phone = authUser.phoneNumber ?: prefs.userPhone,
             email = authUser.email,
-            role = if (isAdmin) UserRole.ADMIN else UserRole.fromString(cachedRole),
-            district = prefs.userDistrict
+            role = if (isAdmin) UserRole.ADMIN else if (isPermanentReporter) UserRole.REPORTER else UserRole.fromString(cachedRole),
+            district = if (isPermanentReporter) "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" else prefs.userDistrict,
+            assignedMandal = if (isPermanentReporter) "నెల్లూరు అర్బన్" else prefs.userAssignedMandal
         )
     } else {
         rawCurrentUser
@@ -73,14 +76,22 @@ fun MainScreen(
     val hasReporterHistory = user != null && (
         !user.assignedMandal.isNullOrBlank() ||
         user.points > 0 ||
-        user.badges.isNotEmpty()
+        user.badges.isNotEmpty() ||
+        isPermanentReporter
     )
     val effectiveRole = when {
         isAdmin -> UserRole.ADMIN
+        isPermanentReporter -> UserRole.REPORTER
         user?.role == UserRole.SUBSCRIBER && hasReporterHistory -> UserRole.REPORTER
         else -> user?.role ?: if (authUser != null) UserRole.SUBSCRIBER else UserRole.GUEST
     }
-    val currentUser = if (user != null && user.role != effectiveRole) {
+    val currentUser = if (user != null && isPermanentReporter) {
+        user.copy(
+            role = UserRole.REPORTER,
+            district = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+            assignedMandal = "నెల్లూరు అర్బన్"
+        )
+    } else if (user != null && user.role != effectiveRole) {
         user.copy(role = effectiveRole)
     } else {
         user
@@ -853,16 +864,19 @@ fun ProfileContainer(
         (authUser?.phoneNumber?.contains("9173811009") == true) ||
         (currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true) ||
         (authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true)
+    val isPermanentReporter = (currentUser?.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true) ||
+        (authUser?.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true)
     val effectiveCurrentUser = if (currentUser == null && authUser != null) {
         val prefs = com.alfanews.telugu.utils.PreferenceManager.getInstance(androidx.compose.ui.platform.LocalContext.current)
-        val cachedRole = if (isAdmin) "ADMIN" else (prefs.userRole ?: "SUBSCRIBER")
+        val cachedRole = if (isAdmin) "ADMIN" else if (isPermanentReporter) "REPORTER" else (prefs.userRole ?: "SUBSCRIBER")
         User(
             id = authUser.uid,
-            name = prefs.userName ?: authUser.displayName ?: if (isAdmin) "శ్రీకాంత్ రెడ్డి" else "User",
+            name = prefs.userName ?: authUser.displayName ?: if (isAdmin) "శ్రీకాంత్ రెడ్డి" else if (isPermanentReporter) "Alfa News Service" else "User",
             phone = authUser.phoneNumber ?: prefs.userPhone,
             email = authUser.email,
-            role = if (isAdmin) UserRole.ADMIN else UserRole.fromString(cachedRole),
-            district = prefs.userDistrict
+            role = if (isAdmin) UserRole.ADMIN else if (isPermanentReporter) UserRole.REPORTER else UserRole.fromString(cachedRole),
+            district = if (isPermanentReporter) "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" else prefs.userDistrict,
+            assignedMandal = if (isPermanentReporter) "నెల్లూరు అర్బన్" else prefs.userAssignedMandal
         )
     } else {
         currentUser
@@ -870,15 +884,25 @@ fun ProfileContainer(
     val hasReporterHistory = effectiveCurrentUser != null && (
         !effectiveCurrentUser.assignedMandal.isNullOrBlank() ||
         effectiveCurrentUser.points > 0 ||
-        effectiveCurrentUser.badges.isNotEmpty()
+        effectiveCurrentUser.badges.isNotEmpty() ||
+        isPermanentReporter
     )
     val effectiveUserRole = when {
         isAdmin -> UserRole.ADMIN
+        isPermanentReporter -> UserRole.REPORTER
         effectiveCurrentUser?.role == UserRole.SUBSCRIBER && hasReporterHistory -> UserRole.REPORTER
         else -> effectiveCurrentUser?.role ?: if (authUser != null) UserRole.SUBSCRIBER else UserRole.GUEST
     }
-    val user = if (effectiveCurrentUser != null && effectiveCurrentUser.role != effectiveUserRole) {
-        effectiveCurrentUser.copy(role = effectiveUserRole)
+    val user = if (effectiveCurrentUser != null && isPermanentReporter) {
+        effectiveCurrentUser.copy(
+            role = UserRole.REPORTER,
+            district = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+            assignedMandal = "నెల్లూరు అర్బన్"
+        )
+    } else if (effectiveCurrentUser != null && effectiveCurrentUser.role != effectiveUserRole) {
+        effectiveCurrentUser.copy(
+            role = effectiveUserRole
+        )
     } else {
         effectiveCurrentUser
     }

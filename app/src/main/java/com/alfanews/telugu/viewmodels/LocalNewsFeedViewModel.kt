@@ -199,17 +199,35 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     _loading.value = true
                 }
 
-                // 2. ⚡ DIRECT SERVER QUERY (< 200ms) with safe 5s timeout
                 val serverQuery = if (aliases.size > 1) {
                     newsRef.whereEqualTo("approved", true).whereIn("district", aliases)
                 } else {
                     newsRef.whereEqualTo("approved", true).whereEqualTo("district", aliases.firstOrNull() ?: district)
                 }.orderBy("timestamp", Query.Direction.DESCENDING).limit(PAGE_SIZE.toLong())
 
-                val snap = try {
-                    kotlinx.coroutines.withTimeoutOrNull(5000L) {
-                        serverQuery.get(Source.SERVER).await()
+                // 🚀 2. FAST PATH (< 300ms) - మెమరీ ఖాళీగా ఉంటే టాప్ 5 జిల్లా వార్తలను వెనువెంటనే చూపించు
+                if (_news.value.isEmpty()) {
+                    try {
+                        val fastSnap = (if (aliases.size > 1) {
+                            newsRef.whereEqualTo("approved", true).whereIn("district", aliases)
+                        } else {
+                            newsRef.whereEqualTo("approved", true).whereEqualTo("district", aliases.firstOrNull() ?: district)
+                        }).orderBy("timestamp", Query.Direction.DESCENDING).limit(5).get().await()
+
+                        val fastPosts = fastSnap.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
+                        if (fastPosts.isNotEmpty() && _news.value.isEmpty()) {
+                            _news.value = fastPosts
+                            _loading.value = false
+                            Log.d("LocalNewsFeedVM", "⚡ Fast Path displayed ${fastPosts.size} posts in < 300ms")
+                        }
+                    } catch (e: Exception) {
+                        Log.d("LocalNewsFeedVM", "Fast path query: ${e.message}")
                     }
+                }
+
+                // 3. ⚡ FULL DIRECT SERVER QUERY (< 200ms)
+                val snap = try {
+                    serverQuery.get().await()
                 } catch (e: Exception) {
                     Log.w("LocalNewsFeedVM", "Network query failed, falling back to cache: ${e.message}")
                     null
@@ -245,8 +263,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             } catch (e: Exception) {
                 Log.e("LocalNewsFeedVM", "loadNews error: ${e.message}")
             } finally {
-                lastRefreshTimeLong = System.currentTimeMillis()
-                _lastRefreshTime.value = lastRefreshTimeLong
+                if (_news.value.isNotEmpty()) {
+                    lastRefreshTimeLong = System.currentTimeMillis()
+                    _lastRefreshTime.value = lastRefreshTimeLong
+                }
                 _loading.value = false
                 isFetching = false
                 _isRefreshing.value = false

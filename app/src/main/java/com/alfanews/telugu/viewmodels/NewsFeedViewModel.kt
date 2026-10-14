@@ -225,9 +225,33 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     _loading.value = true
                 }
 
-                // 3. ⚡ PARALLEL 40/30/30 STREAMS (< 200ms total latency)
                 val newsRef = FirebaseService.db.collection("news")
 
+                // 🚀 2. FAST PATH (< 300ms) - మెమరీ ఖాళీగా ఉంటే టాప్ 5 తాజా వార్తలను వెనువెంటనే చూపించు
+                if (_news.value.isEmpty()) {
+                    try {
+                        val fastSnap = newsRef.whereEqualTo("approved", true)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(5)
+                            .get()
+                            .await()
+
+                        val fastPosts = fastSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                        if (fastPosts.isNotEmpty() && _news.value.isEmpty()) {
+                            val stateFiltered = fastPosts.filter { isPostAllowedForState(it, userState) }.ifEmpty { fastPosts }
+                            val combined = (listOfNotNull(initialTargetPost) + stateFiltered).distinctBy { it.id }
+                            if (combined.isNotEmpty()) {
+                                _news.value = combined
+                                _loading.value = false
+                                Log.d("NewsFeedVM", "⚡ Fast Path: ${combined.size} posts displayed in < 300ms")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.d("NewsFeedVM", "Fast path query: ${e.message}")
+                    }
+                }
+
+                // 3. ⚡ PARALLEL 40/30/30 STREAMS (< 200ms total latency)
                 // Stream 1: 30% User Preferred Categories / Interests (6 posts)
                 val prefDeferred = async(Dispatchers.IO) {
                     if (topCategories.isNotEmpty()) {
@@ -236,7 +260,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                 .whereArrayContainsAny("categories", topCategories)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
                                 .limit(6)
-                                .get(Source.SERVER).await()
+                                .get().await()
                         } catch (_: Exception) { null }
                     } else null
                 }
@@ -251,7 +275,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                             } else {
                                 newsRef.whereEqualTo("approved", true).whereEqualTo("district", aliases.firstOrNull() ?: district)
                             }.orderBy("timestamp", Query.Direction.DESCENDING).limit(6)
-                            q.get(Source.SERVER).await()
+                            q.get().await()
                         } catch (_: Exception) { null }
                     } else null
                 }
@@ -262,13 +286,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         newsRef.whereEqualTo("approved", true)
                             .orderBy("timestamp", Query.Direction.DESCENDING)
                             .limit(8)
-                            .get(Source.SERVER).await()
+                            .get().await()
                     } catch (_: Exception) { null }
                 }
 
-                val (prefSnap, localSnap, generalSnap) = kotlinx.coroutines.withTimeoutOrNull(5000L) {
-                    Triple(prefDeferred.await(), localDeferred.await(), generalDeferred.await())
-                } ?: Triple(null, null, null)
+                val prefSnap = prefDeferred.await()
+                val localSnap = localDeferred.await()
+                val generalSnap = generalDeferred.await()
 
                 prefCursor = prefSnap?.documents?.lastOrNull()
                 localCursor = localSnap?.documents?.lastOrNull()
@@ -283,12 +307,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 // Fallback to direct general query if streams were empty (e.g., offline or network error)
                 if (combinedRaw.isEmpty()) {
                     val fallbackSnap = try {
-                        kotlinx.coroutines.withTimeoutOrNull(3000L) {
-                            newsRef.whereEqualTo("approved", true)
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(PAGE_SIZE.toLong())
-                                .get(Source.SERVER).await()
-                        }
+                        newsRef.whereEqualTo("approved", true)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(PAGE_SIZE.toLong())
+                            .get().await()
                     } catch (_: Exception) {
                         try { newsRef.whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(PAGE_SIZE.toLong()).get(Source.CACHE).await() } catch (_: Exception) { null }
                     }
@@ -316,8 +338,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             } catch (e: Exception) {
                 Log.e("NewsFeedVM", "loadNews error: ${e.message}")
             } finally {
-                lastRefreshTimeLong = System.currentTimeMillis()
-                _lastRefreshTime.value = lastRefreshTimeLong
+                if (_news.value.isNotEmpty()) {
+                    lastRefreshTimeLong = System.currentTimeMillis()
+                    _lastRefreshTime.value = lastRefreshTimeLong
+                }
                 _loading.value = false
                 isFetching = false
                 _isRefreshing.value = false
@@ -330,6 +354,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
      */
     fun loadMore(language: Language, currentUser: User?) {
         if (!_hasMore.value || isFetching) return
+        if (prefCursor == null && localCursor == null && generalCursor == null) return
 
         viewModelScope.launch {
             isFetching = true

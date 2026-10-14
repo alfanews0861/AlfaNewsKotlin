@@ -50,13 +50,15 @@ class LoginViewModel : ViewModel() {
 
         val phone = user.phoneNumber
         val clean10Digit = phone?.replace("+91", "")?.trim()
+        val email = user.email
         val isAdmin = (phone?.contains("9173811009") == true) ||
                       (clean10Digit == "9173811009") ||
-                      (user.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true) ||
+                      (email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true) ||
                       (prefs.userRole == "ADMIN")
-        val isReporter = (prefs.userRole == "REPORTER")
+        val isPermanentReporter = (email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true)
+        val isReporter = (prefs.userRole == "REPORTER") || isPermanentReporter
         val defaultRole = if (isAdmin) "ADMIN" else if (isReporter) "REPORTER" else "SUBSCRIBER"
-        val defaultName = if (isAdmin) "శ్రీకాంత్ రెడ్డి" else if (isReporter) "విలేకరి" else context.getString(R.string.user_default_name)
+        val defaultName = if (isAdmin) "శ్రీకాంత్ రెడ్డి" else if (isPermanentReporter) "Alfa News Service" else if (isReporter) "విలేకరి" else context.getString(R.string.user_default_name)
 
         val userData = hashMapOf<String, Any?>(
             "name" to name.ifEmpty { defaultName },
@@ -66,6 +68,12 @@ class LoginViewModel : ViewModel() {
             "createdAt" to Timestamp.now(),
             "lastLogin" to Timestamp.now()
         )
+        if (isPermanentReporter) {
+            userData["assignedMandal"] = "నెల్లూరు అర్బన్"
+            userData["mandal"] = "నెల్లూరు అర్బన్"
+            userData["district"] = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు"
+            userData["isProtectedSenior"] = true
+        }
         if (!referredBy.isNullOrEmpty() && referredBy != user.uid) {
             userData["referredBy"] = referredBy
         }
@@ -96,26 +104,39 @@ class LoginViewModel : ViewModel() {
                               (clean10Digit == "9173811009") ||
                               (email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true) ||
                               (prefs.userRole == "ADMIN")
+                val isPermanentReporter = (email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true)
 
                 // 🚀 PRE-CACHE immediately for instant offline persistence & login UX
                 prefs.userId = user.uid
+                if (!email.isNullOrBlank()) prefs.userEmail = email
                 if (user.displayName?.isNotEmpty() == true) {
                     prefs.userName = user.displayName
                 } else if (isAdmin && prefs.userName.isNullOrBlank()) {
                     prefs.userName = "శ్రీకాంత్ రెడ్డి"
+                } else if (isPermanentReporter && prefs.userName.isNullOrBlank()) {
+                    prefs.userName = "Alfa News Service"
                 }
-                if (isAdmin) prefs.userRole = "ADMIN"
+                if (isAdmin) {
+                    prefs.userRole = "ADMIN"
+                } else if (isPermanentReporter) {
+                    prefs.userRole = "REPORTER"
+                    prefs.userAssignedMandal = "నెల్లూరు అర్బన్"
+                    if (prefs.userDistrict.isNullOrBlank() || prefs.userDistrict == "ఖమ్మం") {
+                        prefs.userDistrict = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు"
+                        prefs.selectedDistrict = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు"
+                    }
+                }
                 if (!phone.isNullOrEmpty()) prefs.userPhone = phone
 
                 val userRef = FirebaseService.db.collection("users").document(user.uid)
 
-                // ⚡ FAST PATH: Try fast cache / 1.2s network get to discover existing role
+                // ⚡ FAST PATH: Try fast cache / 3.5s network get to discover existing role
                 var fastDoc = try {
                     userRef.get(com.google.firebase.firestore.Source.CACHE).await()
                 } catch (_: Exception) { null }
 
                 if (fastDoc == null || !fastDoc.exists()) {
-                    fastDoc = kotlinx.coroutines.withTimeoutOrNull(1200L) {
+                    fastDoc = kotlinx.coroutines.withTimeoutOrNull(3500L) {
                         try { userRef.get().await() } catch (_: Exception) { null }
                     }
                 }
@@ -123,20 +144,24 @@ class LoginViewModel : ViewModel() {
                 if (fastDoc != null && fastDoc.exists()) {
                     val rawRole = fastDoc.get("role")
                     val dbName = fastDoc.getString("name")?.trim()
-                    val assignedMandal = fastDoc.getString("assignedMandal")?.takeIf { it.isNotBlank() }
-                        ?: fastDoc.getString("mandal")?.takeIf { it.isNotBlank() }
+                    val assignedMandal = if (isPermanentReporter) "నెల్లూరు అర్బన్" else (fastDoc.getString("assignedMandal")?.takeIf { it.isNotBlank() }
+                        ?: fastDoc.getString("mandal")?.takeIf { it.isNotBlank() })
                     val hasReporterPast = !assignedMandal.isNullOrBlank() ||
                         ((fastDoc.get("points") as? Number)?.toInt() ?: 0) > 0 ||
-                        fastDoc.getBoolean("isProtectedSenior") == true
+                        fastDoc.getBoolean("isProtectedSenior") == true ||
+                        isPermanentReporter
                     
                     val resolvedRole = if (isAdmin) "ADMIN" else if (hasReporterPast || rawRole?.toString()?.uppercase() == "REPORTER") "REPORTER" else (rawRole?.toString() ?: "SUBSCRIBER")
                     prefs.userRole = resolvedRole
+                    if (!assignedMandal.isNullOrBlank()) {
+                        prefs.userAssignedMandal = assignedMandal
+                    }
                     if (!dbName.isNullOrBlank() && !dbName.equals("User", true) && !dbName.equals("యూజర్", true)) {
                         prefs.userName = dbName
                     } else if (resolvedRole == "REPORTER" && prefs.userName.isNullOrBlank()) {
-                        prefs.userName = "విలేకరి"
+                        prefs.userName = if (isPermanentReporter) "Alfa News Service" else "విలేకరి"
                     }
-                    val dist = fastDoc.getString("district")
+                    val dist = if (isPermanentReporter) "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" else fastDoc.getString("district")
                     if (!dist.isNullOrBlank()) {
                         prefs.userDistrict = dist
                         prefs.selectedDistrict = dist
@@ -166,7 +191,7 @@ class LoginViewModel : ViewModel() {
                 }
 
                 // ⚡ DISMISS LOGIN POPUP IMMEDIATELY (< 1.5s total time!)
-                val isNewUser = (fastDoc == null || !fastDoc.exists())
+                val isNewUser = (fastDoc == null || !fastDoc.exists()) && !isPermanentReporter
                 _uiState.value = LoginUiState(isLoginSuccessful = true, isNewUser = isNewUser)
 
                 // 🔄 RUN THOROUGH BACKGROUND RESILIENCE & PROFILE SYNC (Non-blocking)
@@ -334,31 +359,36 @@ class LoginViewModel : ViewModel() {
                         } else if (existingUserDoc != null && existingUserDoc.exists()) {
                             // EXISTING USER: Only update metadata, NEVER downgrade role
                             val rawRole = existingUserDoc.get("role")
-                            val assignedMandal = existingUserDoc.getString("assignedMandal")?.takeIf { it.isNotBlank() }
-                                ?: existingUserDoc.getString("mandal")?.takeIf { it.isNotBlank() }
+                            val isPermanentReporterDoc = isPermanentReporter || (existingUserDoc.getString("email")?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true)
+                            val assignedMandal = if (isPermanentReporterDoc) "నెల్లూరు అర్బన్" else (existingUserDoc.getString("assignedMandal")?.takeIf { it.isNotBlank() }
+                                ?: existingUserDoc.getString("mandal")?.takeIf { it.isNotBlank() })
                             val points = (existingUserDoc.get("points") as? Number)?.toLong() ?: 0L
                             val badges = (existingUserDoc.get("badges") as? List<*>) ?: emptyList<Any>()
                             val isProtectedSenior = existingUserDoc.getBoolean("isProtectedSenior") == true
-                            val hasReporterPast = !assignedMandal.isNullOrBlank() || points > 0L || badges.isNotEmpty() || isProtectedSenior
+                            val hasReporterPast = !assignedMandal.isNullOrBlank() || points > 0L || badges.isNotEmpty() || isProtectedSenior || isPermanentReporterDoc
 
                             var parsedRole = UserRole.fromStringSafe(rawRole) ?: UserRole.SUBSCRIBER
                             if (parsedRole == UserRole.SUBSCRIBER && hasReporterPast) {
                                 parsedRole = UserRole.REPORTER
                             }
-                            val roleFromDb = if (isAdmin) "ADMIN" else parsedRole.name
+                            val roleFromDb = if (isAdmin) "ADMIN" else if (isPermanentReporterDoc) "REPORTER" else parsedRole.name
 
                             val dbName = existingUserDoc.getString("name")?.trim()
                             val resolvedName = when {
                                 !dbName.isNullOrBlank() && !dbName.equals("User", ignoreCase = true) && !dbName.equals("యూజర్", ignoreCase = true) -> dbName
                                 !user.displayName.isNullOrBlank() -> user.displayName
                                 isAdmin -> "శ్రీకాంత్ రెడ్డి"
+                                isPermanentReporterDoc -> "Alfa News Service"
                                 hasReporterPast || parsedRole == UserRole.REPORTER -> "విలేకరి"
                                 else -> "User"
                             }
 
                             prefs.userName = resolvedName
                             prefs.userRole = roleFromDb
-                            val dist = existingUserDoc.getString("district")
+                            if (!assignedMandal.isNullOrBlank()) {
+                                prefs.userAssignedMandal = assignedMandal
+                            }
+                            val dist = if (isPermanentReporterDoc) "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" else existingUserDoc.getString("district")
                             prefs.userDistrict = dist
                             if (!dist.isNullOrBlank()) {
                                 prefs.selectedDistrict = dist
@@ -372,6 +402,12 @@ class LoginViewModel : ViewModel() {
                                 updateData["role"] = "ADMIN"
                             } else if (roleFromDb == "REPORTER" && (rawRole?.toString()?.uppercase() == "SUBSCRIBER" || rawRole == null)) {
                                 updateData["role"] = "REPORTER"
+                            }
+                            if (isPermanentReporterDoc) {
+                                updateData["role"] = "REPORTER"
+                                updateData["assignedMandal"] = "నెల్లూరు అర్బన్"
+                                updateData["mandal"] = "నెల్లూరు అర్బన్"
+                                updateData["district"] = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు"
                             }
 
                             user.phoneNumber?.let { if (it.isNotEmpty()) updateData["phone"] = it }

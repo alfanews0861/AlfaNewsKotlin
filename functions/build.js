@@ -14,8 +14,9 @@ const tsFiles = fs.readdirSync(srcDir).filter(f => f.endsWith('.ts') && !f.endsW
 
 let successCount = 0;
 for (const file of tsFiles) {
-    const srcPath = path.join(srcDir, file);
-    const code = fs.readFileSync(srcPath, 'utf8');
+    try {
+        const srcPath = path.join(srcDir, file);
+        const code = fs.readFileSync(srcPath, 'utf8');
     const result = ts.transpileModule(code, {
         compilerOptions: {
             module: ts.ModuleKind.CommonJS,
@@ -29,6 +30,9 @@ for (const file of tsFiles) {
     const outPath = path.join(libDir, outFileName);
     fs.writeFileSync(outPath, result.outputText, 'utf8');
     successCount++;
+    } catch (err) {
+        console.error(`[BUILD-ERR] Failed on ${file}:`, err);
+    }
 }
 
 console.log(`[BUILD] ✅ Successfully transpiled ${successCount} files into lib/.`);

@@ -29,10 +29,13 @@ fun CreateMenuView(
     onClose: () -> Unit = {}
 ) {
     val Poppins = FontFamily.SansSerif 
-    val canPostNews = currentUser != null && 
-        (currentUser.role == UserRole.REPORTER || 
-         currentUser.role == UserRole.EDITOR || 
-         currentUser.role == UserRole.ADMIN)
+    val isPermanentReporter = (currentUser?.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true) ||
+        (com.alfanews.telugu.services.FirebaseService.auth.currentUser?.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true)
+    val canPostNews = (currentUser != null || isPermanentReporter) && 
+        (currentUser?.role == UserRole.REPORTER || 
+         currentUser?.role == UserRole.EDITOR || 
+         currentUser?.role == UserRole.ADMIN ||
+         isPermanentReporter)
     
     Box(
         modifier = Modifier
