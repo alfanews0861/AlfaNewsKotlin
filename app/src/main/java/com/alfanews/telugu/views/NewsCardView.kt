@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.PointF
 import android.graphics.Rect
 import android.media.FaceDetector
@@ -1053,7 +1054,7 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
         try {
             val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
             val shareUrl = "https://alfanews.app/news/${post.id}"
-            val shareText = customShareText ?: shareUrl
+            val shareText = customShareText ?: "🔴 $headline\n\n$shareUrl"
 
             // Pre-warm news card image on Google Edge CDN so WhatsApp loads rich preview instantly
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
@@ -1069,16 +1070,29 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
                 } catch (_: Exception) {}
             }
 
-            // Share as Rich Link (text/plain with URL). WhatsApp automatically loads the Open Graph preview card
-            // (Image on top, Headline below, Deep link below) and clicking the preview image directly launches the deeplink!
+            // Generate high-resolution branded news card image with photo + headline
+            val imageUri = fallbackGetNewsImageUri(context, post, language)
+
             val intent = Intent(Intent.ACTION_SEND).apply {
                 action = Intent.ACTION_SEND
-                type = "text/plain"
+                if (imageUri != null) {
+                    type = "image/jpeg"
+                    putExtra(Intent.EXTRA_STREAM, imageUri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } else {
+                    type = "text/plain"
+                }
                 putExtra(Intent.EXTRA_TEXT, shareText)
                 putExtra(Intent.EXTRA_SUBJECT, headline)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
+            if (imageUri != null) {
+                intent.clipData = ClipData.newRawUri(null, imageUri)
+            }
             val chooser = Intent.createChooser(intent, context.getString(R.string.share_news)).apply {
+                if (imageUri != null) {
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(chooser)
@@ -1175,90 +1189,251 @@ private suspend fun takeScreenshot(view: View, bounds: Rect?): Bitmap? = suspend
 private suspend fun fallbackGetNewsImageUri(context: Context, post: NewsPost, language: Language): Uri? {
     return kotlinx.coroutines.withContext(Dispatchers.IO) {
         try {
-            // 1. If post has a media image, fetch via Coil at 1080x1080 resolution
-            if (post.mediaUrl.isNotBlank()) {
+            // 1. Resolve candidate media image URL
+            val candidateMediaUrl = post.mediaUrls.firstOrNull { it.isNotBlank() }
+                ?: post.mediaUrl.takeIf { it.isNotBlank() }
+                ?: post.thumbnailUrl?.takeIf { it.isNotBlank() }
+                ?: (if (!post.youtubeUrl.isNullOrBlank()) {
+                    extractYoutubeVideoId(post.youtubeUrl)?.let { "https://img.youtube.com/vi/$it/hqdefault.jpg" }
+                } else null)
+
+            var photoBitmap: Bitmap? = null
+
+            if (!candidateMediaUrl.isNullOrBlank()) {
+                val imageLoader = SingletonImageLoader.get(context)
+
+                // 1a. Try loading directly via Coil (leverages memory & disk cache from active feed)
                 try {
                     val request = ImageRequest.Builder(context)
-                        .data(getOptimizedImageUrl(post.mediaUrl))
-                        .size(1080, 1080)
+                        .data(candidateMediaUrl)
                         .allowHardware(false)
-                        .memoryCachePolicy(CachePolicy.DISABLED)
                         .build()
-                    val result = SingletonImageLoader.get(context).execute(request)
+                    val result = imageLoader.execute(request)
                     if (result is SuccessResult) {
-                        val bmp = result.image.toBitmap()
-                        val uri = saveImageToCache(context, bmp)
-                        if (uri != null) return@withContext uri
+                        photoBitmap = result.image.toBitmap()
                     }
                 } catch (e: Exception) {
-                    Log.w("NewsCardView", "Failed to fetch mediaUrl for share fallback: ${e.message}")
+                    Log.w("NewsCardView", "Coil direct load failed: ${e.message}")
+                }
+
+                // 1b. Try loading via getOptimizedImageUrl with Coil
+                if (photoBitmap == null) {
+                    try {
+                        val optUrl = getOptimizedImageUrl(candidateMediaUrl)
+                        val request = ImageRequest.Builder(context)
+                            .data(optUrl)
+                            .allowHardware(false)
+                            .build()
+                        val result = imageLoader.execute(request)
+                        if (result is SuccessResult) {
+                            photoBitmap = result.image.toBitmap()
+                        }
+                    } catch (e: Exception) {
+                        Log.w("NewsCardView", "Coil optimized load failed: ${e.message}")
+                    }
+                }
+
+                // 1c. Secondary fallback: direct HttpURLConnection with browser User-Agent
+                if (photoBitmap == null) {
+                    try {
+                        val conn = (java.net.URL(candidateMediaUrl).openConnection() as java.net.HttpURLConnection).apply {
+                            setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                            connectTimeout = 4000
+                            readTimeout = 4000
+                            instanceFollowRedirects = true
+                        }
+                        if (conn.responseCode in 200..299) {
+                            photoBitmap = BitmapFactory.decodeStream(conn.inputStream)
+                        }
+                        conn.disconnect()
+                    } catch (e: Exception) {
+                        Log.w("NewsCardView", "HttpURLConnection load failed: ${e.message}")
+                    }
                 }
             }
 
-            // 2. Generate a clean branded high-resolution news card image (1080x1080 ARGB_8888)
+            // 2. Generate a clean branded high-resolution news card image (1080x1440 ARGB_8888)
             val width = 1080
-            val height = 1080
+            val height = 1440
             val cardBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(cardBitmap)
             canvas.drawFilter = android.graphics.PaintFlagsDrawFilter(0, android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
 
             // Background
             val bgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                color = android.graphics.Color.parseColor("#121212")
+                color = android.graphics.Color.parseColor("#0F172A")
                 style = android.graphics.Paint.Style.FILL
             }
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
 
-            // Header red bar
-            val headerPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                color = android.graphics.Color.parseColor("#E53935")
+            // Header accent bar (Red)
+            val headerAccent = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.parseColor("#E11D48")
                 style = android.graphics.Paint.Style.FILL
             }
-            canvas.drawRect(0f, 0f, width.toFloat(), 110f, headerPaint)
+            canvas.drawRect(0f, 0f, width.toFloat(), 6f, headerAccent)
 
-            // Header text "AlfaNews"
-            val titlePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.SUBPIXEL_TEXT_FLAG).apply {
+            // Header background bar (Slate)
+            val headerBg = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.parseColor("#1E293B")
+                style = android.graphics.Paint.Style.FILL
+            }
+            canvas.drawRect(0f, 6f, width.toFloat(), 90f, headerBg)
+
+            // Brand name text
+            val brandPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.SUBPIXEL_TEXT_FLAG).apply {
                 color = android.graphics.Color.WHITE
-                textSize = 48f
+                textSize = 38f
                 isFakeBoldText = true
             }
-            canvas.drawText("AlfaNews", 50f, 75f, titlePaint)
+            canvas.drawText("ఆల్ఫా న్యూస్ (AlfaNews)", 40f, 60f, brandPaint)
 
-            // Headline text
+            // Location text on right
+            val locText = post.location.ifBlank { post.district.orEmpty().ifBlank { "ఆంధ్రప్రదేశ్" } }
+            val locPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.SUBPIXEL_TEXT_FLAG).apply {
+                color = android.graphics.Color.parseColor("#E2E8F0")
+                textSize = 28f
+                isFakeBoldText = true
+                textAlign = android.graphics.Paint.Align.RIGHT
+            }
+            canvas.drawText(locText, width - 40f, 60f, locPaint)
+
+            var currentY = 90f
+
+            // 3. Draw News Photo (Cover Crop with Aspect-Ratio Preservation)
+            val photoHeight = 620f
+            if (photoBitmap != null) {
+                try {
+                    val srcW = photoBitmap.width
+                    val srcH = photoBitmap.height
+                    val targetRatio = width.toFloat() / photoHeight
+                    val imgRatio = srcW.toFloat() / srcH.toFloat()
+
+                    val srcRect = if (imgRatio > targetRatio) {
+                        val desiredW = (srcH * targetRatio).toInt()
+                        val left = (srcW - desiredW) / 2
+                        Rect(left, 0, left + desiredW, srcH)
+                    } else {
+                        val desiredH = (srcW / targetRatio).toInt()
+                        val top = ((srcH - desiredH) * 0.25f).toInt().coerceAtLeast(0)
+                        Rect(0, top, srcW, (top + desiredH).coerceAtMost(srcH))
+                    }
+                    val dstRect = Rect(0, currentY.toInt(), width, (currentY + photoHeight).toInt())
+
+                    val photoPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+                    canvas.drawBitmap(photoBitmap, srcRect, dstRect, photoPaint)
+
+                    // Bottom shadow gradient over photo
+                    val gradPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                        shader = android.graphics.LinearGradient(
+                            0f, currentY + photoHeight - 90f, 0f, currentY + photoHeight,
+                            android.graphics.Color.TRANSPARENT,
+                            android.graphics.Color.parseColor("#CC000000"),
+                            android.graphics.Shader.TileMode.CLAMP
+                        )
+                    }
+                    canvas.drawRect(0f, currentY + photoHeight - 90f, width.toFloat(), currentY + photoHeight, gradPaint)
+
+                    // Reporter / Source attribution
+                    val reporterName = post.reporter.name.ifBlank { "Alfa News Desk" }
+                    val sourcePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.SUBPIXEL_TEXT_FLAG).apply {
+                        color = android.graphics.Color.WHITE
+                        textSize = 26f
+                        isFakeBoldText = true
+                    }
+                    canvas.drawText("మూలం: $reporterName", 40f, currentY + photoHeight - 20f, sourcePaint)
+
+                    currentY += photoHeight
+                } catch (e: Exception) {
+                    Log.w("NewsCardView", "Error drawing photo on canvas: ${e.message}")
+                    currentY += 20f
+                }
+            } else {
+                currentY += 30f
+            }
+
+            // 4. Headline Text
+            currentY += 45f
             val textPaint = android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.SUBPIXEL_TEXT_FLAG).apply {
                 color = android.graphics.Color.WHITE
-                textSize = 44f
+                textSize = 42f
                 isFakeBoldText = true
             }
 
             val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
-            val staticLayout = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                android.text.StaticLayout.Builder.obtain(headline, 0, headline.length, textPaint, width - 100)
+            val titleLayout = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                android.text.StaticLayout.Builder.obtain(headline, 0, headline.length, textPaint, width - 80)
                     .setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL)
-                    .setMaxLines(7)
+                    .setMaxLines(4)
                     .setEllipsize(android.text.TextUtils.TruncateAt.END)
                     .build()
             } else {
                 @Suppress("DEPRECATION")
-                android.text.StaticLayout(headline, textPaint, width - 100, android.text.Layout.Alignment.ALIGN_NORMAL, 1.2f, 0f, false)
+                android.text.StaticLayout(headline, textPaint, width - 80, android.text.Layout.Alignment.ALIGN_NORMAL, 1.25f, 0f, false)
             }
 
             canvas.save()
-            canvas.translate(50f, 180f)
-            staticLayout.draw(canvas)
+            canvas.translate(40f, currentY)
+            titleLayout.draw(canvas)
             canvas.restore()
+            currentY += titleLayout.height + 25f
 
-            // Footer watermark
-            val footerPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.SUBPIXEL_TEXT_FLAG).apply {
-                color = android.graphics.Color.LTGRAY
-                textSize = 30f
+            // 5. Divider Line
+            val dividerPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.parseColor("#334155")
+                strokeWidth = 2f
             }
-            canvas.drawText("alfanews.app/news/${post.id}", 50f, height - 60f, footerPaint)
+            canvas.drawLine(40f, currentY, width - 40f, currentY, dividerPaint)
+            currentY += 30f
+
+            // 6. Body Content / Summary Snippet
+            val bodyContent = if (language == Language.TELUGU) {
+                post.content.telugu.ifBlank { post.fullStory.telugu }
+            } else {
+                post.content.english.ifBlank { post.fullStory.english }
+            }
+            if (bodyContent.isNotBlank()) {
+                val bodyPaint = android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.SUBPIXEL_TEXT_FLAG).apply {
+                    color = android.graphics.Color.parseColor("#CBD5E1")
+                    textSize = 32f
+                }
+                val availableHeight = (height - 110f - currentY).toInt()
+                if (availableHeight > 70) {
+                    val maxBodyLines = (availableHeight / 48).coerceIn(2, 6)
+                    val bodyLayout = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                        android.text.StaticLayout.Builder.obtain(bodyContent, 0, bodyContent.length, bodyPaint, width - 80)
+                            .setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL)
+                            .setMaxLines(maxBodyLines)
+                            .setEllipsize(android.text.TextUtils.TruncateAt.END)
+                            .build()
+                    } else {
+                        @Suppress("DEPRECATION")
+                        android.text.StaticLayout(bodyContent, bodyPaint, width - 80, android.text.Layout.Alignment.ALIGN_NORMAL, 1.25f, 0f, false)
+                    }
+                    canvas.save()
+                    canvas.translate(40f, currentY)
+                    bodyLayout.draw(canvas)
+                    canvas.restore()
+                }
+            }
+
+            // 7. Footer Bar with Play Store notice & Deep link
+            val footerBg = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.parseColor("#020617")
+                style = android.graphics.Paint.Style.FILL
+            }
+            canvas.drawRect(0f, height - 90f, width.toFloat(), height.toFloat(), footerBg)
+
+            val footerTextPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.SUBPIXEL_TEXT_FLAG).apply {
+                color = android.graphics.Color.parseColor("#94A3B8")
+                textSize = 25f
+            }
+            canvas.drawText("📲 తాజా వార్తలకు ప్లేస్టోర్‌లో Alfa News డౌన్‌లోడ్ చేసుకోండి  |  alfanews.app/news/${post.id}", 40f, height - 38f, footerTextPaint)
 
             val uri = saveImageToCache(context, cardBitmap)
             uri
         } catch (e: Exception) {
-            Log.e("NewsCardView", "Error generating fallback news card image", e)
+            Log.e("NewsCardView", "Error generating news card image", e)
             null
         }
     }
@@ -1284,10 +1459,9 @@ private fun saveImageToCache(context: Context, bitmap: Bitmap): Uri? {
         shareFiles.filter { System.currentTimeMillis() - it.lastModified() > 3600000 }
             .forEach { runCatching { it.delete() } }
 
-        // Lossless PNG preserves 100% crispness for text and photos without any compression artifacts or blur
-        val file = File(imagesFolder, "news_share_${System.currentTimeMillis()}.png")
+        val file = File(imagesFolder, "news_share_${System.currentTimeMillis()}.jpg")
         FileOutputStream(file).use { stream ->
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 92, stream)
             stream.flush()
         }
         return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
