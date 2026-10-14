@@ -1,4 +1,5 @@
 
+
 :root {
   --sat: env(safe-area-inset-top);
   --sab: env(safe-area-inset-bottom);
@@ -7,37 +8,57 @@
 }
 
 html {
-  height: 100%;
-  background-color: black;
-  scrollbar-width: none;
+  min-height: 100%;
+  background-color: #f8fafc;
+  scrollbar-width: thin;
 }
 
 body {
   font-family: 'Inter', 'Mallanna', sans-serif;
-  height: 100%;
+  min-height: 100%;
   width: 100%;
-  user-select: none;
-  -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
   padding-top: var(--sat);
   padding-bottom: var(--sab);
-  background-color: black;
-  overscroll-behavior-y: none;
+  background-color: #f8fafc;
   margin: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* User requirement: "web app lo anni fonts ki anni daggarla bold teesiveyyi" */
+*,
+*::before,
+*::after {
+  font-weight: 400 !important;
 }
 
 .font-ramabhadra {
   font-family: 'Ramabhadra', sans-serif;
-  letter-spacing: -0.02em;
+  font-weight: 400 !important;
+  letter-spacing: normal;
 }
 
 .font-mallanna {
   font-family: 'Mallanna', sans-serif;
+  font-weight: 400 !important;
+}
+
+h1, h2, h3, h4, h5, h6,
+b, strong, th, button, input, optgroup, select, textarea {
+  font-weight: 400 !important;
+}
+
+.font-bold,
+.font-semibold,
+.font-extrabold,
+.font-black,
+.font-medium {
+  font-weight: 400 !important;
 }
 
 .no-scrollbar::-webkit-scrollbar {
-    display: none;
+  display: none;
 }
 
 .snap-always {
@@ -53,6 +74,35 @@ body {
   animation: slideUp 0.5s ease-out forwards;
 }
 
+/* Explicit Line-Clamp Utilities */
+.line-clamp-1 {
+  overflow: hidden !important;
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 1 !important;
+}
+
+.line-clamp-2 {
+  overflow: hidden !important;
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 2 !important;
+}
+
+.line-clamp-3 {
+  overflow: hidden !important;
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 3 !important;
+}
+
+.line-clamp-4 {
+  overflow: hidden !important;
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 4 !important;
+}
+
 /* Glassmorphism Classes */
 .glass-panel {
   background: rgba(255, 255, 255, 0.05);
@@ -66,3 +116,4 @@ body {
   backdrop-filter: blur(8px);
   border: 1px solid rgba(220, 38, 38, 0.3);
 }
+

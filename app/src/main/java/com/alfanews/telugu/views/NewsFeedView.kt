@@ -11,6 +11,7 @@ import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Refresh
@@ -45,7 +46,7 @@ import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun NewsFeedView(
     language: Language,
@@ -67,6 +68,7 @@ fun NewsFeedView(
     val viewModelActiveDistrict by viewModel.userDistrict.collectAsStateWithLifecycle()
     val localAds by viewModel.localAds.collectAsStateWithLifecycle()
     val preloadedAds = remember { mutableStateMapOf<Int, AdState>() }
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -292,14 +294,21 @@ fun NewsFeedView(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            viewModel.loadNews(language, currentUser, initialPostId = null, forceRefresh = true)
+            viewModel.requestScrollToTop()
+        },
+        modifier = Modifier.fillMaxSize()
+    ) {
         if (news.isEmpty()) {
-            var retryCount by remember { mutableStateOf(0) }
+            var retryCount by remember { mutableIntStateOf(0) }
             LaunchedEffect(loading) {
                 if (!loading && retryCount < 2) {
-                    kotlinx.coroutines.delay((retryCount + 1) * 3000L)
+                    kotlinx.coroutines.delay(5000L)
                     retryCount++
-                    viewModel.loadNews(language, currentUser, initialPostId, forceRefresh = true)
+                    viewModel.loadNews(language, currentUser, initialPostId)
                 }
             }
             NewsCardSkeleton()

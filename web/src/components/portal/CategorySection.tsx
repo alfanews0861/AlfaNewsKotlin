@@ -29,13 +29,13 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
       <div className="flex items-center justify-between border-b-2 border-red-600 pb-2 mb-5">
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-6 bg-red-600 rounded-sm"></span>
-          <h2 className="font-ramabhadra text-xl sm:text-2xl font-bold text-gray-900">
+          <h2 className="font-ramabhadra text-xl sm:text-2xl text-gray-900">
             {title}
           </h2>
         </div>
         <button
           onClick={() => onViewMore(categoryKey)}
-          className="text-xs sm:text-sm font-ramabhadra font-semibold text-red-600 hover:text-red-800 flex items-center gap-0.5 group"
+          className="text-xs sm:text-sm font-ramabhadra text-red-600 hover:text-red-800 flex items-center gap-0.5 group"
         >
           <span>మరిన్ని చూడండి</span>
           <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
@@ -81,7 +81,7 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
                   )}
                 </div>
 
-                <h3 className="font-ramabhadra text-lg sm:text-xl font-bold text-gray-900 group-hover:text-red-600 transition-colors leading-snug line-clamp-2 mb-2">
+                <h3 className="font-ramabhadra text-lg sm:text-xl text-gray-900 group-hover:text-red-600 transition-colors leading-snug line-clamp-2 mb-2">
                   {leadPost.headline?.telugu || leadPost.headline?.english}
                 </h3>
 
@@ -92,7 +92,7 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
             </div>
 
             <div className="p-4 pt-0">
-              <span className="text-xs font-ramabhadra font-bold text-red-600 group-hover:underline">
+              <span className="text-xs font-ramabhadra text-red-600 group-hover:underline">
                 పూర్తి కథనం చదవండి →
               </span>
             </div>
@@ -135,14 +135,14 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
                       )}
                     </div>
 
-                    <h4 className="font-ramabhadra text-sm sm:text-base font-bold text-gray-900 group-hover:text-red-600 transition-colors line-clamp-2 leading-snug">
+                    <h4 className="font-ramabhadra text-sm sm:text-base text-gray-900 group-hover:text-red-600 transition-colors line-clamp-2 leading-snug">
                       {hLine}
                     </h4>
                   </div>
                 </div>
 
                 <div className="px-3 pb-3">
-                  <span className="text-xs text-red-600 font-mallanna font-medium group-hover:underline">
+                  <span className="text-xs text-red-600 font-mallanna group-hover:underline">
                     చదవండి →
                   </span>
                 </div>

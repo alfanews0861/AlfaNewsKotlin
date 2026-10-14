@@ -351,27 +351,16 @@ function drawCommentIcon(ctx: any, x: number, y: number, size: number) {
     ctx.restore();
 }
 
-async function loadPhotoFast(mediaUrl: string, timeoutMs = 2500): Promise<any> {
+async function loadPhotoFast(mediaUrl: string, timeoutMs = 4500): Promise<any> {
     if (!mediaUrl || typeof mediaUrl !== 'string' || !mediaUrl.startsWith('http')) return null;
-    const isStorageUrl = mediaUrl.includes('firebasestorage.googleapis.com') || mediaUrl.includes('firebasestorage.app');
-    // wsrv.nl scales and returns an instant JPEG from Cloud Storage
-    const fastUrl = isStorageUrl
-        ? `https://wsrv.nl/?url=${encodeURIComponent(mediaUrl)}&w=1080&output=jpg&q=80`
-        : mediaUrl;
-
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs));
     try {
-        const photoPromise = loadImage(fastUrl);
-        const photo = await Promise.race([photoPromise, timeoutPromise]);
-        if (photo) return photo;
-    } catch (e) {
-        // Fallback to original url
-    }
-
-    try {
-        const fallbackPromise = loadImage(mediaUrl);
-        const photo = await Promise.race([fallbackPromise, timeoutPromise]);
-        return photo;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const res = await fetch(mediaUrl, { signal: controller.signal });
+        clearTimeout(timer);
+        if (!res.ok) return null;
+        const buf = await res.arrayBuffer();
+        return await loadImage(Buffer.from(buf));
     } catch (e) {
         return null;
     }
@@ -393,15 +382,18 @@ export const getNewsCardImage = onRequest(async (req, res) => {
         let doc = await db.collection(collectionName).doc(id).get();
 
         if (!doc.exists) {
-            // Case-insensitive / prefix fallback in case of casing mismatch in URL
+            // Case-insensitive / prefix fallback in case of casing mismatch or short URL in link
             if (id.length >= 5) {
                 const prefix = id.substring(0, 5);
                 const snap = await db.collection(collectionName)
                     .where(admin.firestore.FieldPath.documentId(), '>=', prefix)
                     .where(admin.firestore.FieldPath.documentId(), '<=', prefix + '\uf8ff')
-                    .limit(10)
+                    .limit(20)
                     .get();
-                const matched = snap.docs.find(d => d.id.toLowerCase() === id.toLowerCase());
+                const matched = snap.docs.find(d => 
+                    d.id.toLowerCase() === id.toLowerCase() || 
+                    d.id.toLowerCase().startsWith(id.toLowerCase())
+                );
                 if (matched) doc = matched;
             }
         }
@@ -421,7 +413,20 @@ export const getNewsCardImage = onRequest(async (req, res) => {
         const shares = data.shares || data.shareCount || (Math.floor(Math.random() * 25) + 12);
         const comments = data.commentCount || (Math.floor(Math.random() * 5));
 
-        let mediaUrl = data.mediaUrl || data.imageUrl || (Array.isArray(data.images) && data.images.length > 0 ? data.images[0] : null) || data.videoThumbnailUrl;
+        const candidateUrls = [
+            data.mediaUrl,
+            data.imageUrl,
+            ...(Array.isArray(data.mediaUrls) ? data.mediaUrls : []),
+            ...(Array.isArray(data.images) ? data.images : []),
+            data.thumbnailUrl,
+            data.videoThumbnailUrl
+        ].filter((u): u is string => typeof u === 'string' && u.startsWith('http'));
+
+        let photo: any = null;
+        for (const candidate of candidateUrls) {
+            photo = await loadPhotoFast(candidate, 4000);
+            if (photo) break;
+        }
 
         // Full Vertical Mobile News Card:
         // Render into target 900 x 1400 canvas (exact 9:14 ratio matching mobile feeds)
@@ -623,9 +628,12 @@ export const shareNews = onRequest(async (req, res) => {
                 const snap = await db.collection(collectionName)
                     .where(admin.firestore.FieldPath.documentId(), '>=', prefix)
                     .where(admin.firestore.FieldPath.documentId(), '<=', prefix + '\uf8ff')
-                    .limit(10)
+                    .limit(20)
                     .get();
-                const matched = snap.docs.find(d => d.id.toLowerCase() === id.toLowerCase());
+                const matched = snap.docs.find(d => 
+                    d.id.toLowerCase() === id.toLowerCase() || 
+                    d.id.toLowerCase().startsWith(id.toLowerCase())
+                );
                 if (matched) doc = matched;
             }
         }
@@ -655,11 +663,11 @@ export const shareNews = onRequest(async (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>${safeTitle} - Alfa News</title>
 
-    <!-- Open Graph (WhatsApp, Facebook, Telegram Full-Size Card Preview) -->
+    <!-- Open Graph (WhatsApp, Telegram Clean Full-Size Image Preview - No duplicate title/description box) -->
     <meta property="og:site_name" content="Alfa News">
-    <meta property="og:title" content="${safeTitle}">
-    <meta property="og:description" content="${safeDesc}">
-    <meta property="og:type" content="article">
+    <meta property="og:title" content="&#8203;">
+    <meta property="og:description" content="&#8203;">
+    <meta property="og:type" content="image.other">
     <meta property="og:url" content="${postUrl}">
     <meta property="og:image" content="${safeImage}">
     <meta property="og:image:secure_url" content="${safeImage}">

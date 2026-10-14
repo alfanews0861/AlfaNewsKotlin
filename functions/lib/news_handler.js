@@ -37,6 +37,7 @@ const ffmpegPath = require('ffmpeg-static');
 ffmpeg.setFfmpegPath(ffmpegPath);
 const utils_1 = require("./utils");
 const categories_1 = require("./categories");
+const geminiService_1 = require("./geminiService");
 const reporter_handler_1 = require("./reporter_handler");
 const location_data_1 = require("./location_data");
 const db = admin.firestore();
@@ -881,7 +882,7 @@ NOTIFICATION INSTRUCTIONS (CRITICAL - STRICT RELEVANCE & URGENCY):
         if (rawStories.length === 0) {
             throw new Error("AI response did not contain any valid stories.");
         }
-        return rawStories.slice(0, 3).map((item, idx) => {
+        const normalizedStories = rawStories.slice(0, 3).map((item, idx) => {
             const normalized = normalizeSingleStory(item, actualPostData);
             if (typeof item.matchedImageIndex === 'number') {
                 normalized.matchedImageIndex = item.matchedImageIndex;
@@ -891,6 +892,27 @@ NOTIFICATION INSTRUCTIONS (CRITICAL - STRICT RELEVANCE & URGENCY):
             }
             return normalized;
         });
+        // 🌟 Paid AI Headline Enhancement (Gemini 3.7 Flash):
+        // Refine headline using PAID_GEMINI_API_KEY if available and story is approved/valid
+        for (const story of normalizedStories) {
+            const isRejected = (story.rejectionReason && story.rejectionReason.length > 0) || story.isDuplicate;
+            if (!isRejected && story.content?.telugu && story.headline?.telugu) {
+                try {
+                    const authorName = story.reporter?.name || actualPostData?.socialAuthorName || actualPostData?.reporter?.name;
+                    const refined = await (0, geminiService_1.refineHeadlineWithPaidAI)(story.content.telugu, story.headline.telugu, story.headline.english, authorName);
+                    if (refined && refined.headline) {
+                        story.headline.telugu = refined.headline;
+                        if (refined.headlineEn) {
+                            story.headline.english = refined.headlineEn;
+                        }
+                    }
+                }
+                catch (e) {
+                    console.warn(`[PAID_HEADLINE_WARN] Failed to refine headline for story: ${e?.message || e}`);
+                }
+            }
+        }
+        return normalizedStories;
     });
 }
 exports.performAIProcessing = performAIProcessing;

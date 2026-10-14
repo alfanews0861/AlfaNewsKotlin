@@ -368,11 +368,18 @@ fun MainScreen(
                         language = language,
                         onTabChange = { tab: String -> 
                             if (tab == "local") {
-                                localNewsFeedViewModel?.loadNews(language, user, forceRefresh = true)
-                                localNewsFeedViewModel?.requestScrollToTop()
+                                if (activeTab == "local") {
+                                    localNewsFeedViewModel?.loadNews(language, user, forceRefresh = true)
+                                    localNewsFeedViewModel?.requestScrollToTop()
+                                } else {
+                                    localNewsFeedViewModel?.refreshIfStale(language, user)
+                                }
                             } else if (tab == "home") {
                                 if (activeTab == "home") {
+                                    newsFeedViewModel.loadNews(language, user, forceRefresh = true)
                                     newsFeedViewModel.requestScrollToTop()
+                                } else {
+                                    newsFeedViewModel.refreshIfStale(language, user)
                                 }
                             }
 

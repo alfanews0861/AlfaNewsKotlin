@@ -37,7 +37,6 @@ import java.util.Locale
 class NewsFeedViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val PAGE_SIZE = 20
-        private const val CACHE_FRESHNESS_TTL = 5 * 60 * 60 * 1000L // 5 hours
     }
 
     private val prefs = PreferenceManager.getInstance(application)
@@ -70,6 +69,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     private val _sharedPostId = MutableStateFlow<String?>(null)
     val sharedPostId: StateFlow<String?> = _sharedPostId.asStateFlow()
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     private var prefCursor: DocumentSnapshot? = null
     private var localCursor: DocumentSnapshot? = null
@@ -157,7 +159,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         if (isFetching && currentFetchJob?.isActive == true && !forceRefresh) {
             return
         }
-        currentFetchJob?.cancel()
+        if (forceRefresh) {
+            currentFetchJob?.cancel()
+        }
 
         val district = prefs.getEffectiveDistrict() ?: effectiveUser?.district?.takeIf { it.isNotBlank() }
         _userDistrict.value = district
@@ -168,6 +172,12 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
         currentFetchJob = viewModelScope.launch {
             isFetching = true
+            if (forceRefresh) {
+                _isRefreshing.value = true
+                prefCursor = null
+                localCursor = null
+                generalCursor = null
+            }
             _isOnline.value = NetworkUtils.isOnline(getApplication())
 
             try {
@@ -179,9 +189,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     } catch (_: Exception) { null }
                 } else null
 
-                // 2. ⚡ SMART INSTANT CACHE (< 20ms)
-                val now = System.currentTimeMillis()
-                val freshCutoff = now - CACHE_FRESHNESS_TTL
+                // 2. ⚡ SMART INSTANT CACHE (< 20ms) - మెమరీ ఖాళీగా ఉంటే లోకల్ క్యాష్ వెంటనే చూపిస్తుంది
                 var hasFreshCache = false
 
                 val categoryScores = effectiveUser?.categoryScores ?: emptyMap()
@@ -198,9 +206,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                             .await()
 
                         val cachedPosts = cachedSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
-                        val latestCachedTimestamp = cachedPosts.maxOfOrNull { it.timestamp } ?: 0L
 
-                        if (cachedPosts.isNotEmpty() && latestCachedTimestamp >= freshCutoff) {
+                        if (cachedPosts.isNotEmpty()) {
                             val stateFiltered = cachedPosts.filter { isPostAllowedForState(it, userState) }.ifEmpty { cachedPosts }
                             val ranked = rankPostsByInterest(stateFiltered, categoryScores, preferredCategories)
                             val combined = (listOfNotNull(initialTargetPost) + ranked).distinctBy { it.id }
@@ -229,7 +236,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                 .whereArrayContainsAny("categories", topCategories)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
                                 .limit(6)
-                                .get().await()
+                                .get(Source.SERVER).await()
                         } catch (_: Exception) { null }
                     } else null
                 }
@@ -244,7 +251,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                             } else {
                                 newsRef.whereEqualTo("approved", true).whereEqualTo("district", aliases.firstOrNull() ?: district)
                             }.orderBy("timestamp", Query.Direction.DESCENDING).limit(6)
-                            q.get().await()
+                            q.get(Source.SERVER).await()
                         } catch (_: Exception) { null }
                     } else null
                 }
@@ -255,13 +262,13 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         newsRef.whereEqualTo("approved", true)
                             .orderBy("timestamp", Query.Direction.DESCENDING)
                             .limit(8)
-                            .get().await()
+                            .get(Source.SERVER).await()
                     } catch (_: Exception) { null }
                 }
 
-                val prefSnap = prefDeferred.await()
-                val localSnap = localDeferred.await()
-                val generalSnap = generalDeferred.await()
+                val (prefSnap, localSnap, generalSnap) = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                    Triple(prefDeferred.await(), localDeferred.await(), generalDeferred.await())
+                } ?: Triple(null, null, null)
 
                 prefCursor = prefSnap?.documents?.lastOrNull()
                 localCursor = localSnap?.documents?.lastOrNull()
@@ -276,10 +283,12 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 // Fallback to direct general query if streams were empty (e.g., offline or network error)
                 if (combinedRaw.isEmpty()) {
                     val fallbackSnap = try {
-                        newsRef.whereEqualTo("approved", true)
-                            .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .limit(PAGE_SIZE.toLong())
-                            .get().await()
+                        kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                            newsRef.whereEqualTo("approved", true)
+                                .orderBy("timestamp", Query.Direction.DESCENDING)
+                                .limit(PAGE_SIZE.toLong())
+                                .get(Source.SERVER).await()
+                        }
                     } catch (_: Exception) {
                         try { newsRef.whereEqualTo("approved", true).orderBy("timestamp", Query.Direction.DESCENDING).limit(PAGE_SIZE.toLong()).get(Source.CACHE).await() } catch (_: Exception) { null }
                     }
@@ -307,8 +316,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             } catch (e: Exception) {
                 Log.e("NewsFeedVM", "loadNews error: ${e.message}")
             } finally {
+                lastRefreshTimeLong = System.currentTimeMillis()
+                _lastRefreshTime.value = lastRefreshTimeLong
                 _loading.value = false
                 isFetching = false
+                _isRefreshing.value = false
             }
         }
     }
@@ -404,6 +416,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 }
             } catch (e: Exception) {
                 Log.w("NewsFeedVM", "loadMore failed: ${e.message}")
+                _hasMore.value = false // 🛡️ Prevent infinite read loop on failure
             } finally {
                 isFetching = false
             }
@@ -440,8 +453,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun refreshIfStale(language: Language, currentUser: User?) {
+        if (isFetching) return // 🛡️ Prevent duplicate concurrent reads
         val now = System.currentTimeMillis()
-        if (now - lastRefreshTimeLong > 15000L || _news.value.isEmpty()) { // 15 seconds (was 5 minutes)
+        if (now - lastRefreshTimeLong > 5 * 60 * 1000L || (lastRefreshTimeLong == 0L && _news.value.isEmpty())) {
             loadNews(language, currentUser, forceRefresh = true)
         }
     }

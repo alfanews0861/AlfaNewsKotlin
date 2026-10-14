@@ -71,6 +71,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     private val _shouldScrollToTop = MutableStateFlow(false)
     val shouldScrollToTop: StateFlow<Boolean> = _shouldScrollToTop.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     private var lastDistrictDocument: DocumentSnapshot? = null
     private var loadJob: Job? = null
     @Volatile private var isFetching = false
@@ -149,12 +152,19 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         if (isFetching && loadJob?.isActive == true && !forceRefresh) {
             return
         }
+        if (forceRefresh) {
+            loadJob?.cancel()
+        }
 
         // Load local ads in background (non-blocking)
         loadLocalAds(district)
 
         loadJob = viewModelScope.launch {
             isFetching = true
+            if (forceRefresh) {
+                _isRefreshing.value = true
+                lastDistrictDocument = null
+            }
             _isOnline.value = NetworkUtils.isOnline(getApplication())
 
             val newsRef = FirebaseService.db.collection("news")
@@ -189,7 +199,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     _loading.value = true
                 }
 
-                // 2. ⚡ DIRECT SERVER QUERY (< 200ms) with safe 10s timeout
+                // 2. ⚡ DIRECT SERVER QUERY (< 200ms) with safe 5s timeout
                 val serverQuery = if (aliases.size > 1) {
                     newsRef.whereEqualTo("approved", true).whereIn("district", aliases)
                 } else {
@@ -197,8 +207,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 }.orderBy("timestamp", Query.Direction.DESCENDING).limit(PAGE_SIZE.toLong())
 
                 val snap = try {
-                    kotlinx.coroutines.withTimeoutOrNull(10000L) {
-                        serverQuery.get().await()
+                    kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                        serverQuery.get(Source.SERVER).await()
                     }
                 } catch (e: Exception) {
                     Log.w("LocalNewsFeedVM", "Network query failed, falling back to cache: ${e.message}")
@@ -235,8 +245,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             } catch (e: Exception) {
                 Log.e("LocalNewsFeedVM", "loadNews error: ${e.message}")
             } finally {
+                lastRefreshTimeLong = System.currentTimeMillis()
+                _lastRefreshTime.value = lastRefreshTimeLong
                 _loading.value = false
                 isFetching = false
+                _isRefreshing.value = false
             }
         }
     }
@@ -285,6 +298,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 }
             } catch (e: Exception) {
                 Log.w("LocalNewsFeedVM", "loadMore error: ${e.message}")
+                _hasMore.value = false // 🛡️ Prevent infinite read loop on failure
             } finally {
                 isFetching = false
             }
@@ -303,7 +317,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun refreshIfStale(language: Language, currentUser: User?) {
-        loadNews(language, currentUser, forceRefresh = true)
+        if (isFetching) return // 🛡️ Prevent duplicate concurrent reads
+        val now = System.currentTimeMillis()
+        if (now - lastRefreshTimeLong > 5 * 60 * 1000L || (lastRefreshTimeLong == 0L && _news.value.isEmpty())) {
+            loadNews(language, currentUser, forceRefresh = true)
+        }
     }
 
     private fun convertToNewsPost(id: String, data: Map<String, Any?>): NewsPost? {

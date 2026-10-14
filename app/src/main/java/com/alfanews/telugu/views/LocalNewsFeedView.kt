@@ -13,6 +13,7 @@ import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.*
@@ -69,7 +70,14 @@ fun LocalNewsFeedView(
     val preloadedAds = remember { mutableStateMapOf<Int, AdState>() }
 
     DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshIfStale(language, currentUser)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
             preloadedAds.values.forEach { adState ->
                 if (adState is AdState.Success) {
                     try {
@@ -89,6 +97,7 @@ fun LocalNewsFeedView(
     val isDetecting by viewModel.isDetecting.collectAsStateWithLifecycle()
     val shouldScrollToTop by viewModel.shouldScrollToTop.collectAsStateWithLifecycle()
     val localAds by viewModel.localAds.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
     var hasLocationPermission by remember {
         mutableStateOf(
@@ -156,6 +165,8 @@ fun LocalNewsFeedView(
     LaunchedEffect(Unit) {
         if (news.isEmpty()) {
             viewModel.loadNews(language, currentUser)
+        } else {
+            viewModel.refreshIfStale(language, currentUser)
         }
     }
 
@@ -265,7 +276,12 @@ fun LocalNewsFeedView(
         }
     }
 
-    Box(
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            viewModel.loadNews(language, currentUser, forceRefresh = true)
+            viewModel.requestScrollToTop()
+        },
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
@@ -298,12 +314,12 @@ fun LocalNewsFeedView(
                     }
                 }
             } else {
-                var retryCount by remember { mutableStateOf(0) }
+                var retryCount by remember { mutableIntStateOf(0) }
                 LaunchedEffect(loading) {
-                    if (!loading && retryCount < 5) {
-                        kotlinx.coroutines.delay(2000L)
+                    if (!loading && retryCount < 2) {
+                        kotlinx.coroutines.delay(5000L)
                         retryCount++
-                        viewModel.loadNews(language, currentUser, forceRefresh = true)
+                        viewModel.loadNews(language, currentUser)
                     }
                 }
                 NewsCardSkeleton()

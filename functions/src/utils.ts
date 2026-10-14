@@ -7,9 +7,9 @@ import * as os from 'os';
 import { execSync } from 'child_process';
 const sharp = require('sharp');
 export const REGION = "asia-south1";
-export const SCHEDULED_MODEL = "gemini-3.7-flash";
-export const PRO_MODEL = "gemini-3.7-flash";
-export const FLASH_MODEL = "gemini-3.7-flash";
+export const SCHEDULED_MODEL = "gemini-3.5-flash-lite";
+export const PRO_MODEL = "gemini-3.5-flash-lite";
+export const FLASH_MODEL = "gemini-3.5-flash-lite";
 export const IMAGEN_MODEL = "gemini-3.1-flash-image";         // GA as of 2026
 export const IMAGEN_FAST_MODEL = "gemini-3.1-flash-image";    // imagen-4.0 deprecated Aug 17, 2026
 
@@ -39,11 +39,11 @@ export function getTopicName(prefix: string, value: string): string {
 }
 
 const TEXT_MODELS = [
-    "gemini-3.7-flash",       // 1. Primary - Best Editorial Quality
-    "gemini-3.6-flash",       // 2. High-speed, high-quota safety net
-    "gemini-3.5-flash-lite",  // 3. Fast preview fallback
-    "gemini-3.1-flash-lite",  // 4. High-throughput stable fallback (verified active)
-    "gemini-2.5-flash",       // 5. Stable Flash fallback (verified active)
+    "gemini-3.5-flash-lite",  // 1. Primary Free Tier - Maximum Quota (1,500 RPD, 30 RPM)
+    "gemini-3.1-flash-lite",  // 2. High-throughput stable fallback (verified active)
+    "gemini-3.6-flash",       // 3. High-speed safety net
+    "gemini-3.7-flash",       // 4. Quality Fallback
+    "gemini-2.5-flash",       // 5. Stable Flash fallback
     "gemini-3.5-flash"        // 6. Backup
 ];
 

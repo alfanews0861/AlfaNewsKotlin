@@ -1053,7 +1053,7 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
         try {
             val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
             val shareUrl = "https://alfanews.app/news/${post.id}"
-            val shareText = customShareText ?: "🔴 $headline\n\n$shareUrl"
+            val shareText = customShareText ?: shareUrl
 
             // Pre-warm news card image on Google Edge CDN so WhatsApp loads rich preview instantly
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {

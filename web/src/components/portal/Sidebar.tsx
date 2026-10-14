@@ -172,7 +172,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ posts, onSelectPost }) => {
       {/* 2. నేటి కార్టూన్ (DAILY EDITORIAL CARTOON) */}
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
         <div className="bg-amber-500 text-white px-4 py-2.5 flex items-center justify-between">
-          <div className="flex items-center gap-1.5 font-ramabhadra text-base font-bold">
+          <div className="flex items-center gap-1.5 font-ramabhadra text-base">
             <ImageIcon className="w-4 h-4 text-white" />
             <span>నేటి కార్టూన్</span>
           </div>
@@ -192,14 +192,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ posts, onSelectPost }) => {
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             />
             <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-              <span className="bg-white text-gray-900 font-ramabhadra text-xs font-bold px-3 py-1.5 rounded-lg shadow">
+              <span className="bg-white text-gray-900 font-ramabhadra text-xs px-3 py-1.5 rounded-lg shadow">
                 పెద్దదిగా చూడండి 🔍
               </span>
             </div>
           </div>
 
           <div className="mt-3">
-            <h4 className="font-ramabhadra text-sm font-bold text-gray-900 leading-snug">
+            <h4 className="font-ramabhadra text-sm text-gray-900 leading-snug">
               {cartoonHeadline}
             </h4>
             <p className="font-mallanna text-xs text-gray-600 mt-1 line-clamp-2 italic">
@@ -209,7 +209,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ posts, onSelectPost }) => {
 
           <button
             onClick={handleShareCartoon}
-            className="w-full mt-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-ramabhadra font-bold py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+            className="w-full mt-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-ramabhadra py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 shadow-sm transition-colors"
           >
             <Share2 className="w-3.5 h-3.5" />
             <span>వాట్సాప్‌లో షేర్ చేయండి</span>
@@ -221,7 +221,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ posts, onSelectPost }) => {
       <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
         <div className="flex items-center gap-2 border-b-2 border-red-600 pb-2 mb-3">
           <Flame className="w-5 h-5 text-red-600 fill-red-600" />
-          <h3 className="font-ramabhadra text-lg font-bold text-gray-900">
+          <h3 className="font-ramabhadra text-lg text-gray-900">
             ఎక్కువగా చదివినవి
           </h3>
         </div>
@@ -237,14 +237,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ posts, onSelectPost }) => {
                 className="py-3 flex items-start gap-3 group cursor-pointer"
               >
                 {/* Number Rank Badge */}
-                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-poppins font-bold shrink-0 mt-0.5 ${
+                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-poppins shrink-0 mt-0.5 ${
                   idx === 0 ? 'bg-red-600 text-white' : idx === 1 ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-600'
                 }`}>
                   {idx + 1}
                 </span>
 
                 <div className="flex-1 min-w-0">
-                  <h4 className="font-ramabhadra text-sm font-semibold text-gray-900 group-hover:text-red-600 line-clamp-2 leading-snug">
+                  <h4 className="font-ramabhadra text-sm text-gray-900 group-hover:text-red-600 line-clamp-2 leading-snug">
                     {hLine}
                   </h4>
                   <div className="flex items-center gap-2 text-[11px] text-gray-500 font-mallanna mt-1">
@@ -274,7 +274,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ posts, onSelectPost }) => {
 
       {/* 4. ఆల్ఫా లైవ్ పోల్ (LIVE OPINION POLL) */}
       <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl p-5 shadow-sm border border-slate-700">
-        <div className="flex items-center gap-2 text-yellow-400 font-ramabhadra text-base font-bold mb-2">
+        <div className="flex items-center gap-2 text-yellow-400 font-ramabhadra text-base mb-2">
           <HelpCircle className="w-5 h-5 text-yellow-400" />
           <span>ఆల్ఫా ఒపీనియన్ పోల్</span>
         </div>
@@ -314,7 +314,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ posts, onSelectPost }) => {
                     {opt.text}
                   </span>
                   {pollVoted !== null && (
-                    <span className="font-poppins font-bold text-yellow-400">
+                    <span className="font-poppins text-yellow-400">
                       {opt.percent}%
                     </span>
                   )}
@@ -333,8 +333,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ posts, onSelectPost }) => {
 
       {/* 5. ఆల్ఫా న్యూస్ మొబైల్ యాప్ డౌన్‌లోడ్ బ్యానర్ */}
       <div className="bg-gradient-to-r from-red-600 to-rose-700 text-white rounded-2xl p-5 shadow-md text-center relative overflow-hidden">
-        <Smartphone className="w-8 h-8 text-yellow-300 mx-auto mb-2" />
-        <h4 className="font-ramabhadra text-lg font-bold">
+        <img src="/app_icon.png" alt="Alfa News App" className="w-12 h-12 rounded-2xl mx-auto mb-2 shadow-sm object-cover border border-white/20" />
+        <h4 className="font-ramabhadra text-lg">
           క్షణ క్షణ వార్తల కోసం
         </h4>
         <p className="font-mallanna text-xs text-red-100 mt-1 mb-4">
@@ -344,7 +344,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ posts, onSelectPost }) => {
           href="https://play.google.com/store/apps/details?id=com.alfanews.telugu"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 bg-white text-red-700 hover:bg-yellow-300 hover:text-red-900 font-ramabhadra font-bold text-xs px-4 py-2.5 rounded-xl shadow transition-transform hover:scale-105"
+          className="inline-flex items-center gap-2 bg-white text-red-700 hover:bg-yellow-300 hover:text-red-900 font-ramabhadra text-xs px-4 py-2.5 rounded-xl shadow transition-transform hover:scale-105"
         >
           <span>గూగుల్ ప్లే స్టోర్‌లో పొందండి</span>
           <ExternalLink className="w-3.5 h-3.5" />
@@ -356,17 +356,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ posts, onSelectPost }) => {
         <span className="text-[10px] font-poppins uppercase tracking-widest text-gray-400 border border-gray-300 px-2 py-0.5 rounded mb-2">
           SPONSORED
         </span>
-        <p className="font-ramabhadra text-sm font-semibold text-gray-700">
+        <p className="font-ramabhadra text-sm text-gray-700">
           మీ వ్యాపారాన్ని అభివృద్ధి చేసుకోండి
         </p>
         <p className="font-mallanna text-xs text-gray-500 mt-1 mb-3">
           ఆల్ఫా న్యూస్ లో ప్రకటనల కోసం నేడే సంప్రదించండి.
         </p>
         <a
-          href="https://api.whatsapp.com/send?phone=919305980736&text=Hi%2C%20I%20want%20to%20advertise%20on%20AlfaNews%20Sidebar"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs bg-red-600 hover:bg-red-700 text-white font-ramabhadra font-bold px-3 py-1.5 rounded-lg shadow"
+          href="mailto:contact@alfanews.app?subject=Sidebar%20Advertisement%20Enquiry"
+          className="text-xs bg-red-600 hover:bg-red-700 text-white font-ramabhadra px-3 py-1.5 rounded-lg shadow"
         >
           ప్రకటన ఇవ్వండి
         </a>
@@ -383,12 +381,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ posts, onSelectPost }) => {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-              <h3 className="font-ramabhadra text-lg font-bold text-gray-900">
+              <h3 className="font-ramabhadra text-lg text-gray-900">
                 {cartoonHeadline}
               </h3>
               <button
                 onClick={() => setCartoonModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-700 font-bold"
+                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-700"
               >
                 ✕
               </button>
@@ -405,14 +403,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ posts, onSelectPost }) => {
             <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
               <button
                 onClick={handleShareCartoon}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-ramabhadra text-xs font-bold px-4 py-2 rounded-lg flex items-center gap-1.5"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-ramabhadra text-xs px-4 py-2 rounded-lg flex items-center gap-1.5"
               >
                 <Share2 className="w-3.5 h-3.5" />
                 వాట్సాప్‌లో షేర్ చేయండి
               </button>
               <button
                 onClick={() => setCartoonModalOpen(false)}
-                className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-ramabhadra text-xs font-bold px-4 py-2 rounded-lg"
+                className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-ramabhadra text-xs px-4 py-2 rounded-lg"
               >
                 మూసివేయండి
               </button>

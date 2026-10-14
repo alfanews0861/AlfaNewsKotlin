@@ -20,11 +20,13 @@ export const PortalFooter: React.FC<PortalFooterProps> = ({
           {/* COLUMN 1: BRAND & ABOUT */}
           <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-11 h-11 rounded-2xl bg-gradient-to-tr from-red-600 to-rose-500 text-white font-ramabhadra text-2xl font-bold shadow-md">
-                ఆ
-              </div>
+              <img
+                src="/app_icon.png"
+                alt="Alfa News Telugu"
+                className="w-11 h-11 rounded-2xl object-cover shadow-md border border-slate-700"
+              />
               <div>
-                <span className="font-ramabhadra text-2xl font-bold text-white tracking-tight">
+                <span className="font-ramabhadra text-2xl text-white tracking-tight">
                   ఆల్ఫా <span className="text-red-500">న్యూస్</span>
                 </span>
                 <p className="text-[10px] text-gray-400 font-poppins tracking-widest uppercase">
@@ -33,7 +35,7 @@ export const PortalFooter: React.FC<PortalFooterProps> = ({
               </div>
             </div>
 
-            <p className="text-xs sm:text-sm text-gray-400 leading-relaxed">
+            <p className="text-xs sm:text-sm text-gray-400 leading-relaxed font-mallanna">
               ఆల్ఫా న్యూస్ - తెలుగు ప్రజల కోసం నిరంతరం శ్రమించే స్వతంత్ర వార్తా మాధ్యమం. తాజా వార్తలు, వాస్తవ నివేదికలు, లోతైన విశ్లేషణలను ప్రజలకు నిష్పాక్షికంగా అందించడమే మా ధ్యేయం.
             </p>
 
@@ -48,7 +50,7 @@ export const PortalFooter: React.FC<PortalFooterProps> = ({
                 <Smartphone className="w-5 h-5 text-red-500" />
                 <div className="text-left font-poppins">
                   <span className="block text-[9px] uppercase tracking-wider text-gray-400">GET IT ON</span>
-                  <span className="block text-xs font-bold text-gray-100 group-hover:text-red-400">Google Play</span>
+                  <span className="block text-xs text-gray-100 group-hover:text-red-400">Google Play</span>
                 </div>
               </a>
             </div>
@@ -56,24 +58,16 @@ export const PortalFooter: React.FC<PortalFooterProps> = ({
 
           {/* COLUMN 2: CATEGORIES */}
           <div>
-            <h3 className="font-ramabhadra text-base font-bold text-white border-b-2 border-red-600 pb-1.5 mb-4 inline-block">
+            <h3 className="font-ramabhadra text-base text-white border-b-2 border-red-600 pb-1.5 mb-4 inline-block">
               వార్తా వర్గాలు
             </h3>
-            <ul className="space-y-2 text-sm">
+            <ul className="space-y-2 text-sm font-mallanna">
               <li>
                 <button
                   onClick={() => onSelectCategory('all')}
                   className="hover:text-red-400 transition-colors text-left"
                 >
                   • తాజా వార్తలు (Latest News)
-                </button>
-              </li>
-              <li>
-                <button
-                  onClick={() => onSelectCategory('స్పెషల్ స్టోరీస్')}
-                  className="hover:text-yellow-400 text-yellow-300 font-semibold transition-colors text-left flex items-center gap-1"
-                >
-                  ⭐ స్పెషల్ స్టోరీస్ (Special Stories)
                 </button>
               </li>
               <li>
@@ -94,7 +88,7 @@ export const PortalFooter: React.FC<PortalFooterProps> = ({
               </li>
               <li>
                 <button
-                  onClick={() => onSelectCategory('జిల్లా వార్త')}
+                  onClick={() => onSelectCategory('జిల్లా వార్తలు')}
                   className="hover:text-red-400 transition-colors text-left"
                 >
                   • జిల్లా వార్తలు (Districts News)
@@ -102,7 +96,7 @@ export const PortalFooter: React.FC<PortalFooterProps> = ({
               </li>
               <li>
                 <button
-                  onClick={() => onSelectCategory('రాజకీయాలు')}
+                  onClick={() => onSelectCategory('రాజకీయం')}
                   className="hover:text-red-400 transition-colors text-left"
                 >
                   • రాజకీయం (Politics)
@@ -113,15 +107,39 @@ export const PortalFooter: React.FC<PortalFooterProps> = ({
                   onClick={() => onSelectCategory('సినిమా')}
                   className="hover:text-red-400 transition-colors text-left"
                 >
-                  • సినిమా & ఎంటర్‌టైన్‌మెంట్ (Cinema)
+                  • సినిమా & వినోదం (Cinema)
                 </button>
               </li>
               <li>
                 <button
-                  onClick={() => onSelectCategory('స్పోర్ట్స్')}
+                  onClick={() => onSelectCategory('క్రీడలు')}
                   className="hover:text-red-400 transition-colors text-left"
                 >
                   • క్రీడలు (Sports)
+                </button>
+              </li>
+              <li>
+                <button
+                  onClick={() => onSelectCategory('క్రైమ్')}
+                  className="hover:text-red-400 transition-colors text-left"
+                >
+                  • క్రైమ్ (Crime)
+                </button>
+              </li>
+              <li>
+                <button
+                  onClick={() => onSelectCategory('వ్యాపారం')}
+                  className="hover:text-red-400 transition-colors text-left"
+                >
+                  • వ్యాపారం & బిజినెస్ (Business)
+                </button>
+              </li>
+              <li>
+                <button
+                  onClick={() => onSelectCategory('స్పెషల్ స్టోరీస్')}
+                  className="hover:text-red-400 transition-colors text-left"
+                >
+                  • స్పెషల్ స్టోరీస్ (Special Stories)
                 </button>
               </li>
               <li>
@@ -213,14 +231,8 @@ export const PortalFooter: React.FC<PortalFooterProps> = ({
               </div>
               <div className="flex items-center gap-2.5">
                 <Mail className="w-4 h-4 text-red-500 shrink-0" />
-                <a href="mailto:contact@alfanews.in" className="hover:text-white transition-colors">
-                  contact@alfanews.in
-                </a>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <Phone className="w-4 h-4 text-red-500 shrink-0" />
-                <a href="tel:9305980736" className="hover:text-white transition-colors font-poppins">
-                  +91 93059 80736
+                <a href="mailto:contact@alfanews.app" className="hover:text-white transition-colors">
+                  contact@alfanews.app
                 </a>
               </div>
             </div>

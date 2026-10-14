@@ -68,7 +68,7 @@ export async function refineHeadlineWithPaidAI(
         const authorHint = authorName ? `రచయిత/నాయకుడి పేరు: ${authorName}\n` : "";
         const userPrompt = `${authorHint}వార్తా సారాంశం (News Summary):\n${teluguContent}\n\nపై తెలుగు వార్తా సారాంశానికి మాత్రమే 8 నుండి 10 పదాలలో పదునైన జర్నలిస్టిక్ శీర్షిక (తెలుగు మరియు ఇంగ్లీష్) రాయండి.`;
 
-        const models = ["gemini-3.7-flash", "gemini-3.8-flash", "gemini-3.6-flash"];
+        const models = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"];
 
         for (const modelName of models) {
             try {

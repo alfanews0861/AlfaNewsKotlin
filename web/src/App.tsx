@@ -194,7 +194,7 @@ const App: React.FC = () => {
           setActiveTab('home');
         }
       } else if (hash === '#/classifieds') {
-        setActiveTab('classifieds');
+        setActiveTab('home');
       } else if (hash === '' || hash === '#/' || hash === '#') {
         if (activeTab === 'reporter') {
           setActiveTab('home');
@@ -266,31 +266,8 @@ const App: React.FC = () => {
 
   return (
     <>
-      {/* 1. CLASSIFIEDS VIEW */}
-      {activeTab === 'classifieds' ? (
-        <div className="min-h-screen bg-gray-50 flex flex-col font-mallanna">
-          <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 shadow-sm sticky top-0 z-30">
-            <button
-              onClick={() => {
-                window.location.hash = '';
-                setActiveTab('home');
-              }}
-              className="flex items-center gap-1.5 text-gray-700 hover:text-red-600 font-ramabhadra text-sm font-semibold transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-              <span>← ప్రధాన వార్తల పోర్టల్</span>
-            </button>
-            <span className="font-ramabhadra text-lg font-bold text-gray-900">
-              ఆల్ఫా క్లాసిఫైడ్స్
-            </span>
-            <div className="w-20"></div>
-          </div>
-          <div className="max-w-7xl mx-auto w-full p-4 flex-1">
-            <Classifieds />
-          </div>
-        </div>
-      ) : activeTab === 'reporter' && selectedReporterId ? (
-        /* 2. REPORTER PROFILE VIEW */
+      {activeTab === 'reporter' && selectedReporterId ? (
+        /* 1. REPORTER PROFILE VIEW */
         <div className="min-h-screen bg-gray-50 flex flex-col font-mallanna">
           <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 shadow-sm sticky top-0 z-30">
             <button

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +42,7 @@ import kotlinx.coroutines.tasks.await
  * - అనవసరపు ఫిల్టర్లు, సెర్చ్ బార్ మరియు ఓవర్-ఇంజనీరింగ్ తొలగించబడ్డాయి.
  * - రియల్‌టైమ్ లైవ్ సర్వర్ అప్‌డేట్‌లు (Live status updates).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManagePostsPageView(
     onEditPost: (NewsPost) -> Unit,
@@ -63,18 +65,17 @@ fun ManagePostsPageView(
         currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
         FirebaseService.auth.currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
 
-    val repIds = remember(authUid, uid, cleanCurrentPhone, cleanAuthPhone) {
+    val repIds = remember(authUid, uid) {
         listOfNotNull(
             uid.takeIf { it.isNotBlank() },
-            authUid.takeIf { it.isNotBlank() },
-            cleanCurrentPhone?.takeIf { it.isNotBlank() },
-            cleanAuthPhone?.takeIf { it.isNotBlank() }
+            authUid.takeIf { it.isNotBlank() }
         ).distinct()
     }
 
     var viewMode by remember(isAdmin) { mutableStateOf(if (isAdmin) "all" else "my") }
     var posts by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var isManualRefreshing by remember { mutableStateOf(false) }
     var refreshTrigger by remember { mutableStateOf(0) }
 
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
@@ -83,15 +84,10 @@ fun ManagePostsPageView(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 🛡️ పాత లోకల్ క్యాష్ ఖాళీగా ఉంటే "వార్తలు లేవు" అని చూపించకూడదు.
-    // సర్వర్ నుండి నిర్ధారణ వచ్చే వరకు లోడింగ్ చూపిస్తాం; స్పందన రాకపోతే నిశ్శబ్దంగా మళ్ళీ ప్రయత్నిస్తాం.
-    var retryCount by remember { mutableStateOf(0) }
+    // 🛡️ 5 సెకన్ల సేఫ్‌గార్డ్: ఇంటర్నెట్ లేకపోతే స్పిన్నర్ నిరంతరం తిరగకుండా నిరోధిస్తుంది
     LaunchedEffect(viewMode, repIds, refreshTrigger) {
-        kotlinx.coroutines.delay(8000L)
-        if (loading && retryCount < 5) {
-            retryCount++
-            refreshTrigger++
-        } else if (loading) {
+        kotlinx.coroutines.delay(5000L)
+        if (loading) {
             loading = false
         }
     }
@@ -107,34 +103,23 @@ fun ManagePostsPageView(
                 mapMapToNewsPost(doc.id, data)
             }.associateBy { it.id }
 
-        var retryScheduled = false
-        fun scheduleRetry() {
-            if (retryScheduled || retryCount >= 5) {
-                if (retryCount >= 5) loading = false
-                return
-            }
-            retryScheduled = true
-            scope.launch {
-                kotlinx.coroutines.delay(3000L)
-                retryCount++
-                refreshTrigger++
-            }
-        }
-
-        val queries: List<Pair<String, Query>> = if (isAdmin && viewMode == "all") {
-            listOf(
+        val queries = mutableListOf<Pair<String, Query>>()
+        if (isAdmin && viewMode == "all") {
+            queries.add(
                 "all" to FirebaseService.db.collection("news")
                     .orderBy("timestamp", Query.Direction.DESCENDING)
                     .limit(10)
             )
         } else {
-            repIds.flatMap { rId ->
-                listOf("originalReporterId", "reporter.id", "reporterId").map { field ->
-                    "$field-$rId" to FirebaseService.db.collection("news")
-                        .whereEqualTo(field, rId)
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(10)
-                }
+            for (rId in repIds) {
+                // ⚠️ ఇక్కడ కాంపోజిట్ ఇండెక్స్ సమస్యలు రాకుండా సర్వర్‌లో orderBy తీసివేసాము.
+                // కేవలం whereEqualTo ఎప్పుడూ 100% వేగంగా పనిచేస్తుంది; ఇన్‌-మెమరీలో తాజా 10 వార్తలు సార్ట్ అవుతాయి.
+                queries.add("orig-$rId" to FirebaseService.db.collection("news").whereEqualTo("originalReporterId", rId).limit(20))
+                queries.add("rep-$rId" to FirebaseService.db.collection("news").whereEqualTo("reporter.id", rId).limit(20))
+                queries.add("user-$rId" to FirebaseService.db.collection("news").whereEqualTo("userId", rId).limit(20))
+            }
+            if (!cleanCurrentPhone.isNullOrBlank()) {
+                queries.add("phone-$cleanCurrentPhone" to FirebaseService.db.collection("news").whereEqualTo("reporterPhone", cleanCurrentPhone).limit(20))
             }
         }
 
@@ -147,15 +132,18 @@ fun ManagePostsPageView(
             }
         } else {
             val resultsMap = mutableMapOf<String, Map<String, NewsPost>>()
-            val serverConfirmed = mutableSetOf<String>()
+            val completedQueries = mutableSetOf<String>()
 
             fun syncPosts() {
                 val merged = mutableMapOf<String, NewsPost>()
                 resultsMap.values.forEach { merged.putAll(it) }
-                val list = merged.values.sortedByDescending { it.timestamp }.take(10)
-                // ఖాళీ ఫలితాన్ని సర్వర్ అన్ని క్వెరీలకు నిర్ధారించిన తర్వాతే చూపించాలి
-                if (list.isNotEmpty() || serverConfirmed.size == queries.size) {
-                    posts = list
+                val sorted = merged.values.sortedByDescending { it.timestamp }.take(10)
+
+                if (sorted.isNotEmpty()) {
+                    posts = sorted
+                    loading = false
+                } else if (completedQueries.size >= queries.size) {
+                    posts = emptyList()
                     loading = false
                 }
             }
@@ -164,15 +152,15 @@ fun ManagePostsPageView(
                 listeners.add(q.addSnapshotListener { snap, err ->
                     if (err != null) {
                         android.util.Log.w("ManagePostsPageView", "Query error on $key: ${err.message}")
-                        scheduleRetry()
+                        completedQueries.add(key)
+                        syncPosts()
                         return@addSnapshotListener
                     }
-                    if (snap == null) return@addSnapshotListener
-                    // పాత క్యాష్ నుండి వచ్చిన ఖాళీ స్నాప్‌షాట్‌ను పట్టించుకోవద్దు — సర్వర్ కోసం వేచి ఉండాలి
-                    if (snap.metadata.isFromCache && snap.isEmpty) return@addSnapshotListener
-                    if (!snap.metadata.isFromCache) serverConfirmed.add(key)
-                    resultsMap[key] = toPosts(snap)
-                    syncPosts()
+                    if (snap != null) {
+                        completedQueries.add(key)
+                        resultsMap[key] = toPosts(snap)
+                        syncPosts()
+                    }
                 })
             }
         }
@@ -298,7 +286,7 @@ fun ManagePostsPageView(
             Spacer(modifier = Modifier.height(10.dp))
         }
 
-        if (loading) {
+        if (loading && posts.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -320,10 +308,23 @@ fun ManagePostsPageView(
                 }
             }
         } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                contentPadding = PaddingValues(bottom = 80.dp)
+            PullToRefreshBox(
+                isRefreshing = isManualRefreshing,
+                onRefresh = {
+                    scope.launch {
+                        isManualRefreshing = true
+                        refreshTrigger++
+                        kotlinx.coroutines.delay(1000L)
+                        isManualRefreshing = false
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
             ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
                 if (posts.isEmpty()) {
                     item {
                         Box(
@@ -505,6 +506,7 @@ fun ManagePostsPageView(
                     }
                 }
             }
+        }
         }
 
         // తొలగింపు కన్ఫర్మేషన్ డైలాగ్

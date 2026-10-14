@@ -39,7 +39,9 @@ export const HeadlinesSlider: React.FC<HeadlinesSliderProps> = ({ posts, onSelec
 
   const currentSlide = sliderPosts[activeSlide];
   const slideHeadline = currentSlide?.headline?.telugu || currentSlide?.headline?.english || '';
-  const slideSummary = currentSlide?.fullStory?.telugu || currentSlide?.content?.telugu || currentSlide?.content?.english || '';
+  const rawSummary = currentSlide?.content?.telugu || currentSlide?.fullStory?.telugu || currentSlide?.content?.english || '';
+  const cleanSummary = rawSummary.replace(/<[^>]*>/g, '').trim();
+  const slideExcerpt = cleanSummary.length > 120 ? cleanSummary.slice(0, 120) + '...' : cleanSummary;
   const slideImage = currentSlide?.mediaUrl || currentSlide?.mediaUrls?.[0] || FALLBACK_NEWS_IMAGE;
   const slideCategory = currentSlide?.category || currentSlide?.categories?.[0] || 'ప్రధాన వార్త';
 
@@ -61,22 +63,8 @@ export const HeadlinesSlider: React.FC<HeadlinesSliderProps> = ({ posts, onSelec
               className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
               onError={(e: any) => { e.target.src = FALLBACK_NEWS_IMAGE; }}
             />
-            {/* Gradient Overlays for High Contrast Readability */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
-            <div className="absolute inset-0 bg-gradient-to-r from-black/40 via-transparent to-transparent"></div>
-          </div>
-
-          {/* Top Badges (Category & Live indicator) */}
-          <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
-            <span className="bg-red-600 text-white text-xs font-ramabhadra font-bold px-3 py-1 rounded-full shadow-md">
-              {slideCategory}
-            </span>
-            {currentSlide.isSpecialStory && (
-              <span className="bg-yellow-400 text-red-950 text-xs font-ramabhadra font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1">
-                <Sparkles className="w-3 h-3 fill-red-950" />
-                స్పెషల్ స్టోరీ
-              </span>
-            )}
+            {/* Black Gradient ONLY at the bottom 50% so upper image is completely clear */}
+            <div className="absolute inset-x-0 bottom-0 h-1/2 sm:h-3/5 bg-gradient-to-t from-black via-black/85 to-transparent pointer-events-none"></div>
           </div>
 
           {/* Slider Arrows */}
@@ -95,37 +83,42 @@ export const HeadlinesSlider: React.FC<HeadlinesSliderProps> = ({ posts, onSelec
             <ChevronRight className="w-6 h-6" />
           </button>
 
-          {/* Slide Content Box */}
-          <div className="relative z-10 p-5 sm:p-7 text-white animate-fade-in">
-            {/* Metadata (Time & Location) */}
-            <div className="flex items-center gap-3 text-xs sm:text-sm text-gray-300 font-mallanna mb-2">
+          {/* Slide Content Box - Aligned at bottom */}
+          <div className="relative z-10 p-4 sm:p-6 text-white animate-fade-in flex flex-col justify-end">
+            {/* Metadata (Category, Time & Location) */}
+            <div className="flex items-center gap-2 sm:gap-3 text-xs text-gray-300 font-mallanna mb-1.5">
+              <span className="bg-red-600 text-white text-[11px] sm:text-xs font-ramabhadra px-2.5 py-0.5 rounded-full shadow-sm">
+                {slideCategory}
+              </span>
               <span className="flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5 text-red-400" />
+                <Clock className="w-3 h-3 text-red-400" />
                 {formatRelativeTimeTelugu(currentSlide.timestamp)}
               </span>
               {currentSlide.location && (
                 <>
                   <span>•</span>
-                  <span className="flex items-center gap-1">
-                    <MapPin className="w-3.5 h-3.5 text-red-400" />
-                    {currentSlide.location}
+                  <span className="flex items-center gap-1 truncate max-w-[140px]">
+                    <MapPin className="w-3 h-3 text-red-400 shrink-0" />
+                    <span>{currentSlide.location}</span>
                   </span>
                 </>
               )}
             </div>
 
-            {/* Headline */}
-            <h2 className="font-ramabhadra text-xl sm:text-2xl md:text-3xl font-bold text-white group-hover:text-yellow-300 transition-colors leading-snug line-clamp-2 mb-2">
+            {/* Headline (2 lines max) */}
+            <h2 className="font-ramabhadra text-lg sm:text-2xl md:text-2xl lg:text-3xl text-white group-hover:text-yellow-300 transition-colors leading-snug line-clamp-2 mb-1.5">
               {slideHeadline}
             </h2>
 
-            {/* Brief Excerpt */}
-            <p className="font-mallanna text-sm sm:text-base text-gray-200 line-clamp-2 hidden sm:block max-w-2xl">
-              {slideSummary}
-            </p>
+            {/* Brief Excerpt (1-2 lines max, ~120 chars) */}
+            {slideExcerpt && (
+              <p className="font-mallanna text-xs sm:text-sm text-gray-200 line-clamp-2 hidden sm:block max-w-2xl leading-relaxed opacity-95">
+                {slideExcerpt}
+              </p>
+            )}
 
             {/* Slide Dots Indicator */}
-            <div className="flex items-center gap-2 mt-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-1.5 mt-3" onClick={(e) => e.stopPropagation()}>
               {sliderPosts.map((_, idx) => (
                 <button
                   key={idx}
@@ -143,7 +136,7 @@ export const HeadlinesSlider: React.FC<HeadlinesSliderProps> = ({ posts, onSelec
         {/* RIGHT: Top Stories / Side Cards (4 Cols on Desktop) */}
         <div className="lg:col-span-4 flex flex-col gap-4">
           <div className="bg-red-700 text-white px-4 py-2 rounded-xl flex items-center justify-between">
-            <span className="font-ramabhadra text-base font-bold flex items-center gap-1.5">
+            <span className="font-ramabhadra text-base flex items-center gap-1.5">
               🔥 హాట్ న్యూస్
             </span>
             <span className="text-xs font-mallanna text-red-100">ముఖ్య కథనాలు</span>
@@ -174,7 +167,7 @@ export const HeadlinesSlider: React.FC<HeadlinesSliderProps> = ({ posts, onSelec
 
                 {/* Content */}
                 <div className="p-4 flex-1 flex flex-col justify-between">
-                  <h3 className="font-ramabhadra text-base font-bold text-gray-900 group-hover:text-red-600 transition-colors line-clamp-2 leading-snug">
+                  <h3 className="font-ramabhadra text-base text-gray-900 group-hover:text-red-600 transition-colors line-clamp-2 leading-snug">
                     {hLine}
                   </h3>
                   <div className="flex items-center justify-between mt-3 text-xs text-gray-500 font-mallanna">
@@ -182,7 +175,7 @@ export const HeadlinesSlider: React.FC<HeadlinesSliderProps> = ({ posts, onSelec
                       <Clock className="w-3 h-3 text-red-500" />
                       {formatRelativeTimeTelugu(post.timestamp)}
                     </span>
-                    <span className="text-red-600 font-medium group-hover:underline">
+                    <span className="text-red-600 group-hover:underline">
                       పూర్తి వార్త చదవండి →
                     </span>
                   </div>
