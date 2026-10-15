@@ -31,24 +31,16 @@ import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.models.mapMapToNewsPost
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.DateTimeUtils
-import com.alfanews.telugu.utils.ManageNewsHelper
-import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
-import com.google.firebase.firestore.Source
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
+
 /**
  * ManagePostsPageView (వార్తల నిర్వహణ)
- * - రిపోర్టర్ పంపిన తాజా వార్తలు (తాజా 30 వార్తలు).
- * - క్రోనోలాజికల్ క్రమంలో అమర్చబడతాయి.
- * - స్వమండలం మరియు క్రాస్-మండలం (originalReporterId), reporter.id మరియు ఫోన్ నంబర్లకు పూర్తి మద్దతు.
- * - సింపుల్, క్లీన్ మరియు క్రాష్-ఫ్రీ కొరూటీన్ ఆర్కిటెక్చర్.
+ * - యూజర్ ఐడీ ఆధారంగా తాజా 10 వార్తలను నేరుగా ప్రదర్శిస్తుంది.
+ * - స్వచ్ఛమైన, వేగవంతమైన ఆర్కిటెక్చర్ (Zero Over-engineering).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,19 +51,13 @@ fun ManagePostsPageView(
     showTitle: Boolean = true
 ) {
     val authUser = FirebaseService.auth.currentUser
-    val authUid = authUser?.uid ?: ""
-    val repIds = remember(currentUser?.id, authUid) {
-        ManageNewsHelper.getCandidateIds(currentUser, authUid)
-    }
-    val cleanPhone = (currentUser?.phone ?: authUser?.phoneNumber ?: "").replace("+91", "").trim()
-    val repPhones = remember(currentUser?.phone, authUser?.phoneNumber) {
-        ManageNewsHelper.getCandidatePhones(currentUser, authUser?.phoneNumber)
-    }
+    val currentUserId = currentUser?.id?.takeIf { it.isNotBlank() } ?: authUser?.uid ?: ""
+    val currentUserPhone = (currentUser?.phone ?: authUser?.phoneNumber ?: "").replace("+91", "").trim()
     val role = currentUser?.role ?: UserRole.REPORTER
 
     val isAdmin = role == UserRole.ADMIN || role == UserRole.EDITOR ||
         role == UserRole.NEWS_DESK || role == UserRole.REGIONAL_INCHARGE ||
-        cleanPhone == "9173811009" ||
+        currentUserPhone == "9173811009" ||
         currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
         authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
 
@@ -87,17 +73,9 @@ fun ManagePostsPageView(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 🛡️ 4 సెకన్ల సేఫ్‌గార్డ్: నెట్‌వర్క్ నెమ్మదిగా ఉన్నా స్పిన్నర్ నిరంతరం తిరగకుండా నిరోధిస్తుంది
-    LaunchedEffect(viewMode, refreshTrigger, repIds) {
-        kotlinx.coroutines.delay(4000L)
-        if (loading) {
-            loading = false
-        }
-    }
-
-    // 🚀 తక్షణ కాష్ డిస్‌ప్లే (< 15ms) & సమాంతర లైవ్ సర్వర్ ఫెచ్ (Zero Collision & No Missing Index Delay)
-    LaunchedEffect(viewMode, refreshTrigger, repIds) {
-        if (!isAdmin && repIds.isEmpty() && repPhones.isEmpty()) {
+    // 🚀 యూజర్ ఐడీ ఆధారంగా తాజా 10 వార్తలను నేరుగా లోడ్ చేసే శుభ్రమైన లాజిక్
+    LaunchedEffect(viewMode, refreshTrigger, currentUserId) {
+        if (!isAdmin && currentUserId.isBlank()) {
             loading = false
             posts = emptyList()
             return@LaunchedEffect
@@ -107,85 +85,42 @@ fun ManagePostsPageView(
         try {
             withContext(Dispatchers.IO) {
                 val newsRef = FirebaseService.db.collection("news")
+                val docs = mutableListOf<com.google.firebase.firestore.DocumentSnapshot>()
 
-                suspend fun fetchReporterNews(source: Source): List<NewsPost> = coroutineScope {
-                    val docs = mutableListOf<com.google.firebase.firestore.DocumentSnapshot>()
-
-                    if (isAdmin && viewMode == "all") {
-                        val snap = try {
-                            newsRef.orderBy("timestamp", Query.Direction.DESCENDING).limit(30).get(source).await()
-                        } catch (_: Exception) {
-                            try { newsRef.limit(30).get(source).await() } catch (_: Exception) { null }
-                        }
-                        snap?.documents?.let { docs.addAll(it) }
-                    } else {
-                        val deferreds = mutableListOf<kotlinx.coroutines.Deferred<com.google.firebase.firestore.QuerySnapshot?>>()
-
-                        // 1. స్వమండలం, క్రాస్-మండలం మరియు యూజర్ ఐడీ ఆధారిత వార్తలు (సింగిల్ ఫీల్డ్ క్వెరీలు - ఇండెక్స్ సమస్యలు ఉండవు)
-                        for (rId in repIds) {
-                            deferreds.add(async {
-                                try { newsRef.whereEqualTo("originalReporterId", rId).limit(50).get(source).await() } catch (_: Exception) { null }
-                            })
-                            deferreds.add(async {
-                                try { newsRef.whereEqualTo("reporter.id", rId).limit(50).get(source).await() } catch (_: Exception) { null }
-                            })
-                            deferreds.add(async {
-                                try { newsRef.whereEqualTo("userId", rId).limit(50).get(source).await() } catch (_: Exception) { null }
-                            })
-                        }
-
-                        // 2. విలేకరి ఫోన్ నంబర్ ఆధారిత వార్తలు
-                        for (phone in repPhones) {
-                            deferreds.add(async {
-                                try { newsRef.whereEqualTo("reporterPhone", phone).limit(50).get(source).await() } catch (_: Exception) { null }
-                            })
-                        }
-
-                        val results = deferreds.awaitAll()
-                        results.filterNotNull().forEach { snap ->
-                            docs.addAll(snap.documents)
-                        }
+                if (isAdmin && viewMode == "all") {
+                    val snap = try {
+                        newsRef.orderBy("timestamp", Query.Direction.DESCENDING).limit(10).get().await()
+                    } catch (_: Exception) {
+                        try { newsRef.limit(10).get().await() } catch (_: Exception) { null }
                     }
+                    snap?.documents?.let { docs.addAll(it) }
+                } else {
+                    // యూజర్ ఐడీ ఆధారంగా తాజా వార్తలు (సింగిల్ ఫీల్డ్ క్వెరీలు)
+                    val s1 = try { newsRef.whereEqualTo("userId", currentUserId).limit(20).get().await() } catch (_: Exception) { null }
+                    if (s1 != null && !s1.isEmpty) docs.addAll(s1.documents)
 
-                    docs.mapNotNull { doc ->
-                        val data = doc.data ?: return@mapNotNull null
-                        mapMapToNewsPost(doc.id, data)
-                    }.distinctBy { it.id }.sortedByDescending { it.timestamp }.take(30)
+                    val s2 = try { newsRef.whereEqualTo("originalReporterId", currentUserId).limit(20).get().await() } catch (_: Exception) { null }
+                    if (s2 != null && !s2.isEmpty) docs.addAll(s2.documents)
+
+                    val s3 = try { newsRef.whereEqualTo("reporter.id", currentUserId).limit(20).get().await() } catch (_: Exception) { null }
+                    if (s3 != null && !s3.isEmpty) docs.addAll(s3.documents)
+
+                    // ఫోన్ నంబర్ ఆధారిత ఫాల్‌బ్యాక్
+                    if (docs.isEmpty() && currentUserPhone.isNotBlank()) {
+                        val s4 = try { newsRef.whereEqualTo("reporterPhone", currentUserPhone).limit(20).get().await() } catch (_: Exception) { null }
+                        if (s4 != null && !s4.isEmpty) docs.addAll(s4.documents)
+                    }
                 }
 
-                // ⚡ 1. తక్షణ లోకల్ కాష్ డిస్‌ప్లే (< 15ms)
-                try {
-                    val cached = fetchReporterNews(Source.CACHE)
-                    if (cached.isNotEmpty()) {
-                        withContext(Dispatchers.Main) {
-                            posts = cached
-                            loading = false
-                        }
-                    }
-                } catch (_: Exception) {}
+                val loaded = docs.mapNotNull { doc ->
+                    val data = doc.data ?: return@mapNotNull null
+                    mapMapToNewsPost(doc.id, data)
+                }.distinctBy { it.id }.sortedByDescending { it.timestamp }.take(10)
 
-                // ⚡ 2. లైవ్ సర్వర్ క్వెరీ (4 సెకన్ల టైమౌట్‌తో)
-                try {
-                    val fresh = withTimeoutOrNull(4000L) {
-                        fetchReporterNews(Source.SERVER)
-                    }
-                    if (fresh != null) {
-                        withContext(Dispatchers.Main) {
-                            posts = fresh
-                            loading = false
-                            isManualRefreshing = false
-                        }
-                    } else {
-                        withContext(Dispatchers.Main) {
-                            loading = false
-                            isManualRefreshing = false
-                        }
-                    }
-                } catch (_: Exception) {
-                    withContext(Dispatchers.Main) {
-                        loading = false
-                        isManualRefreshing = false
-                    }
+                withContext(Dispatchers.Main) {
+                    posts = loaded
+                    loading = false
+                    isManualRefreshing = false
                 }
             }
         } catch (e: Exception) {
