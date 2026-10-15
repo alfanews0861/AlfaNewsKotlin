@@ -72,13 +72,32 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
     async function loadPortalNews() {
       try {
         setLoading(true);
+
+        // ⚡ Cache check: 3-minute sessionStorage prevents re-fetching on back button or refresh
+        const cached = sessionStorage.getItem('portal_home_posts');
+        const cachedTime = Number(sessionStorage.getItem('portal_home_posts_time') || 0);
+        if (cached && Date.now() - cachedTime < 3 * 60 * 1000) {
+          try {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setAllPosts(parsed);
+              if (initialPostId) {
+                const matched = parsed.find((p: any) => p.id === initialPostId);
+                if (matched) setSelectedPost(matched);
+              }
+              setLoading(false);
+              return;
+            }
+          } catch (_) {}
+        }
+
         const newsRef = collection(db, 'news');
-        // Fetch top 150 recent approved news for fast in-memory browsing
+        // Fetch top 50 recent approved news for fast in-memory browsing
         const q = query(
           newsRef,
           where('approved', '==', true),
           orderBy('timestamp', 'desc'),
-          limit(150)
+          limit(50)
         );
 
         const snap = await getDocs(q);
@@ -94,6 +113,10 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
         });
 
         setAllPosts(postsList);
+        try {
+          sessionStorage.setItem('portal_home_posts', JSON.stringify(postsList));
+          sessionStorage.setItem('portal_home_posts_time', String(Date.now()));
+        } catch (_) {}
 
         // Check if initialPostId was requested
         if (initialPostId) {

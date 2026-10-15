@@ -31,8 +31,17 @@ if (typeof window !== 'undefined' && setPersistence && browserLocalPersistence) 
         .catch((error: any) => console.warn("Persistence error:", error));
 }
 
-const { getFirestore } = _firestore as any;
-const db = getFirestore(app);
+let db: any;
+try {
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    })
+  });
+} catch (e) {
+  const { getFirestore } = _firestore as any;
+  db = getFirestore(app);
+}
 const storage = getStorage(app);
 const googleProvider = new GoogleAuthProvider();
 

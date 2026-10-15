@@ -78,6 +78,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     private var loadJob: Job? = null
     @Volatile private var isFetching = false
     private var lastRefreshTimeLong: Long = 0
+    private var consecutiveEmptyLoads = 0
 
     init {
         val initialDist = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: prefs.userDistrict ?: "హైదరాబాద్"
@@ -164,6 +165,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             if (forceRefresh) {
                 _isRefreshing.value = true
                 lastDistrictDocument = null
+                consecutiveEmptyLoads = 0
             }
             _isOnline.value = NetworkUtils.isOnline(getApplication())
 
@@ -255,7 +257,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
      */
     fun loadMore(language: Language, currentUser: User?) {
         if (!_hasMore.value || isFetching) return
-        val cursor = lastDistrictDocument ?: return
+        val cursor = lastDistrictDocument ?: run {
+            _hasMore.value = false
+            return
+        }
 
         loadJob = viewModelScope.launch {
             isFetching = true
@@ -284,9 +289,15 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     val currentIds = _news.value.map { it.id }.toSet()
                     val unique = posts.filter { it.id !in currentIds }
                     if (unique.isNotEmpty()) {
+                        consecutiveEmptyLoads = 0
                         _news.value = _news.value + unique
                         val validIds = unique.filter { it.type == "news" }.map { it.id }
                         prefs.incrementPostViewCounts(validIds)
+                    } else {
+                        consecutiveEmptyLoads++
+                        if (consecutiveEmptyLoads >= 2) {
+                            _hasMore.value = false // 🛡️ Prevent infinite read loop on duplicate batches
+                        }
                     }
                     if (posts.size < PAGE_SIZE) {
                         _hasMore.value = false

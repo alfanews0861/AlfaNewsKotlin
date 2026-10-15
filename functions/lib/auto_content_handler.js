@@ -745,6 +745,11 @@ exports.runOneTimeReporterReactivation = (0, scheduler_1.onSchedule)({
     timeoutSeconds: 540
 }, async () => {
     try {
+        const stateDoc = await db.collection('settings').doc('task_one_time_reporter_reactivation').get();
+        if (stateDoc.exists && stateDoc.data()?.completed === true) {
+            console.log("[REPORTER_RESTORE_TASK] Task already completed previously. Skipping full collection scan.");
+            return;
+        }
         console.log("[REPORTER_RESTORE_TASK] 🚀 Scanning Firestore for all demoted/affected reporters...");
         const usersSnap = await db.collection('users').get();
         const appsSnap = await db.collection('reporter_applications').get();
@@ -835,6 +840,11 @@ exports.runOneTimeReporterReactivation = (0, scheduler_1.onSchedule)({
             totalRestored: restoredReporters.length,
             restoredList: restoredReporters
         });
+        await db.collection('settings').doc('task_one_time_reporter_reactivation').set({
+            completed: true,
+            completedAt: admin.firestore.FieldValue.serverTimestamp(),
+            restoredCount: restoredReporters.length
+        }, { merge: true });
         console.log(`[REPORTER_RESTORE_TASK] Restored ${restoredReporters.length} reporters.`);
     }
     catch (e) {

@@ -209,6 +209,8 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
   const feedRef = useRef<HTMLDivElement>(null);
   const fetchingRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const emptyBatchesRef = useRef(0);
+  const lastFetchTimeRef = useRef(0);
 
   const getTs = (data: any) => {
       if (!data.timestamp) return Date.now();
@@ -244,6 +246,9 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
 
   const loadMixedFeed = useCallback(async (isInitial = false) => {
     if (fetchingRef.current || (!isInitial && !hasMoreRef.current)) return;
+    const now = Date.now();
+    if (!isInitial && now - lastFetchTimeRef.current < 1200) return;
+    lastFetchTimeRef.current = now;
     fetchingRef.current = true;
 
     const implicitCategory = getUserPreferredCategory();
@@ -307,6 +312,19 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
         setNews(prev => {
             const seen = new Set(prev.map(p => p.id));
             const uniqueInBatch = filteredRaw.filter(p => !seen.has(p.id));
+
+            if (!isInitial) {
+                if (uniqueInBatch.length === 0) {
+                    emptyBatchesRef.current += 1;
+                    if (emptyBatchesRef.current >= 2) {
+                        setHasMore(false);
+                        hasMoreRef.current = false;
+                    }
+                } else {
+                    emptyBatchesRef.current = 0;
+                }
+            }
+
             const uniqueMap = new Map();
             uniqueInBatch.forEach(p => uniqueMap.set(p.id, p));
             
@@ -317,11 +335,15 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
             return finalNews;
         });
 
-        if (prefRes.count === 0 && localRes.count === 0 && globalRes.count === 0) {
+        if ((prefRes.count === 0 && localRes.count === 0 && globalRes.count === 0) ||
+            (!isInitial && prefRes.count < 4 && localRes.count < 6 && globalRes.count < 10)) {
             setHasMore(false);
+            hasMoreRef.current = false;
         }
     } catch (e) {
         console.error("Mixed Feed Error:", e);
+        setHasMore(false);
+        hasMoreRef.current = false;
     } finally {
         setLoading(false);
         fetchingRef.current = false;
@@ -337,7 +359,9 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
         localCursor.current = null;
         globalCursor.current = null;
         greetingCursor.current = null;
+        emptyBatchesRef.current = 0;
         setHasMore(true);
+        hasMoreRef.current = true;
         await loadMixedFeed(true);
         if (initialPostId) {
             try {
@@ -350,18 +374,18 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
         }
     };
     init();
-  }, [initialPostId]);
+  }, [initialPostId, loadMixedFeed]);
 
   useEffect(() => {
     if (loading || !hasMore) return;
     const observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && !fetchingRef.current) {
+      if (entries[0].isIntersecting && !fetchingRef.current && hasMoreRef.current) {
         loadMixedFeed();
       }
-    }, { rootMargin: '1200px', threshold: 0 });
+    }, { rootMargin: '250px', threshold: 0 });
     if (sentinelRef.current) observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [loading, hasMore]);
+  }, [loading, hasMore, loadMixedFeed]);
 
   // Read News Filter calculation
   const displayedNews = hideReadNews ? news.filter(p => !readIds.has(p.id)) : news;

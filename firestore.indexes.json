@@ -204,6 +204,14 @@
       "collectionGroup": "reporter_applications",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "reporter_applications",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "district", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" }
       ]

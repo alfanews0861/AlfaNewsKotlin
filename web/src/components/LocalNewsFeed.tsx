@@ -49,6 +49,8 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
   const fetchingRef = useRef(false);
   const feedRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const emptyBatchesRef = useRef(0);
+  const lastFetchTimeRef = useRef(0);
 
   const [activeDistrict, setActiveDistrict] = useState<string | null>(() => {
     return currentUser?.district || localStorage.getItem('user_local_district') || null;
@@ -107,11 +109,16 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
 
   const fetchLocalNews = useCallback(async (isInitial = false) => {
     if (fetchingRef.current || (!isInitial && !hasMoreRef.current)) return;
+    const now = Date.now();
+    if (!isInitial && now - lastFetchTimeRef.current < 1200) return;
+    lastFetchTimeRef.current = now;
     fetchingRef.current = true;
     if (isInitial) {
         setLoading(true);
         lastVisible.current = null;
+        emptyBatchesRef.current = 0;
         setHasMore(true);
+        hasMoreRef.current = true;
         setNews([]);
     }
 
@@ -185,6 +192,19 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
             setNews(prev => {
                 const seenIds = new Set(prev.map((p) => p.id));
                 const uniqueNew = fetchedPosts.filter((p: NewsPost) => !seenIds.has(p.id));
+
+                if (!isInitial) {
+                    if (uniqueNew.length === 0) {
+                        emptyBatchesRef.current += 1;
+                        if (emptyBatchesRef.current >= 2) {
+                            setHasMore(false);
+                            hasMoreRef.current = false;
+                        }
+                    } else {
+                        emptyBatchesRef.current = 0;
+                    }
+                }
+
                 // 🚀 ఏ విధమైన ఫిల్టర్లు లేకుండా: Sort strictly by timestamp descending (newest first)
                 uniqueNew.sort((a: NewsPost, b: NewsPost) => b.timestamp - a.timestamp);
                 
@@ -192,9 +212,16 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
                 return finalNews;
             });
 
-            if (snap.docs.length < FETCH_LIMIT) setHasMore(false);
+            if (snap.docs.length < FETCH_LIMIT) {
+                setHasMore(false);
+                hasMoreRef.current = false;
+            }
         }
-    } catch (e) { console.error("Local fetch error:", e); } finally {
+    } catch (e) {
+        console.error("Local fetch error:", e);
+        setHasMore(false);
+        hasMoreRef.current = false;
+    } finally {
         setLoading(false);
         fetchingRef.current = false;
         if (isInitial && onLoadComplete) {
@@ -274,14 +301,14 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
   useEffect(() => {
     if (loading || !hasMore) return;
     const observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && !fetchingRef.current) {
+      if (entries[0].isIntersecting && !fetchingRef.current && hasMoreRef.current) {
         fetchLocalNews();
       }
-    }, { rootMargin: '1000px', threshold: 0.1 });
+    }, { rootMargin: '250px', threshold: 0.1 });
 
     if (sentinelRef.current) observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [loading, hasMore]);
+  }, [loading, hasMore, fetchLocalNews]);
 
   // ఏ విధమైన ఫిల్టర్లు లేకుండా: Show all district news
   const displayedNews = news;

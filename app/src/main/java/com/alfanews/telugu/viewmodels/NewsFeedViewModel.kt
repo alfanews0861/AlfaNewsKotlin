@@ -77,6 +77,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private var currentFetchJob: Job? = null
     @Volatile private var isFetching = false
     private var lastRefreshTimeLong: Long = 0
+    private var consecutiveEmptyLoads = 0
 
     init {
         viewModelScope.launch {
@@ -172,6 +173,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             if (forceRefresh) {
                 _isRefreshing.value = true
                 lastDocument = null
+                consecutiveEmptyLoads = 0
             }
             _isOnline.value = NetworkUtils.isOnline(getApplication())
 
@@ -262,7 +264,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
      */
     fun loadMore(language: Language, currentUser: User?) {
         if (!_hasMore.value || isFetching) return
-        val cursor = lastDocument ?: return
+        val cursor = lastDocument ?: run {
+            _hasMore.value = false
+            return
+        }
 
         viewModelScope.launch {
             isFetching = true
@@ -283,9 +288,15 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     val currentIds = _news.value.map { it.id }.toSet()
                     val unique = newPosts.filter { it.id !in currentIds }
                     if (unique.isNotEmpty()) {
+                        consecutiveEmptyLoads = 0
                         _news.value = _news.value + unique
                         val validIds = unique.filter { it.type == "news" }.map { it.id }
                         prefs.incrementPostViewCounts(validIds)
+                    } else {
+                        consecutiveEmptyLoads++
+                        if (consecutiveEmptyLoads >= 2) {
+                            _hasMore.value = false // 🛡️ Prevent infinite read loop on duplicate batches
+                        }
                     }
                     if (newPosts.size < PAGE_SIZE) {
                         _hasMore.value = false

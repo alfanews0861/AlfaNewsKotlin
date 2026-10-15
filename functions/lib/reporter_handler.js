@@ -363,9 +363,9 @@ async function performRestoreAllReporters() {
     catch (e) {
         console.warn(`[RESTORE_WARN] Fetch active reporters:`, e.message);
     }
-    // 4. Find all reporters from existing news posts in `news` collection
+    // 4. Find all reporters from recent news posts in `news` collection (capped to prevent 98,000+ full collection reads)
     try {
-        const newsSnap = await db.collection('news').get();
+        const newsSnap = await db.collection('news').orderBy('timestamp', 'desc').limit(2000).get();
         newsSnap.docs.forEach(d => {
             const data = d.data();
             const rep = data.reporter;
@@ -1797,7 +1797,7 @@ exports.autoApproveAllPendingApplications = (0, https_1.onCall)({ secrets: ["EMA
  * Core helper to deduplicate reporter applications in the database (keeping the newest one).
  */
 async function executeCleanDuplicateApplications() {
-    const snapshot = await db.collection('reporter_applications').get();
+    const snapshot = await db.collection('reporter_applications').limit(1500).get();
     const allDocs = snapshot.docs;
     const groups = new Map();
     for (const doc of allDocs) {
@@ -1862,14 +1862,31 @@ exports.cleanDuplicateApplications = (0, https_1.onCall)(async (request) => {
 async function executeCleanupExpiredApplications() {
     const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
     const tenDaysAgo = new Date(Date.now() - TEN_DAYS_MS);
-    const snapshot = await db.collection('reporter_applications')
-        .where('status', '==', 'PENDING')
-        .where('timestamp', '<', tenDaysAgo)
-        .get();
+    let snapshotDocs = [];
+    try {
+        const snapshot = await db.collection('reporter_applications')
+            .where('status', '==', 'PENDING')
+            .where('timestamp', '<', tenDaysAgo)
+            .get();
+        snapshotDocs = snapshot.docs;
+    }
+    catch (e) {
+        console.warn(`[CLEANUP_WARN] Index query failed, using in-memory filter: ${e.message}`);
+        const pendingSnap = await db.collection('reporter_applications')
+            .where('status', '==', 'PENDING')
+            .limit(500)
+            .get();
+        const cutoffMs = tenDaysAgo.getTime();
+        snapshotDocs = pendingSnap.docs.filter(d => {
+            const data = d.data();
+            const ts = data.timestamp?.toMillis?.() || data.timestamp?.toDate?.()?.getTime?.() || (typeof data.timestamp === 'number' ? data.timestamp : 0);
+            return ts > 0 && ts < cutoffMs;
+        });
+    }
     let deletedCount = 0;
-    for (let i = 0; i < snapshot.docs.length; i += 400) {
+    for (let i = 0; i < snapshotDocs.length; i += 400) {
         const batch = db.batch();
-        const chunk = snapshot.docs.slice(i, i + 400);
+        const chunk = snapshotDocs.slice(i, i + 400);
         for (const doc of chunk) {
             batch.delete(doc.ref);
         }
