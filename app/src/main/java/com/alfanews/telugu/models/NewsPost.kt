@@ -198,7 +198,9 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
     
     val reporterMap = data["reporter"] as? Map<*, *>
     val originalReporterId = data["originalReporterId"]?.toString()
-    val reporterIdFallback = data["reporterId"]?.toString() ?: (data["reporter"] as? String)
+    val reporterIdFallback = data["reporterId"]?.toString()
+        ?: (data["reporter"] as? String)
+        ?: data["userId"]?.toString()
     val finalReporterId = reporterMap?.get("id")?.toString()?.takeIf { it.isNotBlank() }
         ?: originalReporterId?.takeIf { it.isNotBlank() }
         ?: reporterIdFallback?.takeIf { it.isNotBlank() }

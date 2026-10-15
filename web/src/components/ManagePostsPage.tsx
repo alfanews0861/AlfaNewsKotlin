@@ -100,6 +100,7 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
                     }
                     if (/^\+?\d+$/.test(candId)) {
                         queryPromises.push(fetchWithFallback('reporter.phone', candId));
+                        queryPromises.push(fetchWithFallback('reporterPhone', candId));
                     }
                 }
 

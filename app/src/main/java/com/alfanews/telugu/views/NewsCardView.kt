@@ -1052,7 +1052,11 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
     scope.launch {
         setSharing(true)
         try {
-            val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
+            val headline = if (language == Language.TELUGU) {
+                post.headline.telugu.ifBlank { post.headline.english.ifBlank { post.notificationTitle.orEmpty() } }
+            } else {
+                post.headline.english.ifBlank { post.headline.telugu.ifBlank { post.notificationTitle.orEmpty() } }
+            }
             val shareUrl = "https://alfanews.app/news/${post.id}"
             val shareText = customShareText ?: "🔴 $headline\n\n$shareUrl"
 
@@ -1070,29 +1074,16 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
                 } catch (_: Exception) {}
             }
 
-            // Generate high-resolution branded news card image with photo + headline
-            val imageUri = fallbackGetNewsImageUri(context, post, language)
-
+            // Share as Rich Link (text/plain with URL). WhatsApp automatically loads the Open Graph preview card
+            // (Image on top, Headline below, Deep link below) and clicking the preview image directly launches the deeplink!
             val intent = Intent(Intent.ACTION_SEND).apply {
                 action = Intent.ACTION_SEND
-                if (imageUri != null) {
-                    type = "image/jpeg"
-                    putExtra(Intent.EXTRA_STREAM, imageUri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                } else {
-                    type = "text/plain"
-                }
+                type = "text/plain"
                 putExtra(Intent.EXTRA_TEXT, shareText)
                 putExtra(Intent.EXTRA_SUBJECT, headline)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            if (imageUri != null) {
-                intent.clipData = ClipData.newRawUri(null, imageUri)
-            }
             val chooser = Intent.createChooser(intent, context.getString(R.string.share_news)).apply {
-                if (imageUri != null) {
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(chooser)
@@ -1360,7 +1351,11 @@ private suspend fun fallbackGetNewsImageUri(context: Context, post: NewsPost, la
                 isFakeBoldText = true
             }
 
-            val headline = if (language == Language.TELUGU) post.headline.telugu else post.headline.english
+            val headline = if (language == Language.TELUGU) {
+                post.headline.telugu.ifBlank { post.headline.english.ifBlank { post.notificationTitle.orEmpty() } }
+            } else {
+                post.headline.english.ifBlank { post.headline.telugu.ifBlank { post.notificationTitle.orEmpty() } }
+            }
             val titleLayout = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                 android.text.StaticLayout.Builder.obtain(headline, 0, headline.length, textPaint, width - 80)
                     .setAlignment(android.text.Layout.Alignment.ALIGN_NORMAL)
@@ -2802,15 +2797,23 @@ fun FullStoryBottomSheet(
                                     append(footer)
                                 }
 
-                                val imageUri = fallbackGetNewsImageUri(context, post, language)
+                                // Pre-warm news card image on Google Edge CDN so WhatsApp loads rich preview instantly
+                                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                    try {
+                                        val conn = (java.net.URL("https://alfanews.app/news-card/${post.id}.jpg").openConnection() as java.net.HttpURLConnection).apply {
+                                            requestMethod = "GET"
+                                            connectTimeout = 3000
+                                            readTimeout = 3000
+                                            instanceFollowRedirects = true
+                                        }
+                                        conn.responseCode
+                                        conn.disconnect()
+                                    } catch (_: Exception) {}
+                                }
+
                                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    if (imageUri != null) {
-                                        type = "image/jpeg"
-                                        putExtra(Intent.EXTRA_STREAM, imageUri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    } else {
-                                        type = "text/plain"
-                                    }
+                                    action = Intent.ACTION_SEND
+                                    type = "text/plain"
                                     putExtra(Intent.EXTRA_TEXT, shareText)
                                     putExtra(Intent.EXTRA_SUBJECT, headlineText)
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

@@ -34,13 +34,15 @@ import com.alfanews.telugu.utils.DateTimeUtils
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
-
 /**
  * ManagePostsPageView (వార్తల నిర్వహణ)
- * - కేవలం ఆ విలేకరి పంపిన తాజా 10 వార్తలు (Latest 10 posts).
- * - అనవసరపు ఫిల్టర్లు, సెర్చ్ బార్ మరియు ఓవర్-ఇంజనీరింగ్ తొలగించబడ్డాయి.
- * - రియల్‌టైమ్ లైవ్ సర్వర్ అప్‌డేట్‌లు (Live status updates).
+ * - రిపోర్టర్ పంపిన తాజా వార్తలు (తాజా 30 వార్తలు).
+ * - క్రోనోలాజికల్ క్రమంలో అమర్చబడతాయి.
+ * - స్వమండలం మరియు క్రాస్-మండలం (originalReporterId), reporter.id మరియు ఫోన్ నంబర్లకు పూర్తి మద్దతు.
+ * - సింపుల్, క్లీన్ మరియు క్రాష్-ఫ్రీ కొరూటీన్ ఆర్కిటెక్చర్.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,27 +52,16 @@ fun ManagePostsPageView(
     currentUser: User? = null,
     showTitle: Boolean = true
 ) {
-    val authUid = FirebaseService.auth.currentUser?.uid ?: ""
-    val uid = currentUser?.id?.takeIf { it.isNotBlank() } ?: authUid
+    val authUser = FirebaseService.auth.currentUser
+    val reporterId = currentUser?.id?.takeIf { it.isNotBlank() } ?: authUser?.uid ?: ""
+    val cleanPhone = (currentUser?.phone ?: authUser?.phoneNumber ?: "").replace("+91", "").trim()
     val role = currentUser?.role ?: UserRole.REPORTER
 
-    val cleanCurrentPhone = currentUser?.phone?.replace("+91", "")?.trim()
-    val cleanAuthPhone = FirebaseService.auth.currentUser?.phoneNumber?.replace("+91", "")?.trim()
     val isAdmin = role == UserRole.ADMIN || role == UserRole.EDITOR ||
         role == UserRole.NEWS_DESK || role == UserRole.REGIONAL_INCHARGE ||
-        cleanCurrentPhone == "9173811009" ||
-        currentUser?.phone?.contains("9173811009") == true ||
-        cleanAuthPhone == "9173811009" ||
-        FirebaseService.auth.currentUser?.phoneNumber?.contains("9173811009") == true ||
+        cleanPhone == "9173811009" ||
         currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
-        FirebaseService.auth.currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
-
-    val repIds = remember(authUid, uid) {
-        listOfNotNull(
-            uid.takeIf { it.isNotBlank() },
-            authUid.takeIf { it.isNotBlank() }
-        ).distinct()
-    }
+        authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
 
     var viewMode by remember(isAdmin) { mutableStateOf(if (isAdmin) "all" else "my") }
     var posts by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
@@ -84,90 +75,91 @@ fun ManagePostsPageView(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 🛡️ 5 సెకన్ల సేఫ్‌గార్డ్: ఇంటర్నెట్ లేకపోతే స్పిన్నర్ నిరంతరం తిరగకుండా నిరోధిస్తుంది
-    LaunchedEffect(viewMode, repIds, refreshTrigger) {
-        kotlinx.coroutines.delay(5000L)
-        if (loading) {
+    // 🚀 సులభమైన, అత్యంత విశ్వసనీయమైన డేటా ఫెచ్ (Zero Over-engineering & Zero Collision)
+    LaunchedEffect(viewMode, refreshTrigger, reporterId) {
+        if (!isAdmin && reporterId.isBlank()) {
             loading = false
+            posts = emptyList()
+            return@LaunchedEffect
+        }
+
+        loading = posts.isEmpty()
+        try {
+            withContext(Dispatchers.IO) {
+                val newsRef = FirebaseService.db.collection("news")
+                val docs = mutableListOf<com.google.firebase.firestore.DocumentSnapshot>()
+
+                if (isAdmin && viewMode == "all") {
+                    val snap = try {
+                        newsRef.orderBy("timestamp", Query.Direction.DESCENDING).limit(30).get().await()
+                    } catch (e: Exception) {
+                        newsRef.limit(30).get().await()
+                    }
+                    docs.addAll(snap.documents)
+                } else {
+                    // 1. స్వమండలం మరియు క్రాస్-మండలం వార్తలు (originalReporterId)
+                    val s1 = try {
+                        newsRef.whereEqualTo("originalReporterId", reporterId)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(30)
+                            .get().await()
+                    } catch (_: Exception) {
+                        try {
+                            newsRef.whereEqualTo("originalReporterId", reporterId).limit(30).get().await()
+                        } catch (_: Exception) { null }
+                    }
+                    if (s1 != null) docs.addAll(s1.documents)
+
+                    // 2. విలేకరి ఐడీతో స్టోర్ అయిన సాధారణ వార్తలు (reporter.id)
+                    val s2 = try {
+                        newsRef.whereEqualTo("reporter.id", reporterId)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(30)
+                            .get().await()
+                    } catch (_: Exception) {
+                        try {
+                            newsRef.whereEqualTo("reporter.id", reporterId).limit(30).get().await()
+                        } catch (_: Exception) { null }
+                    }
+                    if (s2 != null) docs.addAll(s2.documents)
+
+                    // 3. ఫోన్ నంబర్ ఆధారంగా వచ్చిన వార్తలు (reporterPhone)
+                    if (cleanPhone.isNotBlank()) {
+                        val s3 = try {
+                            newsRef.whereEqualTo("reporterPhone", cleanPhone).limit(30).get().await()
+                        } catch (_: Exception) { null }
+                        if (s3 != null) docs.addAll(s3.documents)
+                    }
+                }
+
+                val loaded = docs.mapNotNull { doc ->
+                    val data = doc.data ?: return@mapNotNull null
+                    mapMapToNewsPost(doc.id, data)
+                }.distinctBy { it.id }.sortedByDescending { it.timestamp }.take(30)
+
+                withContext(Dispatchers.Main) {
+                    posts = loaded
+                    loading = false
+                    isManualRefreshing = false
+                }
+            }
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) {
+                loading = false
+                isManualRefreshing = false
+            }
         }
     }
 
-    // 🚀 రియల్‌టైమ్ సర్వర్ కనెక్షన్ (కేవలం తాజా 10 వార్తలు)
-    DisposableEffect(viewMode, repIds, refreshTrigger) {
-        loading = posts.isEmpty()
-        val listeners = mutableListOf<ListenerRegistration>()
-
-        fun toPosts(snap: com.google.firebase.firestore.QuerySnapshot): Map<String, NewsPost> =
-            snap.documents.mapNotNull { doc ->
-                val data = doc.data ?: return@mapNotNull null
-                mapMapToNewsPost(doc.id, data)
-            }.associateBy { it.id }
-
-        val queries = mutableListOf<Pair<String, Query>>()
-        if (isAdmin && viewMode == "all") {
-            queries.add(
-                "all" to FirebaseService.db.collection("news")
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(10)
-            )
-        } else {
-            for (rId in repIds) {
-                // ⚠️ ఇక్కడ కాంపోజిట్ ఇండెక్స్ సమస్యలు రాకుండా సర్వర్‌లో orderBy తీసివేసాము.
-                // కేవలం whereEqualTo ఎప్పుడూ 100% వేగంగా పనిచేస్తుంది; ఇన్‌-మెమరీలో తాజా 10 వార్తలు సార్ట్ అవుతాయి.
-                queries.add("orig-$rId" to FirebaseService.db.collection("news").whereEqualTo("originalReporterId", rId).limit(20))
-                queries.add("rep-$rId" to FirebaseService.db.collection("news").whereEqualTo("reporter.id", rId).limit(20))
-                queries.add("user-$rId" to FirebaseService.db.collection("news").whereEqualTo("userId", rId).limit(20))
-            }
-            if (!cleanCurrentPhone.isNullOrBlank()) {
-                queries.add("phone-$cleanCurrentPhone" to FirebaseService.db.collection("news").whereEqualTo("reporterPhone", cleanCurrentPhone).limit(20))
-            }
+    // ⏳ ప్రాసెసింగ్ లో ఉన్న వార్తల కోసం 10 సెకన్ల ఆటో-రిఫ్రెష్
+    LaunchedEffect(posts) {
+        val hasPending = posts.any {
+            val st = it.status?.uppercase() ?: ""
+            st == "PENDING" || st == "REVIEWING_CONTENT" || st == "PROCESSING_VIDEO" || st == "PROCESSING_VIDEO_START"
         }
-
-        if (queries.isEmpty()) {
-            // యూజర్/లాగిన్ వివరాలు లోడ్ అవుతుంటే వెంటనే "వార్తలు లేవు" అని చూపించకుండా వేచి ఉండాలి
-            if (!isAdmin && repIds.isEmpty() && (currentUser == null || FirebaseService.auth.currentUser == null)) {
-                loading = true
-            } else {
-                loading = false
-            }
-        } else {
-            val resultsMap = mutableMapOf<String, Map<String, NewsPost>>()
-            val completedQueries = mutableSetOf<String>()
-
-            fun syncPosts() {
-                val merged = mutableMapOf<String, NewsPost>()
-                resultsMap.values.forEach { merged.putAll(it) }
-                val sorted = merged.values.sortedByDescending { it.timestamp }.take(10)
-
-                if (sorted.isNotEmpty()) {
-                    posts = sorted
-                    loading = false
-                } else if (completedQueries.size >= queries.size) {
-                    posts = emptyList()
-                    loading = false
-                }
-            }
-
-            queries.forEach { (key, q) ->
-                listeners.add(q.addSnapshotListener { snap, err ->
-                    if (err != null) {
-                        android.util.Log.w("ManagePostsPageView", "Query error on $key: ${err.message}")
-                        completedQueries.add(key)
-                        syncPosts()
-                        return@addSnapshotListener
-                    }
-                    if (snap != null) {
-                        completedQueries.add(key)
-                        resultsMap[key] = toPosts(snap)
-                        syncPosts()
-                    }
-                })
-            }
-        }
-
-        onDispose {
-            listeners.forEach { it.remove() }
-            listeners.clear()
+        if (hasPending) {
+            kotlinx.coroutines.delay(10000L)
+            refreshTrigger++
         }
     }
 
