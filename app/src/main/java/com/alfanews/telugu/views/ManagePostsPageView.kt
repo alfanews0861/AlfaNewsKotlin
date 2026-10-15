@@ -33,6 +33,8 @@ import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.DateTimeUtils
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -51,13 +53,16 @@ fun ManagePostsPageView(
     showTitle: Boolean = true
 ) {
     val authUser = FirebaseService.auth.currentUser
-    val currentUserId = currentUser?.id?.takeIf { it.isNotBlank() } ?: authUser?.uid ?: ""
-    val currentUserPhone = (currentUser?.phone ?: authUser?.phoneNumber ?: "").replace("+91", "").trim()
+    val rawUserPhone = currentUser?.phone?.trim() ?: ""
+    val rawAuthPhone = authUser?.phoneNumber?.trim() ?: ""
+    val effectivePhone = rawUserPhone.ifBlank { rawAuthPhone }
+    val cleanPhone = effectivePhone.filter { it.isDigit() }.let { if (it.length >= 10) it.takeLast(10) else it }
     val role = currentUser?.role ?: UserRole.REPORTER
 
     val isAdmin = role == UserRole.ADMIN || role == UserRole.EDITOR ||
         role == UserRole.NEWS_DESK || role == UserRole.REGIONAL_INCHARGE ||
-        currentUserPhone == "9173811009" ||
+        cleanPhone == "9173811009" ||
+        effectivePhone.contains("9173811009") ||
         currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
         authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
 
@@ -67,15 +72,29 @@ fun ManagePostsPageView(
     var isManualRefreshing by remember { mutableStateOf(false) }
     var refreshTrigger by remember { mutableStateOf(0) }
 
+    val candidateIds = remember(currentUser, authUser) {
+        val set = mutableSetOf<String>()
+        authUser?.uid?.takeIf { it.isNotBlank() }?.let { set.add(it) }
+        currentUser?.id?.takeIf { it.isNotBlank() }?.let { set.add(it) }
+        if (cleanPhone.length == 10) {
+            set.add(cleanPhone)
+            set.add("+91$cleanPhone")
+        }
+        if (effectivePhone.isNotBlank()) {
+            set.add(effectivePhone)
+        }
+        set.toList()
+    }
+
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
     var showStatusDetailDialog by remember { mutableStateOf<NewsPost?>(null) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 🚀 యూజర్ ఐడీ ఆధారంగా తాజా 10 వార్తలను నేరుగా లోడ్ చేసే శుభ్రమైన లాజిక్
-    LaunchedEffect(viewMode, refreshTrigger, currentUserId) {
-        if (!isAdmin && currentUserId.isBlank()) {
+    // 🚀 యూజర్ ఐడీ మరియు ఫోన్ ఆధారంగా తాజా 10 వార్తలను నేరుగా లోడ్ చేసే పటిష్టమైన లాజిక్
+    LaunchedEffect(viewMode, refreshTrigger, candidateIds, isAdmin) {
+        if (!isAdmin && candidateIds.isEmpty()) {
             loading = false
             posts = emptyList()
             return@LaunchedEffect
@@ -89,33 +108,71 @@ fun ManagePostsPageView(
 
                 if (isAdmin && viewMode == "all") {
                     val snap = try {
-                        newsRef.orderBy("timestamp", Query.Direction.DESCENDING).limit(10).get().await()
+                        newsRef.orderBy("timestamp", Query.Direction.DESCENDING).limit(20).get().await()
                     } catch (_: Exception) {
-                        try { newsRef.limit(10).get().await() } catch (_: Exception) { null }
+                        try { newsRef.limit(20).get().await() } catch (_: Exception) { null }
                     }
                     snap?.documents?.let { docs.addAll(it) }
                 } else {
-                    // యూజర్ ఐడీ ఆధారంగా తాజా వార్తలు (సింగిల్ ఫీల్డ్ క్వెరీలు)
-                    val s1 = try { newsRef.whereEqualTo("userId", currentUserId).limit(20).get().await() } catch (_: Exception) { null }
-                    if (s1 != null && !s1.isEmpty) docs.addAll(s1.documents)
+                    // యూజర్ ఐడీ మరియు ఫోన్ ఆధారంగా అన్ని ఫీల్డ్స్‌లో తాజా వార్తలు
+                    val idFields = listOf("userId", "originalReporterId", "reporter.id", "reporterId", "reporter")
+                    val queryJobs = mutableListOf<kotlinx.coroutines.Deferred<List<com.google.firebase.firestore.DocumentSnapshot>>>()
 
-                    val s2 = try { newsRef.whereEqualTo("originalReporterId", currentUserId).limit(20).get().await() } catch (_: Exception) { null }
-                    if (s2 != null && !s2.isEmpty) docs.addAll(s2.documents)
+                    for (candId in candidateIds) {
+                        for (field in idFields) {
+                            queryJobs.add(async {
+                                try {
+                                    newsRef.whereEqualTo(field, candId).limit(20).get().await().documents
+                                } catch (_: Exception) {
+                                    emptyList()
+                                }
+                            })
+                        }
+                        if (candId.any { it.isDigit() }) {
+                            queryJobs.add(async {
+                                try {
+                                    newsRef.whereEqualTo("reporterPhone", candId).limit(20).get().await().documents
+                                } catch (_: Exception) {
+                                    emptyList()
+                                }
+                            })
+                            queryJobs.add(async {
+                                try {
+                                    newsRef.whereEqualTo("reporter.phone", candId).limit(20).get().await().documents
+                                } catch (_: Exception) {
+                                    emptyList()
+                                }
+                            })
+                        }
+                    }
 
-                    val s3 = try { newsRef.whereEqualTo("reporter.id", currentUserId).limit(20).get().await() } catch (_: Exception) { null }
-                    if (s3 != null && !s3.isEmpty) docs.addAll(s3.documents)
+                    val results = queryJobs.awaitAll()
+                    results.forEach { docs.addAll(it) }
 
-                    // ఫోన్ నంబర్ ఆధారిత ఫాల్‌బ్యాక్
-                    if (docs.isEmpty() && currentUserPhone.isNotBlank()) {
-                        val s4 = try { newsRef.whereEqualTo("reporterPhone", currentUserPhone).limit(20).get().await() } catch (_: Exception) { null }
-                        if (s4 != null && !s4.isEmpty) docs.addAll(s4.documents)
+                    // ఒకవేళ ID లేదా ఫోన్ నంబర్ ద్వారా రాకపోతే, రిపోర్టర్ పేరు ద్వారా చూడటం
+                    if (docs.isEmpty()) {
+                        val repName = currentUser?.name?.trim()
+                        if (!repName.isNullOrBlank() &&
+                            !listOf("Admin", "User", "Guest", "Alfa News Desk", "AlfaNews Admin", "విలేకరి", "సిటిజెన్ పోస్ట్", "అజ్ఞాత పౌరుడు").contains(repName)) {
+                            val nameSnap = try {
+                                newsRef.whereEqualTo("reporter.name", repName).limit(20).get().await()
+                            } catch (_: Exception) { null }
+                            nameSnap?.documents?.let { docs.addAll(it) }
+                        }
                     }
                 }
 
+                val seenDocIds = mutableSetOf<String>()
                 val loaded = docs.mapNotNull { doc ->
-                    val data = doc.data ?: return@mapNotNull null
-                    mapMapToNewsPost(doc.id, data)
-                }.distinctBy { it.id }.sortedByDescending { it.timestamp }.take(10)
+                    if (!seenDocIds.add(doc.id)) return@mapNotNull null
+                    try {
+                        val data = doc.data ?: return@mapNotNull null
+                        mapMapToNewsPost(doc.id, data)
+                    } catch (e: Exception) {
+                        android.util.Log.e("ManagePosts", "Error mapping doc ${doc.id}: ${e.message}")
+                        null
+                    }
+                }.sortedByDescending { it.timestamp }.take(10)
 
                 withContext(Dispatchers.Main) {
                     posts = loaded
