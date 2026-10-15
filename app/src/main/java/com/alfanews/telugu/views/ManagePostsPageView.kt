@@ -11,9 +11,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,28 +21,23 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
-import com.alfanews.telugu.models.mapMapToNewsPost
+import com.alfanews.telugu.services.FirebaseFunctionsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.DateTimeUtils
 import com.google.firebase.firestore.Query
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-/**
- * ManagePostsPageView (వార్తల నిర్వహణ)
- * - యూజర్ ఐడీ ఆధారంగా తాజా 10 వార్తలను నేరుగా ప్రదర్శిస్తుంది.
- * - స్వచ్ఛమైన, వేగవంతమైన ఆర్కిటెక్చర్ (Zero Over-engineering).
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManagePostsPageView(
@@ -52,152 +46,80 @@ fun ManagePostsPageView(
     currentUser: User? = null,
     showTitle: Boolean = true
 ) {
-    val authUser = FirebaseService.auth.currentUser
-    val rawUserPhone = currentUser?.phone?.trim() ?: ""
-    val rawAuthPhone = authUser?.phoneNumber?.trim() ?: ""
-    val effectivePhone = rawUserPhone.ifBlank { rawAuthPhone }
-    val cleanPhone = effectivePhone.filter { it.isDigit() }.let { if (it.length >= 10) it.takeLast(10) else it }
-    val role = currentUser?.role ?: UserRole.REPORTER
-
-    val isAdmin = role == UserRole.ADMIN || role == UserRole.EDITOR ||
-        role == UserRole.NEWS_DESK || role == UserRole.REGIONAL_INCHARGE ||
-        cleanPhone == "9173811009" ||
-        effectivePhone.contains("9173811009") ||
-        currentUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true ||
-        authUser?.email?.equals("alfanews0861@gmail.com", ignoreCase = true) == true
-
-    var viewMode by remember(isAdmin) { mutableStateOf(if (isAdmin) "all" else "my") }
     var posts by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
-    var isManualRefreshing by remember { mutableStateOf(false) }
-    var refreshTrigger by remember { mutableStateOf(0) }
-
-    val candidateIds = remember(currentUser, authUser) {
-        val set = mutableSetOf<String>()
-        authUser?.uid?.takeIf { it.isNotBlank() }?.let { set.add(it) }
-        currentUser?.id?.takeIf { it.isNotBlank() }?.let { set.add(it) }
-        if (cleanPhone.length == 10) {
-            set.add(cleanPhone)
-            set.add("+91$cleanPhone")
-        }
-        if (effectivePhone.isNotBlank()) {
-            set.add(effectivePhone)
-        }
-        set.toList()
-    }
-
-    var showDeleteDialog by remember { mutableStateOf<String?>(null) }
-    var showStatusDetailDialog by remember { mutableStateOf<NewsPost?>(null) }
-
+    var isBroadcasting by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 🚀 యూజర్ ఐడీ మరియు ఫోన్ ఆధారంగా తాజా 10 వార్తలను నేరుగా లోడ్ చేసే పటిష్టమైన లాజిక్
-    LaunchedEffect(viewMode, refreshTrigger, candidateIds, isAdmin) {
-        if (!isAdmin && candidateIds.isEmpty()) {
+    var showDeleteDialog by remember { mutableStateOf<String?>(null) }
+    var showBroadcastDialog by remember { mutableStateOf<NewsPost?>(null) }
+
+    // ✅ REAL-TIME LISTENER: Updates automatically when status changes
+    DisposableEffect(currentUser) {
+        var query = FirebaseService.db.collection("news")
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+
+        if (currentUser?.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {
+            query = query.whereIn("district", currentUser.assignedDistricts)
+        }
+        
+        if (currentUser?.role == UserRole.REPORTER) {
+            query = query.whereEqualTo("reporter.id", currentUser.id)
+        }
+
+        val listener = query.limit(100).addSnapshotListener { snapshot, e ->
             loading = false
-            posts = emptyList()
-            return@LaunchedEffect
-        }
+            if (e != null) return@addSnapshotListener
+            
+            if (snapshot != null) {
+                posts = snapshot.documents.mapNotNull { doc ->
+                    val data = doc.data ?: return@mapNotNull null
+                    val headlineData = data["headline"] as? Map<*, *> ?: emptyMap<Any, Any>()
+                    val contentData = data["content"] as? Map<*, *> ?: emptyMap<Any, Any>()
+                    val reporterData = data["reporter"] as? Map<*, *> ?: emptyMap<Any, Any>()
 
-        loading = posts.isEmpty()
-        try {
-            withContext(Dispatchers.IO) {
-                val newsRef = FirebaseService.db.collection("news")
-                val docs = mutableListOf<com.google.firebase.firestore.DocumentSnapshot>()
-
-                if (isAdmin && viewMode == "all") {
-                    val snap = try {
-                        newsRef.orderBy("timestamp", Query.Direction.DESCENDING).limit(20).get().await()
-                    } catch (_: Exception) {
-                        try { newsRef.limit(20).get().await() } catch (_: Exception) { null }
-                    }
-                    snap?.documents?.let { docs.addAll(it) }
-                } else {
-                    // యూజర్ ఐడీ మరియు ఫోన్ ఆధారంగా అన్ని ఫీల్డ్స్‌లో తాజా వార్తలు
-                    val idFields = listOf("userId", "originalReporterId", "reporter.id", "reporterId", "reporter")
-                    val queryJobs = mutableListOf<kotlinx.coroutines.Deferred<List<com.google.firebase.firestore.DocumentSnapshot>>>()
-
-                    for (candId in candidateIds) {
-                        for (field in idFields) {
-                            queryJobs.add(async {
-                                try {
-                                    newsRef.whereEqualTo(field, candId).limit(20).get().await().documents
-                                } catch (_: Exception) {
-                                    emptyList()
-                                }
-                            })
-                        }
-                        if (candId.any { it.isDigit() }) {
-                            queryJobs.add(async {
-                                try {
-                                    newsRef.whereEqualTo("reporterPhone", candId).limit(20).get().await().documents
-                                } catch (_: Exception) {
-                                    emptyList()
-                                }
-                            })
-                            queryJobs.add(async {
-                                try {
-                                    newsRef.whereEqualTo("reporter.phone", candId).limit(20).get().await().documents
-                                } catch (_: Exception) {
-                                    emptyList()
-                                }
-                            })
-                        }
+                    val timestamp = when (val ts = data["timestamp"]) {
+                        is com.google.firebase.Timestamp -> ts.toDate().time
+                        is Number -> ts.toLong()
+                        else -> System.currentTimeMillis()
                     }
 
-                    val results = queryJobs.awaitAll()
-                    results.forEach { docs.addAll(it) }
-
-                    // ఒకవేళ ID లేదా ఫోన్ నంబర్ ద్వారా రాకపోతే, రిపోర్టర్ పేరు ద్వారా చూడటం
-                    if (docs.isEmpty()) {
-                        val repName = currentUser?.name?.trim()
-                        if (!repName.isNullOrBlank() &&
-                            !listOf("Admin", "User", "Guest", "Alfa News Desk", "AlfaNews Admin", "విలేకరి", "సిటిజెన్ పోస్ట్", "అజ్ఞాత పౌరుడు").contains(repName)) {
-                            val nameSnap = try {
-                                newsRef.whereEqualTo("reporter.name", repName).limit(20).get().await()
-                            } catch (_: Exception) { null }
-                            nameSnap?.documents?.let { docs.addAll(it) }
-                        }
-                    }
-                }
-
-                val seenDocIds = mutableSetOf<String>()
-                val loaded = docs.mapNotNull { doc ->
-                    if (!seenDocIds.add(doc.id)) return@mapNotNull null
-                    try {
-                        val data = doc.data ?: return@mapNotNull null
-                        mapMapToNewsPost(doc.id, data)
-                    } catch (e: Exception) {
-                        android.util.Log.e("ManagePosts", "Error mapping doc ${doc.id}: ${e.message}")
-                        null
-                    }
-                }.sortedByDescending { it.timestamp }.take(10)
-
-                withContext(Dispatchers.Main) {
-                    posts = loaded
-                    loading = false
-                    isManualRefreshing = false
+                    NewsPost(
+                        id = doc.id,
+                        headline = com.alfanews.telugu.models.Headline(
+                            telugu = headlineData["telugu"] as? String ?: "",
+                            english = headlineData["english"] as? String ?: ""
+                        ),
+                        content = com.alfanews.telugu.models.Content(
+                            telugu = contentData["telugu"] as? String ?: "",
+                            english = contentData["english"] as? String ?: ""
+                        ),
+                        mediaUrl = data["mediaUrl"] as? String ?: "",
+                        mediaType = when (data["mediaType"]?.toString()?.uppercase()) {
+                            "VIDEO" -> com.alfanews.telugu.models.MediaType.VIDEO
+                            else -> com.alfanews.telugu.models.MediaType.IMAGE
+                        },
+                        reporter = com.alfanews.telugu.models.Reporter(
+                            id = reporterData["id"] as? String ?: "",
+                            name = reporterData["name"] as? String ?: ""
+                        ),
+                        location = data["location"] as? String ?: "",
+                        state = data["state"] as? String,
+                        district = data["district"] as? String,
+                        timestamp = timestamp,
+                        categories = data["categories"] as? List<String> ?: emptyList(),
+                        likes = (data["likes"] as? Number)?.toInt() ?: (data["likes"] as? String)?.toIntOrNull() ?: 0,
+                        comments = (data["comments"] as? Number)?.toInt() ?: (data["comments"] as? String)?.toIntOrNull() ?: 0,
+                        shares = (data["shares"] as? Number)?.toInt() ?: (data["shares"] as? String)?.toIntOrNull() ?: 0,
+                        approved = data["approved"] as? Boolean ?: false,
+                        isGlobal = data["isGlobal"] as? Boolean ?: false
+                    )
                 }
             }
-        } catch (e: Exception) {
-            withContext(Dispatchers.Main) {
-                loading = false
-                isManualRefreshing = false
-            }
         }
-    }
-
-    // ⏳ ప్రాసెసింగ్ లో ఉన్న వార్తల కోసం 10 సెకన్ల ఆటో-రిఫ్రెష్
-    LaunchedEffect(posts) {
-        val hasPending = posts.any {
-            val st = it.status?.uppercase() ?: ""
-            st == "PENDING" || st == "REVIEWING_CONTENT" || st == "PROCESSING_VIDEO" || st == "PROCESSING_VIDEO_START"
-        }
-        if (hasPending) {
-            kotlinx.coroutines.delay(10000L)
-            refreshTrigger++
-        }
+        
+        onDispose { listener.remove() }
     }
 
     fun confirmDelete(postId: String) {
@@ -210,11 +132,39 @@ fun ManagePostsPageView(
                 posts = posts.filter { it.id != postId }
                 Toast.makeText(context, "వార్త తొలగించబడింది", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
-                if (e !is kotlinx.coroutines.CancellationException) {
-                    Toast.makeText(context, "తొలగించడం విఫలమైంది: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
+                Toast.makeText(context, "తొలగించడం విఫలమైంది: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
                 showDeleteDialog = null
+            }
+        }
+    }
+
+    fun sendBroadcast(post: NewsPost, channelId: String) {
+        scope.launch {
+            isBroadcasting = post.id
+            try {
+                val isSilent = channelId != "breaking_news"
+                val title = if (isSilent) post.headline.telugu else "🔴 బ్రేకింగ్ న్యూస్"
+
+                val result = FirebaseFunctionsService.triggerPushBroadcast(
+                    title = title,
+                    body = post.headline.telugu,
+                    actionUrl = "#/s/${post.id}",
+                    topic = "all_users",
+                    silent = isSilent,
+                    channelId = channelId
+                )
+
+                if (result.isSuccess) {
+                    Toast.makeText(context, "పుష్ నోటిఫికేషన్ పంపబడింది!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "విఫలమైంది: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "విఫలమైంది: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                isBroadcasting = null
+                showBroadcastDialog = null
             }
         }
     }
@@ -224,17 +174,16 @@ fun ManagePostsPageView(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        // హెడర్
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        if (showTitle) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (showTitle) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
                             .width(6.dp)
@@ -243,165 +192,51 @@ fun ManagePostsPageView(
                     )
                     Text(
                         text = "వార్తల నిర్వహణ",
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onBackground
                     )
                 }
             }
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = { refreshTrigger++ },
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Refresh,
-                        contentDescription = "Refresh",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Text(
-                        text = "తాజా వార్తలు: ${posts.size}",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                }
-            }
+            Spacer(modifier = Modifier.height(20.dp))
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // అడ్మిన్ కోసం మాత్రమే మోడ్ సెలెక్టర్ (All News vs My Posts)
-        if (isAdmin) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = viewMode == "all",
-                    onClick = { viewMode = "all" },
-                    label = { Text("అన్ని తాజా వార్తలు", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
-                    modifier = Modifier.weight(1f),
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                )
-                FilterChip(
-                    selected = viewMode == "my",
-                    onClick = { viewMode = "my" },
-                    label = { Text("నా వార్తలు", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
-                    modifier = Modifier.weight(1f),
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                )
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-        }
-
-        if (loading && posts.isEmpty()) {
+        if (loading) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(36.dp),
-                        strokeWidth = 3.dp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "వార్తలు లోడ్ అవుతున్నాయి...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                CircularProgressIndicator()
             }
         } else {
-            PullToRefreshBox(
-                isRefreshing = isManualRefreshing,
-                onRefresh = {
-                    scope.launch {
-                        isManualRefreshing = true
-                        refreshTrigger++
-                        kotlinx.coroutines.delay(1000L)
-                        isManualRefreshing = false
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(bottom = 80.dp)
             ) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    contentPadding = PaddingValues(bottom = 80.dp)
-                ) {
                 if (posts.isEmpty()) {
                     item {
                         Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 60.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 100.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Text(
-                                    text = if (viewMode == "my") "మీరు పోస్ట్ చేసిన వార్తలు ఏవీ లేవు." else "వార్తలు ఏవీ లేవు.",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                OutlinedButton(
-                                    onClick = { refreshTrigger++ },
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Refresh,
-                                        contentDescription = "Refresh",
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("రిఫ్రెష్ చేయండి", fontSize = 13.sp)
-                                }
-                            }
+                            Text(
+                                text = "వార్తలు ఏవీ లేవు.",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 } else {
-                    items(posts, key = { it.id }) { post ->
-                        val statusUpper = post.status?.uppercase()
-                        val isRejected = statusUpper == "REJECTED" || !post.rejectionReason.isNullOrBlank() || post.isDuplicate
-                        val isFailed = statusUpper == "FAILED" || !post.error.isNullOrBlank()
-                        val isPublished = post.approved || statusUpper == "PUBLISHED"
-                        val isProcessing = statusUpper == "REVIEWING_CONTENT" || statusUpper == "PROCESSING_VIDEO" || statusUpper == "PROCESSING_VIDEO_START"
-
+                    items(posts, key = { postItem: NewsPost -> postItem.id }) { post ->
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    if (isRejected || isFailed) {
-                                        showStatusDetailDialog = post
-                                    } else {
+                                    if (post.approved) {
                                         onViewPost(post)
+                                    } else {
+                                        Toast.makeText(context, "మీ వార్త పరిశీలనలో ఉంది...", Toast.LENGTH_SHORT).show()
                                     }
                                 },
                             shape = RoundedCornerShape(12.dp),
@@ -410,7 +245,7 @@ fun ManagePostsPageView(
                                 contentColor = MaterialTheme.colorScheme.onSurface
                             ),
                             border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
+                                1.dp, 
                                 MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                             )
                         ) {
@@ -419,6 +254,7 @@ fun ManagePostsPageView(
                                     .fillMaxWidth()
                                     .padding(14.dp)
                             ) {
+                                // Top Row: Image and Headline
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -449,6 +285,7 @@ fun ManagePostsPageView(
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                                 Spacer(modifier = Modifier.height(10.dp))
 
+                                // Bottom Row: Meta and Actions
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -456,33 +293,27 @@ fun ManagePostsPageView(
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         val timeString = DateTimeUtils.formatTimestamp(post.timestamp, "dd MMM, hh:mm a")
-                                        val repLabel = post.reporter.name.ifBlank { "Alfa News" }
-                                        val distLabel = if (!post.district.isNullOrBlank()) " • ${post.district}" else ""
                                         Text(
-                                            text = "${post.categories.firstOrNull() ?: "జిల్లా వార్త"} • $repLabel$distLabel • $timeString",
+                                            text = "${post.categories.firstOrNull() ?: "General"} • ${post.reporter.name} • $timeString",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
-
+                                        
                                         Spacer(modifier = Modifier.height(6.dp))
 
-                                        val statusColor = when {
-                                            isRejected -> Color(0xFFE53935)
-                                            isFailed -> Color(0xFFD32F2F)
-                                            isPublished -> Color(0xFF4CAF50)
-                                            isProcessing -> Color(0xFF1976D2)
-                                            else -> Color(0xFFFF9800)
+                                        // Status Badge
+                                        val statusColor = if (post.approved) Color(0xFF4CAF50) else Color(0xFFFF9800)
+                                        val statusLabel = when (post.status?.uppercase()) {
+                                            "PENDING" -> "పరిశీలనలో ఉంది..."
+                                            "REVIEWING_CONTENT" -> "సిద్ధమవుతోంది..."
+                                            "PROCESSING_VIDEO" -> "వీడియో తయారవుతోంది..."
+                                            "PROCESSING_VIDEO_START" -> "ప్రచురించబడుతోంది..."
+                                            "PUBLISHED" -> "LIVE"
+                                            "FAILED" -> "విఫలమైంది"
+                                            "REJECTED" -> "తిరస్కరించబడింది"
+                                            else -> if (post.approved) "LIVE" else "PENDING"
                                         }
-                                        val statusLabel = when {
-                                            isRejected -> "తిరస్కరించబడింది"
-                                            isFailed -> "విఫలమైంది"
-                                            isPublished -> "LIVE"
-                                            statusUpper == "REVIEWING_CONTENT" -> "సిద్ధమవుతోంది..."
-                                            statusUpper == "PROCESSING_VIDEO" -> "వీడియో తయారవుతోంది..."
-                                            statusUpper == "PROCESSING_VIDEO_START" -> "ప్రచురించబడుతోంది..."
-                                            else -> "పరిశీలనలో ఉంది..."
-                                        }
-
+                                        
                                         Surface(
                                             color = statusColor.copy(alpha = 0.15f),
                                             shape = RoundedCornerShape(6.dp)
@@ -497,15 +328,31 @@ fun ManagePostsPageView(
                                         }
                                     }
 
+                                    // Action Buttons
                                     Row(
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        if (currentUser?.role == UserRole.ADMIN) {
+                                            IconButton(
+                                                onClick = { showBroadcastDialog = post },
+                                                enabled = isBroadcasting != post.id
+                                            ) {
+                                                if (isBroadcasting == post.id) {
+                                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                                } else {
+                                                    Icon(
+                                                        Icons.Default.Notifications,
+                                                        contentDescription = "Broadcast",
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                            }
+                                        }
+
                                         IconButton(
                                             onClick = { onEditPost(post) },
-                                            modifier = Modifier
-                                                .background(MaterialTheme.colorScheme.surface, CircleShape)
-                                                .size(36.dp)
+                                            modifier = Modifier.background(MaterialTheme.colorScheme.surface, CircleShape).size(36.dp)
                                         ) {
                                             Icon(
                                                 Icons.Default.Edit,
@@ -517,9 +364,7 @@ fun ManagePostsPageView(
 
                                         IconButton(
                                             onClick = { showDeleteDialog = post.id },
-                                            modifier = Modifier
-                                                .background(MaterialTheme.colorScheme.surface, CircleShape)
-                                                .size(36.dp)
+                                            modifier = Modifier.background(MaterialTheme.colorScheme.surface, CircleShape).size(36.dp)
                                         ) {
                                             Icon(
                                                 Icons.Default.Delete,
@@ -536,9 +381,8 @@ fun ManagePostsPageView(
                 }
             }
         }
-        }
 
-        // తొలగింపు కన్ఫర్మేషన్ డైలాగ్
+        // Dialogs
         showDeleteDialog?.let { postId ->
             AlertDialog(
                 onDismissRequest = { showDeleteDialog = null },
@@ -560,139 +404,61 @@ fun ManagePostsPageView(
             )
         }
 
-        // స్టేటస్ వివరాల డైలాగ్ (తిరస్కరణ కారణం చూసేందుకు)
-        showStatusDetailDialog?.let { dialogPost ->
-            val rawStatus = (dialogPost.status ?: "").uppercase()
-            val isRejected = rawStatus == "REJECTED" || !dialogPost.rejectionReason.isNullOrBlank() || dialogPost.isDuplicate
-            val isFailed = rawStatus == "FAILED" || !dialogPost.error.isNullOrBlank()
-
-            val dialogTitle = when {
-                isRejected -> "⚠️ ఎడిటోరియల్ డెస్క్ పరిశీలన"
-                isFailed -> "⚠️ ప్రచురణలో అంతరాయం"
-                rawStatus == "REVIEWING_CONTENT" || rawStatus == "PROCESSING_VIDEO" -> "⏳ డెస్క్ పరిశీలిస్తోంది..."
-                else -> "⏳ పరిశీలనలో ఉంది (Pending)"
-            }
-
-            val statusColor = when {
-                isRejected -> Color(0xFFE53935)
-                isFailed -> Color(0xFFD32F2F)
-                else -> Color(0xFFFF9800)
-            }
-
-            val reasonContent = when {
-                !dialogPost.rejectionReason.isNullOrBlank() -> dialogPost.rejectionReason!!
-                dialogPost.isDuplicate -> "ఈ మండలంలో గత కొన్ని గంటల్లో ఈ వార్తాంశం ఇప్పటికే ప్రచురించబడింది."
-                !dialogPost.error.isNullOrBlank() -> "సాంకేతిక అంతరాయం వల్ల ప్రచురణ ప్రక్రియ నిలిచింది. డెస్క్ దీనిని మళ్ళీ పరిశీలిస్తుంది."
-                rawStatus == "PENDING" -> "మీ వార్త ఎడిటోరియల్ డెస్క్ పరిశీలనలో ఉంది. త్వరలోనే ప్రచురించబడుతుంది."
-                else -> "వార్త పరిశీలనలో ఉంది..."
-            }
+        showBroadcastDialog?.let { post ->
+            var channelExpanded by remember { mutableStateOf(false) }
+            val channels = mapOf(
+                "general_news" to "General News",
+                "breaking_news" to "Breaking News",
+                "local_news" to "Local News"
+            )
+            var selectedChannelId by remember { mutableStateOf("general_news") }
 
             AlertDialog(
-                onDismissRequest = { showStatusDetailDialog = null },
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Surface(
-                            color = statusColor.copy(alpha = 0.15f),
-                            shape = CircleShape,
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = if (isRejected || isFailed) "!" else "⏳",
-                                    fontWeight = FontWeight.Bold,
-                                    color = statusColor,
-                                    fontSize = 18.sp
-                                )
-                            }
-                        }
-                        Text(
-                            text = dialogTitle,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = statusColor
-                        )
-                    }
-                },
+                onDismissRequest = { showBroadcastDialog = null },
+                title = { Text("Send Push Notification") },
                 text = {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        if (dialogPost.headline.telugu.isNotBlank()) {
-                            Text(
-                                text = dialogPost.headline.telugu,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text("Channel for: \"${post.headline.telugu}\"")
 
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
+                        ExposedDropdownMenuBox(
+                            expanded = channelExpanded,
+                            onExpandedChange = { channelExpanded = !channelExpanded },
                         ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = "కారణం / వివరాలు:",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Text(
-                                    text = reasonContent,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    lineHeight = 18.sp
-                                )
-                            }
-                        }
-
-                        if (isRejected) {
-                            Text(
-                                text = "గమనిక: నిబంధనలకు విరుద్ధంగా ఉన్న వార్తలు, డూప్లికేట్లు ప్రచురించబడవు. దయచేసి వివరాలను సరిచూసి సవరించి మళ్ళీ పంపండి.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            OutlinedTextField(
+                                value = channels[selectedChannelId] ?: "",
+                                onValueChange = {},
+                                readOnly = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .menuAnchor(),
+                                label = { Text("Channel") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = channelExpanded) }
                             )
+                            ExposedDropdownMenu(
+                                expanded = channelExpanded,
+                                onDismissRequest = { channelExpanded = false }
+                            ) {
+                                channels.forEach { (id, name) ->
+                                    DropdownMenuItem(
+                                        text = { Text(name) },
+                                        onClick = {
+                                            selectedChannelId = id
+                                            channelExpanded = false
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                 },
                 confirmButton = {
-                    Button(
-                        onClick = { showStatusDetailDialog = null },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Text("సరే (Close)")
+                    Button(onClick = { sendBroadcast(post, selectedChannelId) }) {
+                        Text("Send")
                     }
                 },
                 dismissButton = {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        TextButton(
-                            onClick = {
-                                val target = dialogPost
-                                showStatusDetailDialog = null
-                                onEditPost(target)
-                            }
-                        ) {
-                            Text("సవరించండి")
-                        }
-                        TextButton(
-                            onClick = {
-                                val target = dialogPost
-                                showStatusDetailDialog = null
-                                onViewPost(target)
-                            }
-                        ) {
-                            Text("చూడండి")
-                        }
+                    TextButton(onClick = { showBroadcastDialog = null }) {
+                        Text("Cancel")
                     }
                 }
             )
