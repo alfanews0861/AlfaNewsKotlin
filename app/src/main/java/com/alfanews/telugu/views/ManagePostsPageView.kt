@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,22 +22,28 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
+import com.alfanews.telugu.models.mapMapToNewsPost
 import com.alfanews.telugu.services.FirebaseFunctionsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.DateTimeUtils
+import com.alfanews.telugu.utils.ManageNewsHelper
+import com.alfanews.telugu.utils.ManagePostStatus
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.Source
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,6 +55,7 @@ fun ManagePostsPageView(
 ) {
     var posts by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var refreshTrigger by remember { mutableStateOf(0) }
     var isBroadcasting by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -55,71 +63,142 @@ fun ManagePostsPageView(
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
     var showBroadcastDialog by remember { mutableStateOf<NewsPost?>(null) }
 
-    // ✅ REAL-TIME LISTENER: Updates automatically when status changes
-    DisposableEffect(currentUser) {
-        var query = FirebaseService.db.collection("news")
-            .orderBy("timestamp", Query.Direction.DESCENDING)
-
-        if (currentUser?.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {
-            query = query.whereIn("district", currentUser.assignedDistricts)
+    val authUid = remember { FirebaseService.auth.currentUser?.uid.orEmpty() }
+    val candidateIds = remember(currentUser?.id, authUid) {
+        val list = mutableListOf<String>()
+        currentUser?.id?.takeIf { it.isNotBlank() }?.let { list.add(it.trim()) }
+        if (authUid.isNotBlank() && !list.contains(authUid)) {
+            list.add(authUid)
         }
-        
-        if (currentUser?.role == UserRole.REPORTER) {
-            query = query.whereEqualTo("reporter.id", currentUser.id)
-        }
+        list
+    }
+    val targetId = candidateIds.firstOrNull() ?: authUid
 
-        val listener = query.limit(100).addSnapshotListener { snapshot, e ->
+    LaunchedEffect(targetId, refreshTrigger) {
+        if (targetId.isBlank()) {
+            posts = emptyList()
             loading = false
-            if (e != null) return@addSnapshotListener
-            
-            if (snapshot != null) {
-                posts = snapshot.documents.mapNotNull { doc ->
-                    val data = doc.data ?: return@mapNotNull null
-                    val headlineData = data["headline"] as? Map<*, *> ?: emptyMap<Any, Any>()
-                    val contentData = data["content"] as? Map<*, *> ?: emptyMap<Any, Any>()
-                    val reporterData = data["reporter"] as? Map<*, *> ?: emptyMap<Any, Any>()
+            return@LaunchedEffect
+        }
 
-                    val timestamp = when (val ts = data["timestamp"]) {
-                        is com.google.firebase.Timestamp -> ts.toDate().time
-                        is Number -> ts.toLong()
-                        else -> System.currentTimeMillis()
-                    }
+        loading = posts.isEmpty()
 
-                    NewsPost(
-                        id = doc.id,
-                        headline = com.alfanews.telugu.models.Headline(
-                            telugu = headlineData["telugu"] as? String ?: "",
-                            english = headlineData["english"] as? String ?: ""
-                        ),
-                        content = com.alfanews.telugu.models.Content(
-                            telugu = contentData["telugu"] as? String ?: "",
-                            english = contentData["english"] as? String ?: ""
-                        ),
-                        mediaUrl = data["mediaUrl"] as? String ?: "",
-                        mediaType = when (data["mediaType"]?.toString()?.uppercase()) {
-                            "VIDEO" -> com.alfanews.telugu.models.MediaType.VIDEO
-                            else -> com.alfanews.telugu.models.MediaType.IMAGE
-                        },
-                        reporter = com.alfanews.telugu.models.Reporter(
-                            id = reporterData["id"] as? String ?: "",
-                            name = reporterData["name"] as? String ?: ""
-                        ),
-                        location = data["location"] as? String ?: "",
-                        state = data["state"] as? String,
-                        district = data["district"] as? String,
-                        timestamp = timestamp,
-                        categories = data["categories"] as? List<String> ?: emptyList(),
-                        likes = (data["likes"] as? Number)?.toInt() ?: (data["likes"] as? String)?.toIntOrNull() ?: 0,
-                        comments = (data["comments"] as? Number)?.toInt() ?: (data["comments"] as? String)?.toIntOrNull() ?: 0,
-                        shares = (data["shares"] as? Number)?.toInt() ?: (data["shares"] as? String)?.toIntOrNull() ?: 0,
-                        approved = data["approved"] as? Boolean ?: false,
-                        isGlobal = data["isGlobal"] as? Boolean ?: false
-                    )
+        val newsRef = FirebaseService.db.collection("news")
+
+        // 🛡️ Helper: Robust ordered query with fallback for index resilience
+        suspend fun queryReporterField(
+            field: String,
+            value: String,
+            source: Source? = null,
+            limitCount: Long = 15
+        ): List<DocumentSnapshot> {
+            if (value.isBlank()) return emptyList()
+            return try {
+                val qOrdered = newsRef.whereEqualTo(field, value)
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                    .limit(limitCount)
+                val snap = if (source != null) qOrdered.get(source).await() else qOrdered.get().await()
+                snap.documents
+            } catch (_: Exception) {
+                try {
+                    val qSimple = newsRef.whereEqualTo(field, value).limit(limitCount)
+                    val snap = if (source != null) qSimple.get(source).await() else qSimple.get().await()
+                    snap.documents
+                } catch (_: Exception) {
+                    emptyList()
                 }
             }
         }
-        
-        onDispose { listener.remove() }
+
+        // 1. ⚡ INSTANT LOCAL CACHE DISPLAY (< 15ms)
+        if (posts.isEmpty()) {
+            try {
+                withContext(Dispatchers.IO) {
+                    // Fast path: primary query from cache first
+                    val primaryCacheDocs = queryReporterField("originalReporterId", targetId, Source.CACHE)
+                    val cachedDocs = if (primaryCacheDocs.size >= 10) {
+                        primaryCacheDocs
+                    } else {
+                        val cacheJobs = mutableListOf<kotlinx.coroutines.Deferred<List<DocumentSnapshot>>>()
+                        cacheJobs.add(async { queryReporterField("reporter.id", targetId, Source.CACHE) })
+                        cacheJobs.add(async { queryReporterField("reporterId", targetId, Source.CACHE) })
+
+                        val secondId = candidateIds.getOrNull(1)
+                        if (!secondId.isNullOrBlank() && secondId != targetId) {
+                            cacheJobs.add(async { queryReporterField("originalReporterId", secondId, Source.CACHE) })
+                            cacheJobs.add(async { queryReporterField("reporter.id", secondId, Source.CACHE) })
+                        }
+                        primaryCacheDocs + cacheJobs.awaitAll().flatten()
+                    }
+
+                    val seenCacheIds = mutableSetOf<String>()
+                    val cachedParsed = cachedDocs.mapNotNull { doc ->
+                        if (!seenCacheIds.add(doc.id)) return@mapNotNull null
+                        try {
+                            val data = doc.data ?: return@mapNotNull null
+                            mapMapToNewsPost(doc.id, data)
+                        } catch (_: Exception) { null }
+                    }.sortedByDescending { it.timestamp }.take(10)
+
+                    if (cachedParsed.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            posts = cachedParsed
+                            loading = false
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 2. ⚡ LIVE SERVER FETCH: Smart Short-Circuit (Priority to Reporter ID)
+        try {
+            withTimeoutOrNull(10000L) {
+                withContext(Dispatchers.IO) {
+                    // 🚀 STEP 1: ప్రథమ ప్రాధాన్యత క్వెరీ (originalReporterId) మొదట రన్ అవుతుంది
+                    val primaryDocs = queryReporterField("originalReporterId", targetId)
+
+                    // 🛑 STEP 2: మొదటి క్వెరీలోనే 10 లేదా అంతకంటే ఎక్కువ వార్తలు వస్తే, మిగతావి ట్రిగ్గర్ అవ్వకుండా ఆగిపోతాయి!
+                    val candidateDocs = if (primaryDocs.size >= 10) {
+                        primaryDocs
+                    } else {
+                        // ⚡ ఒకవేళ 10 కంటే తక్కువ ఉంటేనే (కొత్త రిపోర్టర్ లేదా పాత పోస్ట్‌లు), మిగతావి ప్యారలల్‌గా రన్ అవుతాయి
+                        val fallbackJobs = mutableListOf<kotlinx.coroutines.Deferred<List<DocumentSnapshot>>>()
+                        fallbackJobs.add(async { queryReporterField("reporter.id", targetId) })
+                        fallbackJobs.add(async { queryReporterField("reporterId", targetId) })
+                        fallbackJobs.add(async { queryReporterField("userId", targetId) })
+
+                        val secondId = candidateIds.getOrNull(1)
+                        if (!secondId.isNullOrBlank() && secondId != targetId) {
+                            fallbackJobs.add(async { queryReporterField("originalReporterId", secondId) })
+                            fallbackJobs.add(async { queryReporterField("reporter.id", secondId) })
+                        }
+
+                        primaryDocs + fallbackJobs.awaitAll().flatten()
+                    }
+
+                    val seenDocIds = mutableSetOf<String>()
+                    val parsedPosts = candidateDocs.mapNotNull { doc ->
+                        if (!seenDocIds.add(doc.id)) return@mapNotNull null
+                        try {
+                            val data = doc.data ?: return@mapNotNull null
+                            mapMapToNewsPost(doc.id, data)
+                        } catch (_: Exception) { null }
+                    }.sortedByDescending { it.timestamp }.take(10)
+
+                    withContext(Dispatchers.Main) {
+                        if (parsedPosts.isNotEmpty()) {
+                            posts = parsedPosts
+                        } else if (posts.isEmpty()) {
+                            posts = emptyList()
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // Fallback safe: any cached posts remain intact
+        } finally {
+            loading = false
+        }
     }
 
     fun confirmDelete(postId: String) {
@@ -174,32 +253,38 @@ fun ManagePostsPageView(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        if (showTitle) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .width(6.dp)
-                            .height(28.dp)
-                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(3.dp))
-                    )
-                    Text(
-                        text = "వార్తల నిర్వహణ",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                }
+                Box(
+                    modifier = Modifier
+                        .width(6.dp)
+                        .height(28.dp)
+                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(3.dp))
+                )
+                Text(
+                    text = "వార్తల నిర్వహణ",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            IconButton(onClick = { refreshTrigger++ }) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Refresh",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
         }
 
         if (loading) {
@@ -217,14 +302,30 @@ fun ManagePostsPageView(
                 if (posts.isEmpty()) {
                     item {
                         Box(
-                            modifier = Modifier.fillMaxWidth().padding(top = 100.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 100.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = "వార్తలు ఏవీ లేవు.",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Text(
+                                    text = "మీరు పోస్ట్ చేసిన వార్తలు ఏవీ లేవు.",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                OutlinedButton(onClick = { refreshTrigger++ }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("మళ్లీ ప్రయత్నించండి")
+                                }
+                            }
                         }
                     }
                 } else {
@@ -294,7 +395,7 @@ fun ManagePostsPageView(
                                     Column(modifier = Modifier.weight(1f)) {
                                         val timeString = DateTimeUtils.formatTimestamp(post.timestamp, "dd MMM, hh:mm a")
                                         Text(
-                                            text = "${post.categories.firstOrNull() ?: "General"} • ${post.reporter.name} • $timeString",
+                                            text = "${post.categories.firstOrNull() ?: "వార్తలు"} • ${post.reporter.name.ifBlank { "మీరు" }} • $timeString",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -302,18 +403,15 @@ fun ManagePostsPageView(
                                         Spacer(modifier = Modifier.height(6.dp))
 
                                         // Status Badge
-                                        val statusColor = if (post.approved) Color(0xFF4CAF50) else Color(0xFFFF9800)
-                                        val statusLabel = when (post.status?.uppercase()) {
-                                            "PENDING" -> "పరిశీలనలో ఉంది..."
-                                            "REVIEWING_CONTENT" -> "సిద్ధమవుతోంది..."
-                                            "PROCESSING_VIDEO" -> "వీడియో తయారవుతోంది..."
-                                            "PROCESSING_VIDEO_START" -> "ప్రచురించబడుతోంది..."
-                                            "PUBLISHED" -> "LIVE"
-                                            "FAILED" -> "విఫలమైంది"
-                                            "REJECTED" -> "తిరస్కరించబడింది"
-                                            else -> if (post.approved) "LIVE" else "PENDING"
+                                        val status = ManageNewsHelper.resolveStatus(post)
+                                        val (statusLabel, statusColor) = when (status) {
+                                            ManagePostStatus.LIVE -> "LIVE" to Color(0xFF4CAF50)
+                                            ManagePostStatus.PENDING -> "పరిశీలనలో ఉంది..." to Color(0xFFFF9800)
+                                            ManagePostStatus.PROCESSING -> "సిద్ధమవుతోంది..." to Color(0xFF2196F3)
+                                            ManagePostStatus.REJECTED -> "తిరస్కరించబడింది" to Color(0xFFE91E63)
+                                            ManagePostStatus.FAILED -> "విఫలమైంది" to Color(0xFFF44336)
                                         }
-                                        
+
                                         Surface(
                                             color = statusColor.copy(alpha = 0.15f),
                                             shape = RoundedCornerShape(6.dp)

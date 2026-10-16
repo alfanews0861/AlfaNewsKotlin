@@ -57,7 +57,7 @@ class ClassifiedsViewModel : ViewModel() {
 
     fun loadAds(userId: String? = null) {
         viewModelScope.launch {
-            _loading.value = true
+            _loading.value = _allAds.value.isEmpty()
             listenerRegistration?.remove()
 
             // Safety watchdog: after 2.5s turn off loading state even if empty or slow
@@ -73,35 +73,52 @@ class ClassifiedsViewModel : ViewModel() {
                 } else {
                     adsRef.orderBy("timestamp", Query.Direction.DESCENDING).limit(50)
                 }
+
+                fun parseAds(documents: List<com.google.firebase.firestore.DocumentSnapshot>): List<ClassifiedAd> {
+                    return documents.mapNotNull { doc ->
+                        try {
+                            val data = doc.data ?: return@mapNotNull null
+                            ClassifiedAd(
+                                id = doc.id,
+                                userId = data["userId"] as? String ?: "",
+                                userName = data["userName"] as? String ?: "",
+                                title = data["title"] as? String ?: "",
+                                description = data["description"] as? String ?: "",
+                                price = (data["price"] as? Number)?.toDouble() ?: 0.0,
+                                category = data["category"] as? String ?: "",
+                                location = data["location"] as? String ?: "",
+                                imageUrl = data["imageUrl"] as? String ?: "",
+                                contactPhone = data["contactPhone"] as? String ?: "",
+                                whatsappNumber = data["whatsappNumber"] as? String,
+                                timestamp = (data["timestamp"] as? com.google.firebase.Timestamp)?.toDate()?.time
+                                    ?: System.currentTimeMillis()
+                            )
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }.sortedByDescending { it.timestamp }
+                }
+
+                // 1. ⚡ Instant Cache (< 15ms)
+                if (_allAds.value.isEmpty()) {
+                    try {
+                        val cachedSnap = query.get(com.google.firebase.firestore.Source.CACHE).await()
+                        val cachedAds = parseAds(cachedSnap.documents)
+                        if (cachedAds.isNotEmpty()) {
+                            _allAds.value = cachedAds
+                            _loading.value = false
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                // 2. Live snapshot listener
                 listenerRegistration = query.addSnapshotListener { snapshot, error ->
                     _loading.value = false
                     if (error != null) {
                         return@addSnapshotListener
                     }
                     if (snapshot != null) {
-                        val fetchedAds = snapshot.documents.mapNotNull { doc ->
-                            try {
-                                val data = doc.data ?: return@mapNotNull null
-                                ClassifiedAd(
-                                    id = doc.id,
-                                    userId = data["userId"] as? String ?: "",
-                                    userName = data["userName"] as? String ?: "",
-                                    title = data["title"] as? String ?: "",
-                                    description = data["description"] as? String ?: "",
-                                    price = (data["price"] as? Number)?.toDouble() ?: 0.0,
-                                    category = data["category"] as? String ?: "",
-                                    location = data["location"] as? String ?: "",
-                                    imageUrl = data["imageUrl"] as? String ?: "",
-                                    contactPhone = data["contactPhone"] as? String ?: "",
-                                    whatsappNumber = data["whatsappNumber"] as? String,
-                                    timestamp = (data["timestamp"] as? com.google.firebase.Timestamp)?.toDate()?.time
-                                        ?: System.currentTimeMillis()
-                                )
-                            } catch (e: Exception) {
-                                null
-                            }
-                        }.sortedByDescending { it.timestamp }
-                        _allAds.value = fetchedAds
+                        _allAds.value = parseAds(snapshot.documents)
                     }
                 }
             } catch (e: Exception) {

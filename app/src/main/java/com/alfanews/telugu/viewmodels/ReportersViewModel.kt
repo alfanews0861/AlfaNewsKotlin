@@ -8,6 +8,7 @@ import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.toUserObject
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.Source
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -43,41 +44,71 @@ class ReportersViewModel(application: Application) : AndroidViewModel(applicatio
         _sortOrder.value = order
     }
 
+    private fun filterReportersList(
+        list: List<User>,
+        currentUser: User?,
+        district: String?,
+        mandal: String?
+    ): List<User> {
+        var finalList = list
+        if (!district.isNullOrEmpty()) {
+            finalList = finalList.filter { it.district.equals(district, ignoreCase = true) }
+        }
+        if (!mandal.isNullOrEmpty()) {
+            finalList = finalList.filter { it.assignedMandal.equals(mandal, ignoreCase = true) }
+        }
+        if (currentUser?.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {
+            if (district == null) {
+                finalList = finalList.filter { user -> currentUser.assignedDistricts.any { ad -> ad.equals(user.district, ignoreCase = true) } }
+            }
+        }
+        return finalList
+    }
+
     fun fetchReporters(currentUser: User?, district: String? = null, mandal: String? = null) {
         viewModelScope.launch {
-            _loading.value = true
+            if (_reporters.value.isEmpty()) {
+                _loading.value = true
+            }
+            val rolesList = listOf("REPORTER", "reporter", "REGIONAL_INCHARGE", "regional_incharge", 2, 2.0, "2", 3, 3.0, "3")
+
+            // 1. Instant Cache path (< 15ms)
             try {
-                val rolesList = listOf("REPORTER", "reporter", "REGIONAL_INCHARGE", "regional_incharge", 2, 2.0, "2", 3, 3.0, "3")
-                val snapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                    FirebaseService.db.collection("users")
-                        .whereIn("role", rolesList)
-                        .limit(500)
-                        .get().await()
-                }
-                val list = snapshot?.documents?.mapNotNull { it.toUserObject() } ?: emptyList()
-
-                var finalList = list
-
-                if (!district.isNullOrEmpty()) {
-                    finalList = finalList.filter { it.district.equals(district, ignoreCase = true) }
-                }
-                
-                if (!mandal.isNullOrEmpty()) {
-                    finalList = finalList.filter { it.assignedMandal.equals(mandal, ignoreCase = true) }
-                }
-
-                // In-memory filter for REGIONAL_INCHARGE
-                if (currentUser?.role == UserRole.REGIONAL_INCHARGE && currentUser.assignedDistricts.isNotEmpty()) {
-                    if (district == null) {
-                        finalList = finalList.filter { user -> currentUser.assignedDistricts.any { ad -> ad.equals(user.district, ignoreCase = true) } }
+                val cacheSnap = FirebaseService.db.collection("users")
+                    .whereIn("role", rolesList)
+                    .limit(300)
+                    .get(Source.CACHE)
+                    .await()
+                if (!cacheSnap.isEmpty) {
+                    val cacheUsers = cacheSnap.documents.mapNotNull { it.toUserObject() }
+                    val filteredCache = filterReportersList(cacheUsers, currentUser, district, mandal)
+                    if (filteredCache.isNotEmpty()) {
+                        _reporters.value = filteredCache
+                        _loading.value = false
                     }
                 }
+            } catch (_: Exception) {
+                // Cache miss, proceed to server
+            }
 
-                _reporters.value = finalList
-                
-                // Fetch stats for these reporters in background
-                if (finalList.isNotEmpty()) {
-                    fetchReportersForStats(finalList.map { it.id })
+            // 2. Fresh Server path
+            try {
+                val snapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                    FirebaseService.db.collection("users")
+                        .whereIn("role", rolesList)
+                        .limit(300)
+                        .get(Source.SERVER)
+                        .await()
+                }
+                if (snapshot != null && !snapshot.isEmpty) {
+                    val list = snapshot.documents.mapNotNull { it.toUserObject() }
+                    val finalList = filterReportersList(list, currentUser, district, mandal)
+                    _reporters.value = finalList
+
+                    // Fetch stats for these reporters in background
+                    if (finalList.isNotEmpty()) {
+                        fetchReportersForStats(finalList.map { it.id })
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()

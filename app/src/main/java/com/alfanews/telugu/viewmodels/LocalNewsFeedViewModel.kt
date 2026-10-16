@@ -183,21 +183,31 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     newsRef.whereEqualTo("approved", true).whereEqualTo("district", aliases.firstOrNull() ?: district)
                 }.orderBy("timestamp", Query.Direction.DESCENDING).limit(PAGE_SIZE.toLong())
 
-                // 1. ⚡ INSTANT CACHE DISPLAY (< 20ms) - మెమరీ ఖాళీగా ఉంటే లోకల్ క్యాష్ వెంటనే చూపిస్తుంది
+                val FIVE_HOURS_MS = 5L * 60 * 60 * 1000L
+                val now = System.currentTimeMillis()
+                var hasFreshCache = false
+
+                // 1. ⚡ SMART LOCAL CACHE DISPLAY (< 20ms) - Only if fresh (< 5 hours old)
                 if (_news.value.isEmpty()) {
                     try {
                         val cachedSnap = query.get(Source.CACHE).await()
                         val cachedPosts = cachedSnap.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
-                        if (cachedPosts.isNotEmpty()) {
+                        val latestTimestamp = cachedPosts.maxOfOrNull { it.timestamp } ?: 0L
+                        val isCacheFresh = (now - latestTimestamp) < FIVE_HOURS_MS
+
+                        if (isCacheFresh && cachedPosts.isNotEmpty()) {
                             _news.value = cachedPosts
                             _loading.value = false
+                            hasFreshCache = true
                             lastDistrictDocument = cachedSnap.documents.lastOrNull()
-                            Log.d("LocalNewsFeedVM", "⚡ Instant Local Cache Display: ${cachedPosts.size} posts in < 20ms")
+                            Log.d("LocalNewsFeedVM", "⚡ Instant Local Fresh Cache Display (<5h): ${cachedPosts.size} posts in < 20ms")
+                        } else {
+                            Log.d("LocalNewsFeedVM", "Local cache is empty or older than 5 hours (${(now - latestTimestamp) / 3600000}h old), bypassing stale cache for direct server query")
                         }
                     } catch (_: Exception) {}
                 }
 
-                if (_news.value.isEmpty()) {
+                if (!hasFreshCache && _news.value.isEmpty()) {
                     _loading.value = true
                 }
 

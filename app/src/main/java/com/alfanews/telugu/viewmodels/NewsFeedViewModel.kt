@@ -138,10 +138,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * ⚡ Ultra-fast Single Direct Query for Home News Feed.
-     * 1. Smart Local Cache (< 20ms) for instant display on cold start / reopen.
-     * 2. Direct Firestore query (< 300ms) with orderBy timestamp DESC limit 20.
-     * 3. Zero multi-stream cascade, zero unnecessary blocking, zero post-filtering.
+     * ⚡ 40/30/30 Stream Mixing + User Interest Personalization + Smart Cache & Fast Path.
+     * 1. Smart Local Cache (< 20ms) displayed ONLY if fresh (< 5 hours old).
+     * 2. Fast Path (< 300ms) top 5 posts if cache is stale (> 5 hours) or empty.
+     * 3. Parallel Lean Server Queries: 40% General/State breaking, 30% User Interests, 30% Local District.
+     * 4. Interleaved Cadence & Strict State Isolation.
      */
     fun loadNews(
         language: Language,
@@ -164,6 +165,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
         val district = prefs.getEffectiveDistrict() ?: effectiveUser?.district?.takeIf { it.isNotBlank() }
         _userDistrict.value = district
+        val userState = Constants.mapDistrictToState(district)
+
+        val categoryScores = effectiveUser?.categoryScores ?: emptyMap()
+        val preferredCategories = try { AnalyticsService.getUserPreferredCategories().toSet() } catch (_: Exception) { emptySet() }
 
         // Asynchronously load local ads in background (does NOT block news feed)
         loadLocalAds(district)
@@ -191,38 +196,103 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     .orderBy("timestamp", Query.Direction.DESCENDING)
                     .limit(PAGE_SIZE.toLong())
 
-                // 2. ⚡ INSTANT CACHE DISPLAY (< 20ms)
+                val FIVE_HOURS_MS = 5L * 60 * 60 * 1000L
+                val now = System.currentTimeMillis()
+                var hasFreshCache = false
+
+                // 2. ⚡ SMART LOCAL CACHE DISPLAY (< 20ms) - Only if fresh (< 5 hours old)
                 if (_news.value.isEmpty()) {
                     try {
                         val cachedSnap = primaryQuery.get(Source.CACHE).await()
                         val cachedPosts = cachedSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
-                        if (cachedPosts.isNotEmpty()) {
-                            val combined = (listOfNotNull(initialTargetPost) + cachedPosts).distinctBy { it.id }
+                        val latestTimestamp = cachedPosts.maxOfOrNull { it.timestamp } ?: 0L
+                        val isCacheFresh = (now - latestTimestamp) < FIVE_HOURS_MS
+
+                        if (isCacheFresh && cachedPosts.isNotEmpty()) {
+                            val stateFiltered = cachedPosts.filter { isPostAllowedForState(it, userState) }.ifEmpty { cachedPosts }
+                            val ranked = rankPostsByInterest(stateFiltered, categoryScores, preferredCategories)
+                            val combined = (listOfNotNull(initialTargetPost) + ranked).distinctBy { it.id }
                             _news.value = combined
                             _loading.value = false
+                            hasFreshCache = true
                             lastDocument = cachedSnap.documents.lastOrNull()
-                            Log.d("NewsFeedVM", "⚡ Instant Cache Display: ${combined.size} posts in < 20ms")
+                            Log.d("NewsFeedVM", "⚡ Instant Fresh Cache (<5h): ${combined.size} posts in < 20ms")
+                        } else {
+                            Log.d("NewsFeedVM", "Cache is empty or older than 5 hours (${(now - latestTimestamp) / 3600000}h old), bypassing stale cache for Fast Path")
                         }
                     } catch (_: Exception) {}
                 }
 
+                // 3. 🚀 FAST PATH (< 300ms) - If cache was stale (>5h) or empty, fetch top 5 fresh posts immediately
                 if (_news.value.isEmpty()) {
                     _loading.value = true
-                }
-
-                // 3. ⚡ DIRECT SERVER QUERY (< 300ms) with 6s lean timeout
-                val snap = try {
-                    kotlinx.coroutines.withTimeoutOrNull(6000L) {
-                        primaryQuery.get().await()
+                    try {
+                        val fastSnap = kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                            newsRef.whereEqualTo("approved", true)
+                                .orderBy("timestamp", Query.Direction.DESCENDING)
+                                .limit(5)
+                                .get()
+                                .await()
+                        }
+                        val fastPosts = fastSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
+                        if (fastPosts.isNotEmpty() && _news.value.isEmpty()) {
+                            val stateFiltered = fastPosts.filter { isPostAllowedForState(it, userState) }.ifEmpty { fastPosts }
+                            val combined = (listOfNotNull(initialTargetPost) + stateFiltered).distinctBy { it.id }
+                            if (combined.isNotEmpty()) {
+                                _news.value = combined
+                                _loading.value = false
+                                Log.d("NewsFeedVM", "⚡ Fast Path: ${combined.size} fresh posts in < 300ms")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w("NewsFeedVM", "Fast path query: ${e.message}")
                     }
-                } catch (e: Exception) {
-                    Log.w("NewsFeedVM", "Server query failed, falling back to cache: ${e.message}")
-                    null
                 }
 
-                var freshPosts = snap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
+                // 4. ⚡ PARALLEL LEAN SERVER QUERIES (Primary 20 + District 8) with 4.5s lean timeout
+                val mainDeferred = async(Dispatchers.IO) {
+                    try {
+                        primaryQuery.get().await()
+                    } catch (e: Exception) {
+                        Log.w("NewsFeedVM", "Primary query server failed: ${e.message}")
+                        null
+                    }
+                }
 
-                // If network failed/empty and memory is empty, fallback to local cache
+                val districtDeferred = async(Dispatchers.IO) {
+                    if (!district.isNullOrBlank()) {
+                        val aliases = Constants.getDistrictAliases(district)
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                            .distinct()
+                            .take(10)
+                        try {
+                            val q = if (aliases.size > 1) {
+                                newsRef.whereEqualTo("approved", true)
+                                    .whereIn("district", aliases)
+                                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                                    .limit(8)
+                            } else {
+                                newsRef.whereEqualTo("approved", true)
+                                    .whereEqualTo("district", aliases.firstOrNull() ?: district)
+                                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                                    .limit(8)
+                            }
+                            q.get().await()
+                        } catch (e: Exception) {
+                            Log.w("NewsFeedVM", "District query failed: ${e.message}")
+                            null
+                        }
+                    } else null
+                }
+
+                val mainSnap = kotlinx.coroutines.withTimeoutOrNull(4500L) { mainDeferred.await() }
+                val districtSnap = kotlinx.coroutines.withTimeoutOrNull(4500L) { districtDeferred.await() }
+
+                var freshPosts = mainSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
+                val districtPosts = districtSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
+
+                // Fallback to cache if network failed/timed out completely and memory is still empty
                 if (freshPosts.isEmpty() && _news.value.isEmpty()) {
                     try {
                         val fallbackCachedSnap = primaryQuery.get(Source.CACHE).await()
@@ -231,12 +301,24 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                             lastDocument = fallbackCachedSnap.documents.lastOrNull()
                         }
                     } catch (_: Exception) {}
-                } else if (snap?.documents?.isNotEmpty() == true) {
-                    lastDocument = snap.documents.lastOrNull()
+                } else if (mainSnap?.documents?.isNotEmpty() == true) {
+                    lastDocument = mainSnap.documents.lastOrNull()
                 }
 
-                if (freshPosts.isNotEmpty()) {
-                    val combined = (listOfNotNull(initialTargetPost) + freshPosts).distinctBy { it.id }
+                // 5. 🎯 40/30/30 INTERLEAVED BLENDING (Fresh Breaking, User Personalized, Local District)
+                if (freshPosts.isNotEmpty() || districtPosts.isNotEmpty()) {
+                    val stateMain = freshPosts.filter { isPostAllowedForState(it, userState) }.ifEmpty { freshPosts }
+                    val stateDistrict = districtPosts.filter { isPostAllowedForState(it, userState) }
+
+                    val blended = rankAndBlendPosts(
+                        fresh = stateMain,
+                        districtPosts = stateDistrict,
+                        categoryScores = categoryScores,
+                        preferredCategories = preferredCategories,
+                        userDistrict = district
+                    )
+
+                    val combined = (listOfNotNull(initialTargetPost) + blended).distinctBy { it.id }
                     _news.value = combined
                     _hasMore.value = (freshPosts.size >= PAGE_SIZE)
                     lastRefreshTimeLong = System.currentTimeMillis()
@@ -260,7 +342,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * 📄 Paginated infinite scroll loader using direct cursor.
+     * 📄 Paginated infinite scroll loader using direct cursor with duplicate protection.
      */
     fun loadMore(language: Language, currentUser: User?) {
         if (!_hasMore.value || isFetching) return
@@ -272,30 +354,42 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             isFetching = true
             try {
+                val district = prefs.getEffectiveDistrict() ?: activeCurrentUser?.district?.takeIf { it.isNotBlank() }
+                val userState = Constants.mapDistrictToState(district)
+                val categoryScores = activeCurrentUser?.categoryScores ?: emptyMap()
+                val preferredCategories = try { AnalyticsService.getUserPreferredCategories().toSet() } catch (_: Exception) { emptySet() }
+
                 val newsRef = FirebaseService.db.collection("news")
                 val q = newsRef.whereEqualTo("approved", true)
                     .orderBy("timestamp", Query.Direction.DESCENDING)
                     .startAfter(cursor)
                     .limit(PAGE_SIZE.toLong())
 
-                val snap = q.get().await()
-                val newPosts = snap.documents.mapNotNull { mapDocumentToNewsPost(it) }
-                lastDocument = snap.documents.lastOrNull()
+                val snap = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                    q.get().await()
+                }
+                val newPosts = snap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
+                if (snap?.documents?.isNotEmpty() == true) {
+                    lastDocument = snap.documents.lastOrNull()
+                }
 
                 if (newPosts.isEmpty()) {
                     _hasMore.value = false
                 } else {
+                    val stateFiltered = newPosts.filter { isPostAllowedForState(it, userState) }.ifEmpty { newPosts }
                     val currentIds = _news.value.map { it.id }.toSet()
-                    val unique = newPosts.filter { it.id !in currentIds }
+                    val unique = stateFiltered.filter { it.id !in currentIds }
+
                     if (unique.isNotEmpty()) {
                         consecutiveEmptyLoads = 0
-                        _news.value = _news.value + unique
-                        val validIds = unique.filter { it.type == "news" }.map { it.id }
+                        val ranked = rankPostsByInterest(unique, categoryScores, preferredCategories)
+                        _news.value = _news.value + ranked
+                        val validIds = ranked.filter { it.type == "news" }.map { it.id }
                         prefs.incrementPostViewCounts(validIds)
                     } else {
                         consecutiveEmptyLoads++
                         if (consecutiveEmptyLoads >= 2) {
-                            _hasMore.value = false // 🛡️ Prevent infinite read loop on duplicate batches
+                            _hasMore.value = false // 🛡️ Circuit breaker against loops
                         }
                     }
                     if (newPosts.size < PAGE_SIZE) {
@@ -309,6 +403,142 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 isFetching = false
             }
         }
+    }
+
+    /**
+     * 🎯 40/30/30 Interleaved Blending Cadence:
+     * - 40% Fresh Breaking News (State-wide)
+     * - 30% User Interest Personalized News (ranked by categoryScores + preferredCategories)
+     * - 30% Local District News (User's specific district) / Discovery
+     */
+    private fun rankAndBlendPosts(
+        fresh: List<NewsPost>,
+        districtPosts: List<NewsPost>,
+        categoryScores: Map<String, Int>,
+        preferredCategories: Set<String>,
+        userDistrict: String?
+    ): List<NewsPost> {
+        val allRaw = (fresh + districtPosts).distinctBy { it.id }
+        if (allRaw.isEmpty()) return emptyList()
+
+        // 1. Local Candidates (User's District)
+        val localCandidates = districtPosts.sortedByDescending { it.timestamp }.toMutableList()
+        val localIds = localCandidates.map { it.id }.toSet()
+
+        val nonLocalPosts = allRaw.filter { it.id !in localIds }
+
+        // 2. Personalized Candidates (User Interest Matches with positive score)
+        val scoredPosts = nonLocalPosts.map { post ->
+            var score = 0
+            post.categories.forEach { cat ->
+                score += categoryScores[cat] ?: categoryScores[cat.lowercase()] ?: 0
+                if (cat in preferredCategories) score += 2
+            }
+            post.tags.forEach { tag ->
+                score += categoryScores[tag] ?: categoryScores[tag.lowercase()] ?: 0
+            }
+            post to score
+        }.filter { it.second > 0 }
+         .sortedByDescending { it.second }
+         .map { it.first }
+         .toMutableList()
+        val scoredIds = scoredPosts.map { it.id }.toSet()
+
+        // 3. Fresh Breaking Candidates (Sorted strictly by timestamp DESC)
+        val freshCandidates = nonLocalPosts.sortedByDescending { it.timestamp }.toMutableList()
+
+        // 4. Discovery Candidates (posts not matching current top preferences to prevent filter bubble)
+        val discoveryCandidates = nonLocalPosts.filter { it.id !in scoredIds }
+            .sortedByDescending { it.timestamp }
+            .toMutableList()
+
+        val blended = mutableListOf<NewsPost>()
+        val addedIds = mutableSetOf<String>()
+
+        fun pollNext(list: MutableList<NewsPost>): NewsPost? {
+            while (list.isNotEmpty()) {
+                val item = list.removeAt(0)
+                if (item.id !in addedIds) {
+                    addedIds.add(item.id)
+                    return item
+                }
+            }
+            return null
+        }
+
+        // 🔄 40/30/30 Cadence (40% Fresh Breaking, 30% User Personalized, 30% Local District / Discovery):
+        // Slot 0: Fresh #1 (Top Breaking)
+        // Slot 1: Personalized #1 (Top User Interest)
+        // Slot 2: Local District #1 (User's local news)
+        // Slot 3: Fresh #2 (Breaking)
+        // Slot 4: Personalized #2 (User Interest)
+        // Slot 5: Local District #2 / Discovery #1
+        val maxIterations = allRaw.size + 15
+        var loopCount = 0
+        while (addedIds.size < allRaw.size && loopCount < maxIterations) {
+            val cycle = loopCount % 6
+            val nextPost = when (cycle) {
+                0 -> pollNext(freshCandidates) ?: pollNext(scoredPosts) ?: pollNext(localCandidates) ?: pollNext(discoveryCandidates)
+                1 -> pollNext(scoredPosts) ?: pollNext(freshCandidates) ?: pollNext(localCandidates) ?: pollNext(discoveryCandidates)
+                2 -> pollNext(localCandidates) ?: pollNext(freshCandidates) ?: pollNext(scoredPosts) ?: pollNext(discoveryCandidates)
+                3 -> pollNext(freshCandidates) ?: pollNext(scoredPosts) ?: pollNext(discoveryCandidates) ?: pollNext(localCandidates)
+                4 -> pollNext(scoredPosts) ?: pollNext(freshCandidates) ?: pollNext(discoveryCandidates) ?: pollNext(localCandidates)
+                5 -> pollNext(localCandidates) ?: pollNext(discoveryCandidates) ?: pollNext(freshCandidates) ?: pollNext(scoredPosts)
+                else -> pollNext(freshCandidates)
+            }
+            if (nextPost != null) {
+                blended.add(nextPost)
+            } else {
+                val remaining = allRaw.firstOrNull { it.id !in addedIds }
+                if (remaining != null) {
+                    addedIds.add(remaining.id)
+                    blended.add(remaining)
+                } else {
+                    break
+                }
+            }
+            loopCount++
+        }
+
+        return if (blended.isNotEmpty()) blended else allRaw
+    }
+
+    /**
+     * 🎯 User Interest Personalization Ranking for pagination & cache.
+     * 1 score point in user interest category boosts the post by +4 hours effective freshness.
+     */
+    private fun rankPostsByInterest(
+        posts: List<NewsPost>,
+        categoryScores: Map<String, Int>,
+        preferredCategories: Set<String>
+    ): List<NewsPost> {
+        if (categoryScores.isEmpty() && preferredCategories.isEmpty()) {
+            return posts.sortedByDescending { it.timestamp }
+        }
+
+        val FOUR_HOURS_MS = 4L * 60 * 60 * 1000L
+
+        return posts.distinctBy { it.id }.sortedByDescending { post ->
+            var score = 0
+            post.categories.forEach { cat ->
+                score += categoryScores[cat] ?: categoryScores[cat.lowercase()] ?: 0
+                if (cat in preferredCategories) score += 2
+            }
+            post.tags.forEach { tag ->
+                score += categoryScores[tag] ?: categoryScores[tag.lowercase()] ?: 0
+            }
+            post.timestamp + (score * FOUR_HOURS_MS)
+        }
+    }
+
+    private fun isPostAllowedForState(post: NewsPost, userState: String?): Boolean {
+        if (userState.isNullOrBlank() || userState == "BOTH") return true
+
+        val postState = Constants.mapDistrictToState(post.state) ?: Constants.mapDistrictToState(post.district)
+        if (postState != null && postState != userState) {
+            return false
+        }
+        return true
     }
 
     fun refreshIfStale(language: Language, currentUser: User?) {

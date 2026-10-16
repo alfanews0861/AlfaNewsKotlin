@@ -28,44 +28,65 @@ class LeaderboardViewModel(application: Application) : AndroidViewModel(applicat
 
     fun fetchLeaderboard() {
         viewModelScope.launch {
-            _loading.value = true
+            _loading.value = _leaderboard.value.isEmpty()
             try {
                 val calendar = Calendar.getInstance()
-                
-                // Try current month first
-                var year = calendar.get(Calendar.YEAR)
-                var month = (calendar.get(Calendar.MONTH) + 1).toString().padStart(2, '0')
-                var monthlyId = "${year}_${month}"
+                val year = calendar.get(Calendar.YEAR)
+                val month = (calendar.get(Calendar.MONTH) + 1).toString().padStart(2, '0')
+                val monthlyId = "${year}_${month}"
 
-                var snapshot = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                val reportersColl = FirebaseService.db.collection("monthly_leaderboard")
+                    .document(monthlyId)
+                    .collection("reporters")
+                    .orderBy("points", Query.Direction.DESCENDING)
+                    .limit(10)
+
+                // 1. ⚡ INSTANT CACHE DISPLAY (< 15ms)
+                if (_leaderboard.value.isEmpty()) {
                     try {
-                        FirebaseService.db.collection("monthly_leaderboard")
-                            .document(monthlyId)
-                            .collection("reporters")
-                            .orderBy("points", Query.Direction.DESCENDING)
-                            .limit(10)
-                            .get()
-                            .await()
-                    } catch (e: Exception) { null }
+                        val cachedSnap = reportersColl.get(com.google.firebase.firestore.Source.CACHE).await()
+                        val cachedEntries = cachedSnap.documents.mapNotNull { doc ->
+                            val data = doc.data ?: return@mapNotNull null
+                            User(
+                                id = doc.id,
+                                name = data["name"] as? String ?: "Reporter",
+                                photoUrl = data["photoUrl"] as? String,
+                                district = data["district"] as? String,
+                                assignedMandal = data["assignedMandal"] as? String,
+                                points = (data["points"] as? Number)?.toInt() ?: 0
+                            )
+                        }
+                        if (cachedEntries.isNotEmpty()) {
+                            _leaderboard.value = cachedEntries
+                            _loading.value = false
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                // 2. ⚡ LIVE SERVER QUERY (2.5s lean timeout)
+                var snapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                    try {
+                        reportersColl.get().await()
+                    } catch (_: Exception) { null }
                 }
 
                 // If current month is empty, try previous month
                 if (snapshot == null || snapshot.isEmpty) {
                     calendar.add(Calendar.MONTH, -1)
-                    year = calendar.get(Calendar.YEAR)
-                    month = (calendar.get(Calendar.MONTH) + 1).toString().padStart(2, '0')
-                    monthlyId = "${year}_${month}"
+                    val prevYear = calendar.get(Calendar.YEAR)
+                    val prevMonth = (calendar.get(Calendar.MONTH) + 1).toString().padStart(2, '0')
+                    val prevMonthlyId = "${prevYear}_${prevMonth}"
                     
-                    snapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                    snapshot = kotlinx.coroutines.withTimeoutOrNull(2500L) {
                         try {
                             FirebaseService.db.collection("monthly_leaderboard")
-                                .document(monthlyId)
+                                .document(prevMonthlyId)
                                 .collection("reporters")
                                 .orderBy("points", Query.Direction.DESCENDING)
                                 .limit(10)
                                 .get()
                                 .await()
-                        } catch (e: Exception) { null }
+                        } catch (_: Exception) { null }
                     }
                 }
 
@@ -82,9 +103,9 @@ class LeaderboardViewModel(application: Application) : AndroidViewModel(applicat
                 } ?: emptyList()
 
                 // 🚀 FALLBACK: If monthly leaderboard is still empty, load top reporters directly from users collection
-                if (entries.isEmpty()) {
+                if (entries.isEmpty() && _leaderboard.value.isEmpty()) {
                     try {
-                        val usersSnap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                        val usersSnap = kotlinx.coroutines.withTimeoutOrNull(3000L) {
                             FirebaseService.db.collection("users")
                                 .whereEqualTo("role", "REPORTER")
                                 .limit(100)
@@ -111,10 +132,14 @@ class LeaderboardViewModel(application: Application) : AndroidViewModel(applicat
                     }
                 }
 
-                _leaderboard.value = entries
+                if (entries.isNotEmpty()) {
+                    _leaderboard.value = entries
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
-                _leaderboard.value = emptyList()
+                if (_leaderboard.value.isEmpty()) {
+                    _leaderboard.value = emptyList()
+                }
             } finally {
                 _loading.value = false
             }

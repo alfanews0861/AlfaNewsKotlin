@@ -125,9 +125,10 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
                 Log.e("AlfaNewsApp", "createNotificationChannels error: ${e.message}")
             }
 
-            // మండలానికి కేటాయించిన విలేకరుల వెరిఫైడ్ బ్యాడ్జ్ లిజనర్ (Offloaded to IO)
+            // మండలానికి కేటాయించిన విలేకరుల వెరిఫైడ్ బ్యాడ్జ్ లిజనర్ (Offloaded to IO with delay to prioritize news feed)
             scope.launch(Dispatchers.IO) {
                 try {
+                    delay(3500L)
                     com.alfanews.telugu.utils.ReporterVerificationManager.startListening()
                 } catch (e: Throwable) {
                     Log.e("AlfaNewsApp", "ReporterVerificationManager error: ${e.message}")

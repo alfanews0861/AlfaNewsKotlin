@@ -220,7 +220,7 @@ fun ReportersView(
             }
 
             // Reporters List
-            if (loading) {
+            if (loading && reporters.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }

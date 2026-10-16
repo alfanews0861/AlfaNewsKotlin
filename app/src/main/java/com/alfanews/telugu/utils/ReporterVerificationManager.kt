@@ -41,43 +41,84 @@ object ReporterVerificationManager {
 
         try {
             val roles = listOf("REPORTER", "reporter", "STAFF_REPORTER", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0, "3")
-            listenerRegistration = FirebaseService.db.collection("users")
+            val query = FirebaseService.db.collection("users")
                 .whereIn("role", roles)
-                .limit(500)
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null || snapshot == null) {
-                        return@addSnapshotListener
+                .limit(200)
+
+            // 1. ⚡ Instant Cache (< 10ms)
+            try {
+                query.get(com.google.firebase.firestore.Source.CACHE).addOnSuccessListener { snapshot ->
+                    if (snapshot != null && !snapshot.isEmpty) {
+                        parseVerifiedReporters(snapshot.documents)
                     }
-
-                    val validIds = mutableSetOf<String>()
-                    val validNames = mutableSetOf<String>()
-
-                    for (doc in snapshot.documents) {
-                        val isSuspended = doc.getBoolean("suspended") == true || doc.getBoolean("previouslyDowngraded") == true
-                        if (isSuspended) continue
-
-                        val roleStr = doc.get("role")?.toString()?.uppercase() ?: ""
-                        if (roleStr == "SUBSCRIBER" || roleStr == "GUEST" || roleStr == "1" || roleStr == "1.0") continue
-
-                        val mandal = (doc.getString("assignedMandal")
-                            ?: doc.getString("mandal")
-                            ?: doc.getString("mandalam")
-                            ?: doc.getString("selectedMandal") ?: "").trim()
-
-                        if (mandal.isNotEmpty()) {
-                            validIds.add(doc.id)
-                            val name = (doc.getString("name") ?: "").trim()
-                            if (name.isNotEmpty() && !isExcludedAuthorName(name)) {
-                                validNames.add(name.lowercase())
-                            }
-                        }
-                    }
-
-                    _verifiedReporterIds.value = validIds
-                    _verifiedReporterNames.value = validNames
                 }
+            } catch (_: Exception) {}
+
+            // 2. Fresh Server Fetch (single fetch on launch instead of continuous 200-doc snapshot listener)
+            query.get(com.google.firebase.firestore.Source.SERVER).addOnSuccessListener { snapshot ->
+                if (snapshot != null && !snapshot.isEmpty) {
+                    parseVerifiedReporters(snapshot.documents)
+                }
+            }.addOnFailureListener {
+                query.get().addOnSuccessListener { snapshot ->
+                    if (snapshot != null && !snapshot.isEmpty) {
+                        parseVerifiedReporters(snapshot.documents)
+                    }
+                }
+            }
         } catch (_: Exception) {
             // Silently fallback
+        }
+    }
+
+    /**
+     * అవసరమైనప్పుడు సర్వర్ నుండి రిపోర్టర్ల లిస్ట్‌ను రీఫ్రెష్ చేస్తుంది.
+     */
+    fun refresh() {
+        try {
+            val roles = listOf("REPORTER", "reporter", "STAFF_REPORTER", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0, "3")
+            FirebaseService.db.collection("users")
+                .whereIn("role", roles)
+                .limit(200)
+                .get()
+                .addOnSuccessListener { snapshot ->
+                    if (snapshot != null && !snapshot.isEmpty) {
+                        parseVerifiedReporters(snapshot.documents)
+                    }
+                }
+        } catch (_: Exception) {}
+    }
+
+    private fun parseVerifiedReporters(documents: List<com.google.firebase.firestore.DocumentSnapshot>) {
+        val validIds = mutableSetOf<String>()
+        val validNames = mutableSetOf<String>()
+
+        for (doc in documents) {
+            val isSuspended = doc.getBoolean("suspended") == true || doc.getBoolean("previouslyDowngraded") == true
+            if (isSuspended) continue
+
+            val roleStr = doc.get("role")?.toString()?.uppercase() ?: ""
+            if (roleStr == "SUBSCRIBER" || roleStr == "GUEST" || roleStr == "1" || roleStr == "1.0") continue
+
+            val mandal = (doc.getString("assignedMandal")
+                ?: doc.getString("mandal")
+                ?: doc.getString("mandalam")
+                ?: doc.getString("selectedMandal") ?: "").trim()
+
+            if (mandal.isNotEmpty()) {
+                validIds.add(doc.id)
+                val name = (doc.getString("name") ?: "").trim()
+                if (name.isNotEmpty() && !isExcludedAuthorName(name)) {
+                    validNames.add(name.lowercase())
+                }
+            }
+        }
+
+        if (validIds.isNotEmpty()) {
+            _verifiedReporterIds.value = validIds
+        }
+        if (validNames.isNotEmpty()) {
+            _verifiedReporterNames.value = validNames
         }
     }
 

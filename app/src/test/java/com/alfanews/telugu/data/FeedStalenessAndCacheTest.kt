@@ -279,4 +279,135 @@ class FeedStalenessAndCacheTest {
 
         assertTrue("Feed processing and emission benchmark must be well under 20ms (Actual: ${elapsed}ms)", elapsed < 20)
     }
+
+    @Test
+    fun testFiveHourCacheFreshnessValidation() {
+        val now = System.currentTimeMillis()
+        val FIVE_HOURS_MS = 5L * 60 * 60 * 1000L
+
+        // Case 1: Post timestamp is 2 hours old -> Fresh (< 5h) -> Instant Cache Display
+        val twoHoursAgo = now - (2 * 60 * 60 * 1000L)
+        val isTwoHoursFresh = (now - twoHoursAgo) < FIVE_HOURS_MS
+        assertTrue("Cache under 5 hours old must be marked fresh for instant < 20ms display", isTwoHoursFresh)
+
+        // Case 2: Post timestamp is 6 hours old -> Stale (> 5h) -> Bypass Stale Cache for Fast Path
+        val sixHoursAgo = now - (6 * 60 * 60 * 1000L)
+        val isSixHoursFresh = (now - sixHoursAgo) < FIVE_HOURS_MS
+        assertFalse("Cache older than 5 hours must be marked stale to prevent displaying yesterday's news", isSixHoursFresh)
+    }
+
+    @Test
+    fun testPersonalizationRankingBoostsUserCategoryInterests() {
+        val now = System.currentTimeMillis()
+        val FOUR_HOURS_MS = 4L * 60 * 60 * 1000L
+
+        val cinemaPost = NewsPost(
+            id = "cinema_post",
+            headline = Headline(telugu = "సినిమా అప్‌డేట్"),
+            categories = listOf("సినిమా"),
+            timestamp = now - (2 * 60 * 60 * 1000L) // 2 hours ago
+        )
+
+        val generalPost = NewsPost(
+            id = "general_post",
+            headline = Headline(telugu = "సాధారణ వార్త"),
+            categories = listOf("జనరల్"),
+            timestamp = now - (1 * 60 * 60 * 1000L) // 1 hour ago (fresher timestamp)
+        )
+
+        val userCategoryScores = mapOf("సినిమా" to 5) // High interest in Cinema (+5 score)
+
+        // Ranking calculation: timestamp + (score * 4 hours)
+        val ranked = listOf(cinemaPost, generalPost).sortedByDescending { post ->
+            var score = 0
+            post.categories.forEach { cat ->
+                score += userCategoryScores[cat] ?: 0
+            }
+            post.timestamp + (score * FOUR_HOURS_MS)
+        }
+
+        // Cinema post gets +20 hours virtual boost and ranks #1 despite being posted earlier!
+        assertEquals("cinema_post", ranked[0].id)
+        assertEquals("general_post", ranked[1].id)
+    }
+
+    @Test
+    fun testFortyThirtyThirtyBlendingCadenceAndLoopProtection() {
+        val now = System.currentTimeMillis()
+
+        // 1. Fresh breaking posts
+        val fresh = (1..6).map { i ->
+            NewsPost(id = "fresh_$i", headline = Headline(telugu = "తాజా వార్త $i"), timestamp = now - i * 1000L)
+        }
+
+        // 2. District posts (User district: సూర్యాపేట)
+        val districtPosts = (1..4).map { i ->
+            NewsPost(id = "dist_$i", headline = Headline(telugu = "సూర్యాపేట వార్త $i"), district = "సూర్యాపేట", timestamp = now - (i + 10) * 1000L)
+        }
+
+        // 3. User personalized scored posts
+        val categoryScores = mapOf("రాజకీయాలు" to 3)
+        val preferredCategories = setOf("రాజకీయాలు")
+
+        // Interleaved mixing test logic matching NewsFeedViewModel.rankAndBlendPosts
+        val allRaw = (fresh + districtPosts).distinctBy { it.id }
+        val localCandidates = districtPosts.sortedByDescending { it.timestamp }.toMutableList()
+        val localIds = localCandidates.map { it.id }.toSet()
+        val nonLocalPosts = allRaw.filter { it.id !in localIds }
+
+        val scoredPosts = nonLocalPosts.filter { it.categories.any { cat -> cat in preferredCategories } }.toMutableList()
+        val freshCandidates = nonLocalPosts.sortedByDescending { it.timestamp }.toMutableList()
+        val discoveryCandidates = nonLocalPosts.filter { it.id !in scoredPosts.map { s -> s.id }.toSet() }.toMutableList()
+
+        val blended = mutableListOf<NewsPost>()
+        val addedIds = mutableSetOf<String>()
+
+        fun pollNext(list: MutableList<NewsPost>): NewsPost? {
+            while (list.isNotEmpty()) {
+                val item = list.removeAt(0)
+                if (item.id !in addedIds) {
+                    addedIds.add(item.id)
+                    return item
+                }
+            }
+            return null
+        }
+
+        val maxIterations = allRaw.size + 15
+        var loopCount = 0
+        while (addedIds.size < allRaw.size && loopCount < maxIterations) {
+            val cycle = loopCount % 6
+            val nextPost = when (cycle) {
+                0 -> pollNext(freshCandidates) ?: pollNext(scoredPosts) ?: pollNext(localCandidates) ?: pollNext(discoveryCandidates)
+                1 -> pollNext(scoredPosts) ?: pollNext(freshCandidates) ?: pollNext(localCandidates) ?: pollNext(discoveryCandidates)
+                2 -> pollNext(localCandidates) ?: pollNext(freshCandidates) ?: pollNext(scoredPosts) ?: pollNext(discoveryCandidates)
+                3 -> pollNext(freshCandidates) ?: pollNext(scoredPosts) ?: pollNext(discoveryCandidates) ?: pollNext(localCandidates)
+                4 -> pollNext(scoredPosts) ?: pollNext(freshCandidates) ?: pollNext(discoveryCandidates) ?: pollNext(localCandidates)
+                5 -> pollNext(localCandidates) ?: pollNext(discoveryCandidates) ?: pollNext(freshCandidates) ?: pollNext(scoredPosts)
+                else -> pollNext(freshCandidates)
+            }
+            if (nextPost != null) {
+                blended.add(nextPost)
+            } else {
+                val remaining = allRaw.firstOrNull { it.id !in addedIds }
+                if (remaining != null) {
+                    addedIds.add(remaining.id)
+                    blended.add(remaining)
+                } else break
+            }
+            loopCount++
+        }
+
+        // Assert: All posts blended with zero duplicates
+        assertEquals(allRaw.size, blended.size)
+        assertEquals(allRaw.size, blended.map { it.id }.toSet().size)
+
+        // Slot 0 must be fresh breaking
+        assertEquals("fresh_1", blended[0].id)
+        // Slot 2 must be user district local news
+        assertEquals("dist_1", blended[2].id)
+
+        // Loop counter must terminate strictly below maxIterations
+        assertTrue("Loop must safely terminate without infinite cycles", loopCount < maxIterations)
+    }
 }

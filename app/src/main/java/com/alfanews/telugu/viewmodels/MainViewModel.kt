@@ -100,6 +100,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var reporterNoticesList: List<AdminNotice> = emptyList()
     private var userNoticesList: List<AdminNotice> = emptyList()
     private var cachedWeatherAlertsData: Map<String, Any>? = null
+    private var lastListenedUserId: String? = null
+    private var lastListenedUserRole: UserRole? = null
 
 
     init {
@@ -373,33 +375,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         }
 
-                        if (parsedRole == UserRole.REPORTER && (rawRole?.toString()?.uppercase() == "SUBSCRIBER" || isPrevDowngraded || downgradedReason != null || isPermanentReporterDoc)) {
-                            val autoHealUpdates = mutableMapOf<String, Any>(
-                                "role" to "REPORTER",
-                                "previouslyDowngraded" to false,
-                                "suspended" to false,
-                                "downgradedReason" to com.google.firebase.firestore.FieldValue.delete(),
-                                "downgradedAt" to com.google.firebase.firestore.FieldValue.delete(),
-                                "downgradedBy" to com.google.firebase.firestore.FieldValue.delete(),
-                                "warningLevel" to 0
-                            )
-                            if (assignedMandal.isNullOrBlank() && !lastKnownMandal.isNullOrBlank() && lastKnownMandal.contains("|")) {
-                                val parts = lastKnownMandal.split("|")
-                                if (parts.size >= 2) {
-                                    autoHealUpdates["district"] = parts[0]
-                                    autoHealUpdates["assignedMandal"] = parts[1]
-                                    autoHealUpdates["mandal"] = parts[1]
-                                }
-                            } else if (isPermanentReporterDoc) {
+                        // 🛡️ RECURSIVE WRITE-LOOP PREVENTION (Strict State Guards):
+                        // Check whether an actual write is strictly needed to prevent an infinite set() -> listener -> set() cycle.
+                        val currentRoleStr = rawRole?.toString()?.uppercase()
+                        val currentAssignedMandal = snapshot.getString("assignedMandal") ?: snapshot.getString("mandal")
+                        val currentDistrict = snapshot.getString("district")
+                        val currentIsProtectedSenior = snapshot.getBoolean("isProtectedSenior") == true
+
+                        val needsRoleHeal = (currentRoleStr != "REPORTER")
+                        val needsDowngradeHeal = isPrevDowngraded || downgradedReason != null
+                        val needsPermanentReporterHeal = isPermanentReporterDoc && (
+                            needsRoleHeal ||
+                            currentAssignedMandal != "నెల్లూరు అర్బన్" ||
+                            currentDistrict != "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" ||
+                            !currentIsProtectedSenior
+                        )
+                        val needsMandalRestore = assignedMandal.isNullOrBlank() && !lastKnownMandal.isNullOrBlank() && lastKnownMandal.contains("|")
+
+                        val shouldAutoHeal = parsedRole == UserRole.REPORTER && (needsRoleHeal || needsDowngradeHeal || needsPermanentReporterHeal || needsMandalRestore)
+
+                        if (shouldAutoHeal) {
+                            val autoHealUpdates = mutableMapOf<String, Any>()
+                            if (needsRoleHeal) {
+                                autoHealUpdates["role"] = "REPORTER"
+                            }
+                            if (needsDowngradeHeal) {
+                                autoHealUpdates["previouslyDowngraded"] = false
+                                autoHealUpdates["suspended"] = false
+                                autoHealUpdates["downgradedReason"] = com.google.firebase.firestore.FieldValue.delete()
+                                autoHealUpdates["downgradedAt"] = com.google.firebase.firestore.FieldValue.delete()
+                                autoHealUpdates["downgradedBy"] = com.google.firebase.firestore.FieldValue.delete()
+                                autoHealUpdates["warningLevel"] = 0
+                            }
+                            if (needsPermanentReporterHeal) {
                                 autoHealUpdates["role"] = "REPORTER"
                                 autoHealUpdates["assignedMandal"] = "నెల్లూరు అర్బన్"
                                 autoHealUpdates["mandal"] = "నెల్లూరు అర్బన్"
                                 autoHealUpdates["district"] = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు"
                                 autoHealUpdates["isProtectedSenior"] = true
+                            } else if (needsMandalRestore) {
+                                val parts = lastKnownMandal!!.split("|")
+                                if (parts.size >= 2) {
+                                    autoHealUpdates["district"] = parts[0]
+                                    autoHealUpdates["assignedMandal"] = parts[1]
+                                    autoHealUpdates["mandal"] = parts[1]
+                                }
                             }
-                            try {
-                                snapshot.reference.set(autoHealUpdates, com.google.firebase.firestore.SetOptions.merge())
-                            } catch (_: Exception) {}
+                            if (autoHealUpdates.isNotEmpty()) {
+                                try {
+                                    snapshot.reference.set(autoHealUpdates, com.google.firebase.firestore.SetOptions.merge())
+                                } catch (_: Exception) {}
+                            }
                         }
 
                         val pushEnabledVal = snapshot.getBoolean("pushEnabled") ?: snapshot.getBoolean("notificationsEnabled") ?: true
@@ -653,6 +679,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
 
     private fun startUnreadMessagesListener(user: User?) {
+        if (user == null || user.id.isBlank() || user.id == "guest") {
+            reporterConvListener?.remove()
+            reporterConvListener = null
+            reporterUnreadMessagesListener?.remove()
+            reporterUnreadMessagesListener = null
+            userMessagesListener?.remove()
+            userMessagesListener = null
+            unreadConvCount = 0
+            unreadUserMsgCount = 0
+            reporterNoticesList = emptyList()
+            userNoticesList = emptyList()
+            lastListenedUserId = null
+            lastListenedUserRole = null
+            _unreadMessagesCount.value = 0
+            _unreadAdminNotices.value = emptyList()
+            return
+        }
+
+        // 🛡️ Guard: Avoid re-subscribing and re-fetching if already listening for the same user & role
+        if (user.id == lastListenedUserId && user.role == lastListenedUserRole) {
+            return
+        }
+        lastListenedUserId = user.id
+        lastListenedUserRole = user.role
+
         reporterConvListener?.remove()
         reporterConvListener = null
         reporterUnreadMessagesListener?.remove()
@@ -663,12 +714,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         unreadUserMsgCount = 0
         reporterNoticesList = emptyList()
         userNoticesList = emptyList()
-
-        if (user == null || user.id.isBlank() || user.id == "guest") {
-            _unreadMessagesCount.value = 0
-            _unreadAdminNotices.value = emptyList()
-            return
-        }
 
         val isAdminStaff = listOf(
             UserRole.ADMIN,
