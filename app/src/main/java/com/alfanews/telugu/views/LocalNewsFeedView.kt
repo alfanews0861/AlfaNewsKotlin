@@ -213,7 +213,7 @@ fun LocalNewsFeedView(
     LaunchedEffect(pagerState) { 
         snapshotFlow { pagerState.currentPage }.collect { page ->
             val newsIndex = page - (page / 6)
-            if (news.size >= 8 && (newsIndex >= news.size - 4 || page >= totalCount - 2) && hasMore && !loading) {
+            if (news.isNotEmpty() && (newsIndex >= maxOf(0, news.size - 4) || page >= maxOf(0, totalCount - 2)) && hasMore && !loading) {
                 viewModel.loadMore(language, currentUser)
             }
 
@@ -318,9 +318,14 @@ fun LocalNewsFeedView(
                 var retryCount by remember { mutableIntStateOf(0) }
                 val isOnline = remember(loading) { NetworkUtils.isOnline(context) }
 
-                LaunchedEffect(loading) {
-                    if (!loading && retryCount < 2 && isOnline) {
-                        kotlinx.coroutines.delay(500L)
+                LaunchedEffect(loading, isOnline) {
+                    if (!loading && isOnline) {
+                        val delayMs = when (retryCount) {
+                            0 -> 500L
+                            1 -> 1500L
+                            else -> 3000L
+                        }
+                        kotlinx.coroutines.delay(delayMs)
                         retryCount++
                         viewModel.loadNews(language, currentUser, forceRefresh = false)
                     }

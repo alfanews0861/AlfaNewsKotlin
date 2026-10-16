@@ -150,7 +150,11 @@ export async function notifyReporter(
                 reporterName,
                 unreadCountForReporter: admin.firestore.FieldValue.increment(1),
                 lastMessage: chatText.substring(0, 100),
-                lastMessageTimestamp: admin.firestore.FieldValue.serverTimestamp()
+                lastMessageTime: admin.firestore.FieldValue.serverTimestamp(),
+                lastMessageTimestamp: admin.firestore.FieldValue.serverTimestamp(),
+                lastSenderRole: 'ADMIN',
+                lastSenderId: 'SYSTEM',
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
 
             console.log(`[NOTIFY_DESK_CHAT] Added human editorial message to reporter_conversations for ${targetUserId}`);
@@ -463,8 +467,12 @@ export async function performRestoreAllReporters(): Promise<{ restoredCount: num
                 }
             }
 
-            // Don't overwrite Admins or Editors
+            // Don't overwrite Admins or Editors, and do NOT restore manually suspended/demoted users
             if (userData && (userData.role === 'ADMIN' || userData.role === 'EDITOR')) continue;
+            if (userData && (userData.suspended === true || userData.downgradedReason === 'MANUAL_ADMIN_ACTION' || userData.suspendedByAdmin === true)) {
+                console.log(`[RESTORE_REPORTERS] Skipping manually suspended/demoted user ${userId}`);
+                continue;
+            }
 
             // Fetch all news for this reporter across possible fields
             const newsDocsMap = new Map<string, any>();
@@ -741,7 +749,25 @@ export const processReporterSubmission = onCall(async (request) => {
         const mediaUrl = postData?.mediaUrl || "";
         const mediaUrls = postData?.mediaUrls || (mediaUrl ? [mediaUrl] : []);
 
-        const reporterId = request.auth?.uid || (typeof postData?.reporter === 'string' ? postData.reporter : postData?.reporter?.id) || postData?.originalReporterId || "";
+        const authUid = request.auth?.uid;
+        if (!authUid) {
+            throw new HttpsError('unauthenticated', 'వార్తలను పోస్ట్ చేయడానికి దయచేసి యాప్‌లో లాగిన్ అవ్వండి.');
+        }
+
+        // Verify if the caller is an active verified reporter or staff
+        let isVerifiedReporter = false;
+        const callerDoc = await db.collection('users').doc(authUid).get();
+        if (callerDoc.exists) {
+            const uData = callerDoc.data() || {};
+            const roleStr = String(uData.role || '').toUpperCase();
+            const isSuspended = uData.suspended === true || uData.previouslyDowngraded === true;
+            isVerifiedReporter = !isSuspended && [
+                'REPORTER', 'STAFF_REPORTER', 'REGIONAL_INCHARGE', 'EDITOR', 'ADMIN', 'NEWS_DESK',
+                '2', '2.0', '3', '3.0', '4', '4.0', '5', '5.0', '6', '6.0', '7', '7.0', 2, 3, 4, 5, 6, 7
+            ].includes(roleStr);
+        }
+
+        const reporterId = authUid;
 
         const finalData = {
             ...postData,
@@ -755,13 +781,13 @@ export const processReporterSubmission = onCall(async (request) => {
             },
             mediaUrl: mediaUrl,
             mediaUrls: mediaUrls,
-            isReporter: true,
-            isCitizen: false,
+            isReporter: isVerifiedReporter,
+            isCitizen: !isVerifiedReporter,
             aiProcessed: false,
             videoProcessed: false, // Explicit false so trigger guard detects changes reliably
             approved: false,
             status: "PENDING",
-            processingType: "REPORTER_SUBMISSION",
+            processingType: isVerifiedReporter ? "REPORTER_SUBMISSION" : "CITIZEN_SUBMISSION",
             originalReporterId: reporterId,
             reporterId: reporterId,
             timestamp: postData?.timestamp || admin.firestore.FieldValue.serverTimestamp(),
@@ -1150,8 +1176,8 @@ export async function auditExistingReporterPerformance(
 }
 
 /**
- * Helper: Sends a wake-up / performance warning message from the News Desk to an existing reporter
- * whose mandal has received a new application while their own monthly performance is deficient (< 20 own-mandal posts).
+ * Helper: Challenger alert to existing reporters is completely disabled per user instruction.
+ * Existing reporters should not receive stressful alerts/threats when someone else submits an application.
  */
 export async function alertExistingReporterOfChallenger(
     existingReporterId: string,
@@ -1161,70 +1187,8 @@ export async function alertExistingReporterOfChallenger(
     applicantName: string,
     audit: ReporterPerformanceAudit
 ) {
-    if (!existingReporterId) return;
-
-    try {
-        const alertTitle = `మీ పనితీరు మెరుగుపరచుకోవాలి - మండల విలేకరి అలర్ట్ ⚠️`;
-        const alertText = `నమస్కారం ${existingReporterName || 'మిత్రమా'}, Alfa News ఎడిటోరియల్ డెస్క్ నుండి అత్యవసర గమనిక.\n\nమీరు కేటాయించబడిన ${mandal} మండలానికి ఈ నెలలో ఆశించిన స్థాయిలో వార్తలు అందించడం లేదు. నిబంధనల ప్రకారం ప్రతినెలా కనీసం 20 సొంత మండల వార్తలను పోస్ట్ చేయాల్సి ఉండగా, ఈ నెలలో మీరు కేవలం ${audit.ownMandalPostsThisMonth} వార్తలు మాత్రమే పోస్ట్ చేశారు (ఇంకా ${audit.shortfall} వార్తల కొరత ఉంది).\n\nమీ మండల వార్తల కవరేజ్ తక్కువగా ఉన్నందున, మీ ${mandal} మండలానికి సంబంధించి ఇప్పటికే '${applicantName || 'కొత్త అభ్యర్థి'}' గారు విలేకరి పదవి కోసం దరఖాస్తు చేసుకున్నారు.\n\nదయచేసి మీ పనితీరును వెంటనే మెరుగుపరుచుకుని, ప్రతిరోజూ మీ మండల తాజా వార్తలను చురుగ్గా పోస్ట్ చేయండి. లేనియెడల సంస్థ నియమావళి ప్రకారం మీ స్థానంలో కొత్త విలేకరిని నియమించే అవకాశం ఉంది.\n\n- Alfa News Editorial Desk`;
-
-        const msgTimestamp = admin.firestore.FieldValue.serverTimestamp();
-
-        // 1. Add to 2-way reporter conversation for chat
-        await db.collection('reporter_conversations').doc(existingReporterId).collection('messages').add({
-            senderId: "SYSTEM_ADMIN",
-            senderName: "AlfaNews Editorial Desk",
-            senderRole: "ADMIN",
-            text: alertText,
-            type: "PERFORMANCE_ALERT",
-            read: false,
-            timestamp: msgTimestamp
-        });
-
-        await db.collection('reporter_conversations').doc(existingReporterId).set({
-            lastMessage: alertText,
-            lastMessageTime: msgTimestamp,
-            lastSenderRole: "ADMIN",
-            lastSenderId: "SYSTEM_ADMIN",
-            unreadCountForReporter: admin.firestore.FieldValue.increment(1),
-            updatedAt: msgTimestamp
-        }, { merge: true });
-
-        // 2. Add to user's general in-app messages list
-        await db.collection('users').doc(existingReporterId).collection('messages').add({
-            title: alertTitle,
-            body: alertText,
-            senderName: "AlfaNews Editorial Desk",
-            senderRole: "ADMIN",
-            read: false,
-            importance: "HIGH",
-            type: "REPORTER_PERFORMANCE_WARNING",
-            timestamp: msgTimestamp
-        });
-
-        // 3. Send FCM push notification
-        const userDoc = await db.collection('users').doc(existingReporterId).get();
-        const userData = userDoc.data() || {};
-        const tokens = [...(userData.fcmTokens || []), userData.fcmToken].filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
-        if (tokens.length > 0) {
-            const push = tokens.map(token => ({
-                token,
-                notification: {
-                    title: alertTitle,
-                    body: `${mandal} మండలానికి ఈ నెలలో వార్తల సంఖ్య (${audit.ownMandalPostsThisMonth}/20) తక్కువగా ఉంది. మరొకరు దరఖాస్తు చేసుకున్నారు. వెంటనే పనితీరు మెరుగుపరుచుకోండి!`
-                },
-                data: {
-                    type: "REPORTER_PERFORMANCE_WARNING",
-                    district: district,
-                    mandal: mandal
-                }
-            }));
-            await admin.messaging().sendEach(push).catch(() => {});
-        }
-
-        console.log(`[CHALLENGER_ALERT] ⚠️ Sent performance wake-up alert to existing reporter ${existingReporterId} (${existingReporterName}) for mandal ${mandal}.`);
-    } catch (e: any) {
-        console.error("[CHALLENGER_ALERT] Failed to send challenger alert to existing reporter:", e.message);
-    }
+    console.log(`[CHALLENGER_ALERT] Challenger alerts to reporters are disabled per user instruction. Skipping alert for ${existingReporterName || existingReporterId} (${mandal}).`);
+    return;
 }
 
 /**
@@ -1254,14 +1218,13 @@ export async function promoteUserToReporter(
     district: string,
     mandal: string,
     promoter: string = "AUTO_APPROVAL_SYSTEM",
-    options?: { isChallenger?: boolean; inProbation?: boolean; existingReporterId?: string; existingReporterName?: string }
+    options?: { isChallenger?: boolean; inProbation?: boolean; existingReporterId?: string; existingReporterName?: string; photoUrl?: string }
 ) {
     const userRef = db.collection('users').doc(userId);
     const userDoc = await userRef.get();
     const existingData = userDoc.exists ? (userDoc.data() || {}) : {};
 
-    const isChallenger = options?.isChallenger === true;
-    const inProbation = options?.inProbation === true || isChallenger;
+    const finalPhoto = options?.photoUrl || existingData.photoUrl || "";
 
     await userRef.set({
         role: "REPORTER",
@@ -1273,29 +1236,27 @@ export async function promoteUserToReporter(
         previouslyDowngraded: false,
         suspended: false,
         warningLevel: 0,
-        inProbation: inProbation,
-        isChallenger: isChallenger,
+        inProbation: false,
+        isChallenger: false,
         downgradedReason: admin.firestore.FieldValue.delete(),
         downgradedAt: admin.firestore.FieldValue.delete(),
         lastWarningDate: admin.firestore.FieldValue.delete(),
-        probationStartDate: inProbation ? admin.firestore.FieldValue.serverTimestamp() : null,
         promotedAt: admin.firestore.FieldValue.serverTimestamp(),
         rejoinedAt: admin.firestore.FieldValue.serverTimestamp(),
         joinedAt: existingData.joinedAt || admin.firestore.FieldValue.serverTimestamp(),
         lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
         name: fullName || existingData.name || "",
         phone: phone || existingData.phone || "",
+        ...(finalPhoto ? { photoUrl: finalPhoto } : {}),
         points: existingData.points ?? 0,
         badges: existingData.badges ?? []
     }, { merge: true });
 
-    console.log(`[REPORTER_PROMOTION] 👑 Promoted user ${userId} to REPORTER for ${district} - ${mandal} (Challenger: ${isChallenger})`);
+    console.log(`[REPORTER_PROMOTION] 👑 Promoted user ${userId} to REPORTER for ${district} - ${mandal}`);
 
     // Send In-App Welcome Desk Message & Push to the newly joined reporter
     try {
-        const welcomeText = isChallenger
-            ? `నమస్కారం ${fullName || 'మిత్రమా'}, ఆల్ఫా న్యూస్ విలేకరి బృందానికి స్వాగతం! 🎉\n\nమీరు ${mandal} మండలానికి ప్రొబేషనరీ (పోటీ) విలేకరిగా ఆమోదించబడ్డారు. నెల రోజుల పాటు మీ పనితీరు ఆధారంగా పర్మనెంట్ విలేకరిని నిర్ణయిస్తారు. మీ మండల తాజా వార్తలను ప్రతిరోజూ చురుగ్గా పోస్ట్ చేయండి. శుభాకాంక్షలు!`
-            : `నమస్కారం ${fullName || 'మిత్రమా'}, ఆల్ఫా న్యూస్ విలేకరి బృందానికి మీకు హృదయపూర్వక స్వాగతం! 🎉\n\nమీరు ${mandal} మండల విలేకరిగా నియమించబడ్డారు. మీ మండల తాజా వార్తలను ప్రతిరోజూ కనీసం ఒకటైనా యాప్‌లో పోస్ట్ చేయండి. ఏదైనా సహాయం లేదా సందేహాలు ఉంటే ఇక్కడ నేరుగా మాకు మెసేజ్ చేయవచ్చు. శుభాకాంక్షలు!`;
+        const welcomeText = `నమస్కారం ${fullName || 'మిత్రమా'}, ఆల్ఫా న్యూస్ విలేకరి బృందానికి మీకు హృదయపూర్వక స్వాగతం! 🎉\n\nమీరు ${mandal} మండల విలేకరిగా నియమించబడ్డారు. మీ మండల తాజా వార్తలను ప్రతిరోజూ కనీసం ఒకటైనా యాప్‌లో పోస్ట్ చేయండి. ఏదైనా సహాయం లేదా సందేహాలు ఉంటే ఇక్కడ నేరుగా మాకు మెసేజ్ చేయవచ్చు. శుభాకాంక్షలు!`;
         
         const msgTimestamp = admin.firestore.FieldValue.serverTimestamp();
         await db.collection('reporter_conversations').doc(userId).collection('messages').add({
@@ -1328,10 +1289,8 @@ export async function promoteUserToReporter(
             const pushMessages = userTokens.map(token => ({
                 token,
                 notification: {
-                    title: isChallenger ? "ప్రొబేషనరీ విలేకరిగా ఆమోదించబడ్డారు! 🌟" : "ఆల్ఫా న్యూస్ విలేకరి బృందానికి స్వాగతం! 🎉",
-                    body: isChallenger
-                        ? `మీరు ${mandal} మండలానికి ప్రొబేషనరీ విలేకరిగా చేరారు. నేటి నుంచే వార్తలు పోస్ట్ చేయండి!`
-                        : `మీరు ${mandal} మండల విలేకరిగా ఆమోదించబడ్డారు. నేటి నుంచే వార్తలను పోస్ట్ చేయడం ప్రారంభించండి!`
+                    title: "ఆల్ఫా న్యూస్ విలేకరి బృందానికి స్వాగతం! 🎉",
+                    body: `మీరు ${mandal} మండల విలేకరిగా ఆమోదించబడ్డారు. నేటి నుంచే వార్తలను పోస్ట్ చేయడం ప్రారంభించండి!`
                 },
                 data: {
                     type: "REPORTER_WELCOME",
@@ -1340,28 +1299,6 @@ export async function promoteUserToReporter(
                 }
             }));
             await admin.messaging().sendEach(pushMessages).catch(() => {});
-        }
-
-        // If challenger, also send notice to existing reporter
-        if (isChallenger && options?.existingReporterId) {
-            const existingRepDoc = await db.collection('users').doc(options.existingReporterId).get();
-            const existingRepData = existingRepDoc.data() || {};
-            const existingTokens = [...(existingRepData.fcmTokens || []), existingRepData.fcmToken].filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
-            if (existingTokens.length > 0) {
-                const repPush = existingTokens.map(token => ({
-                    token,
-                    notification: {
-                        title: `మీ మండలానికి మరొక విలేకరి తోడయ్యారు! 📰`,
-                        body: `${mandal} మండలానికి కొత్త విలేకరి చేరారు. ప్రతిరోజూ చురుగ్గా వార్తలు పోస్ట్ చేస్తూ మీ అగ్రస్థానాన్ని కాపాడుకోండి!`
-                    },
-                    data: {
-                        type: "CO_REPORTER_JOINED",
-                        mandal: mandal,
-                        district: district
-                    }
-                }));
-                await admin.messaging().sendEach(repPush).catch(() => {});
-            }
         }
     } catch (msgErr: any) {
         console.error("[REPORTER_PROMOTION] Failed to send welcome message/push to reporter:", msgErr.message);
@@ -1511,6 +1448,13 @@ export async function sendReporterApplicationEmail(
 }
 
 export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL_PASS"] }, async (request) => {
+    // 🛡️ SECURITY FIX: Enforce authentication to prevent unauthenticated/spoofed applications
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+        throw new HttpsError('unauthenticated', 'రిపోర్టర్‌గా దరఖాస్తు చేసుకోవడానికి దయచేసి యాప్‌లో లాగిన్ అవ్వండి.');
+    }
+    const currentUserId = auth.uid;
+
     const data = request.data;
     let {
         fullName,
@@ -1524,9 +1468,31 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         state,
         district,
         mandal,
-        message,
-        userId
+        message
     } = data;
+
+    const userId = currentUserId;
+
+    // Fetch existing user profile
+    const userDoc = await db.collection('users').doc(userId).get();
+    const existingUserData = userDoc.exists ? (userDoc.data() || {}) : {};
+
+    // Check if user is already an active reporter
+    const currentRole = String(existingUserData.role || '').toUpperCase();
+    const isAlreadyReporter = !existingUserData.suspended && !existingUserData.previouslyDowngraded && [
+        'REPORTER', 'STAFF_REPORTER', 'REGIONAL_INCHARGE', 'EDITOR', 'ADMIN', 'NEWS_DESK',
+        '2', '2.0', '3', '3.0', 2, 3
+    ].includes(currentRole);
+
+    if (isAlreadyReporter) {
+        return { 
+            success: true, 
+            message: "మీరు ఇప్పటికే ఆల్ఫా న్యూస్ ఆమోదిత విలేకరిగా ఉన్నారు.",
+            autoApproved: true 
+        };
+    }
+
+    const photoUrl = String(data.photoUrl || existingUserData.photoUrl || "").trim();
 
     let rawDistrict = district || data.assignedDistrict || data.selectedDistrict || data.state_district || "";
     let rawMandal = mandal || data.assignedMandal || data.selectedMandal || data.mandalam || "";
@@ -1536,9 +1502,9 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
     const rawPhone = String(phone || data.phoneNumber || "").trim();
     const clean10 = rawPhone.replace(/\D/g, '').slice(-10);
 
-    const finalFullName = String(fullName || data.name || "").trim();
+    const finalFullName = String(fullName || data.name || existingUserData.name || "").trim();
     const finalFatherName = String(fatherName || "").trim();
-    const finalAddress = String(address || "").trim();
+    const finalAddress = String(address || existingUserData.address || "").trim();
     const finalInterestedArea = String(interestedArea || "").trim();
     const finalEducation = String(education || "").trim();
     const finalCurrentOrg = String(currentOrg || "").trim();
@@ -1555,24 +1521,6 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
     }
     if (!finalAddress || finalAddress.length < 6) {
         throw new HttpsError('invalid-argument', 'కనీసం 6 అక్షరాలతో చిరునామా నమోదు చేయాలి.');
-    }
-
-    // If userId or district/mandal is missing, look up user profile
-    let existingUserData: any = {};
-    if (userId) {
-        const userDoc = await db.collection('users').doc(userId).get();
-        if (userDoc.exists) existingUserData = userDoc.data() || {};
-    } else if (clean10.length === 10) {
-        const phoneFormats = [`+91${clean10}`, clean10, `0${clean10}`, `91${clean10}`];
-        for (const fmt of phoneFormats) {
-            const uQuery = await db.collection('users').where('phone', '==', fmt).limit(1).get();
-            if (!uQuery.empty) {
-                const uDoc = uQuery.docs[0];
-                userId = uDoc.id;
-                existingUserData = uDoc.data() || {};
-                break;
-            }
-        }
     }
 
     if (!trimmedDistrict && existingUserData.district) {
@@ -1644,12 +1592,13 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         fatherName: finalFatherName,
         phone: clean10,
         address: finalAddress,
+        photoUrl: photoUrl || null,
         interestedArea: finalInterestedArea,
         education: finalEducation,
         currentOrg: finalCurrentOrg,
         district: trimmedDistrict,
         mandal: trimmedMandal,
-        userId: userId || data.userId || null,
+        userId: userId,
         status: finalStatus,
         autoApproved: shouldAutoApprove,
         isConflict: isConflict,
@@ -1691,7 +1640,7 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
         }
 
         // Promote user role to REPORTER immediately
-        await promoteUserToReporter(userId, finalFullName, clean10, trimmedDistrict, trimmedMandal, "AUTO_APPROVAL_SYSTEM");
+        await promoteUserToReporter(userId, finalFullName, clean10, trimmedDistrict, trimmedMandal, "AUTO_APPROVAL_SYSTEM", { photoUrl });
     } else if (isConflict && existingRep) {
         let perfAudit: ReporterPerformanceAudit | undefined;
         try {
@@ -1701,19 +1650,6 @@ export const submitReporterApplication = onCall({ secrets: ["EMAIL_USER", "EMAIL
                 trimmedDistrict,
                 trimmedMandal
             );
-
-            // If existing reporter's performance is below benchmark (< 20 own-mandal news or inactive)
-            if (!perfAudit.meetsBenchmark) {
-                // 1. Alert existing reporter that a challenger applied and they must improve
-                await alertExistingReporterOfChallenger(
-                    existingRep.id,
-                    existingRep.name,
-                    trimmedDistrict,
-                    trimmedMandal,
-                    finalFullName,
-                    perfAudit
-                );
-            }
         } catch (auditErr: any) {
             console.error("[REPORTER_APP] Performance audit error:", auditErr.message);
         }
@@ -2717,6 +2653,12 @@ export async function executeReactivateFalselyDemotedReporters(dryRun: boolean =
             continue;
         }
 
+        // Skip manually suspended or demoted users
+        if (u.suspended === true || u.downgradedReason === 'MANUAL_ADMIN_ACTION' || u.suspendedByAdmin === true) {
+            console.log(`[REACTIVATE_REPORTERS] Skipping manually suspended/demoted user ${userId}`);
+            continue;
+        }
+
         // Check if user is currently active as reporter
         const isActiveReporter = ['REPORTER', '2', '2.0'].includes(currentRole) || u.role === 2 || u.role === 2.0;
 
@@ -3043,7 +2985,8 @@ export const verifyReporter = onRequest({
 
         const user = userDoc.data();
         const roleStr = String(user?.role || '').toUpperCase();
-        const isVerified = [
+        const isSuspended = user?.suspended === true || user?.previouslyDowngraded === true || user?.status === 'SUSPENDED';
+        const isStaffRole = [
             'REPORTER',
             'STAFF_REPORTER',
             'REGIONAL_INCHARGE',
@@ -3056,7 +2999,9 @@ export const verifyReporter = onRequest({
             '5', '5.0',
             '6', '6.0',
             '7', '7.0'
-        ].includes(roleStr) || Boolean(user?.assignedMandal) || Boolean(user?.isReporter);
+        ].includes(roleStr) || (Boolean(user?.assignedMandal) && roleStr !== 'SUBSCRIBER' && roleStr !== 'GUEST');
+
+        const isVerified = !isSuspended && isStaffRole && roleStr !== 'SUBSCRIBER' && roleStr !== 'GUEST';
 
         let roleDisplay = "PRESS REPORTER";
         if (roleStr.includes('ADMIN') || roleStr === '5' || roleStr === '5.0') {
@@ -3071,12 +3016,15 @@ export const verifyReporter = onRequest({
             roleDisplay = user.role.replace(/_/g, ' ');
         }
 
+        const hasValidPhoto = Boolean(user?.photoUrl && !user.photoUrl.includes('placeholder'));
         const statusBadgeBg = isVerified ? '#ecfdf5' : '#fef2f2';
         const statusBadgeColor = isVerified ? '#059669' : '#dc2626';
         const statusBorder = isVerified ? '#10b981' : '#ef4444';
-        const statusText = isVerified ? 'VERIFIED PRESS REPORTER ✅' : 'NOT A VERIFIED REPORTER ❌';
+        const statusText = isVerified 
+            ? 'VERIFIED PRESS REPORTER ✅' 
+            : (isSuspended ? 'ID REVOKED / రద్దు చేయబడింది ❌' : 'NOT A VERIFIED REPORTER ❌');
         const displayId = (userDoc.id || reporterId).slice(-8).toUpperCase();
-        const photoUrl = user?.photoUrl || 'https://via.placeholder.com/180x220?text=No+Photo';
+        const photoUrl = (hasValidPhoto && user?.photoUrl) ? user.photoUrl : 'https://via.placeholder.com/180x220?text=No+Photo';
 
         const html = `
             <!DOCTYPE html>
@@ -3119,6 +3067,7 @@ export const verifyReporter = onRequest({
                     <div class="photo-wrapper">
                         <img src="${photoUrl}" alt="${user?.name || 'Reporter'}" class="photo" onerror="this.src='https://via.placeholder.com/180x220?text=No+Photo'">
                     </div>
+                    ${!hasValidPhoto && isVerified ? '<div style="font-size:12px;color:#d97706;font-weight:700;margin-bottom:12px;">⚠️ ప్రొఫైల్ ఫోటో అప్‌డేట్ పెండింగ్ (Photo Pending)</div>' : ''}
 
                     <div class="info">
                         <div class="name">${user?.name || 'Authorized Reporter'}</div>

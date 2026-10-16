@@ -13,6 +13,8 @@ const { signOut } = _auth as any;
 const { doc, updateDoc, deleteDoc, getDoc } = _firestore as any;
 const { ref, uploadBytes, getDownloadURL } = _storage as any;
 
+const DEFAULT_AUTHORIZED_SIGNATURE = 'https://firebasestorage.googleapis.com/v0/b/alfa-news-31bf7.firebasestorage.app/o/signatures%2FqP8fdzSBPTggNonGQFTqOqfDxfH2%2F47166a18-cf57-4a5c-9c6e-b5d2e0b7af27?alt=media&token=45ff6704-c096-4cf6-951f-e6f66ee1a726';
+
 interface UserProfilePageProps {
   user: User;
   language: Language;
@@ -34,7 +36,7 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
   const [showIdCard, setShowIdCard] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(user.pushEnabled !== false && user.notificationsEnabled !== false);
-  const [authorizedSignature, setAuthorizedSignature] = useState<string>('');
+  const [authorizedSignature, setAuthorizedSignature] = useState<string>(DEFAULT_AUTHORIZED_SIGNATURE);
 
   useEffect(() => {
     const fetchSignature = async () => {
@@ -276,8 +278,8 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
         </div>
       </div>
 
-      <EditProfileModal isOpen={isEditModalOpen} onClose={() => setEditModalOpen(false)} user={user} isStaff={isStaff} defaultPhoto={`https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random`} defaultSignature="https://via.placeholder.com/150?text=Signature" onSave={handleSaveProfile} saving={isSaving} />
-      <IdCardModal show={showIdCard} onClose={() => setShowIdCard(false)} user={user} displayPhoto={user.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random`} displaySignature={authorizedSignature || user.signatureUrl || "https://via.placeholder.com/150?text=Signature"} />
+      <EditProfileModal isOpen={isEditModalOpen} onClose={() => setEditModalOpen(false)} user={user} isStaff={isStaff} defaultPhoto={`https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random`} defaultSignature={DEFAULT_AUTHORIZED_SIGNATURE} onSave={handleSaveProfile} saving={isSaving} />
+      <IdCardModal show={showIdCard} onClose={() => setShowIdCard(false)} user={user} displayPhoto={user.photoUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random`} displaySignature={authorizedSignature || user.signatureUrl || DEFAULT_AUTHORIZED_SIGNATURE} />
     </div>
   );
 };

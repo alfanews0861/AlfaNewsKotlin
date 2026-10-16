@@ -76,6 +76,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
     private var lastDistrictDocument: DocumentSnapshot? = null
     private var loadJob: Job? = null
+    private var loadMoreJob: Job? = null
     @Volatile private var isFetching = false
     private var lastRefreshTimeLong: Long = 0
     private var consecutiveEmptyLoads = 0
@@ -211,9 +212,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     _loading.value = true
                 }
 
-                // 2. ⚡ DIRECT SERVER QUERY (< 300ms) with 6s lean timeout
+                // 2. ⚡ DIRECT SERVER QUERY (< 300ms) with 8.5s mobile-resilient timeout
                 val snap = try {
-                    kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                    kotlinx.coroutines.withTimeoutOrNull(8500L) {
                         query.get().await()
                     }
                 } catch (e: Exception) {
@@ -234,6 +235,31 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     } catch (_: Exception) {}
                 } else if (snap?.documents?.isNotEmpty() == true) {
                     lastDistrictDocument = snap.documents.lastOrNull()
+                }
+
+                // ఒకవేళ జిల్లాలో వార్తలు 0 ఉన్నా (లేదా నెట్‌వర్క్ ఫెయిల్ అయ్యి క్యాష్ కూడా ఖాళీగా ఉన్నా), యూజర్‌కు ఖాళీ స్కెలెటన్ రాకుండా రాష్ట్ర స్థాయి తాజా వార్తలను ఫాల్‌బ్యాక్‌గా లోడ్ చేయండి
+                if (posts.isEmpty() && _news.value.isEmpty()) {
+                    try {
+                        val userState = Constants.mapDistrictToState(district)
+                        val fallbackSnap = newsRef.whereEqualTo("approved", true)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(PAGE_SIZE.toLong())
+                            .get()
+                            .await()
+                        val allStatePosts = fallbackSnap.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
+                        val filtered = if (!userState.isNullOrBlank()) {
+                            allStatePosts.filter { post ->
+                                val pState = Constants.mapDistrictToState(post.state) ?: Constants.mapDistrictToState(post.district)
+                                pState == null || pState == userState
+                            }.ifEmpty { allStatePosts }
+                        } else allStatePosts
+
+                        if (filtered.isNotEmpty()) {
+                            posts = filtered
+                            lastDistrictDocument = fallbackSnap.documents.lastOrNull()
+                            Log.d("LocalNewsFeedVM", "District had 0 posts, loaded ${posts.size} state fallback posts")
+                        }
+                    } catch (_: Exception) {}
                 }
 
                 if (posts.isNotEmpty()) {
@@ -268,12 +294,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     fun loadMore(language: Language, currentUser: User?) {
         if (!_hasMore.value || isFetching) return
         val cursor = lastDistrictDocument ?: run {
-            _hasMore.value = false
             return
         }
 
-        loadJob = viewModelScope.launch {
-            isFetching = true
+        isFetching = true
+        loadMoreJob = viewModelScope.launch {
             try {
                 val district = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: "హైదరాబాద్"
                 val aliases = Constants.getDistrictAliases(district)
@@ -289,9 +314,18 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     newsRef.whereEqualTo("approved", true).whereEqualTo("district", aliases.firstOrNull() ?: district)
                 }.orderBy("timestamp", Query.Direction.DESCENDING).startAfter(cursor).limit(PAGE_SIZE.toLong())
 
-                val snap = q.get().await()
+                val snap = kotlinx.coroutines.withTimeoutOrNull(8500L) {
+                    q.get().await()
+                }
+                if (snap == null) {
+                    Log.w("LocalNewsFeedVM", "loadMore timed out, will retry on scroll")
+                    return@launch
+                }
+
                 val posts = snap.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
-                lastDistrictDocument = snap.documents.lastOrNull()
+                if (snap.documents.isNotEmpty()) {
+                    lastDistrictDocument = snap.documents.lastOrNull()
+                }
 
                 if (posts.isEmpty()) {
                     _hasMore.value = false
@@ -305,7 +339,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         prefs.incrementPostViewCounts(validIds)
                     } else {
                         consecutiveEmptyLoads++
-                        if (consecutiveEmptyLoads >= 2) {
+                        if (consecutiveEmptyLoads >= 4) {
                             _hasMore.value = false // 🛡️ Prevent infinite read loop on duplicate batches
                         }
                     }
@@ -314,8 +348,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     }
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.w("LocalNewsFeedVM", "loadMore error: ${e.message}")
-                _hasMore.value = false // 🛡️ Prevent infinite read loop on failure
             } finally {
                 isFetching = false
             }

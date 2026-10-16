@@ -1,5 +1,6 @@
 
 import React, { useEffect, useState, useRef } from 'react';
+import html2canvas from 'html2canvas';
 import { User } from '../types';
 
 interface IdCardModalProps {
@@ -12,7 +13,31 @@ interface IdCardModalProps {
 
 const IdCardModal: React.FC<IdCardModalProps> = ({ show, onClose, user, displayPhoto, displaySignature }) => {
   const [scale, setScale] = useState(1);
+  const [isDownloading, setIsDownloading] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+
+  const handleDownload = async () => {
+    if (!cardRef.current) return;
+    setIsDownloading(true);
+    try {
+      const canvas = await html2canvas(cardRef.current, {
+        useCORS: true,
+        scale: Math.max(3, window.devicePixelRatio || 2),
+        backgroundColor: '#ffffff',
+        logging: false
+      } as any);
+      const dataUrl = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.download = `AlfaNews_ID_Card_${(user.name || 'Reporter').replace(/\s+/g, '_')}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error('ID card download error:', err);
+      alert('ఐడీ కార్డు డౌన్‌లోడ్ చేయడంలో సమస్య వచ్చింది.');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   // Logic to shrink card to fit BOTH width and height of the screen centrally
   useEffect(() => {
@@ -151,9 +176,10 @@ const IdCardModal: React.FC<IdCardModalProps> = ({ show, onClose, user, displayP
                     <div className="flex flex-col items-start w-1/2">
                         <div className="h-10 w-full flex items-end justify-start mb-1">
                             <img 
-                                src={displaySignature} 
-                                className="h-8 object-contain opacity-80 mix-blend-multiply" 
+                                src={displaySignature || '/authorized_signature.png'} 
+                                className="h-9 object-contain" 
                                 alt="Sign" 
+                                crossOrigin="anonymous"
                             />
                         </div>
                         <p className="text-[7px] text-gray-400 font-bold uppercase tracking-wider border-t border-gray-300 pt-1 w-full text-left">
@@ -161,13 +187,32 @@ const IdCardModal: React.FC<IdCardModalProps> = ({ show, onClose, user, displayP
                         </p>
                     </div>
                     <div className="flex flex-col items-end w-1/2">
-                        <div className="h-10 w-28 mb-1" style={{ background: `repeating-linear-gradient(90deg, #000 0px, #000 2px, transparent 2px, transparent 4px, #000 4px, #000 7px, transparent 7px, transparent 9px, #000 9px, #000 10px, transparent 10px, transparent 13px, #000 13px, #000 15px, transparent 15px, transparent 19px, #000 19px, #000 22px, transparent 22px, transparent 24px)` }}></div>
-                        <p className="text-[7px] text-gray-400 font-bold uppercase tracking-widest text-right w-full">
-                            VERIFIED
+                        <img 
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`https://alfanews.app/verify/${user.id}`)}`} 
+                            className="w-11 h-11 object-contain" 
+                            alt="QR Code" 
+                            crossOrigin="anonymous"
+                        />
+                        <p className="text-[7px] text-gray-400 font-bold uppercase tracking-widest text-right w-full mt-0.5">
+                            SCAN TO VERIFY
                         </p>
                     </div>
                 </div>
                 <div className="h-3 w-full bg-[#1a1a1a] rounded-b-xl"></div>
+            </div>
+            
+            {/* Download Button */}
+            <div className="flex justify-center mt-3">
+                <button
+                    onClick={handleDownload}
+                    disabled={isDownloading}
+                    className="px-6 py-2 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    <span>{isDownloading ? 'డౌన్‌లోడ్ అవుతోంది...' : 'ఐడీ కార్డు డౌన్‌లోడ్ చేయండి'}</span>
+                </button>
             </div>
         </div>
     </div>

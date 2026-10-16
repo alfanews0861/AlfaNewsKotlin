@@ -3,6 +3,7 @@ package com.alfanews.telugu.views
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,6 +41,7 @@ import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.utils.DateTimeUtils
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
@@ -80,55 +82,40 @@ fun AdminReporterMessagingView(
 
     // Real-time conversations list listener
     DisposableEffect(Unit) {
+        var fallbackListener: ListenerRegistration? = null
         val convRef = FirebaseService.db.collection("reporter_conversations")
-            .limit(200)
+            .orderBy("updatedAt", Query.Direction.DESCENDING)
+            .limit(150)
 
-        val listener: ListenerRegistration = convRef.addSnapshotListener { snapshot, error ->
-            loading = false
+        val primaryListener = convRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
+                // Fallback to simple limit query if orderBy index or field error occurs
+                if (fallbackListener == null) {
+                    fallbackListener = FirebaseService.db.collection("reporter_conversations")
+                        .limit(200)
+                        .addSnapshotListener { fbSnapshot, fbError ->
+                            loading = false
+                            if (fbError == null && fbSnapshot != null) {
+                                conversations = fbSnapshot.documents.mapNotNull { doc ->
+                                    parseReporterConversationDoc(doc)
+                                }.sortedByDescending { it.updatedAt.coerceAtLeast(it.lastMessageTime) }
+                            }
+                        }
+                }
                 return@addSnapshotListener
             }
 
+            loading = false
             if (snapshot != null) {
-                val list = snapshot.documents.mapNotNull { doc ->
-                    try {
-                        val data = doc.data ?: return@mapNotNull null
-                        val updatedTs = when (val t = data["updatedAt"] ?: data["lastMessageTime"] ?: data["timestamp"]) {
-                            is Timestamp -> t.toDate().time
-                            is Number -> t.toLong()
-                            else -> 0L
-                        }
-                        val lastMsgTs = when (val t = data["lastMessageTime"] ?: data["timestamp"]) {
-                            is Timestamp -> t.toDate().time
-                            is Number -> t.toLong()
-                            else -> 0L
-                        }
-
-                        ReporterConversation(
-                            reporterId = doc.id,
-                            reporterName = data["reporterName"] as? String ?: "Reporter",
-                            reporterPhone = data["reporterPhone"] as? String ?: "",
-                            reporterDistrict = data["reporterDistrict"] as? String ?: "",
-                            reporterMandal = data["reporterMandal"] as? String ?: "",
-                            reporterPhotoUrl = data["reporterPhotoUrl"] as? String ?: "",
-                            lastMessage = data["lastMessage"] as? String ?: "",
-                            lastMessageTime = lastMsgTs,
-                            lastSenderRole = data["lastSenderRole"] as? String ?: "",
-                            lastSenderId = data["lastSenderId"] as? String ?: "",
-                            unreadCountForAdmin = (data["unreadCountForAdmin"] as? Number)?.toInt() ?: 0,
-                            unreadCountForReporter = (data["unreadCountForReporter"] as? Number)?.toInt() ?: 0,
-                            updatedAt = updatedTs
-                        )
-                    } catch (_: Exception) {
-                        null
-                    }
+                conversations = snapshot.documents.mapNotNull { doc ->
+                    parseReporterConversationDoc(doc)
                 }.sortedByDescending { it.updatedAt.coerceAtLeast(it.lastMessageTime) }
-                conversations = list
             }
         }
 
         onDispose {
-            listener.remove()
+            primaryListener.remove()
+            fallbackListener?.remove()
         }
     }
 
@@ -830,6 +817,8 @@ fun AdminOneOnOneChatView(
     currentUser: User,
     onBack: () -> Unit
 ) {
+    BackHandler { onBack() }
+
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -846,7 +835,7 @@ fun AdminOneOnOneChatView(
         try {
             FirebaseService.db.collection("reporter_conversations")
                 .document(reporterId)
-                .update("unreadCountForAdmin", 0)
+                .set(mapOf("unreadCountForAdmin" to 0), com.google.firebase.firestore.SetOptions.merge())
                 .await()
 
             val unreadSnap = kotlinx.coroutines.withTimeoutOrNull(4000L) {
@@ -931,23 +920,67 @@ fun AdminOneOnOneChatView(
         scope.launch {
             isSending = true
             try {
-                val result = FirebaseFunctionsService.sendAdminReporterMessage(
-                    reporterId = reporterId,
-                    text = text,
-                    type = customType
-                )
-                if (result.isSuccess) {
+                var sentViaFunction = false
+                try {
+                    val result = FirebaseFunctionsService.sendAdminReporterMessage(
+                        reporterId = reporterId,
+                        text = text,
+                        type = customType
+                    )
+                    if (result.isSuccess) {
+                        sentViaFunction = true
+                        AnalyticsService.logAdminMessageSent("reporter")
+                    }
+                } catch (_: Exception) {}
+
+                // Direct Firestore fallback if Cloud Function times out or fails
+                if (!sentViaFunction) {
+                    val nowTs = com.google.firebase.firestore.FieldValue.serverTimestamp()
+                    val msgData = mapOf(
+                        "senderId" to currentUser.id,
+                        "senderName" to currentUser.name.ifBlank { "AlfaNews Admin" },
+                        "senderRole" to "ADMIN",
+                        "text" to text,
+                        "type" to customType,
+                        "read" to false,
+                        "isManual" to true,
+                        "timestamp" to nowTs
+                    )
+                    FirebaseService.db.collection("reporter_conversations")
+                        .document(reporterId)
+                        .collection("messages")
+                        .add(msgData)
+                        .await()
+
+                    val convData = mapOf(
+                        "reporterId" to reporterId,
+                        "reporterName" to reporter.reporterName,
+                        "reporterPhone" to reporter.reporterPhone,
+                        "reporterDistrict" to reporter.reporterDistrict,
+                        "reporterMandal" to reporter.reporterMandal,
+                        "reporterPhotoUrl" to reporter.reporterPhotoUrl,
+                        "lastMessage" to text,
+                        "lastMessageTime" to nowTs,
+                        "lastSenderRole" to "ADMIN",
+                        "lastSenderId" to currentUser.id,
+                        "unreadCountForReporter" to com.google.firebase.firestore.FieldValue.increment(1),
+                        "updatedAt" to nowTs
+                    )
+                    FirebaseService.db.collection("reporter_conversations")
+                        .document(reporterId)
+                        .set(convData, com.google.firebase.firestore.SetOptions.merge())
+                        .await()
+
                     AnalyticsService.logAdminMessageSent("reporter")
-                    if (customText == null) inputText = ""
-                } else {
-                    Toast.makeText(context, "సందేశం పంపడం విఫలమైంది: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
                 }
+
+                if (customText == null) inputText = ""
             } catch (e: Exception) {
                 val isCancellation = e is kotlinx.coroutines.CancellationException || 
                                      e.toString().contains("CancellationException") || 
                                      e.message?.contains("left the composition") == true
                 if (!isCancellation) {
-                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "సందేశం పంపడంలో లోపం: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             } finally {
                 isSending = false
@@ -1110,7 +1143,7 @@ fun AdminOneOnOneChatView(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(messages, key = { it.id }) { msg ->
-                        val isMe = msg.senderRole == "ADMIN"
+                        val isMe = msg.senderId == currentUser.id
                         AdminChatBubble(msg = msg, isMe = isMe)
                     }
                 }
@@ -1185,7 +1218,7 @@ fun AdminChatBubble(msg: ReporterMessage, isMe: Boolean) {
                 Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                     if (!isMe) {
                         Text(
-                            text = msg.senderName,
+                            text = msg.senderName.ifBlank { if (msg.senderRole == "ADMIN") "ఆల్ఫా న్యూస్ డెస్క్" else "Reporter" },
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
@@ -1235,5 +1268,39 @@ fun AdminChatBubble(msg: ReporterMessage, isMe: Boolean) {
                 }
             }
         }
+    }
+}
+
+private fun parseReporterConversationDoc(doc: DocumentSnapshot): ReporterConversation? {
+    return try {
+        val data = doc.data ?: return null
+        val updatedTs = when (val t = data["updatedAt"] ?: data["lastMessageTime"] ?: data["timestamp"]) {
+            is Timestamp -> t.toDate().time
+            is Number -> t.toLong()
+            else -> 0L
+        }
+        val lastMsgTs = when (val t = data["lastMessageTime"] ?: data["timestamp"]) {
+            is Timestamp -> t.toDate().time
+            is Number -> t.toLong()
+            else -> 0L
+        }
+
+        ReporterConversation(
+            reporterId = doc.id,
+            reporterName = data["reporterName"] as? String ?: "Reporter",
+            reporterPhone = data["reporterPhone"] as? String ?: "",
+            reporterDistrict = data["reporterDistrict"] as? String ?: "",
+            reporterMandal = data["reporterMandal"] as? String ?: "",
+            reporterPhotoUrl = data["reporterPhotoUrl"] as? String ?: "",
+            lastMessage = data["lastMessage"] as? String ?: "",
+            lastMessageTime = lastMsgTs,
+            lastSenderRole = data["lastSenderRole"] as? String ?: "",
+            lastSenderId = data["lastSenderId"] as? String ?: "",
+            unreadCountForAdmin = (data["unreadCountForAdmin"] as? Number)?.toInt() ?: 0,
+            unreadCountForReporter = (data["unreadCountForReporter"] as? Number)?.toInt() ?: 0,
+            updatedAt = updatedTs
+        )
+    } catch (_: Exception) {
+        null
     }
 }

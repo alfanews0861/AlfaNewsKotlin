@@ -735,17 +735,23 @@ fun MainScreen(
                                 onReporterClick = { mainViewModel.setReporterIdToShow(it) },
                                 onMenuClick = { scope.launch { drawerState.open() } }
                             )
-                            "messages" -> if (user != null) {
-                                if (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.NEWS_DESK || user.role == UserRole.REGIONAL_INCHARGE) {
-                                    AdminReporterMessagingView(
-                                        currentUser = user,
-                                        onBack = { mainViewModel.setActiveTab("profile") }
-                                    )
+                            "messages" -> {
+                                if (user != null && user.canAccessMessages) {
+                                    if (user.role == UserRole.ADMIN || user.role == UserRole.EDITOR || user.role == UserRole.NEWS_DESK || user.role == UserRole.REGIONAL_INCHARGE) {
+                                        AdminReporterMessagingView(
+                                            currentUser = user,
+                                            onBack = { mainViewModel.setActiveTab("profile") }
+                                        )
+                                    } else {
+                                        ReporterDeskChatView(
+                                            user = user,
+                                            onBack = { mainViewModel.setActiveTab("profile") }
+                                        )
+                                    }
                                 } else {
-                                    ReporterDeskChatView(
-                                        user = user,
-                                        onBack = { mainViewModel.setActiveTab("profile") }
-                                    )
+                                    LaunchedEffect(Unit) {
+                                        mainViewModel.setActiveTab("profile")
+                                    }
                                 }
                             }
 

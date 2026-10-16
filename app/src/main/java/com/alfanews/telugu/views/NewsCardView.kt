@@ -1589,7 +1589,8 @@ fun SurveyCardContent(
     val scope = rememberCoroutineScope()
     
     val prefs = remember { com.alfanews.telugu.utils.PreferenceManager.getInstance(context) }
-    var hasVoted by remember(post.id, currentUser?.id) { mutableStateOf(prefs.isSurveyAnswered(post.id)) }
+    val isExpired = post.isExpired
+    var hasVoted by remember(post.id, currentUser?.id) { mutableStateOf(isExpired || prefs.isSurveyAnswered(post.id)) }
     var isSubmittingVote by remember { mutableStateOf(false) }
 
     // Real-time votes state
@@ -1602,17 +1603,22 @@ fun SurveyCardContent(
 
     // Check if user has voted (runs as a proper coroutine, not inside DisposableEffect)
     LaunchedEffect(post.id, currentUser?.id) {
+        if (isExpired) {
+            hasVoted = true
+            return@LaunchedEffect
+        }
         val userId = currentUser?.id
         if (userId != null) {
             try {
                 val doc = FirebaseService.db.collection("news").document(post.id)
                     .collection("voted_users").document(userId).get().await()
-                hasVoted = doc.exists()
+                if (doc.exists()) {
+                    hasVoted = true
+                    prefs.markSurveyAnswered(post.id)
+                }
             } catch (e: Exception) {
-                hasVoted = false
+                // Keep local preference state
             }
-        } else {
-            hasVoted = false
         }
     }
 
@@ -1747,7 +1753,7 @@ fun SurveyCardContent(
 
                 Divider(modifier = Modifier.padding(vertical = 4.dp))
 
-                if (hasVoted == false) {
+                if (hasVoted == false && !isExpired) {
                     // Questionnaire Section
                     if (post.surveyQuestions.isEmpty()) {
                         Text(
@@ -1983,15 +1989,20 @@ fun SurveyCardContent(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "సర్వే ఫలితాలు (Survey Results)",
+                            text = if (isExpired) {
+                                if (language == Language.TELUGU) "సర్వే అంతిమ ఫలితాలు" else "Final Survey Results"
+                            } else {
+                                if (language == Language.TELUGU) "సర్వే ఫలితాలు (Survey Results)" else "Survey Results"
+                            },
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
                         
-                        // ✓ Voted Badge
+                        // Status Badge
+                        val badgeColor = if (isExpired && !hasVoted) Color(0xFFFF5722) else Color(0xFF4CAF50)
                         Surface(
-                            color = Color(0xFF4CAF50).copy(alpha = 0.15f),
+                            color = badgeColor.copy(alpha = 0.15f),
                             shape = RoundedCornerShape(4.dp)
                         ) {
                             Row(
@@ -1999,17 +2010,21 @@ fun SurveyCardContent(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Check,
+                                    imageVector = if (hasVoted) Icons.Default.Check else Icons.Default.Schedule,
                                     contentDescription = null,
-                                    tint = Color(0xFF4CAF50),
+                                    tint = badgeColor,
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = if (language == Language.TELUGU) "ఓటు వేయబడింది" else "Voted",
+                                    text = if (isExpired) {
+                                        if (language == Language.TELUGU) "గడువు ముగిసింది" else "Survey Ended"
+                                    } else {
+                                        if (language == Language.TELUGU) "ఓటు వేయబడింది" else "Voted"
+                                    },
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF4CAF50)
+                                    color = badgeColor
                                 )
                             }
                         }
@@ -2224,10 +2239,9 @@ private fun submitSurveyVotes(
             batch.update(postRef, updates)
             
             batch.commit().await()
-            // Mark as answered locally is bypassed to keep survey in feed until expiry
-            // try {
-            //     com.alfanews.telugu.utils.PreferenceManager.getInstance(context).markSurveyAnswered(postId)
-            // } catch (e: Exception) {}
+            try {
+                com.alfanews.telugu.utils.PreferenceManager.getInstance(context).markSurveyAnswered(postId)
+            } catch (e: Exception) {}
 
             Toast.makeText(context, "మీ అభిప్రాయం సమర్పించబడింది!", Toast.LENGTH_SHORT).show()
             onSuccess()
@@ -2253,12 +2267,29 @@ fun InlineMicroPoll(
     val prefs = remember(post.id) { PreferenceManager.getInstance(context) }
     
     val question = post.surveyQuestions.firstOrNull() ?: return
+    val isExpired = post.isExpired
     var selectedOptionId by remember(post.id) { mutableStateOf(prefs.hasVotedOpinion(post.id)) }
     var isSubmitting by remember { mutableStateOf(false) }
     var liveVotes by remember(post.id) { mutableStateOf(post.votes) }
     var liveRealCount by remember(post.id) { mutableIntStateOf(post.realVotesCount) }
 
-    val hasVoted = selectedOptionId != null
+    LaunchedEffect(post.id, currentUser?.id) {
+        val userId = currentUser?.id
+        if (userId != null && selectedOptionId == null) {
+            try {
+                val doc = FirebaseService.db.collection("news").document(post.id)
+                    .collection("voted_users").document(userId).get().await()
+                if (doc.exists()) {
+                    val ans = doc.get("answers") as? Map<*, *>
+                    val chosen = ans?.get(question.id)?.toString() ?: question.options.firstOrNull()?.id ?: ""
+                    selectedOptionId = chosen
+                    prefs.saveOpinionVote(post.id, chosen)
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    val hasVoted = selectedOptionId != null || isExpired
 
     DisposableEffect(post.id) {
         val reg = FirebaseService.db.collection("news").document(post.id)
@@ -2280,9 +2311,10 @@ fun InlineMicroPoll(
         onDispose { reg.remove() }
     }
 
-    val totalDisplayVotes = remember(liveVotes, liveRealCount, post.fakeVotesBase) {
-        val realSum = liveVotes.values.sum()
-        if (realSum == 0 && liveRealCount == 0) post.fakeVotesBase else (realSum + post.fakeVotesBase)
+    val totalRealVotes = remember(liveVotes, question) {
+        question.options.sumOf { opt ->
+            (liveVotes["q_${question.id}_o_${opt.id}"] ?: liveVotes[opt.id] ?: 0)
+        }
     }
 
     Card(
@@ -2307,7 +2339,14 @@ fun InlineMicroPoll(
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.primary
                 )
-                if (hasVoted) {
+                if (isExpired) {
+                    Text(
+                        text = if (language == Language.TELUGU) "గడువు ముగిసింది" else "Ended",
+                        fontSize = 11.sp,
+                        color = Color(0xFFFF5722),
+                        fontWeight = FontWeight.Bold
+                    )
+                } else if (hasVoted) {
                     Text(
                         text = "✅ ఓటు నమోదైంది",
                         fontSize = 11.sp,
@@ -2329,9 +2368,9 @@ fun InlineMicroPoll(
             Spacer(modifier = Modifier.height(10.dp))
 
             question.options.forEach { option ->
-                val optionVotes = liveVotes[option.id] ?: 0
-                val percent = if (totalDisplayVotes > 0) {
-                    ((optionVotes.toDouble() + (post.fakeVotesBase / maxOf(1, question.options.size))) / totalDisplayVotes * 100).toInt().coerceIn(0, 100)
+                val optVotes = liveVotes["q_${question.id}_o_${option.id}"] ?: liveVotes[option.id] ?: 0
+                val percent = if (totalRealVotes > 0) {
+                    ((optVotes * 100f / totalRealVotes).toInt().coerceIn(0, 100))
                 } else 0
 
                 val isThisSelected = selectedOptionId == option.id
@@ -2393,19 +2432,38 @@ fun InlineMicroPoll(
                                 onProfileClick()
                                 return@Button
                             }
-                            if (isSubmitting) return@Button
+                            if (isSubmitting || isExpired) return@Button
                             isSubmitting = true
                             selectedOptionId = option.id
                             prefs.saveOpinionVote(post.id, option.id)
 
                             scope.launch {
                                 try {
-                                    FirebaseService.db.collection("news").document(post.id).update(
+                                    val db = FirebaseService.db
+                                    val batch = db.batch()
+                                    val postRef = db.collection("news").document(post.id)
+                                    batch.update(
+                                        postRef,
                                         mapOf(
+                                            "votes.q_${question.id}_o_${option.id}" to com.google.firebase.firestore.FieldValue.increment(1),
                                             "votes.${option.id}" to com.google.firebase.firestore.FieldValue.increment(1),
                                             "realVotesCount" to com.google.firebase.firestore.FieldValue.increment(1)
                                         )
                                     )
+                                    val uid = currentUser.id
+                                    if (uid.isNotBlank()) {
+                                        val voteRecordRef = postRef.collection("voted_users").document(uid)
+                                        batch.set(
+                                            voteRecordRef,
+                                            mapOf(
+                                                "userId" to uid,
+                                                "timestamp" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                                                "answers" to mapOf(question.id to option.id)
+                                            )
+                                        )
+                                    }
+                                    batch.commit().await()
+                                    prefs.markSurveyAnswered(post.id)
                                     AnalyticsService.logPostEngagement(post, weight = 3)
                                     AnalyticsService.logAnalyticsEvent("news_micro_poll_voted")
                                 } catch (e: Exception) { }

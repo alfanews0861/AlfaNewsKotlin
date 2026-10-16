@@ -66,13 +66,14 @@ service cloud.firestore {
 
     // User Profiles & Subcollections (Messages, Notifications)
     match /users/{userId} {
-      allow read: if true;
-      // Allow create if creating own doc (as standard SUBSCRIBER/GUEST/REPORTER without elevated admin fields) or if Admin/Editor or Super Admin
+      // Allow read if user is authenticated or if querying public staff/reporters
+      allow read: if isAuthed() || (resource.data.role in ['REPORTER', 'reporter', 'STAFF_REPORTER', 'REGIONAL_INCHARGE', 'EDITOR', 'ADMIN', 2, 3, 4, 5, 6, 7, '2', '3', '4', '5', '6', '7']);
+      // Allow create if creating own doc (as standard SUBSCRIBER/GUEST only) or if Admin/Editor or Super Admin
       allow create: if isAuthed() && (
         isSuperAdminAuth() ||
         isEditorOrAdmin() ||
         (request.auth.uid == userId &&
-         (!('role' in request.resource.data) || request.resource.data.role in ['SUBSCRIBER', 'GUEST', 'REPORTER', '1', 1, 1.0, '0', 0, 0.0, '2', 2, 2.0]) &&
+         (!('role' in request.resource.data) || request.resource.data.role in ['SUBSCRIBER', 'GUEST', '1', 1, 1.0, '0', 0, 0.0]) &&
          (!('assignedDistricts' in request.resource.data) || request.resource.data.assignedDistricts.size() == 0))
       );
 
@@ -128,10 +129,10 @@ service cloud.firestore {
                     && request.resource.data.diff(resource.data).affectedKeys()
                         .hasOnly(['likes', 'shares', 'comments']);
 
-      // Survey Vote Update: any signed-in user may increment vote counts on a survey post.
+      // Survey / Poll Vote Update: any signed-in user may increment vote counts on a survey post or news poll.
       // Only the 'votes' and 'realVotesCount' fields may be written, and realVotesCount must increment by 1.
       allow update: if isAuthed()
-                    && resource.data.type == "survey"
+                    && (resource.data.type == "survey" || resource.data.type == "news")
                     && request.resource.data.diff(resource.data).affectedKeys()
                         .hasOnly(['votes', 'realVotesCount'])
                     && (!('realVotesCount' in request.resource.data) || request.resource.data.realVotesCount == resource.data.realVotesCount + 1);

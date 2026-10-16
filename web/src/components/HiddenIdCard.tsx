@@ -77,8 +77,8 @@ const HiddenIdCard = forwardRef<HTMLDivElement, HiddenIdCardProps>(({ user, disp
                 <div className="flex flex-col items-start w-1/2">
                     <div className="h-10 w-full flex items-end justify-start mb-1">
                         <img 
-                            src={displaySignature} 
-                            className="h-8 object-contain opacity-80 mix-blend-multiply" 
+                            src={displaySignature || '/authorized_signature.png'} 
+                            className="h-9 object-contain" 
                             alt="Sign" 
                             crossOrigin="anonymous"
                         />
@@ -88,9 +88,14 @@ const HiddenIdCard = forwardRef<HTMLDivElement, HiddenIdCardProps>(({ user, disp
                     </p>
                 </div>
                 <div className="flex flex-col items-end w-1/2">
-                    <div className="h-10 w-28 mb-1" style={{ background: `repeating-linear-gradient(90deg, #000 0px, #000 2px, transparent 2px, transparent 4px, #000 4px, #000 7px, transparent 7px, transparent 9px, #000 9px, #000 10px, transparent 10px, transparent 13px, #000 13px, #000 15px, transparent 15px, transparent 19px, #000 19px, #000 22px, transparent 22px, transparent 24px)` }}></div>
-                    <p className="text-[7px] text-gray-400 font-bold uppercase tracking-widest text-right w-full">
-                        VERIFIED
+                    <img 
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(`https://alfanews.app/verify/${user.id}`)}`} 
+                        className="w-11 h-11 object-contain" 
+                        alt="QR Code" 
+                        crossOrigin="anonymous"
+                    />
+                    <p className="text-[7px] text-gray-400 font-bold uppercase tracking-widest text-right w-full mt-0.5">
+                        SCAN TO VERIFY
                     </p>
                 </div>
             </div>

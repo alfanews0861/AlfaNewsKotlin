@@ -36,6 +36,46 @@ object NotificationHelper {
     }
 
     /**
+     * Maps town/city names, regional aliases, and alternative spellings to official district names.
+     * Keeps topic naming 100% in sync with backend notification_engine.ts.
+     */
+    fun getCanonicalDistrict(district: String?): String {
+        if (district.isNullOrBlank()) return "default"
+        val clean = district.trim()
+        return when {
+            clean.contains("విజయవాడ") || clean.equals("NTR", ignoreCase = true) || clean.equals("Vijayawada", ignoreCase = true) -> "ఎన్టీఆర్"
+            clean.contains("రాజమండ్రి") || clean.contains("రాజమహేంద్రవరం") || clean.contains("తూర్పుగోదావరి") || clean.equals("East Godavari", ignoreCase = true) -> "తూర్పు గోదావరి"
+            clean.contains("అమలాపురం") || clean.contains("కోనసీమ") || clean.contains("Konaseema", ignoreCase = true) -> "కోనసీమ"
+            clean.contains("నెల్లూరు") || clean.contains("Nellore", ignoreCase = true) -> "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు"
+            clean.contains("కడప") || clean.contains("Kadapa", ignoreCase = true) -> "వైఎస్ఆర్ కడప"
+            clean.contains("రాయచోటి") || clean.contains("Annamayya", ignoreCase = true) -> "అన్నమయ్య"
+            clean.contains("సత్యసాయి") || clean.contains("పుట్టపర్తి") || clean.contains("Sathya Sai", ignoreCase = true) -> "శ్రీ సత్యసాయి"
+            clean.contains("ఒంగోలు") || clean.contains("Prakasam", ignoreCase = true) -> "ప్రకాశం"
+            clean.contains("పాడేరు") || clean.contains("అల్లూరి") || clean.contains("Alluri", ignoreCase = true) -> "అల్లూరి సీతారామరాజు"
+            clean.contains("నరసరావుపేట") || clean.contains("Palnadu", ignoreCase = true) -> "పల్నాడు"
+            clean.contains("మన్యం") || clean.contains("పార్వతీపురం") || clean.contains("Parvathipuram", ignoreCase = true) -> "పార్వతీపురం మన్యం"
+            clean.contains("మచిలీపట్నం") || clean.contains("Krishna", ignoreCase = true) -> "కృష్ణా"
+            clean.contains("భీమవరం") || clean.contains("పశ్చిమగోదావరి") || clean.equals("West Godavari", ignoreCase = true) -> "పశ్చిమ గోదావరి"
+            clean.contains("తిరుమల") || clean.contains("Tirupati", ignoreCase = true) -> "తిరుపతి"
+            clean.contains("విశాఖ") || clean.contains("వైజాగ్") || clean.contains("Vizag", ignoreCase = true) || clean.contains("Visakhapatnam", ignoreCase = true) -> "విశాఖపట్నం"
+            clean.contains("హైదరాబాద్") || clean.contains("సికింద్రాబాద్") || clean.contains("సైబరాబాద్") || clean.equals("Hyderabad", ignoreCase = true) -> "హైదరాబాద్"
+            clean.contains("కొత్తగూడెం") || clean.contains("భద్రాద్రి") || clean.contains("Kothagudem", ignoreCase = true) -> "భద్రాద్రి కొత్తగూడెం"
+            clean.contains("భూపాలపల్లి") || clean.contains("జయశంకర్") || clean.contains("Bhupalpally", ignoreCase = true) -> "జయశంకర్ భూపాలపల్లి"
+            clean.contains("గద్వాల") || clean.contains("జోగులాంబ") || clean.contains("Gadwal", ignoreCase = true) -> "జోగులాంబ గద్వాల"
+            clean.contains("ఆసిఫాబాద్") || clean.contains("కుమ్రం") || clean.contains("Asifabad", ignoreCase = true) -> "కుమ్రం భీమ్ ఆసిఫాబాద్"
+            clean.contains("మహబూబ్‌నగర్") || clean.contains("Mahabubnagar", ignoreCase = true) -> "మహబూబ్ నగర్"
+            clean.contains("సిరిసిల్ల") || clean.contains("రాజన్న") || clean.contains("Sircilla", ignoreCase = true) -> "రాజన్న సిరిసిల్ల"
+            clean.contains("హనుమకొండ") || clean.contains("వరంగల్ అర్బన్") || clean.contains("Hanamkonda", ignoreCase = true) -> "హన్మకొండ"
+            clean.contains("వరంగల్ రూరల్") || clean.contains("Warangal", ignoreCase = true) -> "వరంగల్"
+            clean.contains("భువనగిరి") || clean.contains("యాదాద్రి") || clean.contains("Yadadri", ignoreCase = true) -> "యాదాద్రి భువనగిరి"
+            clean.contains("నల్లగొండ") || clean.contains("Nalgonda", ignoreCase = true) -> "నల్గొండ"
+            clean.contains("నాగర్‌కర్నూల్") || clean.contains("Nagarkurnool", ignoreCase = true) -> "నాగర్ కర్నూల్"
+            clean.contains("మేడ్చల్") || clean.contains("మల్కాజిగిరి") || clean.contains("Medchal", ignoreCase = true) -> "మేడ్చల్ మల్కాజిగిరి"
+            else -> clean
+        }
+    }
+
+    /**
      * Maps full/official district names used in the app to the short district names 
      * used by the weather alert system in Firestore / FCM topics.
      */
@@ -51,7 +91,11 @@ object NotificationHelper {
     }
 
     fun getTopicName(prefix: String, value: String): String {
-        val resolvedValue = if (prefix == "weather_alert") getWeatherDistrictKey(value) else value
+        val resolvedValue = when (prefix) {
+            "weather_alert" -> getWeatherDistrictKey(value)
+            "district" -> getCanonicalDistrict(value)
+            else -> value
+        }
         return "${prefix}_${slugify(resolvedValue)}"
     }
 
@@ -61,11 +105,10 @@ object NotificationHelper {
      */
     suspend fun syncDistrictTopic(context: Context, newDistrict: String?) {
         val prefs = PreferenceManager.getInstance(context)
-        if (!prefs.isNotificationsEnabled) return
-
         val messaging = FirebaseMessaging.getInstance()
-        val targetTopic = if (!newDistrict.isNullOrBlank()) getTopicName("district", newDistrict) else null
-        val targetWeatherTopic = if (!newDistrict.isNullOrBlank()) getTopicName("weather_alert", newDistrict) else null
+        val canonicalDistrict = if (!newDistrict.isNullOrBlank()) getCanonicalDistrict(newDistrict) else null
+        val targetTopic = if (!canonicalDistrict.isNullOrBlank()) getTopicName("district", canonicalDistrict) else null
+        val targetWeatherTopic = if (!canonicalDistrict.isNullOrBlank()) getTopicName("weather_alert", canonicalDistrict) else null
         val currentSubscribedTopic = prefs.subscribedDistrictTopic
 
         try {
@@ -75,14 +118,14 @@ object NotificationHelper {
                     val distTopic = getTopicName("district", district)
                     val wTopic = getTopicName("weather_alert", district)
                     if (distTopic != targetTopic) {
-                        try { messaging.unsubscribeFromTopic(distTopic) } catch (e: Exception) {}
+                        try { messaging.unsubscribeFromTopic(distTopic).await() } catch (e: Exception) {}
                     }
                     if (wTopic != targetWeatherTopic) {
-                        try { messaging.unsubscribeFromTopic(wTopic) } catch (e: Exception) {}
+                        try { messaging.unsubscribeFromTopic(wTopic).await() } catch (e: Exception) {}
                     }
                 }
                 prefs.hasCleanedStaleDistricts = true
-                android.util.Log.d("NotificationHelper", "One-time sweep: scheduled unsubscription from all stale district topics")
+                android.util.Log.d("NotificationHelper", "One-time sweep: cleanly unsubscribed from all stale district topics")
             }
 
             // 2. యూజర్ జిల్లా మారినప్పుడు మునుపటి టాపిక్ నుండి అన్‌సబ్‌స్క్రయిబ్ చేయడం
@@ -98,7 +141,7 @@ object NotificationHelper {
                     try { messaging.subscribeToTopic(targetWeatherTopic).await() } catch (e: Exception) {}
                 }
                 prefs.subscribedDistrictTopic = targetTopic
-                android.util.Log.d("NotificationHelper", "Strictly subscribed to single district topic: $targetTopic")
+                android.util.Log.d("NotificationHelper", "Strictly subscribed to canonical district topic: $targetTopic ($canonicalDistrict)")
             } else {
                 prefs.subscribedDistrictTopic = null
             }

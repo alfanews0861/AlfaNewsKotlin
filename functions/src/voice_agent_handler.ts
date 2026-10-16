@@ -309,6 +309,9 @@ export const handleTelephonyWebhook = onRequest({
 
       // If intent requires follow-up, log in desk chat (reporter_conversations)
       if (callData.extractedIntent?.followUpRequired && callData.reporterId) {
+        const voiceFollowUpText = `ఫోన్ సంభాషణ సారాంశం:\nకారణం: ${callData.extractedIntent.reasonForInactivity || 'తెలియజేయలేదు'}\nపంపే సమయం: ${callData.extractedIntent.promisedSubmissionTime || 'త్వరలో'}\nగమనిక: ${callData.extractedIntent.notes || ''}`;
+        const voiceTimestamp = admin.firestore.FieldValue.serverTimestamp();
+
         await db.collection("reporter_conversations")
           .doc(callData.reporterId)
           .collection("messages")
@@ -316,11 +319,27 @@ export const handleTelephonyWebhook = onRequest({
             senderId: "SYSTEM_DESK",
             senderName: "ఆల్ఫా న్యూస్ ఎడిటోరియల్ డెస్క్ (Voice Follow-up)",
             senderRole: "ADMIN",
-            text: `ఫోన్ సంభాషణ సారాంశం:\nకారణం: ${callData.extractedIntent.reasonForInactivity || 'తెలియజేయలేదు'}\nపంపే సమయం: ${callData.extractedIntent.promisedSubmissionTime || 'త్వరలో'}\nగమనిక: ${callData.extractedIntent.notes || ''}`,
+            text: voiceFollowUpText,
             type: "VOICE_FOLLOWUP",
             read: false,
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: voiceTimestamp
           });
+
+        await db.collection("reporter_conversations")
+          .doc(callData.reporterId)
+          .set({
+            reporterId: callData.reporterId,
+            reporterName: callData.reporterName || "Reporter",
+            reporterPhone: callData.phoneNumber || "",
+            reporterDistrict: callData.district || "",
+            reporterMandal: callData.mandal || "",
+            lastMessage: `[వాయిస్ కాల్] ${callData.extractedIntent.reasonForInactivity || 'ఫాలో-అప్'}`.substring(0, 100),
+            lastMessageTime: voiceTimestamp,
+            lastSenderRole: "ADMIN",
+            lastSenderId: "SYSTEM_DESK",
+            unreadCountForReporter: admin.firestore.FieldValue.increment(1),
+            updatedAt: voiceTimestamp
+          }, { merge: true });
       }
 
       res.status(200).json({ status: "ok" });

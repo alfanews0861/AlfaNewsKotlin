@@ -465,8 +465,8 @@ exports.getNewsCardImage = (0, https_1.onRequest)(async (req, res) => {
         // 3. News Photo (Y: 75 to 675, Height: 600) with aspect-ratio preserving cover crop
         const photoY = 75;
         const photoH = 600;
-        if (!photo && mediaUrl) {
-            photo = await loadPhotoFast(mediaUrl, 2500);
+        if (!photo && data.mediaUrl) {
+            photo = await loadPhotoFast(data.mediaUrl, 2500);
         }
         if (photo) {
             try {

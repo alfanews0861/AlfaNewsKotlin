@@ -78,9 +78,18 @@ export const sendAdminReporterMessage = onCall(async (request) => {
     const senderDoc = await db.collection('users').doc(senderId).get();
     const senderData = senderDoc.data();
     const senderRole = String(senderData?.role || '').toUpperCase();
-    const isAdmin = ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'].includes(senderRole) || senderData?.role === UserRole.ADMIN || senderData?.role === UserRole.EDITOR;
+    const rawRole = senderData?.role;
+    const isSuperAdmin = (senderData?.email === 'alfanews0861@gmail.com') ||
+                         (senderData?.phone && (senderData.phone.includes('9173811009') || senderData.phone.includes('73811009')));
+    const isAdmin = isSuperAdmin ||
+        ['ADMIN', 'EDITOR', 'NEWS_DESK', 'REGIONAL_INCHARGE', 'SUPER_ADMIN'].includes(senderRole) ||
+        ['3', '3.0', '4', '4.0', '5', '5.0', '6', '6.0', '7', '7.0', 3, 4, 5, 6, 7].includes(rawRole as any) ||
+        rawRole === UserRole.ADMIN ||
+        rawRole === UserRole.EDITOR ||
+        rawRole === UserRole.NEWS_DESK ||
+        rawRole === UserRole.REGIONAL_INCHARGE;
 
-    // Security check: Either sender is an Admin/Editor, OR sender is the reporter themselves messaging the admin
+    // Security check: Either sender is an Admin/Editor/Staff, OR sender is the reporter themselves messaging the admin
     if (!isAdmin && senderId !== reporterId) {
         throw new HttpsError('permission-denied', 'మీకు ఇతర రిపోర్టర్లతో సంభాషించే అనుమతి లేదు.');
     }
@@ -182,8 +191,17 @@ export const broadcastToAllReporters = onCall(async (request) => {
     }
 
     const senderDoc = await db.collection('users').doc(auth.uid).get();
-    const senderRole = String(senderDoc.data()?.role || '').toUpperCase();
-    const isAdmin = ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'].includes(senderRole) || senderDoc.data()?.role === UserRole.ADMIN;
+    const senderData = senderDoc.data();
+    const senderRole = String(senderData?.role || '').toUpperCase();
+    const rawRole = senderData?.role;
+    const isSuperAdmin = (senderData?.email === 'alfanews0861@gmail.com') ||
+                         (senderData?.phone && (senderData.phone.includes('9173811009') || senderData.phone.includes('73811009')));
+    const isAdmin = isSuperAdmin ||
+        ['ADMIN', 'EDITOR', 'NEWS_DESK', 'REGIONAL_INCHARGE', 'SUPER_ADMIN'].includes(senderRole) ||
+        ['3', '3.0', '4', '4.0', '5', '5.0', '6', '6.0', '7', '7.0', 3, 4, 5, 6, 7].includes(rawRole as any) ||
+        rawRole === UserRole.ADMIN ||
+        rawRole === UserRole.EDITOR ||
+        rawRole === UserRole.NEWS_DESK;
 
     if (!isAdmin) {
         throw new HttpsError('permission-denied', 'అడ్మిన్లకు మాత్రమే ఈ అనుమతి ఉంది.');
@@ -199,9 +217,13 @@ export const broadcastToAllReporters = onCall(async (request) => {
 
     console.log(`[REPORTER_BROADCAST] Broadcasting to all reporters from ${auth.uid}...`);
 
-    // Fetch all active reporters
+    // Fetch all active reporters, staff reporters, and regional in-charges
     const reportersSnapshot = await db.collection('users')
-        .where('role', 'in', [UserRole.REPORTER, 'REPORTER', 'reporter', 2, 2.0, '2'])
+        .where('role', 'in', [
+            'REPORTER', 'reporter', 2, '2',
+            'STAFF_REPORTER', 'staff_reporter',
+            'REGIONAL_INCHARGE', 'regional_incharge', 3, '3'
+        ])
         .get();
 
     if (reportersSnapshot.empty) {

@@ -714,48 +714,78 @@ fun UserProfilePageView(
                 }
             }
 
-            // ✉️ సందేశాలు (Messages) - logged-in users only
-            if (!isGuest) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onNavigate("messages") },
-                    shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.05f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+            // ✉️ సందేశాలు (Messages) - కేవలం రిపోర్టర్లు, డౌన్‌గ్రేడ్ అయిన రిపోర్టర్లకు మాత్రమే
+            if (!isGuest && user.canAccessMessages) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onNavigate("messages") },
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.05f))
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Mail, contentDescription = null, tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = stringResource(R.string.messages),
-                                fontFamily = Ramabhadra,
-                                fontSize = 18.sp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontWeight = FontWeight.Bold
-                            )
-                            if (unreadMessagesCount > 0) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Surface(
-                                    shape = androidx.compose.foundation.shape.CircleShape,
-                                    color = androidx.compose.ui.graphics.Color(0xFFE53935)
-                                ) {
-                                    Text(
-                                        text = if (unreadMessagesCount > 99) "99+" else "$unreadMessagesCount",
-                                        color = androidx.compose.ui.graphics.Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                                    )
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Mail, contentDescription = null, tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = stringResource(R.string.messages),
+                                    fontFamily = Ramabhadra,
+                                    fontSize = 18.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (unreadMessagesCount > 0) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Surface(
+                                        shape = androidx.compose.foundation.shape.CircleShape,
+                                        color = androidx.compose.ui.graphics.Color(0xFFE53935)
+                                    ) {
+                                        Text(
+                                            text = if (unreadMessagesCount > 99) "99+" else "$unreadMessagesCount",
+                                            color = androidx.compose.ui.graphics.Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                        )
+                                    }
                                 }
                             }
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
                         }
-                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
+                    }
+
+                    // 💬 అడ్మిన్‌కు సందేశం పంపు (Send Message to Admin) Button
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = { onNavigate("messages") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Send,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (language == Language.TELUGU) "అడ్మిన్‌కు సందేశం పంపు" else "Send Message to Admin",
+                            fontFamily = Ramabhadra,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
                     }
                 }
             }

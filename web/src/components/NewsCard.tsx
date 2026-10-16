@@ -7,6 +7,7 @@ import { updateInterests } from '../services/interestService';
 import { Heart, MessageCircle, Share2, BookOpen, ChevronDown, ChevronUp, X, CheckCircle2 } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
 import { isReporterVerified } from '../services/reporterVerification';
+import SurveyCard from './SurveyCard';
 
 export const getReadNewsIds = (): Set<string> => {
   try {
@@ -494,6 +495,17 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
           />
         )}
       </>
+    );
+  }
+
+  if (post.type === 'survey') {
+    return (
+      <SurveyCard
+        post={post}
+        language={language}
+        currentUser={currentUser}
+        onProfileClick={onProfileClick}
+      />
     );
   }
 

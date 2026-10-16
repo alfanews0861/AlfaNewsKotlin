@@ -780,6 +780,24 @@ export const cleanupOldNews = onSchedule({
             // But we continue until MAX_CLEANUP to dig through them.
         }
 
+        // 🛡️ Cleanup stale anonymous device documents older than 90 days (max 500 per daily run)
+        try {
+            const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+            const staleDevicesSnapshot = await db.collection('anonymous_devices')
+                .where('lastActive', '<', admin.firestore.Timestamp.fromDate(ninetyDaysAgo))
+                .limit(500)
+                .get();
+
+            if (!staleDevicesSnapshot.empty) {
+                const batch = db.batch();
+                staleDevicesSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+                await batch.commit();
+                console.log(`[CLEANUP] Deleted ${staleDevicesSnapshot.docs.length} stale anonymous devices (>90 days inactive).`);
+            }
+        } catch (deviceCleanupErr: any) {
+            console.warn(`[CLEANUP_WARN] Stale device cleanup skipped:`, deviceCleanupErr.message);
+        }
+
         console.log(`[CLEANUP] Completed. Cleaned ${totalCleanedDocs} documents and deleted ${totalDeletedFiles} media files.`);
     } catch (error: any) {
         console.error("[CLEANUP] Error during cleanup:", error.message);

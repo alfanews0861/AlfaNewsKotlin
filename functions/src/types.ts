@@ -77,9 +77,29 @@ export interface NewsPost {
   isReporter?: boolean;
   isSpecialStory?: boolean;
   webOnly?: boolean;
+  surveyQuestions?: SurveyQuestion[];
+  isMultiPage?: boolean;
+  votes?: Record<string, number>;
+  realVotesCount?: number;
+  fakeVotesBase?: number;
+  surveyCreatedAt?: number;
+  expiryTimestamp?: number;
   rejectionReason?: string;
   isDuplicate?: boolean;
   error?: string;
+}
+
+export interface SurveyOption {
+  id: string;
+  text: string;
+  votes?: number;
+  nextQuestionId?: string | null;
+}
+
+export interface SurveyQuestion {
+  id: string;
+  questionText: string;
+  options: SurveyOption[];
 }
 
 export enum Language {

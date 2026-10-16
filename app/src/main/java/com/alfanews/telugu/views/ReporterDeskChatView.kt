@@ -1,12 +1,15 @@
 package com.alfanews.telugu.views
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -41,6 +44,8 @@ fun ReporterDeskChatView(
     user: User,
     onBack: () -> Unit = {}
 ) {
+    BackHandler { onBack() }
+
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -64,7 +69,7 @@ fun ReporterDeskChatView(
         try {
             FirebaseService.db.collection("reporter_conversations")
                 .document(reporterId)
-                .update("unreadCountForReporter", 0)
+                .set(mapOf("unreadCountForReporter" to 0), com.google.firebase.firestore.SetOptions.merge())
                 .await()
 
             val unreadSnap = FirebaseService.db.collection("reporter_conversations")
@@ -144,27 +149,73 @@ fun ReporterDeskChatView(
         }
     }
 
-    fun sendMessage() {
-        val text = inputText.trim()
+    fun sendMessage(customText: String? = null) {
+        val text = (customText ?: inputText).trim()
         if (text.isEmpty() || isSending) return
 
         scope.launch {
             isSending = true
             try {
-                val result = FirebaseFunctionsService.sendAdminReporterMessage(
-                    reporterId = reporterId,
-                    text = text,
-                    type = "CHAT"
-                )
-                if (result.isSuccess) {
+                var sentViaFunction = false
+                try {
+                    val result = FirebaseFunctionsService.sendAdminReporterMessage(
+                        reporterId = reporterId,
+                        text = text,
+                        type = "CHAT"
+                    )
+                    if (result.isSuccess) {
+                        sentViaFunction = true
+                        AnalyticsService.logReporterMessageSent("CHAT")
+                    }
+                } catch (_: Exception) {}
+
+                // Direct Firestore fallback if Cloud Function times out or fails
+                if (!sentViaFunction) {
+                    val nowTs = com.google.firebase.firestore.FieldValue.serverTimestamp()
+                    val msgData = mapOf(
+                        "senderId" to reporterId,
+                        "senderName" to user.name.ifBlank { "Reporter" },
+                        "senderRole" to "REPORTER",
+                        "text" to text,
+                        "type" to "CHAT",
+                        "read" to false,
+                        "isManual" to false,
+                        "timestamp" to nowTs
+                    )
+                    FirebaseService.db.collection("reporter_conversations")
+                        .document(reporterId)
+                        .collection("messages")
+                        .add(msgData)
+                        .await()
+
+                    val convData = mapOf(
+                        "reporterId" to reporterId,
+                        "reporterName" to user.name.ifBlank { "Reporter" },
+                        "reporterPhone" to (user.phone ?: ""),
+                        "reporterDistrict" to (user.district ?: ""),
+                        "reporterMandal" to (user.assignedMandal ?: ""),
+                        "reporterPhotoUrl" to (user.photoUrl ?: ""),
+                        "lastMessage" to text,
+                        "lastMessageTime" to nowTs,
+                        "lastSenderRole" to "REPORTER",
+                        "lastSenderId" to reporterId,
+                        "unreadCountForAdmin" to com.google.firebase.firestore.FieldValue.increment(1),
+                        "updatedAt" to nowTs
+                    )
+                    FirebaseService.db.collection("reporter_conversations")
+                        .document(reporterId)
+                        .set(convData, com.google.firebase.firestore.SetOptions.merge())
+                        .await()
+
                     AnalyticsService.logReporterMessageSent("CHAT")
+                }
+
+                if (customText == null) {
                     inputText = ""
-                } else {
-                    Toast.makeText(context, "సందేశం పంపడం విఫలమైంది: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 if (e !is kotlinx.coroutines.CancellationException) {
-                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "సందేశం పంపడంలో లోపం: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             } finally {
                 isSending = false
@@ -208,44 +259,68 @@ fun ReporterDeskChatView(
                 shadowElevation = 8.dp,
                 color = MaterialTheme.colorScheme.surface
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = inputText,
-                        onValueChange = { inputText = it },
-                        modifier = Modifier.weight(1f),
-                        placeholder = { Text("అడ్మిన్‌కు సందేశం టైప్ చేయండి...", fontSize = 13.sp) },
-                        shape = RoundedCornerShape(24.dp),
-                        maxLines = 4,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                        )
-                    )
-
-                    IconButton(
-                        onClick = { sendMessage() },
-                        enabled = inputText.isNotBlank() && !isSending,
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Quick Action Chips to easily send messages to Admin
+                    Row(
                         modifier = Modifier
-                            .size(48.dp)
-                            .background(
-                                if (inputText.isNotBlank() && !isSending) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                CircleShape
-                            )
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        if (isSending) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                        } else {
-                            Icon(
-                                Icons.Default.Send,
-                                contentDescription = "Send",
-                                tint = if (inputText.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        SuggestionChip(
+                            onClick = { sendMessage("నా పరిధిలోని వార్తలపై ఎడిటోరియల్ డెస్క్ పరిశీలన కావాలి.") },
+                            label = { Text("వార్త పరిశీలన 📝", fontSize = 11.sp) }
+                        )
+                        SuggestionChip(
+                            onClick = { sendMessage("నా మండలంలో వార్తలు లేదా యాప్‌లో సాంకేతిక సమస్య ఉంది.") },
+                            label = { Text("సమస్య తెలియజేయండి ⚠️", fontSize = 11.sp) }
+                        )
+                        SuggestionChip(
+                            onClick = { sendMessage("ఐడీ కార్డు లేదా ప్రొఫైల్ వివరాల సవరణ కొరకు సహాయం కావాలి.") },
+                            label = { Text("ఐడీ / ప్రొఫైల్ సాయం 🪪", fontSize = 11.sp) }
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = inputText,
+                            onValueChange = { inputText = it },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("అడ్మిన్‌కు సందేశం టైప్ చేయండి...", fontSize = 13.sp) },
+                            shape = RoundedCornerShape(24.dp),
+                            maxLines = 4,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
                             )
+                        )
+
+                        IconButton(
+                            onClick = { sendMessage() },
+                            enabled = inputText.isNotBlank() && !isSending,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .background(
+                                    if (inputText.isNotBlank() && !isSending) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                    CircleShape
+                                )
+                        ) {
+                            if (isSending) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                            } else {
+                                Icon(
+                                    Icons.Default.Send,
+                                    contentDescription = "Send",
+                                    tint = if (inputText.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
@@ -317,6 +392,16 @@ fun ReporterDeskChatView(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontSize = 13.sp
                                     )
+                                    Spacer(Modifier.height(16.dp))
+                                    Button(
+                                        onClick = { inputText = "నమస్కారం అడ్మిన్ డెస్క్, " },
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                        shape = RoundedCornerShape(20.dp)
+                                    ) {
+                                        Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("అడ్మిన్‌కు సందేశం పంపు", fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = Ramabhadra)
+                                    }
                                 }
                             }
                         }

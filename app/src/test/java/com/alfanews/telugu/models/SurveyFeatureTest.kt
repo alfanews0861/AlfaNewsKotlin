@@ -1,4 +1,4 @@
-﻿package com.alfanews.telugu.models
+package com.alfanews.telugu.models
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -81,13 +81,38 @@ class SurveyFeatureTest {
     }
 
     @Test
-    fun `Editor cannot post survey`() {
-        assertFalse(makeUser(UserRole.EDITOR, listOf("gold")).canPostSurvey())
+    fun `Editor can post survey`() {
+        assertTrue(makeUser(UserRole.EDITOR).canPostSurvey())
     }
 
     @Test
-    fun `Regional Incharge cannot post survey`() {
-        assertFalse(makeUser(UserRole.REGIONAL_INCHARGE, listOf("gold")).canPostSurvey())
+    fun `News Desk can post survey`() {
+        assertTrue(makeUser(UserRole.NEWS_DESK).canPostSurvey())
+    }
+
+    @Test
+    fun `Regional Incharge can post survey`() {
+        assertTrue(makeUser(UserRole.REGIONAL_INCHARGE).canPostSurvey())
+    }
+
+    @Test
+    fun `Survey isExpired returns true when expiryTimestamp has passed`() {
+        val post = NewsPost(
+            id = "s_exp",
+            type = "survey",
+            expiryTimestamp = System.currentTimeMillis() - 1000L
+        )
+        assertTrue(post.isExpired)
+    }
+
+    @Test
+    fun `Survey isExpired returns false when expiryTimestamp is in the future`() {
+        val post = NewsPost(
+            id = "s_act",
+            type = "survey",
+            expiryTimestamp = System.currentTimeMillis() + 86400000L
+        )
+        assertFalse(post.isExpired)
     }
 
     // ─── 2. Data Models ───────────────────────────────────────────────────────

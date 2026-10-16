@@ -83,7 +83,7 @@ fun AppDrawerContent(
         AppPageConfig("profile", stringResource(R.string.profile), listOf(UserRole.GUEST, UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("id-card", stringResource(R.string.id_card), listOf(UserRole.REPORTER, UserRole.NEWS_DESK, UserRole.REGIONAL_INCHARGE, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("manageSurveys", "సర్వే నిర్వహణ", listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK)),
-        AppPageConfig("messages", stringResource(R.string.messages), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK, UserRole.REGIONAL_INCHARGE, UserRole.SUBSCRIBER)),
+        AppPageConfig("messages", stringResource(R.string.messages), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN, UserRole.NEWS_DESK, UserRole.REGIONAL_INCHARGE)),
         AppPageConfig("post", stringResource(R.string.post_news), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("ads", stringResource(R.string.ads_manager), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.ADMIN)),
         AppPageConfig("manage", stringResource(R.string.manage_news), listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK)),
@@ -99,12 +99,18 @@ fun AppDrawerContent(
             AppPageConfig("local", stringResource(R.string.local_news), emptyList()),
             AppPageConfig("profile", stringResource(R.string.profile), emptyList())
         )
-        UserRole.SUBSCRIBER -> listOf(
-            AppPageConfig("home", stringResource(R.string.home), emptyList()),
-            AppPageConfig("local", stringResource(R.string.local_news), emptyList()),
-            AppPageConfig("messages", stringResource(R.string.messages), emptyList()),
-            AppPageConfig("profile", stringResource(R.string.profile), emptyList())
-        )
+        UserRole.SUBSCRIBER -> {
+            val list = mutableListOf(
+                AppPageConfig("home", stringResource(R.string.home), emptyList()),
+                AppPageConfig("local", stringResource(R.string.local_news), emptyList())
+            )
+            // సాధారణ సబ్‌స్క్రైబర్లకు వద్దు - కేవలం రిపోర్టర్ హిస్టరీ లేదా డౌన్‌గ్రేడ్ అయినవారికి మాత్రమే
+            if (effectiveDrawerUser?.canAccessMessages == true) {
+                list.add(AppPageConfig("messages", stringResource(R.string.messages), emptyList()))
+            }
+            list.add(AppPageConfig("profile", stringResource(R.string.profile), emptyList()))
+            list
+        }
         UserRole.REPORTER -> allPages.filter { 
             val list = listOf("profile", "id-card", "manageSurveys", "post", "ads", "manage", "messages")
             list.contains(it.id)

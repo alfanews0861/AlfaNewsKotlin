@@ -145,7 +145,7 @@ data class SurveyQuestion(
  * వినియోగదారు సర్వే పోస్ట్ చేయగలరో లేదో సరిచూస్తుంది.
  */
 fun User.canPostSurvey(): Boolean {
-    if (this.role == UserRole.ADMIN) return true
+    if (this.role in listOf(UserRole.ADMIN, UserRole.EDITOR, UserRole.NEWS_DESK, UserRole.REGIONAL_INCHARGE)) return true
     if (this.role == UserRole.REPORTER) {
         val goldOrAboveBadges = listOf("gold", "platinum", "diamond", "crown", "senior")
         return this.badges.any { badge ->

@@ -227,7 +227,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 if (_news.value.isEmpty()) {
                     _loading.value = true
                     try {
-                        val fastSnap = kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                        val fastSnap = kotlinx.coroutines.withTimeoutOrNull(3000L) {
                             newsRef.whereEqualTo("approved", true)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
                                 .limit(5)
@@ -240,6 +240,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                             val combined = (listOfNotNull(initialTargetPost) + stateFiltered).distinctBy { it.id }
                             if (combined.isNotEmpty()) {
                                 _news.value = combined
+                                if (lastDocument == null) {
+                                    lastDocument = fastSnap?.documents?.lastOrNull()
+                                }
                                 _loading.value = false
                                 Log.d("NewsFeedVM", "⚡ Fast Path: ${combined.size} fresh posts in < 300ms")
                             }
@@ -249,7 +252,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
 
-                // 4. ⚡ PARALLEL LEAN SERVER QUERIES (Primary 20 + District 8) with 4.5s lean timeout
+                // 4. ⚡ PARALLEL LEAN SERVER QUERIES (Primary 20 + District 8) with 8s mobile-resilient timeout
                 val mainDeferred = async(Dispatchers.IO) {
                     try {
                         primaryQuery.get().await()
@@ -286,8 +289,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     } else null
                 }
 
-                val mainSnap = kotlinx.coroutines.withTimeoutOrNull(4500L) { mainDeferred.await() }
-                val districtSnap = kotlinx.coroutines.withTimeoutOrNull(4500L) { districtDeferred.await() }
+                val mainSnap = kotlinx.coroutines.withTimeoutOrNull(8000L) { mainDeferred.await() }
+                val districtSnap = kotlinx.coroutines.withTimeoutOrNull(8000L) { districtDeferred.await() }
 
                 var freshPosts = mainSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
                 val districtPosts = districtSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
@@ -347,12 +350,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     fun loadMore(language: Language, currentUser: User?) {
         if (!_hasMore.value || isFetching) return
         val cursor = lastDocument ?: run {
-            _hasMore.value = false
             return
         }
 
+        isFetching = true
         viewModelScope.launch {
-            isFetching = true
             try {
                 val district = prefs.getEffectiveDistrict() ?: activeCurrentUser?.district?.takeIf { it.isNotBlank() }
                 val userState = Constants.mapDistrictToState(district)
@@ -365,11 +367,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     .startAfter(cursor)
                     .limit(PAGE_SIZE.toLong())
 
-                val snap = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                val snap = kotlinx.coroutines.withTimeoutOrNull(8000L) {
                     q.get().await()
                 }
-                val newPosts = snap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
-                if (snap?.documents?.isNotEmpty() == true) {
+                if (snap == null) {
+                    Log.w("NewsFeedVM", "loadMore timed out, will retry on scroll")
+                    return@launch
+                }
+
+                val newPosts = snap.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                if (snap.documents.isNotEmpty()) {
                     lastDocument = snap.documents.lastOrNull()
                 }
 
@@ -388,8 +395,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         prefs.incrementPostViewCounts(validIds)
                     } else {
                         consecutiveEmptyLoads++
-                        if (consecutiveEmptyLoads >= 2) {
-                            _hasMore.value = false // 🛡️ Circuit breaker against loops
+                        if (consecutiveEmptyLoads >= 4) {
+                            _hasMore.value = false // 🛡️ Circuit breaker after 4 consecutive empty batches
                         }
                     }
                     if (newPosts.size < PAGE_SIZE) {
@@ -397,8 +404,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.w("NewsFeedVM", "loadMore failed: ${e.message}")
-                _hasMore.value = false // 🛡️ Prevent infinite read loop on failure
             } finally {
                 isFetching = false
             }

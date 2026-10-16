@@ -228,64 +228,15 @@ export function calculateDaysInactive(reporter: any, now: Date, actualNewsDate?:
 }
 
 /**
- * Core scanner function to evaluate reporter activity and send warnings.
+ * Core scanner function to evaluate reporter activity.
+ * Sends a polite request to reporters who haven't posted in 3+ days,
+ * and notifies Admins if a reporter has been inactive for 10+ consecutive days.
+ * 🛡️ Automated demotions, warning levels, and threatening alerts are completely disabled.
  */
 export async function runReporterActivityScan() {
     console.log("[REPORTER_MONITOR] 🔍 Starting reporter activity scan...");
 
     const now = new Date();
-
-    // 🛡️ Auto-Restore Step: Automatically recover any reporters demoted or downgraded
-    try {
-        const demotedUsersSnap = await db.collection('users')
-            .where('previouslyDowngraded', '==', true)
-            .get();
-        for (const doc of demotedUsersSnap.docs) {
-            const u = doc.data();
-            let mandal = u.assignedMandal || u.mandal || "";
-            let district = u.district || "";
-            if (!mandal && u.lastKnownMandal && u.lastKnownMandal.includes("|")) {
-                const parts = u.lastKnownMandal.split("|");
-                district = parts[0] || district;
-                mandal = parts[1] || mandal;
-            }
-            await doc.ref.set({
-                role: UserRole.REPORTER,
-                warningLevel: 0,
-                inProbation: false,
-                previouslyDowngraded: false,
-                suspended: false,
-                ...(mandal ? { assignedMandal: mandal, mandal: mandal } : {}),
-                ...(district ? { district: district } : {}),
-                downgradedReason: admin.firestore.FieldValue.delete(),
-                downgradedAt: admin.firestore.FieldValue.delete(),
-                downgradedBy: admin.firestore.FieldValue.delete(),
-                lastWarningDate: admin.firestore.FieldValue.delete(),
-                rejoinedAt: admin.firestore.FieldValue.serverTimestamp(),
-                lastPostTimestamp: u.lastPostTimestamp || admin.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
-            console.log(`[REPORTER_MONITOR] 🔄 Auto-restored reporter: ${u.name || doc.id} (${mandal || 'Reporter'})`);
-
-            // Restore associated applications
-            try {
-                const appSnap = await db.collection('reporter_applications')
-                    .where('userId', '==', doc.id)
-                    .where('status', 'in', ['SUSPENDED', 'PENDING'])
-                    .get();
-                for (const appDoc of appSnap.docs) {
-                    await appDoc.ref.update({ 
-                        status: 'JOINED', 
-                        suspendedAt: admin.firestore.FieldValue.delete(), 
-                        reason: admin.firestore.FieldValue.delete() 
-                    });
-                }
-            } catch (appErr: any) {
-                console.warn(`[REPORTER_MONITOR] App restore warn for ${doc.id}:`, appErr.message);
-            }
-        }
-    } catch (restoreErr: any) {
-        console.warn(`[REPORTER_MONITOR] Auto-restore query warn:`, restoreErr.message);
-    }
 
     // Fetch all active reporters (handling string, numeric, and enum role formats)
     const reportersSnapshot = await db.collection('users')
@@ -297,12 +248,17 @@ export async function runReporterActivityScan() {
         return { reportersScanned: 0, inactiveActedOn: 0 };
     }
 
-    console.log(`[REPORTER_MONITOR] Scanning ${reportersSnapshot.size} reporters for inactivity...`);
+    console.log(`[REPORTER_MONITOR] Scanning ${reportersSnapshot.size} reporters for activity...`);
     let inactiveCount = 0;
 
     for (const doc of reportersSnapshot.docs) {
         const reporter = doc.data();
         const reporterId = doc.id;
+
+        // Skip suspended or admin-demoted accounts
+        if (reporter.suspended === true || reporter.previouslyDowngraded === true) {
+            continue;
+        }
 
         // Auto-fix for existing reporters lacking promotedAt and lastPostTimestamp
         if (!reporter.lastPostTimestamp && !reporter.promotedAt && !reporter.rejoinedAt && !reporter.roleUpdatedAt) {
@@ -316,7 +272,7 @@ export async function runReporterActivityScan() {
                 previouslyDowngraded: false,
                 suspended: false
             }, { merge: true });
-            continue; // Skip this scan iteration, giving full grace period
+            continue;
         }
 
         const acted = await handleReporterStatus(reporterId, reporter, now);
@@ -353,13 +309,92 @@ export const triggerReporterActivityCheck = onCall({
     return { success: true, ...result };
 });
 
+/**
+ * Sends notification and in-app message to Admins when a reporter has not posted
+ * for more than 10 consecutive days.
+ */
+export async function sendAdminInactivityAlert(
+    reporterId: string, 
+    reporter: any, 
+    daysInactive: number
+) {
+    try {
+        const reporterName = reporter.name || "విలేకరి";
+        const mandal = reporter.assignedMandal || reporter.mandal || "";
+        const district = reporter.district || "";
+        const locationStr = mandal && district ? `${mandal}, ${district}` : (mandal || district || "జిల్లా/మండలం లేదు");
+
+        const title = `రిపోర్టర్ నిష్క్రియా సమాచారం ⚠️`;
+        const body = `${reporterName} (${locationStr}) గత ${daysInactive} రోజులుగా ఎటువంటి వార్తలు పోస్ట్ చేయలేదు. దయచేసి పరిశీలించగలరు.`;
+        const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
+        // Query all Admins and Super Admins
+        const adminSnap = await db.collection('users')
+            .where('role', 'in', ['ADMIN', 'admin', '5', '5.0', '7', '7.0', 5, 7])
+            .limit(10)
+            .get();
+
+        for (const adminDoc of adminSnap.docs) {
+            const adminId = adminDoc.id;
+            const adminData = adminDoc.data();
+
+            // 1. Add to admin's in-app messages subcollection
+            await db.collection('users').doc(adminId).collection('messages').add({
+                title,
+                body,
+                senderName: "AlfaNews System",
+                senderRole: "SYSTEM",
+                read: false,
+                timestamp,
+                importance: "HIGH",
+                type: "REPORTER_INACTIVITY_NOTICE",
+                reporterId,
+                reporterName,
+                mandal,
+                district,
+                daysInactive
+            });
+
+            // 2. Send push to Admin if FCM token exists
+            const rawTokens: any[] = [...(adminData?.fcmTokens || []), adminData?.fcmToken];
+            const tokens = Array.from(new Set(rawTokens.filter((t): t is string => typeof t === 'string' && t.trim().length > 0)));
+
+            if (tokens.length > 0) {
+                const messages = tokens.map(token => ({
+                    token,
+                    notification: { title, body },
+                    data: {
+                        type: "REPORTER_INACTIVITY_NOTICE",
+                        reporterId,
+                        daysInactive: String(daysInactive),
+                        title,
+                        body
+                    }
+                }));
+                await admin.messaging().sendEach(messages).catch(() => {});
+            }
+        }
+        console.log(`[ADMIN_INACTIVITY_ALERT] 📩 Alerted ${adminSnap.size} admins for inactive reporter ${reporterName} (${daysInactive} days)`);
+    } catch (err: any) {
+        console.error(`[ADMIN_INACTIVITY_ALERT_ERR]:`, err.message);
+    }
+}
+
 export async function handleReporterStatus(
     reporterId: string, 
     reporter: any, 
     now: Date = new Date()
 ): Promise<boolean> {
-    const inProbation = reporter.inProbation === true;
+    // Clean up any legacy warning levels or probation flags
     const currentLevel = Number(reporter.warningLevel || 0);
+    const inProbation = reporter.inProbation === true;
+    if (currentLevel > 0 || inProbation || reporter.lastWarningDate) {
+        await db.collection('users').doc(reporterId).set({
+            warningLevel: 0,
+            inProbation: false,
+            lastWarningDate: null
+        }, { merge: true });
+    }
 
     // 1. Fetch comprehensive news activity summary across all fields
     const summary = await getReporterActivitySummary(reporterId, reporter.name, reporter.phone);
@@ -384,129 +419,69 @@ export async function handleReporterStatus(
     // 2. Calculate actual days inactive
     const daysInactive = calculateDaysInactive(reporter, now, actualNewsDate);
 
-    // 3. Reporter points & post count metrics
+    // 3. Auto-heal reporter points if posts exist but points are 0
     let points = Number(reporter.points || 0);
     const totalNewsPosts = Math.max(summary.totalPosts, Math.floor(points / 10));
-
-    // Self-heal points if reporter has posts but 0 points recorded
     if (totalNewsPosts > 0 && points === 0) {
         points = totalNewsPosts * 10;
         await db.collection('users').doc(reporterId).set({ points }, { merge: true });
         reporter.points = points;
     }
 
-    // Determine if this is a Regular / Established / Senior Reporter
-    const isRegularReporter = 
-        points >= 30 || 
-        totalNewsPosts >= 3 || 
-        summary.recentPostsLast7Days >= 1 || 
-        summary.recentPostsLast30Days >= 3 || 
-        reporter.isProtectedSenior === true || 
-        reporter.exemptFromInactivity === true;
-
-    // 🛡️ CRITICAL RULE: Active / Regular / Senior reporters must NEVER be in probation or receive deactivation threats!
-    if (isRegularReporter) {
-        // If they currently have any warning level or probation flag, immediately and silently heal them!
-        if (currentLevel > 0 || inProbation || reporter.lastWarningDate) {
-            await db.collection('users').doc(reporterId).set({
-                warningLevel: 0,
-                inProbation: false,
-                lastWarningDate: null,
-                isProtectedSenior: true
-            }, { merge: true });
-            console.log(`[REPORTER_MONITOR] 🛡️ Cleared warnings and probation for regular reporter ${reporter.name || reporterId} (${points} pts, ${totalNewsPosts} posts, ${summary.recentPostsLast7Days} recent).`);
-            return true;
-        }
-
-        // If an established reporter hasn't posted in 14+ days, send ONLY a respectful friendly check-in reminder
-        // (No warning level escalation, no probation, no threat of removal)
-        if (daysInactive >= 14) {
-            const lastFriendlyReminder = parseToDate(reporter.lastFriendlyReminderDate);
-            const daysSinceReminder = lastFriendlyReminder ? (now.getTime() - lastFriendlyReminder.getTime()) / (1000 * 60 * 60 * 24) : 999;
-            if (daysSinceReminder >= 14) {
-                console.log(`[REPORTER_MONITOR] 📰 Sending friendly encouragement to established reporter ${reporter.name || reporterId}.`);
-                await db.collection('users').doc(reporterId).set({
-                    lastFriendlyReminderDate: admin.firestore.FieldValue.serverTimestamp(),
-                    isProtectedSenior: true,
-                    warningLevel: 0,
-                    inProbation: false
-                }, { merge: true });
-                await sendInternalMessage(
-                    reporterId, 
-                    "మీ వార్తల కోసం Alfa News వేచి చూస్తోంది! 📰", 
-                    "నమస్కారం! గత కొద్ది రోజులుగా మీ మండల వార్తలు రాలేదు. మీ ప్రాంత తాజా విశేషాలను, ప్రజల సమస్యలను త్వరలోనే పోస్ట్ చేయగలరని ఆశిస్తున్నాము.", 
-                    "NORMAL", 
-                    reporter, 
-                    "REMINDER"
-                );
-            }
-        }
+    // Exempt accounts check
+    if (reporter.exemptFromInactivity === true) {
         return false;
     }
 
-    // 4. Auto-Reset logic: For ANY reporter who posted recently (within 5 days) or posted in last 7 days
-    if (daysInactive < 5 || summary.recentPostsLast7Days > 0) {
-        if (currentLevel > 0 || inProbation || reporter.lastWarningDate) {
+    // Rule 1: వరుసగా 10 రోజుల పైన ఎవరైనా రిపోర్టర్ వార్తలు పెట్టకపోతే అడ్మిన్‌కు సమాచారం పంపు
+    if (daysInactive >= 10) {
+        const lastAdminAlert = parseToDate(reporter.lastAdminInactivityAlertDate);
+        const daysSinceAdminAlert = lastAdminAlert 
+            ? (now.getTime() - lastAdminAlert.getTime()) / (1000 * 60 * 60 * 24) 
+            : 999;
+
+        // Throttle admin alert to once every 5 days per inactive reporter
+        if (daysSinceAdminAlert >= 5) {
             await db.collection('users').doc(reporterId).set({
-                warningLevel: 0,
-                inProbation: false,
-                lastWarningDate: null
+                lastAdminInactivityAlertDate: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
-            console.log(`[REPORTER_MONITOR] ✅ Reset warning to 0 for active reporter ${reporter.name || reporterId} (inactive: ${daysInactive}d).`);
+
+            await sendAdminInactivityAlert(reporterId, reporter, daysInactive);
             return true;
         }
         return false;
     }
 
-    // 5. Progressive Warning Ladder for Inactive Non-Regular accounts (Strictly sequential, no level skipping)
-    const lastWarningDate = parseToDate(reporter.lastWarningDate);
-    const hoursSinceLastWarning = lastWarningDate 
-        ? Math.max(0, (now.getTime() - lastWarningDate.getTime()) / (1000 * 60 * 60))
-        : 999;
+    // Rule 2: వరుసగా 3 రోజులు వార్తలు పెట్టకపోతే రిపోర్టర్‌కి వార్తలు పంపమని రిక్వెస్ట్ మాత్రమే పంపు (హెచ్చరికలు, వార్నింగ్‌లు లేకుండా)
+    if (daysInactive >= 3) {
+        const lastNewsRequest = parseToDate(reporter.lastNewsRequestDate);
+        const daysSinceRequest = lastNewsRequest 
+            ? (now.getTime() - lastNewsRequest.getTime()) / (1000 * 60 * 60 * 24) 
+            : 999;
 
-    let nextLevel = currentLevel;
-    let title = "";
-    let body = "";
-    let shouldDowngrade = false;
+        // Throttle request to once every 3 days so reporter is not spammed daily
+        if (daysSinceRequest >= 3) {
+            console.log(`[REPORTER_MONITOR] 📰 Sending news request to reporter ${reporter.name || reporterId} (inactive: ${daysInactive}d).`);
+            await db.collection('users').doc(reporterId).set({
+                lastNewsRequestDate: admin.firestore.FieldValue.serverTimestamp(),
+                warningLevel: 0,
+                inProbation: false
+            }, { merge: true });
 
-    // Strict sequential progression:
-    // Level 0 -> Level 1 (after 5 days inactive)
-    // Level 1 -> Level 2 (after 8 days inactive AND at least 48h since Level 1)
-    // Level 2 -> Level 3 (after 12 days inactive AND at least 72h since Level 2)
-    // 🛡️ CRITICAL RULE: Automated demotion to SUBSCRIBER is PERMANENTLY DISABLED.
-    // Downgrading or removing a reporter is exclusively an explicit MANUAL admin action from the Admin Panel.
-    // Inactive reporters receive friendly encouragement reminders, but their REPORTER role and mandal remain safe.
+            const reporterName = reporter.name || "విలేకరి";
+            const reqTitle = "మీ ప్రాంత తాజా వార్తలు పంపండి 📰";
+            const reqBody = `నమస్కారం ${reporterName} గారు, గత 3 రోజులుగా మీ మండల వార్తలు రాలేదు. మీ ప్రాంత తాజా విశేషాలు, ప్రజా సమస్యల వార్తలను Alfa News లో పోస్ట్ చేయగలరని కోరుతున్నాము. ధన్యవాదాలు!`;
 
-    if (daysInactive >= 15 && currentLevel >= 3 && hoursSinceLastWarning >= 72) {
-        nextLevel = 3;
-        title = "వార్తల కోసం Alfa News వేచి చూస్తోంది 📰";
-        body = "మీ ప్రాంత తాజా విశేషాలను మరియు ప్రజా సమస్యలను Alfa News లో పంపండి. మీ సహకారం మాకు అత్యంత విలువైనది.";
-    } else if (daysInactive >= 12 && currentLevel === 2 && hoursSinceLastWarning >= 72) {
-        nextLevel = 3;
-        title = "వార్తలు పంపమని విన్నపం 📰";
-        body = "గత కొద్ది రోజులుగా మీ మండల వార్తలు రాలేదు. దయచేసి మీ ప్రాంత వార్తలను పంపగలరని ఆశిస్తున్నాము.";
-    } else if (daysInactive >= 8 && currentLevel === 1 && hoursSinceLastWarning >= 48) {
-        nextLevel = 2;
-        title = "వార్తలు పంపమని విన్నపం";
-        body = "మీరు గత 8 రోజులుగా వార్తలు పంపలేదు. దయచేసి మీ ప్రాంత తాజా విశేషాలను Alfa News లో పోస్ట్ చేయండి.";
-    } else if (daysInactive >= 5 && currentLevel === 0) {
-        nextLevel = 1;
-        title = "వార్తలు పంపమని విన్నపం";
-        body = "దయచేసి మీ ప్రాంత వార్తలను క్రమం తప్పకుండా పంపండి. మీ సహకారం Alfa News కు ఎంతో అవసరం.";
-    }
-
-    if (shouldDowngrade) {
-        // Kept as safety no-op: automated demotion is disabled
-        return false;
-    } else if (nextLevel > currentLevel) {
-        console.log(`[REPORTER_MONITOR] 📢 Warning level ${nextLevel} sent to reporter ${reporter.name || reporterId}, inactive ${daysInactive} days.`);
-        const importance = nextLevel === 3 ? "HIGH" : "NORMAL";
-        await db.collection('users').doc(reporterId).set({
-            warningLevel: nextLevel,
-            lastWarningDate: admin.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
-        await sendInternalMessage(reporterId, title, body, importance, reporter, "WARNING");
-        return true;
+            await sendInternalMessage(
+                reporterId, 
+                reqTitle, 
+                reqBody, 
+                "NORMAL", 
+                reporter, 
+                "REQUEST"
+            );
+            return true;
+        }
     }
 
     return false;
@@ -540,11 +515,12 @@ export async function sendInternalMessage(
 
         // 2. Add to their reporter_conversations thread
         try {
+            const icon = isWarning ? "⚠️ " : "📰 ";
             await db.collection('reporter_conversations').doc(userId).collection('messages').add({
                 senderId: "SYSTEM_ADMIN",
                 senderName: "AlfaNews Admin",
                 senderRole: "ADMIN",
-                text: `⚠️ [${title}]\n${body}`,
+                text: `${icon}[${title}]\n${body}`,
                 type: msgType === "WARNING" ? "WARNING" : "NOTICE",
                 isWarning,
                 importance,
@@ -558,7 +534,7 @@ export async function sendInternalMessage(
                 reporterPhone: userData?.phone || "",
                 reporterDistrict: userData?.district || "",
                 reporterMandal: userData?.assignedMandal || userData?.mandal || "",
-                lastMessage: `⚠️ ${title}`,
+                lastMessage: `${icon}${title}`,
                 lastMessageTime: timestamp,
                 lastSenderRole: "ADMIN",
                 unreadCountForReporter: admin.firestore.FieldValue.increment(1),

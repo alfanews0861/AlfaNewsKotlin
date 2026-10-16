@@ -116,4 +116,6 @@ media/
 *firebase-adminsdk*.json
 *-adminsdk-*.json
 serviceAccountKey.json
+backup_*.json
+
 

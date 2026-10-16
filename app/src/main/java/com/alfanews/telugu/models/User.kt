@@ -112,4 +112,22 @@ data class User(
      */
     val mandal: String?
         get() = assignedMandal
+
+    val hasReporterHistory: Boolean
+        get() = !assignedMandal.isNullOrBlank() ||
+                points > 0 ||
+                badges.isNotEmpty() ||
+                inProbation ||
+                warningLevel > 0 ||
+                email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true
+
+    val canAccessMessages: Boolean
+        get() = role in listOf(
+            UserRole.REPORTER,
+            UserRole.NEWS_DESK,
+            UserRole.REGIONAL_INCHARGE,
+            UserRole.EDITOR,
+            UserRole.ADMIN
+        ) || hasReporterHistory
 }
+

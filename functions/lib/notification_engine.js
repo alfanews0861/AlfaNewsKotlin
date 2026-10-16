@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onNewsPostApprovedNotify = exports.sendPersonalizedNotification = void 0;
+exports.onNewsPostApprovedNotify = exports.sendPersonalizedNotification = exports.getCanonicalDistrict = void 0;
 const admin = __importStar(require("firebase-admin"));
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -68,6 +68,101 @@ const CATEGORY_TOPICS = {
     "ప్రపంచం": "cat_international",
     "జీవనశైలి": "cat_lifestyle",
 };
+// ==========================================
+// CANONICAL DISTRICT NORMALIZER
+// Maps various town/city names, aliases, and alternative spellings to official district names in DISTRICTS.
+// Ensures local breaking news and scheduled pushes match exact topics and never leak to all_users.
+// ==========================================
+function getCanonicalDistrict(raw) {
+    if (!raw || typeof raw !== 'string')
+        return null;
+    const clean = raw.trim();
+    if (!clean)
+        return null;
+    if (DISTRICTS.includes(clean))
+        return clean;
+    const aliasMap = {
+        // AP Aliases
+        "విజయవాడ": "ఎన్టీఆర్",
+        "NTR": "ఎన్టీఆర్",
+        "Vijayawada": "ఎన్టీఆర్",
+        "రాజమండ్రి": "తూర్పు గోదావరి",
+        "రాజమహేంద్రవరం": "తూర్పు గోదావరి",
+        "East Godavari": "తూర్పు గోదావరి",
+        "తూర్పుగోదావరి": "తూర్పు గోదావరి",
+        "పశ్చిమగోదావరి": "పశ్చిమ గోదావరి",
+        "West Godavari": "పశ్చిమ గోదావరి",
+        "భీమవరం": "పశ్చిమ గోదావరి",
+        "అమలాపురం": "కోనసీమ",
+        "డాక్టర్ బి.ఆర్. అంబేద్కర్ కోనసీమ": "కోనసీమ",
+        "Konaseema": "కోనసీమ",
+        "నెల్లూరు": "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+        "Nellore": "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+        "SPSR Nellore": "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
+        "కడప": "వైఎస్ఆర్ కడప",
+        "వైఎస్సార్ కడప": "వైఎస్ఆర్ కడప",
+        "Kadapa": "వైఎస్ఆర్ కడప",
+        "YSR Kadapa": "వైఎస్ఆర్ కడప",
+        "రాయచోటి": "అన్నమయ్య",
+        "Annamayya": "అన్నమయ్య",
+        "పుట్టపర్తి": "శ్రీ సత్యసాయి",
+        "సత్యసాయి": "శ్రీ సత్యసాయి",
+        "Sri Sathya Sai": "శ్రీ సత్యసాయి",
+        "ఒంగోలు": "ప్రకాశం",
+        "Prakasam": "ప్రకాశం",
+        "నరసరావుపేట": "పల్నాడు",
+        "Palnadu": "పల్నాడు",
+        "మన్యం": "పార్వతీపురం మన్యం",
+        "పార్వతీపురం": "పార్వతీపురం మన్యం",
+        "పాడేరు": "అల్లూరి సీతారామరాజు",
+        "అల్లూరి": "అల్లూరి సీతారామరాజు",
+        "మచిలీపట్నం": "కృష్ణా",
+        "Krishna": "కృష్ణా",
+        "తిరుమల": "తిరుపతి",
+        "Tirupati": "తిరుపతి",
+        "విశాఖ": "విశాఖపట్నం",
+        "వైజాగ్": "విశాఖపట్నం",
+        "Visakhapatnam": "విశాఖపట్నం",
+        // TS Aliases
+        "సైబరాబాద్": "హైదరాబాద్",
+        "సికింద్రాబాద్": "హైదరాబాద్",
+        "Hyderabad": "హైదరాబాద్",
+        "కొత్తగూడెం": "భద్రాద్రి కొత్తగూడెం",
+        "Kothagudem": "భద్రాద్రి కొత్తగూడెం",
+        "భూపాలపల్లి": "జయశంకర్ భూపాలపల్లి",
+        "గద్వాల": "జోగులాంబ గద్వాల",
+        "Gadwal": "జోగులాంబ గద్వాల",
+        "ఆసిఫాబాద్": "కుమ్రం భీమ్ ఆసిఫాబాద్",
+        "Asifabad": "కుమ్రం భీమ్ ఆసిఫాబాద్",
+        "మహబూబ్‌నగర్": "మహబూబ్ నగర్",
+        "Mahabubnagar": "మహబూబ్ నగర్",
+        "సిరిసిల్ల": "రాజన్న సిరిసిల్ల",
+        "Sircilla": "రాజన్న సిరిసిల్ల",
+        "వరంగల్ అర్బన్": "హన్మకొండ",
+        "హనుమకొండ": "హన్మకొండ",
+        "Hanamkonda": "హన్మకొండ",
+        "వరంగల్ రూరల్": "వరంగల్",
+        "Warangal": "వరంగల్",
+        "భువనగిరి": "యాదాద్రి భువనగిరి",
+        "యాదాద్రి": "యాదాద్రి భువనగిరి",
+        "నల్లగొండ": "నల్గొండ",
+        "నాగర్‌కర్నూల్": "నాగర్ కర్నూల్",
+        "మేడ్చల్": "మేడ్చల్ మల్కాజిగిరి",
+        "మల్కాజిగిరి": "మేడ్చల్ మల్కాజిగిరి"
+    };
+    if (aliasMap[clean])
+        return aliasMap[clean];
+    for (const [alias, canonical] of Object.entries(aliasMap)) {
+        if (clean.includes(alias))
+            return canonical;
+    }
+    for (const dist of DISTRICTS) {
+        if (clean.includes(dist) || dist.includes(clean))
+            return dist;
+    }
+    return null;
+}
+exports.getCanonicalDistrict = getCanonicalDistrict;
 // ==========================================
 // TIME-BASED ENGAGING TITLES
 // ==========================================
@@ -340,45 +435,60 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
     }
     // Ranking: Trending Score (Engagement + AI Score + Freshness Decay + Image Bonus)
     allNews.sort((a, b) => calculateTrendingScore(b) - calculateTrendingScore(a));
-    // --- 1. General Notification — అన్ని 4 scheduled slots (8, 13, 18, 21) కి ప్రధాన వార్త తప్పనిసరిగా పంపు ---
-    // ప్రధాన వార్తలు (State / National / Global / Major) మాత్రమే all_users కి వెళ్లాలి, స్థానిక మండల/జిల్లా వార్తలు వెళ్లకూడదు.
     const mainNewsList = allNews.filter(isMainNews);
     const candidateMainNews = mainNewsList.length > 0 ? mainNewsList : allNews;
-    // 1) గత 24 గంటల రీసెంట్ లిస్ట్ లో లేని సరికొత్త ప్రధాన వార్త
-    let topNews = candidateMainNews.find((n) => !recentGeneralIds.includes(n.id));
-    if (!topNews) {
-        // 2) Fallback: రీసెంట్ లిస్ట్ లో ఉన్నప్పటికీ, వెంటనే మునుపటి రన్‌లో పంపని అత్యుత్తమ ప్రధాన వార్త
-        topNews = candidateMainNews.find((n) => lastSentMap['general'] !== n.id) || candidateMainNews[0];
-    }
-    if (topNews) {
-        const headline = topNews.headline?.telugu || topNews.headline?.english || topNews.headline || "నేటి ముఖ్య వార్తలు";
-        const curiosityTitle = topNews.notificationTitle || "";
-        let imageUrl = topNews.thumbnailUrl || "";
-        if (!imageUrl && topNews.mediaUrl) {
-            imageUrl = (await (0, utils_1.createAndSaveThumbnail)(topNews.mediaUrl, topNews.id)) || topNews.mediaUrl;
+    // =========================================================================
+    // 🛡️ ZERO NOTIFICATION FLOODING (Single Dedicated Purpose Per Slot):
+    // 8 AM  -> General Morning News (all_users) ONLY (శుభోదయం: ముఖ్యాంశాలు)
+    // 13 PM -> District Local News (district_*) ONLY (మధ్యాహ్న స్థానిక జిల్లా వార్తలు)
+    // 18 PM -> Category News (cat_*) ONLY (సాయంత్రం విరామం: సినిమా/రాజకీయం/క్రీడలు)
+    // 21 PM -> General Night Roundup (all_users) ONLY (రాత్రి ముఖ్యాంశాల సమీక్ష)
+    // =========================================================================
+    // --- 1. General Notification — 8 AM & 21 PM Slots ONLY (or fallback on manual runs) ---
+    const isGeneralSlot = istHour === 8 || istHour === 21 || (istHour !== 13 && istHour !== 18);
+    let topNews = null;
+    if (isGeneralSlot) {
+        // 1) గత 24 గంటల రీసెంట్ లిస్ట్ లో లేని సరికొత్త ప్రధాన వార్త
+        topNews = candidateMainNews.find((n) => !recentGeneralIds.includes(n.id));
+        if (!topNews) {
+            // 2) Fallback: రీసెంట్ లిస్ట్ లో ఉన్నప్పటికీ, వెంటనే మునుపటి రన్‌లో పంపని అత్యుత్తమ ప్రధాన వార్త
+            topNews = candidateMainNews.find((n) => lastSentMap['general'] !== n.id) || candidateMainNews[0];
         }
-        try {
-            const message = buildNewsMessage(topNews, getTitleForHour(istHour, headline, curiosityTitle), "general_news_v2", imageUrl, 21600000, // 6 hour TTL (better delivery for offline/doze devices)
-            { topic: 'all_users' });
-            await admin.messaging().send(message);
-            updatedMap['general'] = topNews.id;
-            recentGeneralIds.unshift(topNews.id);
-            v2_1.logger.log(`[NOTIF] Pradhaana Vaartha (General) sent: newsId=${topNews.id}, category=${topNews.category}, views=${topNews.longViews || 0}, hour=${istHour}`);
+        if (topNews) {
+            const headline = topNews.headline?.telugu || topNews.headline?.english || topNews.headline || "నేటి ముఖ్య వార్తలు";
+            const curiosityTitle = topNews.notificationTitle || "";
+            let imageUrl = topNews.thumbnailUrl || "";
+            if (!imageUrl && topNews.mediaUrl) {
+                imageUrl = (await (0, utils_1.createAndSaveThumbnail)(topNews.mediaUrl, topNews.id)) || topNews.mediaUrl;
+            }
+            try {
+                const message = buildNewsMessage(topNews, getTitleForHour(istHour, headline, curiosityTitle), "general_news_v2", imageUrl, 21600000, // 6 hour TTL (better delivery for offline/doze devices)
+                { topic: 'all_users' });
+                await admin.messaging().send(message);
+                updatedMap['general'] = topNews.id;
+                recentGeneralIds.unshift(topNews.id);
+                v2_1.logger.log(`[NOTIF] Pradhaana Vaartha (General) sent: newsId=${topNews.id}, category=${topNews.category}, views=${topNews.longViews || 0}, hour=${istHour}`);
+            }
+            catch (e) {
+                v2_1.logger.error(`[NOTIF] General send failed:`, e.message);
+            }
         }
-        catch (e) {
-            v2_1.logger.error(`[NOTIF] General send failed:`, e.message);
+        else {
+            v2_1.logger.log(`[NOTIF] General skipped — no candidate news found.`);
         }
     }
-    else {
-        v2_1.logger.log(`[NOTIF] General skipped — no candidate news found.`);
-    }
-    // --- 2. District Notification — 13 PM మరియు 21 PM slots కి district push ---
-    if (istHour === 13 || istHour === 21) {
+    // --- 2. District Notification — 13 PM (మధ్యాహ్న భోజన సమయం) స్లాట్ కి మాత్రమే district push ---
+    if (istHour === 13) {
         for (const district of DISTRICTS) {
-            // ఆ జిల్లాకు చెందిన వార్త మాత్రమే ఎంపిక చేస్తాం (ఇతర జిల్లాల వార్తలు లేదా ప్రధాన వార్తతో డూప్లికేట్ కాకుండా రక్షణ)
-            const districtNews = allNews.find((n) => (n.district === district || (n.category === "జిల్లా వార్త" && Array.isArray(n.categories) && n.categories.includes(district))) &&
-                n.id !== topNews?.id &&
-                lastSentMap[district] !== n.id);
+            // ఆ జిల్లాకు చెందిన వార్త మాత్రమే ఎంపిక చేస్తాం (క్యానానికల్ జిల్లా మ్యాపింగ్ ద్వారా రాజమండ్రి, విజయవాడ లాంటి పేర్లతోనూ మ్యాచ్ అవుతుంది)
+            const districtNews = allNews.find((n) => {
+                const canonicalDist = getCanonicalDistrict(n.district);
+                const isCatMatch = n.category === "జిల్లా వార్త" && Array.isArray(n.categories) &&
+                    n.categories.some((c) => getCanonicalDistrict(c) === district);
+                return (canonicalDist === district || isCatMatch) &&
+                    lastSentMap[district] !== n.id &&
+                    lastSentMap['general'] !== n.id;
+            });
             if (!districtNews)
                 continue;
             const notifTitle = districtNews.notificationTitle || districtNews.headline?.telugu || `${district} తాజా వార్త`;
@@ -400,21 +510,17 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
             }
         }
     }
-    // --- 3. Category Notification — 8 AM & 18 PM slots కి category-wise push ---
-    if (istHour === 8 || istHour === 18) {
-        const topNewsCat = topNews?.category || "";
-        const topNewsCats = Array.isArray(topNews?.categories) ? topNews.categories : [];
+    // --- 3. Category Notification — 18 PM (సాయంత్రం విరామం) స్లాట్ కి మాత్రమే category-wise push ---
+    if (istHour === 18) {
         for (const [teluguCat, topicName] of Object.entries(CATEGORY_TOPICS)) {
-            // 🛡️ ఒకవేళ ఈ స్లాట్ లో General ప్రధాన వార్తగా ఇప్పటికే ఈ కేటగిరీ వార్త వెళ్తే, అదే కేటగిరీ టాపిక్ కి మళ్లీ నోటిఫికేషన్ వెళ్లకుండా రక్షణ
-            if (topNewsCat === teluguCat || topNewsCats.includes(teluguCat)) {
-                continue;
-            }
             const catKey = topicName;
             // ఆ category లో ఇంతకుముందు general గాని category గాని పంపని best news కనుక్కోవడం
-            const catNews = allNews.find((n) => (n.category === teluguCat || (Array.isArray(n.categories) && n.categories.includes(teluguCat))) &&
-                lastSentMap['general'] !== n.id &&
-                lastSentMap[catKey] !== n.id &&
-                n.id !== topNews?.id);
+            const catNews = allNews.find((n) => {
+                const isCat = n.category === teluguCat || (Array.isArray(n.categories) && n.categories.includes(teluguCat));
+                return isCat &&
+                    lastSentMap['general'] !== n.id &&
+                    lastSentMap[catKey] !== n.id;
+            });
             if (!catNews)
                 continue;
             const notifTitle = catNews.notificationTitle || catNews.headline?.telugu || catNews.headline?.english || "";
@@ -490,16 +596,16 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
     // Determine whether this breaking news has broad statewide/national impact (all_users)
     // or is a local incident that should be pushed to that specific district topic.
     const isStatewide = isStatewideOrBroadBreaking(after);
-    const targetDistrict = (after.district || "").trim();
-    const isLocalDistrictBreaking = !isStatewide && targetDistrict && DISTRICTS.includes(targetDistrict);
+    const canonicalDistrict = getCanonicalDistrict(after.district);
+    const isLocalDistrictBreaking = !isStatewide && !!canonicalDistrict;
     const targetTopic = isStatewide
         ? 'all_users'
-        : (isLocalDistrictBreaking ? (0, utils_1.getTopicName)("district", targetDistrict) : 'all_users');
+        : (isLocalDistrictBreaking ? (0, utils_1.getTopicName)("district", canonicalDistrict) : 'all_users');
     // Daily limit check - atomic to prevent race conditions
     // For statewide (all_users): max 5 per day across app
     // For local district: max 3 breaking alerts per day for that specific district
     const db = admin.firestore();
-    const limitDocName = isStatewide ? 'notif_daily_breaking' : `notif_daily_breaking_${(0, utils_1.slugify)(targetDistrict)}`;
+    const limitDocName = isStatewide ? 'notif_daily_breaking' : `notif_daily_breaking_${(0, utils_1.slugify)(canonicalDistrict || 'district')}`;
     const maxLimit = isStatewide ? 5 : 3;
     const canSend = await checkAndIncrementLimitAtomic(db, limitDocName, maxLimit);
     if (!canSend) {

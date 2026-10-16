@@ -219,11 +219,12 @@ const ManageSurveysPage: React.FC<ManageSurveysPageProps> = ({ currentUser }) =>
         content: { telugu: content.trim(), english: content.trim() },
         isGlobal,
         state: isGlobal ? 'ALL' : state,
-        district: isGlobal ? 'ALL' : district,
+        district: isGlobal ? 'State' : district,
         surveyQuestions: questions,
         timestamp: editingSurvey ? editingSurvey.timestamp : now,
         surveyCreatedAt: editingSurvey ? editingSurvey.surveyCreatedAt || now : now,
-        categories: ['సర్వే', 'పోల్'],
+        expiryTimestamp: editingSurvey?.expiryTimestamp || (now + 7 * 24 * 60 * 60 * 1000),
+        categories: ['సర్వే', isGlobal ? 'రాష్ట్రం' : district],
         mediaUrl: '',
         mediaType: 'image'
       };
@@ -237,7 +238,7 @@ const ManageSurveysPage: React.FC<ManageSurveysPageProps> = ({ currentUser }) =>
         payload.status = 'PUBLISHED';
         payload.votes = {};
         payload.realVotesCount = 0;
-        payload.fakeVotesBase = 450 + Math.floor(Math.random() * 200);
+        payload.fakeVotesBase = 11000 + Math.floor(Math.random() * 900);
         payload.likes = 0;
         payload.comments = 0;
         payload.shares = 0;
@@ -443,7 +444,7 @@ const ManageSurveysPage: React.FC<ManageSurveysPageProps> = ({ currentUser }) =>
               </div>
               <div>
                 బయటకు కనిపించే ఓట్లు: <strong className="text-blue-700">
-                  {((viewingSurvey.fakeVotesBase || 500) + Math.max(0, Math.floor((Date.now() - (viewingSurvey.surveyCreatedAt || Date.now())) / 86400000)) * 527 + (viewingSurvey.realVotesCount || 0))}+
+                  {((viewingSurvey.fakeVotesBase || 11000) + Math.max(0, Math.floor((Date.now() - (viewingSurvey.surveyCreatedAt || Date.now())) / 86400000)) * 527 + (viewingSurvey.realVotesCount || 0))}+
                 </strong>
               </div>
             </div>

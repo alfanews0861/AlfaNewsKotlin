@@ -104,10 +104,12 @@ export interface NewsPost {
   webOnly?: boolean;
   originalReporterId?: string;
   surveyQuestions?: SurveyQuestion[];
+  isMultiPage?: boolean;
   votes?: Record<string, number>;
   realVotesCount?: number;
   fakeVotesBase?: number;
   surveyCreatedAt?: number;
+  expiryTimestamp?: number;
   rejectionReason?: string;
   isDuplicate?: boolean;
   error?: string;
@@ -117,6 +119,7 @@ export interface SurveyOption {
   id: string;
   text: string;
   votes?: number;
+  nextQuestionId?: string | null;
 }
 
 export interface SurveyQuestion {

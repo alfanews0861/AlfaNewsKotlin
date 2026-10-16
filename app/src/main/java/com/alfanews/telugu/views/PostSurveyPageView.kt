@@ -261,32 +261,32 @@ fun PostSurveyPageView(
                                 }
                             }
                         }
+                    }
 
-                        Divider()
+                    Divider()
 
-                        Text(
-                            text = "సర్వే వ్యవధి (Survey Duration)",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                    Text(
+                        text = "సర్వే వ్యవధి (Survey Duration)",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            val durations = listOf(1, 3, 7, 15, 30)
-                            durations.forEach { days ->
-                                FilterChip(
-                                    selected = durationDays == days,
-                                    onClick = { durationDays = days },
-                                    label = {
-                                        Text(
-                                            text = if (days == 1) "1 రోజు" else "$days రోజులు",
-                                            fontSize = 12.sp
-                                        )
-                                    }
-                                )
-                            }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val durations = listOf(1, 3, 7, 15, 30)
+                        durations.forEach { days ->
+                            FilterChip(
+                                selected = durationDays == days,
+                                onClick = { durationDays = days },
+                                label = {
+                                    Text(
+                                        text = if (days == 1) "1 రోజు" else "$days రోజులు",
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            )
                         }
                     }
                 }
@@ -498,6 +498,10 @@ fun PostSurveyPageView(
                         Toast.makeText(context, "అన్ని ప్రశ్నల టెక్స్ట్ నింపండి.", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
+                    if (questions.any { it.options.size < 2 }) {
+                        Toast.makeText(context, "ప్రతీ ప్రశ్నకు కనీసం 2 సమాధానాలు (Options) ఉండాలి.", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
                     if (questions.any { q: MutableQuestionState -> q.options.any { it.text.isBlank() } }) {
                         Toast.makeText(context, "అన్ని సమాధానాల (Options) టెక్స్ట్ నింపండి.", Toast.LENGTH_SHORT).show()
                         return@Button
@@ -559,7 +563,7 @@ fun PostSurveyPageView(
                             }
                     } else {
                         // CREATE MODE: Add new document
-                        val isStaff = listOf(UserRole.ADMIN, UserRole.EDITOR, UserRole.NEWS_DESK).contains(user.role)
+                        val isStaff = listOf(UserRole.ADMIN, UserRole.EDITOR, UserRole.NEWS_DESK, UserRole.REGIONAL_INCHARGE).contains(user.role)
                         val randomStartFakeVotes = 11000 + (100..900).random()
 
                         val surveyData = mutableMapOf<String, Any>(
@@ -573,7 +577,7 @@ fun PostSurveyPageView(
                             ),
                             "type" to "survey",
                             "approved" to isStaff,
-                            "status" to "PENDING",
+                            "status" to (if (isStaff) "PUBLISHED" else "PENDING"),
                             "surveyQuestions" to surveyQuestionsList,
                             "isMultiPage" to isMultiPage,
                             "fakeVotesBase" to randomStartFakeVotes,
