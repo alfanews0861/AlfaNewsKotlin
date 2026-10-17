@@ -326,7 +326,6 @@ fun LocalNewsFeedView(
                 }
             }
             NewsCardSkeleton()
-            }
         } else {
             VerticalPager(
                 state = pagerState,
