@@ -174,9 +174,9 @@ class MainActivity : ComponentActivity() {
             val language = mainViewModel.language.value
             val currentUser = mainViewModel.currentUser.value
             newsFeedViewModel.loadNews(language, currentUser, initialPostId = initialPostId)
-            // Preload local news with slight delay so Home Feed gets 100% network priority on launch
+            // Preload local news with slight delay (300ms) so Home Feed gets initial priority
             lifecycleScope.launch(Dispatchers.IO) {
-                kotlinx.coroutines.delay(1200L)
+                kotlinx.coroutines.delay(300L)
                 localNewsFeedViewModel.loadNews(language, currentUser)
             }
         } catch (e: Throwable) {
@@ -367,6 +367,11 @@ class MainActivity : ComponentActivity() {
             mainViewModel.syncUserFcmToken(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
         }
         mainViewModel.recordAppOpen(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
+
+        val language = mainViewModel.language.value
+        val currentUser = mainViewModel.currentUser.value
+        newsFeedViewModel.refreshIfStale(language, currentUser)
+        localNewsFeedViewModel.refreshIfStale(language, currentUser)
     }
 
     // యాప్ రన్ అవుతున్నప్పుడు కొత్త ఇంటెంట్ వస్తే

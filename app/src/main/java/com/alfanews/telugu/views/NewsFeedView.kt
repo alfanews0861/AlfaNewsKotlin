@@ -207,18 +207,65 @@ fun NewsFeedView(
         }
     }
 
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.currentPage }.collect { page ->
-            if (page < baseCount) {
-                val isAdSlot = (page + 1) % 6 == 0
-                if (!isAdSlot) {
-                    val newsIndex = page - (page / 6)
-                    if (newsIndex >= 0 && newsIndex < news.size) {
-                        val currentPost = news[newsIndex]
-                        launch {
-                            kotlinx.coroutines.delay(4000)
-                            if (pagerState.currentPage == page) {
-                                com.alfanews.telugu.services.AnalyticsService.logLongView(currentPost.id)
+    LaunchedEffect(pagerState, hasMore, loading, news.size) {
+        var lastTrackedPage = -1
+        snapshotFlow {
+            Triple(pagerState.currentPage, pagerState.isScrollInProgress, news.size)
+        }.collect { (page, _, newsSize) ->
+            if (page != lastTrackedPage) {
+                lastTrackedPage = page
+                if (page < baseCount) {
+                    val isAdSlot = (page + 1) % 6 == 0
+                    if (!isAdSlot) {
+                        val newsIndex = page - (page / 6)
+                        if (newsIndex >= 0 && newsIndex < news.size) {
+                            val currentPost = news[newsIndex]
+                            launch {
+                                kotlinx.coroutines.delay(4000)
+                                if (pagerState.currentPage == page) {
+                                    com.alfanews.telugu.services.AnalyticsService.logLongView(currentPost.id)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 🚀 FAST SWIPE PRELOADING: వేగంగా స్వైప్ చేసే యూజర్ల కోసం 5 పేజీల ముందస్తు ఇమేజ్ ప్రీ-లోడింగ్ (IO thread)
+                launch(Dispatchers.IO) {
+                    (1..5).forEach { offset ->
+                        val nextPageIndex = page + offset
+                        val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
+                        if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
+                            val post = news[nextNewsIndex]
+                            if (post.mediaUrl.isNotEmpty()) {
+                                val request = ImageRequest.Builder(context)
+                                    .data(getOptimizedImageUrl(post.mediaUrl))
+                                    .allowHardware(true)
+                                    .crossfade(false)
+                                    .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
+                                    .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
+                                    .build()
+                                SingletonImageLoader.get(context).enqueue(request)
+                            }
+                        }
+                    }
+                }
+
+                // 🚀 LOCAL AD PRELOADING: 2 స్లాట్లు ముందుగా
+                (1..2).forEach { offset ->
+                    val futurePage = page + offset
+                    val isAdPage = (futurePage + 1) % 6 == 0
+                    if (isAdPage && futurePage < totalCount) {
+                        val adIndex = futurePage / 6
+                        if (adIndex < localAds.size) {
+                            val ad = localAds[adIndex]
+                            if (ad.bannerUrl.isNotEmpty()) {
+                                val request = ImageRequest.Builder(context)
+                                    .data(ad.bannerUrl)
+                                    .allowHardware(true)
+                                    .crossfade(false)
+                                    .build()
+                                SingletonImageLoader.get(context).enqueue(request)
                             }
                         }
                     }
@@ -226,49 +273,8 @@ fun NewsFeedView(
             }
 
             val currentNewsIndex = page - (page / 6)
-            if (news.isNotEmpty() && (currentNewsIndex >= maxOf(0, news.size - 4) || page >= maxOf(0, totalCount - 2)) && hasMore && !loading) {
+            if (newsSize > 0 && (currentNewsIndex >= maxOf(0, newsSize - 4) || page >= maxOf(0, totalCount - 2)) && hasMore && !loading) {
                 viewModel.loadMore(language, currentUser)
-            }
-
-            // 🚀 FAST SWIPE PRELOADING: వేగంగా స్వైప్ చేసే యూజర్ల కోసం 5 పేజీల ముందస్తు ఇమేజ్ ప్రీ-లోడింగ్ (IO thread)
-            launch(Dispatchers.IO) {
-                (1..5).forEach { offset ->
-                    val nextPageIndex = page + offset
-                    val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
-                    if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
-                        val post = news[nextNewsIndex]
-                        if (post.mediaUrl.isNotEmpty()) {
-                            val request = ImageRequest.Builder(context)
-                                .data(getOptimizedImageUrl(post.mediaUrl))
-                                .allowHardware(true)
-                                .crossfade(false)
-                                .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
-                                .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
-                                .build()
-                            SingletonImageLoader.get(context).enqueue(request)
-                        }
-                    }
-                }
-            }
-
-            // 🚀 LOCAL AD PRELOADING: 2 స్లాట్లు ముందుగా
-            (1..2).forEach { offset ->
-                val futurePage = page + offset
-                val isAdPage = (futurePage + 1) % 6 == 0
-                if (isAdPage && futurePage < totalCount) {
-                    val adIndex = futurePage / 6
-                    if (adIndex < localAds.size) {
-                        val ad = localAds[adIndex]
-                        if (ad.bannerUrl.isNotEmpty()) {
-                            val request = ImageRequest.Builder(context)
-                                .data(ad.bannerUrl)
-                                .allowHardware(true)
-                                .crossfade(false)
-                                .build()
-                            SingletonImageLoader.get(context).enqueue(request)
-                        }
-                    }
-                }
             }
 
             val keysToRemove = preloadedAds.keys.filter { it < page - 12 || it > page + 24 }

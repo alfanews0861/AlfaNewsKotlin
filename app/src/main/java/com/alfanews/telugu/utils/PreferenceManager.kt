@@ -444,6 +444,50 @@ class PreferenceManager(context: Context) {
     }
 
     /**
+     * ⚡ Home Feed Fast Cache (< 2ms)
+     */
+    fun saveHomeNewsCache(postsJson: String) {
+        try {
+            prefs.edit()
+                .putString(KEY_HOME_NEWS_CACHE, postsJson)
+                .putLong("${KEY_HOME_NEWS_CACHE}_ts", System.currentTimeMillis())
+                .apply()
+        } catch (_: Exception) {}
+    }
+
+    fun getHomeNewsCache(): Pair<String?, Long> {
+        return try {
+            val json = prefs.getString(KEY_HOME_NEWS_CACHE, null)
+            val ts = prefs.getLong("${KEY_HOME_NEWS_CACHE}_ts", 0L)
+            Pair(json, ts)
+        } catch (_: Exception) {
+            Pair(null, 0L)
+        }
+    }
+
+    /**
+     * ⚡ District Feed Fast Cache (< 2ms)
+     */
+    fun saveDistrictNewsCache(district: String, postsJson: String) {
+        try {
+            prefs.edit()
+                .putString("$KEY_LOCAL_NEWS_CACHE_PREFIX$district", postsJson)
+                .putLong("${KEY_LOCAL_NEWS_CACHE_PREFIX}${district}_ts", System.currentTimeMillis())
+                .apply()
+        } catch (_: Exception) {}
+    }
+
+    fun getDistrictNewsCache(district: String): Pair<String?, Long> {
+        return try {
+            val json = prefs.getString("$KEY_LOCAL_NEWS_CACHE_PREFIX$district", null)
+            val ts = prefs.getLong("${KEY_LOCAL_NEWS_CACHE_PREFIX}${district}_ts", 0L)
+            Pair(json, ts)
+        } catch (_: Exception) {
+            Pair(null, 0L)
+        }
+    }
+
+    /**
      * ⚡ గతంలో సేవ్ చేసిన క్యాష్ వార్తలను పూర్తిగా క్లియర్ చేస్తుంది (Cache vaddu - Always fresh live news).
      */
     fun clearAllNewsCache() {

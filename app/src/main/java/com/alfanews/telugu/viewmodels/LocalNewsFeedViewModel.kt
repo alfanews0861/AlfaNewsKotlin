@@ -13,6 +13,7 @@ import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseService
+import com.alfanews.telugu.services.WeatherService
 import com.alfanews.telugu.utils.Constants
 import com.alfanews.telugu.utils.NetworkUtils
 import com.alfanews.telugu.utils.NotificationHelper
@@ -21,6 +22,7 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.Source
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -56,8 +58,15 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     private val _hasMore = MutableStateFlow(true)
     val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
 
-    private val _activeDistrict = MutableStateFlow(prefs.getEffectiveDistrict() ?: prefs.userDistrict ?: "హైదరాబాద్")
+    private val _activeDistrict = MutableStateFlow<String?>(prefs.getEffectiveDistrict() ?: prefs.userDistrict)
     val activeDistrict: StateFlow<String?> = _activeDistrict.asStateFlow()
+
+    private val _shouldOpenDistrictPicker = MutableStateFlow(false)
+    val shouldOpenDistrictPicker: StateFlow<Boolean> = _shouldOpenDistrictPicker.asStateFlow()
+
+    fun resetOpenDistrictPicker() {
+        _shouldOpenDistrictPicker.value = false
+    }
 
     private val _localAds = MutableStateFlow<List<LocalAd>>(emptyList())
     val localAds: StateFlow<List<LocalAd>> = _localAds.asStateFlow()
@@ -80,19 +89,18 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     @Volatile private var isFetching = false
     private var lastRefreshTimeLong: Long = 0
     private var consecutiveEmptyLoads = 0
+    private var isStateFallbackMode = false
 
     init {
-        val initialDist = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: prefs.userDistrict ?: "హైదరాబాద్"
-        _activeDistrict.value = initialDist
+        val initialDist = _activeDistrict.value
+        if (initialDist != null) {
+            loadLocalAds(initialDist)
+        }
 
         viewModelScope.launch {
             prefs.districtChanges.collectLatest { district ->
                 if (district != null && district != _activeDistrict.value) {
-                    _activeDistrict.value = district
-                    _loading.value = _news.value.isEmpty()
-                    _hasMore.value = true
-                    lastDistrictDocument = null
-                    loadNews(Language.TELUGU, activeCurrentUser, forceRefresh = true)
+                    setDistrict(district)
                 }
             }
         }
@@ -107,21 +115,23 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun setDistrict(district: String) {
-        if (prefs.selectedDistrict == district && _activeDistrict.value == district) {
-            return
-        }
         val oldDistrict = prefs.selectedDistrict ?: prefs.detectedDistrict
         prefs.selectedDistrict = district
         _activeDistrict.value = district
 
-        _loading.value = _news.value.isEmpty()
+        // 🚀 INSTANT REFRESH: మునుపటి పాత జిల్లా వార్తలను తీసివేసి వెంటనే తాజా వార్తల కోసం లోడింగ్ మొదలుపెడతాము
+        _news.value = emptyList()
+        _loading.value = true
         _hasMore.value = true
         lastDistrictDocument = null
+        isStateFallbackMode = false
+        _shouldScrollToTop.value = true
 
         AnalyticsService.logDistrictSelected(district, oldDistrict)
         viewModelScope.launch {
             NotificationHelper.syncDistrictTopic(getApplication(), district)
         }
+        loadLocalAds(district)
         loadNews(Language.TELUGU, activeCurrentUser, forceRefresh = true)
     }
 
@@ -132,10 +142,76 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
 
     /**
+     * 🛡️ Multi-strategy resilient district query:
+     * 1. Approved + whereIn(aliases)
+     * 2. Approved + whereEqualTo(district)
+     * 3. Status published + whereEqualTo(district)
+     * 4. Categories arrayContains(district)
+     */
+    private suspend fun fetchDistrictSnap(
+        district: String,
+        aliases: List<String>,
+        limitCount: Long,
+        cursor: DocumentSnapshot? = null
+    ): QuerySnapshot? {
+        val newsRef = FirebaseService.db.collection("news")
+
+        // Strategy 1: whereEqualTo(approved, true) + whereIn(district, aliases)
+        try {
+            val q1 = if (aliases.size > 1) {
+                newsRef.whereEqualTo("approved", true).whereIn("district", aliases)
+            } else {
+                newsRef.whereEqualTo("approved", true).whereEqualTo("district", aliases.firstOrNull() ?: district)
+            }.orderBy("timestamp", Query.Direction.DESCENDING)
+            val finalQ1 = if (cursor != null) q1.startAfter(cursor).limit(limitCount) else q1.limit(limitCount)
+            val res = finalQ1.get().await()
+            if (!res.isEmpty) return res
+        } catch (e: Exception) {
+            Log.w("LocalNewsFeedVM", "Strategy 1 whereIn failed: ${e.message}")
+        }
+
+        // Strategy 2: Single canonical district whereEqualTo(approved, true)
+        try {
+            val q2 = newsRef.whereEqualTo("approved", true)
+                .whereEqualTo("district", district)
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+            val finalQ2 = if (cursor != null) q2.startAfter(cursor).limit(limitCount) else q2.limit(limitCount)
+            val res = finalQ2.get().await()
+            if (!res.isEmpty) return res
+        } catch (e: Exception) {
+            Log.w("LocalNewsFeedVM", "Strategy 2 single district failed: ${e.message}")
+        }
+
+        // Strategy 3: Using status=published + district (deployed index)
+        try {
+            val q3 = newsRef.whereEqualTo("status", "published")
+                .whereEqualTo("district", district)
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+            val finalQ3 = if (cursor != null) q3.startAfter(cursor).limit(limitCount) else q3.limit(limitCount)
+            val res = finalQ3.get().await()
+            if (!res.isEmpty) return res
+        } catch (e: Exception) {
+            Log.w("LocalNewsFeedVM", "Strategy 3 status published failed: ${e.message}")
+        }
+
+        // Strategy 4: Check categories array (reporter/scraped news tagged with district in categories)
+        try {
+            val q4 = newsRef.whereEqualTo("approved", true)
+                .whereArrayContains("categories", district)
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+            val finalQ4 = if (cursor != null) q4.startAfter(cursor).limit(limitCount) else q4.limit(limitCount)
+            val res = finalQ4.get().await()
+            if (!res.isEmpty) return res
+        } catch (_: Exception) {}
+
+        return null
+    }
+
+    /**
      * ⚡ Ultra-fast Local News loader.
-     * 1. Smart Local Cache (< 20ms) for instant display.
-     * 2. Single direct Firestore query (< 200ms) with district aliases.
-     * 3. Zero real-time listener blocking, zero multi-layer cascading delays.
+     * 1. Smart Local Cache (< 20ms) for instant display if fresh (< 5h).
+     * 2. Fast Path (< 300ms) top 5 district posts if cache stale/empty.
+     * 3. Multi-strategy Server Query (< 400ms) with district aliases and fallback resilience.
      */
     fun loadNews(language: Language, currentUser: User?, forceRefresh: Boolean = false) {
         currentLanguage = language
@@ -145,12 +221,16 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         val userDist = currentUser?.district?.takeIf { it.isNotBlank() }
             ?: activeCurrentUser?.district?.takeIf { it.isNotBlank() }
             ?: prefs.userDistrict
-        val district = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: userDist ?: "హైదరాబాద్"
+        val district = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: userDist
+        if (district == null) {
+            _loading.value = false
+            detectLocation(getApplication(), currentUser)
+            return
+        }
         if (_activeDistrict.value != district) {
             _activeDistrict.value = district
         }
 
-        // ఇప్పటికే అదే జిల్లా కోసం క్వెరీ రన్ అవుతుంటే అనవసరంగా రద్దు చేసి మళ్ళీ స్టార్ట్ చేయవద్దు
         if (isFetching && loadJob?.isActive == true && !forceRefresh) {
             return
         }
@@ -178,63 +258,105 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 .take(10)
 
             try {
-                val query = if (aliases.size > 1) {
-                    newsRef.whereEqualTo("approved", true).whereIn("district", aliases)
-                } else {
-                    newsRef.whereEqualTo("approved", true).whereEqualTo("district", aliases.firstOrNull() ?: district)
-                }.orderBy("timestamp", Query.Direction.DESCENDING).limit(PAGE_SIZE.toLong())
-
                 val FIVE_HOURS_MS = 5L * 60 * 60 * 1000L
                 val now = System.currentTimeMillis()
                 var hasFreshCache = false
 
-                // 1. ⚡ SMART LOCAL CACHE DISPLAY (< 20ms) - Only if fresh (< 5 hours old)
+                // 1. ⚡ SMART LOCAL DISK CACHE (< 2ms) & FIRESTORE CACHE (< 20ms) - Only if fresh (< 5 hours old)
                 if (_news.value.isEmpty()) {
                     try {
-                        val cachedSnap = query.get(Source.CACHE).await()
-                        val cachedPosts = cachedSnap.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
-                        val latestTimestamp = cachedPosts.maxOfOrNull { it.timestamp } ?: 0L
-                        val isCacheFresh = (now - latestTimestamp) < FIVE_HOURS_MS
-
-                        if (isCacheFresh && cachedPosts.isNotEmpty()) {
-                            _news.value = cachedPosts
-                            _loading.value = false
-                            hasFreshCache = true
-                            lastDistrictDocument = cachedSnap.documents.lastOrNull()
-                            Log.d("LocalNewsFeedVM", "⚡ Instant Local Fresh Cache Display (<5h): ${cachedPosts.size} posts in < 20ms")
-                        } else {
-                            Log.d("LocalNewsFeedVM", "Local cache is empty or older than 5 hours (${(now - latestTimestamp) / 3600000}h old), bypassing stale cache for direct server query")
+                        val (cachedJson, cacheTs) = prefs.getDistrictNewsCache(district)
+                        if (!cachedJson.isNullOrBlank() && (now - cacheTs) < FIVE_HOURS_MS) {
+                            val type = object : TypeToken<List<NewsPost>>() {}.type
+                            val cachedPosts: List<NewsPost>? = Gson().fromJson(cachedJson, type)
+                            if (!cachedPosts.isNullOrEmpty()) {
+                                _news.value = cachedPosts
+                                _loading.value = false
+                                hasFreshCache = true
+                                isStateFallbackMode = false
+                                Log.d("LocalNewsFeedVM", "⚡ Instant Local Disk Cache (<5h): ${cachedPosts.size} posts in < 2ms")
+                            }
                         }
                     } catch (_: Exception) {}
+
+                    if (_news.value.isEmpty()) {
+                        try {
+                            val cachedSnap = if (aliases.size > 1) {
+                                try {
+                                    newsRef.whereEqualTo("approved", true)
+                                        .whereIn("district", aliases)
+                                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                                        .limit(PAGE_SIZE.toLong())
+                                        .get(Source.CACHE)
+                                        .await()
+                                } catch (_: Exception) {
+                                    newsRef.whereEqualTo("approved", true)
+                                        .whereEqualTo("district", district)
+                                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                                        .limit(PAGE_SIZE.toLong())
+                                        .get(Source.CACHE)
+                                        .await()
+                                }
+                            } else {
+                                newsRef.whereEqualTo("approved", true)
+                                    .whereEqualTo("district", district)
+                                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                                    .limit(PAGE_SIZE.toLong())
+                                    .get(Source.CACHE)
+                                    .await()
+                            }
+                            val cachedPosts = cachedSnap.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
+                            val latestTimestamp = cachedPosts.maxOfOrNull { it.timestamp } ?: 0L
+                            val isCacheFresh = (now - latestTimestamp) < FIVE_HOURS_MS
+
+                            if (isCacheFresh && cachedPosts.isNotEmpty()) {
+                                _news.value = cachedPosts
+                                _loading.value = false
+                                hasFreshCache = true
+                                lastDistrictDocument = cachedSnap.documents.lastOrNull()
+                                isStateFallbackMode = false
+                                Log.d("LocalNewsFeedVM", "⚡ Instant Local Fresh Cache Display (<5h): ${cachedPosts.size} posts in < 20ms")
+                            } else {
+                                Log.d("LocalNewsFeedVM", "Local cache is empty or older than 5 hours (${(now - latestTimestamp) / 3600000}h old), bypassing stale cache")
+                            }
+                        } catch (_: Exception) {}
+                    }
                 }
 
                 if (!hasFreshCache && _news.value.isEmpty()) {
                     _loading.value = true
                 }
 
-                // 2. ⚡ DIRECT SERVER QUERY (< 300ms) with 8.5s mobile-resilient timeout
+                // 2. ⚡ STREAMLINED LEAN SERVER QUERY (20 posts) with resilient timeout
                 val snap = try {
-                    kotlinx.coroutines.withTimeoutOrNull(8500L) {
-                        query.get().await()
+                    kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                        fetchDistrictSnap(district, aliases, PAGE_SIZE.toLong(), null)
                     }
                 } catch (e: Exception) {
                     Log.w("LocalNewsFeedVM", "Network query failed, falling back to cache: ${e.message}")
                     null
                 }
 
-                var posts = snap?.documents?.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) } ?: emptyList()
+                var posts = snap?.documents?.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }?.filter { it.approved } ?: emptyList()
 
-                // సర్వర్ నుండి స్పందన రాలేకపోయినా, మెమరీ ఖాళీగా ఉంటే లోకల్ క్యాష్ బ్యాకప్ తీసుకుంటాం
+                // Fallback to cache if network failed/timed out completely and memory is still empty
                 if (posts.isEmpty() && _news.value.isEmpty()) {
                     try {
-                        val fallbackCachedSnap = query.get(Source.CACHE).await()
+                        val fallbackCachedSnap = newsRef.whereEqualTo("approved", true)
+                            .whereEqualTo("district", district)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(PAGE_SIZE.toLong())
+                            .get(Source.CACHE)
+                            .await()
                         posts = fallbackCachedSnap.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
                         if (posts.isNotEmpty()) {
                             lastDistrictDocument = fallbackCachedSnap.documents.lastOrNull()
+                            isStateFallbackMode = false
                         }
                     } catch (_: Exception) {}
                 } else if (snap?.documents?.isNotEmpty() == true) {
                     lastDistrictDocument = snap.documents.lastOrNull()
+                    isStateFallbackMode = false
                 }
 
                 // ఒకవేళ జిల్లాలో వార్తలు 0 ఉన్నా (లేదా నెట్‌వర్క్ ఫెయిల్ అయ్యి క్యాష్ కూడా ఖాళీగా ఉన్నా), యూజర్‌కు ఖాళీ స్కెలెటన్ రాకుండా రాష్ట్ర స్థాయి తాజా వార్తలను ఫాల్‌బ్యాక్‌గా లోడ్ చేయండి
@@ -257,6 +379,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         if (filtered.isNotEmpty()) {
                             posts = filtered
                             lastDistrictDocument = fallbackSnap.documents.lastOrNull()
+                            isStateFallbackMode = true // 🛡️ Mark fallback mode so loadMore paginates properly
                             Log.d("LocalNewsFeedVM", "District had 0 posts, loaded ${posts.size} state fallback posts")
                         }
                     } catch (_: Exception) {}
@@ -268,19 +391,19 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     _hasMore.value = (posts.size >= PAGE_SIZE)
                     val validIds = posts.filter { it.type == "news" }.map { it.id }
                     prefs.incrementPostViewCounts(validIds)
+                    prefs.saveDistrictNewsCache(district, Gson().toJson(posts.take(20)))
                     if (wasEmpty) {
                         _shouldScrollToTop.value = true
                     }
                     lastRefreshTimeLong = System.currentTimeMillis()
                     _lastRefreshTime.value = lastRefreshTimeLong
+                } else if (_news.value.isNotEmpty()) {
+                    // Cache already provided initial posts, keep pagination active
+                    _hasMore.value = true
                 }
             } catch (e: Exception) {
                 Log.e("LocalNewsFeedVM", "loadNews error: ${e.message}")
             } finally {
-                if (_news.value.isNotEmpty()) {
-                    lastRefreshTimeLong = System.currentTimeMillis()
-                    _lastRefreshTime.value = lastRefreshTimeLong
-                }
                 _loading.value = false
                 isFetching = false
                 _isRefreshing.value = false
@@ -300,51 +423,62 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         isFetching = true
         loadMoreJob = viewModelScope.launch {
             try {
-                val district = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: "హైదరాబాద్"
-                val aliases = Constants.getDistrictAliases(district)
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                    .distinct()
-                    .take(10)
+                val district = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: return@launch
                 val newsRef = FirebaseService.db.collection("news")
+                var currentCursor = cursor
+                var keepFetching = true
 
-                val q = if (aliases.size > 1) {
-                    newsRef.whereEqualTo("approved", true).whereIn("district", aliases)
-                } else {
-                    newsRef.whereEqualTo("approved", true).whereEqualTo("district", aliases.firstOrNull() ?: district)
-                }.orderBy("timestamp", Query.Direction.DESCENDING).startAfter(cursor).limit(PAGE_SIZE.toLong())
-
-                val snap = kotlinx.coroutines.withTimeoutOrNull(8500L) {
-                    q.get().await()
-                }
-                if (snap == null) {
-                    Log.w("LocalNewsFeedVM", "loadMore timed out, will retry on scroll")
-                    return@launch
-                }
-
-                val posts = snap.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
-                if (snap.documents.isNotEmpty()) {
-                    lastDistrictDocument = snap.documents.lastOrNull()
-                }
-
-                if (posts.isEmpty()) {
-                    _hasMore.value = false
-                } else {
-                    val currentIds = _news.value.map { it.id }.toSet()
-                    val unique = posts.filter { it.id !in currentIds }
-                    if (unique.isNotEmpty()) {
-                        consecutiveEmptyLoads = 0
-                        _news.value = _news.value + unique
-                        val validIds = unique.filter { it.type == "news" }.map { it.id }
-                        prefs.incrementPostViewCounts(validIds)
+                while (keepFetching) {
+                    val snap = if (isStateFallbackMode) {
+                        val q = newsRef.whereEqualTo("approved", true)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .startAfter(currentCursor)
+                            .limit(PAGE_SIZE.toLong())
+                        kotlinx.coroutines.withTimeoutOrNull(4000L) { q.get().await() }
                     } else {
-                        consecutiveEmptyLoads++
-                        if (consecutiveEmptyLoads >= 4) {
-                            _hasMore.value = false // 🛡️ Prevent infinite read loop on duplicate batches
+                        val aliases = Constants.getDistrictAliases(district)
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                            .distinct()
+                            .take(10)
+                        kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                            fetchDistrictSnap(district, aliases, PAGE_SIZE.toLong(), currentCursor)
                         }
                     }
-                    if (posts.size < PAGE_SIZE) {
+
+                    if (snap == null) {
+                        Log.w("LocalNewsFeedVM", "loadMore timed out, will retry on scroll")
+                        break
+                    }
+
+                    val posts = snap.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
+                    if (snap.documents.isNotEmpty()) {
+                        lastDistrictDocument = snap.documents.lastOrNull()
+                        currentCursor = lastDistrictDocument!!
+                    }
+
+                    if (posts.isEmpty()) {
                         _hasMore.value = false
+                        break
+                    } else {
+                        val currentIds = _news.value.map { it.id }.toSet()
+                        val unique = posts.filter { it.id !in currentIds }
+                        if (unique.isNotEmpty()) {
+                            consecutiveEmptyLoads = 0
+                            _news.value = _news.value + unique
+                            val validIds = unique.filter { it.type == "news" }.map { it.id }
+                            prefs.incrementPostViewCounts(validIds)
+                            if (posts.size < PAGE_SIZE) {
+                                _hasMore.value = false
+                            }
+                            keepFetching = false
+                        } else {
+                            consecutiveEmptyLoads++
+                            if (consecutiveEmptyLoads >= 4 || posts.size < PAGE_SIZE) {
+                                _hasMore.value = false
+                                keepFetching = false
+                            }
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -370,7 +504,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     fun refreshIfStale(language: Language, currentUser: User?) {
         if (isFetching) return // 🛡️ Prevent duplicate concurrent reads
         val now = System.currentTimeMillis()
-        if (now - lastRefreshTimeLong > 5 * 60 * 1000L || (lastRefreshTimeLong == 0L && _news.value.isEmpty())) {
+        if (now - lastRefreshTimeLong > 3 * 60 * 1000L || lastRefreshTimeLong == 0L) {
             loadNews(language, currentUser, forceRefresh = true)
         }
     }
@@ -456,27 +590,40 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             try {
                 val fusedLocationClient = LocationServices.getFusedLocationProviderClient(getApplication<Application>())
                 val lastLoc = try { fusedLocationClient.lastLocation.await() } catch (_: Exception) { null }
-                val loc = lastLoc ?: kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                val loc = lastLoc ?: kotlinx.coroutines.withTimeoutOrNull(2000L) {
                     fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null).await()
                 }
                 if (loc != null) {
-                    val geocoder = Geocoder(getApplication(), Locale.forLanguageTag("te"))
-                    val addresses = geocoder.getFromLocation(loc.latitude, loc.longitude, 1)
-                    val addr = addresses?.firstOrNull()
-                    val detected = addr?.subAdminArea ?: addr?.adminArea
-                    val matched = Constants.ALL_DISTRICTS.find {
-                        !detected.isNullOrBlank() && (it.contains(detected, ignoreCase = true) || detected.contains(it, ignoreCase = true))
-                    }
+                    val matched = WeatherService.getClosestDistrictFromCoords(loc.latitude, loc.longitude)
+                        ?: try {
+                            val geocoder = Geocoder(getApplication(), Locale.forLanguageTag("te"))
+                            val addresses = geocoder.getFromLocation(loc.latitude, loc.longitude, 1)
+                            val addr = addresses?.firstOrNull()
+                            val detected = addr?.subAdminArea ?: addr?.adminArea
+                            Constants.ALL_DISTRICTS.find {
+                                !detected.isNullOrBlank() && (it.contains(detected, ignoreCase = true) || detected.contains(it, ignoreCase = true))
+                            }
+                        } catch (_: Exception) { null }
+
                     if (matched != null) {
                         prefs.lastLat = loc.latitude
                         prefs.lastLon = loc.longitude
                         prefs.detectedDistrict = matched
-                        _activeDistrict.value = matched
+                        withContext(Dispatchers.Main) {
+                            setDistrict(matched)
+                        }
+                        return@launch
                     }
                 }
             } catch (_: Exception) {
             } finally {
-                _isDetecting.value = false
+                withContext(Dispatchers.Main) {
+                    _isDetecting.value = false
+                    if (_activeDistrict.value == null) {
+                        // 2 సెకన్లలో లొకేషన్ గుర్తించలేకపోతే జిల్లా ఎంపిక డైలాగ్‌ను స్వయంచాలకంగా తెరవాలి
+                        _shouldOpenDistrictPicker.value = true
+                    }
+                }
             }
         }
     }

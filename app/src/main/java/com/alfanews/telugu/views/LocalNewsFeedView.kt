@@ -100,6 +100,15 @@ fun LocalNewsFeedView(
     val localAds by viewModel.localAds.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
+    val shouldOpenDistrictPicker by viewModel.shouldOpenDistrictPicker.collectAsStateWithLifecycle()
+
+    LaunchedEffect(shouldOpenDistrictPicker) {
+        if (shouldOpenDistrictPicker) {
+            onDistrictClick()
+            viewModel.resetOpenDistrictPicker()
+        }
+    }
+
     var hasLocationPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -145,7 +154,7 @@ fun LocalNewsFeedView(
         }
     }
 
-    LaunchedEffect(currentUser) {
+    LaunchedEffect(currentUser, viewModelActiveDistrict) {
         val userDist = currentUser?.district?.takeIf { it.isNotBlank() }
         if (userDist != null && viewModelActiveDistrict != userDist) {
             viewModel.setDistrict(userDist)
@@ -163,11 +172,13 @@ fun LocalNewsFeedView(
         }
     }
 
-    LaunchedEffect(Unit) {
-        if (news.isEmpty()) {
-            viewModel.loadNews(language, currentUser)
-        } else {
-            viewModel.refreshIfStale(language, currentUser)
+    LaunchedEffect(viewModelActiveDistrict) {
+        if (viewModelActiveDistrict != null) {
+            if (news.isEmpty()) {
+                viewModel.loadNews(language, currentUser)
+            } else {
+                viewModel.refreshIfStale(language, currentUser)
+            }
         }
     }
 
@@ -210,60 +221,66 @@ fun LocalNewsFeedView(
         }
     }
 
-    LaunchedEffect(pagerState) { 
-        snapshotFlow { pagerState.currentPage }.collect { page ->
-            val newsIndex = page - (page / 6)
-            if (news.isNotEmpty() && (newsIndex >= maxOf(0, news.size - 4) || page >= maxOf(0, totalCount - 2)) && hasMore && !loading) {
-                viewModel.loadMore(language, currentUser)
+    LaunchedEffect(pagerState, hasMore, loading, news.size) { 
+        var lastTrackedPage = -1
+        snapshotFlow {
+            Triple(pagerState.currentPage, pagerState.isScrollInProgress, news.size)
+        }.collect { (page, _, newsSize) ->
+            if (page != lastTrackedPage) {
+                lastTrackedPage = page
+                if (page < baseCount) {
+                    // 🚀 FAST SWIPE PRELOADING: వేగంగా స్వైప్ చేసే యూజర్ల కోసం 5 పేజీల ముందస్తు ఇమేజ్ ప్రీ-లోడింగ్ (IO thread)
+                    launch(Dispatchers.IO) {
+                        (1..5).forEach { offset ->
+                            val nextPageIndex = page + offset
+                            val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
+                            if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
+                                val post = news[nextNewsIndex]
+                                if (post.mediaUrl.isNotEmpty()) {
+                                    val request = ImageRequest.Builder(context)
+                                        .data(getOptimizedImageUrl(post.mediaUrl))
+                                        .allowHardware(true)
+                                        .crossfade(false)
+                                        .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
+                                        .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
+                                        .build()
+                                    SingletonImageLoader.get(context).enqueue(request)
+                                }
+                            }
+                        }
+                    }
+
+                    // 🚀 LOCAL AD PRELOADING: 2 స్లాట్లు ముందుగా
+                    (1..2).forEach { offset ->
+                        val futurePage = page + offset
+                        val isAdPage = (futurePage + 1) % 6 == 0
+                        if (isAdPage && futurePage < baseCount) {
+                            val adIndex = futurePage / 6
+                            if (adIndex < localAds.size) {
+                                val ad = localAds[adIndex]
+                                if (ad.bannerUrl.isNotEmpty()) {
+                                    val request = ImageRequest.Builder(context)
+                                        .data(ad.bannerUrl)
+                                        .allowHardware(true)
+                                        .crossfade(false)
+                                        .build()
+                                    SingletonImageLoader.get(context).enqueue(request)
+                                }
+                            }
+                            
+                            // AdMob preloading (skip strictly local slots to preserve match rate)
+                            val strictlyLocal = (adIndex == 0 || adIndex == 1) && localAds.isNotEmpty()
+                            if (!strictlyLocal) {
+                                loadAdForPage(futurePage)
+                            }
+                        }
+                    }
+                }
             }
 
-            if (page < baseCount) {
-                // 🚀 FAST SWIPE PRELOADING: వేగంగా స్వైప్ చేసే యూజర్ల కోసం 5 పేజీల ముందస్తు ఇమేజ్ ప్రీ-లోడింగ్ (IO thread)
-                launch(Dispatchers.IO) {
-                    (1..5).forEach { offset ->
-                        val nextPageIndex = page + offset
-                        val nextNewsIndex = nextPageIndex - (nextPageIndex / 6)
-                        if (nextNewsIndex >= 0 && nextNewsIndex < news.size) {
-                            val post = news[nextNewsIndex]
-                            if (post.mediaUrl.isNotEmpty()) {
-                                val request = ImageRequest.Builder(context)
-                                    .data(getOptimizedImageUrl(post.mediaUrl))
-                                    .allowHardware(true)
-                                    .crossfade(false)
-                                    .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
-                                    .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
-                                    .build()
-                                SingletonImageLoader.get(context).enqueue(request)
-                            }
-                        }
-                    }
-                }
-
-                // 🚀 LOCAL AD PRELOADING: 2 స్లాట్లు ముందుగా
-                (1..2).forEach { offset ->
-                    val futurePage = page + offset
-                    val isAdPage = (futurePage + 1) % 6 == 0
-                    if (isAdPage && futurePage < baseCount) {
-                        val adIndex = futurePage / 6
-                        if (adIndex < localAds.size) {
-                            val ad = localAds[adIndex]
-                            if (ad.bannerUrl.isNotEmpty()) {
-                                val request = ImageRequest.Builder(context)
-                                    .data(ad.bannerUrl)
-                                    .allowHardware(true)
-                                    .crossfade(false)
-                                    .build()
-                                SingletonImageLoader.get(context).enqueue(request)
-                            }
-                        }
-                        
-                        // AdMob preloading (skip strictly local slots to preserve match rate)
-                        val strictlyLocal = (adIndex == 0 || adIndex == 1) && localAds.isNotEmpty()
-                        if (!strictlyLocal) {
-                            loadAdForPage(futurePage)
-                        }
-                    }
-                }
+            val newsIndex = page - (page / 6)
+            if (newsSize > 0 && (newsIndex >= maxOf(0, newsSize - 4) || page >= maxOf(0, totalCount - 2)) && hasMore && !loading) {
+                viewModel.loadMore(language, currentUser)
             }
 
             val keysToRemove = preloadedAds.keys.filter { it < page - 12 || it > page + 24 }
@@ -292,45 +309,23 @@ fun LocalNewsFeedView(
                 LaunchedEffect(Unit) {
                     onDistrictClick()
                 }
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.select_district_prompt),
-                            color = MaterialTheme.colorScheme.onBackground,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontFamily = Ramabhadra
-                        )
-                        Button(
-                            onClick = onDistrictClick,
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                        ) {
-                            Text(stringResource(R.string.select_district), fontFamily = Ramabhadra)
-                        }
-                    }
-                }
-            } else {
-                var retryCount by remember { mutableIntStateOf(0) }
-                val isOnline = remember(loading) { NetworkUtils.isOnline(context) }
+            }
+            var retryCount by remember { mutableIntStateOf(0) }
+            val isOnline = remember(loading) { NetworkUtils.isOnline(context) }
 
-                LaunchedEffect(loading, isOnline) {
-                    if (!loading && isOnline) {
-                        val delayMs = when (retryCount) {
-                            0 -> 500L
-                            1 -> 1500L
-                            else -> 3000L
-                        }
-                        kotlinx.coroutines.delay(delayMs)
-                        retryCount++
-                        viewModel.loadNews(language, currentUser, forceRefresh = false)
+            LaunchedEffect(loading, isOnline, viewModelActiveDistrict) {
+                if (!loading && isOnline && viewModelActiveDistrict != null) {
+                    val delayMs = when (retryCount) {
+                        0 -> 500L
+                        1 -> 1500L
+                        else -> 3000L
                     }
+                    kotlinx.coroutines.delay(delayMs)
+                    retryCount++
+                    viewModel.loadNews(language, currentUser, forceRefresh = false)
                 }
-                NewsCardSkeleton()
+            }
+            NewsCardSkeleton()
             }
         } else {
             VerticalPager(
