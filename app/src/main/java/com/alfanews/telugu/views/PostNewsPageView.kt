@@ -287,7 +287,10 @@ fun PostNewsPageView(
 
                     if (district.isNotBlank() && !isGlobalNews) {
                         try {
-                            com.alfanews.telugu.utils.PreferenceManager.getInstance(context).selectedDistrict = district
+                            val prefs = com.alfanews.telugu.utils.PreferenceManager.getInstance(context)
+                            prefs.selectedDistrict = district
+                            prefs.saveDistrictNewsCache(district, "")
+                            prefs.saveHomeNewsCache("")
                         } catch (e: Exception) { }
                     }
 
@@ -298,10 +301,10 @@ fun PostNewsPageView(
                         val isVideoPost = finalMediaTypes.contains("VIDEO")
                         if (isVideoPost) {
                             Toast.makeText(context, "వార్త అప్‌లోడ్ విజయవంతమైంది! వీడియో తయారీ మరియు ఇతర పనులు నేపథ్యంలో జరుగుతున్నాయి. 10 నిమిషాల తర్వాత చూడండి.", Toast.LENGTH_LONG).show()
-                            onActionComplete("HOME_ONLY") 
+                            onActionComplete(newPostId.ifBlank { "HOME_ONLY" }) 
                         } else {
-                            Toast.makeText(context, "వార్త విజయవంతంగా పంపబడింది. త్వరలో హోమ్ ఫీడ్ లో చూడవచ్చు.", Toast.LENGTH_LONG).show()
-                            onActionComplete("HOME_ONLY")
+                            Toast.makeText(context, "వార్త విజయవంతంగా పంపబడింది. త్వరలో మేనేజ్ న్యూస్ మరియు ఫీడ్ లో చూడవచ్చు.", Toast.LENGTH_LONG).show()
+                            onActionComplete(newPostId.ifBlank { "HOME_ONLY" })
                         }
                     }
                 } catch (e: Exception) {

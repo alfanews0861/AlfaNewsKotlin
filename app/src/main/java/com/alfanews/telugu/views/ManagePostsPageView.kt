@@ -51,7 +51,9 @@ fun ManagePostsPageView(
     onEditPost: (NewsPost) -> Unit,
     onViewPost: (NewsPost) -> Unit = {},
     currentUser: User? = null,
-    showTitle: Boolean = true
+    showTitle: Boolean = true,
+    newlyCreatedPostId: String? = null,
+    onPostConsumed: () -> Unit = {}
 ) {
     var posts by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -74,6 +76,23 @@ fun ManagePostsPageView(
     }
     val targetId = candidateIds.firstOrNull() ?: authUid
 
+    // ⚡ INSTANT NEW POST DISPLAY: Fetch the just-published post directly by ID in < 100ms
+    LaunchedEffect(newlyCreatedPostId) {
+        if (!newlyCreatedPostId.isNullOrBlank()) {
+            try {
+                val doc = FirebaseService.db.collection("news").document(newlyCreatedPostId).get().await()
+                if (doc.exists()) {
+                    val p = mapMapToNewsPost(doc.id, doc.data ?: emptyMap())
+                    if (p != null) {
+                        posts = (listOf(p) + posts).distinctBy { it.id }
+                        loading = false
+                    }
+                }
+            } catch (_: Exception) {}
+            onPostConsumed()
+        }
+    }
+
     LaunchedEffect(targetId, refreshTrigger) {
         if (targetId.isBlank()) {
             posts = emptyList()
@@ -81,40 +100,58 @@ fun ManagePostsPageView(
             return@LaunchedEffect
         }
 
-        loading = posts.isEmpty()
+        loading = posts.isEmpty() || refreshTrigger > 0
 
         val newsRef = FirebaseService.db.collection("news")
 
-        // 🛡️ Helper: Robust ordered query with fallback for index resilience
+        // 🛡️ Helper: Robust multi-strategy query for index resilience
         suspend fun queryReporterField(
             field: String,
             value: String,
             source: Source? = null,
-            limitCount: Long = 15
+            limitCount: Long = 25
         ): List<DocumentSnapshot> {
             if (value.isBlank()) return emptyList()
-            return try {
+
+            // Strategy 1: Direct ordered query
+            try {
                 val qOrdered = newsRef.whereEqualTo(field, value)
                     .orderBy("timestamp", Query.Direction.DESCENDING)
                     .limit(limitCount)
                 val snap = if (source != null) qOrdered.get(source).await() else qOrdered.get().await()
+                if (!snap.isEmpty) return snap.documents
+            } catch (_: Exception) {}
+
+            // Strategy 2: Query approved=true and approved=false with deployed composite indexes
+            try {
+                val qApproved = newsRef.whereEqualTo(field, value)
+                    .whereEqualTo("approved", true)
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                    .limit(limitCount)
+                val qPending = newsRef.whereEqualTo(field, value)
+                    .whereEqualTo("approved", false)
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                    .limit(10)
+                val snapApproved = if (source != null) qApproved.get(source).await() else qApproved.get().await()
+                val snapPending = if (source != null) qPending.get(source).await() else qPending.get().await()
+                val merged = (snapApproved.documents + snapPending.documents).distinctBy { it.id }
+                if (merged.isNotEmpty()) return merged
+            } catch (_: Exception) {}
+
+            // Strategy 3: Resilient fallback without index: fetch up to 50 docs and sort in Kotlin
+            return try {
+                val qSimple = newsRef.whereEqualTo(field, value).limit(50)
+                val snap = if (source != null) qSimple.get(source).await() else qSimple.get().await()
                 snap.documents
             } catch (_: Exception) {
-                try {
-                    val qSimple = newsRef.whereEqualTo(field, value).limit(limitCount)
-                    val snap = if (source != null) qSimple.get(source).await() else qSimple.get().await()
-                    snap.documents
-                } catch (_: Exception) {
-                    emptyList()
-                }
+                emptyList()
             }
         }
 
-        // 1. ⚡ INSTANT LOCAL CACHE DISPLAY (< 15ms)
-        if (posts.isEmpty()) {
+        // 1. ⚡ INSTANT LOCAL CACHE DISPLAY (< 15ms) - Only on initial launch
+        if (posts.isEmpty() && refreshTrigger == 0) {
             try {
                 withContext(Dispatchers.IO) {
-                    // Fast path: primary query from cache first
                     val primaryCacheDocs = queryReporterField("originalReporterId", targetId, Source.CACHE)
                     val cachedDocs = if (primaryCacheDocs.size >= 10) {
                         primaryCacheDocs
@@ -138,7 +175,7 @@ fun ManagePostsPageView(
                             val data = doc.data ?: return@mapNotNull null
                             mapMapToNewsPost(doc.id, data)
                         } catch (_: Exception) { null }
-                    }.sortedByDescending { it.timestamp }.take(10)
+                    }.sortedByDescending { it.timestamp }.take(30)
 
                     if (cachedParsed.isNotEmpty()) {
                         withContext(Dispatchers.Main) {
@@ -154,14 +191,11 @@ fun ManagePostsPageView(
         try {
             withTimeoutOrNull(10000L) {
                 withContext(Dispatchers.IO) {
-                    // 🚀 STEP 1: ప్రథమ ప్రాధాన్యత క్వెరీ (originalReporterId) మొదట రన్ అవుతుంది
                     val primaryDocs = queryReporterField("originalReporterId", targetId)
 
-                    // 🛑 STEP 2: మొదటి క్వెరీలోనే 10 లేదా అంతకంటే ఎక్కువ వార్తలు వస్తే, మిగతావి ట్రిగ్గర్ అవ్వకుండా ఆగిపోతాయి!
                     val candidateDocs = if (primaryDocs.size >= 10) {
                         primaryDocs
                     } else {
-                        // ⚡ ఒకవేళ 10 కంటే తక్కువ ఉంటేనే (కొత్త రిపోర్టర్ లేదా పాత పోస్ట్‌లు), మిగతావి ప్యారలల్‌గా రన్ అవుతాయి
                         val fallbackJobs = mutableListOf<kotlinx.coroutines.Deferred<List<DocumentSnapshot>>>()
                         fallbackJobs.add(async { queryReporterField("reporter.id", targetId) })
                         fallbackJobs.add(async { queryReporterField("reporterId", targetId) })
@@ -183,11 +217,18 @@ fun ManagePostsPageView(
                             val data = doc.data ?: return@mapNotNull null
                             mapMapToNewsPost(doc.id, data)
                         } catch (_: Exception) { null }
-                    }.sortedByDescending { it.timestamp }.take(10)
+                    }.sortedByDescending { it.timestamp }.take(30)
 
                     withContext(Dispatchers.Main) {
                         if (parsedPosts.isNotEmpty()) {
-                            posts = parsedPosts
+                            // Preserve newly created post if present in current memory
+                            val currentNewPost = posts.find { it.id == newlyCreatedPostId }
+                            val combined = if (currentNewPost != null) {
+                                (listOf(currentNewPost) + parsedPosts).distinctBy { it.id }
+                            } else {
+                                parsedPosts
+                            }
+                            posts = combined
                         } else if (posts.isEmpty()) {
                             posts = emptyList()
                         }
@@ -278,7 +319,10 @@ fun ManagePostsPageView(
                 )
             }
 
-            IconButton(onClick = { refreshTrigger++ }) {
+            IconButton(onClick = { 
+                loading = true
+                refreshTrigger++ 
+            }) {
                 Icon(
                     imageVector = Icons.Default.Refresh,
                     contentDescription = "Refresh",
@@ -316,7 +360,10 @@ fun ManagePostsPageView(
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                OutlinedButton(onClick = { refreshTrigger++ }) {
+                                OutlinedButton(onClick = { 
+                                    loading = true
+                                    refreshTrigger++ 
+                                }) {
                                     Icon(
                                         imageVector = Icons.Default.Refresh,
                                         contentDescription = null,

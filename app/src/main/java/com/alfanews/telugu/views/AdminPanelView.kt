@@ -68,6 +68,7 @@ fun AdminPanelView(
     var editingSurvey by remember { mutableStateOf<NewsPost?>(null) }
     var savingProfile by remember { mutableStateOf(false) }
     var chatTargetReporterId by remember { mutableStateOf<String?>(null) }
+    var newlyCreatedPostId by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
     val allPages = listOf(
@@ -273,10 +274,10 @@ fun AdminPanelView(
                         postToEdit = editingPost,
                         onActionComplete = { postId -> 
                             editingPost = null
-                            activePage = if (listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK).contains(effectiveRole)) "manage" else "profile"
                             if (postId.isNotBlank() && postId != "HOME_ONLY") {
-                                onPostPublished(postId)
+                                newlyCreatedPostId = postId
                             }
+                            activePage = if (listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK).contains(effectiveRole)) "manage" else "profile"
                         }
                     )
                     "survey" -> PostSurveyPageView(
@@ -297,7 +298,9 @@ fun AdminPanelView(
                             onViewPost(post)
                         },
                         currentUser = effectiveUser,
-                        showTitle = false
+                        showTitle = false,
+                        newlyCreatedPostId = newlyCreatedPostId,
+                        onPostConsumed = { newlyCreatedPostId = null }
                     )
                     "manageReporters" -> ReporterManagementPageView(
                         currentUser = effectiveUser,

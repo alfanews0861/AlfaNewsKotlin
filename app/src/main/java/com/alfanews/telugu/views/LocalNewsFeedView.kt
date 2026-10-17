@@ -154,12 +154,15 @@ fun LocalNewsFeedView(
         }
     }
 
-    LaunchedEffect(currentUser, viewModelActiveDistrict) {
-        val userDist = currentUser?.district?.takeIf { it.isNotBlank() }
-        if (userDist != null && viewModelActiveDistrict != userDist) {
-            viewModel.setDistrict(userDist)
-        } else if (viewModelActiveDistrict == null) {
-            if (hasLocationPermission) {
+    LaunchedEffect(currentUser) {
+        val prefs = com.alfanews.telugu.utils.PreferenceManager.getInstance(context)
+        val selected = prefs.selectedDistrict
+        val active = viewModelActiveDistrict
+        if (selected == null && active == null) {
+            val userDist = currentUser?.district?.takeIf { it.isNotBlank() }
+            if (userDist != null) {
+                viewModel.setDistrict(userDist)
+            } else if (hasLocationPermission) {
                 viewModel.detectLocation(context, currentUser)
             } else {
                 locationPermissionLauncher.launch(

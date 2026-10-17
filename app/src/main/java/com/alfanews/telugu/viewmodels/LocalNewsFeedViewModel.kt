@@ -156,30 +156,30 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     ): QuerySnapshot? {
         val newsRef = FirebaseService.db.collection("news")
 
-        // Strategy 1: whereEqualTo(approved, true) + whereIn(district, aliases)
+        // Strategy 1: Single canonical district exact match (Fastest path < 200ms with deployed index)
         try {
-            val q1 = if (aliases.size > 1) {
-                newsRef.whereEqualTo("approved", true).whereIn("district", aliases)
-            } else {
-                newsRef.whereEqualTo("approved", true).whereEqualTo("district", aliases.firstOrNull() ?: district)
-            }.orderBy("timestamp", Query.Direction.DESCENDING)
+            val q1 = newsRef.whereEqualTo("approved", true)
+                .whereEqualTo("district", district)
+                .orderBy("timestamp", Query.Direction.DESCENDING)
             val finalQ1 = if (cursor != null) q1.startAfter(cursor).limit(limitCount) else q1.limit(limitCount)
             val res = finalQ1.get().await()
             if (!res.isEmpty) return res
         } catch (e: Exception) {
-            Log.w("LocalNewsFeedVM", "Strategy 1 whereIn failed: ${e.message}")
+            Log.w("LocalNewsFeedVM", "Strategy 1 exact district match failed: ${e.message}")
         }
 
-        // Strategy 2: Single canonical district whereEqualTo(approved, true)
-        try {
-            val q2 = newsRef.whereEqualTo("approved", true)
-                .whereEqualTo("district", district)
-                .orderBy("timestamp", Query.Direction.DESCENDING)
-            val finalQ2 = if (cursor != null) q2.startAfter(cursor).limit(limitCount) else q2.limit(limitCount)
-            val res = finalQ2.get().await()
-            if (!res.isEmpty) return res
-        } catch (e: Exception) {
-            Log.w("LocalNewsFeedVM", "Strategy 2 single district failed: ${e.message}")
+        // Strategy 2: whereIn(aliases) for multi-alias district names
+        if (aliases.size > 1) {
+            try {
+                val q2 = newsRef.whereEqualTo("approved", true)
+                    .whereIn("district", aliases)
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                val finalQ2 = if (cursor != null) q2.startAfter(cursor).limit(limitCount) else q2.limit(limitCount)
+                val res = finalQ2.get().await()
+                if (!res.isEmpty) return res
+            } catch (e: Exception) {
+                Log.w("LocalNewsFeedVM", "Strategy 2 whereIn failed: ${e.message}")
+            }
         }
 
         // Strategy 3: Using status=published + district (deployed index)
@@ -247,6 +247,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 _isRefreshing.value = true
                 lastDistrictDocument = null
                 consecutiveEmptyLoads = 0
+                try {
+                    prefs.saveDistrictNewsCache(district, "")
+                } catch (_: Exception) {}
             }
             _isOnline.value = NetworkUtils.isOnline(getApplication())
 
@@ -262,8 +265,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 val now = System.currentTimeMillis()
                 var hasFreshCache = false
 
-                // 1. ⚡ SMART LOCAL DISK CACHE (< 2ms) & FIRESTORE CACHE (< 20ms) - Only if fresh (< 5 hours old)
-                if (_news.value.isEmpty()) {
+                // 1. ⚡ SMART LOCAL DISK CACHE (< 2ms) & FIRESTORE CACHE (< 20ms) - Only if fresh (< 5 hours old) and not forceRefresh
+                if (_news.value.isEmpty() && !forceRefresh) {
                     try {
                         val (cachedJson, cacheTs) = prefs.getDistrictNewsCache(district)
                         if (!cachedJson.isNullOrBlank() && (now - cacheTs) < FIVE_HOURS_MS) {
@@ -329,7 +332,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                 // 2. ⚡ STREAMLINED LEAN SERVER QUERY (20 posts) with resilient timeout
                 val snap = try {
-                    kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                    kotlinx.coroutines.withTimeoutOrNull(8000L) {
                         fetchDistrictSnap(district, aliases, PAGE_SIZE.toLong(), null)
                     }
                 } catch (e: Exception) {
@@ -569,16 +572,20 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     @SuppressLint("MissingPermission")
     fun detectLocation(context: Context, currentUser: User?) {
         val userDist = currentUser?.district?.takeIf { it.isNotBlank() } ?: prefs.userDistrict
-        val explicitDistrict = prefs.selectedDistrict ?: userDist
+        val explicitDistrict = prefs.selectedDistrict ?: _activeDistrict.value ?: userDist
         if (explicitDistrict != null) {
-            _activeDistrict.value = explicitDistrict
+            if (_activeDistrict.value == null) {
+                _activeDistrict.value = explicitDistrict
+            }
             _isDetecting.value = false
             return
         }
 
         val savedDistrict = prefs.detectedDistrict
         if (savedDistrict != null && !prefs.isLocationDetectionStale()) {
-            _activeDistrict.value = savedDistrict
+            if (_activeDistrict.value == null) {
+                _activeDistrict.value = savedDistrict
+            }
             _isDetecting.value = false
             return
         }
@@ -609,8 +616,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         prefs.lastLat = loc.latitude
                         prefs.lastLon = loc.longitude
                         prefs.detectedDistrict = matched
-                        withContext(Dispatchers.Main) {
-                            setDistrict(matched)
+                        if (_activeDistrict.value == null) {
+                            withContext(Dispatchers.Main) {
+                                setDistrict(matched)
+                            }
                         }
                         return@launch
                     }
