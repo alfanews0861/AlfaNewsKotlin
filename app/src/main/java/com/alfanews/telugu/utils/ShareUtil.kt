@@ -172,15 +172,15 @@ object ShareUtil {
         customText: String? = null
     ) {
         val shareUrl = "https://alfanews.app/news/$postId"
-        val shareText = customText ?: if (headline.isNotBlank()) "🔴 $headline\n\n$shareUrl" else shareUrl
+        val shareText = customText ?: shareUrl
 
         // Pre-warm news card image on Google Edge CDN so WhatsApp loads rich preview instantly
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             try {
                 val conn = (java.net.URL("https://alfanews.app/news-card/$postId.jpg").openConnection() as java.net.HttpURLConnection).apply {
                     requestMethod = "GET"
-                    connectTimeout = 3000
-                    readTimeout = 3000
+                    connectTimeout = 8000
+                    readTimeout = 8000
                     instanceFollowRedirects = true
                 }
                 conn.responseCode

@@ -551,7 +551,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 } else {
                     title.trim()
                 }
-                val shareText = "🔴 $plainShareTitle\n\n$shareUrl"
+                val shareText = shareUrl
                 val sendIntent = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_TEXT, shareText)

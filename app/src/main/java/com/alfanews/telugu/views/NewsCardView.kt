@@ -222,6 +222,19 @@ fun NewsCardView(
     LaunchedEffect(isActive) {
         if (isActive) {
             startTime = System.currentTimeMillis()
+            // 🚀 Pre-warm news card image on Google Edge CDN while user reads the card
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try {
+                    val conn = (java.net.URL("https://alfanews.app/news-card/${post.id}.jpg").openConnection() as java.net.HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 3000
+                        readTimeout = 3000
+                        instanceFollowRedirects = true
+                    }
+                    conn.responseCode
+                    conn.disconnect()
+                } catch (_: Exception) {}
+            }
         } else if (startTime != null) {
             val start = startTime ?: return@LaunchedEffect
             val duration = (System.currentTimeMillis() - start) / 1000.0
@@ -1058,15 +1071,15 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
                 post.headline.english.ifBlank { post.headline.telugu.ifBlank { post.notificationTitle.orEmpty() } }
             }
             val shareUrl = "https://alfanews.app/news/${post.id}"
-            val shareText = customShareText ?: "🔴 $headline\n\n$shareUrl"
+            val shareText = customShareText ?: shareUrl
 
             // Pre-warm news card image on Google Edge CDN so WhatsApp loads rich preview instantly
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                 try {
                     val conn = (java.net.URL("https://alfanews.app/news-card/${post.id}.jpg").openConnection() as java.net.HttpURLConnection).apply {
                         requestMethod = "GET"
-                        connectTimeout = 3000
-                        readTimeout = 3000
+                        connectTimeout = 8000
+                        readTimeout = 8000
                         instanceFollowRedirects = true
                     }
                     conn.responseCode
@@ -1074,8 +1087,9 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
                 } catch (_: Exception) {}
             }
 
-            // Share as Rich Link (text/plain with URL). WhatsApp automatically loads the Open Graph preview card
-            // (Image on top, Headline below, Deep link below) and clicking the preview image directly launches the deeplink!
+            // Share as Rich Link (text/plain with URL) - Exactly like Way2News!
+            // WhatsApp automatically loads the Open Graph preview card (Branded card image on top, clean deep link below)
+            // Tapping the card preview image directly launches the deep link into AlfaNews!
             val intent = Intent(Intent.ACTION_SEND).apply {
                 action = Intent.ACTION_SEND
                 type = "text/plain"
@@ -2860,8 +2874,8 @@ fun FullStoryBottomSheet(
                                     try {
                                         val conn = (java.net.URL("https://alfanews.app/news-card/${post.id}.jpg").openConnection() as java.net.HttpURLConnection).apply {
                                             requestMethod = "GET"
-                                            connectTimeout = 3000
-                                            readTimeout = 3000
+                                            connectTimeout = 8000
+                                            readTimeout = 8000
                                             instanceFollowRedirects = true
                                         }
                                         conn.responseCode

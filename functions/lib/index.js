@@ -353,22 +353,77 @@ function drawCommentIcon(ctx, x, y, size) {
     ctx.fill();
     ctx.restore();
 }
-async function loadPhotoFast(mediaUrl, timeoutMs = 4500) {
-    if (!mediaUrl || typeof mediaUrl !== 'string' || !mediaUrl.startsWith('http'))
+async function loadPhotoFast(mediaUrl, timeoutMs = 8000) {
+    if (!mediaUrl || typeof mediaUrl !== 'string')
         return null;
-    try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
-        const res = await fetch(mediaUrl, { signal: controller.signal });
-        clearTimeout(timer);
-        if (!res.ok)
-            return null;
-        const buf = await res.arrayBuffer();
-        return await (0, canvas_1.loadImage)(Buffer.from(buf));
-    }
-    catch (e) {
+    let cleanUrl = mediaUrl.trim();
+    if (cleanUrl.startsWith('//'))
+        cleanUrl = 'https:' + cleanUrl;
+    if (!cleanUrl.startsWith('http'))
         return null;
+    // Fast path: Direct Firebase Storage / Google Cloud Storage download via admin SDK (same GCP network, instant & never blocked)
+    if (cleanUrl.includes('firebasestorage.googleapis.com') || cleanUrl.includes('storage.googleapis.com')) {
+        try {
+            const urlObj = new URL(cleanUrl);
+            if (urlObj.hostname === 'firebasestorage.googleapis.com') {
+                const match = urlObj.pathname.match(/\/b\/([^/]+)\/o\/(.+)$/);
+                if (match) {
+                    const bucketName = decodeURIComponent(match[1]);
+                    const filePath = decodeURIComponent(match[2]);
+                    const bucket = admin.storage().bucket(bucketName);
+                    const [buf] = await bucket.file(filePath).download();
+                    const img = await (0, canvas_1.loadImage)(buf);
+                    if (img && img.width > 0 && img.height > 0)
+                        return img;
+                }
+            }
+            else if (urlObj.hostname === 'storage.googleapis.com') {
+                const parts = urlObj.pathname.split('/').filter(Boolean);
+                if (parts.length >= 2) {
+                    const bucketName = parts[0];
+                    const filePath = decodeURIComponent(parts.slice(1).join('/'));
+                    const bucket = admin.storage().bucket(bucketName);
+                    const [buf] = await bucket.file(filePath).download();
+                    const img = await (0, canvas_1.loadImage)(buf);
+                    if (img && img.width > 0 && img.height > 0)
+                        return img;
+                }
+            }
+        }
+        catch (storageErr) {
+            console.warn("Direct storage download failed, falling back to HTTP fetch:", storageErr);
+        }
     }
+    // Standard HTTP fetch with realistic browser User-Agent and retry
+    for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            const res = await fetch(cleanUrl, {
+                signal: controller.signal,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+                }
+            });
+            clearTimeout(timer);
+            if (!res.ok) {
+                if (attempt === 1)
+                    continue;
+                return null;
+            }
+            const buf = await res.arrayBuffer();
+            const img = await (0, canvas_1.loadImage)(Buffer.from(buf));
+            if (img && img.width > 0 && img.height > 0)
+                return img;
+        }
+        catch (e) {
+            if (attempt === 1) {
+                await new Promise(r => setTimeout(r, 200));
+            }
+        }
+    }
+    return null;
 }
 exports.getNewsCardImage = (0, https_1.onRequest)(async (req, res) => {
     const pathSegments = req.path.split('/').filter(Boolean);
@@ -410,18 +465,46 @@ exports.getNewsCardImage = (0, https_1.onRequest)(async (req, res) => {
         const likes = data.likes || data.likeCount || (Math.floor(Math.random() * 150) + 75);
         const shares = data.shares || data.shareCount || (Math.floor(Math.random() * 25) + 12);
         const comments = data.commentCount || (Math.floor(Math.random() * 5));
-        const candidateUrls = [
-            data.mediaUrl,
-            data.imageUrl,
-            ...(Array.isArray(data.mediaUrls) ? data.mediaUrls : []),
-            ...(Array.isArray(data.images) ? data.images : []),
-            data.thumbnailUrl,
-            data.videoThumbnailUrl
-        ].filter((u) => typeof u === 'string' && u.startsWith('http'));
+        const candidateUrls = [];
+        const addCandidate = (urlCandidate) => {
+            if (!urlCandidate)
+                return;
+            if (typeof urlCandidate === 'string') {
+                let s = urlCandidate.trim();
+                if (s.startsWith('//'))
+                    s = 'https:' + s;
+                if (s.startsWith('http') && !candidateUrls.includes(s))
+                    candidateUrls.push(s);
+            }
+            else if (typeof urlCandidate === 'object') {
+                if (typeof urlCandidate.url === 'string')
+                    addCandidate(urlCandidate.url);
+                if (typeof urlCandidate.mediaUrl === 'string')
+                    addCandidate(urlCandidate.mediaUrl);
+                if (typeof urlCandidate.imageUrl === 'string')
+                    addCandidate(urlCandidate.imageUrl);
+            }
+        };
+        addCandidate(data.mediaUrl);
+        addCandidate(data.imageUrl);
+        if (Array.isArray(data.mediaUrls))
+            data.mediaUrls.forEach(addCandidate);
+        if (Array.isArray(data.images))
+            data.images.forEach(addCandidate);
+        addCandidate(data.thumbnailUrl);
+        addCandidate(data.videoThumbnailUrl);
+        // YouTube thumbnail extraction
+        const ytCandidate = data.youtubeUrl || (typeof data.mediaUrl === 'string' && data.mediaUrl.includes('youtube') ? data.mediaUrl : null);
+        if (ytCandidate && typeof ytCandidate === 'string') {
+            const ytMatch = ytCandidate.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+            if (ytMatch && ytMatch[1]) {
+                addCandidate(`https://img.youtube.com/vi/${ytMatch[1]}/hqdefault.jpg`);
+            }
+        }
         let photo = null;
         for (const candidate of candidateUrls) {
-            photo = await loadPhotoFast(candidate, 4000);
-            if (photo)
+            photo = await loadPhotoFast(candidate, 8000);
+            if (photo && photo.width > 0 && photo.height > 0)
                 break;
         }
         // Full Vertical Mobile News Card:
@@ -465,10 +548,10 @@ exports.getNewsCardImage = (0, https_1.onRequest)(async (req, res) => {
         // 3. News Photo (Y: 75 to 675, Height: 600) with aspect-ratio preserving cover crop
         const photoY = 75;
         const photoH = 600;
-        if (!photo && data.mediaUrl) {
-            photo = await loadPhotoFast(data.mediaUrl, 2500);
+        if (!photo && candidateUrls.length > 0) {
+            photo = await loadPhotoFast(candidateUrls[0], 8000);
         }
-        if (photo) {
+        if (photo && photo.width > 0 && photo.height > 0) {
             try {
                 const imgRatio = photo.width / photo.height;
                 const targetRatio = width / photoH;
@@ -588,9 +671,13 @@ exports.getNewsCardImage = (0, https_1.onRequest)(async (req, res) => {
             q = 60;
             imageBuf = canvas.encodeSync('jpeg', q);
         }
+        const hasMissingPhoto = !photo && candidateUrls.length > 0;
+        const cacheHeader = hasMissingPhoto
+            ? 'no-cache, no-store, must-revalidate, max-age=0'
+            : 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400';
         res.set({
             'Content-Type': 'image/jpeg',
-            'Cache-Control': 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400',
+            'Cache-Control': cacheHeader,
             'Content-Length': imageBuf.length.toString()
         });
         res.status(200).send(imageBuf);
