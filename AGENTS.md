@@ -91,6 +91,70 @@ private var prefCursor: DocumentSnapshot? = null  // Tracks pagination state
 - **DO NOT BREAK WORKING FEATURES WHILE FIXING (ఒకటి బాగుచేసే క్రమంలో ఇంకో బాగున్నదానిని ఎట్టి పరిస్థితుల్లోనూ చెడగొట్టవద్దు - ZERO REGRESSION)**:
   ఎదైనా సమస్యను పరిష్కరించేటప్పుడు లేదా ఆప్టిమైజ్ చేసేటప్పుడు, అంతకుముందు సజావుగా పనిచేస్తున్న ఫీచర్లు, లాజిక్‌లు, క్వెరీలు మరియు క్యాష్ విధానాలను అనవసరంగా మార్చి చెడగొట్టవద్దు (Do NOT break or degrade existing working functionality while fixing a bug). ప్రతీ మార్పు చేసేముందు అది ప్రస్తుతం పనిచేస్తున్న ఇతర భాగాలపై ఎలాంటి దుష్ప్రభావం చూపుతుందో కూలంకషంగా విశ్లేషించి మాత్రమే మార్పు చేయాలి.
 
+---
+
+## STRICT CHANGE CONTROL — ZERO REGRESSION POLICY
+
+You are working on an existing software project. Your highest priority is to fix the requested issue without breaking any existing functionality, UI, layout, styling, behavior, or data.
+
+### 1. UNDERSTAND BEFORE MODIFYING
+- Inspect the relevant source files and understand the existing architecture before making changes.
+- Identify the root cause of the reported issue instead of applying random fixes.
+- Identify all components, files, styles, functions, APIs, and dependencies that could be affected.
+- If the root cause is unclear or the fix could affect unrelated functionality, explain the risk and ask for approval before proceeding.
+
+### 2. STRICT SCOPE CONTROL
+- Modify only the files and code strictly necessary to fix the requested issue.
+- Do not refactor, redesign, rename, delete, replace, or reorganize unrelated code.
+- Do not modify shared components, global CSS, global state, routing, configuration, dependencies, database schemas, or API contracts unless essential to the fix and explicitly approved.
+- Never remove existing functionality to make the new fix work.
+- Preserve the existing UI, responsiveness, typography, colors, spacing, component behavior, and user workflows.
+
+### 3. PROTECT EXISTING FUNCTIONALITY
+- Treat all currently working features as protected.
+- Before editing shared code, identify every dependent component and potential side effect.
+- Prefer the smallest, most localized, reversible change.
+- Do not overwrite complete files when a targeted edit is sufficient.
+- Never silently discard existing user changes or unrelated modifications.
+
+### 4. TEST BEFORE COMPLETION
+- Run the relevant tests, lint checks, type checks, and build commands available in the project.
+- Test the requested fix and check the existing functionality most likely to be affected.
+- For UI changes, verify the affected layout, scrolling, responsiveness, buttons, navigation, and interactions as applicable.
+- Compare the behavior before and after the change whenever possible.
+- If a test fails, investigate and fix regressions introduced by your changes before declaring completion.
+- Never claim that tests passed if they were not actually executed.
+
+### 5. STOP IF THE RISK IS TOO HIGH
+- If the requested fix requires a broad architectural change, stop and explain why.
+- Ask for permission before making unrelated or high-impact changes.
+- If an unexpected regression occurs, stop further modifications, identify the cause, and restore the last known working state without overwriting unrelated user changes.
+
+### 6. REQUIRED WORKFLOW
+Follow this sequence for every task:
+
+A. Inspect the existing implementation.
+B. Identify the root cause.
+C. List the exact files you intend to modify and explain why.
+D. Make the minimum necessary changes.
+E. Review the complete diff for unintended modifications.
+F. Run appropriate tests and check for regressions.
+G. Report the result, files changed, tests performed, and any unresolved risks.
+
+For complex or risky changes, obtain approval before proceeding beyond the investigation stage.
+
+### 7. FINAL REPORT
+Always report:
+1. The original problem and its root cause.
+2. The exact files changed.
+3. What was changed and why.
+4. Which existing features were checked.
+5. Tests executed and their actual results.
+6. Any remaining risks or tasks requiring manual verification.
+
+FINAL RULE: Fix the requested problem without unnecessarily changing anything else. A successful task must solve the original issue while preserving existing functionality. Never claim success without verification.
+
+---
 
 ### Building Android Release APK (Only when explicitly requested by user)
 

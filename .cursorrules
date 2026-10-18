@@ -15,3 +15,75 @@
 13. **గిట్‌హబ్ పుష్ & బిల్డ్ నిబంధన (NO Push Without Explicit Instruction):** ప్రతీ చిన్న మార్పుకీ గిట్‌హబ్‌కు పుష్ చేసి ఆటోమేటిక్ బిల్డ్ రన్ చేయవద్దు. యూజర్ స్వయంగా "పుష్ చేయి" లేదా "GitHub కి పుష్ చెయ్" అని స్పష్టంగా చెప్పినప్పుడు మాత్రమే గిట్‌హబ్‌కు పుష్ చేయాలి. యూజర్ ఆదేశించినప్పుడు పుష్ చేసే సమయంలో మాత్రమే `app/build.gradle.kts` లో `versionCode` (+1) మరియు `versionName` లను పెంచాలి (bump చేయాలి). పుష్ చేసిన తర్వాత GitHub Actions లో బిల్డ్ సక్సెస్ అయ్యేంత వరకు మానిటర్ చేయాలి.
 14. **ఒకటి బాగుచేసే క్రమంలో బాగున్నదాన్ని చెడగొట్టవద్దు (Zero Regression Rule):** ఏదైనా సమస్యను సరిదిద్దే సమయంలో లేదా ఆప్టిమైజ్ చేసే క్రమంలో, అప్పటికే బాగా పనిచేస్తున్న లాజిక్‌లు, ఫీచర్లు లేదా క్వెరీలను తారుమారు చేసి కొత్త సమస్యలను తీసుకురావద్దు. మార్పులు చేసేటప్పుడు స్థిరత్వాన్ని కాపాడుతూ, ఉన్న ఫంక్షనాలిటీకి ఎటువంటి భంగం కలగకుండా ఖచ్చితమైన పరిష్కారాన్ని మాత్రమే అమలు చేయాలి.
 
+15. **ఖచ్చితమైన మార్పుల నియంత్రణ — జీరో రిగ్రెషన్ విధానం (STRICT CHANGE CONTROL — ZERO REGRESSION POLICY):**
+    - **1. మార్పులు చేసేముందు అర్థం చేసుకో (UNDERSTAND BEFORE MODIFYING):** మార్పులు చేయడానికి ముందు సంబంధిత సోర్స్ ఫైల్స్ మరియు ఆర్కిటెక్చర్‌ను విశ్లేషించు. సమస్య మూల కారణాన్ని (root cause) గుర్తించు. ప్రభావితమయ్యే కాంపోనెంట్లు, ఫైల్స్, స్టైల్స్, APIలు మరియు డిపెండెన్సీలను ముందుగానే గుర్తించు. రూట్ కాజ్ స్పష్టంగా లేకపోయినా లేదా ఇతర భాగాలపై రిస్క్ ఉన్నా ముందుగానే వివరించి అనుమతి కోరు.
+    - **2. పరిధి నియంత్రణ (STRICT SCOPE CONTROL):** సమస్యను పరిష్కరించడానికి ఖచ్చితంగా అవసరమైన ఫైల్స్ మరియు కోడ్ మాత్రమే మార్చు. సంబంధం లేని కోడ్‌ను రీఫ్యాక్టర్, రీడిజైన్, పేరు మార్చడం లేదా డిలీట్ చేయడం చేయవద్దు. షేర్డ్ కాంపోనెంట్స్, గ్లోబల్ CSS/స్టేట్, రూటింగ్, డేటాబేస్ స్కీమా లేదా API కాంట్రాక్టులను మార్చవద్దు. ఇప్పటికే ఉన్న ఫంక్షనాలిటీ, UI, రెస్పాన్సివ్‌నెస్, టైపోగ్రఫీ, రంగులు, స్పేసింగ్ మరియు యూజర్ వర్క్‌ఫ్లోలను భద్రంగా కాపాడు.
+    - **3. ఇప్పటికే పనిచేస్తున్న ఫీచర్లను రక్షించు (PROTECT EXISTING FUNCTIONALITY):** ప్రస్తుతం పనిచేస్తున్న అన్ని ఫీచర్లను రక్షితమైనవిగా (protected) పరిగణించు. అతి చిన్న, స్థానిక, వెనక్కి తీసుకోదగిన (reversible) మార్పులకు మాత్రమే ప్రాధాన్యత ఇవ్వు. టార్గెటెడ్ ఎడిట్ సరిపోయే చోట పూర్తి ఫైల్‌లను రీప్లేస్ చేయవద్దు. యూజర్ చేసిన మార్పులను లేదా సంబంధం లేని మార్పులను ఎట్టి పరిస్థితుల్లోనూ తొలగించవద్దు.
+    - **4. పని పూర్తయ్యే ముందు టెస్ట్ చేయి (TEST BEFORE COMPLETION):** ప్రాజెక్ట్‌లోని సంబంధిత టెస్టులు, టైప్ చెక్‌లు, లింట్ చెక్‌లను రన్ చేయి. చేసిన మార్పుతో పాటు దాని వల్ల ప్రభావితమయ్యే పాత ఫీచర్లను కూడా పరిశీలించు. వాస్తవంగా రన్ చేయకుండా టెస్టులు పాస్ అయ్యాయని అసత్యంగా చెప్పవద్దు.
+    - **5. రిస్క్ ఎక్కువగా ఉంటే ఆగు (STOP IF THE RISK IS TOO HIGH):** పెద్ద ఆర్కిటెక్చరల్ మార్పు అవసరమైతే ఆగి యూజర్‌కు వివరించు. ఊహించని సమస్య ఎదురైతే మార్పులను వెంటనే ఆపి, మునుపటి వర్కింగ్ స్టేట్‌ను పునరుద్ధరించు (restore).
+    - **6. ఖచ్చితమైన వర్క్‌ఫ్లో (REQUIRED WORKFLOW):** A. పరిశీలించు -> B. రూట్ కాజ్ గుర్తించు -> C. మార్చాలనుకున్న ఫైల్స్ జాబితా & కారణం -> D. కనీస మార్పులు చేయి -> E. పూర్తి డిఫ్ రివ్యూ చేయి -> F. టెస్ట్ చేసి రిగ్రెషన్స్ లేవని నిర్ధారించు -> G. ఫలితాలను నివేదించు.
+    - **7. తుది నివేదిక (FINAL REPORT):** 1. సమస్య & రూట్ కాజ్, 2. మార్చిన ఖచ్చితమైన ఫైల్స్, 3. చేసిన మార్పులు & కారణం, 4. తనిఖీ చేసిన పాత ఫీచర్లు, 5. టెస్ట్ ఫలితాలు, 6. మిగిలిన ఏవైనా రిస్క్‌లు.
+    - **FINAL RULE:** అడిగిన సమస్యను మాత్రమే పరిష్కరించు; అనవసరంగా మరే ఇతర భాగాన్ని మార్చవద్దు. ఉన్న ఫంక్షనాలిటీకి ఎటువంటి భంగం కలగకుండా ఉండటమే విజయవంతమైన పరిష్కారం. నిర్ధారణ లేకుండా పని పూర్తయినట్లు ప్రకటించవద్దు.
+
+---
+
+# STRICT CHANGE CONTROL — ZERO REGRESSION POLICY
+
+You are working on an existing software project. Your highest priority is to fix the requested issue without breaking any existing functionality, UI, layout, styling, behavior, or data.
+
+## 1. UNDERSTAND BEFORE MODIFYING
+- Inspect the relevant source files and understand the existing architecture before making changes.
+- Identify the root cause of the reported issue instead of applying random fixes.
+- Identify all components, files, styles, functions, APIs, and dependencies that could be affected.
+- If the root cause is unclear or the fix could affect unrelated functionality, explain the risk and ask for approval before proceeding.
+
+## 2. STRICT SCOPE CONTROL
+- Modify only the files and code strictly necessary to fix the requested issue.
+- Do not refactor, redesign, rename, delete, replace, or reorganize unrelated code.
+- Do not modify shared components, global CSS, global state, routing, configuration, dependencies, database schemas, or API contracts unless essential to the fix and explicitly approved.
+- Never remove existing functionality to make the new fix work.
+- Preserve the existing UI, responsiveness, typography, colors, spacing, component behavior, and user workflows.
+
+## 3. PROTECT EXISTING FUNCTIONALITY
+- Treat all currently working features as protected.
+- Before editing shared code, identify every dependent component and potential side effect.
+- Prefer the smallest, most localized, reversible change.
+- Do not overwrite complete files when a targeted edit is sufficient.
+- Never silently discard existing user changes or unrelated modifications.
+
+## 4. TEST BEFORE COMPLETION
+- Run the relevant tests, lint checks, type checks, and build commands available in the project.
+- Test the requested fix and check the existing functionality most likely to be affected.
+- For UI changes, verify the affected layout, scrolling, responsiveness, buttons, navigation, and interactions as applicable.
+- Compare the behavior before and after the change whenever possible.
+- If a test fails, investigate and fix regressions introduced by your changes before declaring completion.
+- Never claim that tests passed if they were not actually executed.
+
+## 5. STOP IF THE RISK IS TOO HIGH
+- If the requested fix requires a broad architectural change, stop and explain why.
+- Ask for permission before making unrelated or high-impact changes.
+- If an unexpected regression occurs, stop further modifications, identify the cause, and restore the last known working state without overwriting unrelated user changes.
+
+## 6. REQUIRED WORKFLOW
+Follow this sequence for every task:
+
+A. Inspect the existing implementation.
+B. Identify the root cause.
+C. List the exact files you intend to modify and explain why.
+D. Make the minimum necessary changes.
+E. Review the complete diff for unintended modifications.
+F. Run appropriate tests and check for regressions.
+G. Report the result, files changed, tests performed, and any unresolved risks.
+
+For complex or risky changes, obtain approval before proceeding beyond the investigation stage.
+
+## 7. FINAL REPORT
+Always report:
+1. The original problem and its root cause.
+2. The exact files changed.
+3. What was changed and why.
+4. Which existing features were checked.
+5. Tests executed and their actual results.
+6. Any remaining risks or tasks requiring manual verification.
+
+FINAL RULE: Fix the requested problem without unnecessarily changing anything else. A successful task must solve the original issue while preserving existing functionality. Never claim success without verification.
