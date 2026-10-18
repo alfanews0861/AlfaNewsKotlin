@@ -1,10 +1,11 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import NewsCard, { getReadNewsIds } from './NewsCard';
+import NewsCard from './NewsCard';
 import { NewsPost, Language, User, TS_DISTRICTS, AP_DISTRICTS } from '../types';
 import { db } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 
-const { collection, query, where, orderBy, limit, getDocs, startAfter, onSnapshot } = _firestore as any;
+const { collection, query, where, orderBy, limit, getDocs, startAfter } = _firestore as any;
 
 interface LocalNewsFeedProps {
   language: Language;
@@ -19,26 +20,6 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
   const [isDetecting, setIsDetecting] = useState(false);
-
-  // Read News Visibility & Filtering
-  const [hideReadNews, setHideReadNews] = useState<boolean>(() => {
-    return localStorage.getItem('alfa_hide_read_news') === 'true';
-  });
-  const [readIds, setReadIds] = useState<Set<string>>(() => getReadNewsIds());
-
-  useEffect(() => {
-    const handleReadUpdate = () => {
-      setReadIds(getReadNewsIds());
-    };
-    window.addEventListener('alfa_read_news_updated', handleReadUpdate);
-    return () => window.removeEventListener('alfa_read_news_updated', handleReadUpdate);
-  }, []);
-
-  const toggleHideRead = () => {
-    const nextVal = !hideReadNews;
-    setHideReadNews(nextVal);
-    localStorage.setItem('alfa_hide_read_news', String(nextVal));
-  };
   
   const hasMoreRef = useRef(true);
   useEffect(() => {
@@ -49,8 +30,6 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
   const fetchingRef = useRef(false);
   const feedRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const emptyBatchesRef = useRef(0);
-  const lastFetchTimeRef = useRef(0);
 
   const [activeDistrict, setActiveDistrict] = useState<string | null>(() => {
     return currentUser?.district || localStorage.getItem('user_local_district') || null;
@@ -84,19 +63,24 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
     navigator.geolocation.getCurrentPosition(async (pos) => {
       try {
         const { latitude, longitude } = pos.coords;
+        // Use free Nominatim reverse geocoding instead of Gemini to avoid API key issues on client
         const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10&addressdetails=1`);
         const data = await response.json();
         
         const districtName = data.address?.state_district || data.address?.county || '';
         
+        // Simple mapping logic (can be expanded)
         const districtList = [...TS_DISTRICTS, ...AP_DISTRICTS];
         let detected = null;
         
         for (const d of districtList) {
+            // Basic matching, assuming Nominatim returns english names like "Hyderabad District"
+            // This is a simplified fallback since we removed Gemini
             if (districtName.toLowerCase().includes('hyderabad')) detected = 'హైదరాబాద్';
             else if (districtName.toLowerCase().includes('rangareddy')) detected = 'రంగారెడ్డి';
             else if (districtName.toLowerCase().includes('visakhapatnam')) detected = 'విశాఖపట్నం';
             else if (districtName.toLowerCase().includes('vijayawada') || districtName.toLowerCase().includes('krishna')) detected = 'కృష్ణా';
+            // Add more mappings as needed, or just default to a known one if matched
         }
 
         if (detected) {
@@ -109,73 +93,59 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
 
   const fetchLocalNews = useCallback(async (isInitial = false) => {
     if (fetchingRef.current || (!isInitial && !hasMoreRef.current)) return;
-    const now = Date.now();
-    if (!isInitial && now - lastFetchTimeRef.current < 1200) return;
-    lastFetchTimeRef.current = now;
     fetchingRef.current = true;
+    
+    const cacheKey = `alfa_local_news_cache_${activeDistrict || 'none'}`;
+
     if (isInitial) {
+        const cachedStr = sessionStorage.getItem(cacheKey);
+        if (cachedStr) {
+            try {
+                const cached = JSON.parse(cachedStr);
+                // 3-minute TTL
+                if (Date.now() - cached.timestamp < 3 * 60 * 1000) {
+                    setNews(cached.news);
+                    lastVisible.current = cached.cursor;
+                    setLoading(false);
+                    fetchingRef.current = false;
+                    setHasMore(true); // Assume more might exist
+                    if (onLoadComplete) {
+                        onLoadComplete();
+                        setTimeout(() => { if (feedRef.current) feedRef.current.scrollTop = 0; }, 100);
+                    }
+                    return; // Skip server fetch
+                }
+            } catch (e) {
+                console.error("Cache parse error", e);
+            }
+        }
+
         setLoading(true);
         lastVisible.current = null;
-        emptyBatchesRef.current = 0;
         setHasMore(true);
-        hasMoreRef.current = true;
         setNews([]);
     }
 
     try {
         const newsRef = collection(db, 'news');
         const FETCH_LIMIT = 10;
+        let q = query(
+            newsRef, 
+            ...(activeDistrict ? [where('district', '==', activeDistrict)] : []),
+            orderBy('timestamp', 'desc'), 
+            limit(FETCH_LIMIT)
+        );
 
-        // 🚀 Improved District Filtering for LocalNewsFeed
-        // If an activeDistrict is selected, we first fetch a larger batch, then filter on the client side
-        // just like the Android ViewModel, to ensure ONLY matching posts show up.
-        // If we strictly query by `district == activeDistrict`, we might miss posts that have the district
-        // in categories/tags/location.
-        // For simplicity in the web app, we will use array-contains-any on categories if district is set.
-
-        let uniqueTerms: string[] = [];
-        if (activeDistrict) {
-            // Check for direct district match OR array contains any on categories for the district
-            const searchTerms = [activeDistrict];
-
-            // Add common district aliases for web search
-            if (activeDistrict.includes('నెల్లూరు') || activeDistrict.includes('Nellore')) {
-                searchTerms.push('శ్రీ పొట్టి శ్రీరాములు నెల్లూరు', 'నెల్లూరు', 'Nellore', 'SPSR Nellore');
-            } else if (activeDistrict.includes('విజయనగరం') || activeDistrict.includes('Vizianagaram')) {
-                searchTerms.push('విజయనగరం', 'Vizianagaram');
-            } else if (activeDistrict.includes('హైదరాబాద్')) {
-                searchTerms.push('Hyderabad', 'సికింద్రాబాద్', 'సైబరాబాద్');
-            } else if (activeDistrict.includes('రంగారెడ్డి')) {
-                searchTerms.push('Rangareddy', 'Ranga Reddy');
-            } else if (activeDistrict.includes('విశాఖపట్నం')) {
-                searchTerms.push('Visakhapatnam', 'Vizag', 'వైజాగ్');
-            } else if (activeDistrict.includes('ఎన్టీఆర్')) {
-                searchTerms.push('విజయవాడ', 'Vijayawada', 'NTR');
-            } else if (activeDistrict.includes('హన్మకొండ')) {
-                searchTerms.push('వరంగల్ అర్బన్', 'Hanamkonda');
-            } else if (activeDistrict.includes('కడప') || activeDistrict.includes('YSR')) {
-                searchTerms.push('వైఎస్ఆర్ కడప', 'వైఎస్సార్ కడప', 'కడప', 'Kadapa', 'YSR Kadapa');
-            } else if (activeDistrict.includes('కర్నూలు')) {
-                searchTerms.push('కర్నూలు', 'Kurnool');
-            } else if (activeDistrict.includes('గుంటూరు')) {
-                searchTerms.push('గుంటూరు', 'Guntur');
-            }
-
-            uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 10);
-        }
-
-        const constraints: any[] = [where('approved', '==', true)];
-        if (uniqueTerms.length > 0) {
-            constraints.push(where('district', 'in', uniqueTerms));
-        }
-        constraints.push(orderBy('timestamp', 'desc'));
         if (!isInitial && lastVisible.current) {
             const ts = _firestore.Timestamp.fromMillis(lastVisible.current);
-            constraints.push(startAfter(ts));
+            q = query(
+                newsRef, 
+                ...(activeDistrict ? [where('district', '==', activeDistrict)] : []),
+                orderBy('timestamp', 'desc'), 
+                startAfter(ts), 
+                limit(FETCH_LIMIT)
+            );
         }
-        constraints.push(limit(FETCH_LIMIT));
-
-        const q = query(newsRef, ...constraints);
 
         const snap = await getDocs(q);
         if (snap.empty) {
@@ -192,36 +162,24 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
             setNews(prev => {
                 const seenIds = new Set(prev.map((p) => p.id));
                 const uniqueNew = fetchedPosts.filter((p: NewsPost) => !seenIds.has(p.id));
-
-                if (!isInitial) {
-                    if (uniqueNew.length === 0) {
-                        emptyBatchesRef.current += 1;
-                        if (emptyBatchesRef.current >= 2) {
-                            setHasMore(false);
-                            hasMoreRef.current = false;
-                        }
-                    } else {
-                        emptyBatchesRef.current = 0;
-                    }
-                }
-
-                // 🚀 ఏ విధమైన ఫిల్టర్లు లేకుండా: Sort strictly by timestamp descending (newest first)
                 uniqueNew.sort((a: NewsPost, b: NewsPost) => b.timestamp - a.timestamp);
                 
                 const finalNews = isInitial ? uniqueNew : [...prev, ...uniqueNew];
+                
+                if (isInitial) {
+                    sessionStorage.setItem(cacheKey, JSON.stringify({
+                        timestamp: Date.now(),
+                        news: finalNews,
+                        cursor: lastVisible.current
+                    }));
+                }
+                
                 return finalNews;
             });
 
-            if (snap.docs.length < FETCH_LIMIT) {
-                setHasMore(false);
-                hasMoreRef.current = false;
-            }
+            if (snap.docs.length < FETCH_LIMIT) setHasMore(false);
         }
-    } catch (e) {
-        console.error("Local fetch error:", e);
-        setHasMore(false);
-        hasMoreRef.current = false;
-    } finally {
+    } catch (e) { console.error("Local fetch error:", e); } finally {
         setLoading(false);
         fetchingRef.current = false;
         if (isInitial && onLoadComplete) {
@@ -235,84 +193,21 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
   
   useEffect(() => { 
     fetchLocalNews(true); 
-
-    // 📡 Real-time listener for active district news stream
-    const newsRef = collection(db, 'news');
-    let uniqueTerms: string[] = [];
-    if (activeDistrict) {
-        const searchTerms = [activeDistrict];
-        if (activeDistrict.includes('నెల్లూరు') || activeDistrict.includes('Nellore')) {
-            searchTerms.push('శ్రీ పొట్టి శ్రీరాములు నెల్లూరు', 'నెల్లూరు', 'Nellore', 'SPSR Nellore');
-        } else if (activeDistrict.includes('విజయనగరం') || activeDistrict.includes('Vizianagaram')) {
-            searchTerms.push('విజయనగరం', 'Vizianagaram');
-        } else if (activeDistrict.includes('హైదరాబాద్')) {
-            searchTerms.push('Hyderabad', 'సికింద్రాబాద్', 'సైబరాబాద్');
-        } else if (activeDistrict.includes('రంగారెడ్డి')) {
-            searchTerms.push('Rangareddy', 'Ranga Reddy');
-        } else if (activeDistrict.includes('విశాఖపట్నం')) {
-            searchTerms.push('Visakhapatnam', 'Vizag', 'వైజాగ్');
-        } else if (activeDistrict.includes('ఎన్టీఆర్')) {
-            searchTerms.push('విజయవాడ', 'Vijayawada', 'NTR');
-        } else if (activeDistrict.includes('హన్మకొండ')) {
-            searchTerms.push('వరంగల్ అర్బన్', 'Hanamkonda');
-        } else if (activeDistrict.includes('కడప') || activeDistrict.includes('YSR')) {
-            searchTerms.push('వైఎస్ఆర్ కడప', 'వైఎస్సార్ కడప', 'కడప', 'Kadapa', 'YSR Kadapa');
-        } else if (activeDistrict.includes('కర్నూలు')) {
-            searchTerms.push('కర్నూలు', 'Kurnool');
-        } else if (activeDistrict.includes('గుంటూరు')) {
-            searchTerms.push('గుంటూరు', 'Guntur');
-        }
-        uniqueTerms = Array.from(new Set(searchTerms)).slice(0, 10);
-    }
-
-    const constraints: any[] = [where('approved', '==', true)];
-    if (uniqueTerms.length > 0) {
-        constraints.push(where('district', 'in', uniqueTerms));
-    }
-    constraints.push(orderBy('timestamp', 'desc'));
-    constraints.push(limit(10));
-
-    const q = query(newsRef, ...constraints);
-    const unsubscribe = onSnapshot(q, (snap: any) => {
-        if (!snap || snap.empty) return;
-        const livePosts = snap.docs.map((d: any) => ({
-            id: d.id,
-            ...d.data(),
-            timestamp: getTimestampValue(d.data().timestamp)
-        } as NewsPost));
-
-        setNews(prev => {
-            const liveIds = new Set(livePosts.map((p: NewsPost) => p.id));
-            const olderPosts = prev.filter((p: NewsPost) => !liveIds.has(p.id));
-            const combined = [...livePosts, ...olderPosts];
-            combined.sort((a: NewsPost, b: NewsPost) => b.timestamp - a.timestamp);
-            return combined;
-        });
-        setLoading(false);
-    }, (err: any) => {
-        console.warn('Realtime local news listener error:', err);
-    });
-
-    return () => {
-        if (typeof unsubscribe === 'function') unsubscribe();
-    };
-  }, [activeDistrict]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDistrict]); // Intentionally omitting fetchLocalNews
 
   useEffect(() => {
     if (loading || !hasMore) return;
     const observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && !fetchingRef.current && hasMoreRef.current) {
+      if (entries[0].isIntersecting && !fetchingRef.current) {
         fetchLocalNews();
       }
-    }, { rootMargin: '250px', threshold: 0.1 });
+    }, { rootMargin: '1000px', threshold: 0.1 });
 
     if (sentinelRef.current) observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [loading, hasMore, fetchLocalNews]);
-
-  // ఏ విధమైన ఫిల్టర్లు లేకుండా: Show all district news
-  const displayedNews = news;
-  const hiddenReadCount = 0;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, hasMore]); // Intentionally omitting fetchLocalNews
 
   return (
     <div className="relative h-full w-full bg-black overflow-hidden flex flex-col">
@@ -321,24 +216,7 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
           <span className="font-poppins font-semibold text-3xl text-red-600">news</span>
       </div>
 
-      <div className="absolute top-4 right-4 z-40 flex items-center gap-2">
-          {/* Hide / Show Read News Button */}
-          {hiddenReadCount > 0 && (
-            <button
-              onClick={toggleHideRead}
-              className={`px-3 py-1.5 rounded-xl border text-xs font-bold font-mallanna flex items-center gap-1.5 shadow-2xl active:scale-95 transition-all backdrop-blur-md ${
-                hideReadNews
-                  ? 'bg-red-600/90 text-white border-red-500/50 animate-pulse'
-                  : 'bg-black/80 text-gray-200 border-white/20 hover:bg-black/90'
-              }`}
-              title={hideReadNews ? "చదివిన వార్తలను చూపించు" : "చదివిన వార్తలను దాచు"}
-            >
-              <span>{hideReadNews ? '👁️‍🗨️' : '👁️'}</span>
-              <span>{hideReadNews ? `చూపించు (${hiddenReadCount})` : 'చదివినవి దాచు'}</span>
-            </button>
-          )}
-
-          {/* District Picker Button */}
+      <div className="absolute top-4 right-4 z-40">
           <button 
              onClick={() => setShowSelector(!showSelector)} 
              className="bg-black/80 backdrop-blur-md border border-white/20 px-3 py-1.5 rounded-xl flex items-center gap-2 shadow-2xl transition-transform active:scale-95"
@@ -401,24 +279,6 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
            </div>
       ) : (
           <div ref={feedRef} className="flex-1 overflow-y-auto snap-y snap-mandatory no-scrollbar bg-black overscroll-none scroll-smooth">
-              {/* If all loaded posts are hidden because they are read */}
-              {hideReadNews && displayedNews.length === 0 && news.length > 0 && (
-                <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center snap-start snap-always bg-black">
-                  <span className="text-5xl mb-3">✓</span>
-                  <h3 className="font-ramabhadra text-2xl text-white font-bold mb-2">అన్ని స్థానిక వార్తలు చదివారు!</h3>
-                  <p className="font-mallanna text-gray-400 text-base mb-6 max-w-xs">
-                    ఈ ప్రాంతంలోని {hiddenReadCount} వార్తలను మీరు ఇప్పటికే చదివారు. వాటిని మళ్లీ చూడటానికి క్రింది బటన్ క్లిక్ చేయండి.
-                  </p>
-                  <button
-                    onClick={toggleHideRead}
-                    className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-2xl font-bold font-mallanna text-base shadow-lg active:scale-95 transition-all flex items-center gap-2"
-                  >
-                    <span>👁️</span>
-                    <span>చదివిన వార్తలను చూపించు</span>
-                  </button>
-                </div>
-              )}
-
               {news.length === 0 && !loading ? (
                   <div className="h-full flex flex-col items-center justify-center text-center p-8 text-gray-500">
                        <p className="font-mallanna text-xl">ప్రస్తుతం వార్తలు ఏవీ లేవు.</p>
@@ -426,7 +286,7 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
                   </div>
               ) : (
                   <>
-                    {displayedNews.map((post) => (
+                    {news.map((post) => (
                         <div key={post.id} className="w-full h-full snap-start snap-always shrink-0 bg-black">
                             <NewsCard post={post} language={language} onProfileClick={onProfileClick} currentUser={currentUser} onCategoryClick={() => {}} onReporterClick={onReporterClick} />
                         </div>
