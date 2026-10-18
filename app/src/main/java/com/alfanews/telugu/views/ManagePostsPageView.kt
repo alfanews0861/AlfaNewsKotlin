@@ -37,6 +37,8 @@ import com.alfanews.telugu.utils.ManagePostStatus
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.Source
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -65,16 +67,50 @@ fun ManagePostsPageView(
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
     var showBroadcastDialog by remember { mutableStateOf<NewsPost?>(null) }
 
-    val authUid = remember { FirebaseService.auth.currentUser?.uid.orEmpty() }
-    val candidateIds = remember(currentUser?.id, authUid) {
+    val prefs = remember { com.alfanews.telugu.utils.PreferenceManager(context) }
+    val authUser = FirebaseService.auth.currentUser
+    val authUid = remember { authUser?.uid.orEmpty() }
+    val authPhone = remember { authUser?.phoneNumber.orEmpty() }
+    val cleanAuthPhone = remember(authPhone) { authPhone.replace("+91", "").trim() }
+    val userPhone = currentUser?.phone?.trim().orEmpty()
+    val cleanUserPhone = remember(userPhone) { userPhone.replace("+91", "").trim() }
+    val prefUserId = remember { prefs.userId.orEmpty() }
+    val prefUserPhone = remember { prefs.userPhone.orEmpty() }
+    val cleanPrefUserPhone = remember(prefUserPhone) { prefUserPhone.replace("+91", "").trim() }
+
+    val candidateIds = remember(currentUser?.id, authUid, userPhone, prefUserId, prefUserPhone) {
         val list = mutableListOf<String>()
         currentUser?.id?.takeIf { it.isNotBlank() }?.let { list.add(it.trim()) }
-        if (authUid.isNotBlank() && !list.contains(authUid)) {
-            list.add(authUid)
-        }
-        list
+        if (authUid.isNotBlank() && !list.contains(authUid)) list.add(authUid)
+        if (prefUserId.isNotBlank() && !list.contains(prefUserId)) list.add(prefUserId)
+
+        if (userPhone.isNotBlank() && !list.contains(userPhone)) list.add(userPhone)
+        if (cleanUserPhone.isNotBlank() && !list.contains(cleanUserPhone)) list.add(cleanUserPhone)
+        if (authPhone.isNotBlank() && !list.contains(authPhone)) list.add(authPhone)
+        if (cleanAuthPhone.isNotBlank() && !list.contains(cleanAuthPhone)) list.add(cleanAuthPhone)
+        if (prefUserPhone.isNotBlank() && !list.contains(prefUserPhone)) list.add(prefUserPhone)
+        if (cleanPrefUserPhone.isNotBlank() && !list.contains(cleanPrefUserPhone)) list.add(cleanPrefUserPhone)
+
+        list.distinct()
     }
-    val targetId = candidateIds.firstOrNull() ?: authUid
+    val primaryReporterId = candidateIds.firstOrNull() ?: authUid
+
+    // ⚡ FAST DISK CACHE (< 2ms): Instant display of cached reporter posts on screen enter
+    LaunchedEffect(primaryReporterId) {
+        if (posts.isEmpty() && primaryReporterId.isNotBlank()) {
+            try {
+                val (cachedJson, _) = prefs.getManageNewsCache(primaryReporterId)
+                if (!cachedJson.isNullOrBlank()) {
+                    val type = object : TypeToken<List<NewsPost>>() {}.type
+                    val diskPosts: List<NewsPost> = Gson().fromJson(cachedJson, type)
+                    if (diskPosts.isNotEmpty()) {
+                        posts = diskPosts
+                        loading = false
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
 
     // ⚡ INSTANT NEW POST DISPLAY: Fetch the just-published post directly by ID in < 100ms
     LaunchedEffect(newlyCreatedPostId) {
@@ -83,9 +119,11 @@ fun ManagePostsPageView(
                 val doc = FirebaseService.db.collection("news").document(newlyCreatedPostId).get().await()
                 if (doc.exists()) {
                     val p = mapMapToNewsPost(doc.id, doc.data ?: emptyMap())
-                    if (p != null) {
-                        posts = (listOf(p) + posts).distinctBy { it.id }
-                        loading = false
+                    val updated = (listOf(p) + posts).distinctBy { it.id }
+                    posts = updated
+                    loading = false
+                    if (primaryReporterId.isNotBlank()) {
+                        try { prefs.saveManageNewsCache(primaryReporterId, Gson().toJson(updated)) } catch (_: Exception) {}
                     }
                 }
             } catch (_: Exception) {}
@@ -93,10 +131,13 @@ fun ManagePostsPageView(
         }
     }
 
-    LaunchedEffect(targetId, refreshTrigger) {
-        if (targetId.isBlank()) {
-            posts = emptyList()
-            loading = false
+    // ⚡ LIVE SERVER FETCH WITH COMPOSITE INDEXES & FAST FALLBACK
+    LaunchedEffect(candidateIds, refreshTrigger) {
+        if (candidateIds.isEmpty()) {
+            if (posts.isEmpty()) {
+                posts = emptyList()
+                loading = false
+            }
             return@LaunchedEffect
         }
 
@@ -104,141 +145,113 @@ fun ManagePostsPageView(
 
         val newsRef = FirebaseService.db.collection("news")
 
-        // 🛡️ Helper: Robust multi-strategy query for index resilience
-        suspend fun queryReporterField(
-            field: String,
-            value: String,
-            source: Source? = null,
-            limitCount: Long = 25
-        ): List<DocumentSnapshot> {
-            if (value.isBlank()) return emptyList()
-
-            // Strategy 1: Direct ordered query
-            try {
-                val qOrdered = newsRef.whereEqualTo(field, value)
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(limitCount)
-                val snap = if (source != null) qOrdered.get(source).await() else qOrdered.get().await()
-                if (!snap.isEmpty) return snap.documents
-            } catch (_: Exception) {}
-
-            // Strategy 2: Query approved=true and approved=false with deployed composite indexes
-            try {
-                val qApproved = newsRef.whereEqualTo(field, value)
-                    .whereEqualTo("approved", true)
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(limitCount)
-                val qPending = newsRef.whereEqualTo(field, value)
-                    .whereEqualTo("approved", false)
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(10)
-                val snapApproved = if (source != null) qApproved.get(source).await() else qApproved.get().await()
-                val snapPending = if (source != null) qPending.get(source).await() else qPending.get().await()
-                val merged = (snapApproved.documents + snapPending.documents).distinctBy { it.id }
-                if (merged.isNotEmpty()) return merged
-            } catch (_: Exception) {}
-
-            // Strategy 3: Resilient fallback without index: fetch up to 50 docs and sort in Kotlin
+        // 🛡️ Helper: Quick query with hard timeout per query so cellular network never stalls
+        suspend fun fetchFieldPosts(field: String, idVal: String, limitCount: Long = 30): List<DocumentSnapshot> {
+            if (idVal.isBlank()) return emptyList()
             return try {
-                val qSimple = newsRef.whereEqualTo(field, value).limit(50)
-                val snap = if (source != null) qSimple.get(source).await() else qSimple.get().await()
-                snap.documents
+                withTimeoutOrNull(2500L) {
+                    val snap = newsRef.whereEqualTo(field, idVal)
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(limitCount)
+                        .get()
+                        .await()
+                    snap.documents
+                } ?: emptyList()
             } catch (_: Exception) {
-                emptyList()
+                try {
+                    withTimeoutOrNull(2000L) {
+                        val snap = newsRef.whereEqualTo(field, idVal)
+                            .limit(limitCount)
+                            .get()
+                            .await()
+                        snap.documents
+                    } ?: emptyList()
+                } catch (_: Exception) {
+                    emptyList()
+                }
             }
         }
 
-        // 1. ⚡ INSTANT LOCAL CACHE DISPLAY (< 15ms) - Only on initial launch
-        if (posts.isEmpty() && refreshTrigger == 0) {
+        withContext(Dispatchers.IO) {
             try {
-                withContext(Dispatchers.IO) {
-                    val primaryCacheDocs = queryReporterField("originalReporterId", targetId, Source.CACHE)
-                    val cachedDocs = if (primaryCacheDocs.size >= 10) {
-                        primaryCacheDocs
-                    } else {
-                        val cacheJobs = mutableListOf<kotlinx.coroutines.Deferred<List<DocumentSnapshot>>>()
-                        cacheJobs.add(async { queryReporterField("reporter.id", targetId, Source.CACHE) })
-                        cacheJobs.add(async { queryReporterField("reporterId", targetId, Source.CACHE) })
+                // Phase 1: Query primary field "originalReporterId" for the top candidate IDs in parallel
+                val primaryJobs = candidateIds.take(4).map { cid ->
+                    async { fetchFieldPosts("originalReporterId", cid, 35) }
+                }
+                val primaryDocs = primaryJobs.awaitAll().flatten()
 
-                        val secondId = candidateIds.getOrNull(1)
-                        if (!secondId.isNullOrBlank() && secondId != targetId) {
-                            cacheJobs.add(async { queryReporterField("originalReporterId", secondId, Source.CACHE) })
-                            cacheJobs.add(async { queryReporterField("reporter.id", secondId, Source.CACHE) })
+                val seenDocIds = mutableSetOf<String>()
+                val parsedPrimary = primaryDocs.mapNotNull { doc ->
+                    if (!seenDocIds.add(doc.id)) return@mapNotNull null
+                    try {
+                        val data = doc.data ?: return@mapNotNull null
+                        mapMapToNewsPost(doc.id, data)
+                    } catch (_: Exception) { null }
+                }.sortedByDescending { it.timestamp }
+
+                // ⚡ IMMEDIATE UI UPDATE: If primaryDocs found posts, render them right now! Never wait or block!
+                if (parsedPrimary.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        val currentNewPost = posts.find { it.id == newlyCreatedPostId }
+                        val combined = if (currentNewPost != null) {
+                            (listOf(currentNewPost) + parsedPrimary).distinctBy { it.id }
+                        } else {
+                            parsedPrimary
                         }
-                        primaryCacheDocs + cacheJobs.awaitAll().flatten()
+                        posts = combined
+                        loading = false
                     }
-
-                    val seenCacheIds = mutableSetOf<String>()
-                    val cachedParsed = cachedDocs.mapNotNull { doc ->
-                        if (!seenCacheIds.add(doc.id)) return@mapNotNull null
-                        try {
-                            val data = doc.data ?: return@mapNotNull null
-                            mapMapToNewsPost(doc.id, data)
-                        } catch (_: Exception) { null }
-                    }.sortedByDescending { it.timestamp }.take(30)
-
-                    if (cachedParsed.isNotEmpty()) {
-                        withContext(Dispatchers.Main) {
-                            posts = cachedParsed
-                            loading = false
-                        }
+                    if (primaryReporterId.isNotBlank()) {
+                        try { prefs.saveManageNewsCache(primaryReporterId, Gson().toJson(parsedPrimary)) } catch (_: Exception) {}
                     }
                 }
-            } catch (_: Exception) {}
-        }
 
-        // 2. ⚡ LIVE SERVER FETCH: Smart Short-Circuit (Priority to Reporter ID)
-        try {
-            withTimeoutOrNull(10000L) {
-                withContext(Dispatchers.IO) {
-                    val primaryDocs = queryReporterField("originalReporterId", targetId)
-
-                    val candidateDocs = if (primaryDocs.size >= 10) {
-                        primaryDocs
-                    } else {
-                        val fallbackJobs = mutableListOf<kotlinx.coroutines.Deferred<List<DocumentSnapshot>>>()
-                        fallbackJobs.add(async { queryReporterField("reporter.id", targetId) })
-                        fallbackJobs.add(async { queryReporterField("reporterId", targetId) })
-                        fallbackJobs.add(async { queryReporterField("userId", targetId) })
-
-                        val secondId = candidateIds.getOrNull(1)
-                        if (!secondId.isNullOrBlank() && secondId != targetId) {
-                            fallbackJobs.add(async { queryReporterField("originalReporterId", secondId) })
-                            fallbackJobs.add(async { queryReporterField("reporter.id", secondId) })
-                        }
-
-                        primaryDocs + fallbackJobs.awaitAll().flatten()
+                // Phase 2: If primaryDocs is empty OR we want to check legacy posts
+                // (e.g. older posts created before originalReporterId was populated)
+                val needFallback = parsedPrimary.isEmpty()
+                if (needFallback) {
+                    val fallbackJobs = candidateIds.take(3).flatMap { cid ->
+                        listOf(
+                            async { fetchFieldPosts("reporter.id", cid, 30) },
+                            async { fetchFieldPosts("userId", cid, 30) },
+                            async { fetchFieldPosts("reporterId", cid, 30) }
+                        )
                     }
-
-                    val seenDocIds = mutableSetOf<String>()
-                    val parsedPosts = candidateDocs.mapNotNull { doc ->
+                    val fallbackDocs = fallbackJobs.awaitAll().flatten()
+                    val parsedFallback = fallbackDocs.mapNotNull { doc ->
                         if (!seenDocIds.add(doc.id)) return@mapNotNull null
                         try {
                             val data = doc.data ?: return@mapNotNull null
                             mapMapToNewsPost(doc.id, data)
                         } catch (_: Exception) { null }
-                    }.sortedByDescending { it.timestamp }.take(30)
+                    }.sortedByDescending { it.timestamp }
 
+                    val allMerged = (parsedPrimary + parsedFallback).distinctBy { it.id }.sortedByDescending { it.timestamp }
                     withContext(Dispatchers.Main) {
-                        if (parsedPosts.isNotEmpty()) {
-                            // Preserve newly created post if present in current memory
+                        if (allMerged.isNotEmpty()) {
                             val currentNewPost = posts.find { it.id == newlyCreatedPostId }
                             val combined = if (currentNewPost != null) {
-                                (listOf(currentNewPost) + parsedPosts).distinctBy { it.id }
+                                (listOf(currentNewPost) + allMerged).distinctBy { it.id }
                             } else {
-                                parsedPosts
+                                allMerged
                             }
                             posts = combined
                         } else if (posts.isEmpty()) {
                             posts = emptyList()
                         }
+                        loading = false
+                    }
+                    if (allMerged.isNotEmpty() && primaryReporterId.isNotBlank()) {
+                        try { prefs.saveManageNewsCache(primaryReporterId, Gson().toJson(allMerged)) } catch (_: Exception) {}
                     }
                 }
+            } catch (_: Exception) {
+                // On any unexpected network failure, existing cached posts remain visible!
+            } finally {
+                withContext(Dispatchers.Main) {
+                    loading = false
+                }
             }
-        } catch (_: Exception) {
-            // Fallback safe: any cached posts remain intact
-        } finally {
-            loading = false
         }
     }
 
@@ -250,6 +263,9 @@ fun ManagePostsPageView(
                     .delete()
                     .await()
                 posts = posts.filter { it.id != postId }
+                if (primaryReporterId.isNotBlank()) {
+                    try { prefs.saveManageNewsCache(primaryReporterId, Gson().toJson(posts)) } catch (_: Exception) {}
+                }
                 Toast.makeText(context, "వార్త తొలగించబడింది", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Toast.makeText(context, "తొలగించడం విఫలమైంది: ${e.message}", Toast.LENGTH_SHORT).show()

@@ -152,7 +152,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         district: String,
         aliases: List<String>,
         limitCount: Long,
-        cursor: DocumentSnapshot? = null
+        cursor: DocumentSnapshot? = null,
+        timestampCursor: Long? = null
     ): QuerySnapshot? {
         val newsRef = FirebaseService.db.collection("news")
 
@@ -161,7 +162,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             val q1 = newsRef.whereEqualTo("approved", true)
                 .whereEqualTo("district", district)
                 .orderBy("timestamp", Query.Direction.DESCENDING)
-            val finalQ1 = if (cursor != null) q1.startAfter(cursor).limit(limitCount) else q1.limit(limitCount)
+            val finalQ1 = when {
+                cursor != null -> q1.startAfter(cursor).limit(limitCount)
+                timestampCursor != null -> q1.startAfter(timestampCursor).limit(limitCount)
+                else -> q1.limit(limitCount)
+            }
             val res = finalQ1.get().await()
             if (!res.isEmpty) return res
         } catch (e: Exception) {
@@ -174,7 +179,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 val q2 = newsRef.whereEqualTo("approved", true)
                     .whereIn("district", aliases)
                     .orderBy("timestamp", Query.Direction.DESCENDING)
-                val finalQ2 = if (cursor != null) q2.startAfter(cursor).limit(limitCount) else q2.limit(limitCount)
+                val finalQ2 = when {
+                    cursor != null -> q2.startAfter(cursor).limit(limitCount)
+                    timestampCursor != null -> q2.startAfter(timestampCursor).limit(limitCount)
+                    else -> q2.limit(limitCount)
+                }
                 val res = finalQ2.get().await()
                 if (!res.isEmpty) return res
             } catch (e: Exception) {
@@ -187,7 +196,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             val q3 = newsRef.whereEqualTo("status", "published")
                 .whereEqualTo("district", district)
                 .orderBy("timestamp", Query.Direction.DESCENDING)
-            val finalQ3 = if (cursor != null) q3.startAfter(cursor).limit(limitCount) else q3.limit(limitCount)
+            val finalQ3 = when {
+                cursor != null -> q3.startAfter(cursor).limit(limitCount)
+                timestampCursor != null -> q3.startAfter(timestampCursor).limit(limitCount)
+                else -> q3.limit(limitCount)
+            }
             val res = finalQ3.get().await()
             if (!res.isEmpty) return res
         } catch (e: Exception) {
@@ -199,7 +212,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             val q4 = newsRef.whereEqualTo("approved", true)
                 .whereArrayContains("categories", district)
                 .orderBy("timestamp", Query.Direction.DESCENDING)
-            val finalQ4 = if (cursor != null) q4.startAfter(cursor).limit(limitCount) else q4.limit(limitCount)
+            val finalQ4 = when {
+                cursor != null -> q4.startAfter(cursor).limit(limitCount)
+                timestampCursor != null -> q4.startAfter(timestampCursor).limit(limitCount)
+                else -> q4.limit(limitCount)
+            }
             val res = finalQ4.get().await()
             if (!res.isEmpty) return res
         } catch (_: Exception) {}
@@ -261,73 +278,56 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 .take(10)
 
             try {
-                val FIVE_HOURS_MS = 5L * 60 * 60 * 1000L
                 val now = System.currentTimeMillis()
-                var hasFreshCache = false
+                val (cachedJson, cacheTs) = prefs.getDistrictNewsCache(district)
+                val isRecentCache = !cachedJson.isNullOrBlank() && (now - cacheTs) < (15 * 60 * 1000L) // Under 15m is considered fresh
 
-                // 1. ⚡ SMART LOCAL DISK CACHE (< 2ms) & FIRESTORE CACHE (< 20ms) - Only if fresh (< 5 hours old) and not forceRefresh
-                if (_news.value.isEmpty() && !forceRefresh) {
+                // 1. ⚡ ULTRA-FRESH DISK CACHE (< 15 mins) - Display immediately only if genuinely fresh
+                if (_news.value.isEmpty() && !forceRefresh && isRecentCache) {
                     try {
-                        val (cachedJson, cacheTs) = prefs.getDistrictNewsCache(district)
-                        if (!cachedJson.isNullOrBlank() && (now - cacheTs) < FIVE_HOURS_MS) {
+                        val type = object : TypeToken<List<NewsPost>>() {}.type
+                        val cachedPosts: List<NewsPost>? = Gson().fromJson(cachedJson, type)
+                        if (!cachedPosts.isNullOrEmpty()) {
+                            _news.value = cachedPosts
+                            _loading.value = false
+                            isStateFallbackMode = false
+                            Log.d("LocalNewsFeedVM", "⚡ Instant Local Fresh Cache (<15m): ${cachedPosts.size} posts in < 2ms")
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                // 2. 🚀 FAST PATH (< 1.8s) - Pull directly from Server first so fresh district news displays immediately!
+                if (_news.value.isEmpty()) {
+                    _loading.value = true
+                    try {
+                        val fastSnap = kotlinx.coroutines.withTimeoutOrNull(1800L) {
+                            fetchDistrictSnap(district, aliases, 10L, null, null)
+                        }
+                        val fastPosts = fastSnap?.documents?.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }?.filter { it.approved } ?: emptyList()
+                        if (fastPosts.isNotEmpty() && _news.value.isEmpty()) {
+                            _news.value = fastPosts
+                            lastDistrictDocument = fastSnap?.documents?.lastOrNull()
+                            _loading.value = false
+                            isStateFallbackMode = false
+                            Log.d("LocalNewsFeedVM", "⚡ Fast Path District Server: ${fastPosts.size} fresh posts in < 300ms")
+                        }
+                    } catch (e: Exception) {
+                        Log.w("LocalNewsFeedVM", "Fast path district query: ${e.message}")
+                    }
+
+                    // 🛡️ RESILIENT CACHE FALLBACK: If server took > 1.8s or phone is offline, display cache immediately!
+                    if (_news.value.isEmpty() && !cachedJson.isNullOrBlank()) {
+                        try {
                             val type = object : TypeToken<List<NewsPost>>() {}.type
                             val cachedPosts: List<NewsPost>? = Gson().fromJson(cachedJson, type)
                             if (!cachedPosts.isNullOrEmpty()) {
                                 _news.value = cachedPosts
                                 _loading.value = false
-                                hasFreshCache = true
                                 isStateFallbackMode = false
-                                Log.d("LocalNewsFeedVM", "⚡ Instant Local Disk Cache (<5h): ${cachedPosts.size} posts in < 2ms")
-                            }
-                        }
-                    } catch (_: Exception) {}
-
-                    if (_news.value.isEmpty()) {
-                        try {
-                            val cachedSnap = if (aliases.size > 1) {
-                                try {
-                                    newsRef.whereEqualTo("approved", true)
-                                        .whereIn("district", aliases)
-                                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                                        .limit(PAGE_SIZE.toLong())
-                                        .get(Source.CACHE)
-                                        .await()
-                                } catch (_: Exception) {
-                                    newsRef.whereEqualTo("approved", true)
-                                        .whereEqualTo("district", district)
-                                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                                        .limit(PAGE_SIZE.toLong())
-                                        .get(Source.CACHE)
-                                        .await()
-                                }
-                            } else {
-                                newsRef.whereEqualTo("approved", true)
-                                    .whereEqualTo("district", district)
-                                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                                    .limit(PAGE_SIZE.toLong())
-                                    .get(Source.CACHE)
-                                    .await()
-                            }
-                            val cachedPosts = cachedSnap.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
-                            val latestTimestamp = cachedPosts.maxOfOrNull { it.timestamp } ?: 0L
-                            val isCacheFresh = (now - latestTimestamp) < FIVE_HOURS_MS
-
-                            if (isCacheFresh && cachedPosts.isNotEmpty()) {
-                                _news.value = cachedPosts
-                                _loading.value = false
-                                hasFreshCache = true
-                                lastDistrictDocument = cachedSnap.documents.lastOrNull()
-                                isStateFallbackMode = false
-                                Log.d("LocalNewsFeedVM", "⚡ Instant Local Fresh Cache Display (<5h): ${cachedPosts.size} posts in < 20ms")
-                            } else {
-                                Log.d("LocalNewsFeedVM", "Local cache is empty or older than 5 hours (${(now - latestTimestamp) / 3600000}h old), bypassing stale cache")
+                                Log.d("LocalNewsFeedVM", "🛡️ Server timeout/offline: Fallback to District Cache (${cachedPosts.size} posts)")
                             }
                         } catch (_: Exception) {}
                     }
-                }
-
-                if (!hasFreshCache && _news.value.isEmpty()) {
-                    _loading.value = true
                 }
 
                 // 2. ⚡ STREAMLINED LEAN SERVER QUERY (20 posts) with resilient timeout
@@ -419,9 +419,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
      */
     fun loadMore(language: Language, currentUser: User?) {
         if (!_hasMore.value || isFetching) return
-        val cursor = lastDistrictDocument ?: run {
-            return
-        }
+        val lastTimestamp = _news.value.lastOrNull { it.timestamp > 0 }?.timestamp
+        val cursor = lastDistrictDocument
+        if (cursor == null && lastTimestamp == null) return
 
         isFetching = true
         loadMoreJob = viewModelScope.launch {
@@ -429,15 +429,21 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 val district = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: return@launch
                 val newsRef = FirebaseService.db.collection("news")
                 var currentCursor = cursor
+                var currentTimestamp = lastTimestamp
                 var keepFetching = true
+                var attempts = 0
 
-                while (keepFetching) {
+                while (keepFetching && attempts < 5) {
+                    attempts++
                     val snap = if (isStateFallbackMode) {
                         val q = newsRef.whereEqualTo("approved", true)
                             .orderBy("timestamp", Query.Direction.DESCENDING)
-                            .startAfter(currentCursor)
-                            .limit(PAGE_SIZE.toLong())
-                        kotlinx.coroutines.withTimeoutOrNull(4000L) { q.get().await() }
+                        val paginatedQ = when {
+                            currentCursor != null -> q.startAfter(currentCursor).limit(PAGE_SIZE.toLong())
+                            currentTimestamp != null -> q.startAfter(currentTimestamp).limit(PAGE_SIZE.toLong())
+                            else -> q.limit(PAGE_SIZE.toLong())
+                        }
+                        kotlinx.coroutines.withTimeoutOrNull(4000L) { paginatedQ.get().await() }
                     } else {
                         val aliases = Constants.getDistrictAliases(district)
                             .map { it.trim() }
@@ -445,7 +451,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             .distinct()
                             .take(10)
                         kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                            fetchDistrictSnap(district, aliases, PAGE_SIZE.toLong(), currentCursor)
+                            fetchDistrictSnap(district, aliases, PAGE_SIZE.toLong(), currentCursor, currentTimestamp)
                         }
                     }
 
@@ -454,10 +460,15 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         break
                     }
 
-                    val posts = snap.documents.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
-                    if (snap.documents.isNotEmpty()) {
-                        lastDistrictDocument = snap.documents.lastOrNull()
-                        currentCursor = lastDistrictDocument!!
+                    val rawDocs = snap.documents
+                    if (rawDocs.isNotEmpty()) {
+                        lastDistrictDocument = rawDocs.lastOrNull()
+                        currentCursor = lastDistrictDocument
+                    }
+
+                    val posts = rawDocs.mapNotNull { convertToNewsPost(it.id, it.data ?: emptyMap()) }
+                    if (posts.isNotEmpty()) {
+                        currentTimestamp = posts.lastOrNull()?.timestamp
                     }
 
                     if (posts.isEmpty()) {

@@ -220,29 +220,73 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     } catch (_: Exception) {}
                 }
 
-                // 3. 🚀 FAST PATH (< 1.8s) - Pull directly from Server first so fresh breaking news displays immediately!
-                // Eliminates showing stale morning news when opening the app later in the day.
+                // 3. 🚀 FAST PATH (< 1.8s) - Pull directly from Server first with 40/30/30 Blending!
+                // Runs parallel lean queries (15 Fresh + 5 User District) so user sees instant fresh news in proper blend!
                 if (_news.value.isEmpty()) {
                     _loading.value = true
                     try {
-                        val fastSnap = kotlinx.coroutines.withTimeoutOrNull(1800L) {
-                            newsRef.whereEqualTo("approved", true)
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(15)
-                                .get()
-                                .await()
+                        val fastMainDeferred = async(Dispatchers.IO) {
+                            try {
+                                newsRef.whereEqualTo("approved", true)
+                                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                                    .limit(15)
+                                    .get()
+                                    .await()
+                            } catch (_: Exception) { null }
                         }
-                        val fastPosts = fastSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
-                        val homeFiltered = fastPosts.filter { isPostAllowedForHomeFeed(it, district, userState) }
-                        if (homeFiltered.isNotEmpty() && _news.value.isEmpty()) {
-                            val combined = (listOfNotNull(initialTargetPost) + homeFiltered).distinctBy { it.id }
+
+                        val fastDistDeferred = async(Dispatchers.IO) {
+                            if (!district.isNullOrBlank()) {
+                                val aliases = Constants.getDistrictAliases(district)
+                                    .map { it.trim() }
+                                    .filter { it.isNotBlank() }
+                                    .distinct()
+                                    .take(10)
+                                try {
+                                    if (aliases.size > 1) {
+                                        newsRef.whereEqualTo("approved", true)
+                                            .whereIn("district", aliases)
+                                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                                            .limit(5)
+                                            .get().await()
+                                    } else {
+                                        newsRef.whereEqualTo("approved", true)
+                                            .whereEqualTo("district", aliases.firstOrNull() ?: district)
+                                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                                            .limit(5)
+                                            .get().await()
+                                    }
+                                } catch (_: Exception) { null }
+                            } else null
+                        }
+
+                        val fastSnap = kotlinx.coroutines.withTimeoutOrNull(1800L) { fastMainDeferred.await() }
+                        val fastDistSnap = kotlinx.coroutines.withTimeoutOrNull(1800L) { fastDistDeferred.await() }
+
+                        val fastMainPosts = fastSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
+                        val fastDistPosts = fastDistSnap?.documents?.mapNotNull { mapDocumentToNewsPost(it) } ?: emptyList()
+
+                        // 🛡️ Strict filter: ONLY state/universal or user's OWN district news! Other districts 100% excluded!
+                        val homeFilteredMain = fastMainPosts.filter { isPostAllowedForHomeFeed(it, district, userState) }
+                        val homeFilteredDist = fastDistPosts.filter { isPostAllowedForHomeFeed(it, district, userState) }
+
+                        if ((homeFilteredMain.isNotEmpty() || homeFilteredDist.isNotEmpty()) && _news.value.isEmpty()) {
+                            val blended = rankAndBlendPosts(
+                                fresh = homeFilteredMain,
+                                districtPosts = homeFilteredDist,
+                                categoryScores = categoryScores,
+                                preferredCategories = preferredCategories,
+                                userDistrict = district,
+                                userState = userState
+                            )
+                            val combined = (listOfNotNull(initialTargetPost) + blended).distinctBy { it.id }
                             if (combined.isNotEmpty()) {
                                 _news.value = combined
                                 if (lastDocument == null) {
                                     lastDocument = fastSnap?.documents?.lastOrNull()
                                 }
                                 _loading.value = false
-                                Log.d("NewsFeedVM", "⚡ Fast Path Server: ${combined.size} fresh posts in < 400ms")
+                                Log.d("NewsFeedVM", "⚡ Fast Path Server Blended: ${combined.size} fresh posts in < 400ms")
                             }
                         }
                     } catch (e: Exception) {

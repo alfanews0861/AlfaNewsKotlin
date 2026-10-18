@@ -488,6 +488,28 @@ class PreferenceManager(context: Context) {
     }
 
     /**
+     * ⚡ Manage Posts Fast Disk Cache (< 2ms)
+     */
+    fun saveManageNewsCache(reporterId: String, postsJson: String) {
+        try {
+            prefs.edit()
+                .putString("key_manage_news_cache_$reporterId", postsJson)
+                .putLong("key_manage_news_cache_${reporterId}_ts", System.currentTimeMillis())
+                .apply()
+        } catch (_: Exception) {}
+    }
+
+    fun getManageNewsCache(reporterId: String): Pair<String?, Long> {
+        return try {
+            val json = prefs.getString("key_manage_news_cache_$reporterId", null)
+            val ts = prefs.getLong("key_manage_news_cache_${reporterId}_ts", 0L)
+            Pair(json, ts)
+        } catch (_: Exception) {
+            Pair(null, 0L)
+        }
+    }
+
+    /**
      * ⚡ గతంలో సేవ్ చేసిన క్యాష్ వార్తలను పూర్తిగా క్లియర్ చేస్తుంది (Cache vaddu - Always fresh live news).
      */
     fun clearAllNewsCache() {

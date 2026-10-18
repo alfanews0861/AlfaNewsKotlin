@@ -106,6 +106,22 @@ fun NewsFeedView(
         }
     }
 
+    fun loadAdForPage(page: Int) {
+        if (!preloadedAds.containsKey(page)) {
+            preloadedAds[page] = AdState.Loading 
+            val activity = context as? android.app.Activity
+            activity?.let {
+                AdMobService.loadNativeAd(it) { ad ->
+                    if (ad != null) {
+                        preloadedAds[page] = AdState.Success(ad)
+                    } else {
+                        preloadedAds[page] = AdState.Failed
+                    }
+                }
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         val targetId = sharedPostId ?: initialPostId
         if (news.isEmpty()) {
@@ -132,22 +148,6 @@ fun NewsFeedView(
         // 🚀 Eagerly preload ads for initial ad slots
         loadAdForPage(5)
         loadAdForPage(11)
-    }
-
-    fun loadAdForPage(page: Int) {
-        if (!preloadedAds.containsKey(page)) {
-            preloadedAds[page] = AdState.Loading 
-            val activity = context as? android.app.Activity
-            activity?.let {
-                AdMobService.loadNativeAd(it) { ad ->
-                    if (ad != null) {
-                        preloadedAds[page] = AdState.Success(ad)
-                    } else {
-                        preloadedAds[page] = AdState.Failed
-                    }
-                }
-            }
-        }
     }
 
     val baseCount = remember(news.size) {
