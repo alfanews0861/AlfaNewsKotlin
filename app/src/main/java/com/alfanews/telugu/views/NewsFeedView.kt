@@ -128,6 +128,10 @@ fun NewsFeedView(
                 )
             )
         }
+
+        // 🚀 Eagerly preload ads for initial ad slots
+        loadAdForPage(5)
+        loadAdForPage(11)
     }
 
     fun loadAdForPage(page: Int) {
@@ -286,14 +290,14 @@ fun NewsFeedView(
                 preloadedAds.remove(key)
             }
 
-            // 🚀 ADMOB PRELOADING: limit to 12 slots ahead (skip strictly local slots to preserve match rate)
+            // 🚀 ADMOB PRELOADING: limit to 12 slots ahead (preload if no local ad exists for that slot)
             (1..12).forEach { offset ->
                 val futurePage = page + offset
                 val isAdSlot = (futurePage + 1) % 6 == 0
                 if (isAdSlot && futurePage < totalCount) {
                     val adIndex = futurePage / 6
-                    val strictlyLocal = (adIndex == 0 || adIndex == 1) && localAds.isNotEmpty()
-                    if (!strictlyLocal) {
+                    val hasLocalAd = localAds.isNotEmpty() && adIndex < localAds.size
+                    if (!hasLocalAd) {
                         loadAdForPage(futurePage)
                     }
                 }
@@ -348,44 +352,50 @@ fun NewsFeedView(
                         val totalLocalCount = localAds.size
                         // 🚀 derivedStateOf → recompose only when actual active state changes
                         val isCurrentPage by remember(page) { derivedStateOf { pagerState.currentPage == page } }
-                            
-                            // 🚀 PRIORITY LOGIC:
-                            // Slot 1 (Page 6) & Slot 2 (Page 12) -> Prefer Local Ads
-                            // Slot 3+ -> Alternate between AdMob and Local Ads
-                            
-                            val strictlyLocal = adIndex == 0 || adIndex == 1
-                            val preferAdMob = if (strictlyLocal) false else adIndex % 2 == 0
 
-                            if (preferAdMob) {
-                                if (adState is AdState.Success) {
-                                    AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = adState.nativeAd)
-                                } else if (adState is AdState.Failed) {
-                                    if (totalLocalCount > 0) {
-                                        LocalAdCardView(ad = localAds[adIndex % totalLocalCount], modifier = Modifier.fillMaxSize(), isActive = isCurrentPage)
-                                    } else {
-                                        AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = null, isFailed = true)
-                                    }
+                        // Priority 1: If an assigned local ad exists for this slot, show it
+                        val hasLocalAdForSlot = totalLocalCount > 0 && adIndex < totalLocalCount
+
+                        if (hasLocalAdForSlot) {
+                            LocalAdCardView(
+                                ad = localAds[adIndex],
+                                modifier = Modifier.fillMaxSize(),
+                                isActive = isCurrentPage
+                            )
+                        } else {
+                            // Priority 2: Serve AdMob Native Ad with resilient fallback
+                            if (adState is AdState.Success) {
+                                AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = adState.nativeAd)
+                            } else if (adState is AdState.Failed) {
+                                if (totalLocalCount > 0) {
+                                    // If AdMob failed but local ads exist in memory, cycle available local ads
+                                    LocalAdCardView(
+                                        ad = localAds[adIndex % totalLocalCount],
+                                        modifier = Modifier.fillMaxSize(),
+                                        isActive = isCurrentPage
+                                    )
                                 } else {
-                                    // Loading state: Show preloaded local ad instantly instead of spinner, if available
-                                    if (totalLocalCount > 0) {
-                                        LocalAdCardView(ad = localAds[adIndex % totalLocalCount], modifier = Modifier.fillMaxSize(), isActive = isCurrentPage)
-                                    } else {
-                                        AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = null, isLoading = true)
-                                    }
+                                    AdMobCardView(
+                                        modifier = Modifier.fillMaxSize(),
+                                        nativeAd = null,
+                                        isFailed = true,
+                                        onFallbackClick = onMenuClick
+                                    )
                                 }
                             } else {
+                                // AdMob is loading in background: show cycled local ad if available, else spinner
                                 if (totalLocalCount > 0) {
-                                    LocalAdCardView(ad = localAds[adIndex % totalLocalCount], modifier = Modifier.fillMaxSize(), isActive = isCurrentPage)
-                                } else if (adState is AdState.Success) {
-                                    AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = adState.nativeAd)
-                                } else if (adState is AdState.Failed) {
-                                    AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = null, isFailed = true)
+                                    LocalAdCardView(
+                                        ad = localAds[adIndex % totalLocalCount],
+                                        modifier = Modifier.fillMaxSize(),
+                                        isActive = isCurrentPage
+                                    )
                                 } else {
-                                    // Loading state (no local ads)
                                     AdMobCardView(modifier = Modifier.fillMaxSize(), nativeAd = null, isLoading = true)
                                 }
                             }
-                        } else {
+                        }
+                    } else {
                             val newsIndex = page - (page / 6)
                             if (newsIndex >= 0 && newsIndex < news.size) {
                                 val post = news[newsIndex]
