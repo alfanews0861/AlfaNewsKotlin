@@ -396,6 +396,16 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
     const settingsRef = db.collection('settings').doc('notifications');
     const settingsDoc = await settingsRef.get();
     const settingsData = settingsDoc.exists ? settingsDoc.data() : {};
+    if (settingsData?.scheduledNotificationsEnabled === false) {
+        v2_1.logger.log(`[NOTIF] Scheduled notifications globally disabled in settings/notifications. Skipping run.`);
+        return;
+    }
+    const pauseScheduledUntil = Number(settingsData?.pauseScheduledUntil || 0);
+    if (Date.now() < pauseScheduledUntil) {
+        const remainingHours = ((pauseScheduledUntil - Date.now()) / (1000 * 60 * 60)).toFixed(1);
+        v2_1.logger.log(`[NOTIF] Scheduled notifications paused for next ${remainingHours}h via pauseScheduledUntil. Skipping run.`);
+        return;
+    }
     const lastSentMap = settingsData?.lastSentNewsIdMap || {};
     const recentGeneralIds = Array.isArray(settingsData?.recentGeneralIds)
         ? settingsData.recentGeneralIds
@@ -570,6 +580,20 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
     const isNowApproved = after.approved === true;
     if (wasApproved || !isNowApproved)
         return;
+    // 🛡️ Global Kill-switch for Breaking/Important Push Notifications (settings/notifications)
+    const db = admin.firestore();
+    const settingsDoc = await db.collection('settings').doc('notifications').get().catch(() => null);
+    const settingsData = settingsDoc?.exists ? settingsDoc.data() : {};
+    if (settingsData?.breakingNotificationsEnabled === false) {
+        v2_1.logger.log(`[BREAKING] Breaking notifications globally disabled via settings/notifications. Skipping ${postId}`);
+        return;
+    }
+    const pauseBreakingUntil = Number(settingsData?.pauseBreakingUntil || 0);
+    if (Date.now() < pauseBreakingUntil) {
+        const remainingHours = ((pauseBreakingUntil - Date.now()) / (1000 * 60 * 60)).toFixed(1);
+        v2_1.logger.log(`[BREAKING] Breaking notifications paused for next ${remainingHours}h via pauseBreakingUntil. Skipping ${postId}`);
+        return;
+    }
     // Trigger: isBreaking=true OR tone=BREAKING/URGENT OR tone=IMPORTANT (with notificationWorthy or high score)
     const tone = (after.tone || "").toUpperCase();
     const isBreakingOrUrgent = after.isBreaking === true || tone === 'BREAKING' || tone === 'URGENT';
@@ -604,7 +628,6 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
     // Daily limit check - atomic to prevent race conditions
     // For statewide (all_users): max 5 per day across app
     // For local district: max 3 breaking alerts per day for that specific district
-    const db = admin.firestore();
     const limitDocName = isStatewide ? 'notif_daily_breaking' : `notif_daily_breaking_${(0, utils_1.slugify)(canonicalDistrict || 'district')}`;
     const maxLimit = isStatewide ? 5 : 3;
     const canSend = await checkAndIncrementLimitAtomic(db, limitDocName, maxLimit);
@@ -613,9 +636,6 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
         return;
     }
     // Duplicate check
-    const settingsRef = db.collection('settings').doc('notifications');
-    const settingsDoc = await settingsRef.get();
-    const settingsData = settingsDoc.exists ? settingsDoc.data() : {};
     const lastSentMap = settingsData?.lastSentNewsIdMap || {};
     const recentGeneralIds = Array.isArray(settingsData?.recentGeneralIds) ? settingsData.recentGeneralIds : [];
     if (lastSentMap['general'] === postId || lastSentMap[targetTopic] === postId || recentGeneralIds.includes(postId)) {

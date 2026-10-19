@@ -214,6 +214,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     private var mainCursor: DocumentSnapshot? = null
     private var localCursor: DocumentSnapshot? = null
     @Volatile private var isFetching = false
+    val isFetchingState: Boolean get() = isFetching
     private var currentFetchJob: kotlinx.coroutines.Job? = null
     private var lastRefreshTimeLong: Long = 0
     private var consecutiveEmptyLoads = 0
@@ -448,12 +449,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         }
                         if (emergencyList.isEmpty()) {
                             try {
-                                val emergencySnapshot = FirebaseService.db.collection("news")
-                                    .whereEqualTo("approved", true)
-                                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                                    .limit(FETCH_LIMIT.toLong())
-                                    .get().await()
-                                emergencyList.addAll(emergencySnapshot.documents.mapNotNull { mapDocumentToNewsPost(it) })
+                                val emergencySnapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                                    FirebaseService.db.collection("news")
+                                        .whereEqualTo("approved", true)
+                                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                                        .limit(FETCH_LIMIT.toLong())
+                                        .get().await()
+                                }
+                                if (emergencySnapshot != null) {
+                                    emergencyList.addAll(emergencySnapshot.documents.mapNotNull { mapDocumentToNewsPost(it) })
+                                }
                             } catch (e: Exception) {
                                 Log.e("NewsFeedVM", "Emergency fetch failed: ${e.message}")
                             }
@@ -497,13 +502,22 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     // User చదవని posts categories కి score ఇవ్వడం wrong.
                     // Actual engagement మాత్రమే track చేయాలి (logPostEngagement, logLongView).
 
+                   if (_news.value.isEmpty()) {
+                       _isOnline.value = false
+                   } else {
+                       _isOnline.value = true
+                   }
+
                    if (initialPostId == null) {
                        _shouldScrollToTop.value = true
                    }
                    lastRefreshTimeLong = System.currentTimeMillis()
 
               } catch (e: Exception) {
-                  if (_news.value.isEmpty()) _hasMore.value = false
+                  if (_news.value.isEmpty()) {
+                      _isOnline.value = false
+                      _hasMore.value = false
+                  }
               } finally {
                   _loading.value = false
                   isFetching = false
@@ -604,8 +618,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
             if (currentCursor != null) query = query.startAfter(currentCursor)
             
             try {
-                val snapshot = query.get().await()
-                if (snapshot.isEmpty) {
+                val snapshot = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                    query.get().await()
+                }
+                if (snapshot == null || snapshot.isEmpty) {
                     // ✅ FIX (Bug 3): Fallback query కూడా userState filter apply చేయడం
                     // పాత కోడ్: district filter లేకుండా any approved news fetch చేసేది
                     var fallbackQuery = FirebaseService.db.collection("news")
@@ -615,8 +631,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     
                     if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
                     
-                    val fallbackSnapshot = fallbackQuery.get().await()
-                    if (fallbackSnapshot.isEmpty) {
+                    val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                        fallbackQuery.get().await()
+                    }
+                    if (fallbackSnapshot == null || fallbackSnapshot.isEmpty) {
                         return Pair<kotlin.collections.List<NewsPost>, DocumentSnapshot?>(emptyList(), null)
                     }
                     
@@ -637,8 +655,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         var fallbackQuery = baseQuery.whereEqualTo("approved", true)
                             .orderBy("timestamp", Query.Direction.DESCENDING).limit(limit.toLong())
                         if (currentCursor != null) fallbackQuery = fallbackQuery.startAfter(currentCursor)
-                        val fallbackSnapshot = fallbackQuery.get().await()
-                        if (!fallbackSnapshot.isEmpty) {
+                        val fallbackSnapshot = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                            fallbackQuery.get().await()
+                        }
+                        if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {
                             val batch = fallbackSnapshot.documents.mapNotNull { doc ->
                                 mapDocumentToNewsPost(doc)
                             }
@@ -1130,7 +1150,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
     fun refreshIfStale(language: Language, currentUser: User?) {
         val now = System.currentTimeMillis()
-        if (now - lastRefreshTimeLong > 300000 || _news.value.isEmpty()) { loadNews(language, currentUser) }
+        if (now - lastRefreshTimeLong > 300000 || _news.value.isEmpty()) {
+            _isOnline.value = true
+            loadNews(language, currentUser, forceRefresh = true)
+        }
     }
 
      private fun mapDistrictToState(district: String?): String? {

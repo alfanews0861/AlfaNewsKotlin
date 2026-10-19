@@ -13,6 +13,7 @@ import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.*
@@ -237,7 +238,9 @@ fun LocalNewsFeedView(
         }
     }
 
-    Box(
+    PullToRefreshBox(
+        isRefreshing = loading && news.isNotEmpty(),
+        onRefresh = { viewModel.loadNews(language, currentUser, forceRefresh = true) },
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
@@ -279,26 +282,7 @@ fun LocalNewsFeedView(
                 }
             }
         } else if ((loading || isDetecting) && news.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(40.dp),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = if (isDetecting) stringResource(R.string.detecting_location) else stringResource(R.string.news_preparing),
-                        color = MaterialTheme.colorScheme.onBackground,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontFamily = Ramabhadra
-                    )
-                }
-            }
+            NewsCardSkeleton()
         } else if (news.isEmpty() && viewModelActiveDistrict == null) {
             LaunchedEffect(Unit) {
                 onDistrictClick()
@@ -325,6 +309,8 @@ fun LocalNewsFeedView(
                     }
                 }
             }
+        } else if (news.isEmpty()) {
+            NewsCardSkeleton()
         } else {
             VerticalPager(
                 state = pagerState,

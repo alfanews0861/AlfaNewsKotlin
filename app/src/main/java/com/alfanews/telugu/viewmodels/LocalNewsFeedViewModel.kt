@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 
 class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(application) {
@@ -340,8 +341,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         .orderBy("timestamp", Query.Direction.DESCENDING)
                         .limit(pageSize.toLong())
                     
-                    val snap = query.get().await()
-                    if (!snap.isEmpty) {
+                    val snap = withTimeoutOrNull(6000L) { query.get().await() }
+                    if (snap != null && !snap.isEmpty) {
                         snapshot = snap
                         posts = withContext(Dispatchers.Default) {
                             snap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
@@ -357,8 +358,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             .orderBy("timestamp", Query.Direction.DESCENDING)
                             .limit(pageSize.toLong())
                         
-                        val fallbackSnapshot = fallbackQuery.get().await()
-                        if (!fallbackSnapshot.isEmpty) {
+                        val fallbackSnapshot = withTimeoutOrNull(5000L) { fallbackQuery.get().await() }
+                        if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {
                             snapshot = fallbackSnapshot
                             posts = withContext(Dispatchers.Default) {
                                 fallbackSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
@@ -381,8 +382,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             .orderBy("timestamp", Query.Direction.DESCENDING)
                             .limit(pageSize.toLong())
                         
-                        val stateSnapshot = stateQuery.get().await()
-                        if (!stateSnapshot.isEmpty) {
+                        val stateSnapshot = withTimeoutOrNull(4000L) { stateQuery.get().await() }
+                        if (stateSnapshot != null && !stateSnapshot.isEmpty) {
                             snapshot = stateSnapshot
                             posts = withContext(Dispatchers.Default) {
                                 stateSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
@@ -401,8 +402,13 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 }
 
                 _news.value = rankedPosts
+                if (rankedPosts.isEmpty()) {
+                    _isOnline.value = false
+                } else {
+                    _isOnline.value = true
+                }
                 // Only scroll to top if we are loading the first page (lastDocument is null)
-                if (lastDocument == null) {
+                if (lastDocument == null && rankedPosts.isNotEmpty()) {
                     _shouldScrollToTop.value = true 
                 }
                 _loading.value = false 
@@ -411,6 +417,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 lastRefreshTimeLong = currentTime
                 _lastRefreshTime.value = currentTime
             } catch (e: Exception) {
+                 if (_news.value.isEmpty()) {
+                     _isOnline.value = false
+                 }
                  _hasMore.value = false
             } finally {
                 _loading.value = false
@@ -505,7 +514,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     fun refreshIfStale(language: Language, currentUser: User?) {
         val now = System.currentTimeMillis()
         if (now - lastRefreshTimeLong > 300000 || _news.value.isEmpty()) {
-            loadNews(language, currentUser)
+            _isOnline.value = true
+            loadNews(language, currentUser, forceRefresh = true)
         }
     }
 

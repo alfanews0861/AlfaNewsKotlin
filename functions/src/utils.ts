@@ -10,8 +10,8 @@ export const REGION = "asia-south1";
 export const SCHEDULED_MODEL = "gemini-3.5-flash-lite";
 export const PRO_MODEL = "gemini-3.5-flash-lite";
 export const FLASH_MODEL = "gemini-3.5-flash-lite";
-export const IMAGEN_MODEL = "gemini-3.1-flash-image";         // GA as of 2026
-export const IMAGEN_FAST_MODEL = "gemini-3.1-flash-image";    // imagen-4.0 deprecated Aug 17, 2026
+export const IMAGEN_MODEL = "gemini-3.1-flash-lite-image";
+export const IMAGEN_FAST_MODEL = "gemini-3.1-flash-lite-image";
 
 /**
  * Converts any string into a safe FCM topic name.
@@ -129,9 +129,15 @@ export async function runWithAIFallback<T>(
     operation: (ai: any, modelName: string) => Promise<T>,
     customModels?: string[]
 ): Promise<T> {
-    const apiKeys = getApiKeys();
-    const keysToTry = apiKeys.length > 0 ? apiKeys : [process.env.GEMINI_API_KEY || process.env.API_KEY || ""];
     const modelsToTry = customModels || TEXT_MODELS;
+    const isImageOperation = modelsToTry.some(m => m.includes("image"));
+    let keysToTry = apiKeys.length > 0 ? [...apiKeys] : [process.env.GEMINI_API_KEY || process.env.API_KEY || ""];
+    if (isImageOperation) {
+        const paidKeyClean = (process.env.PAID_GEMINI_API_KEY || '').replace(/^["']|["']$/g, '').trim();
+        if (paidKeyClean) {
+            keysToTry = [paidKeyClean, ...keysToTry.filter(k => k !== paidKeyClean)];
+        }
+    }
 
     const MAX_TOTAL_ATTEMPTS = Math.max(keysToTry.length * 3, 24);
     let totalAttempts = 0;
@@ -1271,42 +1277,28 @@ export async function generateImageWithRetry(
     aspectRatio: '1:1' | '9:16' | '16:9' | '3:4' | '4:3' = '9:16',
     retriesUnused = 3
 ): Promise<Buffer | null> {
-    // NOTE: imagen-4.0-generate-001 is DEPRECATED (shutdown Aug 17, 2026)
-    // Use gemini-3.1-flash-image (GA) as primary image model
+    // Primary & sole image model: gemini-3.1-flash-lite-image (No fallback)
     const modelsToTry = [
-        "gemini-3.1-flash-image",          // ✅ GA - Primary
-        "gemini-3.1-flash-image-preview",  // Preview fallback
-        "imagen-3.0-generate-002"          // Legacy fallback (billing required)
+        "gemini-3.1-flash-lite-image"
     ];
 
     try {
         return await runWithAIFallback(async (ai, modelName) => {
-            const isImagen = modelName.includes("imagen");
-
-            // For Gemini models, we append aspect ratio to the prompt as they don't support the parameter yet
-            const finalPrompt = isImagen ? prompt : `${prompt} [Aspect Ratio: ${aspectRatio}]`;
+            const finalPrompt = `${prompt} [Aspect Ratio: ${aspectRatio}]`;
 
             const genConfig: any = {
-                temperature: 0.9
+                temperature: 0.9,
+                responseModalities: ["TEXT", "IMAGE"]
             };
-
-            // Gemini Native Image models MUST have these modalities
-            if (!isImagen) {
-                genConfig.responseModalities = ["TEXT", "IMAGE"];
-            } else {
-                // Imagen supports explicit aspect ratio
-                genConfig.aspectRatio = aspectRatio.replace(":", "x"); // converts 16:9 to 16x9
-            }
 
             const response = await ai.models.generateContent({
                 model: modelName,
                 contents: [{ role: "user", parts: [{ text: finalPrompt }] }],
-                config: genConfig  // ✅ Fixed: @google/genai SDK uses 'config', not 'generationConfig'
+                config: genConfig
             });
 
             if (response.candidates && response.candidates.length > 0) {
                 const parts = response.candidates[0].content.parts;
-                // Look for inlineData in any part (Gemini returns TEXT and IMAGE interleaved)
                 const imagePart = parts.find((p: any) => p.inlineData);
                 if (imagePart && imagePart.inlineData) {
                     return Buffer.from(imagePart.inlineData.data, 'base64');
@@ -1316,7 +1308,7 @@ export async function generateImageWithRetry(
             throw new Error(`Model ${modelName} returned no image data`);
         }, modelsToTry);
     } catch (e: any) {
-        console.error("[IMAGE_GEN_ERROR] All attempts failed:", e.message);
+        console.error("[IMAGE_GEN_ERROR] Image generation failed:", e.message);
         return null;
     }
 }

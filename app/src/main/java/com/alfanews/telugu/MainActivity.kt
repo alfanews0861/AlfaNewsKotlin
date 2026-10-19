@@ -359,6 +359,13 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         
+        // 🚀 WAKE UP FIRESTORE SOCKETS:
+        // When app returns to foreground from Doze mode / background sleep,
+        // explicitly invoke enableNetwork() to reset exponential backoff and restore connection instantly.
+        try {
+            FirebaseService.db.enableNetwork()
+        } catch (_: Throwable) {}
+
         // నోటిఫికేషన్ పర్మిషన్ స్టేటస్ ని చెక్ చేయడం
         val isEnabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
         mainViewModel.setNotificationsGranted(isEnabled)

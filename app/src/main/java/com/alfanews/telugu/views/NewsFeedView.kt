@@ -37,11 +37,12 @@ import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.NewsPost
 import com.alfanews.telugu.services.AdMobService
 import com.alfanews.telugu.services.AdState
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import com.alfanews.telugu.viewmodels.NewsFeedViewModel
 import com.google.android.gms.ads.nativead.NativeAd
 import androidx.compose.runtime.snapshotFlow
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun NewsFeedView(
     language: Language,
@@ -235,7 +236,11 @@ fun NewsFeedView(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    PullToRefreshBox(
+        isRefreshing = loading && news.isNotEmpty(),
+        onRefresh = { viewModel.loadNews(language, currentUser, forceRefresh = true) },
+        modifier = Modifier.fillMaxSize()
+    ) {
         if (!isOnline && news.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(
@@ -252,18 +257,7 @@ fun NewsFeedView(
                 }
             }
         } else if (news.isEmpty()) {
-            LaunchedEffect(Unit) {
-                while (news.isEmpty()) {
-                    kotlinx.coroutines.delay(2000L)
-                    viewModel.loadNews(language, currentUser, initialPostId)
-                }
-            }
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    CircularProgressIndicator(modifier = Modifier.size(40.dp), color = MaterialTheme.colorScheme.primary)
-                    Text(text = stringResource(R.string.news_preparing), color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge)
-                }
-            }
+            NewsCardSkeleton()
         } else {
             VerticalPager(
                 state = pagerState,

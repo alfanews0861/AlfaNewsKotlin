@@ -913,12 +913,17 @@ fun UserProfilePageView(
                 SettingsGroup(if (language == Language.TELUGU) "రిపోర్టర్ బోర్డ్" else "Reporter Board") {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         // Top 3 Mini Leaderboard
-                        if (leaderboardLoading) {
-                            Box(
-                                modifier = Modifier.fillMaxWidth().height(60.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        if (leaderboardLoading && leaderboardEntries.isEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                repeat(3) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(44.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                    )
+                                }
                             }
                         } else if (leaderboardEntries.isNotEmpty()) {
                             leaderboardEntries.take(3).forEachIndexed { index, reporter: com.alfanews.telugu.models.User ->

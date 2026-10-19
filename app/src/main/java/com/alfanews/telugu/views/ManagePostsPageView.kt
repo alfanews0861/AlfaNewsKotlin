@@ -1,6 +1,7 @@
 package com.alfanews.telugu.views
 
 import android.widget.Toast
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,7 +14,9 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,6 +24,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,10 +59,38 @@ fun ManagePostsPageView(
 ) {
     var posts by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var isConnectionError by remember { mutableStateOf(false) }
     var refreshTrigger by remember { mutableStateOf(0) }
     var isBroadcasting by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (posts.isEmpty()) {
+                    isConnectionError = false
+                    loading = true
+                    refreshTrigger++
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    // 🌐 6-SECOND WATCHDOG: Genuinely stop loading if no connection within 6s and show offline prompt
+    LaunchedEffect(refreshTrigger) {
+        isConnectionError = false
+        delay(6000L)
+        if (loading && posts.isEmpty()) {
+            loading = false
+            isConnectionError = true
+        }
+    }
 
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
     var showBroadcastDialog by remember { mutableStateOf<NewsPost?>(null) }
@@ -66,14 +100,6 @@ fun ManagePostsPageView(
     val userId = currentUser?.id.orEmpty()
     val prefUserId = remember { prefs.userId.orEmpty() }
     val reporterId = userId.ifBlank { authUid }.ifBlank { prefUserId }
-
-    // 🛡️ Safeguard Timeout: Stops spinner after 2.5s even if network latency occurs
-    LaunchedEffect(refreshTrigger) {
-        delay(2500L)
-        if (loading) {
-            loading = false
-        }
-    }
 
     // ⚡ INSTANT NEW POST DISPLAY: Fetch the just-published post directly by ID in < 100ms
     LaunchedEffect(newlyCreatedPostId) {
@@ -92,7 +118,7 @@ fun ManagePostsPageView(
 
     // ✅ REAL-TIME LISTENER: August 26 నాటి పద్ధతిలో రిపోర్టర్ వార్తలను నేరుగా రియల్-టైమ్‌లో లోడ్ చేసే రోబస్ట్ లిజనర్
     DisposableEffect(currentUser, reporterId, refreshTrigger) {
-        val role = currentUser?.role ?: UserRole.REPORTER
+        val role = currentUser?.role ?: UserRole.fromStringSafe(prefs.userRole) ?: UserRole.REPORTER
         var query = FirebaseService.db.collection("news")
             .orderBy("timestamp", Query.Direction.DESCENDING)
 
@@ -107,6 +133,9 @@ fun ManagePostsPageView(
         val listener = query.limit(50).addSnapshotListener { snapshot, error ->
             loading = false
             if (error != null) {
+                if (posts.isEmpty()) {
+                    isConnectionError = true
+                }
                 // If composite index on reporter.id had an issue, fallback query on originalReporterId
                 if (reporterId.isNotBlank() && (role == UserRole.REPORTER)) {
                     FirebaseService.db.collection("news")
@@ -121,6 +150,7 @@ fun ManagePostsPageView(
                             }
                             if (loaded.isNotEmpty()) {
                                 posts = loaded
+                                isConnectionError = false
                             }
                         }
                 }
@@ -128,6 +158,7 @@ fun ManagePostsPageView(
             }
 
             if (snapshot != null) {
+                isConnectionError = false
                 val loaded = snapshot.documents.mapNotNull { doc ->
                     val data = doc.data ?: return@mapNotNull null
                     mapMapToNewsPost(doc.id, data)
@@ -240,6 +271,7 @@ fun ManagePostsPageView(
             }
 
             IconButton(onClick = { 
+                isConnectionError = false
                 loading = true
                 refreshTrigger++ 
             }) {
@@ -251,51 +283,92 @@ fun ManagePostsPageView(
             }
         }
 
-        if (loading) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                contentPadding = PaddingValues(bottom = 80.dp)
-            ) {
-                if (posts.isEmpty()) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 100.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Text(
-                                    text = "మీరు పోస్ట్ చేసిన వార్తలు ఏవీ లేవు.",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                OutlinedButton(onClick = { 
-                                    loading = true
-                                    refreshTrigger++ 
-                                }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Refresh,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("మళ్లీ ప్రయత్నించండి")
-                                }
-                            }
+        PullToRefreshBox(
+            isRefreshing = loading && posts.isNotEmpty(),
+            onRefresh = {
+                isConnectionError = false
+                loading = true
+                refreshTrigger++
+            },
+            modifier = Modifier.fillMaxSize()
+        ) {
+            if (loading && posts.isEmpty()) {
+                ManagePostsSkeleton()
+            } else if (isConnectionError && posts.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 80.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.padding(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            modifier = Modifier.size(56.dp),
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                        )
+                        Text(
+                            text = "ఇంటర్నెట్ లేదు",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Text(
+                            text = "దయచేసి మీ ఇంటర్నెట్ కనెక్షన్‌ని తనిఖీ చేసి, మళ్ళీ ప్రయత్నించండి.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Button(onClick = {
+                            isConnectionError = false
+                            loading = true
+                            refreshTrigger++
+                        }) {
+                            Text("మళ్ళీ ప్రయత్నించండి")
                         }
                     }
-                } else {
+                }
+            } else if (posts.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 100.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "మీరు పోస్ట్ చేసిన వార్తలు ఏవీ లేవు.",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedButton(onClick = { 
+                            isConnectionError = false
+                            loading = true
+                            refreshTrigger++ 
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("మళ్లీ ప్రయత్నించండి")
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
                     items(posts, key = { postItem: NewsPost -> postItem.id }) { post ->
                         Card(
                             modifier = Modifier
@@ -527,6 +600,109 @@ fun ManagePostsPageView(
                     }
                 }
             )
+        }
+    }
+}
+
+@Composable
+fun ManagePostsSkeleton() {
+    val infiniteTransition = rememberInfiniteTransition(label = "manage_skeleton_shimmer")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 0.65f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(700, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+    val shimmerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha * 0.12f)
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        repeat(5) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(90.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(shimmerColor)
+                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.95f)
+                                    .height(18.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(shimmerColor)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.80f)
+                                    .height(18.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(shimmerColor)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.50f)
+                                    .height(14.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(shimmerColor)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(width = 70.dp, height = 24.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(shimmerColor)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(width = 60.dp, height = 16.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(shimmerColor)
+                        )
+                    }
+                }
+            }
         }
     }
 }
