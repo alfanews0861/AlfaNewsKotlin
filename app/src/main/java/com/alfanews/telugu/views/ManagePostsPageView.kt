@@ -36,6 +36,7 @@ import com.alfanews.telugu.utils.ManageNewsHelper
 import com.alfanews.telugu.utils.ManagePostStatus
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -66,6 +67,14 @@ fun ManagePostsPageView(
     val prefUserId = remember { prefs.userId.orEmpty() }
     val reporterId = userId.ifBlank { authUid }.ifBlank { prefUserId }
 
+    // 🛡️ Safeguard Timeout: Stops spinner after 2.5s even if network latency occurs
+    LaunchedEffect(refreshTrigger) {
+        delay(2500L)
+        if (loading) {
+            loading = false
+        }
+    }
+
     // ⚡ INSTANT NEW POST DISPLAY: Fetch the just-published post directly by ID in < 100ms
     LaunchedEffect(newlyCreatedPostId) {
         if (!newlyCreatedPostId.isNullOrBlank()) {
@@ -81,54 +90,39 @@ fun ManagePostsPageView(
         }
     }
 
-    // ✅ REAL-TIME LISTENER: రిపోర్టర్ ID ఆధారంగా తాజా వార్తలను నేరుగా లోడ్ చేసే సింపుల్ & రోబస్ట్ లాజిక్
-    DisposableEffect(reporterId, refreshTrigger) {
-        if (reporterId.isBlank()) {
-            posts = emptyList()
-            loading = false
-            return@DisposableEffect onDispose {}
+    // ✅ REAL-TIME LISTENER: August 26 నాటి పద్ధతిలో రిపోర్టర్ వార్తలను నేరుగా రియల్-టైమ్‌లో లోడ్ చేసే రోబస్ట్ లిజనర్
+    DisposableEffect(currentUser, reporterId, refreshTrigger) {
+        val role = currentUser?.role ?: UserRole.REPORTER
+        var query = FirebaseService.db.collection("news")
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+
+        if (role == UserRole.REGIONAL_INCHARGE && currentUser?.assignedDistricts?.isNotEmpty() == true) {
+            query = query.whereIn("district", currentUser.assignedDistricts)
+        } else if (role == UserRole.ADMIN || role == UserRole.EDITOR || role == UserRole.NEWS_DESK) {
+            // Admins & Editors see all recent news
+        } else if (reporterId.isNotBlank()) {
+            query = query.whereEqualTo("reporter.id", reporterId)
         }
 
-        loading = posts.isEmpty() || refreshTrigger > 0
-        val newsRef = FirebaseService.db.collection("news")
-
-        // 1. ప్రధాన క్వెరీ: originalReporterId ఆధారంగా తాజా వార్తలు
-        val query = newsRef.whereEqualTo("originalReporterId", reporterId)
-            .orderBy("timestamp", Query.Direction.DESCENDING)
-            .limit(10)
-
-        val listener = query.addSnapshotListener { snapshot, error ->
+        val listener = query.limit(50).addSnapshotListener { snapshot, error ->
+            loading = false
             if (error != null) {
-                // కంపోజిట్ ఇండెక్స్ లోపం ఉంటే సురక్షితమైన ఫాల్‌బ్యాక్
-                scope.launch(Dispatchers.IO) {
-                    try {
-                        val fallbackSnap = try {
-                            newsRef.whereEqualTo("reporter.id", reporterId)
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(10)
-                                .get()
-                                .await()
-                        } catch (_: Exception) {
-                            newsRef.whereEqualTo("originalReporterId", reporterId)
-                                .limit(10)
-                                .get()
-                                .await()
+                // If composite index on reporter.id had an issue, fallback query on originalReporterId
+                if (reporterId.isNotBlank() && (role == UserRole.REPORTER)) {
+                    FirebaseService.db.collection("news")
+                        .whereEqualTo("originalReporterId", reporterId)
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(50)
+                        .get()
+                        .addOnSuccessListener { fallbackSnap ->
+                            val loaded = fallbackSnap.documents.mapNotNull { doc ->
+                                val data = doc.data ?: return@mapNotNull null
+                                mapMapToNewsPost(doc.id, data)
+                            }
+                            if (loaded.isNotEmpty()) {
+                                posts = loaded
+                            }
                         }
-
-                        val loaded = fallbackSnap.documents.mapNotNull { doc ->
-                            val data = doc.data ?: return@mapNotNull null
-                            mapMapToNewsPost(doc.id, data)
-                        }.sortedByDescending { it.timestamp }
-
-                        withContext(Dispatchers.Main) {
-                            posts = loaded
-                            loading = false
-                        }
-                    } catch (_: Exception) {
-                        withContext(Dispatchers.Main) {
-                            loading = false
-                        }
-                    }
                 }
                 return@addSnapshotListener
             }
@@ -141,33 +135,24 @@ fun ManagePostsPageView(
 
                 if (loaded.isNotEmpty()) {
                     posts = loaded
-                    loading = false
-                } else {
-                    // originalReporterId ఖాళీగా ఉంటే, reporter.id ద్వారా ఫాల్‌బ్యాక్
-                    scope.launch(Dispatchers.IO) {
-                        try {
-                            val repSnap = newsRef.whereEqualTo("reporter.id", reporterId)
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(10)
-                                .get()
-                                .await()
-
-                            val repLoaded = repSnap.documents.mapNotNull { doc ->
+                } else if (reporterId.isNotBlank() && role == UserRole.REPORTER) {
+                    // Check if reporter's posts were stored with originalReporterId
+                    FirebaseService.db.collection("news")
+                        .whereEqualTo("originalReporterId", reporterId)
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                        .limit(50)
+                        .get()
+                        .addOnSuccessListener { origSnap ->
+                            val origLoaded = origSnap.documents.mapNotNull { doc ->
                                 val data = doc.data ?: return@mapNotNull null
                                 mapMapToNewsPost(doc.id, data)
                             }
-
-                            withContext(Dispatchers.Main) {
-                                posts = repLoaded
-                                loading = false
-                            }
-                        } catch (_: Exception) {
-                            withContext(Dispatchers.Main) {
-                                posts = emptyList()
-                                loading = false
+                            if (origLoaded.isNotEmpty()) {
+                                posts = origLoaded
                             }
                         }
-                    }
+                } else {
+                    posts = emptyList()
                 }
             }
         }
