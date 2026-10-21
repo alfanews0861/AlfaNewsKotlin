@@ -1818,6 +1818,10 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 4) {
 async function markUrlAsProcessed(url) {
     if (!url) return;
     const cleanUrl = normalizeUrl(url);
+    if (scannedUrlMemoryCache.size > 5000) {
+        const oldKeys = Array.from(scannedUrlMemoryCache).slice(0, 1000);
+        oldKeys.forEach(k => scannedUrlMemoryCache.delete(k));
+    }
     scannedUrlMemoryCache.add(cleanUrl);
     scannedUrlMemoryCache.add(url);
     try {
@@ -2366,7 +2370,12 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
 
                     batch.set(docRef, newsPayload);
                     await markUrlAsProcessed(link);
-                    if (parsed.headline) recentHeadlinesMemoryCache.push(parsed.headline);
+                    if (parsed.headline) {
+                        recentHeadlinesMemoryCache.push(parsed.headline);
+                        if (recentHeadlinesMemoryCache.length > 500) {
+                            recentHeadlinesMemoryCache.splice(0, recentHeadlinesMemoryCache.length - 500);
+                        }
+                    }
                     batchCount++;
                     processedCount++;
                     console.log(`[WEB] Prepared article: ${parsed.headline}`);
@@ -2426,7 +2435,7 @@ async function fetchTweetsSyndication(handle) {
     const timelineUrl = `https://syndication.twitter.com/srv/timeline-profile/screen-name/${handle}`;
     const userAgent = getRandomUserAgent();
     const proxyCount = proxyManager.getProxyCount();
-    const maxAttempts = proxyCount > 0 ? 2 : 1;
+    const maxAttempts = proxyCount > 0 ? Math.min(proxyCount, 5) : 1;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const proxyUrl = proxyManager.getNextProxy();
@@ -2438,7 +2447,7 @@ async function fetchTweetsSyndication(handle) {
                     'Referer': 'https://platform.twitter.com/',
                     'Accept-Language': 'en-US,en;q=0.9,te;q=0.8'
                 },
-                timeout: 15000,
+                timeout: 12000,
                 validateStatus: (status) => status < 500
             };
 
@@ -2453,7 +2462,8 @@ async function fetchTweetsSyndication(handle) {
 
             const res = await axios.get(timelineUrl, config);
             if (res.status === 429) {
-                console.warn(`[X-SYNDICATION] Rate limit (429) on @${handle} ${proxyUrl ? 'via proxy' : 'direct'}. Retrying with next proxy...`);
+                console.warn(`[X-SYNDICATION] Rate limit (429) on @${handle} ${proxyUrl ? 'via proxy' : 'direct'} (attempt ${attempt + 1}/${maxAttempts}). Rotating proxy...`);
+                await new Promise(r => setTimeout(r, 350));
                 continue;
             }
             if (res.status !== 200 || !res.data) {
@@ -2605,6 +2615,8 @@ async function fetchFullTweetTextFromStatus(page, tweetUrl) {
 // ============================================================================
 // DIRECT STEALTH TWITTER / X SCRAPING (Zero External API, Zero Cost)
 // ============================================================================
+let directStealthFailuresInCurrentCycle = 0;
+
 async function fetchTweetsDirectStealth(handle) {
     let page = null;
     try {
@@ -2934,8 +2946,16 @@ async function processSingleTwitterFeed(doc) {
         let fetchedItems = await fetchTweetsSyndication(handle);
 
         // 2. Secondary Fallback: Direct Stealth Puppeteer (if syndication had 0 items)
-        if (fetchedItems.length === 0) {
+        if (fetchedItems.length === 0 && directStealthFailuresInCurrentCycle < 3) {
             fetchedItems = await fetchTweetsDirectStealth(handle);
+            if (fetchedItems.length === 0) {
+                directStealthFailuresInCurrentCycle++;
+                if (directStealthFailuresInCurrentCycle >= 3) {
+                    console.warn(`[X-STEALTH] ⚠️ Direct stealth browser crawl hit 3 consecutive blocks/failures. Skipping direct stealth for rest of this cycle to protect RAM.`);
+                }
+            } else {
+                directStealthFailuresInCurrentCycle = 0;
+            }
         }
 
         // 3. Tertiary Fallback: RapidAPI if configured and direct crawl had 0 items
@@ -3385,8 +3405,19 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
                     for (const u of urlsToMark) {
                         await markUrlAsProcessed(u);
                     }
-                    if (parsed.headline) recentHeadlinesMemoryCache.push(parsed.headline);
-                    if (parsed.storyFingerprint) storyFingerprintMemoryCache.add(parsed.storyFingerprint);
+                    if (parsed.headline) {
+                        recentHeadlinesMemoryCache.push(parsed.headline);
+                        if (recentHeadlinesMemoryCache.length > 500) {
+                            recentHeadlinesMemoryCache.splice(0, recentHeadlinesMemoryCache.length - 500);
+                        }
+                    }
+                    if (parsed.storyFingerprint) {
+                        if (storyFingerprintMemoryCache.size > 3000) {
+                            const oldFp = Array.from(storyFingerprintMemoryCache).slice(0, 500);
+                            oldFp.forEach(k => storyFingerprintMemoryCache.delete(k));
+                        }
+                        storyFingerprintMemoryCache.add(parsed.storyFingerprint);
+                    }
                     batchCount++;
                 } catch (e) {}
             }
@@ -3473,21 +3504,22 @@ async function runScraperQueue() {
 
     if (isScraping) {
         if (Date.now() - lastScrapeStartTime > 45 * 60 * 1000) {
-            console.log("Scraping seems stuck for over 45 mins. Force resetting...");
+            console.warn("[QUEUE] ⚠️ Scraping stuck for over 45 mins. Closing browsers and force resetting lock...");
+            await closeSharedBrowser().catch(() => {});
             isScraping = false;
         } else {
-            console.log("Scraping already in progress. Skipping this cycle.");
+            console.log("[QUEUE] Scraping cycle already in progress. Skipping this cycle.");
             return;
         }
     }
     
     isScraping = true;
     lastScrapeStartTime = Date.now();
+    directStealthFailuresInCurrentCycle = 0;
     try {
         // ✅ Daily counter reset (IST midnight దాటితే)
         await resetDailyCountersIfNeeded();
         await prewarmScraperCache();
-        console.log("Fetching active sources for interleaved scraping...");
         
         const webSnapshot = await db.collection('scraping_sources').where('isPaused', '==', false).get();
         const webDocs = [...webSnapshot.docs];
@@ -3507,9 +3539,15 @@ async function runScraperQueue() {
             return timeA - timeB;
         });
 
-        console.log(`Found ${webDocs.length} Web sources and ${twitterDocs.length} Twitter feeds.`);
+        // Bounded cycle: Process all active web sources + top 35 oldest/unfetched Twitter feeds.
+        // Across 18 hourly runs per day, all 387 feeds are refreshed smoothly ~1.5 times daily,
+        // while each hourly cycle completes in ~15-25 minutes without blocking or exhausting RAM.
+        const MAX_TWITTER_FEEDS_PER_CYCLE = 35;
+        const cycleTwitterDocs = twitterDocs.slice(0, MAX_TWITTER_FEEDS_PER_CYCLE);
 
-        while (webDocs.length > 0 || twitterDocs.length > 0) {
+        console.log(`[QUEUE] Starting Cycle: ${webDocs.length} Web sources + ${cycleTwitterDocs.length}/${twitterDocs.length} Twitter feeds (Oldest first).`);
+
+        while (webDocs.length > 0 || cycleTwitterDocs.length > 0) {
             // Cutoff guard: Stop immediately if clock strikes 10:00 PM IST (22:00)
             if (!isOperatingHours()) {
                 const currentIST = new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" });
@@ -3518,12 +3556,12 @@ async function runScraperQueue() {
             }
 
             // Process 1 Twitter feed
-            if (twitterDocs.length > 0) {
-                const tDoc = twitterDocs.shift();
+            if (cycleTwitterDocs.length > 0) {
+                const tDoc = cycleTwitterDocs.shift();
                 try {
                     await Promise.race([
                         processSingleTwitterFeed(tDoc),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Twitter Timeout')), 300000))
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Twitter Timeout')), 90000))
                     ]);
                 } catch (e) {
                     console.error(`Error processing twitter ${tDoc.id}:`, e.message);
@@ -3532,7 +3570,7 @@ async function runScraperQueue() {
                 // Option C: Smart Jitter Delay between Twitter feeds
                 // If there are no web sources left to interleave (or between consecutive feeds),
                 // wait a polite 2 to 4 seconds random delay so Twitter/X never detects a burst pattern
-                if (webDocs.length === 0 && twitterDocs.length > 0) {
+                if (webDocs.length === 0 && cycleTwitterDocs.length > 0) {
                     const minDelay = parseInt(process.env.TWITTER_DELAY_MIN_MS, 10) || 2000;
                     const maxDelay = parseInt(process.env.TWITTER_DELAY_MAX_MS, 10) || 4000;
                     const jitterMs = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
@@ -3553,20 +3591,21 @@ async function runScraperQueue() {
                 try {
                     await Promise.race([
                         processSingleWebSource(wDoc),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Web Timeout')), 300000))
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Web Timeout')), 90000))
                     ]);
                 } catch (e) {
                     console.error(`Error processing web source ${wDoc.id}:`, e.message);
                 }
             }
         }
-        console.log("Finished Interleaved Scraping Queue.");
+        const durationSec = Math.round((Date.now() - lastScrapeStartTime) / 1000);
+        console.log(`[QUEUE] ✅ Finished Interleaved Scraping Cycle in ${durationSec}s. Next run in next hourly cron.`);
     } catch (error) {
         console.error("Queue Error:", error);
     } finally {
         isScraping = false;
         // Clean up any idle shared browser to release memory
-        await closeSharedBrowser();
+        await closeSharedBrowser().catch(() => {});
     }
 }
 

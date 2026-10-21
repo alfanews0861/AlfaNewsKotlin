@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.widget.Toast
 import android.media.MediaMetadataRetriever
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,6 +28,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.io.File
@@ -44,13 +47,19 @@ import com.alfanews.telugu.services.FirebaseFunctionsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.ui.theme.AlfaNewsTheme
 import com.alfanews.telugu.utils.Constants
+import com.alfanews.telugu.utils.ShareUtil
 import com.alfanews.telugu.utils.uploadMediaToStorage
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
+import kotlin.coroutines.resume
 
 fun getVideoDuration(context: android.content.Context, uri: Uri): Long {
     return try {
@@ -71,6 +80,72 @@ fun PostNewsPageView(
     postToEdit: NewsPost?,
     onActionComplete: (String) -> Unit
 ) {
+    var activeAuthUser by remember { mutableStateOf(FirebaseService.auth.currentUser) }
+    var isAuthValid by remember { mutableStateOf<Boolean?>(if (FirebaseService.auth.currentUser == null) false else null) }
+
+    // 🛡️ PRE-FLIGHT AUTH VERIFICATION: వార్త రాసే ఫారం ఓపెన్ కాకముందే లాగిన్ సెషన్ చెక్ చేయడం
+    LaunchedEffect(Unit) {
+        val auth = FirebaseService.auth.currentUser
+        if (auth == null) {
+            isAuthValid = false
+        } else {
+            try {
+                auth.getIdToken(false).await()
+                activeAuthUser = auth
+                isAuthValid = true
+            } catch (_: Exception) {
+                try {
+                    auth.getIdToken(true).await()
+                    activeAuthUser = auth
+                    isAuthValid = true
+                } catch (_: Exception) {
+                    isAuthValid = false
+                }
+            }
+        }
+    }
+
+    // లాగిన్ సెషన్ చెక్ అవుతున్నంతసేపు చిన్న లోడర్
+    if (isAuthValid == null) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(36.dp), color = MaterialTheme.colorScheme.primary)
+                Text(
+                    text = "లాగిన్ సెషన్ ధృవీకరిస్తోంది...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        return
+    }
+
+    var loginJustSucceeded by remember { mutableStateOf(false) }
+
+    // 🛡️ సెషన్ ఎక్స్‌పైర్ అయితే లేదా లాగిన్ లేకపోతే ఫారం ఓపెన్ కాకముందే లాగిన్ పాప్-అప్ చూపించడం
+    if (isAuthValid == false || activeAuthUser == null) {
+        LoginScreenView(
+            onLoginSuccess = { _ ->
+                loginJustSucceeded = true
+                activeAuthUser = FirebaseService.auth.currentUser
+                isAuthValid = true
+            },
+            onClose = {
+                // లాగిన్ విజయవంతమైతే ఫారంను మూసివేయవద్దు. యూజర్ లాగిన్ కాకుండా Cancel/Close నొక్కినప్పుడు మాత్రమే మునుపటి స్క్రీన్‌కు వెళ్లాలి.
+                if (!loginJustSucceeded && FirebaseService.auth.currentUser == null) {
+                    onActionComplete("")
+                }
+            }
+        )
+        return
+    }
+
     var headline by remember { mutableStateOf(postToEdit?.headline?.telugu ?: "") }
     var content by remember { mutableStateOf(postToEdit?.content?.telugu ?: "") }
     var existingMediaUrls by remember(postToEdit) {
@@ -95,9 +170,46 @@ fun PostNewsPageView(
     var district by remember { mutableStateOf(postToEdit?.district ?: user.district ?: "") }
     var isGlobalNews by remember { mutableStateOf(postToEdit?.isGlobal ?: false) }
     var isSubmitting by remember { mutableStateOf(false) }
+    var submissionResult by remember { mutableStateOf<NewsSubmissionResult?>(null) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    BackHandler(enabled = isSubmitting) {
+        Toast.makeText(context, "వార్త ప్రాసెసింగ్ జరుగుతోంది, దయచేసి వేచి ఉండండి...", Toast.LENGTH_SHORT).show()
+    }
+
+    val prefs = remember { com.alfanews.telugu.utils.PreferenceManager.getInstance(context) }
+    val effectiveRole = remember(user, activeAuthUser) {
+        if (user.role != UserRole.SUBSCRIBER && user.role != UserRole.GUEST) {
+            user.role
+        } else {
+            UserRole.fromStringSafe(prefs.userRole) ?: user.role
+        }
+    }
+
+    LaunchedEffect(user, activeAuthUser) {
+        if (postToEdit == null) {
+            if (location.isBlank()) {
+                val assigned = user.assignedMandal?.takeIf { it.isNotBlank() } ?: prefs.userAssignedMandal
+                if (!assigned.isNullOrBlank()) location = assigned
+            }
+            if (district.isBlank()) {
+                val dist = user.district?.takeIf { it.isNotBlank() } 
+                    ?: prefs.userDistrict?.takeIf { it.isNotBlank() }
+                    ?: prefs.selectedDistrict?.takeIf { it.isNotBlank() && it != "General" && it != "State" }
+                if (!dist.isNullOrBlank()) district = dist
+            }
+            if (state.isBlank() || state == "TS") {
+                val prefDist = district.ifBlank { prefs.userDistrict.orEmpty().ifBlank { prefs.selectedDistrict.orEmpty() } }
+                if (Constants.AP_DISTRICTS.contains(prefDist)) {
+                    state = "AP"
+                } else if (!user.state.isNullOrBlank()) {
+                    state = user.state!!
+                }
+            }
+        }
+    }
     
     val publishString = stringResource(R.string.publish_news)
     val updateString = stringResource(R.string.update_news)
@@ -157,10 +269,12 @@ fun PostNewsPageView(
         }
     }
 
-    val districts = remember(state, user) {
-        val baseDistricts = if (state == "TS") Constants.TS_DISTRICTS else Constants.AP_DISTRICTS
-        if (user.role == UserRole.REGIONAL_INCHARGE) {
-            baseDistricts.filter { user.assignedDistricts.contains(it) }
+    val districts = remember(state, user, effectiveRole) {
+        val normState = if (state.equals("TS", ignoreCase = true) || state.equals("Telangana", ignoreCase = true) || state.equals("తెలంగాణ", ignoreCase = true)) "TS" else "AP"
+        val baseDistricts = if (normState == "TS") Constants.TS_DISTRICTS else Constants.AP_DISTRICTS
+        if (effectiveRole == UserRole.REGIONAL_INCHARGE) {
+            val assigned = user.assignedDistricts
+            if (assigned.isNotEmpty()) baseDistricts.filter { assigned.contains(it) } else baseDistricts
         } else {
             baseDistricts
         }
@@ -171,7 +285,10 @@ fun PostNewsPageView(
     }
 
     val mandals = remember(district) {
-        Constants.MANDAL_DATA[district] ?: emptyList()
+        if (district.isBlank()) emptyList()
+        else Constants.MANDAL_DATA[district.trim()]
+            ?: Constants.MANDAL_DATA.entries.firstOrNull { it.key.trim().equals(district.trim(), ignoreCase = true) }?.value
+            ?: emptyList()
     }
 
     val mandalOptions = remember(mandals) {
@@ -185,10 +302,23 @@ fun PostNewsPageView(
     LaunchedEffect(districts) {
         if (district.isNotEmpty() && !districts.contains(district)) {
             district = ""
+            location = ""
+        }
+    }
+
+    LaunchedEffect(mandals) {
+        if (location.isNotEmpty() && mandals.isNotEmpty() && !mandals.contains(location)) {
+            location = ""
         }
     }
 
     fun handleSubmit() {
+        val authUser = activeAuthUser ?: FirebaseService.auth.currentUser
+        if (authUser == null) {
+            isAuthValid = false
+            return
+        }
+
         if (!isGlobalNews && (headline.isBlank() || content.isBlank() || district.isBlank())) {
             Toast.makeText(context, context.getString(R.string.fill_details_error), Toast.LENGTH_SHORT).show()
             return
@@ -232,17 +362,18 @@ fun PostNewsPageView(
                 
                 val finalCategories = listOf(category, if (isGlobalNews) "State" else district).filter { it.isNotBlank() }
 
-                val reporterPhone = user.phone?.trim() ?: ""
+                val effectiveAuthUid = authUser.uid
+                val reporterPhone = user.phone?.trim() ?: authUser.phoneNumber?.trim() ?: ""
                 val reporterData = if (postToEdit != null) {
                     mapOf(
-                        "id" to postToEdit.reporter.id,
-                        "name" to postToEdit.reporter.name,
+                        "id" to postToEdit.reporter.id.ifBlank { effectiveAuthUid },
+                        "name" to postToEdit.reporter.name.ifBlank { user.name },
                         "phone" to (reporterPhone.ifBlank { "" })
                     )
                 } else {
                     mapOf(
-                        "id" to user.id,
-                        "name" to user.name,
+                        "id" to effectiveAuthUid,
+                        "name" to user.name.ifBlank { prefs.userName?.ifBlank { null } ?: authUser.displayName ?: "రిపోర్టర్" },
                         "phone" to (reporterPhone.ifBlank { "" })
                     )
                 }
@@ -270,9 +401,9 @@ fun PostNewsPageView(
                     "meta" to mapOf("location" to location),
                     "headline" to mapOf("telugu" to headline),
                     "content" to mapOf("telugu" to content),
-                    "originalReporterId" to (postToEdit?.originalReporterId ?: user.id),
-                    "reporterId" to (postToEdit?.reporter?.id ?: user.id),
-                    "userId" to user.id,
+                    "originalReporterId" to (postToEdit?.originalReporterId?.takeIf { it.isNotBlank() } ?: effectiveAuthUid),
+                    "reporterId" to (postToEdit?.reporter?.id?.takeIf { it.isNotBlank() } ?: effectiveAuthUid),
+                    "userId" to effectiveAuthUid,
                     "reporterPhone" to reporterPhone
                 )
 
@@ -294,7 +425,7 @@ fun PostNewsPageView(
                         } catch (e: Exception) { }
                     }
 
-                    if (postToEdit != null) {
+                    if (postToEdit != null && postToEdit.approved) {
                         Toast.makeText(context, "వార్త విజయవంతంగా నవీకరించబడింది!", Toast.LENGTH_LONG).show()
                         onActionComplete(postToEdit.id)
                     } else {
@@ -303,8 +434,37 @@ fun PostNewsPageView(
                             Toast.makeText(context, "వార్త అప్‌లోడ్ విజయవంతమైంది! వీడియో తయారీ మరియు ఇతర పనులు నేపథ్యంలో జరుగుతున్నాయి. 10 నిమిషాల తర్వాత చూడండి.", Toast.LENGTH_LONG).show()
                             onActionComplete(newPostId.ifBlank { "HOME_ONLY" }) 
                         } else {
-                            Toast.makeText(context, "వార్త విజయవంతంగా పంపబడింది. త్వరలో మేనేజ్ న్యూస్ మరియు ఫీడ్ లో చూడవచ్చు.", Toast.LENGTH_LONG).show()
-                            onActionComplete(newPostId.ifBlank { "HOME_ONLY" })
+                            // టెక్స్ట్ & ఫోటో వార్త: ఎడిటోరియల్ డెస్క్ సమీక్ష పూర్తయ్యే వరకు ఇక్కడే వేచి ఉండటం
+                            statusMessage = "సబ్ ఎడిటర్లు సమీక్షిస్తున్నారు..."
+
+                            val statusCycleJob = launch {
+                                val messages = listOf(
+                                    "సబ్ ఎడిటర్లు సమీక్షిస్తున్నారు...",
+                                    "న్యూస్ డెస్క్ పరిశీలిస్తోంది...",
+                                    "వార్తను ఎడిట్ చేస్తున్నారు...",
+                                    "ఎడిటోరియల్ టీమ్ ఆమోదిస్తోంది..."
+                                )
+                                var idx = 0
+                                while (isActive) {
+                                    statusMessage = messages[idx % messages.size]
+                                    idx++
+                                    delay(3500L)
+                                }
+                            }
+
+                            val fallbackImg = finalMediaUrls.firstOrNull() ?: mediaUris.firstOrNull()?.toString()
+
+                            val finalResult = waitForNewsProcessing(
+                                postId = newPostId,
+                                fallbackHeadline = headline,
+                                fallbackContent = content,
+                                fallbackCategory = category,
+                                fallbackLocation = location,
+                                fallbackImageUrl = fallbackImg
+                            )
+
+                            statusCycleJob.cancel()
+                            submissionResult = finalResult
                         }
                     }
                 } catch (e: Exception) {
@@ -313,7 +473,13 @@ fun PostNewsPageView(
                                          e.message?.contains("left the composition") == true
                     if (isCancellation) throw e as Throwable
                     statusMessage = context.getString(R.string.error)
-                    Toast.makeText(context, context.getString(R.string.error_publishing_news, e.message ?: ""), Toast.LENGTH_LONG).show()
+                    val rawMsg = e.message.orEmpty()
+                    val displayMsg = if (rawMsg.contains("unauthenticated", ignoreCase = true) || rawMsg.contains("లాగిన్", ignoreCase = true)) {
+                        "మీ లాగిన్ సెషన్ ముగిసింది. దయచేసి మళ్ళీ లాగిన్ చేసి వార్తను సమర్పించండి."
+                    } else {
+                        context.getString(R.string.error_publishing_news, rawMsg)
+                    }
+                    Toast.makeText(context, displayMsg, Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 val isCancellation = e is kotlinx.coroutines.CancellationException ||
@@ -378,7 +544,7 @@ fun PostNewsPageView(
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Text(regionDetailsLabel, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
 
-                        if (user.role == UserRole.ADMIN || user.role == UserRole.NEWS_DESK) {
+                        if (effectiveRole == UserRole.ADMIN || effectiveRole == UserRole.NEWS_DESK) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -397,8 +563,31 @@ fun PostNewsPageView(
 
                         if (!isGlobalNews) {
                             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                Dropdown(label = stateLabel, options = stateOptions, selected = state, onSelected = { s -> state = s; district = "" }, modifier = Modifier.weight(1f))
-                                Dropdown(label = districtLabel, options = districtOptions, selected = district, onSelected = { d -> district = d; location = "" }, modifier = Modifier.weight(1f))
+                                Dropdown(
+                                    label = stateLabel, 
+                                    options = stateOptions, 
+                                    selected = state, 
+                                    onSelected = { s -> 
+                                        if (state != s) {
+                                            state = s
+                                            district = ""
+                                            location = ""
+                                        }
+                                    }, 
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Dropdown(
+                                    label = districtLabel, 
+                                    options = districtOptions, 
+                                    selected = district, 
+                                    onSelected = { d -> 
+                                        if (district != d) {
+                                            district = d
+                                            location = ""
+                                        }
+                                    }, 
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
 
                             if (mandals.isNotEmpty()) {
@@ -530,15 +719,41 @@ fun PostNewsPageView(
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     if (isSubmitting) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
-                            Text(statusMessage)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically, 
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp), 
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.5.dp
+                            )
+                            Text(
+                                text = statusMessage,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     } else {
                         Text(if (postToEdit != null) updateString else publishString, fontSize = 18.sp)
                     }
                 }
             }
+        }
+
+        submissionResult?.let { result ->
+            NewsSubmissionResultDialog(
+                result = result,
+                onDismiss = {
+                    submissionResult = null
+                    statusMessage = if (postToEdit != null) updateString else publishString
+                },
+                onActionComplete = { targetPostId ->
+                    submissionResult = null
+                    onActionComplete(targetPostId)
+                }
+            )
         }
     }
 
@@ -581,4 +796,476 @@ internal fun Dropdown(
             }
         }
     }
+}
+
+internal sealed class NewsSubmissionResult {
+    data class Success(
+        val postId: String,
+        val headline: String,
+        val snippet: String,
+        val imageUrl: String?,
+        val category: String,
+        val location: String
+    ) : NewsSubmissionResult()
+
+    data class Rejected(
+        val postId: String,
+        val reason: String
+    ) : NewsSubmissionResult()
+
+    data class Failed(
+        val postId: String,
+        val error: String
+    ) : NewsSubmissionResult()
+
+    data class Timeout(
+        val postId: String
+    ) : NewsSubmissionResult()
+}
+
+internal suspend fun waitForNewsProcessing(
+    postId: String,
+    fallbackHeadline: String,
+    fallbackContent: String,
+    fallbackCategory: String,
+    fallbackLocation: String,
+    fallbackImageUrl: String?
+): NewsSubmissionResult {
+    if (postId.isBlank()) {
+        return NewsSubmissionResult.Failed("", "వార్త ఐడీ లభించలేదు")
+    }
+
+    return withTimeoutOrNull(45000L) {
+        suspendCancellableCoroutine { continuation ->
+            val docRef = FirebaseService.db.collection("news").document(postId)
+            var registration: ListenerRegistration? = null
+            registration = docRef.addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    if (continuation.isActive) {
+                        continuation.resume(
+                            NewsSubmissionResult.Failed(postId, error.message ?: "నెట్‌వర్క్ కనెక్షన్ లోపం")
+                        )
+                    }
+                    registration?.remove()
+                    return@addSnapshotListener
+                }
+
+                if (snapshot != null && snapshot.exists()) {
+                    val data = snapshot.data ?: return@addSnapshotListener
+                    val status = (data["status"] as? String)?.uppercase() ?: ""
+                    val approved = data["approved"] as? Boolean ?: false
+                    val rejectionReason = (data["rejectionReason"] as? String)?.trim()
+                    val errorMsg = (data["error"] as? String)?.trim()
+                        ?: (data["lastProcessingError"] as? String)?.trim()
+
+                    if (approved || status == "PUBLISHED") {
+                        val headlineMap = data["headline"] as? Map<*, *>
+                        val finalHeadline = headlineMap?.get("telugu")?.toString()
+                            ?: data["headline"]?.toString()
+                            ?: fallbackHeadline
+
+                        val contentMap = data["content"] as? Map<*, *>
+                        val finalContent = contentMap?.get("telugu")?.toString()
+                            ?: data["content"]?.toString()
+                            ?: fallbackContent
+
+                        val finalThumbnail = (data["thumbnailUrl"] as? String)?.takeIf { it.isNotBlank() }
+                            ?: (data["mediaUrl"] as? String)?.takeIf { it.isNotBlank() }
+                            ?: (data["mediaUrls"] as? List<*>)?.firstOrNull()?.toString()
+                            ?: fallbackImageUrl
+
+                        val finalCategory = (data["category"] as? String)
+                            ?: (data["categories"] as? List<*>)?.firstOrNull()?.toString()
+                            ?: fallbackCategory
+
+                        val finalLocation = (data["location"] as? String) ?: fallbackLocation
+
+                        if (continuation.isActive) {
+                            continuation.resume(
+                                NewsSubmissionResult.Success(
+                                    postId = postId,
+                                    headline = finalHeadline,
+                                    snippet = finalContent.take(160),
+                                    imageUrl = finalThumbnail,
+                                    category = finalCategory,
+                                    location = finalLocation
+                                )
+                            )
+                        }
+                        registration?.remove()
+                    } else if (status == "REJECTED" || !rejectionReason.isNullOrBlank()) {
+                        if (continuation.isActive) {
+                            continuation.resume(
+                                NewsSubmissionResult.Rejected(
+                                    postId = postId,
+                                    reason = rejectionReason ?: "వార్తా నిబంధనల ప్రకారం ప్రచురణకు ఆమోదించబడలేదు."
+                                )
+                            )
+                        }
+                        registration?.remove()
+                    } else if (status == "FAILED" || !errorMsg.isNullOrBlank()) {
+                        if (continuation.isActive) {
+                            continuation.resume(
+                                NewsSubmissionResult.Failed(
+                                    postId = postId,
+                                    error = errorMsg ?: "ప్రాసెసింగ్ లోపం"
+                                )
+                            )
+                        }
+                        registration?.remove()
+                    }
+                }
+            }
+
+            continuation.invokeOnCancellation {
+                registration?.remove()
+            }
+        }
+    } ?: NewsSubmissionResult.Timeout(postId)
+}
+
+@Composable
+internal fun NewsSubmissionResultDialog(
+    result: NewsSubmissionResult,
+    onDismiss: () -> Unit,
+    onActionComplete: (String) -> Unit
+) {
+    val context = LocalContext.current
+
+    AlertDialog(
+        onDismissRequest = {
+            when (result) {
+                is NewsSubmissionResult.Success -> onActionComplete(result.postId)
+                is NewsSubmissionResult.Rejected -> onDismiss()
+                is NewsSubmissionResult.Failed -> onActionComplete(result.postId)
+                is NewsSubmissionResult.Timeout -> onActionComplete(result.postId)
+            }
+        },
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false
+        ),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                when (result) {
+                    is NewsSubmissionResult.Success -> {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF2E7D32)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Text(
+                            text = "వార్త ప్రచురించబడింది!",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF2E7D32)
+                            )
+                        )
+                    }
+                    is NewsSubmissionResult.Rejected -> {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.error),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Text(
+                            text = "వార్త ఆమోదించబడలేదు",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        )
+                    }
+                    is NewsSubmissionResult.Failed, is NewsSubmissionResult.Timeout -> {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFED6C02)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Text(
+                            text = if (result is NewsSubmissionResult.Timeout) "సమీక్ష ఆలస్యమవుతోంది" else "ప్రాసెసింగ్ లోపం",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFED6C02)
+                            )
+                        )
+                    }
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                when (result) {
+                    is NewsSubmissionResult.Success -> {
+                        Text(
+                            text = "మీ వార్త విజయవంతంగా పబ్లిష్ అయ్యింది. పాఠకులు దీన్ని ఫీడ్‌లో చూడవచ్చు.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (!result.imageUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = result.imageUrl,
+                                        contentDescription = "News Image",
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(130.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
+
+                                if (result.location.isNotBlank() || result.category.isNotBlank()) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (result.location.isNotBlank()) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = MaterialTheme.colorScheme.primaryContainer
+                                            ) {
+                                                Text(
+                                                    text = result.location,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                        if (result.category.isNotBlank()) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = MaterialTheme.colorScheme.secondaryContainer
+                                            ) {
+                                                Text(
+                                                    text = result.category,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Text(
+                                    text = result.headline,
+                                    style = MaterialTheme.typography.titleSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = Ramabhadra
+                                    ),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                if (result.snippet.isNotBlank()) {
+                                    Text(
+                                        text = result.snippet,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    is NewsSubmissionResult.Rejected -> {
+                        Text(
+                            text = "సమీక్ష అనంతరం మీ వార్త ఆమోదించబడలేదు:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "తిరస్కరణకు కారణం:",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                Text(
+                                    text = result.reason,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "వార్తలో అవసరమైన మార్పులు చేసి మళ్ళీ సమర్పించవచ్చు.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    is NewsSubmissionResult.Failed -> {
+                        Text(
+                            text = "వార్త ప్రాసెసింగ్ సమయంలో సాంకేతిక సమస్య ఏర్పడింది:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            )
+                        ) {
+                            Text(
+                                text = result.error,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                        Text(
+                            text = "వార్త సర్వర్‌లో నమోదైంది. కాసేపటి తర్వాత మేనేజ్ న్యూస్ స్క్రీన్‌లో పరిశీలించండి.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    is NewsSubmissionResult.Timeout -> {
+                        Text(
+                            text = "వార్త సర్వర్‌కు విజయవంతంగా చేరింది. అయితే నెట్‌వర్క్ నెమ్మదిగా ఉన్నందున ఎడిటోరియల్ డెస్క్ సమీక్ష కాస్త ఎక్కువ సమయం తీసుకుంటోంది.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "మీ వార్త సర్వర్‌లో భద్రంగా ఉంది. కొద్ది నిమిషాల్లో మేనేజ్ న్యూస్ స్క్రీన్‌లో దీని తాజా స్థితిని చూడవచ్చు.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            when (result) {
+                is NewsSubmissionResult.Success -> {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                ShareUtil.shareNewsPost(
+                                    context = context,
+                                    postId = result.postId,
+                                    postTitle = result.headline,
+                                    additionalText = result.snippet
+                                )
+                            }
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("షేర్ చేయండి")
+                        }
+                        Button(
+                            onClick = { onActionComplete(result.postId) }
+                        ) {
+                            Text("చూడండి")
+                        }
+                    }
+                }
+                is NewsSubmissionResult.Rejected -> {
+                    Button(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Text("సవరించి మళ్ళీ పంపండి")
+                    }
+                }
+                is NewsSubmissionResult.Failed, is NewsSubmissionResult.Timeout -> {
+                    val pid = if (result is NewsSubmissionResult.Failed) result.postId else (result as NewsSubmissionResult.Timeout).postId
+                    Button(
+                        onClick = { onActionComplete(pid) }
+                    ) {
+                        Text("మేనేజ్ న్యూస్‌కు వెళ్లండి")
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            when (result) {
+                is NewsSubmissionResult.Rejected -> {
+                    TextButton(
+                        onClick = { onActionComplete("") }
+                    ) {
+                        Text("రద్దు చేయండి")
+                    }
+                }
+                is NewsSubmissionResult.Success -> {
+                    TextButton(
+                        onClick = { onActionComplete(result.postId) }
+                    ) {
+                        Text("సరే")
+                    }
+                }
+                is NewsSubmissionResult.Failed, is NewsSubmissionResult.Timeout -> {
+                    TextButton(
+                        onClick = onDismiss
+                    ) {
+                        Text("మూసివేయి")
+                    }
+                }
+            }
+        }
+    )
 }

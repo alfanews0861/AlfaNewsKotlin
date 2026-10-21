@@ -101,7 +101,17 @@ fun ManagePostsPageView(
     val authUid = remember { FirebaseService.auth.currentUser?.uid.orEmpty() }
     val userId = currentUser?.id.orEmpty()
     val prefUserId = remember { prefs.userId.orEmpty() }
-    val reporterId = userId.ifBlank { authUid }.ifBlank { prefUserId }
+
+    // 🛡️ ZERO ID MISMATCH: Prioritize authUid as primary ID (since Cloud Functions writes authUid to originalReporterId)
+    // and collect all valid candidate IDs so queries never fail due to document key differences
+    val candidateIds = remember(authUid, userId, prefUserId) {
+        listOfNotNull(
+            authUid.takeIf { it.isNotBlank() },
+            userId.takeIf { it.isNotBlank() },
+            prefUserId.takeIf { it.isNotBlank() }
+        ).distinct()
+    }
+    val primaryReporterId = authUid.ifBlank { userId }.ifBlank { prefUserId }
 
     // ⚡ INSTANT NEW POST DISPLAY: Fetch the just-published post directly by ID in < 100ms
     LaunchedEffect(newlyCreatedPostId) {
@@ -110,7 +120,7 @@ fun ManagePostsPageView(
                 val doc = FirebaseService.db.collection("news").document(newlyCreatedPostId).get().await()
                 if (doc.exists()) {
                     val p = mapMapToNewsPost(doc.id, doc.data ?: emptyMap())
-                    posts = (listOf(p) + posts).distinctBy { it.id }
+                    posts = (listOf(p) + posts).distinctBy { it.id }.take(5)
                     loading = false
                 }
             } catch (_: Exception) {}
@@ -118,8 +128,8 @@ fun ManagePostsPageView(
         }
     }
 
-    // ✅ REAL-TIME LISTENER: August 26 నాటి పద్ధతిలో రిపోర్టర్ వార్తలను నేరుగా రియల్-టైమ్‌లో లోడ్ చేసే రోబస్ట్ లిజనర్
-    DisposableEffect(currentUser, reporterId, refreshTrigger) {
+    // ✅ REAL-TIME LISTENER: 5 తాజా వార్తలను (< 100ms) నేరుగా రియల్-టైమ్‌లో లోడ్ చేసే రోబస్ట్ లిజనర్ (Limit: 5)
+    DisposableEffect(currentUser, primaryReporterId, refreshTrigger) {
         val role = currentUser?.role ?: UserRole.fromStringSafe(prefs.userRole) ?: UserRole.REPORTER
         var query = FirebaseService.db.collection("news")
             .orderBy("timestamp", Query.Direction.DESCENDING)
@@ -128,33 +138,24 @@ fun ManagePostsPageView(
             query = query.whereIn("district", currentUser.assignedDistricts)
         } else if (role == UserRole.ADMIN || role == UserRole.EDITOR || role == UserRole.NEWS_DESK) {
             // Admins & Editors see all recent news
-        } else if (reporterId.isNotBlank()) {
-            query = query.whereEqualTo("originalReporterId", reporterId)
+        } else if (candidateIds.isNotEmpty()) {
+            query = if (candidateIds.size == 1) {
+                query.whereEqualTo("originalReporterId", candidateIds.first())
+            } else {
+                query.whereIn("originalReporterId", candidateIds)
+            }
+        } else {
+            posts = emptyList()
+            loading = false
+            return@DisposableEffect onDispose {}
         }
 
-        val listener = query.limit(50).addSnapshotListener { snapshot, error ->
+        // ⚡ Limit 5: 5 తాజా వార్తలను వేగంగా లోడ్ చేయడం
+        val listener = query.limit(5).addSnapshotListener { snapshot, error ->
             if (error != null) {
                 loading = false
                 if (posts.isEmpty() && !com.alfanews.telugu.utils.NetworkUtils.isOnline(context)) {
                     isConnectionError = true
-                }
-                // Fallback to reporter.id if originalReporterId index had an issue
-                if (reporterId.isNotBlank() && (role == UserRole.REPORTER)) {
-                    FirebaseService.db.collection("news")
-                        .whereEqualTo("reporter.id", reporterId)
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(50)
-                        .get()
-                        .addOnSuccessListener { fallbackSnap ->
-                            val loaded = fallbackSnap.documents.mapNotNull { doc ->
-                                val data = doc.data ?: return@mapNotNull null
-                                mapMapToNewsPost(doc.id, data)
-                            }
-                            if (loaded.isNotEmpty()) {
-                                posts = loaded
-                                isConnectionError = false
-                            }
-                        }
                 }
                 return@addSnapshotListener
             }
@@ -165,31 +166,8 @@ fun ManagePostsPageView(
                     val data = doc.data ?: return@mapNotNull null
                     mapMapToNewsPost(doc.id, data)
                 }
-
-                if (reporterId.isNotBlank() && role == UserRole.REPORTER) {
-                    // Also check if any legacy posts were stored with reporter.id instead of originalReporterId
-                    FirebaseService.db.collection("news")
-                        .whereEqualTo("reporter.id", reporterId)
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(50)
-                        .get()
-                        .addOnSuccessListener { legacySnap ->
-                            val legacyLoaded = legacySnap.documents.mapNotNull { doc ->
-                                val data = doc.data ?: return@mapNotNull null
-                                mapMapToNewsPost(doc.id, data)
-                            }
-                            val merged = (directLoaded + legacyLoaded).distinctBy { it.id }.sortedByDescending { it.timestamp }
-                            posts = if (merged.isNotEmpty()) merged else directLoaded
-                            loading = false
-                        }
-                        .addOnFailureListener {
-                            posts = directLoaded
-                            loading = false
-                        }
-                } else {
-                    posts = directLoaded
-                    loading = false
-                }
+                posts = directLoaded
+                loading = false
             }
         }
 

@@ -64,9 +64,10 @@ object Constants {
     val UNIVERSAL_IDENTIFIERS: Set<String> = setOf(
         "General", "State", "State News", "Sports", "Health", "Technology", "Business", "Entertainment", "Cinema",
         "National", "International", "Crime", "Education", "Agriculture", "Devotional", "Lifestyle",
-        "India", "World", "Global", "ALL", "జనరల్", "భారతదేశం", "ప్రపంచం", "జాతీయం", "అంతర్జాతీయం",
+        "India", "World", "Global", "ALL", "Politics", "News", "Cartoon", "జనరల్", "భారతదేశం", "ప్రపంచం", "జాతీయం", "అంతర్జాతీయం",
         "సినిమా", "స్పోర్ట్స్", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "ఆరోగ్యం", "విద్య", "వ్యవసాయం", "భక్తి",
-        "రాష్ట్రం", "వార్తలు", "News", "వినోదం", "లైఫ్ స్టైల్"
+        "రాష్ట్రం", "వార్తలు", "వినోదం", "లైఫ్ స్టైల్", "రాజకీయం", "నేరాలు", "జీవనశైలి", "పండుగలు", "కార్టూన్",
+        "విద్య/ఉద్యోగాలు", "ముఖ్యాంశాలు", "బ్రేకింగ్", "వైరల్", "తాజా వార్తలు"
     )
 
     val STATE_NAMES: Set<String> = setOf(
@@ -85,6 +86,15 @@ object Constants {
         val clean = district.trim()
         if (isUniversalOrGeneral(clean)) return true
         return STATE_NAMES.any { it.equals(clean, ignoreCase = true) }
+    }
+
+    fun isSpecificDistrict(district: String?): Boolean {
+        if (district.isNullOrBlank()) return false
+        val clean = district.trim()
+        if (isUniversalOrGeneral(clean) || isStateOrGenericDistrict(clean)) return false
+        return ALL_DISTRICTS.any { it.equals(clean, ignoreCase = true) } ||
+                TS_IDENTIFIERS.any { it.equals(clean, ignoreCase = true) } ||
+                AP_IDENTIFIERS.any { it.equals(clean, ignoreCase = true) }
     }
 
     fun mapDistrictToState(district: String?): String? {

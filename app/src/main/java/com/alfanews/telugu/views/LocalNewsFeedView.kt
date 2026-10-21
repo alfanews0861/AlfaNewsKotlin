@@ -181,7 +181,7 @@ fun LocalNewsFeedView(
     LaunchedEffect(pagerState, news.size) { 
         snapshotFlow { pagerState.currentPage }.collect { page ->
             val newsIndex = page - (page / 6)
-            if (newsIndex >= news.size - 5 && hasMore && !loading) {
+            if (newsIndex >= news.size - 10 && hasMore && !loading) {
                 viewModel.loadMore(language, currentUser)
             }
 
@@ -240,7 +240,7 @@ fun LocalNewsFeedView(
 
     PullToRefreshBox(
         isRefreshing = loading && news.isNotEmpty(),
-        onRefresh = { viewModel.loadNews(language, currentUser, forceRefresh = true) },
+        onRefresh = { viewModel.loadNews(language, currentUser, forceRefresh = true, isExplicitScrollToTop = true) },
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
@@ -312,6 +312,12 @@ fun LocalNewsFeedView(
                 }
             }
         } else if (news.isEmpty()) {
+            LaunchedEffect(Unit) {
+                kotlinx.coroutines.delay(3500L)
+                if (viewModel.news.value.isEmpty()) {
+                    viewModel.loadNews(language, currentUser, forceRefresh = true, isExplicitScrollToTop = false)
+                }
+            }
             NewsCardSkeleton()
         } else {
             VerticalPager(

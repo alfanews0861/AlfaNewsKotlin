@@ -146,36 +146,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val firebaseAuthUser = FirebaseService.auth.currentUser
-        val cachedId = prefs.userId ?: firebaseAuthUser?.uid
-        val cachedPhone = firebaseAuthUser?.phoneNumber ?: prefs.userPhone
-        val cachedEmail = firebaseAuthUser?.email ?: prefs.userEmail
-        val cleanPhoneCached = cachedPhone?.replace("+91", "")?.trim()
-        val isAdminCached = (cachedPhone?.contains("9173811009") == true) ||
-                            (cleanPhoneCached == "9173811009") ||
-                            (cachedEmail?.equals("alfanews0861@gmail.com", ignoreCase = true) == true) ||
-                            (prefs.userRole == "ADMIN")
-        val isPermanentReporterCached = (cachedEmail?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true)
-        val effectiveCachedRole = if (isAdminCached) "ADMIN" else if (isPermanentReporterCached) "REPORTER" else (prefs.userRole ?: "SUBSCRIBER")
-        if (isAdminCached) {
-            prefs.userRole = "ADMIN"
-        } else if (isPermanentReporterCached) {
-            prefs.userRole = "REPORTER"
-            prefs.userAssignedMandal = "నెల్లూరు అర్బన్"
-            if (prefs.userDistrict.isNullOrBlank() || prefs.userDistrict == "ఖమ్మం") {
-                prefs.userDistrict = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు"
+        if (firebaseAuthUser != null) {
+            val cachedId = firebaseAuthUser.uid
+            prefs.userId = cachedId
+            val cachedPhone = firebaseAuthUser.phoneNumber ?: prefs.userPhone
+            val cachedEmail = firebaseAuthUser.email ?: prefs.userEmail
+            val cleanPhoneCached = cachedPhone?.replace("+91", "")?.trim()
+            val isAdminCached = (cachedPhone?.contains("9173811009") == true) ||
+                                (cleanPhoneCached == "9173811009") ||
+                                (cachedEmail?.equals("alfanews0861@gmail.com", ignoreCase = true) == true) ||
+                                (prefs.userRole == "ADMIN")
+            val isPermanentReporterCached = (cachedEmail?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true)
+            val effectiveCachedRole = if (isAdminCached) "ADMIN" else if (isPermanentReporterCached) "REPORTER" else (prefs.userRole ?: "SUBSCRIBER")
+            if (isAdminCached) {
+                prefs.userRole = "ADMIN"
+            } else if (isPermanentReporterCached) {
+                prefs.userRole = "REPORTER"
+                prefs.userAssignedMandal = "నెల్లూరు అర్బన్"
+                if (prefs.userDistrict.isNullOrBlank() || prefs.userDistrict == "ఖమ్మం") {
+                    prefs.userDistrict = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు"
+                }
             }
-        }
 
-        if (cachedId != null) {
             _currentUser.value = User(
                 id = cachedId,
-                name = prefs.userName ?: firebaseAuthUser?.displayName ?: if (isAdminCached) "శ్రీకాంత్ రెడ్డి" else if (isPermanentReporterCached) "Alfa News Service" else "User",
+                name = prefs.userName ?: firebaseAuthUser.displayName ?: if (isAdminCached) "శ్రీకాంత్ రెడ్డి" else if (isPermanentReporterCached) "Alfa News Service" else "User",
                 role = if (isAdminCached) UserRole.ADMIN else if (isPermanentReporterCached) UserRole.REPORTER else UserRole.fromString(effectiveCachedRole),
                 district = if (isPermanentReporterCached) "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" else prefs.userDistrict,
                 assignedMandal = if (isPermanentReporterCached) "నెల్లూరు అర్బన్" else prefs.userAssignedMandal,
                 phone = cachedPhone,
                 email = cachedEmail
             )
+        } else {
+            // 🛡️ ZERO FALSE ILLUSION: Do not create fake cached reporter state if no Firebase Auth session exists
+            _currentUser.value = null
         }
 
         authStateListener = com.google.firebase.auth.FirebaseAuth.AuthStateListener { auth ->

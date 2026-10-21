@@ -85,7 +85,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun prependPost(post: NewsPost) {
-        _news.value = (listOf(post) + _news.value).distinctBy { it.id }
+        val cleanExisting = _news.value.filter { isNormalLocalNews(it) && isStateMatch(it, post.district ?: _activeDistrict.value) }
+        _news.value = (listOf(post) + cleanExisting).distinctBy { it.id }
         _loading.value = false
     }
 
@@ -100,7 +101,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     private var lastRefreshTimeLong: Long = 0
     private val pageSize = 20
     private var loadJob: Job? = null
-    private var isFetching = false
+    @Volatile private var isFetching = false
+    @Volatile private var lastFetchStartTime: Long = 0L
     private var consecutiveEmptyLoads = 0
     
     fun setDistrict(district: String) {
@@ -112,7 +114,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         prefs.selectedDistrict = district
         _activeDistrict.value = district
         AnalyticsService.logDistrictSelected(district, oldDistrict)
-        loadNews(Language.TELUGU, null) 
+        loadNews(Language.TELUGU, null, forceRefresh = true, isExplicitScrollToTop = true) 
     }
     
     @SuppressLint("MissingPermission")
@@ -207,26 +209,52 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
-    private fun getDistrictAliases(district: String?): List<String> {
-        if (district.isNullOrBlank()) return emptyList()
-        val list = mutableListOf(district)
-        when {
-            district.contains("నెల్లూరు") -> list.addAll(listOf("శ్రీ పొట్టి శ్రీరాములు నెల్లూరు", "నెల్లూరు", "Nellore", "SPSR Nellore"))
-            district.contains("కడప") -> list.addAll(listOf("వైఎస్ఆర్ కడప", "కడప", "YSR Kadapa", "Kadapa"))
-            district.contains("సత్యసాయి") -> list.addAll(listOf("శ్రీ సత్యసాయి", "సత్యసాయి", "Sri Sathya Sai"))
-            district.contains("అల్లూరి") -> list.addAll(listOf("అల్లూరి సీతారామరాజు", "అల్లూరి", "Alluri"))
-            district.contains("మన్యం") || district.contains("పార్వతీపురం") -> list.addAll(listOf("పార్వతీపురం మన్యం", "మన్యం", "పార్వతీపురం"))
-            district.contains("కొత్తగూడెం") -> list.addAll(listOf("భద్రాద్రి కొత్తగూడెం", "కొత్తగూడెం", "Bhadradri"))
-            district.contains("ఆసిఫాబాద్") -> list.addAll(listOf("కుమ్రం భీమ్ ఆసిఫాబాద్", "ఆసిఫాబాద్", "Asifabad"))
-            district.contains("భూపాలపల్లి") -> list.addAll(listOf("జయశంకర్ భూపాలపల్లి", "భూపాలపల్లి", "Bhupalpally"))
-            district.contains("గద్వాల") -> list.addAll(listOf("జోగులాంబ గద్వాల", "గద్వాల", "Gadwal"))
-            district.contains("సిరిసిల్ల") -> list.addAll(listOf("రాజన్న సిరిసిల్ల", "సిరిసిల్ల", "Sircilla"))
-            district.contains("భువనగిరి") -> list.addAll(listOf("యాదాద్రి భువనగిరి", "భువనగిరి", "Yadadri"))
-            district.contains("మేడ్చల్") -> list.addAll(listOf("మేడ్చల్ మల్కాజిగిరి", "మేడ్చల్", "Medchal"))
-            district.contains("హన్మకొండ") || district.contains("హనుమకొండ") -> list.addAll(listOf("హన్మకొండ", "హనుమకొండ", "వరంగల్ అర్బన్", "Hanamkonda"))
-            district.contains("వరంగల్") -> list.addAll(listOf("వరంగల్", "వరంగల్ రూరల్", "హన్మకొండ", "Warangal"))
+    /**
+     * స్థానిక వార్తల ఫీడ్‌లో కేవలం నిజమైన జిల్లా/మండల వార్తలను మాత్రమే అనుమతించాలి.
+     * కార్టూన్లు (cartoons), శుభాకాంక్షలు (greetings), చరిత్ర (history), సర్వేలు (surveys) వంటి ప్రత్యేక పోస్ట్‌లు హోమ్ ఫీడ్ కోసమే, స్థానిక ఫీడ్ కోసం కాదు.
+     */
+    private fun isNormalLocalNews(post: NewsPost): Boolean {
+        if (post.type == "cartoon" || post.type == "greeting" || post.type == "history" || post.type == "survey") return false
+        if (post.category.equals("కార్టూన్", ignoreCase = true) || post.categories.any { it.equals("కార్టూన్", ignoreCase = true) }) return false
+        return true
+    }
+
+    /**
+     * జిల్లా ఫీడ్‌లో ఇతర రాష్ట్రాల వార్తలు (ఉదా: తెలంగాణ జిల్లాలో విశాఖపట్నం లేదా ఆంధ్రప్రదేశ్ వార్తలు) రాకుండా నిరోధిస్తుంది.
+     */
+    private fun isStateMatch(post: NewsPost, targetDistrict: String?): Boolean {
+        if (targetDistrict.isNullOrBlank()) return true
+        val isTargetAp = Constants.isApDistrict(targetDistrict)
+        
+        // 1. పోస్ట్ లోని స్పష్టమైన జిల్లా ఉంటే, అది ప్రస్తుత జిల్లా యొక్క రాష్ట్రానికే చెంది ఉండాలి
+        val postDist = post.district
+        if (!postDist.isNullOrBlank() && postDist != "State" && postDist != "General" && postDist != "రాష్ట్రం") {
+            val isPostAp = Constants.isApDistrict(postDist)
+            if (isTargetAp != isPostAp) return false
         }
-        return list.distinct()
+        
+        // 2. పోస్ట్ యొక్క లొకేషన్ (ఉదా: "విశాఖపట్నం" vs తెలంగాణ జిల్లా)
+        if (post.location.isNotBlank()) {
+            val isLocAp = Constants.isApDistrict(post.location)
+            val isLocTs = Constants.TS_DISTRICTS.any { it.equals(post.location, ignoreCase = true) } || post.location.contains("తెలంగాణ") || post.location.contains("హైదరాబాద్")
+            if (isTargetAp && isLocTs) return false
+            if (!isTargetAp && isLocAp) return false
+        }
+        
+        // 3. పోస్ట్ యొక్క state ఫీల్డ్ తనిఖీ
+        val postState = post.state?.trim()
+        if (!postState.isNullOrBlank()) {
+            val isPostStateAp = postState.equals("AP", ignoreCase = true) || postState.contains("Andhra", ignoreCase = true) || postState.contains("ఆంధ్ర")
+            val isPostStateTs = postState.equals("TS", ignoreCase = true) || postState.equals("TG", ignoreCase = true) || postState.contains("Telangana", ignoreCase = true) || postState.contains("తెలంగాణ")
+            if (isTargetAp && isPostStateTs) return false
+            if (!isTargetAp && isPostStateAp) return false
+        }
+        
+        return true
+    }
+
+    private fun getDistrictAliases(district: String?): List<String> {
+        return Constants.getDistrictAliases(district)
     }
 
 
@@ -293,7 +321,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     fun loadNews(
         language: Language,
         currentUser: User?,
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        isExplicitScrollToTop: Boolean = false
     ) {
         currentLanguage = language
         val district = _activeDistrict.value
@@ -302,12 +331,13 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             return
         }
         
-        // 🛡️ CRITICAL CONCURRENCY FIX:
-        // If a fetch is already in flight and this is not a forceRefresh, do not cancel or restart.
-        // Allow the active query to finish so concurrent calls (resume, tab switch) don't kill in-flight requests.
+        val now = System.currentTimeMillis()
+        // 🛡️ DEBOUNCE DOUBLE-RESUME: If a fetch is already in flight within the last 3.5 seconds, let it complete
+        if (isFetching && (now - lastFetchStartTime < 3500L)) return
         if (isFetching && !forceRefresh) return
 
         loadJob?.cancel()
+        lastFetchStartTime = now
 
         // 🔄 BACKGROUND LOAD: Only show full-screen loading if we have no news to show.
         if (_news.value.isEmpty()) {
@@ -345,9 +375,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     .limit(pageSize.toLong())
 
                 // ⚡ FAST PATH: Server direct top 5 news (< 300ms) to dismiss loading fast without cache
-                if (_news.value.isEmpty()) {
+                // Runs on cold start (_news empty) AND on stale resume/forceRefresh so fresh news hits screen in < 300ms
+                if (_news.value.isEmpty() || forceRefresh) {
                     try {
-                        val fastSnap = withTimeoutOrNull(2500L) {
+                        val fastSnap = withTimeoutOrNull(3500L) {
                             newsRef.whereEqualTo("approved", true)
                                 .whereIn("district", primaryAliases)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
@@ -357,10 +388,17 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         if (fastSnap != null && !fastSnap.isEmpty) {
                             val fastPosts = withContext(Dispatchers.Default) {
                                 fastSnap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                                    .filter { isNormalLocalNews(it) && isStateMatch(it, district) }
                             }
                             if (fastPosts.isNotEmpty()) {
-                                _news.value = rankLocalNews(fastPosts, district, currentUser)
+                                val currentNews = _news.value
+                                val rankedFast = rankLocalNews(fastPosts, district, currentUser)
+                                val olderNews = currentNews.filter { cur -> fastPosts.none { it.id == cur.id } && isNormalLocalNews(cur) && isStateMatch(cur, district) }
+                                // 🚀 FRESH NEWS ALWAYS AT TOP: rankedFast first, olderNews second!
+                                _news.value = (rankedFast + olderNews).distinctBy { it.id }
                                 _loading.value = false
+                                lastRefreshTimeLong = System.currentTimeMillis()
+                                _lastRefreshTime.value = lastRefreshTimeLong
                             }
                         }
                     } catch (_: Exception) {}
@@ -368,11 +406,12 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                 try {
                     // 🚀 STEP 1: Search by 'district' field directly with whereIn (Single Batch Query)
-                    val snap = withTimeoutOrNull(6000L) { query.get().await() }
+                    val snap = withTimeoutOrNull(4500L) { query.get().await() }
                     if (snap != null && !snap.isEmpty) {
                         snapshot = snap
                         posts = withContext(Dispatchers.Default) {
                             snap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                                .filter { isNormalLocalNews(it) && isStateMatch(it, district) }
                         }
                     }
 
@@ -385,18 +424,19 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             .orderBy("timestamp", Query.Direction.DESCENDING)
                             .limit(pageSize.toLong())
                         
-                        val fallbackSnapshot = withTimeoutOrNull(5000L) { fallbackQuery.get().await() }
+                        val fallbackSnapshot = withTimeoutOrNull(3500L) { fallbackQuery.get().await() }
                         if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {
                             snapshot = fallbackSnapshot
                             posts = withContext(Dispatchers.Default) {
                                 fallbackSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                                    .filter { isNormalLocalNews(it) && isStateMatch(it, district) }
                             }
                         }
                     }
 
                     // 🚀 STEP 3: State-Level Fallback if district has zero local news right now
                     if (posts.isEmpty()) {
-                        val isAP = Constants.AP_DISTRICTS.contains(district) || district.contains("నెల్లూరు") || district.contains("కడప")
+                        val isAP = Constants.isApDistrict(district)
                         val stateTags = if (isAP) {
                             listOf("Andhra Pradesh", "ఆంధ్రప్రదేశ్", "AP", "State", "రాష్ట్రం")
                         } else {
@@ -409,11 +449,12 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             .orderBy("timestamp", Query.Direction.DESCENDING)
                             .limit(pageSize.toLong())
                         
-                        val stateSnapshot = withTimeoutOrNull(4000L) { stateQuery.get().await() }
+                        val stateSnapshot = withTimeoutOrNull(3000L) { stateQuery.get().await() }
                         if (stateSnapshot != null && !stateSnapshot.isEmpty) {
                             snapshot = stateSnapshot
                             posts = withContext(Dispatchers.Default) {
                                 stateSnapshot.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                                    .filter { isNormalLocalNews(it) && isStateMatch(it, district) }
                             }
                         }
                     }
@@ -422,18 +463,21 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 }
                 
                 lastDocument = snapshot?.documents?.lastOrNull()
-                _hasMore.value = snapshot?.documents?.size == pageSize
+                _hasMore.value = (snapshot?.documents?.size ?: 0) >= 10
                 
                 val rankedPosts = withContext(Dispatchers.Default) {
                     rankLocalNews(posts, district, currentUser)
                 }
 
                 if (rankedPosts.isNotEmpty()) {
-                    _news.value = rankedPosts
+                    val currentNews = _news.value
+                    val olderNews = currentNews.filter { cur -> rankedPosts.none { it.id == cur.id } && isNormalLocalNews(cur) && isStateMatch(cur, district) }
+                    // 🚀 FRESH NEWS ALWAYS AT TOP: rankedPosts first, olderNews second!
+                    _news.value = (rankedPosts + olderNews).distinctBy { it.id }
                 }
                 _isOnline.value = com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())
-                // Only scroll to top if we are loading the first page (lastDocument is null)
-                if (lastDocument == null && rankedPosts.isNotEmpty()) {
+                // Only scroll to top on explicit user refresh (pull to refresh or district change)
+                if (isExplicitScrollToTop) {
                     _shouldScrollToTop.value = true 
                 }
                 _loading.value = false 
@@ -473,8 +517,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                          .startAfter(currentLastDoc)
                          .limit(pageSize.toLong())
                      
-                     val res = query.get().await()
-                     if (!res.isEmpty) {
+                     val res = withTimeoutOrNull(6000L) { query.get().await() }
+                     if (res != null && !res.isEmpty) {
                          snap = res
                      } else {
                          // 🔄 FALLBACK: Try categories array with whereArrayContainsAny
@@ -485,15 +529,16 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                              .orderBy("timestamp", Query.Direction.DESCENDING)
                              .startAfter(currentLastDoc)
                              .limit(pageSize.toLong())
-                         val backupRes = backupQuery.get().await()
-                         if (!backupRes.isEmpty) {
+                         val backupRes = withTimeoutOrNull(5000L) { backupQuery.get().await() }
+                         if (backupRes != null && !backupRes.isEmpty) {
                              snap = backupRes
                          }
                      }
                      snapshot = snap
 
                      withContext(Dispatchers.Default) {
-                         snap?.documents?.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) } ?: emptyList()
+                         snap?.documents?.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                             ?.filter { isNormalLocalNews(it) && isStateMatch(it, district) } ?: emptyList()
                      }
                  } catch (e: Exception) {
                      android.util.Log.e("LocalNewsFeedViewModel", "LoadMore query failed: ${e.message}")
@@ -502,7 +547,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                  
                  if (newPosts.isNotEmpty()) {
                      lastDocument = snapshot?.documents?.lastOrNull()
-                     _hasMore.value = (snapshot?.documents?.size ?: 0) == pageSize
+                     _hasMore.value = (snapshot?.documents?.size ?: 0) >= 5
                      
                      val currentIds = _news.value.map { it.id }.toSet()
                      val uniqueNewPosts = newPosts.filter { post: NewsPost -> !currentIds.contains(post.id) }
@@ -515,15 +560,21 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                          consecutiveEmptyLoads = 0
                      } else {
                           consecutiveEmptyLoads++
-                          if (consecutiveEmptyLoads >= 3) {
+                          if (consecutiveEmptyLoads >= 6) {
                               _hasMore.value = false
                           }
                       }
                  } else {
-                     _hasMore.value = false
+                     consecutiveEmptyLoads++
+                     if (consecutiveEmptyLoads >= 6) {
+                         _hasMore.value = false
+                     }
                  }
              } catch (e: Exception) {
-                 _hasMore.value = false
+                 consecutiveEmptyLoads++
+                 if (consecutiveEmptyLoads >= 6) {
+                     _hasMore.value = false
+                 }
              } finally {
                  isFetching = false
              }
@@ -536,9 +587,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
     fun refreshIfStale(language: Language, currentUser: User?) {
         val now = System.currentTimeMillis()
-        if (now - lastRefreshTimeLong > 300000 || _news.value.isEmpty()) {
+        if ((now - lastRefreshTimeLong > 300000 || _news.value.isEmpty()) && !isFetching) {
             _isOnline.value = true
-            loadNews(language, currentUser, forceRefresh = true)
+            loadNews(language, currentUser, forceRefresh = true, isExplicitScrollToTop = false)
         }
     }
 

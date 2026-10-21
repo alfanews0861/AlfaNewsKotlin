@@ -522,9 +522,10 @@ fun MainScreen(
                                 mainViewModel.setActiveTab("home")
                             }
                         )
-                    } else if (showPostNewsPage && user != null) {
+                    } else if (showPostNewsPage) {
+                        val postUser = user ?: User(id = com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid.orEmpty(), name = "రిపోర్టర్", role = UserRole.REPORTER)
                         PostNewsPageView(
-                            user = user,
+                            user = postUser,
                             postToEdit = editingNewsPost,
                             onActionComplete = { postId: String -> 
                                 showPostNewsPage = false
@@ -541,7 +542,7 @@ fun MainScreen(
                                     newsFeedViewModel.loadNews(language, user, forceRefresh = true)
                                 }
                                 
-                                val isStaff = listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK).contains(user.role)
+                                val isStaff = listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK).contains(user?.role)
                                 
                                 if (isStaff) {
                                     mainViewModel.setAdminActivePage("manage")

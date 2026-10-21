@@ -175,7 +175,7 @@ fun NewsFeedView(
             }
 
             val currentNewsIndex = page - (page / 6)
-            if (currentNewsIndex >= news.size - 7 && hasMore && !loading) {
+            if (currentNewsIndex >= news.size - 12 && hasMore && !loading) {
                 viewModel.loadMore(language, currentUser)
             }
 
@@ -226,7 +226,7 @@ fun NewsFeedView(
             }
 
             // 🚀 ADMOB PRELOADING: limit to 12 slots ahead
-            (1..12).forEach { offset ->
+            (1..3).forEach { offset ->
                 val futurePage = page + offset
                 val isAdSlot = (futurePage + 1) % 6 == 0
                 if (isAdSlot && futurePage < totalCount) {
@@ -238,7 +238,7 @@ fun NewsFeedView(
 
     PullToRefreshBox(
         isRefreshing = loading && news.isNotEmpty(),
-        onRefresh = { viewModel.loadNews(language, currentUser, forceRefresh = true) },
+        onRefresh = { viewModel.loadNews(language, currentUser, forceRefresh = true, isExplicitScrollToTop = true) },
         modifier = Modifier.fillMaxSize()
     ) {
         if (!isOnline && news.isEmpty()) {
@@ -252,13 +252,19 @@ fun NewsFeedView(
                     Text(text = stringResource(R.string.no_internet), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
                     Text(text = stringResource(R.string.check_internet), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
                     Button(onClick = {
-                        viewModel.loadNews(language, currentUser, initialPostId, forceRefresh = true)
+                        viewModel.loadNews(language, currentUser, initialPostId, forceRefresh = true, isExplicitScrollToTop = true)
                     }) {
                         Text(text = stringResource(R.string.retry))
                     }
                 }
             }
         } else if (news.isEmpty()) {
+            LaunchedEffect(Unit) {
+                kotlinx.coroutines.delay(3500L)
+                if (viewModel.news.value.isEmpty()) {
+                    viewModel.loadNews(language, currentUser, initialPostId, forceRefresh = true, isExplicitScrollToTop = false)
+                }
+            }
             NewsCardSkeleton()
         } else {
             VerticalPager(

@@ -112,15 +112,20 @@ fun AdminPanelView(
     } else {
         user.role
     }
-    val effectiveUser = remember(user, effectiveRole) {
+    val effectiveUser = remember(user, effectiveRole, authUser?.uid) {
+        val base = if (!authUser?.uid.isNullOrBlank() && user.id != authUser?.uid) {
+            user.copy(id = authUser!!.uid)
+        } else {
+            user
+        }
         if (isPermanentReporter) {
-            user.copy(
+            base.copy(
                 role = UserRole.REPORTER,
                 district = "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు",
                 assignedMandal = "నెల్లూరు అర్బన్"
             )
         } else {
-            user.copy(role = effectiveRole)
+            base.copy(role = effectiveRole)
         }
     }
 
