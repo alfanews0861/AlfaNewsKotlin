@@ -502,11 +502,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     // User చదవని posts categories కి score ఇవ్వడం wrong.
                     // Actual engagement మాత్రమే track చేయాలి (logPostEngagement, logLongView).
 
-                   if (_news.value.isEmpty()) {
-                       _isOnline.value = false
-                   } else {
-                       _isOnline.value = true
-                   }
+                   _isOnline.value = com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())
 
                    if (initialPostId == null) {
                        _shouldScrollToTop.value = true
@@ -514,8 +510,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                    lastRefreshTimeLong = System.currentTimeMillis()
 
               } catch (e: Exception) {
+                  _isOnline.value = com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())
                   if (_news.value.isEmpty()) {
-                      _isOnline.value = false
                       _hasMore.value = false
                   }
               } finally {

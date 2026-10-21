@@ -82,13 +82,15 @@ fun ManagePostsPageView(
         }
     }
 
-    // 🌐 6-SECOND WATCHDOG: Genuinely stop loading if no connection within 6s and show offline prompt
+    // 🌐 WATCHDOG: Only stop loading and show connection error if phone is genuinely offline
     LaunchedEffect(refreshTrigger) {
         isConnectionError = false
         delay(6000L)
         if (loading && posts.isEmpty()) {
-            loading = false
-            isConnectionError = true
+            if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(context)) {
+                loading = false
+                isConnectionError = true
+            }
         }
     }
 
@@ -127,19 +129,19 @@ fun ManagePostsPageView(
         } else if (role == UserRole.ADMIN || role == UserRole.EDITOR || role == UserRole.NEWS_DESK) {
             // Admins & Editors see all recent news
         } else if (reporterId.isNotBlank()) {
-            query = query.whereEqualTo("reporter.id", reporterId)
+            query = query.whereEqualTo("originalReporterId", reporterId)
         }
 
         val listener = query.limit(50).addSnapshotListener { snapshot, error ->
-            loading = false
             if (error != null) {
-                if (posts.isEmpty()) {
+                loading = false
+                if (posts.isEmpty() && !com.alfanews.telugu.utils.NetworkUtils.isOnline(context)) {
                     isConnectionError = true
                 }
-                // If composite index on reporter.id had an issue, fallback query on originalReporterId
+                // Fallback to reporter.id if originalReporterId index had an issue
                 if (reporterId.isNotBlank() && (role == UserRole.REPORTER)) {
                     FirebaseService.db.collection("news")
-                        .whereEqualTo("originalReporterId", reporterId)
+                        .whereEqualTo("reporter.id", reporterId)
                         .orderBy("timestamp", Query.Direction.DESCENDING)
                         .limit(50)
                         .get()
@@ -159,31 +161,34 @@ fun ManagePostsPageView(
 
             if (snapshot != null) {
                 isConnectionError = false
-                val loaded = snapshot.documents.mapNotNull { doc ->
+                val directLoaded = snapshot.documents.mapNotNull { doc ->
                     val data = doc.data ?: return@mapNotNull null
                     mapMapToNewsPost(doc.id, data)
                 }
 
-                if (loaded.isNotEmpty()) {
-                    posts = loaded
-                } else if (reporterId.isNotBlank() && role == UserRole.REPORTER) {
-                    // Check if reporter's posts were stored with originalReporterId
+                if (reporterId.isNotBlank() && role == UserRole.REPORTER) {
+                    // Also check if any legacy posts were stored with reporter.id instead of originalReporterId
                     FirebaseService.db.collection("news")
-                        .whereEqualTo("originalReporterId", reporterId)
+                        .whereEqualTo("reporter.id", reporterId)
                         .orderBy("timestamp", Query.Direction.DESCENDING)
                         .limit(50)
                         .get()
-                        .addOnSuccessListener { origSnap ->
-                            val origLoaded = origSnap.documents.mapNotNull { doc ->
+                        .addOnSuccessListener { legacySnap ->
+                            val legacyLoaded = legacySnap.documents.mapNotNull { doc ->
                                 val data = doc.data ?: return@mapNotNull null
                                 mapMapToNewsPost(doc.id, data)
                             }
-                            if (origLoaded.isNotEmpty()) {
-                                posts = origLoaded
-                            }
+                            val merged = (directLoaded + legacyLoaded).distinctBy { it.id }.sortedByDescending { it.timestamp }
+                            posts = if (merged.isNotEmpty()) merged else directLoaded
+                            loading = false
+                        }
+                        .addOnFailureListener {
+                            posts = directLoaded
+                            loading = false
                         }
                 } else {
-                    posts = emptyList()
+                    posts = directLoaded
+                    loading = false
                 }
             }
         }

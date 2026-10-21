@@ -302,22 +302,28 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             return
         }
         
+        // 🛡️ CRITICAL CONCURRENCY FIX:
+        // If a fetch is already in flight and this is not a forceRefresh, do not cancel or restart.
+        // Allow the active query to finish so concurrent calls (resume, tab switch) don't kill in-flight requests.
+        if (isFetching && !forceRefresh) return
+
+        loadJob?.cancel()
+
         // 🔄 BACKGROUND LOAD: Only show full-screen loading if we have no news to show.
         if (_news.value.isEmpty()) {
             _loading.value = true 
         }
+        isFetching = true
         loadLocalAds(district) 
-        loadJob?.cancel()
         
         loadJob = viewModelScope.launch {
-            if (isFetching && !forceRefresh) return@launch
-            isFetching = true
-            
             if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) {
-                _isOnline.value = false
-                _loading.value = false
-                isFetching = false
-                return@launch
+                if (_news.value.isEmpty()) {
+                    _isOnline.value = false
+                    _loading.value = false
+                    isFetching = false
+                    return@launch
+                }
             }
             _isOnline.value = true
 
@@ -330,17 +336,38 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 var posts: List<NewsPost> = emptyList()
                 var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
 
+                val districtAliases = getDistrictAliases(district)
+                val primaryAliases = districtAliases.take(30)
+                val query = newsRef
+                    .whereEqualTo("approved", true)
+                    .whereIn("district", primaryAliases)
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                    .limit(pageSize.toLong())
+
+                // ⚡ FAST PATH: Server direct top 5 news (< 300ms) to dismiss loading fast without cache
+                if (_news.value.isEmpty()) {
+                    try {
+                        val fastSnap = withTimeoutOrNull(2500L) {
+                            newsRef.whereEqualTo("approved", true)
+                                .whereIn("district", primaryAliases)
+                                .orderBy("timestamp", Query.Direction.DESCENDING)
+                                .limit(5)
+                                .get().await()
+                        }
+                        if (fastSnap != null && !fastSnap.isEmpty) {
+                            val fastPosts = withContext(Dispatchers.Default) {
+                                fastSnap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                            }
+                            if (fastPosts.isNotEmpty()) {
+                                _news.value = rankLocalNews(fastPosts, district, currentUser)
+                                _loading.value = false
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
                 try {
-                    val districtAliases = getDistrictAliases(district)
-                    
                     // 🚀 STEP 1: Search by 'district' field directly with whereIn (Single Batch Query)
-                    val primaryAliases = districtAliases.take(30)
-                    val query = newsRef
-                        .whereEqualTo("approved", true)
-                        .whereIn("district", primaryAliases)
-                        .orderBy("timestamp", Query.Direction.DESCENDING)
-                        .limit(pageSize.toLong())
-                    
                     val snap = withTimeoutOrNull(6000L) { query.get().await() }
                     if (snap != null && !snap.isEmpty) {
                         snapshot = snap
@@ -391,7 +418,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         }
                     }
                 } catch (e: Exception) {
-                    android.util.Log.e("LocalNewsFeedViewModel", "News fetch failed for $district: ${e.message}")
+                    android.util.Log.e("LocalNewsFeedViewModel", "News fetch failed for " + district + ": " + e.message)
                 }
                 
                 lastDocument = snapshot?.documents?.lastOrNull()
@@ -401,12 +428,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                     rankLocalNews(posts, district, currentUser)
                 }
 
-                _news.value = rankedPosts
-                if (rankedPosts.isEmpty()) {
-                    _isOnline.value = false
-                } else {
-                    _isOnline.value = true
+                if (rankedPosts.isNotEmpty()) {
+                    _news.value = rankedPosts
                 }
+                _isOnline.value = com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())
                 // Only scroll to top if we are loading the first page (lastDocument is null)
                 if (lastDocument == null && rankedPosts.isNotEmpty()) {
                     _shouldScrollToTop.value = true 
@@ -417,9 +442,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 lastRefreshTimeLong = currentTime
                 _lastRefreshTime.value = currentTime
             } catch (e: Exception) {
-                 if (_news.value.isEmpty()) {
-                     _isOnline.value = false
-                 }
+                 _isOnline.value = com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())
                  _hasMore.value = false
             } finally {
                 _loading.value = false
@@ -427,8 +450,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
             }
         }
     }
-    
-    fun loadMore(language: Language, currentUser: User?) {
+
+        fun loadMore(language: Language, currentUser: User?) {
          currentLanguage = language
          val district = _activeDistrict.value ?: return
          val currentLastDoc = lastDocument
@@ -508,7 +531,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
      }
     
     fun onAppResume(language: Language, currentUser: User?) {
-        loadNews(language, currentUser)
+        refreshIfStale(language, currentUser)
     }
 
     fun refreshIfStale(language: Language, currentUser: User?) {

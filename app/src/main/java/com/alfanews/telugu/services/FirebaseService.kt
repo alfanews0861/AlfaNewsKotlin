@@ -19,10 +19,9 @@ object FirebaseService {
     val db: FirebaseFirestore by lazy { 
         val instance = FirebaseFirestore.getInstance()
         
-        // 🔒 లాగిన్ మరియు యూజర్ వివరాల రక్షణ (100MB Persistent Cache):
-        // లాగిన్ వివరాలు, ప్రొఫైల్, ఐడీ కార్డ్, యాప్ సెట్టింగ్స్ మరియు రీసెంట్ వార్తలు లోకల్‌గా భద్రంగా ఉండాలి.
-        val cacheSettings = com.google.firebase.firestore.PersistentCacheSettings.newBuilder()
-            .setSizeBytes(100L * 1024L * 1024L) // 100 MB safe persistent cache limit
+        // ⚡ అల్ట్రా-ఫాస్ట్ మెమరీ మోడ్ (Zero Disk Lock):
+        // డిస్క్ లెవల్-డీబీ లాక్‌లు లేకుండా నేరుగా క్లౌడ్ సర్వర్ నుండి వేగంగా స్పందించేందుకు MemoryCacheSettings వాడుతున్నాము.
+        val cacheSettings = com.google.firebase.firestore.MemoryCacheSettings.newBuilder()
             .build()
 
         val settings = com.google.firebase.firestore.FirebaseFirestoreSettings.Builder()

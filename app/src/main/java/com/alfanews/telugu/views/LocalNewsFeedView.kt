@@ -275,7 +275,9 @@ fun LocalNewsFeedView(
                         fontFamily = Ramabhadra
                     )
                     Button(
-                        onClick = { viewModel.loadNews(language, currentUser) }
+                        onClick = {
+                            viewModel.loadNews(language, currentUser, forceRefresh = true)
+                        }
                     ) {
                         Text(text = stringResource(R.string.retry), fontFamily = Ramabhadra)
                     }

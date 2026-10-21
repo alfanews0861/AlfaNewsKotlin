@@ -251,7 +251,9 @@ fun NewsFeedView(
                     Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                     Text(text = stringResource(R.string.no_internet), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
                     Text(text = stringResource(R.string.check_internet), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-                    Button(onClick = { viewModel.loadNews(language, currentUser, initialPostId) }) {
+                    Button(onClick = {
+                        viewModel.loadNews(language, currentUser, initialPostId, forceRefresh = true)
+                    }) {
                         Text(text = stringResource(R.string.retry))
                     }
                 }
