@@ -46,6 +46,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,7 +60,6 @@ fun ManagePostsPageView(
 ) {
     var posts by remember { mutableStateOf<List<NewsPost>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
-    var isConnectionError by remember { mutableStateOf(false) }
     var refreshTrigger by remember { mutableStateOf(0) }
     var isBroadcasting by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
@@ -69,28 +69,13 @@ fun ManagePostsPageView(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                if (posts.isEmpty()) {
-                    isConnectionError = false
-                    loading = true
-                    refreshTrigger++
-                }
+                loading = true
+                refreshTrigger++
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-
-    // 🌐 WATCHDOG: Only stop loading and show connection error if phone is genuinely offline
-    LaunchedEffect(refreshTrigger) {
-        isConnectionError = false
-        delay(6000L)
-        if (loading && posts.isEmpty()) {
-            if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(context)) {
-                loading = false
-                isConnectionError = true
-            }
         }
     }
 
@@ -128,46 +113,100 @@ fun ManagePostsPageView(
         }
     }
 
-    // ✅ REAL-TIME LISTENER: 5 తాజా వార్తలను (< 100ms) నేరుగా రియల్-టైమ్‌లో లోడ్ చేసే రోబస్ట్ లిజనర్ (Limit: 5)
+    // ⚡ SERVER FAST PATH (< 300ms direct query): Top 5 fresh reporter news on screen instantly (NO CACHE - Live Server)
+    LaunchedEffect(currentUser, primaryReporterId, refreshTrigger) {
+        val role = currentUser?.role ?: UserRole.fromStringSafe(prefs.userRole) ?: UserRole.REPORTER
+        try {
+            val baseQuery = FirebaseService.db.collection("news")
+            val targetQuery = when {
+                role == UserRole.REGIONAL_INCHARGE && currentUser?.assignedDistricts?.isNotEmpty() == true -> {
+                    baseQuery.whereEqualTo("isReporter", true)
+                        .whereIn("district", currentUser.assignedDistricts)
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                }
+                role == UserRole.ADMIN || role == UserRole.EDITOR || role == UserRole.NEWS_DESK -> {
+                    baseQuery.whereEqualTo("isReporter", true)
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                }
+                candidateIds.size == 1 -> {
+                    baseQuery.whereEqualTo("originalReporterId", candidateIds.first())
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                }
+                candidateIds.size > 1 -> {
+                    baseQuery.whereIn("originalReporterId", candidateIds)
+                        .orderBy("timestamp", Query.Direction.DESCENDING)
+                }
+                else -> null
+            }
+
+            if (targetQuery == null) {
+                posts = emptyList()
+                loading = false
+                return@LaunchedEffect
+            }
+
+            val snap = withTimeoutOrNull(2500L) {
+                targetQuery.limit(5).get().await()
+            }
+
+            if (snap != null && !snap.isEmpty) {
+                val loaded = snap.documents.mapNotNull { doc ->
+                    val data = doc.data ?: return@mapNotNull null
+                    mapMapToNewsPost(doc.id, data)
+                }.take(5)
+
+                if (loaded.isNotEmpty()) {
+                    posts = loaded
+                }
+            }
+        } catch (_: Exception) {
+        } finally {
+            loading = false
+        }
+    }
+
+    // ✅ REAL-TIME LISTENER: 5 తాజా వార్తలను లైవ్‌గా సింక్ చేయడం (Limit: 5)
     DisposableEffect(currentUser, primaryReporterId, refreshTrigger) {
         val role = currentUser?.role ?: UserRole.fromStringSafe(prefs.userRole) ?: UserRole.REPORTER
-        var query = FirebaseService.db.collection("news")
-            .orderBy("timestamp", Query.Direction.DESCENDING)
-
-        if (role == UserRole.REGIONAL_INCHARGE && currentUser?.assignedDistricts?.isNotEmpty() == true) {
-            query = query.whereIn("district", currentUser.assignedDistricts)
-        } else if (role == UserRole.ADMIN || role == UserRole.EDITOR || role == UserRole.NEWS_DESK) {
-            // Admins & Editors see all recent news
-        } else if (candidateIds.isNotEmpty()) {
-            query = if (candidateIds.size == 1) {
-                query.whereEqualTo("originalReporterId", candidateIds.first())
-            } else {
-                query.whereIn("originalReporterId", candidateIds)
+        val baseQuery = FirebaseService.db.collection("news")
+        val liveQuery = when {
+            role == UserRole.REGIONAL_INCHARGE && currentUser?.assignedDistricts?.isNotEmpty() == true -> {
+                baseQuery.whereEqualTo("isReporter", true)
+                    .whereIn("district", currentUser.assignedDistricts)
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
             }
-        } else {
+            role == UserRole.ADMIN || role == UserRole.EDITOR || role == UserRole.NEWS_DESK -> {
+                baseQuery.whereEqualTo("isReporter", true)
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+            }
+            candidateIds.size == 1 -> {
+                baseQuery.whereEqualTo("originalReporterId", candidateIds.first())
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+            }
+            candidateIds.size > 1 -> {
+                baseQuery.whereIn("originalReporterId", candidateIds)
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+            }
+            else -> null
+        }
+
+        if (liveQuery == null) {
             posts = emptyList()
             loading = false
             return@DisposableEffect onDispose {}
         }
 
-        // ⚡ Limit 5: 5 తాజా వార్తలను వేగంగా లోడ్ చేయడం
-        val listener = query.limit(5).addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                loading = false
-                if (posts.isEmpty() && !com.alfanews.telugu.utils.NetworkUtils.isOnline(context)) {
-                    isConnectionError = true
-                }
-                return@addSnapshotListener
-            }
-
-            if (snapshot != null) {
-                isConnectionError = false
+        val listener = liveQuery.limit(5).addSnapshotListener { snapshot, error ->
+            loading = false
+            if (snapshot != null && !snapshot.isEmpty) {
                 val directLoaded = snapshot.documents.mapNotNull { doc ->
                     val data = doc.data ?: return@mapNotNull null
                     mapMapToNewsPost(doc.id, data)
+                }.take(5)
+
+                if (directLoaded.isNotEmpty()) {
+                    posts = directLoaded
                 }
-                posts = directLoaded
-                loading = false
             }
         }
 
@@ -254,7 +293,6 @@ fun ManagePostsPageView(
             }
 
             IconButton(onClick = { 
-                isConnectionError = false
                 loading = true
                 refreshTrigger++ 
             }) {
@@ -269,7 +307,6 @@ fun ManagePostsPageView(
         PullToRefreshBox(
             isRefreshing = loading && posts.isNotEmpty(),
             onRefresh = {
-                isConnectionError = false
                 loading = true
                 refreshTrigger++
             },
@@ -277,45 +314,6 @@ fun ManagePostsPageView(
         ) {
             if (loading && posts.isEmpty()) {
                 ManagePostsSkeleton()
-            } else if (isConnectionError && posts.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 80.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        modifier = Modifier.padding(24.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = null,
-                            modifier = Modifier.size(56.dp),
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-                        )
-                        Text(
-                            text = "ఇంటర్నెట్ లేదు",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Text(
-                            text = "దయచేసి మీ ఇంటర్నెట్ కనెక్షన్‌ని తనిఖీ చేసి, మళ్ళీ ప్రయత్నించండి.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                        Button(onClick = {
-                            isConnectionError = false
-                            loading = true
-                            refreshTrigger++
-                        }) {
-                            Text("మళ్ళీ ప్రయత్నించండి")
-                        }
-                    }
-                }
             } else if (posts.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -333,7 +331,6 @@ fun ManagePostsPageView(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         OutlinedButton(onClick = { 
-                            isConnectionError = false
                             loading = true
                             refreshTrigger++ 
                         }) {

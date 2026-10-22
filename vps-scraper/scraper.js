@@ -2253,9 +2253,7 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
                     }
 
                     let finalDistrict = "General";
-                    if (GLOBAL_CATEGORIES.includes(category)) {
-                        finalDistrict = category;
-                    } else if (source.district) {
+                    if (source.district) {
                         finalDistrict = source.district;
                     }
 
@@ -3277,8 +3275,6 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
                     let finalDistrict = "General";
                     if (feed.district) {
                         finalDistrict = feed.district;
-                    } else if (GLOBAL_CATEGORIES.includes(category)) {
-                        finalDistrict = category;
                     }
 
                     let finalMediaUrl = ALFA_NEWS_LOGO;

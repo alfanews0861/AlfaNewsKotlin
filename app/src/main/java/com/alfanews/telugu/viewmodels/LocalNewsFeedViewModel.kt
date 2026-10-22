@@ -85,18 +85,44 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun prependPost(post: NewsPost) {
-        val cleanExisting = _news.value.filter { isNormalLocalNews(it) && isStateMatch(it, post.district ?: _activeDistrict.value) }
+        pinnedPost = post
+        val cleanExisting = _news.value.filter { it.id != post.id && isNormalLocalNews(it) && isStateMatch(it, post.district ?: _activeDistrict.value) }
         _news.value = (listOf(post) + cleanExisting).distinctBy { it.id }
         _loading.value = false
     }
 
+    fun navigateToPostId(postId: String) {
+        if (postId.isBlank()) return
+        val current = _news.value
+        val existing = current.find { it.id == postId }
+        if (existing != null) {
+            prependPost(existing)
+            requestScrollToTop()
+        } else {
+            viewModelScope.launch {
+                try {
+                    val doc = FirebaseService.db.collection("news").document(postId).get().await()
+                    if (doc.exists()) {
+                        val post = convertToNewsPost(doc.id, doc.data ?: emptyMap())
+                        if (post != null) {
+                            prependPost(post)
+                            requestScrollToTop()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("LocalNewsFeedVM", "navigateToPostId error: ${e.message}")
+                }
+            }
+        }
+    }
+
     fun forceReload(language: Language, currentUser: User?) {
-        _news.value = emptyList()
         lastDocument = null
         _hasMore.value = true
         loadNews(language, currentUser, forceRefresh = true)
     }
 
+    private var pinnedPost: NewsPost? = null
     private var lastDocument: DocumentSnapshot? = null
     private var lastRefreshTimeLong: Long = 0
     private val pageSize = 20
@@ -106,7 +132,9 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     private var consecutiveEmptyLoads = 0
     
     fun setDistrict(district: String) {
+        if (!Constants.isSpecificDistrict(district)) return
         if (prefs.selectedDistrict == district && _activeDistrict.value == district) return
+        if (district != pinnedPost?.district) pinnedPost = null
         val oldDistrict = prefs.selectedDistrict ?: prefs.detectedDistrict
         _news.value = emptyList() // 🔄 Clear old news to avoid confusion when switching districts
         _loading.value = true     // 🔄 Show preparation screen
@@ -322,13 +350,25 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         language: Language,
         currentUser: User?,
         forceRefresh: Boolean = false,
-        isExplicitScrollToTop: Boolean = false
+        isExplicitScrollToTop: Boolean = false,
+        initialPost: NewsPost? = null
     ) {
         currentLanguage = language
-        val district = _activeDistrict.value
-        if (district == null) {
-            _loading.value = false
-            return
+        if (initialPost != null) {
+            pinnedPost = initialPost
+        } else if (forceRefresh) {
+            pinnedPost = null
+        }
+        val rawDistrict = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: currentUser?.district ?: prefs.detectedDistrict
+        val district = if (rawDistrict != null && Constants.isSpecificDistrict(rawDistrict)) {
+            rawDistrict
+        } else {
+            val validFallback = currentUser?.district?.takeIf { Constants.isSpecificDistrict(it) }
+                ?: prefs.detectedDistrict?.takeIf { Constants.isSpecificDistrict(it) }
+                ?: "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు"
+            prefs.selectedDistrict = validFallback
+            _activeDistrict.value = validFallback
+            validFallback
         }
         
         val now = System.currentTimeMillis()
@@ -392,10 +432,12 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             }
                             if (fastPosts.isNotEmpty()) {
                                 val currentNews = _news.value
+                                val pin = pinnedPost
                                 val rankedFast = rankLocalNews(fastPosts, district, currentUser)
-                                val olderNews = currentNews.filter { cur -> fastPosts.none { it.id == cur.id } && isNormalLocalNews(cur) && isStateMatch(cur, district) }
-                                // 🚀 FRESH NEWS ALWAYS AT TOP: rankedFast first, olderNews second!
-                                _news.value = (rankedFast + olderNews).distinctBy { it.id }
+                                val olderNews = currentNews.filter { cur -> cur.id != pin?.id && fastPosts.none { it.id == cur.id } && isNormalLocalNews(cur) && isStateMatch(cur, district) }
+                                val targetAndFast = if (pin != null) listOf(pin) + rankedFast.filter { it.id != pin.id } else rankedFast
+                                // 🚀 FRESH NEWS ALWAYS AT TOP: pin first (if present), rankedFast second, olderNews third!
+                                _news.value = (targetAndFast + olderNews).distinctBy { it.id }
                                 _loading.value = false
                                 lastRefreshTimeLong = System.currentTimeMillis()
                                 _lastRefreshTime.value = lastRefreshTimeLong
@@ -471,9 +513,14 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
                 if (rankedPosts.isNotEmpty()) {
                     val currentNews = _news.value
-                    val olderNews = currentNews.filter { cur -> rankedPosts.none { it.id == cur.id } && isNormalLocalNews(cur) && isStateMatch(cur, district) }
-                    // 🚀 FRESH NEWS ALWAYS AT TOP: rankedPosts first, olderNews second!
-                    _news.value = (rankedPosts + olderNews).distinctBy { it.id }
+                    val pin = pinnedPost
+                    val olderNews = currentNews.filter { cur -> cur.id != pin?.id && rankedPosts.none { it.id == cur.id } && isNormalLocalNews(cur) && isStateMatch(cur, district) }
+                    val finalPosts = if (pin != null) {
+                        (listOf(pin) + rankedPosts.filter { it.id != pin.id } + olderNews).distinctBy { it.id }
+                    } else {
+                        (rankedPosts + olderNews).distinctBy { it.id }
+                    }
+                    _news.value = finalPosts
                 }
                 _isOnline.value = com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())
                 // Only scroll to top on explicit user refresh (pull to refresh or district change)

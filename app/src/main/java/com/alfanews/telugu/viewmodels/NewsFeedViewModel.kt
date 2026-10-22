@@ -194,15 +194,21 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         if (postId.isBlank()) return
         _sharedPostId.value = postId
         val current = _news.value
-        if (current.none { it.id == postId }) {
+        val existing = current.find { it.id == postId }
+        if (existing != null) {
+            _news.value = listOf(existing) + current.filter { it.id != postId }
+            _sharedPostId.value = postId
+            _shouldScrollToTop.value = true
+        } else {
             viewModelScope.launch {
                 try {
                     val doc = FirebaseService.db.collection("news").document(postId).get().await()
                     if (doc.exists()) {
                         val post = mapDocumentToNewsPost(doc)
                         if (post != null) {
-                            _news.value = (listOf(post) + _news.value).distinctBy { it.id }
+                            _news.value = (listOf(post) + _news.value.filter { it.id != postId })
                             _sharedPostId.value = postId
+                            _shouldScrollToTop.value = true
                         }
                     }
                 } catch (e: Exception) {
@@ -320,7 +326,16 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         currentFetchJob?.cancel()
         lastFetchStartTime = now
 
-        val district = prefs.selectedDistrict ?: currentUser?.district ?: prefs.detectedDistrict
+        val rawDistrict = prefs.selectedDistrict ?: currentUser?.district ?: prefs.detectedDistrict
+        val district = if (rawDistrict != null && Constants.isSpecificDistrict(rawDistrict)) {
+            rawDistrict
+        } else {
+            val validFallback = currentUser?.district?.takeIf { Constants.isSpecificDistrict(it) }
+                ?: prefs.detectedDistrict?.takeIf { Constants.isSpecificDistrict(it) }
+                ?: "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు"
+            prefs.selectedDistrict = validFallback
+            validFallback
+        }
         _userDistrict.value = district
         val userState = Constants.mapDistrictToState(district)
 

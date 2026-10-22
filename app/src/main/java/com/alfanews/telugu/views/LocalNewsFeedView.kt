@@ -245,45 +245,7 @@ fun LocalNewsFeedView(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        if (!isOnline && news.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.padding(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                    )
-                    Text(
-                        text = stringResource(R.string.no_internet),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        fontFamily = Ramabhadra
-                    )
-                    Text(
-                        text = stringResource(R.string.check_internet),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        fontFamily = Ramabhadra
-                    )
-                    Button(
-                        onClick = {
-                            viewModel.loadNews(language, currentUser, forceRefresh = true)
-                        }
-                    ) {
-                        Text(text = stringResource(R.string.retry), fontFamily = Ramabhadra)
-                    }
-                }
-            }
-        } else if ((loading || isDetecting) && news.isEmpty()) {
+        if ((loading || isDetecting) && news.isEmpty()) {
             NewsCardSkeleton()
         } else if (news.isEmpty() && viewModelActiveDistrict == null) {
             LaunchedEffect(Unit) {

@@ -241,24 +241,7 @@ fun NewsFeedView(
         onRefresh = { viewModel.loadNews(language, currentUser, forceRefresh = true, isExplicitScrollToTop = true) },
         modifier = Modifier.fillMaxSize()
     ) {
-        if (!isOnline && news.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.padding(32.dp)
-                ) {
-                    Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                    Text(text = stringResource(R.string.no_internet), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
-                    Text(text = stringResource(R.string.check_internet), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-                    Button(onClick = {
-                        viewModel.loadNews(language, currentUser, initialPostId, forceRefresh = true, isExplicitScrollToTop = true)
-                    }) {
-                        Text(text = stringResource(R.string.retry))
-                    }
-                }
-            }
-        } else if (news.isEmpty()) {
+        if (news.isEmpty()) {
             LaunchedEffect(Unit) {
                 kotlinx.coroutines.delay(3500L)
                 if (viewModel.news.value.isEmpty()) {

@@ -122,6 +122,9 @@ object ShareUtil {
                 }
                 try {
                     context.startActivity(chooser)
+            com.alfanews.telugu.services.FirebaseService.db.collection("news")
+                .document(postId)
+                .update("shares", com.google.firebase.firestore.FieldValue.increment(1))
                 } catch (e: Exception) {
                     Log.e("ShareUtil", "Could not start share activity", e)
                 }
@@ -153,6 +156,9 @@ object ShareUtil {
                 }
                 try {
                     context.startActivity(chooser)
+            com.alfanews.telugu.services.FirebaseService.db.collection("news")
+                .document(postId)
+                .update("shares", com.google.firebase.firestore.FieldValue.increment(1))
                 } catch (ex: Exception) {
                     Log.e("ShareUtil", "Could not start fallback share activity", ex)
                 }
@@ -201,6 +207,9 @@ object ShareUtil {
         }
         try {
             context.startActivity(chooser)
+            com.alfanews.telugu.services.FirebaseService.db.collection("news")
+                .document(postId)
+                .update("shares", com.google.firebase.firestore.FieldValue.increment(1))
         } catch (e: Exception) {
             Log.e("ShareUtil", "Could not start rich link share", e)
         }

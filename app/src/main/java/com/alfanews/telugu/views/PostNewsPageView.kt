@@ -716,7 +716,12 @@ fun PostNewsPageView(
                     enabled = !isSubmitting,
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        disabledContainerColor = MaterialTheme.colorScheme.primary,
+                        disabledContentColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 ) {
                     if (isSubmitting) {
                         Row(
@@ -730,13 +735,19 @@ fun PostNewsPageView(
                             )
                             Text(
                                 text = statusMessage,
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
                     } else {
-                        Text(if (postToEdit != null) updateString else publishString, fontSize = 18.sp)
+                        Text(
+                            text = if (postToEdit != null) updateString else publishString,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -1205,11 +1216,10 @@ internal fun NewsSubmissionResultDialog(
                     ) {
                         OutlinedButton(
                             onClick = {
-                                ShareUtil.shareNewsPost(
+                                ShareUtil.shareNewsWhatsAppRichLink(
                                     context = context,
                                     postId = result.postId,
-                                    postTitle = result.headline,
-                                    additionalText = result.snippet
+                                    headline = result.headline
                                 )
                             }
                         ) {
@@ -1218,7 +1228,11 @@ internal fun NewsSubmissionResultDialog(
                             Text("షేర్ చేయండి")
                         }
                         Button(
-                            onClick = { onActionComplete(result.postId) }
+                            onClick = { onActionComplete(result.postId) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            )
                         ) {
                             Text("చూడండి")
                         }

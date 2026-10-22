@@ -505,6 +505,47 @@ fun MainScreen(
                     }
 
                     val user = currentUser
+                    val openNewsPost: (NewsPost) -> Unit = { post ->
+                        val isDistrictStory = !post.district.isNullOrBlank() && 
+                            post.district != "State" && 
+                            com.alfanews.telugu.utils.Constants.isSpecificDistrict(post.district)
+                        if (isDistrictStory) {
+                            val targetDistrict = post.district!!
+                            localNewsFeedViewModel?.setDistrict(targetDistrict)
+                            localNewsFeedViewModel?.prependPost(post)
+                            localNewsFeedViewModel?.requestScrollToTop()
+                            localNewsFeedViewModel?.loadNews(language, user, forceRefresh = false, initialPost = post)
+                            mainViewModel.setActiveTab("local")
+                        } else {
+                            newsFeedViewModel.navigateToPost(post)
+                            newsFeedViewModel.requestScrollToTop()
+                            newsFeedViewModel.loadNews(language, user, initialPostId = post.id, forceRefresh = false)
+                            mainViewModel.setActiveTab("home")
+                        }
+                    }
+
+                    val openNewsById: (String) -> Unit = { targetPostId ->
+                        if (targetPostId.isNotBlank() && targetPostId != "HOME_ONLY") {
+                            scope.launch {
+                                try {
+                                    val doc = com.alfanews.telugu.services.FirebaseService.db.collection("news").document(targetPostId).get().await()
+                                    if (doc.exists()) {
+                                        val post = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, doc.data ?: emptyMap(), language)
+                                        openNewsPost(post)
+                                        return@launch
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.e("MainScreen", "Error opening post by ID: ${e.message}")
+                                }
+                                newsFeedViewModel.navigateToPostId(targetPostId)
+                                newsFeedViewModel.requestScrollToTop()
+                                mainViewModel.setActiveTab("home")
+                            }
+                        } else {
+                            mainViewModel.setActiveTab("home")
+                        }
+                    }
+
                     val currentReporterId = reporterIdToShow
                     if (currentReporterId != null) {
                         ReporterProfileView(
@@ -530,31 +571,7 @@ fun MainScreen(
                             onActionComplete = { postId: String -> 
                                 showPostNewsPage = false
                                 editingNewsPost = null
-
-                                // 🔄 ఫీడ్‌లను వెంటనే రిఫ్రెష్ చేసి కొత్త వార్త కనిపించేలా చేయండి
-                                newsFeedViewModel.loadNews(language, user, forceRefresh = true)
-                                localNewsFeedViewModel?.forceReload(language, user)
-
-                                // 🔄 క్లౌడ్ ఫంక్షన్స్ / Gemini AI ప్రాసెసింగ్ (8 సెకన్లలో) పూర్తయ్యాక స్వయంచాలకంగా మరోసారి తాజా వార్తలను లోడ్ చేయండి
-                                scope.launch {
-                                    kotlinx.coroutines.delay(8000L)
-                                    localNewsFeedViewModel?.forceReload(language, user)
-                                    newsFeedViewModel.loadNews(language, user, forceRefresh = true)
-                                }
-                                
-                                val isStaff = listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK).contains(user?.role)
-                                
-                                if (isStaff) {
-                                    mainViewModel.setAdminActivePage("manage")
-                                    mainViewModel.setActiveTab("profile")
-                                } else {
-                                    if (postId == "HOME_ONLY") {
-                                        mainViewModel.setActiveTab("home")
-                                    } else if (postId != "") {
-                                        newsFeedViewModel.navigateToPostId(postId)
-                                        mainViewModel.setActiveTab("home")
-                                    }
-                                }
+                                openNewsById(postId)
                             }
                         )
                     } else if (showJoinReporterPage) {
@@ -697,21 +714,10 @@ fun MainScreen(
                                     }
                                 },
                                 onPostPublished = { postId ->
-                                    if (postId != "") {
-                                        newsFeedViewModel.navigateToPostId(postId)
-                                        mainViewModel.setActiveTab("home")
-                                    }
+                                    openNewsById(postId)
                                 },
                                 onViewPost = { post ->
-                                    newsFeedViewModel.navigateToPost(post)
-                                    val isDistrictStory = !post.district.isNullOrBlank() && post.district != "State"
-                                    if (isDistrictStory) {
-                                        localNewsFeedViewModel?.setDistrict(post.district!!)
-                                        localNewsFeedViewModel?.prependPost(post)
-                                        mainViewModel.setActiveTab("local")
-                                    } else {
-                                        mainViewModel.setActiveTab("home")
-                                    }
+                                    openNewsPost(post)
                                 },
                                 onMenuClick = { scope.launch { drawerState.open() } }
                             )

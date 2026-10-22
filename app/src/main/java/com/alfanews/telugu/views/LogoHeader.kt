@@ -17,6 +17,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.alfanews.telugu.ui.theme.AlfaNewsTheme
 import com.alfanews.telugu.ui.theme.BrandDarkBlue
 import com.alfanews.telugu.ui.theme.Poppins
+import com.alfanews.telugu.utils.Constants
 
 @Preview(showBackground = true)
 @Composable
@@ -94,6 +95,7 @@ fun LogoHeader(
             
             // Right Group: District Selector Button (Takes only available space, truncates cleanly with ellipsis)
             if (showDistrictSelector && onDistrictClick != null) {
+                val displayDistrict = district?.takeIf { Constants.isSpecificDistrict(it) }
                 TextButton(
                     onClick = onDistrictClick,
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
@@ -109,7 +111,7 @@ fun LogoHeader(
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        text = district ?: "Select District",
+                        text = displayDistrict ?: "జిల్లాను ఎంచుకోండి",
                         fontSize = 13.sp,
                         fontFamily = Poppins,
                         fontWeight = FontWeight.Bold,

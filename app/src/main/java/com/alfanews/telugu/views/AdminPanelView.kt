@@ -280,7 +280,8 @@ fun AdminPanelView(
                         onActionComplete = { postId -> 
                             editingPost = null
                             if (postId.isNotBlank() && postId != "HOME_ONLY") {
-                                newlyCreatedPostId = postId
+                                onPostPublished(postId)
+                                return@PostNewsPageView
                             }
                             activePage = if (listOf(UserRole.REPORTER, UserRole.EDITOR, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN, UserRole.NEWS_DESK).contains(effectiveRole)) "manage" else "profile"
                         }

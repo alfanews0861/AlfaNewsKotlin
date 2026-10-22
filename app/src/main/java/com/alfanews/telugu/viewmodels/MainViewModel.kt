@@ -1207,6 +1207,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setDistrict(district: String) {
+        if (!com.alfanews.telugu.utils.Constants.isSpecificDistrict(district)) return
         val oldDistrict = prefs.selectedDistrict ?: prefs.detectedDistrict
         prefs.selectedDistrict = district
         _activeDistrict.value = district

@@ -17,6 +17,19 @@ class PreferenceManager(context: Context) {
     private val _districtChanges = MutableSharedFlow<String?>(extraBufferCapacity = 64, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
     val districtChanges: SharedFlow<String?> = _districtChanges.asSharedFlow()
 
+    init {
+        try {
+            val currentSelected = prefs.getString(KEY_SELECTED_DISTRICT, null)
+            if (!currentSelected.isNullOrBlank() && !Constants.isSpecificDistrict(currentSelected)) {
+                prefs.edit().remove(KEY_SELECTED_DISTRICT).apply()
+            }
+            val currentDetected = prefs.getString(KEY_DETECTED_DISTRICT, null)
+            if (!currentDetected.isNullOrBlank() && !Constants.isSpecificDistrict(currentDetected)) {
+                prefs.edit().remove(KEY_DETECTED_DISTRICT).apply()
+            }
+        } catch (_: Exception) {}
+    }
+
     // Cache is preserved across app starts for instant display
 
     companion object {
@@ -101,31 +114,33 @@ class PreferenceManager(context: Context) {
 
     /** వినియోగదారు స్వయంగా ఎంచుకున్న జిల్లా. */
     var selectedDistrict: String?
-        get() = prefs.getString(KEY_SELECTED_DISTRICT, null)
+        get() = prefs.getString(KEY_SELECTED_DISTRICT, null)?.takeIf { Constants.isSpecificDistrict(it) }
         set(value) {
-            prefs.edit().putString(KEY_SELECTED_DISTRICT, value).apply()
+            val valid = value?.takeIf { Constants.isSpecificDistrict(it) }
+            prefs.edit().putString(KEY_SELECTED_DISTRICT, valid).apply()
             _districtChanges.tryEmit(getEffectiveDistrict())
         }
 
     /** ఆటోమేటిక్‌గా (GPS/IP) గుర్తించబడిన జిల్లా. */
     var detectedDistrict: String?
-        get() = prefs.getString(KEY_DETECTED_DISTRICT, null)
+        get() = prefs.getString(KEY_DETECTED_DISTRICT, null)?.takeIf { Constants.isSpecificDistrict(it) }
         set(value) {
-            prefs.edit().putString(KEY_DETECTED_DISTRICT, value).apply()
+            val valid = value?.takeIf { Constants.isSpecificDistrict(it) }
+            prefs.edit().putString(KEY_DETECTED_DISTRICT, valid).apply()
             _districtChanges.tryEmit(getEffectiveDistrict())
         }
 
-    /** 
+    /**
      * ప్రస్తుత జిల్లాను అందిస్తుంది. 
      * ఎంచుకున్న జిల్లా ఉంటే అది, లేకపోతే గుర్తించిన జిల్లా, అది కూడా లేకపోతే null.
      */
     fun getEffectiveDistrict(): String? {
         return try {
-            val dist = selectedDistrict ?: userDistrict ?: detectedDistrict
+            val dist = (selectedDistrict ?: userDistrict ?: detectedDistrict)?.takeIf { Constants.isSpecificDistrict(it) }
             if (!dist.isNullOrBlank()) return dist
             if (lastLat != 0.0 && lastLon != 0.0) {
                 val matched = com.alfanews.telugu.services.WeatherService.getClosestDistrictFromCoords(lastLat, lastLon)
-                if (matched != null) {
+                if (matched != null && Constants.isSpecificDistrict(matched)) {
                     detectedDistrict = matched
                     return matched
                 }
@@ -133,7 +148,7 @@ class PreferenceManager(context: Context) {
             null
         } catch (e: Throwable) {
             try {
-                selectedDistrict ?: userDistrict ?: detectedDistrict
+                (selectedDistrict ?: userDistrict ?: detectedDistrict)?.takeIf { Constants.isSpecificDistrict(it) }
             } catch (_: Throwable) {
                 null
             }
