@@ -40,6 +40,8 @@ jobs:
     - name: Print Build Error Log
       if: failure()
       run: |
+        echo "=== COMPILATION ERRORS ==="
+        grep -E "^e: " build.log | head -n 30 || true
         ERR_MSG=$(tail -n 35 build.log | tr '\r\n' '  ')
         echo "::error title=Gradle Build Failure::$ERR_MSG"
 

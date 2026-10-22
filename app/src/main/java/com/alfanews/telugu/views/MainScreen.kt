@@ -35,6 +35,7 @@ import com.alfanews.telugu.viewmodels.LocalNewsFeedViewModel
 import com.alfanews.telugu.views.policy.*
 import com.alfanews.telugu.views.WeatherAlertBanner
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
