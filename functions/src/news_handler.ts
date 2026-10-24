@@ -1263,6 +1263,9 @@ export const onNewsPostCreated = onDocumentWritten({
             const recentMandalNews = await fetchRecentMandalNews(latestData, postId);
             const processedStories = await performAIProcessing(headline, content, latestData, recentMandalNews);
             console.log(`[AI_SPLIT] Post ${postId} processed into ${processedStories.length} distinct stories.`);
+            await db.collection('news').doc(postId).update({
+                editorialStatus: "ఎడిటింగ్ జరుగుతుంది..."
+            }).catch(() => {});
 
             const availableMediaUrls: string[] = latestData.mediaUrls && latestData.mediaUrls.length > 0
                 ? latestData.mediaUrls
@@ -1453,6 +1456,11 @@ export const onNewsPostCreated = onDocumentWritten({
                 if (isPostRejected) console.log(`[AI_REJECTED] ${targetPostId} Reason: ${updatePayload.rejectionReason || aiProcessedData.rejectionReason}`);
 
                 if (i === 0) {
+                    if (!isPostRejected) {
+                        await db.collection('news').doc(postId).update({
+                            editorialStatus: "పబ్లిష్ అవుతుంది..."
+                        }).catch(() => {});
+                    }
                     await db.collection('news').doc(postId).update(updatePayload);
                 } else {
                     const splitDocData = {

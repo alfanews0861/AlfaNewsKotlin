@@ -277,6 +277,10 @@ fun AdminPanelView(
                     "post" -> PostNewsPageView(
                         user = effectiveUser,
                         postToEdit = editingPost,
+                        onPostReady = { post ->
+                            editingPost = null
+                            onViewPost(post)
+                        },
                         onActionComplete = { postId -> 
                             editingPost = null
                             if (postId.isNotBlank() && postId != "HOME_ONLY") {

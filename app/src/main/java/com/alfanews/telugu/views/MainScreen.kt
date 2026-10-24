@@ -531,14 +531,14 @@ fun MainScreen(
                             scope.launch {
                                 var post: NewsPost? = null
                                 try {
-                                    val doc = kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                                        try {
+                                    val doc = try {
+                                        kotlinx.coroutines.withTimeoutOrNull(4000L) {
                                             com.alfanews.telugu.services.FirebaseService.db.collection("news").document(targetPostId).get().await()
-                                        } catch (_: Exception) {
-                                            try {
-                                                com.alfanews.telugu.services.FirebaseService.db.collection("news").document(targetPostId).get(com.google.firebase.firestore.Source.CACHE).await()
-                                            } catch (_: Exception) { null }
-                                        }
+                                        } ?: com.alfanews.telugu.services.FirebaseService.db.collection("news").document(targetPostId).get(com.google.firebase.firestore.Source.CACHE).await()
+                                    } catch (_: Exception) {
+                                        try {
+                                            com.alfanews.telugu.services.FirebaseService.db.collection("news").document(targetPostId).get(com.google.firebase.firestore.Source.CACHE).await()
+                                        } catch (_: Exception) { null }
                                     }
                                     if (doc != null && doc.exists()) {
                                         post = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, doc.data ?: emptyMap(), language)
@@ -587,6 +587,11 @@ fun MainScreen(
                                 showPostNewsPage = false
                                 editingNewsPost = null
                                 openNewsById(postId)
+                            },
+                            onPostReady = { post: NewsPost ->
+                                showPostNewsPage = false
+                                editingNewsPost = null
+                                openNewsPost(post)
                             }
                         )
                     } else if (showJoinReporterPage) {

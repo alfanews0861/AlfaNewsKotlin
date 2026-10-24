@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.R
 import com.alfanews.telugu.models.NewsPost
+import com.alfanews.telugu.models.mapMapToNewsPost
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.services.FirebaseFunctionsService
@@ -51,6 +52,7 @@ import com.alfanews.telugu.utils.ShareUtil
 import com.alfanews.telugu.utils.uploadMediaToStorage
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.ListenerRegistration
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -78,7 +80,8 @@ fun getVideoDuration(context: android.content.Context, uri: Uri): Long {
 fun PostNewsPageView(
     user: User,
     postToEdit: NewsPost?,
-    onActionComplete: (String) -> Unit
+    onActionComplete: (String) -> Unit,
+    onPostReady: ((NewsPost) -> Unit)? = null
 ) {
     var activeAuthUser by remember { mutableStateOf(FirebaseService.auth.currentUser) }
     var isAuthValid by remember { mutableStateOf<Boolean?>(if (FirebaseService.auth.currentUser == null) false else null) }
@@ -750,6 +753,14 @@ fun PostNewsPageView(
                 onActionComplete = { targetPostId ->
                     submissionResult = null
                     onActionComplete(targetPostId)
+                },
+                onPostReady = { post ->
+                    submissionResult = null
+                    if (onPostReady != null) {
+                        onPostReady(post)
+                    } else {
+                        onActionComplete(post.id)
+                    }
                 }
             )
         }
@@ -805,7 +816,8 @@ internal sealed class NewsSubmissionResult {
         val snippet: String,
         val imageUrl: String?,
         val category: String,
-        val location: String
+        val location: String,
+        val newsPost: NewsPost? = null
     ) : NewsSubmissionResult()
 
     data class Rejected(
@@ -836,6 +848,8 @@ internal suspend fun waitForNewsProcessing(
         return NewsSubmissionResult.Failed("", "వార్త ఐడీ లభించలేదు")
     }
 
+    onStatusUpdate("సబ్ ఎడిటర్లు వార్తను సమీక్షిస్తున్నారు...")
+
     return withTimeoutOrNull(150000L) {
         suspendCancellableCoroutine { continuation ->
             val docRef = FirebaseService.db.collection("news").document(postId)
@@ -860,6 +874,7 @@ internal suspend fun waitForNewsProcessing(
                         ?: (data["lastProcessingError"] as? String)?.trim()
                     val editorialStatus = (data["editorialStatus"] as? String)?.trim()
 
+                    // 100% REAL SERVER-DRIVEN: Update status ONLY from actual backend events
                     if (!editorialStatus.isNullOrBlank()) {
                         onStatusUpdate(editorialStatus)
                     } else if (status == "REVIEWING_CONTENT") {
@@ -870,6 +885,10 @@ internal suspend fun waitForNewsProcessing(
 
                     if (approved || status == "PUBLISHED") {
                         onStatusUpdate("వార్త ఆమోదించబడింది!")
+                        val finalPost = try {
+                            mapMapToNewsPost(postId, data)
+                        } catch (_: Exception) { null }
+
                         val headlineMap = data["headline"] as? Map<*, *>
                         val finalHeadline = headlineMap?.get("telugu")?.toString()
                             ?: data["headline"]?.toString()
@@ -899,13 +918,14 @@ internal suspend fun waitForNewsProcessing(
                                     snippet = finalContent.take(160),
                                     imageUrl = finalThumbnail,
                                     category = finalCategory,
-                                    location = finalLocation
+                                    location = finalLocation,
+                                    newsPost = finalPost
                                 )
                             )
                         }
                         registration?.remove()
                     } else if (status == "REJECTED" || !rejectionReason.isNullOrBlank()) {
-                        onStatusUpdate("వార్త సమీక్ష పూర్తయింది")
+                        onStatusUpdate("వార్త ఆమోదించబడలేదు")
                         if (continuation.isActive) {
                             continuation.resume(
                                 NewsSubmissionResult.Rejected(
@@ -941,14 +961,21 @@ internal suspend fun waitForNewsProcessing(
 internal fun NewsSubmissionResultDialog(
     result: NewsSubmissionResult,
     onDismiss: () -> Unit,
-    onActionComplete: (String) -> Unit
+    onActionComplete: (String) -> Unit,
+    onPostReady: ((NewsPost) -> Unit)? = null
 ) {
     val context = LocalContext.current
 
     AlertDialog(
         onDismissRequest = {
             when (result) {
-                is NewsSubmissionResult.Success -> onActionComplete(result.postId)
+                is NewsSubmissionResult.Success -> {
+                    if (result.newsPost != null && onPostReady != null) {
+                        onPostReady(result.newsPost)
+                    } else {
+                        onActionComplete(result.postId)
+                    }
+                }
                 is NewsSubmissionResult.Rejected -> onDismiss()
                 is NewsSubmissionResult.Failed -> onActionComplete(result.postId)
                 is NewsSubmissionResult.Timeout -> onActionComplete(result.postId)
@@ -1225,7 +1252,13 @@ internal fun NewsSubmissionResultDialog(
                             Text("షేర్ చేయండి")
                         }
                         Button(
-                            onClick = { onActionComplete(result.postId) },
+                            onClick = {
+                                if (result.newsPost != null && onPostReady != null) {
+                                    onPostReady(result.newsPost)
+                                } else {
+                                    onActionComplete(result.postId)
+                                }
+                            },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
                                 contentColor = MaterialTheme.colorScheme.onPrimary
@@ -1268,7 +1301,13 @@ internal fun NewsSubmissionResultDialog(
                 }
                 is NewsSubmissionResult.Success -> {
                     TextButton(
-                        onClick = { onActionComplete(result.postId) }
+                        onClick = {
+                            if (result.newsPost != null && onPostReady != null) {
+                                onPostReady(result.newsPost)
+                            } else {
+                                onActionComplete(result.postId)
+                            }
+                        }
                     ) {
                         Text("సరే")
                     }
