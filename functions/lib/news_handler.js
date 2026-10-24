@@ -1103,7 +1103,7 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
     const passiveFields = [
         "longViews", "views", "likes", "shares", "comments",
         "lastUpdated", "lastCleanupAt", "rawVideoCleaned",
-        "thumbnailUrl", "reportCount", "lastReportedAt", "hiddenReason"
+        "thumbnailUrl", "reportCount", "lastReportedAt", "hiddenReason", "editorialStatus", "editorialStage"
     ];
     const isPassiveUpdate = Object.keys(data).every(key => passiveFields.includes(key) || JSON.stringify(data[key]) === JSON.stringify(beforeData[key]));
     const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED", "ARCHIVED", "FAILED_YOUTUBE_UPLOAD", "PENDING_YOUTUBE_RETRY"];
@@ -1137,7 +1137,8 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
         console.log(`[SURVEY_AI_PROCESS] Starting translation for survey: ${postId}`);
         try {
             await db.collection('news').doc(postId).update({
-                status: "REVIEWING_CONTENT", // Lock it
+                status: "REVIEWING_CONTENT",
+                editorialStatus: "సబ్ ఎడిటర్లు వార్తను సమీక్షిస్తున్నారు...", // Lock it
             });
             // Perform translation
             const translatedSurvey = await performSurveyAITranslation(latestData);
@@ -1190,6 +1191,7 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
         // We use status: "REVIEWING_CONTENT" as the lock and immediately clear forceReprocess
         await db.collection('news').doc(postId).update({
             status: "REVIEWING_CONTENT",
+            editorialStatus: "సబ్ ఎడిటర్లు వార్తను సమీక్షిస్తున్నారు...",
             forceReprocess: admin.firestore.FieldValue.delete(),
             lastProcessingStart: admin.firestore.FieldValue.serverTimestamp()
         });
@@ -1328,6 +1330,7 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                     reporterId: originalReporterId || latestData.reporterId || latestData.originalReporterId || latestData.reporter?.id || "",
                     status: isRejected ? "REJECTED" : (shouldWaitForVideoUpload ? "PROCESSING_VIDEO" : "PUBLISHED"),
                     approved: isRejected ? false : (shouldWaitForVideoUpload ? false : true),
+                    editorialStatus: isRejected ? "వార్త ఆమోదించబడలేదు" : (shouldWaitForVideoUpload ? "వీడియో ప్రాసెస్ అవుతోంది..." : "వార్త ప్రచురించబడింది"),
                     lastProcessingError: admin.firestore.FieldValue.delete(),
                     error: admin.firestore.FieldValue.delete(),
                     ...(isAlreadyVideoReady ? { videoProcessed: true } : {})
@@ -1340,6 +1343,9 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                 const storyMediaUrl = availableMediaUrls[imgIdx] || availableMediaUrls[0] || "";
                 let isPostRejected = isRejected;
                 if (storyMediaUrl && !hasVideo) {
+                    await db.collection('news').doc(postId).update({
+                        editorialStatus: "ఫోటో పరిశీలన మరియు ఎడిటింగ్ జరుగుతోంది..."
+                    }).catch(() => { });
                     try {
                         const optResult = await (0, utils_1.processAndOptimizeNewsImage)(storyMediaUrl, targetPostId, aiProcessedData.isGraphicOrBloody === true, aiProcessedData.isSensitiveVictimOrMinor === true);
                         if (optResult) {

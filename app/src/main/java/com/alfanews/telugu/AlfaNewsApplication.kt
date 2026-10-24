@@ -102,6 +102,7 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
             try {
                 FirebaseAnalytics.getInstance(this)
                 AnalyticsService.initialize(this)
+                com.alfanews.telugu.utils.ReporterVerificationManager.initialize(this)
             } catch (e: Throwable) {
                 Log.e("AlfaNewsApp", "Analytics init error: ${e.message}")
             }
@@ -129,7 +130,7 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
             scope.launch(Dispatchers.IO) {
                 try {
                     delay(3500L)
-                    com.alfanews.telugu.utils.ReporterVerificationManager.startListening()
+                    com.alfanews.telugu.utils.ReporterVerificationManager.startListening(this@AlfaNewsApplication)
                 } catch (e: Throwable) {
                     Log.e("AlfaNewsApp", "ReporterVerificationManager error: ${e.message}")
                 }

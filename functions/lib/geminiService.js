@@ -106,6 +106,11 @@ async function refineHeadlineWithPaidAI(teluguContent, fallbackHeadline, fallbac
             }
             catch (err) {
                 console.warn(`[PAID-HEADLINE-ATTEMPT-FAIL] Model ${modelName} with paid key: ${err?.message || err}`);
+                const errMsg = String(err?.message || err || "");
+                if (errMsg.includes("dunning") || errMsg.includes("PERMISSION_DENIED") || err?.status === 403 || err?.code === 403) {
+                    console.warn(`[PAID-KEY-AUTH-FAIL] Paid API key quota or billing issue detected. Skipping remaining paid models immediately.`);
+                    break;
+                }
             }
         }
         console.warn(`[PAID-HEADLINE-FALLBACK] Paid headline generation failed or rejected, falling back to primary headline.`);

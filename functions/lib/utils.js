@@ -504,7 +504,7 @@ async function detectFacesWithGeminiAI(imageBuffer) {
             .jpeg({ quality: 80 })
             .toBuffer();
         const base64 = jpegBuffer.toString('base64');
-        const prompt = `Identify bounding boxes [ymin, xmin, ymax, xmax] for all human heads/faces and key subjects in this news photo. Scale 0-1000.`;
+        const prompt = `Identify bounding boxes [ymin, xmin, ymax, xmax] for up to 15 key human heads/faces and key subjects in this news photo. Scale 0-1000.`;
         const schema = {
             type: genai_1.Type.OBJECT,
             properties: {
@@ -540,7 +540,7 @@ async function detectFacesWithGeminiAI(imageBuffer) {
                     responseMimeType: "application/json",
                     responseSchema: schema,
                     temperature: 0.1,
-                    maxOutputTokens: 1024
+                    maxOutputTokens: 4096
                 }
             });
             const text = res.text || res.candidates?.[0]?.content?.parts?.[0]?.text;

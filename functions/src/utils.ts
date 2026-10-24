@@ -512,7 +512,7 @@ export async function detectFacesWithGeminiAI(
             .toBuffer();
 
         const base64 = jpegBuffer.toString('base64');
-        const prompt = `Identify bounding boxes [ymin, xmin, ymax, xmax] for all human heads/faces and key subjects in this news photo. Scale 0-1000.`;
+        const prompt = `Identify bounding boxes [ymin, xmin, ymax, xmax] for up to 15 key human heads/faces and key subjects in this news photo. Scale 0-1000.`;
 
         const schema = {
             type: Type.OBJECT,
@@ -550,7 +550,7 @@ export async function detectFacesWithGeminiAI(
                     responseMimeType: "application/json",
                     responseSchema: schema,
                     temperature: 0.1,
-                    maxOutputTokens: 1024
+                    maxOutputTokens: 4096
                 }
             } as any);
 

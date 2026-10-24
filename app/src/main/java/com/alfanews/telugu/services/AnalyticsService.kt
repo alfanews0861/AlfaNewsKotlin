@@ -37,7 +37,7 @@ object AnalyticsService {
     private var lastFirestoreSyncTime = 0L
     private var lastLongViewSyncTime = 0L
     private const val PREFS_THROTTLE_MS = 30_000L
-    private const val FIRESTORE_THROTTLE_MS = 60_000L
+    private const val FIRESTORE_THROTTLE_MS = 900_000L // 15 minutes throttle
     private const val LONG_VIEW_SYNC_MS = 300_000L // 5 minutes
 
     private const val PREFS_NAME = "analytics_prefs_v2"
@@ -644,58 +644,18 @@ object AnalyticsService {
      * బిల్లింగ్ తగ్గించడానికి ఇప్పుడు ఇది వ్యూస్‌ను బ్యాచ్‌లుగా పంపుతుంది.
      */
     fun logLongView(postId: String) {
-        if (postId.isBlank()) return
-        
-        // 1. లోకల్ బఫర్‌లో యాడ్ చేయడం
-        pendingLongViews[postId] = (pendingLongViews[postId] ?: 0) + 1
-        
-        // 2. ఒకవేళ 5 నిమిషాలు దాటితే సింక్ చేయడం
-        val now = System.currentTimeMillis()
-        if (now - lastLongViewSyncTime > LONG_VIEW_SYNC_MS) {
-            syncPendingLongViews()
-        }
+        // No-op for direct Firestore writes: avoids thousands of unneeded writes & security rule evaluations
     }
 
     /**
      * బఫర్‌లో ఉన్న వ్యూస్‌ను ఫైర్‌బేస్‌కు పంపి క్లియర్ చేస్తుంది.
      */
     fun syncPendingLongViews() {
-        if (pendingLongViews.isEmpty()) return
-        
-        val now = System.currentTimeMillis()
-        lastLongViewSyncTime = now
-        
-        // స్నాప్‌షాట్ తీసుకుని క్లియర్ చేయడం (కొత్త వ్యూస్ మిస్ కాకుండా)
-        val snapshot = HashMap(pendingLongViews)
-        pendingLongViews.clear()
-        
-        scope.launch {
-            try {
-                val batch = FirebaseService.db.batch()
-                var batchCount = 0
-                snapshot.forEach { (postId, count) ->
-                    if (postId.isNotBlank() && count > 0) {
-                        val ref = FirebaseService.db.collection("news").document(postId)
-                        batch.update(ref, "longViews", com.google.firebase.firestore.FieldValue.increment(count.toLong()))
-                        batchCount++
-                    }
-                }
-                if (batchCount > 0) {
-                    batch.commit()
-                }
-            } catch (e: Exception) {
-                // If batch update fails (e.g. document doesn't exist), fail silently
-                Log.w("AnalyticsService", "Batch longViews update skipped: ${e.message}")
-            }
-        }
+        // No-op: longViews writes to news collection removed to prevent billing surges
     }
 
     /**
      * నోటిఫికేషన్ పర్మిషన్ స్టేటస్ ని లాగ్ చేస్తుంది.
-     * దీనివల్ల ఎంతమంది వద్దన్నారో మనం రిపోర్ట్ చూడవచ్చు.
-     *
-     * ✅ OPTIMIZED: ప్రతి onResume() లో డూప్లికేట్ ఈవెంట్లు ఫైర్ కాకుండా,
-     * కేవలం స్టేటస్ మారినప్పుడు లేదా మొదటిసారి మాత్రమే ఈవెంట్ లాగ్ అవుతుంది.
      */
     fun logNotificationPermissionStatus(granted: Boolean) {
         try {

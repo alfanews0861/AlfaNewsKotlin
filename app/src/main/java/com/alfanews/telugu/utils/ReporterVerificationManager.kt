@@ -1,5 +1,8 @@
 package com.alfanews.telugu.utils
 
+import android.content.Context
+import android.content.SharedPreferences
+import android.util.Log
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
@@ -12,7 +15,6 @@ import com.alfanews.telugu.R
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.services.FirebaseService
-import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +22,11 @@ import kotlinx.coroutines.flow.asStateFlow
 /**
  * ఏదైనా మండలానికి కేటాయించిన (Assigned Mandal) విలేకరులను గుర్తించి
  * వారి పేర్ల పక్కన X.com తరహా వెరిఫైడ్ గ్రీన్ టిక్ మార్క్ బ్యాడ్జ్ చూపించడానికి మేనేజర్.
+ *
+ * ⚡ బిల్లింగ్ ఆప్టిమైజేషన్:
+ * ప్రతి యాప్ లాంచ్ లో సర్వర్ నుండి 200 డాక్యుమెంట్లు చదవకుండా (నెలకు లక్షల రీడ్స్ ఆపడానికి),
+ * విలేకరుల ఐడీలు & పేర్లను SharedPreferences లో భద్రపరుస్తుంది.
+ * కేవలం 24 గంటలకు ఒకసారి మాత్రమే బ్యాక్‌గ్రౌండ్‌లో సర్వర్ నుండి తాజా లిస్ట్ తెస్తుంది.
  */
 object ReporterVerificationManager {
 
@@ -29,52 +36,80 @@ object ReporterVerificationManager {
     private val _verifiedReporterNames = MutableStateFlow<Set<String>>(emptySet())
     val verifiedReporterNames: StateFlow<Set<String>> = _verifiedReporterNames.asStateFlow()
 
-    private var listenerRegistration: ListenerRegistration? = null
     private var isStarted = false
+    private var appContext: Context? = null
+
+    private const val PREFS_NAME = "reporter_verification_cache"
+    private const val KEY_VERIFIED_IDS = "verified_reporter_ids"
+    private const val KEY_VERIFIED_NAMES = "verified_reporter_names"
+    private const val KEY_LAST_FETCH_TIME = "last_fetch_time"
+    private const val FETCH_INTERVAL_MS = 24 * 60 * 60 * 1000L // 24 గంటలకు ఒకసారి మాత్రమే సర్వర్ రీడ్
 
     /**
-     * యాప్ ప్రారంభమైనప్పుడు లేదా అవసరమైనప్పుడు రిపోర్టర్ల లిజనర్‌ను ప్రారంభిస్తుంది.
+     * అప్లికేషన్ ప్రారంభంలోనే కాంటెక్స్ట్‌ను రిజిస్టర్ చేసి లోకల్ కాష్ లోడ్ చేస్తుంది.
      */
-    fun startListening() {
-        if (isStarted) return
-        isStarted = true
+    fun initialize(context: Context) {
+        appContext = context.applicationContext
+        loadFromPrefs()
+    }
 
+    private fun loadFromPrefs() {
+        val ctx = appContext ?: return
         try {
-            val roles = listOf("REPORTER", "reporter", "STAFF_REPORTER", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0, "3")
-            val query = FirebaseService.db.collection("users")
-                .whereIn("role", roles)
-                .limit(200)
-
-            // 1. ⚡ Instant Cache (< 10ms)
-            try {
-                query.get(com.google.firebase.firestore.Source.CACHE).addOnSuccessListener { snapshot ->
-                    if (snapshot != null && !snapshot.isEmpty) {
-                        parseVerifiedReporters(snapshot.documents)
-                    }
-                }
-            } catch (_: Exception) {}
-
-            // 2. Fresh Server Fetch (single fetch on launch instead of continuous 200-doc snapshot listener)
-            query.get(com.google.firebase.firestore.Source.SERVER).addOnSuccessListener { snapshot ->
-                if (snapshot != null && !snapshot.isEmpty) {
-                    parseVerifiedReporters(snapshot.documents)
-                }
-            }.addOnFailureListener {
-                query.get().addOnSuccessListener { snapshot ->
-                    if (snapshot != null && !snapshot.isEmpty) {
-                        parseVerifiedReporters(snapshot.documents)
-                    }
-                }
+            val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val ids = prefs.getStringSet(KEY_VERIFIED_IDS, null)
+            val names = prefs.getStringSet(KEY_VERIFIED_NAMES, null)
+            if (!ids.isNullOrEmpty()) {
+                _verifiedReporterIds.value = ids
             }
-        } catch (_: Exception) {
-            // Silently fallback
+            if (!names.isNullOrEmpty()) {
+                _verifiedReporterNames.value = names
+            }
+        } catch (e: Exception) {
+            Log.w("ReporterVerif", "Error loading from prefs: ${e.message}")
         }
     }
 
     /**
-     * అవసరమైనప్పుడు సర్వర్ నుండి రిపోర్టర్ల లిస్ట్‌ను రీఫ్రెష్ చేస్తుంది.
+     * యాప్ ప్రారంభమైనప్పుడు లేదా అవసరమైనప్పుడు విలేకరుల లిస్ట్‌ను లోడ్ చేస్తుంది.
+     * కాష్ అందుబాటులో ఉండి 24 గంటలు దాటకపోతే సర్వర్ కాల్ ను పూర్తిగా దాటవేస్తుంది (0 reads).
      */
-    fun refresh() {
+    fun startListening(context: Context? = null) {
+        if (context != null) {
+            appContext = context.applicationContext
+        }
+        loadFromPrefs()
+
+        if (isStarted) return
+        isStarted = true
+
+        val ctx = appContext
+        if (ctx != null) {
+            try {
+                val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val lastFetch = prefs.getLong(KEY_LAST_FETCH_TIME, 0L)
+                val now = System.currentTimeMillis()
+                // లోకల్ కాష్ లో డేటా ఉండి, 24 గంటలు దాటకపోతే సర్వర్ రీడ్ ను నివారించడం
+                if (_verifiedReporterIds.value.isNotEmpty() && (now - lastFetch < FETCH_INTERVAL_MS)) {
+                    return
+                }
+            } catch (_: Exception) {}
+        }
+
+        fetchFromServer()
+    }
+
+    /**
+     * అవసరమైనప్పుడు లేదా 24 గంటల తర్వాత సర్వర్ నుండి తాజా రిపోర్టర్ల లిస్ట్‌ను తెస్తుంది.
+     */
+    fun refresh(context: Context? = null) {
+        if (context != null) {
+            appContext = context.applicationContext
+        }
+        fetchFromServer()
+    }
+
+    private fun fetchFromServer() {
         try {
             val roles = listOf("REPORTER", "reporter", "STAFF_REPORTER", "REGIONAL_INCHARGE", 2, 2.0, "2", 3, 3.0, "3")
             FirebaseService.db.collection("users")
@@ -83,13 +118,16 @@ object ReporterVerificationManager {
                 .get()
                 .addOnSuccessListener { snapshot ->
                     if (snapshot != null && !snapshot.isEmpty) {
-                        parseVerifiedReporters(snapshot.documents)
+                        parseAndSaveVerifiedReporters(snapshot.documents)
                     }
+                }
+                .addOnFailureListener { e ->
+                    Log.w("ReporterVerif", "Server fetch failed, retained local cache: ${e.message}")
                 }
         } catch (_: Exception) {}
     }
 
-    private fun parseVerifiedReporters(documents: List<com.google.firebase.firestore.DocumentSnapshot>) {
+    private fun parseAndSaveVerifiedReporters(documents: List<com.google.firebase.firestore.DocumentSnapshot>) {
         val validIds = mutableSetOf<String>()
         val validNames = mutableSetOf<String>()
 
@@ -119,6 +157,18 @@ object ReporterVerificationManager {
         }
         if (validNames.isNotEmpty()) {
             _verifiedReporterNames.value = validNames
+        }
+
+        // 💾 SharedPreferences లో భద్రపరచడం (భవిష్యత్ యాప్ లాంచ్‌లలో 0 రీడ్స్ కోసం)
+        try {
+            appContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)?.edit()?.apply {
+                putStringSet(KEY_VERIFIED_IDS, validIds)
+                putStringSet(KEY_VERIFIED_NAMES, validNames)
+                putLong(KEY_LAST_FETCH_TIME, System.currentTimeMillis())
+                apply()
+            }
+        } catch (e: Exception) {
+            Log.w("ReporterVerif", "Error saving to prefs: ${e.message}")
         }
     }
 

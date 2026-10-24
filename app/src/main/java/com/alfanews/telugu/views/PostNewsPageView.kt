@@ -437,21 +437,6 @@ fun PostNewsPageView(
                             // టెక్స్ట్ & ఫోటో వార్త: ఎడిటోరియల్ డెస్క్ సమీక్ష పూర్తయ్యే వరకు ఇక్కడే వేచి ఉండటం
                             statusMessage = "సబ్ ఎడిటర్లు సమీక్షిస్తున్నారు..."
 
-                            val statusCycleJob = launch {
-                                val messages = listOf(
-                                    "సబ్ ఎడిటర్లు సమీక్షిస్తున్నారు...",
-                                    "న్యూస్ డెస్క్ పరిశీలిస్తోంది...",
-                                    "వార్తను ఎడిట్ చేస్తున్నారు...",
-                                    "ఎడిటోరియల్ టీమ్ ఆమోదిస్తోంది..."
-                                )
-                                var idx = 0
-                                while (isActive) {
-                                    statusMessage = messages[idx % messages.size]
-                                    idx++
-                                    delay(3500L)
-                                }
-                            }
-
                             val fallbackImg = finalMediaUrls.firstOrNull() ?: mediaUris.firstOrNull()?.toString()
 
                             val finalResult = waitForNewsProcessing(
@@ -460,10 +445,12 @@ fun PostNewsPageView(
                                 fallbackContent = content,
                                 fallbackCategory = category,
                                 fallbackLocation = location,
-                                fallbackImageUrl = fallbackImg
+                                fallbackImageUrl = fallbackImg,
+                                onStatusUpdate = { liveStatus ->
+                                    statusMessage = liveStatus
+                                }
                             )
 
-                            statusCycleJob.cancel()
                             submissionResult = finalResult
                         }
                     }
@@ -840,13 +827,14 @@ internal suspend fun waitForNewsProcessing(
     fallbackContent: String,
     fallbackCategory: String,
     fallbackLocation: String,
-    fallbackImageUrl: String?
+    fallbackImageUrl: String?,
+    onStatusUpdate: (String) -> Unit = {}
 ): NewsSubmissionResult {
     if (postId.isBlank()) {
         return NewsSubmissionResult.Failed("", "వార్త ఐడీ లభించలేదు")
     }
 
-    return withTimeoutOrNull(45000L) {
+    return withTimeoutOrNull(150000L) {
         suspendCancellableCoroutine { continuation ->
             val docRef = FirebaseService.db.collection("news").document(postId)
             var registration: ListenerRegistration? = null
@@ -868,8 +856,18 @@ internal suspend fun waitForNewsProcessing(
                     val rejectionReason = (data["rejectionReason"] as? String)?.trim()
                     val errorMsg = (data["error"] as? String)?.trim()
                         ?: (data["lastProcessingError"] as? String)?.trim()
+                    val editorialStatus = (data["editorialStatus"] as? String)?.trim()
+
+                    if (!editorialStatus.isNullOrBlank()) {
+                        onStatusUpdate(editorialStatus)
+                    } else if (status == "REVIEWING_CONTENT") {
+                        onStatusUpdate("సబ్ ఎడిటర్లు వార్తను సమీక్షిస్తున్నారు...")
+                    } else if (status == "PENDING") {
+                        onStatusUpdate("వార్త ఎడిటోరియల్ డెస్క్‌కు చేరింది...")
+                    }
 
                     if (approved || status == "PUBLISHED") {
+                        onStatusUpdate("వార్త ఆమోదించబడింది!")
                         val headlineMap = data["headline"] as? Map<*, *>
                         val finalHeadline = headlineMap?.get("telugu")?.toString()
                             ?: data["headline"]?.toString()
@@ -905,6 +903,7 @@ internal suspend fun waitForNewsProcessing(
                         }
                         registration?.remove()
                     } else if (status == "REJECTED" || !rejectionReason.isNullOrBlank()) {
+                        onStatusUpdate("వార్త సమీక్ష పూర్తయింది")
                         if (continuation.isActive) {
                             continuation.resume(
                                 NewsSubmissionResult.Rejected(
@@ -915,6 +914,7 @@ internal suspend fun waitForNewsProcessing(
                         }
                         registration?.remove()
                     } else if (status == "FAILED" || !errorMsg.isNullOrBlank()) {
+                        onStatusUpdate("సాంకేతిక సమస్య ఏర్పడింది")
                         if (continuation.isActive) {
                             continuation.resume(
                                 NewsSubmissionResult.Failed(
@@ -1024,7 +1024,7 @@ internal fun NewsSubmissionResultDialog(
                             )
                         }
                         Text(
-                            text = if (result is NewsSubmissionResult.Timeout) "సమీక్ష ఆలస్యమవుతోంది" else "ప్రాసెసింగ్ లోపం",
+                            text = if (result is NewsSubmissionResult.Timeout) "నెట్‌వర్క్ నెమ్మదిగా ఉంది" else "ప్రాసెసింగ్ లోపం",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFED6C02)
@@ -1186,7 +1186,7 @@ internal fun NewsSubmissionResultDialog(
                             )
                         }
                         Text(
-                            text = "వార్త సర్వర్‌లో నమోదైంది. కాసేపటి తర్వాత మేనేజ్ న్యూస్ స్క్రీన్‌లో పరిశీలించండి.",
+                            text = "వార్త సర్వర్‌లో నమోదైంది. కొద్దిసేపటి తర్వాత హోమ్ ఫీడ్‌లో పరిశీలించండి.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1194,14 +1194,9 @@ internal fun NewsSubmissionResultDialog(
 
                     is NewsSubmissionResult.Timeout -> {
                         Text(
-                            text = "వార్త సర్వర్‌కు విజయవంతంగా చేరింది. అయితే నెట్‌వర్క్ నెమ్మదిగా ఉన్నందున ఎడిటోరియల్ డెస్క్ సమీక్ష కాస్త ఎక్కువ సమయం తీసుకుంటోంది.",
+                            text = "నెట్‌వర్క్ నెమ్మదిగా ఉన్నందున వార్త సమీక్షకు కాస్త సమయం పడుతోంది. మీ వార్త సర్వర్‌లో నమోదైంది.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "మీ వార్త సర్వర్‌లో భద్రంగా ఉంది. కొద్ది నిమిషాల్లో మేనేజ్ న్యూస్ స్క్రీన్‌లో దీని తాజా స్థితిని చూడవచ్చు.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -1246,12 +1241,15 @@ internal fun NewsSubmissionResultDialog(
                         Text("సవరించి మళ్ళీ పంపండి")
                     }
                 }
-                is NewsSubmissionResult.Failed, is NewsSubmissionResult.Timeout -> {
-                    val pid = if (result is NewsSubmissionResult.Failed) result.postId else (result as NewsSubmissionResult.Timeout).postId
+                is NewsSubmissionResult.Timeout, is NewsSubmissionResult.Failed -> {
                     Button(
-                        onClick = { onActionComplete(pid) }
+                        onClick = { onActionComplete("HOME_ONLY") },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
                     ) {
-                        Text("మేనేజ్ న్యూస్‌కు వెళ్లండి")
+                        Text("సరే")
                     }
                 }
             }
@@ -1273,11 +1271,7 @@ internal fun NewsSubmissionResultDialog(
                     }
                 }
                 is NewsSubmissionResult.Failed, is NewsSubmissionResult.Timeout -> {
-                    TextButton(
-                        onClick = onDismiss
-                    ) {
-                        Text("మూసివేయి")
-                    }
+                    // సరే బటన్ మాత్రమే ఉంటుంది
                 }
             }
         }
