@@ -797,8 +797,10 @@ internal fun Dropdown(
 }
 
 internal sealed class NewsSubmissionResult {
+    abstract val postId: String
+
     data class Success(
-        val postId: String,
+        override val postId: String,
         val headline: String,
         val snippet: String,
         val imageUrl: String?,
@@ -807,17 +809,17 @@ internal sealed class NewsSubmissionResult {
     ) : NewsSubmissionResult()
 
     data class Rejected(
-        val postId: String,
+        override val postId: String,
         val reason: String
     ) : NewsSubmissionResult()
 
     data class Failed(
-        val postId: String,
+        override val postId: String,
         val error: String
     ) : NewsSubmissionResult()
 
     data class Timeout(
-        val postId: String
+        override val postId: String
     ) : NewsSubmissionResult()
 }
 

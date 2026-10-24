@@ -400,7 +400,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                                     .filter { isPostAllowedForHomeFeed(it, district, userState) }
                             }
                             if (fastPosts.isNotEmpty()) {
-                                val targetAndFast = (listOfNotNull(initialTargetPost) + fastPosts.take(5)).distinctBy { it.id }
+                                val pin = pinnedPost ?: initialTargetPost
+                                val targetAndFast = (listOfNotNull(pin) + fastPosts.take(5)).distinctBy { it.id }
                                 val currentTopId = _news.value.firstOrNull()?.id
                                 val newTopId = targetAndFast.firstOrNull()?.id
                                 if (_news.value.isEmpty() || currentTopId != newTopId) {
