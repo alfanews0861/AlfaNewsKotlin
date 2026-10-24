@@ -135,7 +135,7 @@ class MainActivity : ComponentActivity() {
 
         // 🚀 PRE-WARM: Early trigger for Firestore network engine (gRPC/TLS warm-up)
         try {
-            lifecycleScope.launch(Dispatchers.IO) {
+            lifecycleScope.launch {
                 try {
                     FirebaseService.db.collection("news").limit(1).get()
                 } catch (_: Throwable) {}
@@ -175,7 +175,7 @@ class MainActivity : ComponentActivity() {
             val currentUser = mainViewModel.currentUser.value
             newsFeedViewModel.loadNews(language, currentUser, initialPostId = initialPostId)
             // Preload local news with slight delay (300ms) so Home Feed gets initial priority
-            lifecycleScope.launch(Dispatchers.IO) {
+            lifecycleScope.launch {
                 kotlinx.coroutines.delay(300L)
                 localNewsFeedViewModel.loadNews(language, currentUser)
             }

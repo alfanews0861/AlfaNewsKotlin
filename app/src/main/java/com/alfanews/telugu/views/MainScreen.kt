@@ -512,7 +512,8 @@ fun MainScreen(
                             com.alfanews.telugu.utils.Constants.isSpecificDistrict(post.district)
                         if (isDistrictStory) {
                             val targetDistrict = post.district!!
-                            localNewsFeedViewModel?.setDistrict(targetDistrict)
+                            mainViewModel.setDistrict(targetDistrict)
+                            localNewsFeedViewModel?.setDistrict(targetDistrict, initialPinnedPost = post)
                             localNewsFeedViewModel?.prependPost(post)
                             localNewsFeedViewModel?.requestScrollToTop()
                             localNewsFeedViewModel?.loadNews(language, user, forceRefresh = false, initialPost = post)
@@ -528,19 +529,32 @@ fun MainScreen(
                     val openNewsById: (String) -> Unit = { targetPostId ->
                         if (targetPostId.isNotBlank() && targetPostId != "HOME_ONLY") {
                             scope.launch {
+                                var post: NewsPost? = null
                                 try {
-                                    val doc = com.alfanews.telugu.services.FirebaseService.db.collection("news").document(targetPostId).get().await()
-                                    if (doc.exists()) {
-                                        val post = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, doc.data ?: emptyMap(), language)
-                                        openNewsPost(post)
-                                        return@launch
+                                    val doc = kotlinx.coroutines.withTimeoutOrNull(4000L) {
+                                        try {
+                                            com.alfanews.telugu.services.FirebaseService.db.collection("news").document(targetPostId).get().await()
+                                        } catch (_: Exception) {
+                                            try {
+                                                com.alfanews.telugu.services.FirebaseService.db.collection("news").document(targetPostId).get(com.google.firebase.firestore.Source.CACHE).await()
+                                            } catch (_: Exception) { null }
+                                        }
+                                    }
+                                    if (doc != null && doc.exists()) {
+                                        post = com.alfanews.telugu.models.mapMapToNewsPost(doc.id, doc.data ?: emptyMap(), language)
                                     }
                                 } catch (e: Exception) {
                                     android.util.Log.e("MainScreen", "Error opening post by ID: ${e.message}")
                                 }
-                                newsFeedViewModel.navigateToPostId(targetPostId)
-                                newsFeedViewModel.requestScrollToTop()
-                                mainViewModel.setActiveTab("home")
+                                if (post != null) {
+                                    openNewsPost(post)
+                                } else {
+                                    newsFeedViewModel.navigateToPostId(targetPostId)
+                                    localNewsFeedViewModel?.navigateToPostId(targetPostId)
+                                    newsFeedViewModel.requestScrollToTop()
+                                    localNewsFeedViewModel?.requestScrollToTop()
+                                    mainViewModel.setActiveTab("home")
+                                }
                             }
                         } else {
                             mainViewModel.setActiveTab("home")

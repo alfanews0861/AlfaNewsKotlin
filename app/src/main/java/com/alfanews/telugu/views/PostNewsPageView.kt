@@ -1229,7 +1229,7 @@ internal fun NewsSubmissionResultDialog(
                                 contentColor = MaterialTheme.colorScheme.onPrimary
                             )
                         ) {
-                            Text("చూడండి")
+                            Text("వార్తను చూడండి")
                         }
                     }
                 }
@@ -1242,14 +1242,15 @@ internal fun NewsSubmissionResultDialog(
                     }
                 }
                 is NewsSubmissionResult.Timeout, is NewsSubmissionResult.Failed -> {
+                    val targetPostId = result.postId.ifBlank { "HOME_ONLY" }
                     Button(
-                        onClick = { onActionComplete("HOME_ONLY") },
+                        onClick = { onActionComplete(targetPostId) },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary
                         )
                     ) {
-                        Text("సరే")
+                        Text(if (targetPostId != "HOME_ONLY") "వార్తను చూడండి" else "సరే")
                     }
                 }
             }
@@ -1271,7 +1272,13 @@ internal fun NewsSubmissionResultDialog(
                     }
                 }
                 is NewsSubmissionResult.Failed, is NewsSubmissionResult.Timeout -> {
-                    // సరే బటన్ మాత్రమే ఉంటుంది
+                    if (result.postId.isNotBlank()) {
+                        TextButton(
+                            onClick = { onActionComplete("HOME_ONLY") }
+                        ) {
+                            Text("హోమ్‌కి వెళ్ళండి")
+                        }
+                    }
                 }
             }
         }

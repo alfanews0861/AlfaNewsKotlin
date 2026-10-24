@@ -182,12 +182,14 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         _shouldScrollToTop.value = true
     }
 
+    private var pinnedPost: NewsPost? = null
+
     fun navigateToPost(post: NewsPost) {
+        pinnedPost = post
         _sharedPostId.value = post.id
         val current = _news.value
-        if (current.none { it.id == post.id }) {
-            _news.value = listOf(post) + current
-        }
+        _news.value = (listOf(post) + current.filter { it.id != post.id }).distinctBy { it.id }
+        _shouldScrollToTop.value = true
     }
 
     fun navigateToPostId(postId: String) {
@@ -196,6 +198,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         val current = _news.value
         val existing = current.find { it.id == postId }
         if (existing != null) {
+            pinnedPost = existing
             _news.value = listOf(existing) + current.filter { it.id != postId }
             _sharedPostId.value = postId
             _shouldScrollToTop.value = true
@@ -206,6 +209,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     if (doc.exists()) {
                         val post = mapDocumentToNewsPost(doc)
                         if (post != null) {
+                            pinnedPost = post
                             _news.value = (listOf(post) + _news.value.filter { it.id != postId })
                             _sharedPostId.value = postId
                             _shouldScrollToTop.value = true
@@ -322,6 +326,9 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         // do NOT cancel it and restart! Let the active query finish smoothly.
         if (isFetching && initialPostId == null && (now - lastFetchStartTime < 3500L)) return
         if (isFetching && initialPostId == null && !forceRefresh) return
+        if (forceRefresh && initialPostId == null) {
+            pinnedPost = null
+        }
         
         currentFetchJob?.cancel()
         lastFetchStartTime = now
@@ -533,14 +540,15 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                         )
                     }
 
-                    val finalPosts = (listOfNotNull(initialTargetPost, initialGreeting) + blended).distinctBy { it.id }
+                    val pin = pinnedPost ?: initialTargetPost
+                    val finalPosts = (listOfNotNull(pin, initialGreeting) + blended).distinctBy { it.id }
 
                     // 🛡️ PRESERVE OLDER NEWS ON BACKGROUND REFRESH:
                     // If this is a background/resume refresh (not an explicit user pull-to-refresh or district change),
                     // preserve existing older news so reading position doesn't glitch or truncate!
                     if (_news.value.isNotEmpty() && !isExplicitScrollToTop) {
                         val currentNews = _news.value
-                        val olderRemaining = currentNews.filter { cur -> finalPosts.none { it.id == cur.id } && isPostAllowedForHomeFeed(cur, district, userState) }
+                        val olderRemaining = currentNews.filter { cur -> finalPosts.none { it.id == cur.id } && (cur.id == pin?.id || isPostAllowedForHomeFeed(cur, district, userState)) }
                         _news.value = (finalPosts + olderRemaining).distinctBy { it.id }
                     } else {
                         _news.value = finalPosts
@@ -550,8 +558,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                     lastRefreshTimeLong = System.currentTimeMillis()
                     _lastRefreshTime.value = lastRefreshTimeLong
 
-                    // Scroll to top ONLY on explicit user refresh (pull to refresh or district change) or cold start
-                    if (initialPostId == null && isExplicitScrollToTop) {
+                    // Scroll to top ONLY on explicit user refresh (pull to refresh or district change) or cold start or when a post is pinned
+                    if ((initialPostId == null && isExplicitScrollToTop) || pin != null) {
                         _shouldScrollToTop.value = true
                     }
                 } else if (_news.value.isNotEmpty()) {

@@ -131,18 +131,30 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
     @Volatile private var lastFetchStartTime: Long = 0L
     private var consecutiveEmptyLoads = 0
     
-    fun setDistrict(district: String) {
+    fun setDistrict(district: String, initialPinnedPost: NewsPost? = null) {
         if (!Constants.isSpecificDistrict(district)) return
-        if (prefs.selectedDistrict == district && _activeDistrict.value == district) return
-        if (district != pinnedPost?.district) pinnedPost = null
+        if (initialPinnedPost != null) {
+            pinnedPost = initialPinnedPost
+        }
+        val isSameDistrict = prefs.selectedDistrict == district && _activeDistrict.value == district
+        if (isSameDistrict && initialPinnedPost == null) return
+
+        if (initialPinnedPost == null && district != pinnedPost?.district) {
+            pinnedPost = null
+        }
         val oldDistrict = prefs.selectedDistrict ?: prefs.detectedDistrict
-        _news.value = emptyList() // 🔄 Clear old news to avoid confusion when switching districts
-        _loading.value = true     // 🔄 Show preparation screen
+        if (initialPinnedPost != null) {
+            _news.value = listOf(initialPinnedPost)
+            _loading.value = false
+        } else {
+            _news.value = emptyList() // 🔄 Clear old news to avoid confusion when switching districts
+            _loading.value = true     // 🔄 Show preparation screen
+        }
         _hasMore.value = true
         prefs.selectedDistrict = district
         _activeDistrict.value = district
         AnalyticsService.logDistrictSelected(district, oldDistrict)
-        loadNews(Language.TELUGU, null, forceRefresh = true, isExplicitScrollToTop = true) 
+        loadNews(Language.TELUGU, null, forceRefresh = (initialPinnedPost == null), isExplicitScrollToTop = true, initialPost = initialPinnedPost) 
     }
     
     @SuppressLint("MissingPermission")
@@ -356,7 +368,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         currentLanguage = language
         if (initialPost != null) {
             pinnedPost = initialPost
-        } else if (forceRefresh) {
+        } else if (forceRefresh && (pinnedPost == null || pinnedPost?.district != _activeDistrict.value)) {
             pinnedPost = null
         }
         val rawDistrict = _activeDistrict.value ?: prefs.getEffectiveDistrict() ?: currentUser?.district ?: prefs.detectedDistrict
@@ -372,8 +384,8 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         }
         
         val now = System.currentTimeMillis()
-        // 🛡️ DEBOUNCE DOUBLE-RESUME: If a fetch is already in flight within the last 3.5 seconds, let it complete
-        if (isFetching && (now - lastFetchStartTime < 3500L)) return
+        // 🛡️ DEBOUNCE DOUBLE-RESUME: If a fetch is already in flight within the last 3.5 seconds and not forceRefresh, let it complete
+        if (isFetching && !forceRefresh && (now - lastFetchStartTime < 3500L)) return
         if (isFetching && !forceRefresh) return
 
         loadJob?.cancel()
@@ -407,48 +419,90 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                 var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
 
                 val districtAliases = getDistrictAliases(district)
-                val primaryAliases = districtAliases.take(30)
-                val query = newsRef
-                    .whereEqualTo("approved", true)
-                    .whereIn("district", primaryAliases)
-                    .orderBy("timestamp", Query.Direction.DESCENDING)
-                    .limit(pageSize.toLong())
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                val primaryAliases = if (districtAliases.isNotEmpty()) districtAliases.take(10) else listOf(district)
 
                 // ⚡ FAST PATH: Server direct top 5 news (< 300ms) to dismiss loading fast without cache
                 // Runs on cold start (_news empty) AND on stale resume/forceRefresh so fresh news hits screen in < 300ms
                 if (_news.value.isEmpty() || forceRefresh) {
                     try {
-                        val fastSnap = withTimeoutOrNull(3500L) {
-                            newsRef.whereEqualTo("approved", true)
-                                .whereIn("district", primaryAliases)
-                                .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(5)
-                                .get().await()
+                        val fastSnap = withTimeoutOrNull(2000L) {
+                            val fastQuery = if (primaryAliases.size > 1) {
+                                newsRef.whereEqualTo("approved", true)
+                                    .whereIn("district", primaryAliases)
+                                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                                    .limit(5)
+                            } else {
+                                newsRef.whereEqualTo("approved", true)
+                                    .whereEqualTo("district", primaryAliases.firstOrNull() ?: district)
+                                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                                    .limit(5)
+                            }
+                            fastQuery.get().await()
                         }
-                        if (fastSnap != null && !fastSnap.isEmpty) {
-                            val fastPosts = withContext(Dispatchers.Default) {
+                        var fastPosts = if (fastSnap != null && !fastSnap.isEmpty) {
+                            withContext(Dispatchers.Default) {
                                 fastSnap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
                                     .filter { isNormalLocalNews(it) && isStateMatch(it, district) }
                             }
-                            if (fastPosts.isNotEmpty()) {
-                                val currentNews = _news.value
-                                val pin = pinnedPost
-                                val rankedFast = rankLocalNews(fastPosts, district, currentUser)
-                                val olderNews = currentNews.filter { cur -> cur.id != pin?.id && fastPosts.none { it.id == cur.id } && isNormalLocalNews(cur) && isStateMatch(cur, district) }
-                                val targetAndFast = if (pin != null) listOf(pin) + rankedFast.filter { it.id != pin.id } else rankedFast
-                                // 🚀 FRESH NEWS ALWAYS AT TOP: pin first (if present), rankedFast second, olderNews third!
-                                _news.value = (targetAndFast + olderNews).distinctBy { it.id }
-                                _loading.value = false
-                                lastRefreshTimeLong = System.currentTimeMillis()
-                                _lastRefreshTime.value = lastRefreshTimeLong
+                        } else emptyList()
+
+                        // 🚀 FAST FALLBACK: If district has zero posts, immediately fetch state news in < 300ms
+                        // User must NEVER stare at an empty skeleton screen!
+                        if (fastPosts.isEmpty()) {
+                            val isAP = Constants.isApDistrict(district)
+                            val stateTags = if (isAP) listOf("Andhra Pradesh", "ఆంధ్రప్రదేశ్", "AP", "State", "రాష్ట్రం")
+                                            else listOf("Telangana", "తెలంగాణ", "TS", "State", "రాష్ట్రం")
+                            val fastStateSnap = withTimeoutOrNull(1500L) {
+                                newsRef.whereEqualTo("approved", true)
+                                    .whereIn("district", stateTags)
+                                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                                    .limit(5)
+                                    .get().await()
+                            }
+                            if (fastStateSnap != null && !fastStateSnap.isEmpty) {
+                                fastPosts = withContext(Dispatchers.Default) {
+                                    fastStateSnap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                                        .filter { isNormalLocalNews(it) && isStateMatch(it, district) }
+                                }
                             }
                         }
-                    } catch (_: Exception) {}
+
+                        if (fastPosts.isNotEmpty()) {
+                            val currentNews = _news.value
+                            val pin = pinnedPost
+                            val rankedFast = rankLocalNews(fastPosts, district, currentUser)
+                            val olderNews = currentNews.filter { cur -> cur.id != pin?.id && fastPosts.none { it.id == cur.id } && isNormalLocalNews(cur) && isStateMatch(cur, district) }
+                            val targetAndFast = if (pin != null) listOf(pin) + rankedFast.filter { it.id != pin.id } else rankedFast
+                            // 🚀 FRESH NEWS ALWAYS AT TOP: pin first (if present), rankedFast second, olderNews third!
+                            _news.value = (targetAndFast + olderNews).distinctBy { it.id }
+                            _loading.value = false
+                            lastRefreshTimeLong = System.currentTimeMillis()
+                            _lastRefreshTime.value = lastRefreshTimeLong
+                            Log.d("LocalNewsFeedVM", "⚡ Server Fast Path: ${targetAndFast.size} fresh posts on screen in < 300ms")
+                        }
+                    } catch (e: Exception) {
+                        Log.w("LocalNewsFeedVM", "Fast path error: ${e.message}")
+                    }
                 }
 
                 try {
-                    // 🚀 STEP 1: Search by 'district' field directly with whereIn (Single Batch Query)
-                    val snap = withTimeoutOrNull(4500L) { query.get().await() }
+                    // 🚀 STEP 1: Search by 'district' field directly
+                    val mainQuery = if (primaryAliases.size > 1) {
+                        newsRef.whereEqualTo("approved", true)
+                            .whereIn("district", primaryAliases)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(pageSize.toLong())
+                    } else {
+                        newsRef.whereEqualTo("approved", true)
+                            .whereEqualTo("district", primaryAliases.firstOrNull() ?: district)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(pageSize.toLong())
+                    }
+
+                    val snap = withTimeoutOrNull(4000L) { mainQuery.get().await() }
                     if (snap != null && !snap.isEmpty) {
                         snapshot = snap
                         posts = withContext(Dispatchers.Default) {
@@ -466,7 +520,7 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                             .orderBy("timestamp", Query.Direction.DESCENDING)
                             .limit(pageSize.toLong())
                         
-                        val fallbackSnapshot = withTimeoutOrNull(3500L) { fallbackQuery.get().await() }
+                        val fallbackSnapshot = withTimeoutOrNull(3000L) { fallbackQuery.get().await() }
                         if (fallbackSnapshot != null && !fallbackSnapshot.isEmpty) {
                             snapshot = fallbackSnapshot
                             posts = withContext(Dispatchers.Default) {
@@ -521,6 +575,27 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                         (rankedPosts + olderNews).distinctBy { it.id }
                     }
                     _news.value = finalPosts
+                } else if (_news.value.isEmpty()) {
+                    // 🛡️ EMERGENCY LAST-RESORT: If district + category + state all returned empty,
+                    // fetch top 5 approved general news so the user is NEVER stuck on a skeleton!
+                    try {
+                        val emergencySnap = withTimeoutOrNull(2000L) {
+                            newsRef.whereEqualTo("approved", true)
+                                .orderBy("timestamp", Query.Direction.DESCENDING)
+                                .limit(5)
+                                .get().await()
+                        }
+                        if (emergencySnap != null && !emergencySnap.isEmpty) {
+                            val emergencyPosts = withContext(Dispatchers.Default) {
+                                emergencySnap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                                    .filter { isNormalLocalNews(it) && isStateMatch(it, district) }
+                            }
+                            if (emergencyPosts.isNotEmpty()) {
+                                val pin = pinnedPost
+                                _news.value = if (pin != null) (listOf(pin) + emergencyPosts.filter { it.id != pin.id }).distinctBy { it.id } else emergencyPosts
+                            }
+                        }
+                    } catch (_: Exception) {}
                 }
                 _isOnline.value = com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())
                 // Only scroll to top on explicit user refresh (pull to refresh or district change)
@@ -554,15 +629,27 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
                  val newsRef = FirebaseService.db.collection("news")
                  var snapshot: com.google.firebase.firestore.QuerySnapshot? = null
                  val districtAliases = getDistrictAliases(district)
+                     .map { it.trim() }
+                     .filter { it.isNotBlank() }
+                     .distinct()
+                 val primaryAliases = if (districtAliases.isNotEmpty()) districtAliases.take(10) else listOf(district)
                  val newPosts = try {
                      var snap: com.google.firebase.firestore.QuerySnapshot? = null
-                     val primaryAliases = districtAliases.take(30)
-                     val query = newsRef
-                         .whereEqualTo("approved", true)
-                         .whereIn("district", primaryAliases)
-                         .orderBy("timestamp", Query.Direction.DESCENDING)
-                         .startAfter(currentLastDoc)
-                         .limit(pageSize.toLong())
+                     val query = if (primaryAliases.size > 1) {
+                         newsRef
+                             .whereEqualTo("approved", true)
+                             .whereIn("district", primaryAliases)
+                             .orderBy("timestamp", Query.Direction.DESCENDING)
+                             .startAfter(currentLastDoc)
+                             .limit(pageSize.toLong())
+                     } else {
+                         newsRef
+                             .whereEqualTo("approved", true)
+                             .whereEqualTo("district", primaryAliases.firstOrNull() ?: district)
+                             .orderBy("timestamp", Query.Direction.DESCENDING)
+                             .startAfter(currentLastDoc)
+                             .limit(pageSize.toLong())
+                     }
                      
                      val res = withTimeoutOrNull(6000L) { query.get().await() }
                      if (res != null && !res.isEmpty) {
@@ -634,9 +721,13 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
 
     fun refreshIfStale(language: Language, currentUser: User?) {
         val now = System.currentTimeMillis()
-        if ((now - lastRefreshTimeLong > 300000 || _news.value.isEmpty()) && !isFetching) {
-            _isOnline.value = true
-            loadNews(language, currentUser, forceRefresh = true, isExplicitScrollToTop = false)
+        val isEmpty = _news.value.isEmpty()
+        val isStale = (now - lastRefreshTimeLong > 300000L)
+        if (isEmpty || isStale) {
+            if (!isFetching || (isEmpty && now - lastFetchStartTime > 3500L)) {
+                _isOnline.value = true
+                loadNews(language, currentUser, forceRefresh = isEmpty, isExplicitScrollToTop = false)
+            }
         }
     }
 
