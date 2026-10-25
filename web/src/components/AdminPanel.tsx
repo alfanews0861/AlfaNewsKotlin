@@ -19,6 +19,7 @@ import SocialMediaFeedsPage from './SocialMediaFeedsPage';
 import WhatsappManagerPage from './WhatsappManagerPage';
 import SocialAutoPostPage from './SocialAutoPostPage';
 import VoiceAgentAdminPage from './VoiceAgentAdminPage';
+import { navigateTo, getNewsUrl } from '../utils/router';
 
 interface AdminPanelProps {
   user: User;
@@ -174,7 +175,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
             currentUser={user}
             onViewPost={(p) => {
               onClose();
-              window.location.hash = `#/news/${p.id}`;
+              navigateTo(getNewsUrl(p));
             }}
           />
         );

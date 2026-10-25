@@ -80,19 +80,24 @@ object AnalyticsService {
      * యూజర్ లాగిన్ అయినప్పుడు వారి పాత ఆసక్తులను డేటాబేస్ నుండి లోడ్ చేస్తుంది.
      */
     fun onUserLogin(user: User) {
+        val isNewUserSession = (currentUserId != user.id)
         currentUserId = user.id
         cachedPreferredCategories = null
 
-        try {
-            setUserId(user.id)
-            setUserRole(user.role.name)
-            if (!user.district.isNullOrBlank()) {
-                setUserDistrict(user.district)
-            }
-            firebaseAnalytics?.logEvent(FirebaseAnalytics.Event.LOGIN, Bundle().apply {
-                putString(FirebaseAnalytics.Param.METHOD, "firebase_auth")
-            })
-        } catch (e: Exception) { }
+        // 🛡️ RECURSIVE LOGIN EVENT SUPPRESSION:
+        // ఒకే సెషన్‌లో ఒకే యూజర్‌కి అనవసరంగా పదే పదే LOGIN ఈవెంట్‌లు ఫైర్ అవ్వకుండా కేవలం యూజర్ మారినప్పుడు / కొత్త లాగిన్‌లో మాత్రమే పంపుతాం
+        if (isNewUserSession) {
+            try {
+                setUserId(user.id)
+                setUserRole(user.role.name)
+                if (!user.district.isNullOrBlank()) {
+                    setUserDistrict(user.district)
+                }
+                firebaseAnalytics?.logEvent(FirebaseAnalytics.Event.LOGIN, Bundle().apply {
+                    putString(FirebaseAnalytics.Param.METHOD, "firebase_auth")
+                })
+            } catch (e: Exception) { }
+        }
 
         // ✅ FIX (Bug 2): పాత కోడ్ local + DB scores కలిపేది (double counting).
         // ఇప్పుడు maxOf(local, db) వాడుతున్నాం — same scores రెట్టింపు కావు.

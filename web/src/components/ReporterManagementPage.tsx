@@ -5,10 +5,10 @@ import { MANDAL_DATA } from '../data/mandalData';
 import { app, db } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import * as _functions from 'firebase/functions';
-import { Phone, MessageSquare, AlertTriangle, CheckCircle, Clock, ShieldAlert, Sparkles, ArrowUpDown, Trash2, UserMinus, MapPin, RefreshCw, Star } from 'lucide-react';
+import { Phone, MessageSquare, AlertTriangle, CheckCircle, Clock, ShieldAlert, Sparkles, ArrowUpDown, Trash2, UserMinus, MapPin, RefreshCw, Star, Download, Gift, Copy, Check, ExternalLink } from 'lucide-react';
 import { StarReporterPosterModal } from './StarReporterPoster';
 
-const { collection, getDocs, query, orderBy, doc, updateDoc, setDoc, deleteDoc, where, onSnapshot } = _firestore as any;
+const { collection, getDocs, query, orderBy, doc, updateDoc, setDoc, deleteDoc, where, onSnapshot, limit } = _firestore as any;
 const { getFunctions, httpsCallable } = _functions as any;
 const functions = getFunctions(app, 'asia-south1');
 
@@ -35,7 +35,7 @@ export interface ReporterWithCounts extends User {
   deadlineStatus?: 'ACTIVE' | 'NORMAL' | 'ATTENTION' | 'APPROACHING_DEADLINE' | 'CRITICAL_DEADLINE' | 'NEW_NO_POSTS' | 'INACTIVE_ZERO';
 }
 
-type SortField = 'state' | 'district' | 'name' | 'totalNewsCount' | 'lastWeekNewsCount' | 'todayNewsCount' | 'joinedAt' | 'lastPostTimestamp' | 'daysInactive';
+type SortField = 'state' | 'district' | 'name' | 'totalNewsCount' | 'lastWeekNewsCount' | 'todayNewsCount' | 'joinedAt' | 'lastPostTimestamp' | 'daysInactive' | 'referralCount';
 
 const formatReadableDate = (timestampMs: number | undefined): string => {
   if (!timestampMs) return 'తేదీ లేదు';
@@ -53,7 +53,7 @@ const formatReadableDate = (timestampMs: number | undefined): string => {
 };
 
 const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ currentUser }) => {
-  const [selectedTab, setSelectedTab] = useState<'applications' | 'reporters'>('applications');
+  const [selectedTab, setSelectedTab] = useState<'applications' | 'reporters' | 'installs'>('applications');
 
   // Applications State
   const [applications, setApplications] = useState<any[]>([]);
@@ -77,6 +77,47 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
   const [editLocDistrict, setEditLocDistrict] = useState('');
   const [editLocMandal, setEditLocMandal] = useState('');
   const [posterModalUser, setPosterModalUser] = useState<ReporterWithCounts | null>(null);
+  const [recentInstalls, setRecentInstalls] = useState<any[]>([]);
+  const [loadingInstalls, setLoadingInstalls] = useState(false);
+  const [copiedReferralId, setCopiedReferralId] = useState<string | null>(null);
+  const [installSearch, setInstallSearch] = useState('');
+  const [installDistrict, setInstallDistrict] = useState('ALL');
+
+  const fetchInstallReceipts = useCallback(async () => {
+    setLoadingInstalls(true);
+    try {
+      const q = query(
+        collection(db, 'app_installs'),
+        orderBy('installedAt', 'desc'),
+        limit(50)
+      );
+      const snap = await getDocs(q);
+      const list = snap.docs.map((d: any) => ({
+        id: d.id,
+        ...d.data()
+      }));
+      setRecentInstalls(list);
+    } catch (err) {
+      console.warn('Could not fetch app_installs collection:', err);
+    } finally {
+      setLoadingInstalls(false);
+    }
+  }, []);
+
+  const totalReferralInstalls = useMemo(() => {
+    return reporters.reduce((acc, r) => acc + (r.referralCount || 0), 0);
+  }, [reporters]);
+
+  const activeReferrersCount = useMemo(() => {
+    return reporters.filter(r => (r.referralCount || 0) > 0).length;
+  }, [reporters]);
+
+  const copyReferralLink = (reporterId: string) => {
+    const link = `https://play.google.com/store/apps/details?id=com.alfanews.telugu&referrer=ref_${reporterId}`;
+    navigator.clipboard.writeText(link);
+    setCopiedReferralId(reporterId);
+    setTimeout(() => setCopiedReferralId(null), 2500);
+  };
 
   // Fetch Applications and Occupied Mandals
   const fetchApplications = useCallback(async () => {
@@ -227,6 +268,7 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
         // Estimate or read total news count from user stats / points
         const totalPosts = data.totalNewsCount || data.stats?.totalApprovedNews || (typeof data.points === 'number' && data.points > 0 ? Math.floor(data.points / 10) : (todayCount + lastWeekCount));
         userData.totalNewsCount = totalPosts;
+        userData.referralCount = typeof data.referralCount === 'number' ? data.referralCount : 0;
 
         // Compute true join timestamp
         const rawCreated = data.createdAt?.toMillis ? data.createdAt.toMillis() : (typeof data.createdAt === 'number' ? data.createdAt : null);
@@ -289,10 +331,13 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
   useEffect(() => {
     if (selectedTab === 'applications') {
       fetchApplications();
-    } else {
+    } else if (selectedTab === 'reporters') {
       fetchReporters();
+    } else if (selectedTab === 'installs') {
+      fetchReporters();
+      fetchInstallReceipts();
     }
-  }, [selectedTab, fetchApplications, fetchReporters]);
+  }, [selectedTab, fetchApplications, fetchReporters, fetchInstallReceipts]);
 
   // Filter Active Reporters
   useEffect(() => {
@@ -589,6 +634,14 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
             >
               👥 యాక్టివ్ రిపోర్టర్లు ({reporters.length})
             </button>
+            <button
+              onClick={() => setSelectedTab('installs')}
+              className={`px-5 py-2 rounded-xl font-bold text-sm transition-all ${
+                selectedTab === 'installs' ? 'bg-white text-teal-900 shadow-md' : 'text-white hover:bg-white/10'
+              }`}
+            >
+              📱 యాప్ ఇన్‌స్టాల్స్ ({totalReferralInstalls})
+            </button>
           </div>
         </div>
       </div>
@@ -812,6 +865,7 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
                 onChange={e => setSortField(e.target.value as SortField)}
                 className="w-full border border-gray-300 rounded-xl py-2 px-3 text-sm focus:ring-2 focus:ring-teal-500 bg-white font-bold outline-none"
               >
+                <option value="referralCount">📱 యాప్ ఇన్‌స్టాల్స్ (Referrals)</option>
                 <option value="totalNewsCount">📊 మొత్తం వార్తలు</option>
                 <option value="todayNewsCount">⚡ ఈ రోజు వార్తలు</option>
                 <option value="lastWeekNewsCount">🗓️ గత వారం వార్తలు</option>
@@ -845,6 +899,9 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
                     </th>
                     <th scope="col" onClick={() => { setSortField('todayNewsCount'); setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc'); }} className="cursor-pointer px-4 py-3.5 text-center text-green-700 hover:bg-gray-200">
                       ఈ రోజు
+                    </th>
+                    <th scope="col" onClick={() => { setSortField('referralCount'); setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc'); }} className="cursor-pointer px-4 py-3.5 text-center text-emerald-700 hover:bg-gray-200" title="రిపోర్టర్ లింక్ ద్వారా వచ్చిన మొత్తం యాప్ డౌన్‌లోడ్లు">
+                      📱 ఇన్‌స్టాల్స్
                     </th>
                     <th scope="col" onClick={() => { setSortField('daysInactive'); setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc'); }} className="cursor-pointer px-4 py-3.5 text-left text-orange-700 hover:bg-gray-200">
                       స్టేటస్ / డెడ్‌లైన్
@@ -941,6 +998,14 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
                           <td className="px-4 py-4 whitespace-nowrap text-center text-base font-black text-green-600">
                             {user.todayNewsCount || 0}
                           </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-center">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800">
+                              📱 {user.referralCount || 0}
+                            </span>
+                            <div className="text-[10px] text-gray-500 font-bold mt-0.5">
+                              🎁 {(user.referralCount || 0) * 50} pts
+                            </div>
+                          </td>
                           <td className="px-4 py-4 whitespace-nowrap text-xs">
                             {user.deadlineStatus === 'ACTIVE' && (
                               <span className="text-green-700 font-bold">🟢 చురుకుగా ఉన్నారు</span>
@@ -998,7 +1063,7 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
                     })
                   ) : (
                     <tr>
-                      <td colSpan={8} className="px-6 py-8 text-center text-gray-500 font-bold">
+                      <td colSpan={9} className="px-6 py-8 text-center text-gray-500 font-bold">
                         రిపోర్టర్లు ఎవరూ కనుగొనబడలేదు.
                       </td>
                     </tr>
@@ -1007,6 +1072,296 @@ const ReporterManagementPage: React.FC<ReporterManagementPageProps> = ({ current
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      
+      {/* TAB 3: APP INSTALLS TRACKING */}
+      {selectedTab === 'installs' && (
+        <div className="space-y-6">
+          {/* KPI Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-gradient-to-br from-emerald-500 to-teal-700 text-white p-5 rounded-2xl shadow-md">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-emerald-100 text-xs font-bold uppercase tracking-wider">మొత్తం యాప్ ఇన్‌స్టాల్స్</p>
+                  <h3 className="text-3xl font-black mt-1">{totalReferralInstalls}</h3>
+                  <p className="text-xs text-emerald-100 mt-1">రిపోర్టర్ల లింక్‌ల ద్వారా</p>
+                </div>
+                <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
+                  <Download className="w-6 h-6 text-white" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-br from-blue-500 to-indigo-700 text-white p-5 rounded-2xl shadow-md">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-blue-100 text-xs font-bold uppercase tracking-wider">రిఫరల్స్ తెచ్చిన రిపోర్టర్లు</p>
+                  <h3 className="text-3xl font-black mt-1">{activeReferrersCount}</h3>
+                  <p className="text-xs text-blue-100 mt-1">{reporters.length} మంది మొత్తం రిపోర్టర్లలో</p>
+                </div>
+                <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
+                  <Star className="w-6 h-6 text-white" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-br from-amber-500 to-orange-600 text-white p-5 rounded-2xl shadow-md">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-amber-100 text-xs font-bold uppercase tracking-wider">పంపిణీ చేసిన పాయింట్లు</p>
+                  <h3 className="text-3xl font-black mt-1">{(totalReferralInstalls * 50).toLocaleString()}</h3>
+                  <p className="text-xs text-amber-100 mt-1">50 పాయింట్లు / ఇన్‌స్టాల్</p>
+                </div>
+                <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
+                  <Gift className="w-6 h-6 text-white" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-br from-purple-500 to-violet-700 text-white p-5 rounded-2xl shadow-md">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-purple-100 text-xs font-bold uppercase tracking-wider">లైవ్ లాగ్ రికార్డులు</p>
+                  <h3 className="text-3xl font-black mt-1">{recentInstalls.length}</h3>
+                  <p className="text-xs text-purple-100 mt-1">ఇటీవలి ఇన్‌స్టాల్ రసీదులు</p>
+                </div>
+                <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
+                  <CheckCircle className="w-6 h-6 text-white" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Leaderboard Toolbar */}
+          <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-3">
+            <div className="flex items-center gap-2">
+              <h3 className="font-ramabhadra text-lg font-bold text-gray-900 flex items-center gap-2">
+                <span>🏆 రిపోర్టర్ల యాప్ ప్రమోషన్ లీడర్‌బోర్డ్</span>
+              </h3>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2.5 w-full sm:w-auto">
+              <div className="relative w-full sm:w-64">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3">
+                  <SearchIcon />
+                </span>
+                <input
+                  type="text"
+                  placeholder="రిపోర్టర్ పేరు, ఫోన్ లేదా మండలం..."
+                  value={installSearch}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setInstallSearch(e.target.value)}
+                  className="w-full border border-gray-300 rounded-xl py-2 pl-9 pr-3 text-sm focus:ring-2 focus:ring-teal-500 bg-white outline-none"
+                />
+              </div>
+
+              <select
+                value={installDistrict}
+                onChange={e => setInstallDistrict(e.target.value)}
+                className="border border-gray-300 rounded-xl py-2 px-3 text-sm focus:ring-2 focus:ring-teal-500 bg-white font-bold outline-none"
+              >
+                <option value="ALL">అన్ని జిల్లాలు (All Districts)</option>
+                <optgroup label="తెలంగాణ (TS)">
+                  {TS_DISTRICTS.map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="ఆంధ్రప్రదేశ్ (AP)">
+                  {AP_DISTRICTS.map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
+          </div>
+
+          {/* Reporters Referral Leaderboard Table */}
+          <div className="overflow-x-auto w-full border rounded-2xl shadow-sm bg-white">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-100 text-xs font-bold text-gray-700 uppercase tracking-wider">
+                <tr>
+                  <th scope="col" className="px-4 py-3.5 text-center w-14">ర్యాంక్</th>
+                  <th scope="col" className="px-4 py-3.5 text-left">రిపోర్టర్ పేరు / హోదా</th>
+                  <th scope="col" className="px-4 py-3.5 text-left">జిల్లా & మండలం</th>
+                  <th scope="col" className="px-4 py-3.5 text-left">సంప్రదింపు (Phone)</th>
+                  <th scope="col" className="px-4 py-3.5 text-center text-emerald-700">మొత్తం ఇన్‌స్టాల్స్</th>
+                  <th scope="col" className="px-4 py-3.5 text-center text-amber-700">పాయింట్లు</th>
+                  <th scope="col" className="px-4 py-3.5 text-right">చర్యలు (Actions)</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {(() => {
+                  const lower = installSearch.toLowerCase();
+                  const list = reporters
+                    .filter(r => {
+                      const matchesSearch = (r.name || '').toLowerCase().includes(lower) ||
+                        (r.phone || '').toLowerCase().includes(lower) ||
+                        (r.district || '').toLowerCase().includes(lower) ||
+                        (r.assignedMandal || '').toLowerCase().includes(lower);
+                      const matchesDist = installDistrict === 'ALL' || (r.district || '').trim() === installDistrict.trim();
+                      return matchesSearch && matchesDist;
+                    })
+                    .sort((a, b) => (b.referralCount || 0) - (a.referralCount || 0));
+
+                  if (list.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={7} className="px-6 py-8 text-center text-gray-500 font-bold">
+                          రిపోర్టర్లు ఎవరూ కనుగొనబడలేదు.
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return list.map((user, idx) => {
+                    const cleanPhone = getCleanPhone(user.phone);
+                    const rankBadge = idx === 0 ? '🥇 #1' : idx === 1 ? '🥈 #2' : idx === 2 ? '🥉 #3' : `#${idx + 1}`;
+                    const isTopThree = idx < 3;
+                    const count = user.referralCount || 0;
+
+                    return (
+                      <tr key={user.id} className={`hover:bg-gray-50 ${isTopThree && count > 0 ? 'bg-amber-50/20' : ''}`}>
+                        <td className="px-4 py-4 whitespace-nowrap text-center">
+                          <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-black ${
+                            idx === 0 ? 'bg-amber-100 text-amber-900 border border-amber-300' :
+                            idx === 1 ? 'bg-slate-200 text-slate-800' :
+                            idx === 2 ? 'bg-orange-100 text-orange-900' : 'text-gray-500 font-mono'
+                          }`}>
+                            {rankBadge}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="h-9 w-9 rounded-full bg-teal-100 text-teal-800 font-bold flex items-center justify-center shrink-0">
+                              {user.name ? user.name.charAt(0).toUpperCase() : 'R'}
+                            </div>
+                            <div className="ml-3">
+                              <span className="text-sm font-bold text-gray-900 block">{user.name}</span>
+                              <span className="text-[11px] text-gray-500 font-semibold">{user.role || 'REPORTER'}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-xs text-gray-700 font-semibold">
+                          <div className="flex items-center gap-1">
+                            <MapPin size={13} className="text-red-500" />
+                            <span>{user.district || 'N/A'}{user.assignedMandal || (user as any).mandal ? ` - ${user.assignedMandal || (user as any).mandal}` : ''}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm">
+                          {user.phone ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono font-bold text-gray-900 text-xs">{user.phone}</span>
+                              <a 
+                                href={`https://wa.me/91${cleanPhone}?text=${encodeURIComponent(`నమస్కారం ${user.name} గారు, Alfa News యాప్ ప్రమోషన్‌లో మీ లింక్ ద్వారా ${count} మంది యాప్ ఇన్‌స్టాల్ చేసుకున్నారు. మీ పాయింట్లు: ${count * 50}. మీకు మా అభినందనలు! - Alfa News టీమ్`)}`}
+                                target="_blank" 
+                                rel="noreferrer"
+                                className="text-green-600 hover:text-green-800 p-1 hover:bg-green-50 rounded"
+                                title="వాట్సాప్ సందేశం పంపండి"
+                              >
+                                <MessageSquare size={14} />
+                              </a>
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 text-xs">N/A</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-center">
+                          <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-black ${
+                            count > 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            📱 {count}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-center text-sm font-black text-amber-700">
+                          +{count * 50} pts
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-right">
+                          <button
+                            onClick={() => copyReferralLink(user.id)}
+                            className="bg-gray-100 hover:bg-teal-50 text-gray-700 hover:text-teal-700 font-bold text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 inline-flex items-center gap-1 transition-colors"
+                            title="రిపోర్టర్ యొక్క Play Store రెఫరల్ లింక్ కాపీ చేయండి"
+                          >
+                            {copiedReferralId === user.id ? (
+                              <>
+                                <Check size={12} className="text-green-600" />
+                                <span className="text-green-600">కాపీ అయింది!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy size={12} />
+                                <span>లింక్ కాపీ</span>
+                              </>
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Recent Live Installations Log */}
+          <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm space-y-3">
+            <div className="flex justify-between items-center border-b pb-3">
+              <div>
+                <h4 className="font-ramabhadra text-base font-bold text-gray-900 flex items-center gap-2">
+                  <span>⚡ ఇటీవలి లైవ్ ఇన్‌స్టాలేషన్లు (Recent Live App Installs)</span>
+                </h4>
+                <p className="text-xs text-gray-500 mt-0.5">రిపోర్టర్ల లింక్‌ల ద్వారా వచ్చిన తాజా యాప్ డౌన్‌లోడ్ల ప్రత్యక్ష రికార్డులు</p>
+              </div>
+              <button
+                onClick={fetchInstallReceipts}
+                disabled={loadingInstalls}
+                className="bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-bold px-3 py-1.5 rounded-xl border border-teal-200 flex items-center gap-1 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw size={12} className={loadingInstalls ? "animate-spin" : ""} />
+                <span>రిఫ్రెష్</span>
+              </button>
+            </div>
+
+            {loadingInstalls ? (
+              <p className="text-center text-gray-500 py-6 text-sm">లైవ్ రికార్డులు లోడ్ అవుతున్నాయి...</p>
+            ) : recentInstalls.length === 0 ? (
+              <p className="text-center text-gray-500 py-6 text-sm font-bold">ఇటీవలి ఇన్‌స్టాల్ రసీదులు ఇంకా లేవు.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-100 text-xs">
+                  <thead className="bg-gray-50 text-gray-600 uppercase font-bold">
+                    <tr>
+                      <th className="px-3 py-2 text-left">సమయం & తేదీ</th>
+                      <th className="px-3 py-2 text-left">రిపోర్టర్</th>
+                      <th className="px-3 py-2 text-left">ప్లాట్‌ఫారమ్</th>
+                      <th className="px-3 py-2 text-left">యాప్ వెర్షన్</th>
+                      <th className="px-3 py-2 text-center">క్రెడిట్</th>
+                      <th className="px-3 py-2 text-right">ఇన్‌స్టాల్ ID</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {recentInstalls.map((inst: any) => {
+                      const rep = reporters.find(r => r.id === inst.referrerUid);
+                      const repName = rep ? `${rep.name} (${rep.district || 'TS/AP'})` : (inst.referrerUid || 'N/A');
+                      const dt = inst.installedAt?.toDate ? inst.installedAt.toDate() : (inst.installedAt?.toMillis ? new Date(inst.installedAt.toMillis()) : (inst.installedAt ? new Date(inst.installedAt) : null));
+                      const timeStr = dt ? dt.toLocaleString('te-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'ఇప్పుడే';
+
+                      return (
+                        <tr key={inst.id} className="hover:bg-gray-50">
+                          <td className="px-3 py-2.5 whitespace-nowrap text-gray-700 font-semibold">{timeStr}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap font-bold text-gray-900">{repName}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-gray-600 uppercase font-mono">{inst.platform || 'android'}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-gray-500 font-mono">{inst.appVersion || '-'}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-center font-black text-emerald-700">+{inst.pointsAwarded || 50} pts</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-right font-mono text-[10px] text-gray-400 truncate max-w-[120px]">{inst.installId || inst.id}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

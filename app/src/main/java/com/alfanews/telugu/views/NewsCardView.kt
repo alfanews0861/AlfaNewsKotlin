@@ -433,7 +433,7 @@ fun NewsCardView(
                             if (!isSharing) {
                                 val bounds = Rect()
                                 view.getGlobalVisibleRect(bounds)
-                                performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, language, bounds, view) 
+                                performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, language, bounds, view, currentUser = currentUser) 
                             }
                         }
                     )
@@ -754,7 +754,7 @@ fun NewsCardView(
                                 if (!isSharing) {
                                     val bounds = Rect()
                                     view.getGlobalVisibleRect(bounds)
-                                    performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, language, bounds, view) 
+                                    performShare(scope, isSharing, { isSharing = it }, { shareCount++ }, post, context, language, bounds, view, currentUser = currentUser) 
                                 }
                             }
                         )
@@ -1060,7 +1060,7 @@ fun DottedLine() {
     }
 }
 
-private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: (Boolean) -> Unit, setShareCount: (Int) -> Unit, post: NewsPost, context: Context, language: Language, cardBounds: Rect? = null, view: View? = null, customShareText: String? = null) {
+private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: (Boolean) -> Unit, setShareCount: (Int) -> Unit, post: NewsPost, context: Context, language: Language, cardBounds: Rect? = null, view: View? = null, customShareText: String? = null, currentUser: User? = null) {
     if (isSharing) return
     scope.launch {
         setSharing(true)
@@ -1070,7 +1070,13 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
             } else {
                 post.headline.english.ifBlank { post.headline.telugu.ifBlank { post.notificationTitle.orEmpty() } }
             }
-            val shareUrl = "https://alfanews.app/news/${post.id}"
+            val reporterRefId = when {
+                currentUser?.role == UserRole.REPORTER && !currentUser.id.isNullOrBlank() && currentUser.id != "guest" -> currentUser.id
+                !post.reporter.id.isNullOrBlank() && !post.reporter.id.startsWith("BOT_") && !post.reporter.id.startsWith("SYSTEM_") && post.reporter.id != "ALFA_DESK" -> post.reporter.id
+                else -> null
+            }
+            val refQuery = if (!reporterRefId.isNullOrEmpty()) "?ref=$reporterRefId" else ""
+            val shareUrl = "https://alfanews.app/news/${post.id}$refQuery"
             val shareText = customShareText ?: shareUrl
 
             // Pre-warm news card image on Google Edge CDN so WhatsApp loads rich preview instantly
@@ -2166,7 +2172,13 @@ fun SurveyCardContent(
                             sb.append("Total Responses: $fVotes+\n")
                             sb.append("Click to cast your vote: ")
                         }
-                        sb.append("https://alfanews.app/news/${post.id}")
+                        val repRef = when {
+                            currentUser?.role == UserRole.REPORTER && !currentUser.id.isNullOrBlank() && currentUser.id != "guest" -> currentUser.id
+                            !post.reporter.id.isNullOrBlank() && !post.reporter.id.startsWith("BOT_") && !post.reporter.id.startsWith("SYSTEM_") && post.reporter.id != "ALFA_DESK" -> post.reporter.id
+                            else -> null
+                        }
+                        val refQ = if (!repRef.isNullOrEmpty()) "?ref=$repRef" else ""
+                        sb.append("https://alfanews.app/news/${post.id}$refQ")
                         sb.toString()
                     }
 
@@ -2187,7 +2199,8 @@ fun SurveyCardContent(
                                 language = language,
                                 cardBounds = bounds,
                                 view = view,
-                                customShareText = customShareText
+                                customShareText = customShareText,
+                                currentUser = currentUser
                             )
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A73E8)),
@@ -2854,7 +2867,13 @@ fun FullStoryBottomSheet(
                             isSharing = true
                             try {
                                 val fullStoryText = paragraphs.joinToString("\n\n")
-                                val deepLinkUrl = "https://alfanews.app/news/${post.id}"
+                                val repRef = when {
+                                    currentUser?.role == UserRole.REPORTER && !currentUser.id.isNullOrBlank() && currentUser.id != "guest" -> currentUser.id
+                                    !post.reporter.id.isNullOrBlank() && !post.reporter.id.startsWith("BOT_") && !post.reporter.id.startsWith("SYSTEM_") && post.reporter.id != "ALFA_DESK" -> post.reporter.id
+                                    else -> null
+                                }
+                                val refQ = if (!repRef.isNullOrEmpty()) "?ref=$repRef" else ""
+                                val deepLinkUrl = "https://alfanews.app/news/${post.id}$refQ"
                                 val footer = if (isEnglish) {
                                     "📲 For more latest local news, download Alfa News now:\n$deepLinkUrl"
                                 } else {

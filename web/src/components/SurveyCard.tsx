@@ -3,6 +3,7 @@ import { NewsPost, Language, User, SurveyQuestion, SurveyOption } from '../types
 import { db } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import { CheckCircle2, Clock, Share2, BarChart3, AlertCircle } from 'lucide-react';
+import { getNewsUrl } from '../utils/router';
 
 const { doc, updateDoc, setDoc, getDoc, onSnapshot, increment, serverTimestamp } = _firestore as any;
 
@@ -151,14 +152,15 @@ export const SurveyCard: React.FC<SurveyCardProps> = ({
         shareBody += '\n';
       });
 
+      const surveyUrl = `https://alfanews.app${getNewsUrl(post)}`;
       shareBody += `మొత్తం అభిప్రాయాలు: ${displayedVotesCount.toLocaleString()}+\n`;
-      shareBody += `మీ ఓటు వేయడానికి లింక్ క్లిక్ చేయండి: https://alfanews.app/news/${post.id}`;
+      shareBody += `మీ ఓటు వేయడానికి లింక్ క్లిక్ చేయండి: ${surveyUrl}`;
 
       if (navigator.share) {
         await navigator.share({
           title: headlineText,
           text: shareBody,
-          url: `https://alfanews.app/news/${post.id}`
+          url: surveyUrl
         });
       } else {
         await navigator.clipboard.writeText(shareBody);

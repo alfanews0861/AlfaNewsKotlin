@@ -44,6 +44,7 @@ export interface User {
   lastActive?: any;
   totalNewsCount?: number;
   todayNewsCount?: number;
+  referralCount?: number;
 }
 
 export enum PostFormat {

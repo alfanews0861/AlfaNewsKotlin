@@ -15,6 +15,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.remember
+import com.alfanews.telugu.utils.PreferenceManager
+import com.alfanews.telugu.utils.ReporterVerificationManager
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.models.canPostSurvey
@@ -28,13 +32,26 @@ fun CreateMenuView(
     onAction: (String) -> Unit = {},
     onClose: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val prefs = remember { PreferenceManager.getInstance(context) }
     val Poppins = FontFamily.SansSerif 
     val isPermanentReporter = (currentUser?.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true) ||
         (com.alfanews.telugu.services.FirebaseService.auth.currentUser?.email?.equals("alfanewsservice@gmail.com", ignoreCase = true) == true)
+    val hasReporterHistory = currentUser != null && (
+        !currentUser.assignedMandal.isNullOrBlank() ||
+        currentUser.points > 0 ||
+        currentUser.badges.isNotEmpty() ||
+        prefs.userRole in listOf("REPORTER", "ADMIN", "EDITOR", "REGIONAL_INCHARGE", "NEWS_DESK") ||
+        !prefs.userAssignedMandal.isNullOrBlank() ||
+        ReporterVerificationManager.isUserVerified(currentUser)
+    )
     val canPostNews = (currentUser != null || isPermanentReporter) && 
         (currentUser?.role == UserRole.REPORTER || 
          currentUser?.role == UserRole.EDITOR || 
          currentUser?.role == UserRole.ADMIN ||
+         currentUser?.role == UserRole.REGIONAL_INCHARGE ||
+         currentUser?.role == UserRole.NEWS_DESK ||
+         hasReporterHistory ||
          isPermanentReporter)
     
     Box(

@@ -18,6 +18,8 @@ import DisclaimerPage from './components/policy/DisclaimerPage';
 import AdPolicyPage from './components/policy/AdPolicyPage';
 import DataCollectionPolicyPage from './components/policy/DataCollectionPolicyPage';
 import { ArrowLeft, Loader2 } from 'lucide-react';
+import { useAppRoute, navigateTo } from './utils/router';
+import { updatePageSeo } from './utils/seoManager';
 
 const { onAuthStateChanged, signOut } = _auth as any;
 const { doc, getDoc, setDoc, serverTimestamp, onSnapshot, collection, query, where, getDocs } = _firestore as any;
@@ -32,9 +34,7 @@ const App: React.FC = () => {
   });
 
   const [authChecked, setAuthChecked] = useState(false);
-  const [activeTab, setActiveTab] = useState<string>('home');
-  const [selectedReporterId, setSelectedReporterId] = useState<string | null>(null);
-  const [deepLinkPostId, setDeepLinkPostId] = useState<string | null>(null);
+  const route = useAppRoute();
 
   const guestUser: User = {
     id: 'guest-user',
@@ -82,7 +82,6 @@ const App: React.FC = () => {
                 if (!snapPhone.empty) {
                   legacyData = snapPhone.docs[0].data();
                 } else {
-                  // Fallback: check phoneNumber field
                   const qPhone3 = query(collection(db, 'users'), where('phoneNumber', '==', clean10));
                   snapPhone = await getDocs(qPhone3);
                   if (!snapPhone.empty) {
@@ -90,7 +89,6 @@ const App: React.FC = () => {
                   }
                 }
               }
-              // Check reporter applications if still not found
               if (!legacyData && clean10) {
                 try {
                   const qApp = query(collection(db, 'reporter_applications'), where('phone', '==', clean10));
@@ -113,10 +111,12 @@ const App: React.FC = () => {
           }
 
           const isAdminAuth = firebaseUser.email?.toLowerCase() === 'alfanews0861@gmail.com' ||
-            Boolean(firebaseUser.phoneNumber?.includes('9173811009'));
-          const isPermanentReporterAuth = firebaseUser.email?.toLowerCase() === 'alfanewsservice@gmail.com';
+            Boolean(firebaseUser.phoneNumber?.includes('9173811009')) ||
+            legacyData?.role === UserRole.ADMIN;
+          const isPermanentReporterAuth = firebaseUser.email?.toLowerCase() === 'alfanewsservice@gmail.com' ||
+            legacyData?.email?.toLowerCase() === 'alfanewsservice@gmail.com';
           const hasReporterAttrs = Boolean(legacyData?.assignedMandal || legacyData?.previouslyDowngraded || isPermanentReporterAuth);
-          const initialRole = isAdminAuth ? UserRole.ADMIN : (isPermanentReporterAuth ? UserRole.REPORTER : ((legacyData?.role === UserRole.SUBSCRIBER && hasReporterAttrs) ? UserRole.REPORTER : (legacyData?.role || (hasReporterAttrs ? UserRole.REPORTER : UserRole.SUBSCRIBER))));
+          const initialRole = isAdminAuth ? UserRole.ADMIN : (isPermanentReporterAuth ? UserRole.REPORTER : (legacyData?.role || UserRole.SUBSCRIBER));
 
           const newUser: any = {
             id: firebaseUser.uid,
@@ -164,92 +164,48 @@ const App: React.FC = () => {
     };
   }, []);
 
-  const [currentHash, setCurrentHash] = useState(window.location.hash);
-
-  useEffect(() => {
-    const handleHash = () => {
-      const hash = window.location.hash;
-      const pathname = window.location.pathname;
-      setCurrentHash(hash);
-
-      // Handle /news/:id or /ad/:id
-      if (pathname.startsWith('/news/') || pathname.startsWith('/ad/')) {
-        const segments = pathname.split('/').filter(Boolean);
-        const postId = segments.pop();
-        if (postId && postId !== 'news' && postId !== 'ad') {
-          setDeepLinkPostId(postId);
-          setActiveTab('home');
-        }
-      }
-
-      if (hash.startsWith('#/r/')) {
-        const rId = hash.split('#/r/')[1];
-        if (rId) {
-          setSelectedReporterId(rId);
-          setActiveTab('reporter');
-        }
-      } else if (hash.startsWith('#/news/')) {
-        const pId = hash.replace('#/news/', '');
-        if (pId) {
-          setDeepLinkPostId(pId);
-        }
-      } else if (hash.startsWith('#/s/')) {
-        const pId = hash.split('#/s/')[1];
-        if (pId) {
-          setDeepLinkPostId(pId);
-          setActiveTab('home');
-        }
-      } else if (hash === '#/classifieds') {
-        setActiveTab('home');
-      } else if (hash === '' || hash === '#/' || hash === '#') {
-        if (activeTab === 'reporter') {
-          setActiveTab('home');
-          setSelectedReporterId(null);
-        }
-      }
-    };
-    handleHash();
-    window.addEventListener('hashchange', handleHash);
-    return () => window.removeEventListener('hashchange', handleHash);
-  }, [activeTab]);
-
-  const getRoute = (hash: string) => {
-    if (!hash) return '';
-    if (hash.startsWith('#/r/') || hash.startsWith('#/s/') || hash.startsWith('#/news/')) return 'dynamic';
-    return hash.replace('#/', '').replace('#', '').toLowerCase();
-  };
-
-  const route = getRoute(currentHash);
-
   // Policy Pages Router
-  if (route !== 'dynamic' && route !== '' && route !== 'classifieds') {
-    const policyPages: Record<string, React.FC> = {
-      'privacy-policy': PrivacyPolicyPage,
-      terms: TermsOfServicePage,
-      about: AboutUsPage,
-      contact: ContactUsPage,
-      'content-policy': ContentPolicyPage,
-      disclaimer: DisclaimerPage,
-      'ad-policy': AdPolicyPage,
-      'data-collection': DataCollectionPolicyPage,
+  if (route.type === 'policy') {
+    const policyPages: Record<string, { component: React.FC; title: string; teTitle: string }> = {
+      'privacy-policy': { component: PrivacyPolicyPage, title: 'Privacy Policy', teTitle: 'గోప్యతా విధానం (Privacy Policy)' },
+      terms: { component: TermsOfServicePage, title: 'Terms of Service', teTitle: 'నిబంధనలు & షరతులు (Terms)' },
+      about: { component: AboutUsPage, title: 'About Us', teTitle: 'మా గురించి (About Us)' },
+      contact: { component: ContactUsPage, title: 'Contact Us', teTitle: 'సంప్రదించండి (Contact Us)' },
+      'content-policy': { component: ContentPolicyPage, title: 'Content Policy', teTitle: 'కంటెంట్ పాలసీ (Content Policy)' },
+      disclaimer: { component: DisclaimerPage, title: 'Disclaimer', teTitle: 'డిస్క్లైమర్ (Disclaimer)' },
+      'ad-policy': { component: AdPolicyPage, title: 'Ad Policy', teTitle: 'ప్రకటనల విధానం (Ad Policy)' },
+      'data-collection': { component: DataCollectionPolicyPage, title: 'Data Collection Policy', teTitle: 'డేటా సేకరణ పాలసీ' },
     };
-    const PolicyComponent = policyPages[route];
-    if (PolicyComponent) {
+
+    const policyInfo = policyPages[route.policy];
+    if (policyInfo) {
+      const PolicyComponent = policyInfo.component;
+      // Update SEO
+      updatePageSeo({
+        title: `${policyInfo.teTitle} - Alfa News Telugu`,
+        description: `ఆల్ఫా న్యూస్ తెలుగు - ${policyInfo.teTitle} వివరాలు.`,
+        url: `https://alfanews.app/${route.policy}`,
+        type: 'website',
+      });
+
       return (
         <div className="min-h-screen bg-gray-50 flex flex-col animate-fade-in font-mallanna">
           <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 shadow-sm sticky top-0 z-30">
             <button
               onClick={() => {
-                window.location.hash = '';
-                setActiveTab('home');
+                if (window.history.length > 1) {
+                  window.history.back();
+                } else {
+                  navigateTo('/');
+                }
               }}
               className="flex items-center gap-1.5 text-gray-700 hover:text-red-600 font-ramabhadra text-sm font-semibold transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
-              <span>హోమ్‌కి వెళ్ళండి</span>
+              <span>← ప్రధాన వార్తల పోర్టల్</span>
             </button>
             <span className="font-ramabhadra text-lg font-bold text-gray-900 capitalize">
-              {route.replace(/-/g, ' ')}
+              {policyInfo.teTitle}
             </span>
             <div className="w-20"></div>
           </div>
@@ -272,15 +228,17 @@ const App: React.FC = () => {
 
   return (
     <>
-      {activeTab === 'reporter' && selectedReporterId ? (
+      {route.type === 'reporter' ? (
         /* 1. REPORTER PROFILE VIEW */
         <div className="min-h-screen bg-gray-50 flex flex-col font-mallanna">
           <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 shadow-sm sticky top-0 z-30">
             <button
               onClick={() => {
-                window.location.hash = '';
-                setActiveTab('home');
-                setSelectedReporterId(null);
+                if (window.history.length > 1) {
+                  window.history.back();
+                } else {
+                  navigateTo('/');
+                }
               }}
               className="flex items-center gap-1.5 text-gray-700 hover:text-red-600 font-ramabhadra text-sm font-semibold transition-colors"
             >
@@ -294,32 +252,32 @@ const App: React.FC = () => {
           </div>
           <div className="max-w-4xl mx-auto w-full p-4 flex-1">
             <ReporterProfileView
-              reporterId={selectedReporterId}
+              reporterId={route.reporterId}
               currentUser={currentUser}
               onBack={() => {
-                window.location.hash = '';
-                setActiveTab('home');
-                setSelectedReporterId(null);
+                if (window.history.length > 1) {
+                  window.history.back();
+                } else {
+                  navigateTo('/');
+                }
               }}
               onPostClick={(postId) => {
-                setDeepLinkPostId(postId);
-                setActiveTab('home');
-                window.location.hash = `#/news/${postId}`;
+                navigateTo(`/news/${postId}`);
               }}
             />
           </div>
         </div>
       ) : (
-        /* 3. MAIN FULL NEWS WEBSITE PORTAL */
+        /* 2. MAIN FULL NEWS WEBSITE PORTAL */
         <PortalHome
           currentUser={currentUser}
           onLoginClick={() => setShowLogin(true)}
           onAdminClick={() => setShowAdmin(true)}
-          onOpenClassifieds={() => setActiveTab('classifieds')}
+          onOpenClassifieds={() => navigateTo('/classifieds')}
           onOpenPolicyPage={(policyRoute) => {
-            window.location.hash = `#/${policyRoute}`;
+            navigateTo(`/${policyRoute}`);
           }}
-          initialPostId={deepLinkPostId}
+          initialPostId={route.type === 'news' ? route.id : null}
         />
       )}
 

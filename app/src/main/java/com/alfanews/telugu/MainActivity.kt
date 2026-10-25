@@ -550,7 +550,7 @@ class MainActivity : ComponentActivity() {
                                         }
                                         .addOnFailureListener { err ->
                                             Log.e("InstallReferrer", "Failed to record install referral on backend: ${err.message}")
-                                            prefs.isReferrerProcessed = true
+                                            // Keep isReferrerProcessed = false on transient error so it retries on next launch
                                         }
                                 } else {
                                     prefs.isReferrerProcessed = true

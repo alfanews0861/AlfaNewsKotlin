@@ -45,7 +45,18 @@ const SinglePostView: React.FC<SinglePostViewProps> = ({ postId, language, curre
 
     const handleOpenApp = () => {
         const packageName = "com.alfanews.telugu";
-        const playStoreUrl = `https://play.google.com/store/apps/details?id=${packageName}&referrer=news_id%3D${postId}`;
+        let activeRef = '';
+        try {
+            const urlParams = new URLSearchParams(window.location.search);
+            activeRef = urlParams.get('ref') || '';
+        } catch (_) {}
+        if (!activeRef && post?.reporter?.id && !post.reporter.id.startsWith('BOT_') && !post.reporter.id.startsWith('SYSTEM_') && post.reporter.id !== 'ALFA_DESK') {
+            activeRef = post.reporter.id;
+        }
+        const referrerParam = activeRef
+            ? `news_id%3D${encodeURIComponent(postId)}%26ref_${encodeURIComponent(activeRef)}`
+            : `news_id%3D${encodeURIComponent(postId)}`;
+        const playStoreUrl = `https://play.google.com/store/apps/details?id=${packageName}&referrer=${referrerParam}`;
         const intentUrl = `intent://share/${postId}#Intent;scheme=alfanews;package=${packageName};S.browser_fallback_url=${encodeURIComponent(playStoreUrl)};end`;
         window.location.href = intentUrl;
     };

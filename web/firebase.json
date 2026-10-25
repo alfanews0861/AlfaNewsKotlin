@@ -1,4 +1,3 @@
-
 {
   "firestore": {
     "rules": "firestore.rules",
@@ -26,8 +25,46 @@
     ],
     "rewrites": [
       {
+        "source": "/news-card/**",
+        "function": {
+          "functionId": "getNewsCardImage",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/news/**",
+        "function": {
+          "functionId": "shareNews",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/ad/**",
+        "function": {
+          "functionId": "shareNews",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/verify",
+        "function": {
+          "functionId": "verifyReporter",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/verify/**",
+        "function": {
+          "functionId": "verifyReporter",
+          "region": "asia-south1"
+        }
+      },
+      {
         "source": "/sitemap.xml",
-        "function": "serveSitemap"
+        "function": {
+          "functionId": "serveSitemap",
+          "region": "asia-south1"
+        }
       },
       {
         "source": "/ads.txt",
@@ -36,6 +73,10 @@
       {
         "source": "/app-ads.txt",
         "destination": "/app-ads.txt"
+      },
+      {
+        "source": "/robots.txt",
+        "destination": "/robots.txt"
       },
       {
         "source": "**",
@@ -49,6 +90,15 @@
           {
             "key": "Cache-Control",
             "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/assets/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
           }
         ]
       }

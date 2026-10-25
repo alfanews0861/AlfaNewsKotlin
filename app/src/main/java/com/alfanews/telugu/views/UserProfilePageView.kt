@@ -137,9 +137,30 @@ fun UserProfilePageView(
                         if (parsed == UserRole.SUBSCRIBER && hasHistory) UserRole.REPORTER else parsed
                     }
                     val dbName = doc.getString("name")?.trim()
+                    val isDbNameInvalid = dbName.isNullOrBlank() || dbName.equals("User", true) || dbName.equals("యూజర్", true) || dbName.startsWith("+91") || dbName.matches(Regex("^\\d{10}$"))
+                    var resolvedRepName = if (!isDbNameInvalid) dbName else null
+
+                    if (resolvedRepName == null && (newRole == UserRole.REPORTER || hasHistory)) {
+                        val cleanDocPhone = (doc.getString("phone") ?: authUser?.phoneNumber)?.replace("+91", "")?.trim()
+                        if (!cleanDocPhone.isNullOrBlank()) {
+                            try {
+                                val appSnap = FirebaseService.db.collection("reporter_applications").whereEqualTo("phone", cleanDocPhone).limit(1).get().await()
+                                val appDoc = appSnap.documents.firstOrNull()
+                                val foundName = (appDoc?.getString("fullName") ?: appDoc?.getString("name"))?.trim()?.takeIf {
+                                    it.isNotBlank() && !it.equals("User", true) && !it.equals("యూజర్", true) && !it.startsWith("+91") && !it.matches(Regex("^\\d{10}$"))
+                                }
+                                if (foundName != null) {
+                                    resolvedRepName = foundName
+                                    doc.reference.set(mapOf("name" to foundName, "role" to "REPORTER"), com.google.firebase.firestore.SetOptions.merge())
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
+
+                    val finalLiveName = resolvedRepName ?: if (isPermanentReporterDoc) "Alfa News Service" else (authUser?.displayName ?: liveUser.name)
                     liveUser = liveUser.copy(
                         id = targetUid,
-                        name = if (!dbName.isNullOrBlank() && !dbName.equals("User", true) && !dbName.equals("యూజర్", true)) dbName else (if (isPermanentReporterDoc) "Alfa News Service" else (authUser?.displayName ?: liveUser.name)),
+                        name = finalLiveName,
                         role = newRole,
                         assignedMandal = if (isPermanentReporterDoc) "నెల్లూరు అర్బన్" else (assignedMandal ?: liveUser.assignedMandal),
                         district = if (isPermanentReporterDoc) "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" else (doc.getString("district") ?: liveUser.district),
@@ -422,15 +443,22 @@ fun UserProfilePageView(
                         if (language == Language.TELUGU) "అతిథి వినియోగదారుడు" else "Guest User"
                     } else {
                         val n = effectiveUser.name.trim()
-                        if (n.isNotBlank() && !n.equals("User", true) && !n.equals("యూజర్", true)) {
+                        val isGeneric = n.isBlank() || n.equals("User", true) || n.equals("యూజర్", true) || n.startsWith("+91") || n.matches(Regex("^\\d{10}$"))
+                        if (!isGeneric) {
                             n
                         } else {
-                            FirebaseService.auth.currentUser?.displayName?.ifBlank { null }
-                                ?: effectiveUser.phone?.ifBlank { null }
-                                ?: FirebaseService.auth.currentUser?.phoneNumber?.ifBlank { null }
-                                ?: if (isAdminUser) "శ్రీకాంత్ రెడ్డి"
-                                else if (effectiveRole == UserRole.REPORTER) (if (language == Language.TELUGU) "విలేకరి" else "Reporter")
-                                else if (language == Language.TELUGU) "వినియోగదారుడు" else stringResource(R.string.user_default_name)
+                            val authDisplay = FirebaseService.auth.currentUser?.displayName?.ifBlank { null }
+                            if (!authDisplay.isNullOrBlank()) {
+                                authDisplay
+                            } else if (isAdminUser) {
+                                "శ్రీకాంత్ రెడ్డి"
+                            } else if (effectiveRole == UserRole.REPORTER || hasReporterHistory) {
+                                if (language == Language.TELUGU) "విలేకరి" else "Reporter"
+                            } else {
+                                effectiveUser.phone?.ifBlank { null }
+                                    ?: FirebaseService.auth.currentUser?.phoneNumber?.ifBlank { null }
+                                    ?: (if (language == Language.TELUGU) "వినియోగదారుడు" else stringResource(R.string.user_default_name))
+                            }
                         }
                     }
 

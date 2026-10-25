@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { NewsPost, Language, User, AnalyticsEventType } from '../types';
+import { NewsPost, Language, User, UserRole, AnalyticsEventType } from '../types';
 import CommentSection from './CommentSection';
+import { getNewsUrl } from '../utils/router';
 import html2canvas from 'html2canvas';
 import { logAnalyticsEvent } from '../services/analyticsService';
 import { updateInterests } from '../services/interestService';
@@ -319,7 +320,11 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
     markNewsAsRead(post.id);
     setIsRead(true);
 
-    const shareText = `https://alfanews.app/news/${post.id}`;
+    const repRef = (currentUser && (currentUser.role === UserRole.REPORTER || currentUser.role === UserRole.STAFF_REPORTER) && currentUser.id && currentUser.id !== 'guest-user')
+      ? currentUser.id
+      : (post.reporter?.id && !post.reporter.id.startsWith('BOT_') && !post.reporter.id.startsWith('SYSTEM_') && post.reporter.id !== 'ALFA_DESK' ? post.reporter.id : null);
+    const refQ = repRef ? `?ref=${encodeURIComponent(repRef)}` : '';
+    const shareText = `https://alfanews.app${getNewsUrl(post)}${refQ}`;
     try { fetch(`https://alfanews.app/news-card/${post.id}.jpg`, { mode: 'no-cors' }).catch(() => {}); } catch (_) {}
     try {
       let shareFile: File | null = null;
@@ -370,7 +375,11 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
         : content
     );
     const fullStoryBody = storyParas.join("\n\n");
-    const deepLinkUrl = `https://alfanews.app/news/${post.id}`;
+    const repRef = (currentUser && (currentUser.role === UserRole.REPORTER || currentUser.role === UserRole.STAFF_REPORTER) && currentUser.id && currentUser.id !== 'guest-user')
+      ? currentUser.id
+      : (post.reporter?.id && !post.reporter.id.startsWith('BOT_') && !post.reporter.id.startsWith('SYSTEM_') && post.reporter.id !== 'ALFA_DESK' ? post.reporter.id : null);
+    const refQ = repRef ? `?ref=${encodeURIComponent(repRef)}` : '';
+    const deepLinkUrl = `https://alfanews.app${getNewsUrl(post)}${refQ}`;
     const footer = language === Language.TELUGU 
       ? `📲 మరిన్ని తాజా స్థానిక వార్తలకు ఇప్పుడే డౌన్‌లోడ్ చేసుకోండి ఆల్ఫా న్యూస్:\n${deepLinkUrl}`
       : `📲 For more latest local news, download Alfa News now:\n${deepLinkUrl}`;

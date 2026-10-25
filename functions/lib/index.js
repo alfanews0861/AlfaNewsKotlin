@@ -27,7 +27,7 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.unsubscribeFromNewsTopic = exports.subscribeToNewsTopic = exports.triggerPushBroadcast = exports.handleTelephonyWebhook = exports.simulateVoiceConversation = exports.triggerVoiceCampaign = exports.triggerReporterVoiceCheck = exports.exchangeForPermanentToken = exports.initializeDistrictSocialConfigs = exports.manuallyTriggerSocialPost = exports.testDistrictSocialPost = exports.onNewsPostSocialAutoPost = exports.reportNewsPost = exports.broadcastToAllReporters = exports.sendAdminReporterMessage = exports.reprocessUnprocessedNewsHttp = exports.recoverFalselyRejectedNewsHttp = exports.scheduleReprocessFailedReporterNews = exports.onNewsPostCreated = exports.processNewsPost = exports.triggerOperatingRhythmBeat = exports.nightReporterLeaderboardAnnouncement = exports.eveningReporterRoundup = exports.middayReporterReminder = exports.morningReporterBeatNotification = exports.cleanupExpiredReporterApplications = exports.cleanDuplicateApplications = exports.restoreAllDowngradedReporters = exports.recordAppInstallReferral = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.runAutoApprovePendingBackfill = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.runOneTimeReporterReactivation = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
-exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.shareNews = exports.getNewsCardImage = exports.sendContactEmail = void 0;
+exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.serveSitemap = exports.shareNews = exports.getNewsCardImage = exports.sendContactEmail = void 0;
 /**
  * Alfa News - Cloud Functions v18.0 (Refactored & Modular)
  */
@@ -687,13 +687,37 @@ exports.getNewsCardImage = (0, https_1.onRequest)(async (req, res) => {
         res.status(500).send("Error generating image");
     }
 });
+let cachedWebIndexHtml = null;
+let cachedWebIndexHtmlTime = 0;
+function fetchBaseWebHtml() {
+    const now = Date.now();
+    if (cachedWebIndexHtml && now - cachedWebIndexHtmlTime < 5 * 60 * 1000) {
+        return Promise.resolve(cachedWebIndexHtml);
+    }
+    return new Promise((resolve) => {
+        https.get('https://alfanews.app/index.html', (resp) => {
+            let data = '';
+            resp.on('data', (chunk) => data += chunk);
+            resp.on('end', () => {
+                if (resp.statusCode === 200 && data.includes('<div id="root">')) {
+                    cachedWebIndexHtml = data;
+                    cachedWebIndexHtmlTime = now;
+                    resolve(data);
+                }
+                else {
+                    resolve('');
+                }
+            });
+        }).on('error', () => resolve(''));
+    });
+}
 exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
     const playUrl = "https://play.google.com/store/apps/details?id=com.alfanews.telugu";
     const pathSegments = req.path.split('/').filter(Boolean);
     const isAd = pathSegments.includes('ad');
     const id = pathSegments.pop();
     if (!id || id === 'news' || id === 'ad') {
-        res.redirect(playUrl);
+        res.redirect("https://alfanews.app/");
         return;
     }
     try {
@@ -714,7 +738,7 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
             }
         }
         if (!doc.exists) {
-            res.redirect(playUrl);
+            res.redirect("https://alfanews.app/");
             return;
         }
         const data = doc.data() || {};
@@ -726,8 +750,48 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
         const safeImage = escapeHtml(cardImageUrl);
         const postUrl = `https://alfanews.app/${isAd ? 'ad' : 'news'}/${doc.id}`;
         const intentScheme = `alfanews://${isAd ? 'ad' : 'news'}/${doc.id}`;
-        // Fire-and-forget pre-warm for the news card image on Google Edge CDN
+        // Pre-warm card image
         https.get(cardImageUrl).on('error', () => { });
+        const userAgent = req.headers['user-agent'] || '';
+        const isCrawler = /facebookexternalhit|WhatsApp|Twitterbot|TelegramBot|LinkedInBot|Googlebot|bingbot|Baiduspider|DuckDuckBot|YandexBot/i.test(userAgent);
+        // If human browser user (not a crawler), serve the full web app with injected SEO meta tags!
+        if (!isCrawler) {
+            const baseHtml = await fetchBaseWebHtml();
+            if (baseHtml) {
+                let hydratedHtml = baseHtml;
+                hydratedHtml = hydratedHtml.replace(/<title>.*?<\/title>/i, `<title>${safeTitle} | Alfa News Telugu</title>`);
+                hydratedHtml = hydratedHtml.replace(/<meta name="description" content=".*?"\s*\/?>/i, `<meta name="description" content="${safeDesc}">`);
+                hydratedHtml = hydratedHtml.replace(/<meta property="og:title" content=".*?"\s*\/?>/i, `<meta property="og:title" content="${safeTitle}">`);
+                hydratedHtml = hydratedHtml.replace(/<meta property="og:description" content=".*?"\s*\/?>/i, `<meta property="og:description" content="${safeDesc}">`);
+                hydratedHtml = hydratedHtml.replace(/<meta property="og:image" content=".*?"\s*\/?>/i, `<meta property="og:image" content="${safeImage}">`);
+                hydratedHtml = hydratedHtml.replace(/<meta property="og:url" content=".*?"\s*\/?>/i, `<meta property="og:url" content="${postUrl}">`);
+                hydratedHtml = hydratedHtml.replace(/<link rel="canonical" href=".*?"\s*\/?>/i, `<link rel="canonical" href="${postUrl}">`);
+                const schemaJson = JSON.stringify({
+                    '@context': 'https://schema.org',
+                    '@type': 'NewsArticle',
+                    mainEntityOfPage: {
+                        '@type': 'WebPage',
+                        '@id': postUrl,
+                    },
+                    headline: titleRaw,
+                    image: [cardImageUrl],
+                    datePublished: new Date().toISOString(),
+                    publisher: {
+                        '@type': 'NewsMediaOrganization',
+                        name: 'Alfa News Telugu',
+                        url: 'https://alfanews.app',
+                        logo: 'https://alfanews.app/app_icon.png'
+                    },
+                    description: descRaw,
+                    inLanguage: 'te-IN'
+                });
+                hydratedHtml = hydratedHtml.replace('</head>', `<script type="application/ld+json">${schemaJson}</script></head>`);
+                res.set('Cache-Control', 'public, max-age=180, s-maxage=300');
+                res.status(200).send(hydratedHtml);
+                return;
+            }
+        }
+        // For Social Media Crawlers (WhatsApp, Facebook, Telegram) or Fallback:
         const html = `<!DOCTYPE html>
 <html lang="te" prefix="og: http://ogp.me/ns#">
 <head>
@@ -735,11 +799,10 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>${safeTitle} - Alfa News</title>
 
-    <!-- Open Graph (WhatsApp, Telegram Clean Full-Size Image Preview - No duplicate title/description box) -->
     <meta property="og:site_name" content="Alfa News">
-    <meta property="og:title" content="&#8203;">
-    <meta property="og:description" content="&#8203;">
-    <meta property="og:type" content="image.other">
+    <meta property="og:title" content="${safeTitle}">
+    <meta property="og:description" content="${safeDesc}">
+    <meta property="og:type" content="article">
     <meta property="og:url" content="${postUrl}">
     <meta property="og:image" content="${safeImage}">
     <meta property="og:image:secure_url" content="${safeImage}">
@@ -747,13 +810,11 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
     <meta property="og:image:width" content="900">
     <meta property="og:image:height" content="1400">
 
-    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="${safeTitle}">
     <meta name="twitter:description" content="${safeDesc}">
     <meta name="twitter:image" content="${safeImage}">
 
-    <!-- Android App Links & Smart App Banner -->
     <meta name="google-play-app" content="app-id=com.alfanews.telugu">
     <meta property="al:android:url" content="${intentScheme}">
     <meta property="al:android:package" content="com.alfanews.telugu">
@@ -773,14 +834,14 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
         p { font-size: 14px; line-height: 1.6; color: #94a3b8; margin-bottom: 20px; }
         .btn-primary { display: block; width: 100%; background: linear-gradient(135deg, #ef4444, #dc2626); color: white; text-align: center; padding: 14px; border-radius: 12px; font-size: 16px; font-weight: 700; text-decoration: none; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4); margin-bottom: 10px; transition: transform 0.1s ease; }
         .btn-primary:active { transform: scale(0.98); }
-        .btn-secondary { display: block; width: 100%; background: #334155; color: #cbd5e1; text-align: center; padding: 12px; border-radius: 12px; font-size: 14px; font-weight: 600; text-decoration: none; }
+        .btn-secondary { display: block; width: 100%; background: #334155; color: #cbd5e1; text-align: center; padding: 12px; border-radius: 12px; font-size: 14px; font-weight: 600; text-decoration: none; margin-bottom: 8px; }
         .footer-note { text-align: center; font-size: 12px; color: #64748b; margin-top: 16px; }
     </style>
 </head>
 <body>
     <div class="card">
         <div class="media-container">
-            <a href="${intentScheme}" style="display:block;width:100%;height:100%;text-decoration:none;">
+            <a href="${postUrl}" style="display:block;width:100%;height:100%;text-decoration:none;">
                 <img src="${safeImage}" alt="${safeTitle}">
                 <div class="badge">Alfa News</div>
             </a>
@@ -788,29 +849,12 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
         <div class="content">
             <h1>${safeTitle}</h1>
             <p>${safeDesc}</p>
-            <a id="openAppBtn" href="${intentScheme}" class="btn-primary">📲 యాప్‌లో చదవండి (Open in App)</a>
-            <a href="${playUrl}" class="btn-secondary">Google Play Store నుండి డౌన్‌లోడ్ చేసుకోండి</a>
+            <a href="${postUrl}" class="btn-primary">🌐 వెబ్‌లో చదవండి (Read on Web)</a>
+            <a id="openAppBtn" href="${intentScheme}" class="btn-secondary">📲 యాప్‌లో తెరవండి (Open in App)</a>
+            <a href="${playUrl}" class="btn-secondary">Google Play Store డౌన్‌లోడ్</a>
             <div class="footer-note">Alfa News - వేగవంతమైన తెలుగు వార్తలు</div>
         </div>
     </div>
-    <script>
-        (function() {
-            const isAndroid = /Android/i.test(navigator.userAgent);
-            const intentUrl = "intent://${isAd ? 'ad' : 'news'}/${doc.id}#Intent;scheme=alfanews;package=com.alfanews.telugu;S.browser_fallback_url=" + encodeURIComponent("${playUrl}") + ";end";
-            const appBtn = document.getElementById("openAppBtn");
-            const isCrawler = /facebookexternalhit|WhatsApp|Twitterbot|TelegramBot|LinkedInBot|Googlebot/i.test(navigator.userAgent);
-            if (!isCrawler) {
-                if (isAndroid) {
-                    appBtn.href = intentUrl;
-                    setTimeout(() => {
-                        window.location.href = intentUrl;
-                    }, 50);
-                } else {
-                    window.location.href = "${playUrl}";
-                }
-            }
-        })();
-    </script>
 </body>
 </html>`;
         res.set('Cache-Control', 'public, max-age=300, s-maxage=600');
@@ -818,10 +862,65 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
     }
     catch (e) {
         console.error("Error in shareNews SSR:", e);
-        res.redirect(playUrl);
+        res.redirect("https://alfanews.app/");
     }
 });
-// YouTube Auth Flow (Keep in index for simple management)
+// Dynamic SEO Sitemap Generator for Search Engines (Google, Bing)
+exports.serveSitemap = (0, https_1.onRequest)(async (req, res) => {
+    try {
+        const baseUrl = "https://alfanews.app";
+        const staticRoutes = [
+            { path: "", changefreq: "always", priority: "1.0" },
+            { path: "category/andhra-pradesh", changefreq: "hourly", priority: "0.9" },
+            { path: "category/telangana", changefreq: "hourly", priority: "0.9" },
+            { path: "category/districts", changefreq: "hourly", priority: "0.9" },
+            { path: "category/politics", changefreq: "hourly", priority: "0.8" },
+            { path: "category/cinema", changefreq: "hourly", priority: "0.8" },
+            { path: "category/sports", changefreq: "hourly", priority: "0.8" },
+            { path: "category/crime", changefreq: "hourly", priority: "0.7" },
+            { path: "category/business", changefreq: "hourly", priority: "0.7" },
+            { path: "category/national", changefreq: "hourly", priority: "0.7" },
+            { path: "category/international", changefreq: "hourly", priority: "0.7" },
+            { path: "category/special", changefreq: "hourly", priority: "0.7" },
+            { path: "classifieds", changefreq: "daily", priority: "0.7" },
+            { path: "about", changefreq: "monthly", priority: "0.5" },
+            { path: "contact", changefreq: "monthly", priority: "0.5" },
+            { path: "privacy-policy", changefreq: "monthly", priority: "0.4" },
+            { path: "terms", changefreq: "monthly", priority: "0.4" },
+            { path: "content-policy", changefreq: "monthly", priority: "0.4" },
+            { path: "disclaimer", changefreq: "monthly", priority: "0.4" },
+            { path: "ad-policy", changefreq: "monthly", priority: "0.4" },
+            { path: "data-collection", changefreq: "monthly", priority: "0.4" }
+        ];
+        let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">\n';
+        for (const route of staticRoutes) {
+            const loc = route.path ? `${baseUrl}/${route.path}` : baseUrl;
+            xml += `  <url>\n    <loc>${loc}</loc>\n    <changefreq>${route.changefreq}</changefreq>\n    <priority>${route.priority}</priority>\n  </url>\n`;
+        }
+        const snap = await db.collection("news")
+            .where("approved", "==", true)
+            .orderBy("timestamp", "desc")
+            .limit(300)
+            .get();
+        for (const d of snap.docs) {
+            const data = d.data();
+            let dateStr = new Date().toISOString();
+            if (data.timestamp) {
+                const ms = data.timestamp.toMillis ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
+                dateStr = new Date(ms).toISOString();
+            }
+            xml += `  <url>\n    <loc>${baseUrl}/news/${d.id}</loc>\n    <lastmod>${dateStr}</lastmod>\n    <changefreq>daily</changefreq>\n    <priority>0.8</priority>\n  </url>\n`;
+        }
+        xml += '</urlset>';
+        res.set("Content-Type", "application/xml; charset=utf-8");
+        res.set("Cache-Control", "public, max-age=3600, s-maxage=7200");
+        res.status(200).send(xml);
+    }
+    catch (e) {
+        console.error("Error generating sitemap:", e);
+        res.status(500).send("Error generating sitemap");
+    }
+});
 exports.youtubeAuthStart = (0, https_1.onRequest)({ secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"] }, (req, res) => {
     const { google } = require('googleapis');
     const youtubeAuth = new google.auth.OAuth2(process.env.YOUTUBE_CLIENT_ID, process.env.YOUTUBE_CLIENT_SECRET, `https://${utils_1.REGION}-alfa-news-31bf7.cloudfunctions.net/youtubeAuthCallback`);

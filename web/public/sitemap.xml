@@ -7,67 +7,102 @@
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://alfanews.app/#/andhra-pradesh</loc>
+    <loc>https://alfanews.app/category/andhra-pradesh</loc>
     <changefreq>hourly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://alfanews.app/#/telangana</loc>
+    <loc>https://alfanews.app/category/telangana</loc>
     <changefreq>hourly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://alfanews.app/#/districts</loc>
+    <loc>https://alfanews.app/category/districts</loc>
     <changefreq>hourly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://alfanews.app/#/politics</loc>
+    <loc>https://alfanews.app/category/politics</loc>
     <changefreq>hourly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://alfanews.app/#/cinema</loc>
+    <loc>https://alfanews.app/category/cinema</loc>
     <changefreq>hourly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://alfanews.app/#/sports</loc>
+    <loc>https://alfanews.app/category/sports</loc>
     <changefreq>hourly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://alfanews.app/#/crime</loc>
+    <loc>https://alfanews.app/category/crime</loc>
     <changefreq>hourly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://alfanews.app/#/business</loc>
+    <loc>https://alfanews.app/category/business</loc>
     <changefreq>hourly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://alfanews.app/#/classifieds</loc>
+    <loc>https://alfanews.app/category/national</loc>
+    <changefreq>hourly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://alfanews.app/category/international</loc>
+    <changefreq>hourly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://alfanews.app/category/special</loc>
+    <changefreq>hourly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://alfanews.app/classifieds</loc>
     <changefreq>daily</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://alfanews.app/#/about</loc>
+    <loc>https://alfanews.app/about</loc>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>https://alfanews.app/#/contact</loc>
+    <loc>https://alfanews.app/contact</loc>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>https://alfanews.app/#/privacy-policy</loc>
+    <loc>https://alfanews.app/privacy-policy</loc>
     <changefreq>monthly</changefreq>
     <priority>0.4</priority>
   </url>
   <url>
-    <loc>https://alfanews.app/#/terms</loc>
+    <loc>https://alfanews.app/terms</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://alfanews.app/content-policy</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://alfanews.app/disclaimer</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://alfanews.app/ad-policy</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://alfanews.app/data-collection</loc>
     <changefreq>monthly</changefreq>
     <priority>0.4</priority>
   </url>

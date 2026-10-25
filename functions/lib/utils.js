@@ -150,6 +150,7 @@ function extractErrorStatus(err) {
 async function runWithAIFallback(operation, customModels) {
     const modelsToTry = customModels || TEXT_MODELS;
     const isImageOperation = modelsToTry.some(m => m.includes("image"));
+    const apiKeys = getApiKeys();
     let keysToTry = apiKeys.length > 0 ? [...apiKeys] : [process.env.GEMINI_API_KEY || process.env.API_KEY || ""];
     if (isImageOperation) {
         const paidKeyClean = (process.env.PAID_GEMINI_API_KEY || '').replace(/^["']|["']$/g, '').trim();

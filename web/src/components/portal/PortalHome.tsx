@@ -20,7 +20,8 @@ import {
   ALL_DISTRICTS,
   isDistrictMatch,
 } from '../../utils/newsFilter';
-import { updatePageSeo } from '../../utils/seoManager';
+import { updatePageSeo, updateHomeSeo, updateCategorySeo, updateDistrictSeo } from '../../utils/seoManager';
+import { useAppRoute, navigateTo, getCategorySlug, getNewsUrl } from '../../utils/router';
 
 const { collection, query, where, orderBy, limit, getDocs, Timestamp, doc, getDoc } = _firestore as any;
 
@@ -41,6 +42,7 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
   onOpenPolicyPage,
   initialPostId,
 }) => {
+  const currentRoute = useAppRoute();
   const [allPosts, setAllPosts] = useState<NewsPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [categoryLoading, setCategoryLoading] = useState(false);
@@ -73,6 +75,8 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
       try {
         setLoading(true);
 
+        const targetId = initialPostId || (currentRoute.type === 'news' ? currentRoute.id : null);
+
         // ⚡ Cache check: 3-minute sessionStorage prevents re-fetching on back button or refresh
         const cached = sessionStorage.getItem('portal_home_posts');
         const cachedTime = Number(sessionStorage.getItem('portal_home_posts_time') || 0);
@@ -81,8 +85,8 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
             const parsed = JSON.parse(cached);
             if (Array.isArray(parsed) && parsed.length > 0) {
               setAllPosts(parsed);
-              if (initialPostId) {
-                const matched = parsed.find((p: any) => p.id === initialPostId);
+              if (targetId) {
+                const matched = parsed.find((p: any) => p.id === targetId);
                 if (matched) setSelectedPost(matched);
               }
               setLoading(false);
@@ -118,20 +122,30 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
           sessionStorage.setItem('portal_home_posts_time', String(Date.now()));
         } catch (_) {}
 
-        // Check if initialPostId was requested
-        if (initialPostId) {
-          const matched = postsList.find((p) => p.id === initialPostId);
+        // Check if targetId was requested
+        if (targetId) {
+          const matched = postsList.find((p) => p.id === targetId);
           if (matched) {
             setSelectedPost(matched);
+            const targetUrl = getNewsUrl(matched);
+            if (typeof window !== 'undefined' && window.location.pathname !== targetUrl && !window.location.pathname.endsWith(`--${targetId}`)) {
+              window.history.replaceState(null, '', targetUrl);
+            }
           } else {
             try {
-              const directDoc = await getDoc(doc(db, 'news', initialPostId));
+              const directDoc = await getDoc(doc(db, 'news', targetId));
               if (directDoc.exists()) {
-                setSelectedPost({
+                const fetched = {
                   id: directDoc.id,
                   ...directDoc.data(),
                   timestamp: getTs(directDoc.data()),
-                } as NewsPost);
+                } as NewsPost;
+                setSelectedPost(fetched);
+                setAllPosts((prev) => [fetched, ...prev]);
+                const targetUrl = getNewsUrl(fetched);
+                if (typeof window !== 'undefined' && window.location.pathname !== targetUrl && !window.location.pathname.endsWith(`--${targetId}`)) {
+                  window.history.replaceState(null, '', targetUrl);
+                }
               }
             } catch (_) {}
           }
@@ -149,45 +163,116 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
     };
   }, [initialPostId]);
 
-  // 2. Sync URL hash for deep linking
+  // 2. React to URL route changes (Back/Forward, direct URL entry, pushState)
   useEffect(() => {
-    const handleHash = () => {
-      const hash = window.location.hash;
-      if (hash.startsWith('#/news/')) {
-        const pId = hash.replace('#/news/', '');
-        if (pId) {
-          const found = allPosts.find((p) => p.id === pId);
-          if (found) {
-            setSelectedPost(found);
+    if (currentRoute.type === 'news') {
+      const postId = currentRoute.id;
+      if (selectedPost && selectedPost.id === postId) {
+        const targetUrl = getNewsUrl(selectedPost);
+        if (typeof window !== 'undefined' && window.location.pathname !== targetUrl && !window.location.pathname.endsWith(`--${postId}`)) {
+          window.history.replaceState(null, '', targetUrl);
+        }
+        return;
+      }
+      const existing = allPosts.find((p) => p.id === postId);
+      if (existing) {
+        setSelectedPost(existing);
+        const targetUrl = getNewsUrl(existing);
+        if (typeof window !== 'undefined' && window.location.pathname !== targetUrl && !window.location.pathname.endsWith(`--${postId}`)) {
+          window.history.replaceState(null, '', targetUrl);
+        }
+      } else {
+        // Direct fetch from Firestore for deep link / refresh resilience
+        getDoc(doc(db, 'news', postId)).then((snap: any) => {
+          if (snap.exists()) {
+            const fetched = { id: snap.id, ...snap.data(), timestamp: getTs(snap.data()) } as NewsPost;
+            setAllPosts((prev) => [fetched, ...prev.filter((p) => p.id !== fetched.id)]);
+            setSelectedPost(fetched);
+            const targetUrl = getNewsUrl(fetched);
+            if (typeof window !== 'undefined' && window.location.pathname !== targetUrl && !window.location.pathname.endsWith(`--${postId}`)) {
+              window.history.replaceState(null, '', targetUrl);
+            }
           } else {
-            getDoc(doc(db, 'news', pId)).then((snap: any) => {
-              if (snap.exists()) {
-                const p = { id: snap.id, ...snap.data(), timestamp: getTs(snap.data()) } as NewsPost;
-                setAllPosts((prev) => [p, ...prev]);
-                setSelectedPost(p);
+            // Check localAds
+            getDoc(doc(db, 'localAds', postId)).then((adSnap: any) => {
+              if (adSnap.exists()) {
+                const fetched = { id: adSnap.id, ...adSnap.data(), timestamp: getTs(adSnap.data()) } as NewsPost;
+                setAllPosts((prev) => [fetched, ...prev.filter((p) => p.id !== fetched.id)]);
+                setSelectedPost(fetched);
+                const targetUrl = getNewsUrl(fetched);
+                if (typeof window !== 'undefined' && window.location.pathname !== targetUrl && !window.location.pathname.endsWith(`--${postId}`)) {
+                  window.history.replaceState(null, '', targetUrl);
+                }
               }
             }).catch(() => {});
           }
-        }
-      } else if (hash === '#/classifieds') {
-        setSelectedPost(null);
-        setSelectedCategory('classifieds');
-      } else if (hash.startsWith('#/category/')) {
-        const cat = decodeURIComponent(hash.replace('#/category/', ''));
-        if (cat) {
-          setSelectedPost(null);
-          setSelectedCategory(cat);
-        }
-      } else if (hash === '' || hash === '#' || hash === '#/') {
-        if (selectedPost) setSelectedPost(null);
+        }).catch((err: any) => {
+          console.warn('Error fetching deep-linked post:', err);
+        });
       }
-    };
-    handleHash();
-    window.addEventListener('hashchange', handleHash);
-    return () => window.removeEventListener('hashchange', handleHash);
-  }, [allPosts]);
+    } else if (currentRoute.type === 'category') {
+      if (selectedPost) setSelectedPost(null);
+      setSelectedCategory(currentRoute.category);
+      updateCategorySeo(currentRoute.category, `/category/${currentRoute.slug}`);
+    } else if (currentRoute.type === 'district') {
+      if (selectedPost) setSelectedPost(null);
+      setSelectedCategory(currentRoute.district);
+      updateDistrictSeo(currentRoute.district, `/district/${encodeURIComponent(currentRoute.district)}`);
+    } else if (currentRoute.type === 'classifieds') {
+      if (selectedPost) setSelectedPost(null);
+      setSelectedCategory('classifieds');
+      updatePageSeo({
+        title: 'ఆల్ఫా క్లాసిఫైడ్స్ - వర్గీకృత ప్రకటనలు',
+        description: 'ఆల్ఫా క్లాసిఫైడ్స్ - ఉద్యోగాలు, స్థిరాస్తి, వాహనాలు, ఎలక్ట్రానిక్స్ మరియు సేవల ప్రకటనలు.',
+        url: 'https://alfanews.app/classifieds',
+        type: 'website',
+        category: 'క్లాసిఫైడ్స్',
+      });
+    } else if (currentRoute.type === 'home') {
+      if (selectedPost) setSelectedPost(null);
+      setSelectedCategory('all');
+      updateHomeSeo();
+    }
+  }, [currentRoute, allPosts, selectedPost]);
 
-  // 3. On-Demand Category / District Fetcher (Guarantees no category is empty)
+  // 3. User Navigation Handlers (Updates Address Bar + SEO + View State)
+  const handleSelectPost = useCallback((post: NewsPost) => {
+    navigateTo(getNewsUrl(post));
+    setSelectedPost(post);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const handleSelectCategory = useCallback((cat: string) => {
+    if (cat === 'all') {
+      navigateTo('/');
+    } else if (cat === 'classifieds') {
+      navigateTo('/classifieds');
+    } else {
+      navigateTo(`/category/${getCategorySlug(cat)}`);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const handleSelectDistrict = useCallback((district: string) => {
+    navigateTo(`/district/${encodeURIComponent(district)}`);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const handleBackFromArticle = useCallback(() => {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      navigateTo('/');
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const handleGoHome = useCallback(() => {
+    navigateTo('/');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  // 4. On-Demand Category / District Fetcher (Guarantees no category is empty)
   useEffect(() => {
     if (selectedCategory === 'all' || selectedCategory === 'classifieds' || selectedPost) return;
 
@@ -264,36 +349,6 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
     };
   }, [selectedCategory, selectedPost, districtTab, mergePosts]);
 
-  // 4. Update SEO for Home / Category Pages when not reading an article
-  useEffect(() => {
-    if (selectedPost) return;
-
-    if (selectedCategory === 'all') {
-      updatePageSeo({
-        title: 'ఆల్ఫా న్యూస్ తెలుగు | Alfa News Telugu',
-        description: 'ఆల్ఫా న్యూస్ తెలుగు - ఆంధ్రప్రదేశ్, తెలంగాణ మరియు సమగ్ర జిల్లా వార్తలు, బ్రేకింగ్ న్యూస్, ప్రత్యక్ష ప్రసారం.',
-        url: 'https://alfanews.app/',
-        type: 'website',
-      });
-    } else if (selectedCategory === 'classifieds') {
-      updatePageSeo({
-        title: 'ఆల్ఫా క్లాసిఫైడ్స్ | Alfa News Classifieds',
-        description: 'ఆల్ఫా క్లాసిఫైడ్స్ - ఉద్యోగాలు, స్థిరాస్తి, వాహనాలు, ఎలక్ట్రానిక్స్ మరియు సేవల ప్రకటనలు.',
-        url: 'https://alfanews.app/#/classifieds',
-        type: 'website',
-        category: 'క్లాసిఫైడ్స్',
-      });
-    } else {
-      updatePageSeo({
-        title: `${selectedCategory} వార్తలు | ఆల్ఫా న్యూస్`,
-        description: `${selectedCategory} తాజా వార్తలు, ప్రత్యక్ష నివేదికలు మరియు సమగ్ర సమాచారం.`,
-        url: `https://alfanews.app/#/${encodeURIComponent(selectedCategory)}`,
-        type: 'website',
-        category: selectedCategory,
-      });
-    }
-  }, [selectedCategory, selectedPost]);
-
   // 5. Filtered Posts for Category View
   const categoryPosts = useMemo(() => {
     return filterPostsByCategory(allPosts, selectedCategory);
@@ -318,31 +373,16 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
       if (isMandalNews) return false;
 
       const isBreaking = pAny.isBreaking === true || pAny.isFlash === true;
-      const isTopCategory =
-        p.category === 'రాజకీయం' ||
-        p.category === 'రాజకీయాలు' ||
-        p.category === 'ఆంధ్రప్రదేశ్' ||
-        p.category === 'తెలంగాణ' ||
-        p.category === 'జాతీయం' ||
-        p.category === 'సినిమా' ||
-        p.category === 'క్రీడలు' ||
-        p.category === 'ప్రధాన వార్త' ||
-        p.category === 'ముఖ్య వార్తలు';
+      const isStateOrNational = p.state === 'AP' || p.state === 'TS' || p.category === 'జాతీయం' || p.category === 'రాజకీయం';
+      const isSpecial = p.isSpecialStory === true || p.category === 'స్పెషల్ స్టోరీస్';
 
-      const hasTopScore = (pAny.score && pAny.score >= 30) || (pAny.views && pAny.views > 80);
-
-      return isBreaking || isTopCategory || hasTopScore;
+      return isBreaking || isStateOrNational || isSpecial;
     });
 
-    if (topPosts.length >= 7) return topPosts;
-
-    const nonMandal = allPosts.filter((p) => !p.mandal && !(p as any).assignedMandal);
-    if (nonMandal.length >= 7) return nonMandal;
-
-    return allPosts;
+    return topPosts.length >= 3 ? topPosts.slice(0, 8) : allPosts.slice(0, 8);
   }, [allPosts]);
 
-  // Search Results
+  // Search filter
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return [];
     const q = searchQuery.toLowerCase().trim();
@@ -370,21 +410,14 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
         onLoginClick={onLoginClick}
         onAdminClick={onAdminClick}
         selectedCategory={selectedCategory}
-        onSelectCategory={(cat) => {
-          setSelectedPost(null);
-          setSelectedCategory(cat);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
+        onSelectCategory={handleSelectCategory}
         onSearchClick={() => setShowSearchModal(true)}
-        onOpenClassifieds={onOpenClassifieds}
-        onSelectDistrict={(dist) => {
-          setSelectedPost(null);
-          setSelectedCategory(dist);
-        }}
+        onOpenClassifieds={() => handleSelectCategory('classifieds')}
+        onSelectDistrict={handleSelectDistrict}
       />
 
       {/* 2. BREAKING NEWS TICKER */}
-      <BreakingNewsTicker posts={allPosts} onSelectPost={(p) => setSelectedPost(p)} />
+      <BreakingNewsTicker posts={allPosts} onSelectPost={handleSelectPost} />
 
       {/* 3. MAIN PORTAL CONTAINER */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex-1 w-full">
@@ -402,28 +435,15 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
               <ArticleViewPage
                 post={selectedPost}
                 currentUser={currentUser}
-                onBack={() => {
-                  setSelectedPost(null);
-                  if (window.location.hash.startsWith('#/news/')) {
-                    window.location.hash = '';
-                    window.history.replaceState(null, '', ' ');
-                  }
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                onSelectRelatedPost={(p) => {
-                  setSelectedPost(p);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
+                onBack={handleBackFromArticle}
+                onSelectRelatedPost={handleSelectPost}
                 relatedPosts={allPosts.filter((p) => p.id !== selectedPost.id).slice(0, 6)}
               />
             </div>
             <div className="lg:col-span-4 sticky top-28 hidden lg:block">
               <Sidebar
                 posts={allPosts}
-                onSelectPost={(p) => {
-                  setSelectedPost(p);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
+                onSelectPost={handleSelectPost}
               />
             </div>
           </div>
@@ -439,10 +459,7 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                 <p className="text-xs text-gray-500 mt-1">ఇళ్ళు, స్థలాలు, వాహనాలు, ఉద్యోగాలు, ఎలక్ట్రానిక్స్ మరియు సేవల ప్రకటనలు</p>
               </div>
               <button
-                onClick={() => {
-                  setSelectedCategory('all');
-                  window.location.hash = '';
-                }}
+                onClick={handleGoHome}
                 className="bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-ramabhadra px-4 py-2 rounded-xl transition-colors flex items-center gap-1.5"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
@@ -455,7 +472,7 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                 <Classifieds />
               </div>
               <div className="lg:col-span-4 sticky top-28">
-                <Sidebar posts={allPosts} onSelectPost={setSelectedPost} />
+                <Sidebar posts={allPosts} onSelectPost={handleSelectPost} />
               </div>
             </div>
           </div>
@@ -488,7 +505,7 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                 </div>
 
                 <button
-                  onClick={() => setSelectedCategory('all')}
+                  onClick={handleGoHome}
                   className="bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-ramabhadra px-4 py-2 rounded-xl transition-colors flex items-center gap-1.5"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
@@ -521,7 +538,7 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                     {(districtTab === 'AP' ? AP_DISTRICTS : TS_DISTRICTS).map((d) => (
                       <button
                         key={d}
-                        onClick={() => setSelectedCategory(d)}
+                        onClick={() => handleSelectDistrict(d)}
                         className={`text-xs px-2.5 py-1 rounded-lg font-ramabhadra whitespace-nowrap transition-all ${
                           selectedCategory === d
                             ? 'bg-red-600 text-white shadow-sm'
@@ -536,11 +553,11 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
               )}
             </div>
 
-            {/* Category Top Headlines Slider & Side Hot News (Requirement 5) */}
+            {/* Category Top Headlines Slider & Side Hot News */}
             {categoryPosts.length >= 3 && (
               <HeadlinesSlider
                 posts={categoryPosts}
-                onSelectPost={(post) => setSelectedPost(post)}
+                onSelectPost={handleSelectPost}
               />
             )}
 
@@ -555,7 +572,7 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                       return (
                         <div
                           key={post.id}
-                          onClick={() => setSelectedPost(post)}
+                          onClick={() => handleSelectPost(post)}
                           className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all group cursor-pointer flex flex-col justify-between"
                         >
                           <div>
@@ -612,7 +629,7 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                       <>
                         <p className="font-ramabhadra text-base">ఈ వర్గంలో వార్తలు ఏవీ లేవు.</p>
                         <button
-                          onClick={() => setSelectedCategory('all')}
+                          onClick={handleGoHome}
                           className="mt-3 text-sm text-red-600 font-ramabhadra hover:underline"
                         >
                           హోమ్ పేజీకి తిరిగి వెళ్లండి
@@ -627,7 +644,7 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
               <div className="lg:col-span-4 sticky top-28">
                 <Sidebar
                   posts={allPosts}
-                  onSelectPost={(post) => setSelectedPost(post)}
+                  onSelectPost={handleSelectPost}
                 />
               </div>
             </div>
@@ -640,13 +657,13 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
             {/* 1. TOP HEADLINES SLIDER & HOT NEWS (Main top news only) */}
             <HeadlinesSlider
               posts={mainTopPosts}
-              onSelectPost={(post) => setSelectedPost(post)}
+              onSelectPost={handleSelectPost}
             />
 
             {/* 2. SPECIAL STORIES HIGHLIGHT SECTION (Only renders if special stories exist) */}
             <SpecialStoriesSection
               posts={allPosts}
-              onSelectPost={(post) => setSelectedPost(post)}
+              onSelectPost={handleSelectPost}
             />
 
             {/* 3. MAIN CONTENT (Left 8 Cols) & SIDEBAR (Right 4 Cols) */}
@@ -658,8 +675,8 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                   title="ఆంధ్రప్రదేశ్ వార్తలు"
                   categoryKey="ఆంధ్రప్రదేశ్"
                   posts={apPosts}
-                  onSelectPost={(post) => setSelectedPost(post)}
-                  onViewMore={(cat) => setSelectedCategory(cat)}
+                  onSelectPost={handleSelectPost}
+                  onViewMore={handleSelectCategory}
                 />
 
                 {/* తెలంగాణ వార్తలు */}
@@ -667,8 +684,8 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                   title="తెలంగాణ వార్తలు"
                   categoryKey="తెలంగాణ"
                   posts={tsPosts}
-                  onSelectPost={(post) => setSelectedPost(post)}
-                  onViewMore={(cat) => setSelectedCategory(cat)}
+                  onSelectPost={handleSelectPost}
+                  onViewMore={handleSelectCategory}
                 />
 
                 {/* రాజకీయం & జాతీయం */}
@@ -676,8 +693,8 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                   title="రాజకీయం & జాతీయం"
                   categoryKey="రాజకీయం"
                   posts={politicsPosts}
-                  onSelectPost={(post) => setSelectedPost(post)}
-                  onViewMore={(cat) => setSelectedCategory(cat)}
+                  onSelectPost={handleSelectPost}
+                  onViewMore={handleSelectCategory}
                 />
 
                 {/* సినిమా & వినోదం */}
@@ -685,8 +702,8 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                   title="సినిమా & వినోదం"
                   categoryKey="సినిమా"
                   posts={cinemaPosts}
-                  onSelectPost={(post) => setSelectedPost(post)}
-                  onViewMore={(cat) => setSelectedCategory(cat)}
+                  onSelectPost={handleSelectPost}
+                  onViewMore={handleSelectCategory}
                 />
 
                 {/* క్రీడలు */}
@@ -694,8 +711,8 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                   title="క్రీడలు & ఇతర వార్తలు"
                   categoryKey="క్రీడలు"
                   posts={sportsPosts}
-                  onSelectPost={(post) => setSelectedPost(post)}
-                  onViewMore={(cat) => setSelectedCategory(cat)}
+                  onSelectPost={handleSelectPost}
+                  onViewMore={handleSelectCategory}
                 />
               </div>
 
@@ -703,7 +720,7 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
               <div className="lg:col-span-4 sticky top-28">
                 <Sidebar
                   posts={allPosts}
-                  onSelectPost={(post) => setSelectedPost(post)}
+                  onSelectPost={handleSelectPost}
                 />
               </div>
             </div>
@@ -747,7 +764,7 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                       key={post.id}
                       onClick={() => {
                         setShowSearchModal(false);
-                        setSelectedPost(post);
+                        handleSelectPost(post);
                       }}
                       className="py-3 flex items-start gap-3 hover:bg-gray-50 p-2 rounded-xl cursor-pointer"
                     >
@@ -774,13 +791,9 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
 
       {/* 5. PORTAL FOOTER */}
       <PortalFooter
-        onSelectCategory={(cat) => {
-          setSelectedPost(null);
-          setSelectedCategory(cat);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
+        onSelectCategory={handleSelectCategory}
         onOpenPolicyPage={(route) => onOpenPolicyPage(route)}
-        onOpenClassifieds={onOpenClassifieds}
+        onOpenClassifieds={() => handleSelectCategory('classifieds')}
       />
     </div>
   );

@@ -374,8 +374,24 @@ class LoginViewModel : ViewModel() {
                             val roleFromDb = if (isAdmin) "ADMIN" else if (isPermanentReporterDoc) "REPORTER" else parsedRole.name
 
                             val dbName = existingUserDoc.getString("name")?.trim()
+                            val isDbNameInvalid = dbName.isNullOrBlank() || dbName.equals("User", ignoreCase = true) || dbName.equals("యూజర్", ignoreCase = true) || dbName.startsWith("+91") || dbName.matches(Regex("^\\d{10}$"))
+                            var repFullName: String? = null
+                            if (isDbNameInvalid && (hasReporterPast || parsedRole == UserRole.REPORTER)) {
+                                for (p in searchPhones) {
+                                    if (repFullName != null) break
+                                    try {
+                                        val appSnap = FirebaseService.db.collection("reporter_applications").whereEqualTo("phone", p).limit(1).get().await()
+                                        val validApp = appSnap.documents.firstOrNull()
+                                        val found = (validApp?.getString("fullName") ?: validApp?.getString("name"))?.trim()?.takeIf {
+                                            it.isNotBlank() && !it.equals("User", true) && !it.equals("యూజర్", true) && !it.startsWith("+91") && !it.matches(Regex("^\\d{10}$"))
+                                        }
+                                        if (found != null) repFullName = found
+                                    } catch (_: Exception) {}
+                                }
+                            }
                             val resolvedName = when {
-                                !dbName.isNullOrBlank() && !dbName.equals("User", ignoreCase = true) && !dbName.equals("యూజర్", ignoreCase = true) -> dbName
+                                !isDbNameInvalid -> dbName!!
+                                !repFullName.isNullOrBlank() -> repFullName
                                 !user.displayName.isNullOrBlank() -> user.displayName
                                 isAdmin -> "శ్రీకాంత్ రెడ్డి"
                                 isPermanentReporterDoc -> "Alfa News Service"
@@ -414,6 +430,9 @@ class LoginViewModel : ViewModel() {
                             user.email?.let { if (it.isNotEmpty()) updateData["email"] = it }
                             user.photoUrl?.let { updateData["photoUrl"] = it.toString() }
                             user.displayName?.let { if (it.isNotEmpty()) updateData["name"] = it }
+                            if (!repFullName.isNullOrBlank() && isDbNameInvalid) {
+                                updateData["name"] = repFullName
+                            }
 
                             try {
                                 userRef.update(updateData).await()

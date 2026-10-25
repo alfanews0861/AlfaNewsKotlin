@@ -675,10 +675,10 @@ fun MainScreen(
                             "create" -> {
                                 var showCitizenJournalism by remember { mutableStateOf(false) }
                                 if (showCitizenJournalism) {
-                                    CitizenPostPageView(user = user ?: User(id = "guest", name = "Guest"), onClose = { showCitizenJournalism = false })
+                                    CitizenPostPageView(user = currentUser ?: User(id = "guest", name = "Guest"), onClose = { showCitizenJournalism = false })
                                 } else {
                                     CreateMenuView(
-                                        currentUser = user,
+                                        currentUser = currentUser,
                                         onAction = { action ->
                                             when (action) {
                                                 "citizen" -> {

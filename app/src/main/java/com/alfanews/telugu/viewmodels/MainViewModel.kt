@@ -102,6 +102,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var cachedWeatherAlertsData: Map<String, Any>? = null
     private var lastListenedUserId: String? = null
     private var lastListenedUserRole: UserRole? = null
+    private var lastActiveUserId: String? = null
+    private var lastSyncedFcmToken: String? = null
+    private var lastSyncedFcmUserId: String? = null
+    private var lastSyncedFcmTimeMs: Long = 0L
+    private val fcmSyncThrottleMs = 15 * 60 * 1000L
 
 
     init {
@@ -188,6 +193,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             userListener?.remove() 
             val firebaseUser = auth.currentUser
             if (firebaseUser == null) {
+                lastActiveUserId = null
                 _currentUser.value = null
                 prefs.clearUserData()
                 AnalyticsService.onUserLogout()
@@ -353,27 +359,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             UserRole.fromStringSafe(rawRole) ?: _currentUser.value?.role ?: UserRole.SUBSCRIBER
                         }
 
-                        // Check if reporter in reporter_applications if still subscriber
-                        if (parsedRole == UserRole.SUBSCRIBER && !cleanEffectivePhone.isNullOrBlank()) {
+                        // 🔍 Reporter Application discovery & Real Name Auto-Healing
+                        val isNameMissingOrGeneric = nameFromDb.isNullOrBlank() ||
+                            nameFromDb.equals("User", ignoreCase = true) ||
+                            nameFromDb.equals("యూజర్", ignoreCase = true) ||
+                            nameFromDb.startsWith("+91") ||
+                            nameFromDb.matches(Regex("^\\d{10}$"))
+
+                        val shouldQueryReporterApp = (parsedRole == UserRole.SUBSCRIBER || parsedRole == UserRole.REPORTER || hasReporterPast || isNameMissingOrGeneric) && !cleanEffectivePhone.isNullOrBlank()
+
+                        if (shouldQueryReporterApp) {
                             viewModelScope.launch(Dispatchers.IO) {
                                 try {
-                                    val snap = FirebaseService.db.collection("reporter_applications").whereEqualTo("phone", cleanEffectivePhone).get().await()
-                                    val app = snap.documents.firstOrNull { 
-                                        val s = it.getString("status")?.uppercase()
-                                        s == "JOINED" || s == "APPROVED" || s == "SUSPENDED"
-                                    }
+                                    val snap = FirebaseService.db.collection("reporter_applications").whereEqualTo("phone", cleanEffectivePhone).limit(1).get().await()
+                                    val app = snap.documents.firstOrNull()
                                     if (app != null) {
-                                        val repName = app.getString("fullName") ?: app.getString("name") ?: effectiveName
+                                        val repFullName = (app.getString("fullName") ?: app.getString("name"))?.trim()?.takeIf {
+                                            it.isNotBlank() && !it.equals("User", true) && !it.equals("యూజర్", true) && !it.startsWith("+91") && !it.matches(Regex("^\\d{10}$"))
+                                        }
                                         val repDist = app.getString("district")
                                         val repMandal = app.getString("assignedMandal") ?: app.getString("mandal")
-                                        _currentUser.value = _currentUser.value?.copy(
-                                             name = repName,
-                                             role = UserRole.REPORTER,
-                                             district = repDist ?: _currentUser.value?.district,
-                                             assignedMandal = repMandal ?: _currentUser.value?.assignedMandal
-                                         )
-                                        prefs.userRole = "REPORTER"
-                                        prefs.userName = repName
+                                        val appStatus = app.getString("status")?.uppercase()
+                                        val isApprovedRep = appStatus in listOf("JOINED", "APPROVED", "SUSPENDED") || hasReporterPast || parsedRole == UserRole.REPORTER
+
+                                        if (isApprovedRep) {
+                                            val finalRepName = repFullName ?: _currentUser.value?.name ?: effectiveName
+                                            _currentUser.value = _currentUser.value?.copy(
+                                                 name = if (!repFullName.isNullOrBlank()) repFullName else (_currentUser.value?.name ?: effectiveName),
+                                                 role = UserRole.REPORTER,
+                                                 district = repDist ?: _currentUser.value?.district,
+                                                 assignedMandal = repMandal ?: _currentUser.value?.assignedMandal
+                                             )
+                                            prefs.userRole = "REPORTER"
+                                            if (!repFullName.isNullOrBlank()) {
+                                                prefs.userName = repFullName
+                                            }
+                                            if (!repDist.isNullOrBlank() && prefs.userDistrict.isNullOrBlank()) {
+                                                prefs.userDistrict = repDist
+                                            }
+                                            if (!repMandal.isNullOrBlank() && prefs.userAssignedMandal.isNullOrBlank()) {
+                                                prefs.userAssignedMandal = repMandal
+                                            }
+
+                                            // 🛡️ RECURSIVE WRITE-LOOP GUARD: Update Firestore ONLY when name or role actually needs repair
+                                            val updates = mutableMapOf<String, Any>()
+                                            if (!repFullName.isNullOrBlank() && (nameFromDb.isNullOrBlank() || nameFromDb != repFullName || nameFromDb.equals("User", true) || nameFromDb.equals("యూజర్", true))) {
+                                                updates["name"] = repFullName
+                                            }
+                                            if (rawRole?.toString()?.uppercase() != "REPORTER") {
+                                                updates["role"] = "REPORTER"
+                                            }
+                                            if (updates.isNotEmpty()) {
+                                                try {
+                                                    snapshot.reference.set(updates, com.google.firebase.firestore.SetOptions.merge())
+                                                } catch (_: Exception) {}
+                                            }
+                                        }
                                     }
                                 } catch (_: Exception) {}
                             }
@@ -439,9 +480,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val pts = (snapshot.get("points") as? Number)?.toInt() ?: 0
                         val refCount = (snapshot.get("referralCount") as? Number)?.toInt() ?: 0
 
+                        val validDbName = nameFromDb?.trim()?.takeIf {
+                            it.isNotBlank() && !it.equals("User", true) && !it.equals("యూజర్", true) && !it.startsWith("+91") && !it.matches(Regex("^\\d{10}$"))
+                        }
+                        val resolvedInitialName = validDbName
+                            ?: _currentUser.value?.name?.takeIf { it.isNotBlank() && !it.equals("User", true) && !it.equals("యూజర్", true) && !it.startsWith("+91") }
+                            ?: prefs.userName?.takeIf { it.isNotBlank() && !it.equals("User", true) && !it.equals("యూజర్", true) && !it.startsWith("+91") }
+                            ?: effectiveName
+
                         val userObj = User(
                             id = snapshot.id,
-                            name = effectiveName,
+                            name = resolvedInitialName,
                             email = effectiveEmail,
                             phone = effectivePhone,
                             photoUrl = effectivePhoto,
@@ -474,7 +523,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _currentUser.value = userObj
                         
                         prefs.userId = userObj.id
-                        prefs.userName = snapshot.getString("name") ?: userObj.name
+                        if (validDbName != null) {
+                            prefs.userName = validDbName
+                        } else if (resolvedInitialName.isNotBlank() && !resolvedInitialName.equals("User", true) && !resolvedInitialName.equals("యూజర్", true) && !resolvedInitialName.startsWith("+91")) {
+                            prefs.userName = resolvedInitialName
+                        }
                         prefs.userRole = userObj.role.name
                         prefs.userDistrict = if (isPermanentReporterDoc) "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు" else (snapshot.getString("district") ?: userObj.district)
                         if (isPermanentReporterDoc) {
@@ -497,9 +550,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         }
 
-                        AnalyticsService.onUserLogin(userObj)
+                        // 🛡️ RECURSIVE LOGIN & WRITE-LOOP GUARD:
+                        // Real-time snapshot updates (points, badges, score updates) should NEVER trigger repetitive LOGIN events or redundant token writes.
+                        val isNewUserSession = (lastActiveUserId != userObj.id)
+                        if (isNewUserSession) {
+                            lastActiveUserId = userObj.id
+                            AnalyticsService.onUserLogin(userObj)
+                            syncUserFcmToken(userObj.id)
+                        }
                         startUnreadMessagesListener(userObj)
-                        syncUserFcmToken(userObj.id)
                         
                         if (prefs.isNotificationsEnabled) {
                             val oldInterests = oldUser?.categoryScores?.keys ?: emptySet()
@@ -1015,6 +1074,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             com.google.firebase.messaging.FirebaseMessaging.getInstance().token
                 .addOnSuccessListener { token ->
                     if (!token.isNullOrBlank()) {
+                        val now = System.currentTimeMillis()
+                        val isGuest = userId.isNullOrBlank() || userId == "guest"
+                        val uid = userId
+
+                        // 🛡️ RECURSIVE WRITE-LOOP GUARD:
+                        // Avoid repeatedly writing lastActive/fcmToken if already synced for the same user/guest within 15 minutes
+                        if (uid == lastSyncedFcmUserId && token == lastSyncedFcmToken && (now - lastSyncedFcmTimeMs < fcmSyncThrottleMs)) {
+                            Log.d("MainViewModel", "Skipping FCM token sync - already synced recently")
+                            return@addOnSuccessListener
+                        }
+                        lastSyncedFcmToken = token
+                        lastSyncedFcmUserId = uid
+                        lastSyncedFcmTimeMs = now
+
                         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                             try {
                                 val isGuest = userId.isNullOrBlank() || userId == "guest"
@@ -1241,6 +1314,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             FirebaseService.auth.signOut()
             prefs.clearUserData()
             _currentUser.value = null
+            lastActiveUserId = null
+            lastSyncedFcmUserId = null
+            lastSyncedFcmToken = null
             userListener?.remove()
             AnalyticsService.onUserLogout()
         }

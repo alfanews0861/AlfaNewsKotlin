@@ -48,7 +48,6 @@ import com.alfanews.telugu.services.FirebaseFunctionsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.ui.theme.AlfaNewsTheme
 import com.alfanews.telugu.utils.Constants
-import com.alfanews.telugu.utils.ShareUtil
 import com.alfanews.telugu.utils.uploadMediaToStorage
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.ListenerRegistration
@@ -964,8 +963,6 @@ internal fun NewsSubmissionResultDialog(
     onActionComplete: (String) -> Unit,
     onPostReady: ((NewsPost) -> Unit)? = null
 ) {
-    val context = LocalContext.current
-
     AlertDialog(
         onDismissRequest = {
             when (result) {
@@ -1234,38 +1231,20 @@ internal fun NewsSubmissionResultDialog(
         confirmButton = {
             when (result) {
                 is NewsSubmissionResult.Success -> {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                ShareUtil.shareNewsWhatsAppRichLink(
-                                    context = context,
-                                    postId = result.postId,
-                                    headline = result.headline
-                                )
+                    Button(
+                        onClick = {
+                            if (result.newsPost != null && onPostReady != null) {
+                                onPostReady(result.newsPost)
+                            } else {
+                                onActionComplete(result.postId)
                             }
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("షేర్ చేయండి")
-                        }
-                        Button(
-                            onClick = {
-                                if (result.newsPost != null && onPostReady != null) {
-                                    onPostReady(result.newsPost)
-                                } else {
-                                    onActionComplete(result.postId)
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
-                            )
-                        ) {
-                            Text("వార్తను చూడండి")
-                        }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    ) {
+                        Text("వార్త చూడండి")
                     }
                 }
                 is NewsSubmissionResult.Rejected -> {
@@ -1285,39 +1264,31 @@ internal fun NewsSubmissionResultDialog(
                             contentColor = MaterialTheme.colorScheme.onPrimary
                         )
                     ) {
-                        Text(if (targetPostId != "HOME_ONLY") "వార్తను చూడండి" else "సరే")
+                        Text(if (targetPostId != "HOME_ONLY") "వార్త చూడండి" else "సరే")
                     }
                 }
             }
         },
-        dismissButton = {
-            when (result) {
-                is NewsSubmissionResult.Rejected -> {
-                    TextButton(
-                        onClick = { onActionComplete("") }
-                    ) {
-                        Text("రద్దు చేయండి")
-                    }
-                }
-                is NewsSubmissionResult.Success -> {
-                    TextButton(
-                        onClick = {
-                            if (result.newsPost != null && onPostReady != null) {
-                                onPostReady(result.newsPost)
-                            } else {
-                                onActionComplete(result.postId)
-                            }
-                        }
-                    ) {
-                        Text("సరే")
-                    }
-                }
-                is NewsSubmissionResult.Failed, is NewsSubmissionResult.Timeout -> {
-                    if (result.postId.isNotBlank()) {
+        dismissButton = if (result is NewsSubmissionResult.Success) {
+            null
+        } else {
+            {
+                when (result) {
+                    is NewsSubmissionResult.Rejected -> {
                         TextButton(
-                            onClick = { onActionComplete("HOME_ONLY") }
+                            onClick = { onActionComplete("") }
                         ) {
-                            Text("హోమ్‌కి వెళ్ళండి")
+                            Text("రద్దు చేయండి")
+                        }
+                    }
+                    is NewsSubmissionResult.Success -> {}
+                    is NewsSubmissionResult.Failed, is NewsSubmissionResult.Timeout -> {
+                        if (result.postId.isNotBlank()) {
+                            TextButton(
+                                onClick = { onActionComplete("HOME_ONLY") }
+                            ) {
+                                Text("హోమ్‌కి వెళ్ళండి")
+                            }
                         }
                     }
                 }

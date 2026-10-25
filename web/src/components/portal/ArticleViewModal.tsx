@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { NewsPost, User, Language } from '../../types';
-import { X, Clock, MapPin, Share2, Volume2, VolumeX, Type, Sparkles, MessageCircle, Heart, Check, Bookmark, ArrowLeft } from 'lucide-react';
+import { NewsPost, User, UserRole, Language } from '../../types';
+import { X, Clock, MapPin, Share2, Volume2, VolumeX, Type, Sparkles, MessageCircle, Heart, Check, Bookmark, ArrowLeft, Hash, Building2, User as UserIcon } from 'lucide-react';
 import { formatRelativeTimeTelugu, FALLBACK_NEWS_IMAGE } from './portalUtils';
 import { extractYoutubeVideoId } from '../NewsCard';
 import CommentSection from '../CommentSection';
 import { VerifiedBadge } from '../VerifiedBadge';
 import { isReporterVerified } from '../../services/reporterVerification';
+import { getNewsUrl } from '../../utils/router';
 
 interface ArticleViewModalProps {
   post: NewsPost;
@@ -44,6 +45,25 @@ export const ArticleViewModal: React.FC<ArticleViewModalProps> = ({
   const author = post.reporter?.name || 'ఆల్ఫా న్యూస్ డెస్క్';
   const category = post.category || post.categories?.[0] || 'వార్తలు';
 
+  // Clean and deduplicate SEO entity data
+  const cleanTags = Array.from(new Set([
+    ...(Array.isArray(post.tags) ? post.tags : []),
+    ...(Array.isArray(post.keywords) ? post.keywords : [])
+  ].filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map((t) => t.trim().replace(/^#/, ''))));
+
+  const cleanPeople = Array.from(new Set((Array.isArray(post.entities?.people) ? post.entities.people : [])
+    .filter((p): p is string => typeof p === 'string' && p.trim().length > 0).map((p) => p.trim())));
+
+  const cleanLocations = Array.from(new Set([
+    ...(Array.isArray(post.entities?.locations) ? post.entities.locations : []),
+    post.location,
+    post.district,
+    post.mandal
+  ].filter((l): l is string => typeof l === 'string' && l.trim().length > 0 && l.toLowerCase() !== 'null' && l.toLowerCase() !== 'none').map((l) => l.trim())));
+
+  const cleanOrgs = Array.from(new Set((Array.isArray(post.entities?.organizations) ? post.entities.organizations : [])
+    .filter((o): o is string => typeof o === 'string' && o.trim().length > 0).map((o) => o.trim())));
+
   // Paragraph formatting
   const paragraphs = finalArticleBody
     .split(/\r?\n\r?\n|\n/)
@@ -81,14 +101,23 @@ export const ArticleViewModal: React.FC<ArticleViewModalProps> = ({
     }
   };
 
+  const getShareableArticleUrl = () => {
+    const activeRef = (currentUser && (currentUser.role === UserRole.REPORTER || currentUser.role === UserRole.STAFF_REPORTER) && currentUser.id && currentUser.id !== 'guest-user')
+      ? currentUser.id
+      : (post.reporter?.id && !post.reporter.id.startsWith('BOT_') && !post.reporter.id.startsWith('SYSTEM_') && post.reporter.id !== 'ALFA_DESK' ? post.reporter.id : null);
+    const refQuery = activeRef ? `?ref=${encodeURIComponent(activeRef)}` : '';
+    return `https://alfanews.app${getNewsUrl(post)}${refQuery}`;
+  };
+
   const handleShareWhatsApp = () => {
-    const text = `*${finalHeadline}*\n\nపూర్తి వార్త చదవడానికి క్లిక్ చేయండి:\nhttps://alfa-news-31bf7.web.app/#/news/${post.id}\n\n- ఆల్ఫా న్యూస్ తెలుగు`;
+    const articleUrl = getShareableArticleUrl();
+    const text = `*${finalHeadline}*\n\nపూర్తి వార్త చదవడానికి క్లిక్ చేయండి:\n${articleUrl}\n\n- ఆల్ఫా న్యూస్ తెలుగు`;
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   const handleCopyLink = () => {
-    const url = `https://alfa-news-31bf7.web.app/#/news/${post.id}`;
-    navigator.clipboard.writeText(url);
+    const articleUrl = getShareableArticleUrl();
+    navigator.clipboard.writeText(articleUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -263,6 +292,83 @@ export const ArticleViewModal: React.FC<ArticleViewModalProps> = ({
               </p>
             ))}
           </div>
+
+          {/* Article Topics, Entities & SEO Metadata Badges */}
+          {(cleanTags.length > 0 || cleanPeople.length > 0 || cleanLocations.length > 0 || cleanOrgs.length > 0) && (
+            <div className="my-6 pt-4 border-t border-gray-100 space-y-3 bg-slate-50/70 p-4 rounded-2xl border border-gray-200/80">
+              {/* 1. Hashtags / Topics */}
+              {cleanTags.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-ramabhadra text-gray-500 flex items-center gap-1 shrink-0">
+                    <Hash className="w-3.5 h-3.5 text-red-600" />
+                    <span>హ్యాష్ ట్యాగ్‌లు:</span>
+                  </span>
+                  {cleanTags.map((tag, idx) => (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center text-xs sm:text-sm font-mallanna px-2.5 py-0.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-100 transition-colors"
+                    >
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* 2. Key Personalities / People */}
+              {cleanPeople.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-ramabhadra text-gray-500 flex items-center gap-1 shrink-0">
+                    <UserIcon className="w-3.5 h-3.5 text-blue-600" />
+                    <span>వార్తలోని వ్యక్తులు:</span>
+                  </span>
+                  {cleanPeople.map((person, idx) => (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center text-xs sm:text-sm font-mallanna px-2.5 py-0.5 rounded-lg bg-blue-50 text-blue-800 border border-blue-100 font-medium"
+                    >
+                      {person}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* 3. Locations / Places */}
+              {cleanLocations.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-ramabhadra text-gray-500 flex items-center gap-1 shrink-0">
+                    <MapPin className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>సంబంధిత ప్రాంతాలు:</span>
+                  </span>
+                  {cleanLocations.map((loc, idx) => (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center text-xs sm:text-sm font-mallanna px-2.5 py-0.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-100"
+                    >
+                      {loc}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* 4. Organizations / Parties */}
+              {cleanOrgs.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-ramabhadra text-gray-500 flex items-center gap-1 shrink-0">
+                    <Building2 className="w-3.5 h-3.5 text-purple-600" />
+                    <span>సంస్థలు / పార్టీలు:</span>
+                  </span>
+                  {cleanOrgs.map((org, idx) => (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center text-xs sm:text-sm font-mallanna px-2.5 py-0.5 rounded-lg bg-purple-50 text-purple-800 border border-purple-100"
+                    >
+                      {org}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ENGAGEMENT & SHARING BAR */}
           <div className="py-4 border-t border-b border-gray-200 flex flex-wrap items-center justify-between gap-3 my-8">

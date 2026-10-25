@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { NewsPost, User } from '../../types';
-import { Clock, MapPin, Share2, Volume2, VolumeX, Heart, Check, Bookmark, ArrowLeft, User as UserIcon, MessageSquare, ExternalLink } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { NewsPost, User, UserRole } from '../../types';
+import { Clock, MapPin, Share2, Volume2, VolumeX, Heart, Check, Bookmark, ArrowLeft, User as UserIcon, MessageSquare, ExternalLink, Hash, Building2 } from 'lucide-react';
 import { formatRelativeTimeTelugu, FALLBACK_NEWS_IMAGE } from './portalUtils';
 import { extractYoutubeVideoId } from '../NewsCard';
 import CommentSection from '../CommentSection';
 import { VerifiedBadge } from '../VerifiedBadge';
 import { isReporterVerified } from '../../services/reporterVerification';
 import { updatePageSeo } from '../../utils/seoManager';
+import { getNewsUrl } from '../../utils/router';
 
 interface ArticleViewPageProps {
   post: NewsPost;
@@ -49,6 +50,54 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
     .map((p) => p.trim())
     .filter(Boolean);
 
+  // Active reporter referral tracking ID
+  const activeRef = useMemo(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const queryRef = urlParams.get('ref');
+      if (queryRef && queryRef.trim()) return queryRef.trim();
+    } catch (_) {}
+    if (currentUser && (currentUser.role === UserRole.REPORTER || currentUser.role === UserRole.STAFF_REPORTER) && currentUser.id && currentUser.id !== 'guest-user') {
+      return currentUser.id;
+    }
+    const postRepId = post.reporter?.id;
+    if (postRepId && !postRepId.startsWith('BOT_') && !postRepId.startsWith('SYSTEM_') && postRepId !== 'ALFA_DESK') {
+      return postRepId;
+    }
+    return null;
+  }, [post.reporter?.id, currentUser]);
+
+  // Article URL with reporter referral query parameter for sharing
+  const refQuery = activeRef ? `?ref=${encodeURIComponent(activeRef)}` : '';
+  const articleUrl = `https://alfanews.app${getNewsUrl(post)}${refQuery}`;
+
+  // Direct Play Store download URL with deferred post link and reporter referral ID
+  const playStoreDownloadUrl = useMemo(() => {
+    const referrerParam = activeRef
+      ? `news_id%3D${encodeURIComponent(post.id)}%26ref_${encodeURIComponent(activeRef)}`
+      : `news_id%3D${encodeURIComponent(post.id)}`;
+    return `https://play.google.com/store/apps/details?id=com.alfanews.telugu&referrer=${referrerParam}`;
+  }, [post.id, activeRef]);
+
+  // Clean and deduplicate SEO entity data
+  const cleanTags = Array.from(new Set([
+    ...(Array.isArray(post.tags) ? post.tags : []),
+    ...(Array.isArray(post.keywords) ? post.keywords : [])
+  ].filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map((t) => t.trim().replace(/^#/, ''))));
+
+  const cleanPeople = Array.from(new Set((Array.isArray(post.entities?.people) ? post.entities.people : [])
+    .filter((p): p is string => typeof p === 'string' && p.trim().length > 0).map((p) => p.trim())));
+
+  const cleanLocations = Array.from(new Set([
+    ...(Array.isArray(post.entities?.locations) ? post.entities.locations : []),
+    post.location,
+    post.district,
+    post.mandal
+  ].filter((l): l is string => typeof l === 'string' && l.trim().length > 0 && l.toLowerCase() !== 'null' && l.toLowerCase() !== 'none').map((l) => l.trim())));
+
+  const cleanOrgs = Array.from(new Set((Array.isArray(post.entities?.organizations) ? post.entities.organizations : [])
+    .filter((o): o is string => typeof o === 'string' && o.trim().length > 0).map((o) => o.trim())));
+
   // Dynamic SEO Update on Mount / Post change
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -57,21 +106,28 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
       title: finalHeadline,
       description: finalArticleBody.slice(0, 160),
       image: image,
-      url: `https://alfanews.app/#/news/${post.id}`,
+      url: articleUrl,
       type: 'article',
       publishedTime: post.timestamp ? new Date(post.timestamp).toISOString() : new Date().toISOString(),
       author: author,
       category: category,
+      tags: cleanTags,
+      people: cleanPeople,
+      locations: cleanLocations,
+      organizations: cleanOrgs,
+      breadcrumbs: [
+        { name: 'హోమ్', url: 'https://alfanews.app/' },
+        { name: category, url: `https://alfanews.app/category/${encodeURIComponent(category)}` },
+        { name: finalHeadline.slice(0, 40) + '...', url: articleUrl },
+      ],
     });
-
-    window.location.hash = `#/news/${post.id}`;
 
     return () => {
       if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
       }
     };
-  }, [post.id]);
+  }, [post.id, finalHeadline, finalArticleBody, image, author, category, articleUrl]);
 
   // Handle Speech Synthesis
   const toggleSpeech = () => {
@@ -95,18 +151,17 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
   };
 
   const handleShareWhatsApp = () => {
-    const text = `*${finalHeadline}*\n\nపూర్తి వార్త చదవడానికి క్లిక్ చేయండి:\nhttps://alfanews.app/#/news/${post.id}\n\n- ఆల్ఫా న్యూస్ తెలుగు`;
+    const text = `*${finalHeadline}*\n\nపూర్తి వార్త చదవడానికి క్లిక్ చేయండి:\n${articleUrl}\n\n- ఆల్ఫా న్యూస్ తెలుగు`;
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   const handleShareTwitter = () => {
-    const text = `${finalHeadline}\nhttps://alfanews.app/#/news/${post.id}\nvia @AlfaNewsTelugu`;
+    const text = `${finalHeadline}\n${articleUrl}\nvia @AlfaNewsTelugu`;
     window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   const handleCopyLink = () => {
-    const url = `https://alfanews.app/#/news/${post.id}`;
-    navigator.clipboard.writeText(url);
+    navigator.clipboard.writeText(articleUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -284,6 +339,92 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
           ))}
         </div>
 
+        {/* Article Topics, Entities & SEO Metadata Badges */}
+        {(cleanTags.length > 0 || cleanPeople.length > 0 || cleanLocations.length > 0 || cleanOrgs.length > 0) && (
+          <div className="mt-8 pt-6 border-t border-gray-100 space-y-3.5 bg-slate-50/70 p-4 sm:p-5 rounded-2xl border border-gray-200/80">
+            {/* 1. Hashtags / Topics */}
+            {cleanTags.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-ramabhadra text-gray-500 flex items-center gap-1 shrink-0">
+                  <Hash className="w-3.5 h-3.5 text-red-600" />
+                  <span>హ్యాష్ ట్యాగ్‌లు:</span>
+                </span>
+                {cleanTags.map((tag, idx) => (
+                  <span
+                    key={idx}
+                    className="inline-flex items-center text-xs sm:text-sm font-mallanna px-2.5 py-0.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-100 transition-colors"
+                  >
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* 2. Key Personalities / People */}
+            {cleanPeople.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-ramabhadra text-gray-500 flex items-center gap-1 shrink-0">
+                  <UserIcon className="w-3.5 h-3.5 text-blue-600" />
+                  <span>వార్తలోని వ్యక్తులు:</span>
+                </span>
+                {cleanPeople.map((person, idx) => (
+                  <span
+                    key={idx}
+                    itemProp="about"
+                    itemScope
+                    itemType="https://schema.org/Person"
+                    className="inline-flex items-center text-xs sm:text-sm font-mallanna px-2.5 py-0.5 rounded-lg bg-blue-50 text-blue-800 border border-blue-100 font-medium"
+                  >
+                    <span itemProp="name">{person}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* 3. Locations / Places */}
+            {cleanLocations.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-ramabhadra text-gray-500 flex items-center gap-1 shrink-0">
+                  <MapPin className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>సంబంధిత ప్రాంతాలు:</span>
+                </span>
+                {cleanLocations.map((loc, idx) => (
+                  <span
+                    key={idx}
+                    itemProp="contentLocation"
+                    itemScope
+                    itemType="https://schema.org/Place"
+                    className="inline-flex items-center text-xs sm:text-sm font-mallanna px-2.5 py-0.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-100"
+                  >
+                    <span itemProp="name">{loc}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* 4. Organizations / Parties */}
+            {cleanOrgs.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-ramabhadra text-gray-500 flex items-center gap-1 shrink-0">
+                  <Building2 className="w-3.5 h-3.5 text-purple-600" />
+                  <span>సంస్థలు / పార్టీలు:</span>
+                </span>
+                {cleanOrgs.map((org, idx) => (
+                  <span
+                    key={idx}
+                    itemProp="about"
+                    itemScope
+                    itemType="https://schema.org/Organization"
+                    className="inline-flex items-center text-xs sm:text-sm font-mallanna px-2.5 py-0.5 rounded-lg bg-purple-50 text-purple-800 border border-purple-100"
+                  >
+                    <span itemProp="name">{org}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Interaction Bar (Like, Share) */}
         <div className="mt-8 pt-5 border-t border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -331,7 +472,7 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
             </div>
           </div>
           <a
-            href="https://play.google.com/store/apps/details?id=com.alfanews.telugu"
+            href={playStoreDownloadUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="bg-red-600 hover:bg-red-700 text-white font-ramabhadra text-xs px-4 py-2.5 rounded-xl shrink-0 shadow transition-colors flex items-center gap-1.5"

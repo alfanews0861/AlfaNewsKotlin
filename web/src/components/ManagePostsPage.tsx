@@ -3,6 +3,7 @@ import { NewsPost, User, UserRole } from '../types';
 import { db, auth } from '../services/firebase';
 import * as _firestore from 'firebase/firestore';
 import { RefreshCw, Search, Trash2, Edit3 } from 'lucide-react';
+import { navigateTo, getNewsUrl } from '../utils/router';
 
 const { collection, query, where, orderBy, limit, getDocs, doc, deleteDoc, Timestamp } = _firestore as any;
 
@@ -274,7 +275,7 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
                                     } else if (onViewPost) {
                                         onViewPost(post);
                                     } else {
-                                        window.location.hash = `#/news/${post.id}`;
+                                        navigateTo(getNewsUrl(post));
                                     }
                                 }}
                                 className="flex flex-col md:flex-row items-start md:items-center gap-4 p-3 rounded-xl border bg-gray-50 hover:bg-gray-100/70 transition-colors cursor-pointer group"
