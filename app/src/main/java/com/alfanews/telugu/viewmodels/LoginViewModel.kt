@@ -201,11 +201,12 @@ class LoginViewModel : ViewModel() {
                             userRef.get().await()
                         } catch (_: Exception) { null }
 
+                        val searchPhones = listOfNotNull(clean10Digit, fullWith91).filter { it.length >= 10 }.distinct()
+
                         if (existingUserDoc != null && !existingUserDoc.exists()) {
                             var foundLegacyUser = false
                             var legacyRole = if (isAdmin) "ADMIN" else (prefs.userRole ?: "SUBSCRIBER")
 
-                            val searchPhones = listOfNotNull(clean10Digit, fullWith91).filter { it.length >= 10 }.distinct()
                             for (p in searchPhones) {
                                 if (foundLegacyUser) break
                                 try {

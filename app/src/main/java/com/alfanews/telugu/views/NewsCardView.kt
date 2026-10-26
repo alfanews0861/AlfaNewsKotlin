@@ -777,6 +777,7 @@ fun NewsCardView(
             FullStoryBottomSheet(
                 post = post,
                 language = language,
+                currentUser = currentUser,
                 onDismissRequest = { showFullStorySheet = false }
             )
         }
@@ -2526,6 +2527,7 @@ fun InlineMicroPoll(
 fun FullStoryBottomSheet(
     post: NewsPost,
     language: Language,
+    currentUser: User? = null,
     onDismissRequest: () -> Unit
 ) {
     val context = LocalContext.current
