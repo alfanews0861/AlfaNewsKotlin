@@ -170,16 +170,14 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     db.collection("users").document(uid)
                         .update(
                             "fcmToken", token,
-                            "fcmTokens", com.google.firebase.firestore.FieldValue.arrayUnion(token),
-                            "lastActive", com.google.firebase.firestore.FieldValue.serverTimestamp()
+                            "fcmTokens", com.google.firebase.firestore.FieldValue.arrayUnion(token)
                         ).await()
                 } catch (e: Exception) {
                     val data = mapOf(
                         "fcmToken" to token,
                         "fcmTokens" to listOf(token),
                         "notificationsEnabled" to true,
-                        "pushEnabled" to true,
-                        "lastActive" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                        "pushEnabled" to true
                     )
                     db.collection("users").document(uid).set(data, com.google.firebase.firestore.SetOptions.merge()).await()
                 }

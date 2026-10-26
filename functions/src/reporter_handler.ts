@@ -67,11 +67,18 @@ export async function notifyReporter(
 
         // Helper to convert technical errors or raw strings into polite, human editorial reasons
         const toHumanEditorialReason = (rawReason?: string): string => {
+            if (type === 'INTERNAL_ERROR') {
+                const lower = (rawReason || "").toLowerCase();
+                if (lower.includes('video') || lower.includes('ffmpeg') || lower.includes('youtube')) {
+                    return "వీడియో ఫైల్ ప్రాసెసింగ్ సమయంలో సాంకేతిక అంతరాయం ఏర్పడింది. దయచేసి వీడియోను మళ్ళీ సరిచూసి పంపగలరు.";
+                }
+                return "సర్వర్ నెట్‌వర్క్ అంతరాయం వల్ల ప్రచురణ ప్రక్రియ తాత్కాలికంగా నిలిచింది. దయచేసి కాసేపటి తర్వాత మళ్ళీ ప్రయత్నించండి.";
+            }
+
             if (!rawReason || rawReason.trim().length === 0) {
                 if (type === 'DUPLICATE') return "ఈ వార్తాంశం గత కొన్ని గంటల్లో మీ మండలంలో ఇప్పటికే మన యాప్‌లో ప్రచురితమైంది.";
                 if (type === 'YOUTUBE_POLICY_VIOLATION') return "యూట్యూబ్ కమ్యూనిటీ నిబంధనల ప్రకారం తీవ్ర రక్తపాతం లేదా భయానక దృశ్యాలు కలిగిన వీడియోలను యూట్యూబ్‌లో ప్రసారం చేయడం నిషేధం. మన ఛానల్ భద్రత దృష్ట్యా ఈ వీడియో వార్తను నిలిపివేయడం జరిగింది.";
                 if (type === 'POLICY_VIOLATION') return "వార్తలోని అంశాలు మా ఎడిటోరియల్ మార్గదర్శకాలకు అనుగుణంగా లేనందున ప్రచురించలేకపోయాము.";
-                if (type === 'INTERNAL_ERROR') return "సర్వర్ లేదా నెట్‌వర్క్ అంతరాయం వల్ల ఈ వార్త ప్రచురణ తాత్కాలికంగా నిలిచింది.";
                 return "";
             }
 
@@ -80,13 +87,17 @@ export async function notifyReporter(
                 lower.includes('quota') || lower.includes('resource_exhausted') || lower.includes('503') ||
                 lower.includes('429') || lower.includes('json') || lower.includes('syntax') ||
                 lower.includes('ffmpeg') || lower.includes('exit code') || lower.includes('stream specifier') ||
-                lower.includes('http') || lower.includes('internal error') || lower.includes('abort');
+                lower.includes('http') || lower.includes('internal error') || lower.includes('abort') ||
+                lower.includes('is not defined') || lower.includes('referenceerror') || lower.includes('typeerror') ||
+                lower.includes('syntaxerror') || lower.includes('error') || lower.includes('failed') ||
+                lower.includes('undefined') || lower.includes('null') || lower.includes('apikey') ||
+                lower.includes('apikeys') || lower.includes('token') || lower.includes('status:');
 
             if (hasTechnicalLeak) {
                 if (lower.includes('video') || lower.includes('ffmpeg') || lower.includes('youtube')) {
                     return "వీడియో ఫైల్ ప్రాసెసింగ్ సమయంలో సాంకేతిక అంతరాయం ఏర్పడింది. దయచేసి వీడియోను మళ్ళీ సరిచూసి పంపగలరు.";
                 }
-                return "సర్వర్ నెట్‌వర్క్ అంతరాయం వల్ల ప్రచురణ ప్రక్రియ నిలిచిపోయింది. దయచేసి కాసేపటి తర్వాత మళ్ళీ ప్రయత్నించండి.";
+                return "సర్వర్ నెట్‌వర్క్ అంతరాయం వల్ల ప్రచురణ ప్రక్రియ తాత్కాలికంగా నిలిచింది. దయచేసి కాసేపటి తర్వాత మళ్ళీ ప్రయత్నించండి.";
             }
 
             if (type === 'YOUTUBE_POLICY_VIOLATION' || lower.includes('youtube') || lower.includes('యూట్యూబ్') || lower.includes('భయానక') || lower.includes('రక్తపాత')) {
@@ -118,7 +129,7 @@ export async function notifyReporter(
             title = 'యూట్యూబ్ నిబంధనల పరిశీలన ⚠️';
             body = `"${truncatedHeadline}" వీడియో యూట్యూబ్ నిబంధనల ప్రకారం ప్రచురించబడలేదు. డెస్క్ చాట్ చూడండి.`;
 
-            chatText = `నమస్కారం ${reporterName} గారు,\n\nమీరు పంపిన వీడియో వార్త: "${headline}"\n\nఎడిటోరియల్ డెస్క్ & AI సేఫ్టీ పరిశీలన:\nయూట్యూబ్ కమ్యూనిటీ నిబంధనలు (YouTube Community Guidelines) మరియు పబ్లిక్ సేఫ్టీ నిబంధనల ప్రకారం తీవ్ర రక్తపాతం, భయానక ప్రమాదాలు లేదా హింసాత్మక దృశ్యాలు కలిగిన వీడియోలను యూట్యూబ్‌లో ప్రసారం చేయడం నిషిద్ధం. మన అధికారిక ఛానల్ భద్రత మరియు అకౌంట్ నిబంధనల దృష్ట్యా ఈ వీడియో వార్తను నిలిపివేయడం జరిగింది.\n\nభవిష్యత్తులో ఇటువంటి సంఘటనలు కవర్ చేసేటప్పుడు భయానక దృశ్యాలు లేకుండా లేదా బాధితుల వివరాలు/రక్తపు మరకలను బ్లర్ చేసి పంపగలరు. మీ సహకారానికి ధన్యవాదాలు!\n\n- ఆల్ఫా న్యూస్ ఎడిటోరియల్ డెస్క్`;
+            chatText = `నమస్కారం ${reporterName} గారు,\n\nమీరు పంపిన వీడియో వార్త: "${headline}"\n\nఎడిటోరియల్ డెస్క్ పరిశీలన:\nయూట్యూబ్ కమ్యూనిటీ నిబంధనలు (YouTube Community Guidelines) మరియు పబ్లిక్ సేఫ్టీ నిబంధనల ప్రకారం తీవ్ర రక్తపాతం, భయానక ప్రమాదాలు లేదా హింసాత్మక దృశ్యాలు కలిగిన వీడియోలను యూట్యూబ్‌లో ప్రసారం చేయడం నిషిద్ధం. మన అధికారిక ఛానల్ భద్రత మరియు అకౌంట్ నిబంధనల దృష్ట్యా ఈ వీడియో వార్తను నిలిపివేయడం జరిగింది.\n\nభవిష్యత్తులో ఇటువంటి సంఘటనలు కవర్ చేసేటప్పుడు భయానక దృశ్యాలు లేకుండా లేదా బాధితుల వివరాలు/రక్తపు మరకలను బ్లర్ చేసి పంపగలరు. మీ సహకారానికి ధన్యవాదాలు!\n\n- ఆల్ఫా న్యూస్ ఎడిటోరియల్ డెస్క్`;
         } else if (type === 'POLICY_VIOLATION') {
             title = 'ఎడిటోరియల్ డెస్క్ పరిశీలన ⚠️';
             body = `"${truncatedHeadline}" వార్త ఎడిటోరియల్ నిబంధనల ప్రకారం ప్రచురించబడలేదు. డెస్క్ చాట్ చూడండి.`;
@@ -192,9 +203,9 @@ export async function notifyReporter(
             android: {
                 priority: 'high' as const,
                 notification: {
-                    imageUrl: safeImageUrl,
                     channelId: 'general_news_v2',
-                    sound: 'default'
+                    sound: 'default',
+                    ...(safeImageUrl ? { imageUrl: safeImageUrl } : {})
                 }
             },
             data: {
@@ -205,7 +216,7 @@ export async function notifyReporter(
                 body,
                 channelId: 'general_news_v2',
                 rejectionReason: specificReason || "",
-                imageUrl: safeImageUrl
+                ...(safeImageUrl ? { imageUrl: safeImageUrl } : {})
             }
         };
 

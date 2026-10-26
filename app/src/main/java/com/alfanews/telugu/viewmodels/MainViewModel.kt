@@ -1096,16 +1096,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     try {
                                         FirebaseService.db.collection("users").document(uid).update(
                                             "fcmToken", token,
-                                            "fcmTokens", com.google.firebase.firestore.FieldValue.arrayUnion(token),
-                                            "lastActive", com.google.firebase.firestore.FieldValue.serverTimestamp()
+                                            "fcmTokens", com.google.firebase.firestore.FieldValue.arrayUnion(token)
                                         ).await()
                                         Log.d("MainViewModel", "Synced FCM token for user $uid")
                                     } catch (e: Exception) {
                                         val data = mapOf(
                                             "fcmToken" to token,
                                             "fcmTokens" to listOf(token),
-                                            "notificationsEnabled" to true,
-                                            "lastActive" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                                            "notificationsEnabled" to true
                                         )
                                         FirebaseService.db.collection("users").document(uid).set(data, com.google.firebase.firestore.SetOptions.merge()).await()
                                         Log.d("MainViewModel", "Set FCM token for user $uid with merge")
@@ -1178,7 +1176,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val isFirstOpenToday = (currentTodayDate != todayDateStr)
 
                     val updates = mutableMapOf<String, Any>(
-                        "lastActive" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
                         "todayDate" to todayDateStr,
                         "todayOpenCount" to com.google.firebase.firestore.FieldValue.increment(1)
                     )

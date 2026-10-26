@@ -77,14 +77,19 @@ service cloud.firestore {
          (!('assignedDistricts' in request.resource.data) || request.resource.data.assignedDistricts.size() == 0))
       );
 
-      // Normal users cannot modify protected fields (role, points, badges, assignments, warnings)
-      allow update: if isAuthed() && (
-        isSuperAdminAuth() ||
-        isEditorOrAdmin() ||
-        (request.auth.uid == userId &&
-         !request.resource.data.diff(resource.data).affectedKeys()
-           .hasAny(['role', 'points', 'badges', 'assignedDistricts', 'assignedMandal', 'warningLevel', 'inProbation', 'suspended', 'previouslyDowngraded']))
-      );
+      // Normal users cannot modify protected fields (role, points, badges, assignments, warnings, lastActive)
+      // 🛡️ RECURSIVE LOOP KILL-SWITCH:
+      // Blocking 'lastActive' across ALL client updates (including Admin/Editor/SuperAdmin client apps)
+      // kills the recursive write-loop on all installed client APKs globally and immediately.
+      allow update: if isAuthed() &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['lastActive']) &&
+        (
+          isSuperAdminAuth() ||
+          isEditorOrAdmin() ||
+          (request.auth.uid == userId &&
+           !request.resource.data.diff(resource.data).affectedKeys()
+             .hasAny(['role', 'points', 'badges', 'assignedDistricts', 'assignedMandal', 'warningLevel', 'inProbation', 'suspended', 'previouslyDowngraded']))
+        );
 
       allow delete: if isAdmin() || isSuperAdminAuth();
 

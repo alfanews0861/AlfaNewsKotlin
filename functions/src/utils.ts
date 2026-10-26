@@ -787,7 +787,7 @@ EVALUATION RULES:
                 isAdultOrNude: true,
                 isHateOrIllegal: false,
                 isExtremelyGruesome: false,
-                rejectionReason: "అసభ్యకరమైన చిత్రం (AI Safety System Blocked)",
+                rejectionReason: "అసభ్యకరమైన చిత్రం (ఎడిటోరియల్ నిబంధనల ఉల్లంఘన)",
                 safetyDetails: "Gemini built-in safety filter caught explicit content"
             };
         }
