@@ -1080,23 +1080,9 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
             val shareUrl = "https://alfanews.app/news/${post.id}$refQuery"
             val shareText = customShareText ?: shareUrl
 
-            // Pre-warm news card image on Google Edge CDN so WhatsApp loads rich preview instantly
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                try {
-                    val conn = (java.net.URL("https://alfanews.app/news-card/${post.id}.jpg").openConnection() as java.net.HttpURLConnection).apply {
-                        requestMethod = "GET"
-                        connectTimeout = 8000
-                        readTimeout = 8000
-                        instanceFollowRedirects = true
-                    }
-                    conn.responseCode
-                    conn.disconnect()
-                } catch (_: Exception) {}
-            }
-
             // Share as Rich Link (text/plain with URL) - Exactly like Way2News!
-            // WhatsApp automatically loads the Open Graph preview card (Branded card image on top, clean deep link below)
-            // Tapping the card preview image directly launches the deep link into AlfaNews!
+            // WhatsApp automatically loads the Open Graph preview card (Big image on top, clean link below).
+            // Tapping anywhere on the card preview image directly launches the dynamic link into AlfaNews!
             val intent = Intent(Intent.ACTION_SEND).apply {
                 action = Intent.ACTION_SEND
                 type = "text/plain"
@@ -1264,9 +1250,9 @@ private suspend fun fallbackGetNewsImageUri(context: Context, post: NewsPost, la
                 }
             }
 
-            // 2. Generate a clean branded high-resolution news card image (1080x1440 ARGB_8888)
+            // 2. Generate a clean branded high-resolution news card image (1080x1680 ARGB_8888, 9:14 ratio)
             val width = 1080
-            val height = 1440
+            val height = 1680
             val cardBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(cardBitmap)
             canvas.drawFilter = android.graphics.PaintFlagsDrawFilter(0, android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
@@ -1310,10 +1296,10 @@ private suspend fun fallbackGetNewsImageUri(context: Context, post: NewsPost, la
             }
             canvas.drawText(locText, width - 40f, 60f, locPaint)
 
-            var currentY = 90f
+            var currentY = 110f
 
             // 3. Draw News Photo (Cover Crop with Aspect-Ratio Preservation)
-            val photoHeight = 620f
+            val photoHeight = 740f
             if (photoBitmap != null) {
                 try {
                     val srcW = photoBitmap.width
@@ -1438,13 +1424,19 @@ private suspend fun fallbackGetNewsImageUri(context: Context, post: NewsPost, la
                 color = android.graphics.Color.parseColor("#020617")
                 style = android.graphics.Paint.Style.FILL
             }
-            canvas.drawRect(0f, height - 90f, width.toFloat(), height.toFloat(), footerBg)
+            canvas.drawRect(0f, height - 110f, width.toFloat(), height.toFloat(), footerBg)
+
+            val footerBorder = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.parseColor("#1E293B")
+                strokeWidth = 2f
+            }
+            canvas.drawLine(0f, height - 110f, width.toFloat(), height - 110f, footerBorder)
 
             val footerTextPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.SUBPIXEL_TEXT_FLAG).apply {
                 color = android.graphics.Color.parseColor("#94A3B8")
-                textSize = 25f
+                textSize = 26f
             }
-            canvas.drawText("📲 తాజా వార్తలకు ప్లేస్టోర్‌లో Alfa News డౌన్‌లోడ్ చేసుకోండి  |  alfanews.app/news/${post.id}", 40f, height - 38f, footerTextPaint)
+            canvas.drawText("📲 పూర్తి వార్త కోసం ప్లేస్టోర్‌లో Alfa News డౌన్‌లోడ్ చేసుకోండి  |  alfanews.app/news/${post.id}", 40f, height - 45f, footerTextPaint)
 
             val uri = saveImageToCache(context, cardBitmap)
             uri
@@ -2876,38 +2868,11 @@ fun FullStoryBottomSheet(
                                 }
                                 val refQ = if (!repRef.isNullOrEmpty()) "?ref=$repRef" else ""
                                 val deepLinkUrl = "https://alfanews.app/news/${post.id}$refQ"
-                                val footer = if (isEnglish) {
-                                    "📲 For more latest local news, download Alfa News now:\n$deepLinkUrl"
-                                } else {
-                                    "📲 మరిన్ని తాజా స్థానిక వార్తలకు ఇప్పుడే డౌన్‌లోడ్ చేసుకోండి ఆల్ఫా న్యూస్:\n$deepLinkUrl"
-                                }
-                                val shareText = buildString {
-                                    append("🔴 ")
-                                    append(headlineText)
-                                    append("\n\n")
-                                    append(fullStoryText)
-                                    append("\n\n")
-                                    append(footer)
-                                }
-
-                                // Pre-warm news card image on Google Edge CDN so WhatsApp loads rich preview instantly
-                                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                    try {
-                                        val conn = (java.net.URL("https://alfanews.app/news-card/${post.id}.jpg").openConnection() as java.net.HttpURLConnection).apply {
-                                            requestMethod = "GET"
-                                            connectTimeout = 8000
-                                            readTimeout = 8000
-                                            instanceFollowRedirects = true
-                                        }
-                                        conn.responseCode
-                                        conn.disconnect()
-                                    } catch (_: Exception) {}
-                                }
 
                                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                     action = Intent.ACTION_SEND
                                     type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, shareText)
+                                    putExtra(Intent.EXTRA_TEXT, deepLinkUrl)
                                     putExtra(Intent.EXTRA_SUBJECT, headlineText)
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 }

@@ -743,18 +743,33 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
         }
         const data = doc.data() || {};
         const titleRaw = data.headline?.telugu || data.headline?.english || data.title || data.businessName || "Alfa News Telugu";
-        const cardImageUrl = `https://alfanews.app/news-card/${doc.id}.jpg`;
+        // Fast static image priority: 15ms response from Google Storage / CDN (Never times out for WhatsApp scraper!)
+        const directImageUrl = (data.cardImageUrl && typeof data.cardImageUrl === 'string' && data.cardImageUrl.startsWith('http')) ? data.cardImageUrl :
+            (data.mediaUrl && typeof data.mediaUrl === 'string' && data.mediaUrl.startsWith('http')) ? data.mediaUrl :
+                (data.imageUrl && typeof data.imageUrl === 'string' && data.imageUrl.startsWith('http')) ? data.imageUrl :
+                    (Array.isArray(data.mediaUrls) && data.mediaUrls[0] && typeof data.mediaUrls[0] === 'string' && data.mediaUrls[0].startsWith('http')) ? data.mediaUrls[0] :
+                        (Array.isArray(data.images) && data.images[0] && typeof data.images[0] === 'string' && data.images[0].startsWith('http')) ? data.images[0] :
+                            `https://alfanews.app/news-card/${doc.id}.jpg`;
         const descRaw = data.content?.telugu || data.summary?.telugu || data.content?.english || data.summary?.english || data.description || "";
         const safeTitle = escapeHtml(titleRaw);
         const safeDesc = escapeHtml(descRaw);
-        const safeImage = escapeHtml(cardImageUrl);
+        const safeImage = escapeHtml(directImageUrl);
         const postUrl = `https://alfanews.app/${isAd ? 'ad' : 'news'}/${doc.id}`;
         const intentScheme = `alfanews://${isAd ? 'ad' : 'news'}/${doc.id}`;
-        // Pre-warm card image
-        https.get(cardImageUrl).on('error', () => { });
         const userAgent = req.headers['user-agent'] || '';
         const isCrawler = /facebookexternalhit|WhatsApp|Twitterbot|TelegramBot|LinkedInBot|Googlebot|bingbot|Baiduspider|DuckDuckBot|YandexBot/i.test(userAgent);
-        // If human browser user (not a crawler), serve the full web app with injected SEO meta tags!
+        // If human mobile browser user (not a crawler), and app wasn't installed to catch the App Link:
+        // Seamlessly redirect to Google Play Store to download the app!
+        if (!isCrawler) {
+            const isMobile = /Android|iPhone|iPad|iPod/i.test(userAgent);
+            if (isMobile) {
+                const referrerParam = encodeURIComponent(`news_id=${doc.id}`);
+                const playStoreUrl = `https://play.google.com/store/apps/details?id=com.alfanews.telugu&referrer=${referrerParam}`;
+                res.redirect(302, playStoreUrl);
+                return;
+            }
+        }
+        // If desktop user (not a crawler), serve the full web app with injected SEO meta tags!
         if (!isCrawler) {
             const baseHtml = await fetchBaseWebHtml();
             if (baseHtml) {
