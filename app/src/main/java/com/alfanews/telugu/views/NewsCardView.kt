@@ -1072,7 +1072,7 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
                 post.headline.english.ifBlank { post.headline.telugu.ifBlank { post.notificationTitle.orEmpty() } }
             }
             val reporterRefId = when {
-                currentUser?.role == UserRole.REPORTER && !currentUser.id.isNullOrBlank() && currentUser.id != "guest" -> currentUser.id
+                !currentUser?.id.isNullOrBlank() && currentUser?.id != "guest" -> currentUser.id
                 !post.reporter.id.isNullOrBlank() && !post.reporter.id.startsWith("BOT_") && !post.reporter.id.startsWith("SYSTEM_") && post.reporter.id != "ALFA_DESK" -> post.reporter.id
                 else -> null
             }
@@ -2167,7 +2167,7 @@ fun SurveyCardContent(
                             sb.append("Click to cast your vote: ")
                         }
                         val repRef = when {
-                            currentUser?.role == UserRole.REPORTER && !currentUser.id.isNullOrBlank() && currentUser.id != "guest" -> currentUser.id
+                            !currentUser?.id.isNullOrBlank() && currentUser?.id != "guest" -> currentUser.id
                             !post.reporter.id.isNullOrBlank() && !post.reporter.id.startsWith("BOT_") && !post.reporter.id.startsWith("SYSTEM_") && post.reporter.id != "ALFA_DESK" -> post.reporter.id
                             else -> null
                         }
@@ -2863,7 +2863,7 @@ fun FullStoryBottomSheet(
                             try {
                                 val fullStoryText = paragraphs.joinToString("\n\n")
                                 val repRef = when {
-                                    currentUser?.role == UserRole.REPORTER && !currentUser.id.isNullOrBlank() && currentUser.id != "guest" -> currentUser.id
+                                    !currentUser?.id.isNullOrBlank() && currentUser?.id != "guest" -> currentUser.id
                                     !post.reporter.id.isNullOrBlank() && !post.reporter.id.startsWith("BOT_") && !post.reporter.id.startsWith("SYSTEM_") && post.reporter.id != "ALFA_DESK" -> post.reporter.id
                                     else -> null
                                 }

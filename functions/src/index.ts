@@ -736,7 +736,7 @@ export const shareNews = onRequest(async (req, res) => {
                 const matched = snap.docs.find(d => 
                     d.id.toLowerCase() === id.toLowerCase() || 
                     d.id.toLowerCase().startsWith(id.toLowerCase())
-                );
+                ) || (snap.docs.length === 1 ? snap.docs[0] : null);
                 if (matched) doc = matched;
             }
         }
@@ -749,15 +749,11 @@ export const shareNews = onRequest(async (req, res) => {
         const data = doc.data() || {};
         const titleRaw = data.headline?.telugu || data.headline?.english || data.title || data.businessName || "Alfa News Telugu";
         
-        // Fast static image priority: 15ms response from Google Storage / CDN (Never times out for WhatsApp scraper!)
-        const directImageUrl = (data.cardImageUrl && typeof data.cardImageUrl === 'string' && data.cardImageUrl.startsWith('http')) ? data.cardImageUrl :
-            (data.mediaUrl && typeof data.mediaUrl === 'string' && data.mediaUrl.startsWith('http')) ? data.mediaUrl :
-            (data.imageUrl && typeof data.imageUrl === 'string' && data.imageUrl.startsWith('http')) ? data.imageUrl :
-            (Array.isArray(data.mediaUrls) && data.mediaUrls[0] && typeof data.mediaUrls[0] === 'string' && data.mediaUrls[0].startsWith('http')) ? data.mediaUrls[0] :
-            (Array.isArray(data.images) && data.images[0] && typeof data.images[0] === 'string' && data.images[0].startsWith('http')) ? data.images[0] :
-            `https://alfanews.app/news-card/${doc.id}.jpg`;
+        // Always prioritize the high-resolution branded news card for WhatsApp rich preview!
+        const directImageUrl = `https://alfanews.app/news-card/${doc.id}.jpg`;
 
-        const descRaw = data.content?.telugu || data.summary?.telugu || data.content?.english || data.summary?.english || data.description || "";
+        const fullDesc = data.summary?.telugu || data.content?.telugu || data.summary?.english || data.content?.english || data.description || "";
+        const descRaw = fullDesc.length > 100 ? fullDesc.substring(0, 100) + "..." : fullDesc;
         const safeTitle = escapeHtml(titleRaw);
         const safeDesc = escapeHtml(descRaw);
         const safeImage = escapeHtml(directImageUrl);
