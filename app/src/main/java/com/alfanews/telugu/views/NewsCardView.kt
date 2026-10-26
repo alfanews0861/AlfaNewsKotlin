@@ -1087,6 +1087,7 @@ private fun performShare(scope: CoroutineScope, isSharing: Boolean, setSharing: 
                 action = Intent.ACTION_SEND
                 type = "text/plain"
                 putExtra(Intent.EXTRA_TEXT, shareText)
+                putExtra(Intent.EXTRA_TITLE, headline)
                 putExtra(Intent.EXTRA_SUBJECT, headline)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
@@ -2873,6 +2874,7 @@ fun FullStoryBottomSheet(
                                     action = Intent.ACTION_SEND
                                     type = "text/plain"
                                     putExtra(Intent.EXTRA_TEXT, deepLinkUrl)
+                                    putExtra(Intent.EXTRA_TITLE, headlineText)
                                     putExtra(Intent.EXTRA_SUBJECT, headlineText)
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 }

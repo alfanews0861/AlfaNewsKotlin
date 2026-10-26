@@ -800,7 +800,7 @@ export const shareNews = onRequest(async (req, res) => {
                         '@id': postUrl,
                     },
                     headline: titleRaw,
-                    image: [cardImageUrl],
+                    image: [safeImage],
                     datePublished: new Date().toISOString(),
                     publisher: {
                         '@type': 'NewsMediaOrganization',
