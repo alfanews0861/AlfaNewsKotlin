@@ -83,8 +83,8 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
   const handleSaveProfile = async (newName: string, newAddress: string, newDistrict: string, newMandal: string, newPhoto: File | null, newSignature: File | null) => {
     setIsSaving(true);
     try {
-      let photoUrl = user.photoUrl;
-      let signatureUrl = user.signatureUrl;
+      let photoUrl = user.photoUrl || '';
+      let signatureUrl = user.signatureUrl || '';
 
       if (newPhoto) {
         const photoRef = ref(storage, `user-profiles/${user.id}/${Date.now()}_photo`);
@@ -99,22 +99,37 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
       }
 
       const userRef = doc(db, 'users', user.id);
-      const updates: any = {
-        name: newName,
-        address: newAddress,   
-        district: newDistrict, 
-        photoUrl: photoUrl,
-        signatureUrl: signatureUrl
+      const updates: Record<string, any> = {
+        name: (newName || user.name || '').trim(),
+        address: (newAddress || '').trim(),
+        district: (newDistrict || '').trim(),
       };
-      if (newMandal) {
-        updates.assignedMandal = newMandal;
-        updates.mandal = newMandal;
+
+      if (photoUrl) {
+        updates.photoUrl = photoUrl;
       }
+      if (signatureUrl) {
+        updates.signatureUrl = signatureUrl;
+      }
+
+      if (newMandal && newMandal.trim()) {
+        updates.assignedMandal = newMandal.trim();
+        updates.mandal = newMandal.trim();
+      }
+
+      // Explicitly delete any key with undefined value to prevent Firestore rejection
+      Object.keys(updates).forEach((k) => {
+        if (updates[k] === undefined) {
+          delete updates[k];
+        }
+      });
+
       await updateDoc(userRef, updates);
       setEditModalOpen(false);
+      alert("ప్రొఫైల్ వివరాలు విజయవంతంగా సేవ్ అయ్యాయి!");
     } catch (e: any) {
       console.error("Profile save error:", e);
-      alert("ప్రొఫైల్ అప్‌డేట్ విఫలమైంది.");
+      alert("ప్రొఫైల్ అప్‌డేట్ విఫలమైంది: " + (e?.message || 'నెట్‌వర్క్ సమస్య'));
     } finally {
       setIsSaving(false);
     }
@@ -195,9 +210,19 @@ const UserProfilePage: React.FC<UserProfilePageProps> = ({
           </div>
         )}
 
-        <div className="flex gap-3 mt-4 w-full max-w-sm">
-          <button onClick={() => setEditModalOpen(true)} className="flex-1 bg-black text-white py-3 rounded-xl font-bold text-sm shadow">Edit Profile</button>
-          {isStaff && <button onClick={() => setShowIdCard(true)} className="flex-1 bg-white border border-gray-300 text-gray-700 py-3 rounded-xl font-bold text-sm">View ID Card</button>}
+        <div className="flex flex-col gap-2 mt-4 w-full max-w-sm">
+          <div className="flex gap-2 w-full">
+            <button onClick={() => setEditModalOpen(true)} className="flex-1 bg-black hover:bg-gray-800 text-white py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm shadow">Edit Profile</button>
+            {isStaff && <button onClick={() => setShowIdCard(true)} className="flex-1 bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm">View ID Card</button>}
+          </div>
+          {isStaff && (
+            <button
+              onClick={() => onNavigate('manage')}
+              className="w-full bg-red-600 hover:bg-red-700 text-white py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm shadow-md flex items-center justify-center gap-2"
+            >
+              <span>📑 వార్తల నిర్వహణ (Manage News)</span>
+            </button>
+          )}
         </div>
       </div>
 

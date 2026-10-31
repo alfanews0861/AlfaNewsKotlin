@@ -75,52 +75,19 @@ const UserManagementPage: React.FC<UserManagementPageProps> = ({ currentUser }) 
             q = query(usersCollectionRef, ...constraints);
             
             const querySnapshot = await getDocs(q);
-            const fetchedUsers = await Promise.all(querySnapshot.docs.map(async (doc: any) => {
+            const fetchedUsers = querySnapshot.docs.map((doc: any) => {
+                const data = doc.data();
                 const userData = {
                     id: doc.id,
-                    ...doc.data()
+                    ...data
                 } as User;
 
-                // Fetch news counts for reporters
-                if (userData.role !== UserRole.GUEST && userData.role !== UserRole.SUBSCRIBER) {
-                    try {
-                        const newsRef = collection(db, 'news');
-                        
-                        // Total count
-                        const totalQuery = query(newsRef, where('reporter.id', '==', userData.id));
-                        const totalSnap = await getDocs(totalQuery);
-                        userData.totalNewsCount = totalSnap.size;
-
-                        // Today's count
-                        const startOfToday = new Date();
-                        startOfToday.setHours(0, 0, 0, 0);
-                        
-                        let todayCount = 0;
-                        totalSnap.forEach((doc: any) => {
-                            const data = doc.data();
-                            let date: Date | null = null;
-                            if (data.timestamp?.toDate) {
-                                date = data.timestamp.toDate();
-                            } else if (data.timestamp?.seconds) {
-                                date = new Date(data.timestamp.seconds * 1000);
-                            } else if (typeof data.timestamp === 'number') {
-                                date = new Date(data.timestamp);
-                            }
-                            
-                            if (date && date >= startOfToday) {
-                                todayCount++;
-                            }
-                        });
-                        userData.todayNewsCount = todayCount;
-                    } catch (countError) {
-                        console.error(`Error fetching counts for user ${userData.id}:`, countError);
-                        userData.totalNewsCount = 0;
-                        userData.todayNewsCount = 0;
-                    }
-                }
+                // Total news count derived from user metadata / points (1 news = 10 pts)
+                userData.totalNewsCount = userData.totalNewsCount || (data.points && data.points > 0 ? Math.floor(data.points / 10) : 0);
+                userData.todayNewsCount = 0;
 
                 return userData;
-            }));
+            });
             
             if (isLoadMore) {
                 setUsers(prev => [...prev, ...fetchedUsers]);

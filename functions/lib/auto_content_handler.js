@@ -675,54 +675,66 @@ exports.cleanupOldNews = (0, scheduler_1.onSchedule)({
                 break;
             }
             lastVisibleDoc = oldNewsQuery.docs[oldNewsQuery.docs.length - 1];
-            const deletePromises = oldNewsQuery.docs.map(async (doc) => {
-                const data = doc.data();
-                // If media already cleaned up, ensure doc is archived so it drops out of approved queries
-                if (data.mediaDeleted === true) {
+            // 🛡️ Smooth Pacing & Instance Protection: Process in small chunks of 25 documents with a 100ms pause.
+            // This prevents a sudden burst of 500 simultaneous EventArc trigger events from spiking Cloud Run autoscaler
+            // into launching 5 concurrent 2GB instances at 3:00 AM, while still cleaning all 2,000 documents smoothly.
+            const CHUNK_SIZE = 25;
+            let cleanedInThisBatch = 0;
+            for (let c = 0; c < oldNewsQuery.docs.length; c += CHUNK_SIZE) {
+                const chunk = oldNewsQuery.docs.slice(c, c + CHUNK_SIZE);
+                const chunkPromises = chunk.map(async (doc) => {
+                    const data = doc.data();
+                    // If media already cleaned up, ensure doc is archived so it drops out of approved queries
+                    if (data.mediaDeleted === true) {
+                        return db.collection('news').doc(doc.id).update({
+                            approved: false,
+                            status: "archived",
+                            lastCleanupAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                    const mediaUrls = data.mediaUrls || [];
+                    if (data.mediaUrl)
+                        mediaUrls.push(data.mediaUrl);
+                    for (const url of mediaUrls) {
+                        if (url && typeof url === 'string' && url.includes('firebasestorage.googleapis.com')) {
+                            try {
+                                // ROBUST PARSING: Handle both standard and token-based URLs
+                                const decodedUrl = decodeURIComponent(url);
+                                const pathParts = decodedUrl.split('/o/');
+                                if (pathParts.length < 2)
+                                    continue;
+                                const filePath = pathParts[1].split('?')[0];
+                                console.log(`[CLEANUP] Deleting: ${filePath}`);
+                                await bucket.file(filePath).delete();
+                                totalDeletedFiles++;
+                            }
+                            catch (e) {
+                                // Ignore 404s (already deleted)
+                                const is404 = e.code === 404 || String(e.code) === "404" ||
+                                    e.message?.includes("404") ||
+                                    e.message?.includes("No such object");
+                                if (!is404) {
+                                    console.warn(`[CLEANUP_WARN] Failed to delete ${url}:`, e.message);
+                                }
+                            }
+                        }
+                    }
                     return db.collection('news').doc(doc.id).update({
+                        mediaUrl: "",
+                        mediaUrls: [],
+                        mediaDeleted: true,
                         approved: false,
                         status: "archived",
                         lastCleanupAt: admin.firestore.FieldValue.serverTimestamp()
                     });
-                }
-                const mediaUrls = data.mediaUrls || [];
-                if (data.mediaUrl)
-                    mediaUrls.push(data.mediaUrl);
-                for (const url of mediaUrls) {
-                    if (url && typeof url === 'string' && url.includes('firebasestorage.googleapis.com')) {
-                        try {
-                            // ROBUST PARSING: Handle both standard and token-based URLs
-                            const decodedUrl = decodeURIComponent(url);
-                            const pathParts = decodedUrl.split('/o/');
-                            if (pathParts.length < 2)
-                                continue;
-                            const filePath = pathParts[1].split('?')[0];
-                            console.log(`[CLEANUP] Deleting: ${filePath}`);
-                            await bucket.file(filePath).delete();
-                            totalDeletedFiles++;
-                        }
-                        catch (e) {
-                            // Ignore 404s (already deleted)
-                            const is404 = e.code === 404 || String(e.code) === "404" ||
-                                e.message?.includes("404") ||
-                                e.message?.includes("No such object");
-                            if (!is404) {
-                                console.warn(`[CLEANUP_WARN] Failed to delete ${url}:`, e.message);
-                            }
-                        }
-                    }
-                }
-                return db.collection('news').doc(doc.id).update({
-                    mediaUrl: "",
-                    mediaUrls: [],
-                    mediaDeleted: true,
-                    approved: false,
-                    status: "archived",
-                    lastCleanupAt: admin.firestore.FieldValue.serverTimestamp()
                 });
-            });
-            const results = await Promise.all(deletePromises);
-            const cleanedInThisBatch = results.filter(r => r !== null).length;
+                const chunkResults = await Promise.all(chunkPromises);
+                cleanedInThisBatch += chunkResults.filter(r => r !== null).length;
+                // 100ms smooth pause between chunks to keep event queue completely flat
+                if (c + CHUNK_SIZE < oldNewsQuery.docs.length) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
             totalCleanedDocs += cleanedInThisBatch;
             console.log(`[CLEANUP] Batch finished. Progress: ${totalCleanedDocs}/${MAX_CLEANUP} (Deleted ${totalDeletedFiles} files)`);
             // If we didn't find many files to delete in this batch, we might be hitting a wall of already-cleaned docs.

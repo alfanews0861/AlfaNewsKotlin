@@ -681,7 +681,7 @@ async function performAIProcessing(headline, content, actualPostData, recentStor
     const singleStorySchema = {
         type: genai_1.Type.OBJECT,
         properties: {
-            headline: { type: genai_1.Type.STRING, description: "Pure Telugu punchy journalistic headline strictly in 6-9 words as ONE continuous flowing sentence without any colons (:) or dashes (-)" },
+            headline: { type: genai_1.Type.STRING, description: "Pure Telugu punchy journalistic headline strictly in 6-9 words as ONE continuous flowing sentence without colons (:) or dashes (-), ending with an active finite action verb (NO noun endings or bare names), NO clichés like 'ఘనంగా', with proper spaces (e.g. 'స్క్రీన్ పై', 'క్లాస్ రూమ్ లో')." },
             content: { type: genai_1.Type.STRING, description: "Pure Telugu short news story strictly 52-60 words (minimum 52 words, maximum 60 words), single paragraph" },
             fullStoryTe: { type: genai_1.Type.STRING, description: "Senior Editor full story in Telugu across 3-4 paragraphs separated by \\n\\n if source has 120+ words, or empty string \"\" if source is brief (< 120 words)" },
             headlineEn: { type: genai_1.Type.STRING, description: "English headline translated from Telugu headline (6-9 words)" },
@@ -899,7 +899,8 @@ NOTIFICATION INSTRUCTIONS (CRITICAL - STRICT RELEVANCE & URGENCY):
             if (!isRejected && story.content?.telugu && story.headline?.telugu) {
                 try {
                     const authorName = story.reporter?.name || actualPostData?.socialAuthorName || actualPostData?.reporter?.name;
-                    const refined = await (0, geminiService_1.refineHeadlineWithPaidAI)(story.content.telugu, story.headline.telugu, story.headline.english, authorName);
+                    const richContext = story.fullStory?.telugu || actualPostData?.content?.telugu || actualPostData?.content || content || "";
+                    const refined = await (0, geminiService_1.refineHeadlineWithPaidAI)(story.content.telugu, story.headline.telugu, story.headline.english, authorName, richContext);
                     if (refined && refined.headline) {
                         story.headline.telugu = refined.headline;
                         if (refined.headlineEn) {

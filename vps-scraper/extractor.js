@@ -78,18 +78,18 @@ const GENERIC_IMAGE_PATTERNS = [
     'placeholder', 'default-image', 'default_image', 'no-image', 'noimage',
     'masthead', 'site-logo', 'sitelogo', 'site_logo', 'channel_logo', 'brand_logo', 'news_logo',
     'app-logo', 'header_logo', 'header-logo', 'footer_logo', 'footer-logo', 'favicon',
-    'dummy', 'share_image', 'og_default', 'fb_share', 'twitter_share',
+    'dummy.jpg', 'dummy.png', 'share_image', 'og_default', 'fb_share', 'twitter_share',
     'header_sun', 'eenadu_sun', 'eenadu_header', 'eenadu_red', 'eenadu_logo',
     'toi_logo', 'toi-logo', 'timesofindia_logo', 'sakshi_logo', 'sakshi-logo',
     'aj_logo', 'ntnews_logo', 'tv9_logo', 'v6_logo', 'abp_logo', 'abp_live',
-    'etv', 'etvbharat', 'etv-bharat', 'etv_bharat', 'etv_logo', 'bharat_logo',
-    'hmtv', 'mahaa', '10tv', 'ap7am', 'telugustop', 'tv5', 'ntv_logo', 'aajtak', 'news18',
-    'greatandhra', 'gulte', 'thehindu', 'deccanchronicle', 'watermark', 'banner_logo',
+    'etv_logo', 'bharat_logo', 'hmtv_logo', 'mahaa_logo', '10tv_logo', 'ap7am_logo',
+    'telugustop_logo', 'tv5_logo', 'ntv_logo', 'aajtak_logo', 'news18_logo',
+    'greatandhra_logo', 'gulte_logo', 'thehindu_logo', 'deccanchronicle_logo', 'watermark', 'banner_logo',
     'static.toiimg.com/photo/108381831', 'static.toiimg.com/photo/4752938',
     'scorecardresearch.com', 'google-analytics', 'facebook.com/tr',
     'assets/_images/logos/', 'e-paper.webp', 'bell-icon.webp', 'gg-pref.gif',
     'andhra-pradesh-logo.webp', 'telangana-logo.webp', 'eenadu.webp',
-    'assets/images/logos/'
+    'assets/images/logos/', 'assets/images/logo.webp', 'assets/avif_logos/'
 ];
 
 /**
@@ -106,25 +106,31 @@ function isGenericImage(url) {
         return true;
     }
 
-    // Vector icons or animations are never news photos
-    if (lowerUrl.endsWith('.svg') || lowerUrl.endsWith('.gif') || lowerUrl.includes('.svg?') || lowerUrl.includes('.gif?')) {
+    // Vector icons, animations, tracking pixels, or favicons
+    if (lowerUrl.endsWith('.svg') || lowerUrl.endsWith('.gif') || lowerUrl.endsWith('.ico') || 
+        lowerUrl.includes('.svg?') || lowerUrl.includes('.gif?') || lowerUrl.includes('.ico?') ||
+        lowerUrl.includes('favicon') || lowerUrl.includes('tracking') || lowerUrl.includes('1x1') || lowerUrl.includes('blank.png')) {
         return true;
     }
 
     // Exact or partial logo file name match
-    if (/(?:logo|brand|masthead|watermark|banner_logo)[-_a-z0-9]*\.(?:png|jpg|jpeg|webp)/i.test(lowerUrl)) {
+    if (/(?:logo|brand_logo|masthead|watermark|banner_logo|site_logo|sitelogo|header_logo|header-logo|footer_logo|footer-logo|app_logo|app-logo)[-_a-z0-9]*\.(?:png|jpg|jpeg|webp|avif)/i.test(lowerUrl)) {
         return true;
     }
 
     // Directory-level logo assets
-    if (/\/(?:logos|branding|placeholders|watermarks|brand_assets)\//i.test(lowerUrl)) {
+    if (/\/(?:logos|branding|placeholders|watermarks|brand_assets|avif_logos|site_logos)\//i.test(lowerUrl)) {
         return true;
     }
 
-    // ETV / ETV Bharat specifics (channel logos, default mastheads)
-    if (lowerUrl.includes('etvbharat') || lowerUrl.includes('etv.co.in') || lowerUrl.includes('etv-bharat') || lowerUrl.includes('etv_bharat')) {
-        if (lowerUrl.includes('logo') || lowerUrl.includes('default') || lowerUrl.includes('placeholder') || lowerUrl.includes('brand') || lowerUrl.includes('channel') || lowerUrl.includes('bharat_logo') || lowerUrl.includes('etv_logo')) {
+    // ETV / ETV Bharat specifics: reject known logo/banner assets, but accept all article media
+    if (lowerUrl.includes('etvbharat') || lowerUrl.includes('etv.co.in')) {
+        if (lowerUrl.includes('/logo') || lowerUrl.includes('_logo') || lowerUrl.includes('-logo') || lowerUrl.includes('default_image') || lowerUrl.includes('placeholder')) {
             return true;
+        }
+        // Genuine ETV Bharat article media
+        if (lowerUrl.includes('/prod-images/') || lowerUrl.includes('/article/') || lowerUrl.includes('/photos/') || lowerUrl.includes('/news/')) {
+            return false;
         }
     }
 
@@ -164,7 +170,9 @@ function isGenericImage(url) {
         if (lowerUrl.includes('article_images/') || 
             lowerUrl.includes('article_multiple_images/') || 
             lowerUrl.includes('/uploads/') || 
-            lowerUrl.includes('/featureimages/')) {
+            lowerUrl.includes('/featureimages/') ||
+            lowerUrl.includes('/prod-images/') ||
+            lowerUrl.includes('/photogallery/')) {
             return false;
         }
         return true;
@@ -199,6 +207,16 @@ function sanitizeTeluguText(text) {
         .replace(/[\u200B-\u200D\uFEFF]/g, '')
         // 6. Fix spaces before Telugu combining vowel marks / virama
         .replace(/\s+([\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63])/g, '$1')
+        // 7. Fix compound English words that lost spacing/virama (e.g. క్లాస్రూమ్ -> క్లాస్ రూమ్)
+        .replace(/క్లాస్రూ/g, 'క్లాస్ రూ')
+        .replace(/బెడ్రూ/g, 'బెడ్ రూ')
+        .replace(/లివింగ్రూ/g, 'లివింగ్ రూ')
+        .replace(/షోరూ/g, 'షో రూ')
+        .replace(/బంజారాహిల్స్/g, 'బంజారా హిల్స్')
+        .replace(/జూబ్లీహిల్స్/g, 'జూబ్లీ హిల్స్')
+        // 8. Fix English loanwords ending in virama (్) glued directly to postpositions (లో, పై, తో, కు, కి, వద్ద, నుండి, లోని, తోని)
+        // e.g. న్పై -> న్ పై (స్క్రీన్ పై), ల్స్లో -> ల్స్ లో (హిల్స్ లో), మ్లో -> మ్ లో (రూమ్ లో), డ్పై -> డ్ పై (రోడ్ పై)
+        .replace(/([\u0C15-\u0C39]\u0C4D)(లో|పై|తో|కు|కి|వద్ద|నుండి|లోని|తోని)(?=[\s.,:;!?\n\"\'”’)]|$)/g, '$1 $2')
         .trim();
 }
 
@@ -430,8 +448,9 @@ function extractArticleData(html, articleUrl) {
                     if (item.image && !jsonLdImage) {
                         if (typeof item.image === 'string') jsonLdImage = item.image;
                         else if (item.image.url) jsonLdImage = item.image.url;
+                        else if (item.image.contentUrl) jsonLdImage = item.image.contentUrl;
                         else if (Array.isArray(item.image) && item.image.length > 0) {
-                            jsonLdImage = typeof item.image[0] === 'string' ? item.image[0] : (item.image[0]?.url || '');
+                            jsonLdImage = typeof item.image[0] === 'string' ? item.image[0] : (item.image[0]?.url || item.image[0]?.contentUrl || '');
                         }
                     }
                     if (item.datePublished && !jsonLdDate) {
@@ -512,9 +531,12 @@ function extractArticleData(html, articleUrl) {
 
     if (!candidateImage) {
         const metaImg = $('meta[property="og:image"]').attr('content') || 
+                       $('meta[property="og:image:secure_url"]').attr('content') ||
+                       $('meta[property="og:image:url"]').attr('content') ||
                        $('meta[name="twitter:image"]').attr('content') ||
                        $('meta[name="twitter:image:src"]').attr('content') ||
                        $('meta[property="twitter:image"]').attr('content') ||
+                       $('meta[itemprop="image"]').attr('content') ||
                        $('link[rel="image_src"]').attr('href');
         if (metaImg && !isGenericImage(metaImg)) {
             candidateImage = metaImg;
@@ -522,8 +544,8 @@ function extractArticleData(html, articleUrl) {
     }
 
     if (!candidateImage) {
-        $('article img, main img, figure img, picture source, picture img, .news-story-body img, .detailBody img, .category_desc img, .ArticleBodyCont img, ._article_body img, .story-details img').each((_, el) => {
-            const raw = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-original') || $(el).attr('data-lazy-src') || $(el).attr('data-hi-res-src') || $(el).attr('srcset');
+        $('article img, main img, figure img, picture source, picture img, .news-story-body img, .detailBody img, .category_desc img, .ArticleBodyCont img, ._article_body img, .story-details img, .article-image img, .article-page__img-cmpnt, .story-image img').each((_, el) => {
+            const raw = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-original') || $(el).attr('data-lazy-src') || $(el).attr('data-hi-res-src') || $(el).attr('data-url') || $(el).attr('srcset');
             if (raw && typeof raw === 'string') {
                 let clean = raw.trim();
                 if (clean.includes(',')) {

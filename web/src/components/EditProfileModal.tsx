@@ -40,6 +40,14 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
     let isMounted = true;
     const fetchReporters = async () => {
       setIsLoadingOccupied(true);
@@ -74,8 +82,11 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
       }
     };
     fetchReporters();
-    return () => { isMounted = false; };
-  }, [isOpen]);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
 
   const handleMandalChange = (val: string) => {
     setEditMandal(val);
@@ -121,12 +132,27 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
     onSave(editName, editAddress, editDistrict, editMandal, photoFile, signatureFile);
   };
 
+  if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+    <div 
+      className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+        <div 
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
             <div className="bg-gray-50 p-4 border-b flex justify-between items-center sticky top-0 z-10">
                 <h3 className="font-bold text-gray-800 text-lg">Edit Profile Details</h3>
-                <button onClick={onClose} className="text-gray-400 hover:text-red-600 transition-colors">
+                <button 
+                  type="button"
+                  onClick={onClose} 
+                  className="p-1 rounded-lg text-gray-400 hover:text-red-600 hover:bg-gray-200 transition-colors"
+                  title="మూసివేయి (Close)"
+                >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
             </div>
@@ -272,13 +298,24 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
                     </div>
                 )}
 
-                <button 
-                    onClick={handleSaveClick}
-                    disabled={saving}
-                    className="w-full bg-red-600 text-white font-bold py-3 rounded-lg hover:bg-red-700 disabled:bg-red-300 transition-all shadow-md mt-4"
-                >
-                    {saving ? 'Saving...' : 'Save Changes'}
-                </button>
+                <div className="flex gap-2 mt-4 pt-2 border-t border-gray-100">
+                    <button 
+                        type="button"
+                        onClick={onClose}
+                        disabled={saving}
+                        className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-lg text-sm transition-colors"
+                    >
+                        రద్దు (Cancel)
+                    </button>
+                    <button 
+                        type="button"
+                        onClick={handleSaveClick}
+                        disabled={saving}
+                        className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white font-bold py-3 rounded-lg text-sm shadow-md transition-all"
+                    >
+                        {saving ? 'సేవ్ అవుతోంది...' : 'భద్రపరచు (Save)'}
+                    </button>
+                </div>
             </div>
         </div>
     </div>

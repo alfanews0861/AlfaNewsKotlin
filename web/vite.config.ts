@@ -8,9 +8,18 @@ import autoprefixer from 'autoprefixer';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    {
+      name: 'build-stabilizer',
+      transform(code, id) {
+        if (!id.includes('node_modules')) {
+          console.log('Compiling:', path.basename(id));
+        }
+      }
+    },
+    react()
+  ],
   css: {
     postcss: {
       plugins: [

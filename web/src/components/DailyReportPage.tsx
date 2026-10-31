@@ -257,45 +257,31 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
             startOfLastWeek.setHours(0, 0, 0, 0);
             const startOfLastWeekMs = startOfLastWeek.getTime();
 
-            const statsList: DistrictReporterStats[] = await Promise.all(
-                reportersList.map(async (u) => {
-                    let totalCount = 0;
-                    let todayCount = 0;
-                    let lastWeekCount = 0;
-                    let latestPostMs: number | null = null;
-                    let earliestPostMs: number | null = null;
+            // Single fast query for today's approved news (replaces 474 separate queries!)
+            const todayNewsSnap = await getDocs(
+                query(
+                    collection(db, 'news'),
+                    where('approved', '==', true),
+                    where('timestamp', '>=', startOfToday),
+                    limit(500)
+                )
+            ).catch(() => null);
 
-                    try {
-                        const newsCollection = collection(db, 'news');
-                        const newsQ = query(newsCollection, where('reporter.id', '==', u.id));
-                        const newsSnap = await getDocs(newsQ);
-                        totalCount = newsSnap.size;
+            const todayCounts: Record<string, number> = {};
+            if (todayNewsSnap && !todayNewsSnap.empty) {
+                todayNewsSnap.docs.forEach((docSnap: any) => {
+                    const data = docSnap.data();
+                    const rId = data.reporter?.id || data.originalReporterId || (typeof data.reporter === 'string' ? data.reporter : null);
+                    if (rId) todayCounts[rId] = (todayCounts[rId] || 0) + 1;
+                });
+            }
 
-                        newsSnap.forEach((nDoc: any) => {
-                            const nData = nDoc.data();
-                            const postTs = getMsFromTimestamp(nData.timestamp || nData.createdAt);
-                            
-                            if (!latestPostMs || postTs > latestPostMs) {
-                                latestPostMs = postTs;
-                            }
-                            if (!earliestPostMs || postTs < earliestPostMs) {
-                                earliestPostMs = postTs;
-                            }
-
-                            if (postTs >= startOfTodayMs) {
-                                todayCount++;
-                            }
-                            if (postTs >= startOfLastWeekMs && postTs < startOfTodayMs) {
-                                lastWeekCount++;
-                            }
-                        });
-                    } catch (e) {
-                        console.warn(`Could not query news for reporter ${u.id}:`, e);
-                    }
-
-                    if (!latestPostMs && (u as any).lastPostTimestamp) {
-                        latestPostMs = getMsFromTimestamp((u as any).lastPostTimestamp);
-                    }
+            const statsList: DistrictReporterStats[] = reportersList.map((u) => {
+                const totalCount = (u as any).totalNewsCount || ((u as any).points ? Math.floor((u as any).points / 10) : 0);
+                const todayCount = todayCounts[u.id] || 0;
+                const lastWeekCount = 0;
+                let latestPostMs: number | null = (u as any).lastPostTimestamp ? getMsFromTimestamp((u as any).lastPostTimestamp) : null;
+                let earliestPostMs: number | null = null;
 
                     // Compute true join timestamp
                     const rawCreated = u.createdAt ? getMsFromTimestamp(u.createdAt) : null;
@@ -376,8 +362,7 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
                         inProbation,
                         deadlineStatus
                     };
-                })
-            );
+                });
 
             setAllReportersStats(statsList);
         } catch (e: any) {
@@ -1123,8 +1108,28 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
         return list;
     }, [reporterOpenTab, reporterOpenDistrict, reporterOpenSearch, reporterAppOpenStats]);
 
-    const getCleanPhone = (phone: string): string => {
-        return phone.replace(/[^0-9]/g, '');
+    const getClean10DigitPhone = (phone?: string | null): string => {
+        if (!phone) return '';
+        let digits = String(phone).replace(/[^0-9]/g, '');
+        if (digits.length === 12 && digits.startsWith('91')) {
+            digits = digits.substring(2);
+        } else if (digits.length === 11 && digits.startsWith('0')) {
+            digits = digits.substring(1);
+        } else if (digits.length > 10) {
+            const last10 = digits.slice(-10);
+            if (/^[6-9]/.test(last10)) {
+                digits = last10;
+            }
+        }
+        return digits.length === 10 ? digits : '';
+    };
+
+    const formatDisplayPhone = (phone?: string | null): string => {
+        const clean10 = getClean10DigitPhone(phone);
+        if (clean10.length === 10) {
+            return `+91 ${clean10.slice(0, 5)} ${clean10.slice(5)}`;
+        }
+        return phone || '';
     };
 
     return (
@@ -1339,18 +1344,18 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
                                                                     📍 {rep.district} {rep.mandal ? `• ${rep.mandal}` : ''}
                                                                 </span>
 
-                                                                {rep.phone && (
+                                                                {getClean10DigitPhone(rep.phone) && (
                                                                     <div className="flex items-center gap-1">
-                                                                        <span className="font-mono font-bold text-gray-900">📞 {rep.phone}</span>
+                                                                        <span className="font-mono font-bold text-gray-900">📞 {formatDisplayPhone(rep.phone)}</span>
                                                                         <a 
-                                                                            href={`tel:${rep.phone}`} 
+                                                                            href={`tel:+91${getClean10DigitPhone(rep.phone)}`} 
                                                                             className="text-teal-700 hover:text-teal-900 p-1 hover:bg-teal-100 rounded" 
                                                                             title="కాల్ చేయండి"
                                                                         >
                                                                             <Phone size={13} />
                                                                         </a>
                                                                         <a 
-                                                                            href={`https://wa.me/91${getCleanPhone(rep.phone)}?text=${encodeURIComponent(`నమస్కారం ${rep.name} గారు, AlfaNews డెస్క్ నుండి...`)}`}
+                                                                            href={`https://wa.me/91${getClean10DigitPhone(rep.phone)}?text=${encodeURIComponent(`నమస్కారం ${rep.name} గారు, AlfaNews డెస్క్ నుండి...`)}`}
                                                                             target="_blank" 
                                                                             rel="noreferrer"
                                                                             className="text-green-600 hover:text-green-800 p-1 hover:bg-green-100 rounded" 
@@ -1629,7 +1634,7 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
                                         <div className="divide-y divide-gray-100 max-h-[520px] overflow-y-auto custom-scrollbar pr-1">
                                             {filteredOpenReporters.map((rep) => {
                                                 const isOpenedOnDate = rep.openTimeFormatted !== undefined;
-                                                const cleanPhone = getCleanPhone(rep.phone);
+                                                const cleanPhone = getClean10DigitPhone(rep.phone);
 
                                                 return (
                                                     <div 
@@ -1680,7 +1685,7 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
                                                                     </span>
                                                                     {rep.phone && (
                                                                         <span className="font-mono text-gray-500 text-[11px]">
-                                                                            📞 {rep.phone}
+                                                                            📞 {formatDisplayPhone(rep.phone)}
                                                                         </span>
                                                                     )}
                                                                 </div>
@@ -1745,7 +1750,7 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
                                                             {cleanPhone && (
                                                                 <div className="flex items-center gap-1">
                                                                     <a
-                                                                        href={`tel:${cleanPhone}`}
+                                                                        href={`tel:+91${cleanPhone}`}
                                                                         className="p-2 rounded-xl bg-gray-100 hover:bg-teal-100 text-gray-700 hover:text-teal-800 transition-colors"
                                                                         title="ఫోన్ కాల్ చేయండి"
                                                                     >
@@ -1976,7 +1981,7 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
                                     </thead>
                                     <tbody className="divide-y divide-gray-200 text-sm">
                                         {filteredPerformanceReporters.map((rep) => {
-                                            const cleanPhone = getCleanPhone(rep.phone);
+                                            const cleanPhone = getClean10DigitPhone(rep.phone);
                                             return (
                                                 <tr key={rep.id} className="hover:bg-teal-50/30 transition-colors">
                                                     {/* Reporter details */}
@@ -2008,11 +2013,11 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
 
                                                     {/* Phone & Contact */}
                                                     <td className="px-4 py-3.5 whitespace-nowrap">
-                                                        {rep.phone ? (
+                                                        {cleanPhone ? (
                                                             <div className="flex items-center gap-2">
-                                                                <span className="font-mono font-bold text-gray-900">{rep.phone}</span>
+                                                                <span className="font-mono font-bold text-gray-900">{formatDisplayPhone(rep.phone)}</span>
                                                                 <a 
-                                                                    href={`tel:${rep.phone}`} 
+                                                                    href={`tel:+91${cleanPhone}`} 
                                                                     className="bg-teal-50 text-teal-700 hover:bg-teal-100 p-1.5 rounded-lg transition-colors"
                                                                     title="డైరెక్ట్ కాల్"
                                                                 >
@@ -2029,7 +2034,7 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
                                                                 </a>
                                                             </div>
                                                         ) : (
-                                                            <span className="text-gray-400 text-xs">ఫోన్ లేదు</span>
+                                                            <span className="text-gray-400 text-xs">నంబర్ లేదు</span>
                                                         )}
                                                     </td>
 
@@ -2149,7 +2154,7 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
                             {/* Mobile Responsive Cards View */}
                             <div className="divide-y divide-gray-200 md:hidden">
                                 {filteredPerformanceReporters.map((rep) => {
-                                    const cleanPhone = getCleanPhone(rep.phone);
+                                    const cleanPhone = getClean10DigitPhone(rep.phone);
                                     return (
                                         <div key={rep.id} className="p-4 space-y-3">
                                             <div className="flex justify-between items-start">
@@ -2185,14 +2190,14 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
                                             </div>
 
                                             {/* Phone & Contact Buttons */}
-                                            {rep.phone && (
+                                            {cleanPhone && (
                                                 <div className="flex items-center justify-between bg-gray-50 p-2.5 rounded-xl border border-gray-100">
                                                     <div className="font-mono font-bold text-gray-900 text-sm">
-                                                        📞 {rep.phone}
+                                                        📞 {formatDisplayPhone(rep.phone)}
                                                     </div>
                                                     <div className="flex items-center gap-2">
                                                         <a 
-                                                            href={`tel:${rep.phone}`} 
+                                                            href={`tel:+91${cleanPhone}`} 
                                                             className="bg-teal-600 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1"
                                                         >
                                                             <Phone size={12} /> కాల్

@@ -93,6 +93,13 @@ class MainActivity : ComponentActivity() {
         super.attachBaseContext(wrappedContext)
     }
 
+    override fun applyOverrideConfiguration(overrideConfiguration: android.content.res.Configuration?) {
+        try {
+            overrideConfiguration?.fontScale = 1.0f
+        } catch (_: Throwable) {}
+        super.applyOverrideConfiguration(overrideConfiguration)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         try {
             installSplashScreen()
@@ -222,7 +229,15 @@ class MainActivity : ComponentActivity() {
         // Regular HTTPS links will be handled above via FirebaseDynamicLinks
 
         setContent {
-            if (showAnimatedSplash) {
+            val themeMode by mainViewModel.themeMode.collectAsState()
+            val isDarkTheme = when (themeMode) {
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+            }
+
+            AlfaNewsTheme(darkTheme = isDarkTheme) {
+                if (showAnimatedSplash) {
                 val newsLoaded by newsFeedViewModel.news.collectAsState()
                 val localNewsLoaded by localNewsFeedViewModel.news.collectAsState()
                 val isLoading by newsFeedViewModel.loading.collectAsState()
@@ -284,16 +299,7 @@ class MainActivity : ComponentActivity() {
                     onFinished = { showAnimatedSplash = false }
                 )
             } else {
-                val themeMode by mainViewModel.themeMode.collectAsState()
-                
-                val isDarkTheme = when (themeMode) {
-                    ThemeMode.LIGHT -> false
-                    ThemeMode.DARK -> true
-                    ThemeMode.SYSTEM -> isSystemInDarkTheme()
-                }
-
-                AlfaNewsTheme(darkTheme = isDarkTheme) {
-                    Box(
+                Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(

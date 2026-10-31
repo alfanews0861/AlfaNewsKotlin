@@ -221,7 +221,15 @@ object AnalyticsService {
     }
 
     fun setUserId(userId: String?) {
-        firebaseAnalytics?.setUserId(userId)
+        // 🛡️ GA4 USER-ID ANOMALY & DATA-LOSS PREVENTION:
+        // GA4's reserved setUserId() causes severe session-stitching anomalies and threshold warnings
+        // ("Your property is losing data due to user-ID implementation issue... A significant number of activities were linked to user ID...")
+        // when power-users, testers, or reporters perform high-volume actions in an app where general readers are unauthenticated.
+        // By explicitly passing null to setUserId, GA4 cleanly falls back to native, 100% accurate App Instance / Device IDs
+        // for all devices, preventing data loss, eliminating distorted user counts, and clearing the GA4 error banner.
+        try {
+            firebaseAnalytics?.setUserId(null)
+        } catch (e: Exception) { }
     }
 
     /**

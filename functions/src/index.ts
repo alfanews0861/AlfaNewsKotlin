@@ -669,8 +669,10 @@ export const getNewsCardImage = onRequest(async (req, res) => {
         }
 
         const hasMissingPhoto = !photo && candidateUrls.length > 0;
+        // Even when photo download has temporary issue, cache the generated branded text card in CDN for 2 hours (s-maxage=7200)
+        // to prevent crawler repeat storms from causing runaway Egress and function invocations.
         const cacheHeader = hasMissingPhoto
-            ? 'no-cache, no-store, must-revalidate, max-age=0'
+            ? 'public, max-age=1800, s-maxage=7200, stale-while-revalidate=3600'
             : 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400';
 
         res.set({
@@ -711,7 +713,9 @@ function fetchBaseWebHtml(): Promise<string> {
 }
 
 export const shareNews = onRequest(async (req, res) => {
-    const playUrl = "https://play.google.com/store/apps/details?id=com.alfanews.telugu";
+    const rawRef = (req.query.ref as string) || (req.query.referrer as string) || (req.query.referrer_uid as string) || '';
+    const cleanRef = typeof rawRef === 'string' ? rawRef.trim() : '';
+
     const pathSegments = req.path.split('/').filter(Boolean);
     const isAd = pathSegments.includes('ad');
     const id = pathSegments.pop();
@@ -757,8 +761,14 @@ export const shareNews = onRequest(async (req, res) => {
         const safeTitle = escapeHtml(titleRaw);
         const safeDesc = escapeHtml(descRaw);
         const safeImage = escapeHtml(directImageUrl);
-        const postUrl = `https://alfanews.app/${isAd ? 'ad' : 'news'}/${doc.id}`;
-        const intentScheme = `alfanews://${isAd ? 'ad' : 'news'}/${doc.id}`;
+        const refQuery = cleanRef ? `?ref=${encodeURIComponent(cleanRef)}` : '';
+        const postUrl = `https://alfanews.app/${isAd ? 'ad' : 'news'}/${doc.id}${refQuery}`;
+        const intentScheme = `alfanews://${isAd ? 'ad' : 'news'}/${doc.id}${refQuery}`;
+
+        // Build Google Play Store URL with full tracking: preserves news_id AND referral user code!
+        const refParam = cleanRef ? `&ref_${encodeURIComponent(cleanRef)}&referrer_uid=${encodeURIComponent(cleanRef)}&utm_campaign=referral_${encodeURIComponent(cleanRef)}` : '';
+        const referrerParam = encodeURIComponent(`news_id=${doc.id}${refParam}`);
+        const playStoreUrl = `https://play.google.com/store/apps/details?id=com.alfanews.telugu&referrer=${referrerParam}`;
 
         const userAgent = (req.headers['user-agent'] as string) || '';
         const isCrawler = /facebookexternalhit|WhatsApp|Twitterbot|TelegramBot|LinkedInBot|Googlebot|bingbot|Baiduspider|DuckDuckBot|YandexBot/i.test(userAgent);
@@ -768,8 +778,6 @@ export const shareNews = onRequest(async (req, res) => {
         if (!isCrawler) {
             const isMobile = /Android|iPhone|iPad|iPod/i.test(userAgent);
             if (isMobile) {
-                const referrerParam = encodeURIComponent(`news_id=${doc.id}`);
-                const playStoreUrl = `https://play.google.com/store/apps/details?id=com.alfanews.telugu&referrer=${referrerParam}`;
                 res.redirect(302, playStoreUrl);
                 return;
             }
@@ -809,7 +817,7 @@ export const shareNews = onRequest(async (req, res) => {
                 });
                 hydratedHtml = hydratedHtml.replace('</head>', `<script type="application/ld+json">${schemaJson}</script></head>`);
 
-                res.set('Cache-Control', 'public, max-age=180, s-maxage=300');
+                res.set('Cache-Control', 'public, max-age=300, s-maxage=1800, stale-while-revalidate=600');
                 res.status(200).send(hydratedHtml);
                 return;
             }
@@ -875,14 +883,14 @@ export const shareNews = onRequest(async (req, res) => {
             <p>${safeDesc}</p>
             <a href="${postUrl}" class="btn-primary">🌐 వెబ్‌లో చదవండి (Read on Web)</a>
             <a id="openAppBtn" href="${intentScheme}" class="btn-secondary">📲 యాప్‌లో తెరవండి (Open in App)</a>
-            <a href="${playUrl}" class="btn-secondary">Google Play Store డౌన్‌లోడ్</a>
+            <a href="${playStoreUrl}" class="btn-secondary">Google Play Store డౌన్‌లోడ్</a>
             <div class="footer-note">Alfa News - వేగవంతమైన తెలుగు వార్తలు</div>
         </div>
     </div>
 </body>
 </html>`;
 
-        res.set('Cache-Control', 'public, max-age=300, s-maxage=600');
+        res.set('Cache-Control', 'public, max-age=300, s-maxage=3600, stale-while-revalidate=1800');
         res.status(200).send(html);
     } catch (e) {
         console.error("Error in shareNews SSR:", e);

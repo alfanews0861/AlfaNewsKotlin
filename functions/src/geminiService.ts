@@ -3,33 +3,28 @@ import { runWithAIFallback, parseAIJson, PRO_MODEL, sanitizeTeluguText, cleanTel
 
 const PRIMARY_MODEL = PRO_MODEL;
 
-const PREMIUM_HEADLINE_SYSTEM_INSTRUCTION = `మీరు ఆల్ఫా న్యూస్ (Alfa News) ప్రధాన శీర్షికా సంపాదకుడు (Chief Headline Editor).
-మీకు ఇచ్చిన వార్తను చదివి, ఎక్కడా కోలన్ (:), డాష్ (-), చుక్కలు (..) వంటి ఎటువంటి విరామాలు లేకుండా, కేవలం ఒకే ఒక్క సంపూర్ణ వాక్యంలో (6 నుండి 9 పదాలలో) పాఠకుడిని కట్టిపడేసే పవర్-పంచ్ శీర్షికను మాత్రమే రాయాలి.
+/**
+ * Canonical Single Source of Truth for Telugu Headline Generation.
+ * Simple, intelligent, rules-driven prompt without restrictive or contradictory examples.
+ */
+export const CANONICAL_HEADLINE_RULE = `మీరు ప్రముఖ తెలుగు దినపత్రిక (ఈనాడు/సాక్షి/ఆంధ్రజ్యోతి) చీఫ్ హెడ్‌లైన్ ఎడిటర్. ప్రభుత్వ ప్రెస్ నోట్ లాంటి నిస్తేజమైన, చప్పని భాషలో కాకుండా, పాఠకుడికి రోమాంచితం కలిగించే అత్యంత పదునైన, దూకుడుగా ఉండే జర్నలిస్టిక్ పంచ్ శీర్షిక (High-Energy Journalistic Punch Headline) రాయాలి.
 
-ముఖ్యమైన నిబంధనలు (CRITICAL PUNCH HEADLINE RULES):
-1. 🛑 ఎటువంటి విరామ చిహ్నాలు నిషిద్ధం (STRICTLY NO COLONS, NO DASHES, NO DOTS):
-   - కోలన్ (:), సెమీకోలన్ (;), డాష్ (-), రెండు చుక్కలు (..) ఏవీ ఉండకూడదు.
-   - ప్రారంభం నుండి చివరి వరకు ఒకే ఒక్క సహజ ప్రవాహం కలిగిన సంపూర్ణ వాక్యంగా (Single Continuous Punchy Sentence) మాత్రమే సాగాలి.
-   - కొటేషన్లు ('...', "...") నిషిద్ధం.
+🔥 పంచ్ శీర్షికా సూత్రాలు (HIGH-ENERGY PUNCH RULES):
+1. పరిమాణం: ఖచ్చితంగా 6 నుండి 9 పదాలు మాత్రమే (Strictly 6 to 9 words).
+2. విరామ చిహ్నాలు: ఎక్కడా కోలన్ (:), డాష్ (-), చుక్కలు (..) లేకుండా ప్రారంభం నుండి చివరి వరకు ఒకే ఒక్క సంపూర్ణ వాక్యంగా (Single continuous sentence) మాత్రమే సాగాలి. కొటేషన్లు ('...', "...") నిషిద్ధం.
+3. 🛑 నిస్తేజ ప్రభుత్వ ప్రకటనల భాష సంపూర్ణ నిషేధం (NO BORING PRESS-RELEASE VERBS / NO NOUN ENDINGS):
+   'ఆదేశించారు', 'అందించారు', 'తెలిపారు', 'పేర్కొన్నారు', 'చేశారు', 'వివరించారు', 'విచ్చేయనున్నారు' వంటి రొటీన్ ఆఫీస్ భాషతో గానీ... లేదా 'ఆదేశం', 'పంపిణీ', 'అభిమానం', 'సన్మానం', 'వేడుకలు', 'సమరం', 'ప్రచారం', 'గుట్టురట్టు' వంటి నామవాచకాలతో గానీ శీర్షికను ఎట్టి పరిస్థితుల్లోనూ ముగించరాదు!
+4. ⚡ హై-ఎనర్జీ పవర్ పంచ్ & సజీవ ఫలితం (HIGH-VOLTAGE DRAMA & ACTION):
+   - అధికారుల హెచ్చరికలు: 'కలెక్టర్ గర్జన', 'కలెక్టర్ వార్నింగ్', 'ఉక్కుపాదం మోపనున్న పోలీసులు', 'ముఠా భరతం పట్టాలని కలెక్టర్ హుకుం'
+   - సంక్షేమం / లబ్ధి: 'సొంతింటి కల సాకారం', 'తాళాలు అందుకుని మురిసిపోయిన పేదలు', 'మురిసిన నిరుపేదలు'
+   - రాజకీయాలు / రాక: 'కదంతొక్కిన శ్రేణులు', 'పోటెత్తిన గులాబీ దళం', 'రాకతో దద్దరిల్లిన పెద్దపల్లి'
+   - ఎన్నికల ప్రచారం: 'ప్రచారంలో దూసుకెళ్లిన నాగమణి', 'ఓట్ల వేటలో దూకుడు పెంచిన అభ్యర్థి'
+   - విషాదాలు: 'కరెంట్ షాక్‌తో నేలకొరిగిన గరుడ పక్షి', 'అక్కడికక్కడే నలుగురు బలి'
+5. ప్రెస్-నోట్ మూస పదాలు (ఘనంగా, ఉత్సాహంగా మొదలైనవి) నిషిద్ధం.
+6. పదాల విభజన: ఆంగ్ల పదాలు/పేర్లకు విభక్తులు కలిపి రాయరాదు (ఉదా: 'క్లాస్ రూమ్ లో', 'స్క్రీన్ పై', 'బంజారా హిల్స్ లో' అని స్పేస్ ఇచ్చి రాయాలి).
+7. 100% స్వచ్ఛమైన తెలుగు లిపి (Unicode U+0C00-U+0C7F).`;
 
-2. 🛑 చప్పని ముగింపుల సంపూర్ణ నిషేధం (ZERO BUREAUCRATIC/POLICE/FLAT ENDINGS):
-   - శీర్షిక చివర '...శంకుస్థాపన', '...ఆగ్రహం', '...విమర్శలు', '...మహాధర్నా', '...స్పందన', '...సమీక్ష', '...ప్రకటన', '...దుర్మరణం', '...నిరసన' వంటి నిస్తేజమైన నామవాచకాలతో ముగించరాదు! ఇవి శీర్షికను ప్రభుత్వ ప్రకటనలా లేదా పోలీస్ ఎఫ్‌ఐఆర్‌లా చప్పగా మారుస్తాయి.
-
-3. ⚡ శక్తివంతమైన తెలుగు నుడికారాలు, క్రియా పదాలు & ఫలితం (DYNAMIC VERNACULAR PUNCH):
-   - అభివృద్ధి/నిధులు: కేవలం 'శంకుస్థాపన చేశారు' అని కాకుండా, ప్రజలకు జరిగే మార్పును సాధికారికంగా చెప్పాలి (రూ. సంఖ్యను స్పష్టంగా 'రూ. 10 కోట్లతో' అని ఉంచాలి).
-     (ఉదా: 'పెద్దాపురంలో రూ. 10 కోట్లతో మారనున్న గ్రామీణ రోడ్ల రూపురేఖలు', 'రూ. 10 కోట్లతో పెద్దాపురం రోడ్ల దశ మార్చనున్న నూతన ప్రాజెక్ట్')
-   - రాజకీయ విమర్శలు/వేడి: కేవలం 'ఆగ్రహం వ్యక్తం చేశారు' అని కాకుండా, ఆ దాడిలోని వాడి, వేడి చూపాలి.
-     (ఉదా: 'రైతులను నట్టేట ముంచిన కూటమి సర్కార్‌పై విరుచుకుపడ్డ వైఎస్ జగన్', 'రైతులకు చేసిన ద్రోహానికి కూటమి సర్కార్ మూల్యం చెల్లించుకోక తప్పదన్న జగన్')
-   - ప్రమాదాలు/విషాదాలు: కేవలం 'లారీ ఢీకొని నలుగురు దుర్మరణం' అని కాకుండా, తీవ్రత స్పష్టంగా ఉండాలి.
-     (ఉదా: 'హైవేపై కారును లారీ నలిపేసిన ఘోర దుర్ఘటనలో నలుగురు అక్కడికక్కడే బలి', 'హైదరాబాద్ హైవేపై లారీ అతివేగానికి నలుగురు ప్రయాణికులు ఛిద్రం')
-   - రైతాంగం/ప్రజా సమస్యలు: కేవలం 'ధర్నా చేశారు' అని కాకుండా, వారి ఆక్రోశం ప్రతిధ్వనించాలి.
-     (ఉదా: 'గిట్టుబాటు ధర కోసం గుంటూరు మార్కెట్‌ను ముట్టడించి రైతన్నల కన్నెర్ర', 'మిర్చి పంటకు న్యాయమైన ధర ఇవ్వకపోతే బతికేదెలా అంటూ రైతుల ఆక్రోశం')
-
-4. 🛑 రొటీన్ బాట్ క్లీషేల నిషేధం:
-   - 'తీపి కబురు', 'భారీ ఊరట', 'షాకింగ్ ఘటన', 'గుడ్ న్యూస్', 'సంచలనం', 'అలర్ట్' వంటి మూస బాట్ పదాలు శీర్షికలో అస్సలు ఉండకూడదు!
-
-5. 📏 పరిమాణం: ఖచ్చితంగా 6 నుండి 9 పదాలు మాత్రమే.
-6. 100% స్వచ్ఛమైన తెలుగు లిపి (Unicode U+0C00-U+0C7F).
+const PREMIUM_HEADLINE_SYSTEM_INSTRUCTION = `${CANONICAL_HEADLINE_RULE}
 
 Output format: {"headline": "...", "headlineEn": "..."}`;
 
@@ -41,7 +36,8 @@ export async function refineHeadlineWithPaidAI(
     teluguContent: string,
     fallbackHeadline: string,
     fallbackHeadlineEn?: string,
-    authorName?: string
+    authorName?: string,
+    richContext?: string
 ): Promise<{ headline: string; headlineEn: string }> {
     const paidKey = (process.env.PAID_GEMINI_API_KEY || '').replace(/^["']|["']$/g, '').trim();
 
@@ -64,7 +60,7 @@ export async function refineHeadlineWithPaidAI(
             properties: {
                 headline: { 
                     type: Type.STRING, 
-                    description: "Step 1: 100% Pure Telugu punchy journalistic headline strictly in 6-9 words as ONE continuous flowing sentence without any colons (:) or dashes (-)" 
+                    description: "Step 1: 100% Pure Telugu punchy journalistic headline strictly in 6-9 words as ONE continuous flowing sentence without any colons (:) or dashes (-), ending with a power action verb, NO flat noun endings (like వేడుకలు, సన్మానం, సమరం, సంబరాలు, ప్రచారం, గుట్టురట్టు), strictly NO clichés like 'ఘనంగా జరిగిన' or 'ఉత్సాహంగా మొదలైన', and strictly separate postpositions from English/loan words (e.g. 'స్క్రీన్ పై', 'క్లాస్ రూమ్ లో', 'బంజారా హిల్స్ లో', NOT 'స్క్రీన్పై', 'క్లాస్రూమ్లో', 'బంజారాహిల్స్లో')." 
                 },
                 headlineEn: { 
                     type: Type.STRING, 
@@ -75,13 +71,14 @@ export async function refineHeadlineWithPaidAI(
         };
 
         const authorHint = authorName ? `రచయిత/నాయకుడి పేరు: ${authorName}\n` : "";
-        const userPrompt = `${authorHint}వార్తా సారాంశం (News Summary):\n${teluguContent}\n\nపై తెలుగు వార్తా సారాంశానికి మాత్రమే 6 నుండి 9 పదాలలో కోలన్ (:) లేకుండా ఒకే సంపూర్ణ వాక్యంగా పదునైన జర్నలిస్టిక్ శీర్షిక (తెలుగు మరియు ఇంగ్లీష్) రాయండి.`;
+        const contextSnippet = richContext && richContext !== teluguContent
+            ? `వార్తా నేపథ్యం & వివరాలు (Context):\n${richContext.substring(0, 1000)}\n\n`
+            : "";
+        const userPrompt = `${authorHint}${contextSnippet}వార్తా సారాంశం (News Summary):\n${teluguContent}\n\nపై వార్తాంశానికి CANONICAL_HEADLINE_RULE ప్రకారం 6 నుండి 9 పదాలలో పదునైన శీర్షికను రాయండి.`;
 
         const models = [
             "gemini-3.8-flash",
-            "gemini-3.7-flash",
-            "gemini-3.6-flash",
-            "gemini-3.5-flash"
+            "gemini-3.6-flash"
         ];
 
         for (const modelName of models) {
@@ -91,12 +88,11 @@ export async function refineHeadlineWithPaidAI(
                     contents: [{ role: "user", parts: [{ text: userPrompt }] }],
                     config: {
                         systemInstruction: PREMIUM_HEADLINE_SYSTEM_INSTRUCTION,
-                        temperature: 0.5,
                         maxOutputTokens: 1024,
                         responseMimeType: "application/json",
                         responseSchema: headlineSchema,
                         thinkingConfig: {
-                            thinkingBudget: 0
+                            thinkingLevel: "low"
                         }
                     }
                 } as any);
@@ -106,12 +102,30 @@ export async function refineHeadlineWithPaidAI(
                     const parsed = parseAIJson(text);
                     if (parsed && parsed.headline) {
                         const cleaned = cleanTeluguHeadline(parsed.headline);
-                        if (cleaned && !isEditorialVerdictOrFlattery(cleaned, teluguContent, authorName)) {
-                            console.log(`[PAID-HEADLINE-SUCCESS] Generated headline with ${modelName}: "${cleaned}"`);
+                        const wordCount = cleaned.split(/\s+/).filter(Boolean).length;
+                        const isFlatVerbEnding = /(?:నిర్వహించారు|పిలుపునిచ్చారు|పేర్కొన్నారు|తెలిపారు|చేశారు|అన్నారు|జరిగింది|జరిగాయి|హాజరయ్యారు|ముగిసింది|ప్రకటించారు|వివరించారు)$/.test(cleaned.trim());
+                        const isFlatNounEnding = /(?:వేడుకలు|సంబరాలు|సన్మానం|సన్మానాలు|సమరం|ప్రచారం|కార్యక్రమం|కార్యక్రమాలు|ముగింపు|ప్రారంభం|గుట్టురట్టు|ఏర్పాట్లు|సందర్శన|పర్యటన|ఆదేశం|ఆదేశాలు|ప్రకటన|ప్రకటనలు|హెచ్చరిక|హెచ్చరికలు|సమీక్ష|సమీక్షలు|సూచనలు|విమర్శలు|ఆగ్రహం|శంకుస్థాపన|సమావేశం|సమావేశాలు|పిలుపు|పిలుపులు|డిమాండ్|డిమాండ్లు|స్పందన|మహాధర్నా|పరిశీలన|తనిఖీ|తనిఖీలు|నిర్ణయం|నిర్ణయాలు|వ్యాఖ్యలు|దుర్మరణం|నిరసన|నిరసనలు|సత్కారం|సత్కారాలు|ఆవిష్కరణ|ఆవిష్కరణలు|విజ్ఞప్తి|పంపిణీ|అభిమానం|స్వామీజీ)$/.test(cleaned.trim());
+                        const hasBannedCliche = /(?:ఘనంగా|ఘన\s*నివాళు|తీపి కబురు|షాకింగ్ ఘటన|గుడ్ న్యూస్)/.test(cleaned);
+                        if (isFlatVerbEnding) {
+                            console.warn(`[PAID-HEADLINE-FLAT-VERB-REJECT] "${cleaned}" ended in flat verb, trying next model...`);
+                            continue;
+                        }
+                        if (isFlatNounEnding) {
+                            console.warn(`[PAID-HEADLINE-FLAT-NOUN-REJECT] "${cleaned}" ended in flat noun, trying next model...`);
+                            continue;
+                        }
+                        if (hasBannedCliche) {
+                            console.warn(`[PAID-HEADLINE-CLICHE-REJECT] "${cleaned}" contained cliché 'ఘనంగా', trying next model...`);
+                            continue;
+                        }
+                        if (cleaned && wordCount >= 6 && wordCount <= 9 && !isEditorialVerdictOrFlattery(cleaned, teluguContent, authorName)) {
+                            console.log(`[PAID-HEADLINE-SUCCESS] Generated headline with ${modelName} (${wordCount} words): "${cleaned}"`);
                             return {
                                 headline: cleaned,
                                 headlineEn: parsed.headlineEn || fallbackHeadlineEn || fallbackHeadline
                             };
+                        } else {
+                            console.warn(`[PAID-HEADLINE-WORDCOUNT-OR-CHECK-FAIL] ${modelName} returned headline: "${cleaned}" (${wordCount} words)`);
                         }
                     }
                 }
@@ -135,7 +149,6 @@ export async function refineHeadlineWithPaidAI(
         headlineEn: fallbackHeadlineEn || fallbackHeadline
     };
 }
-
 const EDITORIAL_SYSTEM_INSTRUCTION = `మీరు ఆల్ఫా న్యూస్ (Alfa News - తెలుగు ప్రముఖ హైపర్-లోకల్ న్యూస్ నెట్‌వర్క్) కు చీఫ్ ఎడిటర్ మరియు సీనియర్ జర్నలిస్ట్.
 రిపోర్టర్లు/సోషల్ మీడియా/పౌరులు పంపే సమాచారాన్ని ప్రజలను ఆకట్టుకునేలా, జర్నలిస్టిక్ విలువలతో, నిష్పాక్షికమైన సమతుల్యతతో కూడిన ప్రామాణిక తెలుగు వార్తగా తీర్చిదిద్దాలి.
 
@@ -215,26 +228,14 @@ const EDITORIAL_SYSTEM_INSTRUCTION = `మీరు ఆల్ఫా న్యూ�
    - ⚠️ సోషల్ మీడియా / ట్విట్టర్ అకౌంట్ ఆపాదింపు: పోస్ట్ రాసిన వారి (Post Author) పూర్తి క్రెడిట్ వార్తా సారాంశం (content) లోని మొదటి వాక్యంలో తప్పక ఇవ్వాలి.
    - G (HARD NUMBERS & FACTS PRESERVATION): ఇన్‌పుట్‌లోని ప్రతి సంఖ్య, బడ్జెట్ అంకె (రూ. కోట్లు, లక్షలు), ఉద్యోగాల సంఖ్య, పనుల సంఖ్య, నగరాలు/మున్సిపాలిటీల పేర్లు తప్పక తెలుగు శీర్షిక మరియు వార్తలో ఉండాలి. అంకెలను వదిలేసి "పలు అభివృద్ధి పనులు" అని రాయరాదు!
 
-8. 🏆 అత్యున్నత ప్రాధాన్యత: సందర్భానుసార శీర్షికా నైపుణ్యం & పవర్ వర్డ్స్ (CONTEXT-AWARE HEADLINE MASTERY & PUNCH OUTCOMES - 6 TO 9 WORDS):
-   హెడ్‌లైన్ చప్పగా లేదా బాట్ టెంప్లేట్‌లా ఉండకూడదు! మూల వార్తలోని అసలు తీవ్రత, భావోద్వేగం ఏమాత్రం తగ్గకుండా ఒకే ఒక్క పదునైన సంపూర్ణ వాక్యంలా ఉండాలి:
-   
-   - పదాల పరిమాణం: ఖచ్చితంగా 6 నుండి 9 పదాలు మాత్రమే. అనవసర పదాలతో సాగదీయరాదు.
-   - 🛑 బలవంతపు కోలన్ (:) లు, డాష్‌లు (-), చుక్కలు (..) సంపూర్ణ నిషేధం: శీర్షిక ఎట్టి పరిస్థితుల్లోనూ ముక్కలుగా విరిగిపోకూడదు. కోలన్ (:) లేకుండా ఒకే ఒక్క సంపూర్ణ ప్రవాహం కలిగిన వాక్యంగా (Single continuous sentence) మాత్రమే ఉండాలి. కొటేషన్లు ('...', "...") నిషిద్ధం.
-   
-   - 🛑 చప్పని ముగింపుల సంపూర్ణ నిషేధం (ZERO BUREAUCRATIC/POLICE/FLAT ENDINGS):
-     * శీర్షిక చివర '...శంకుస్థాపన', '...ఆగ్రహం', '...విమర్శలు', '...మహాధర్నా', '...స్పందన', '...సమీక్ష', '...ప్రకటన', '...దుర్మరణం', '...నిరసన' వంటి నిస్తేజమైన నామవాచకాలతో ముగించరాదు! ఇవి శీర్షికను ప్రభుత్వ ప్రెస్‌నోట్‌లా లేదా పోలీస్ ఎఫ్‌ఐఆర్‌లా చప్పగా మారుస్తాయి.
-   
-   - ⚡ శక్తివంతమైన తెలుగు నుడికారాలు, క్రియా పదాలు & ఫలితం (DYNAMIC VERNACULAR PUNCH):
-     * అభివృద్ధి/నిధులు: కేవలం 'శంకుస్థాపన చేశారు' అని కాకుండా, ప్రజలకు జరిగే మార్పును సాధికారికంగా చెప్పాలి (ఉదా: 'పెద్దాపురంలో రూ. 10 కోట్లతో మారనున్న గ్రామీణ రోడ్ల రూపురేఖలు', 'రూ. 10 కోట్లతో పెద్దాపురం రోడ్ల దశ మార్చనున్న నూతన ప్రాజెక్ట్').
-     * రాజకీయ విమర్శలు/వేడి: కేవలం 'ఆగ్రహం వ్యక్తం చేశారు' అని కాకుండా, ఆ దాడిలోని వాడి, వేడి చూపాలి (ఉదా: 'రైతులను నట్టేట ముంచిన కూటమి సర్కార్‌పై విరుచుకుపడ్డ వైఎస్ జగన్', 'రైతులకు చేసిన ద్రోహానికి కూటమి సర్కార్ మూల్యం చెల్లించుకోక తప్పదన్న జగన్').
-     * ప్రమాదాలు/విషాదాలు: కేవలం 'లారీ ఢీకొని నలుగురు దుర్మరణం' అని కాకుండా, తీవ్రత స్పష్టంగా ఉండాలి (ఉదా: 'హైవేపై కారును లారీ నలిపేసిన ఘోర దుర్ఘటనలో నలుగురు అక్కడికక్కడే బలి', 'హైదరాబాద్ హైవేపై లారీ అతివేగానికి నలుగురు ప్రయాణికులు ఛిద్రం').
-     * రైతాంగం/ప్రజా సమస్యలు: కేవలం 'ధర్నా చేశారు' అని కాకుండా, వారి ఆక్రోశం ప్రతిధ్వనించాలి (ఉదా: 'గిట్టుబాటు ధర కోసం గుంటూరు మార్కెట్‌ను ముట్టడించి రైతన్నల కన్నెర్ర', 'మిర్చి పంటకు న్యాయమైన ధర ఇవ్వకపోతే బతికేదెలా అంటూ రైతుల ఆక్రోశం').
-     * నేరాలు/పోలీస్ దాడులు: పదునైన ఇన్వెస్టిగేషన్ శైలి (ఉదా: 'నకిలీ సర్టిఫికెట్ల దందాలో కీలక సూత్రధారిని అరెస్ట్ చేసిన పోలీసులు').
-   
-   - 🛑 రొటీన్ బాట్ క్లీషేల నిషేధం:
-     * 'తీపి కబురు', 'భారీ ఊరట', 'షాకింగ్ ఘటన', 'గుడ్ న్యూస్', 'సంచలనం', 'అలర్ట్' వంటి మూస పదాలు శీర్షికలో అస్సలు ఉండకూడదు! సూటిగా వాస్తవ వార్తనే చెప్పాలి.
+8. 🏆 శీర్షికా నైపుణ్యం (HEADLINE MASTERY):
+${CANONICAL_HEADLINE_RULE}
 
 9. స్వచ్ఛమైన తెలుగు లిపి (NO FOREIGN SCRIPTS): కన్నడ, హిందీ/దేవనాగరి లిపి అక్షరాలు రాకూడదు. 100% తెలుగు లిపి వాడాలి.
+9.1 🛑 ఆంగ్ల/విదేశీ పదాలు, పేర్లు మరియు విభక్తుల కలయిక నిషేధం (STRICT BAN ON CLUMPED WORDS & POSTPOSITIONS):
+    ఆంగ్ల పదాలు (English loan words), ప్రాంతాల పేర్లు లేదా ప్రత్యేక నామవాచకాలకు విభక్తులు (లో, పై, తో, కు, కి, నుంచి, నుండి, వరకు) కలిపి ఒకే ముద్దగా రాయరాదు! ఖచ్చితంగా స్పేస్ (space) ఇచ్చి విడదీసి రాయాలి:
+    ❌ తప్పు: 'క్లాస్రూమ్లో', 'స్క్రీన్పై', 'బంజారాహిల్స్లో', 'ఫోన్లో', 'వాట్సాప్లో', 'కలెక్టరేట్లో', 'స్టేజ్పై', 'రోడ్డుపై', 'స్కూల్లో'.
+    ✅ ఒప్పు: 'క్లాస్ రూమ్ లో', 'స్క్రీన్ పై', 'బంజారా హిల్స్ లో', 'ఫోన్ లో', 'వాట్సాప్ లో', 'కలెక్టరేట్ లో', 'స్టేజ్ పై', 'రోడ్డు పై', 'స్కూల్ లో'.
 10. ఇంగ్లీష్ పూర్తి కథనం (fullStoryEn): Across 3-4 paragraphs separated by \n\n if source has 120+ words, else empty string "".
 
 11. 🛑 ఎడిటోరియల్ తిరస్కరణ నిబంధనలు (EDITORIAL REJECTIONS - isNewsFound: false):

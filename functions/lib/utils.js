@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateImageWithRetry = exports.createAndSaveThumbnail = exports.processAndOptimizeNewsImage = exports.scanVideoSafetyWithGeminiAI = exports.extractVideoStoryboardMosaic = exports.extractVideoKeyFrames = exports.scanImageSafetyWithGeminiAI = exports.calculateBlurRanges = exports.calculateSmartCrop16x9 = exports.detectFacesWithGeminiAI = exports.saveImageLocally = exports.saveBufferToStorage = exports.formatIntoParagraphs = exports.isEditorialVerdictOrFlattery = exports.cleanTeluguHeadline = exports.sanitizeTeluguText = exports.isTeluguScript = exports.parseAIJson = exports.getISTDateString = exports.getAIInstance = exports.runWithAIFallback = exports.getTopicName = exports.slugify = exports.IMAGEN_FAST_MODEL = exports.IMAGEN_MODEL = exports.FLASH_MODEL = exports.PRO_MODEL = exports.SCHEDULED_MODEL = exports.REGION = void 0;
+exports.generateImageWithRetry = exports.createAndSaveThumbnail = exports.processAndOptimizeNewsImage = exports.scanVideoSafetyWithGeminiAI = exports.extractVideoStoryboardMosaic = exports.extractVideoKeyFrames = exports.scanImageSafetyWithGeminiAI = exports.calculateBlurRanges = exports.calculateSmartCrop16x9 = exports.detectFacesWithGeminiAI = exports.saveImageLocally = exports.saveBufferToStorage = exports.formatIntoParagraphs = exports.isEditorialVerdictOrFlattery = exports.cleanTeluguHeadline = exports.sanitizeTeluguText = exports.fixTeluguWordClumps = exports.isTeluguScript = exports.parseAIJson = exports.getISTDateString = exports.getAIInstance = exports.runWithAIFallback = exports.getTopicName = exports.slugify = exports.IMAGEN_FAST_MODEL = exports.IMAGEN_MODEL = exports.FLASH_MODEL = exports.PRO_MODEL = exports.SCHEDULED_MODEL = exports.REGION = void 0;
 const admin = __importStar(require("firebase-admin"));
 const genai_1 = require("@google/genai");
 const buffer_1 = require("buffer");
@@ -269,14 +269,87 @@ function isTeluguScript(text) {
 }
 exports.isTeluguScript = isTeluguScript;
 /**
+ * Separates clumped English loan words and proper nouns that have Telugu postpositions
+ * (విభక్తులు: పై, లో, తో, కు, కి, నుంచి, నుండి, వరకు) or compound words improperly conjoined.
+ * Example fixes:
+ * - 'క్లాస్రూమ్లో' -> 'క్లాస్ రూమ్ లో'
+ * - 'స్క్రీన్పై' -> 'స్క్రీన్ పై'
+ * - 'బంజారాహిల్స్లో' -> 'బంజారా హిల్స్ లో'
+ * - 'కలెక్టరేట్లో' -> 'కలెక్టరేట్ లో'
+ * - 'రోడ్డుపై' -> 'రోడ్డు పై'
+ * - 'వాట్సాప్లో' -> 'వాట్సాప్ లో'
+ * - 'స్టేజ్పై' -> 'స్టేజ్ పై'
+ * Genuine Telugu words (ఇంట్లో, కంట్లో, నోట్లో, ఒంట్లో, గ్రామంలో, గుండెల్లో, మాటల్లో, ఊర్లో)
+ * are strictly preserved with zero alterations.
+ */
+function fixTeluguWordClumps(text) {
+    if (!text)
+        return "";
+    let s = text;
+    // 1. Common English compound words that got clumped or dropped virama
+    const compoundFixes = [
+        [/క్లాస్[\s\u200B]*రూ(?:మ్|ం|మ)?/gu, 'క్లాస్ రూమ్'],
+        [/క్లాస్రూ(?:మ్|ం|మ)?/gu, 'క్లాస్ రూమ్'],
+        [/వాట్సా(?:ప్|ఫ్|పు)?/gu, 'వాట్సాప్'],
+        [/ఫేస్[\s\u200B]*బు(?:క్|క్కు)?/gu, 'ఫేస్‌బుక్'],
+        [/ఫేస్బు(?:క్|క్కు)?/gu, 'ఫేస్‌బుక్'],
+        [/యూట్యూ(?:బ్|ప్)?/gu, 'యూట్యూబ్'],
+        [/ట్విట్ట(?:ర్|రు)?/gu, 'ట్విట్టర్'],
+        [/ఇన్‌స్టాగ్రా(?:మ్|ం)?/gu, 'ఇన్‌స్టాగ్రామ్'],
+        [/ఇన్స్టాగ్రా(?:మ్|ం)?/gu, 'ఇన్‌స్టాగ్రామ్'],
+        [/స్మార్ట్[\s\u200B]*ఫో(?:న్|ను)?/gu, 'స్మార్ట్‌ఫోన్'],
+        [/స్మార్ట్ఫో(?:న్|ను)?/gu, 'స్మార్ట్‌ఫోన్'],
+        [/హై[\s\u200B]*కోర్టు/gu, 'హైకోర్టు'],
+        [/సుప్రీం[\s\u200B]*కోర్టు/gu, 'సుప్రీంకోర్టు'],
+        [/బంజారా[\s\u200B]*హిల్స్/gu, 'బంజారా హిల్స్'],
+        [/జూబ్లీ[\s\u200B]*హిల్స్/gu, 'జూబ్లీ హిల్స్'],
+    ];
+    for (const [pattern, replacement] of compoundFixes) {
+        s = s.replace(pattern, replacement);
+    }
+    // 2. Separate postpositions from loan words ending in pollu (virama \u0C4D)
+    // A. For 'పై', 'నుంచి', 'నుండి', 'వరకు': ANY consonant + pollu + postposition is unnatural and separated
+    // e.g. న్పై -> న్ పై, స్పై -> స్ పై, ట్పై -> ట్ పై, ప్పై -> ప్ పై
+    const paiRegex = new RegExp('([\\u0C15-\\u0C39]\\u0C4D)(పై|నుంచి|నుండి|వరకు)(?=[\\s\\p{P}]|$)', 'gu');
+    s = s.replace(paiRegex, '$1 $2');
+    // B. For 'లో', 'తో', 'కు', 'కి':
+    // Separate after English loan consonants:
+    // స్ (\u0C38), న్ (\u0C28), మ్ (\u0C2E), ప్ (\u0C2A), జ్ (\u0C1C), డ్ (\u0C21), బ్ (\u0C2C), క్ (\u0C15)
+    // Examples: స్క్రీన్లో -> స్క్రీన్ లో, బంజారా హిల్స్లో -> బంజారా హిల్స్ లో, వాట్సాప్లో -> వాట్సాప్ లో, రూమ్లో -> రూమ్ లో, స్టేజ్లో -> స్టేజ్ లో
+    // Native Telugu words (గుండెల్లో, మాటల్లో, ఊర్లో) do not use these pollu consonants before లో and remain 100% preserved.
+    const loanConsonants = '[\\u0C38\\u0C28\\u0C2E\\u0C2A\\u0C1C\\u0C21\\u0C2C\\u0C15]';
+    const postpositionRegex = new RegExp('(' + loanConsonants + '\\u0C4D)(లో|తో|కు|కి)(?=[\\s\\p{P}]|$)', 'gu');
+    s = s.replace(postpositionRegex, '$1 $2');
+    // C. For ట్లో: Split ONLY if preceded by long vowel or English loan endings (like కలెక్టరేట్లో, ఫ్లైట్లో, సైట్లో, మార్కెట్లో, బడ్జెట్లో, ఫ్లాట్లో, సీట్లో, గేట్లో, ప్లేట్లో)
+    // Protect native Telugu words: ఇంట్లో, కంట్లో, నోట్లో, ఒంట్లో, గంట్లో, గొంట్లో, పుంట్లో, తుంట్లో
+    s = s.replace(/(\S+?)ట్లో(?=[\s\p{P}]|$)/gu, (match, prefix) => {
+        if (/^(?:ఇం|కం|నో|ఒం|గొం|పుం|తుం|పెం)$/.test(prefix)) {
+            return match; // preserve native words: ఇంట్లో, కంట్లో, నోట్లో etc.
+        }
+        return prefix + 'ట్ లో';
+    });
+    // 3. Common English words ending in 'ు' or 'ల్' taking postpositions (e.g. రోడ్డుపై -> రోడ్డు పై, కోర్టులో -> కోర్టు లో, స్కూల్లో -> స్కూల్ లో)
+    const loanUWords = [
+        [/(రోడ్డు|బోర్డు|వార్డు|గ్రౌండు|స్టాండు|ఫీల్డు|కోర్టు|సీటు|గేటు|ప్లేటు|ఫ్లాటు|నెట్టు|బెడ్)(పై|లో|తో|నుంచి|నుండి|వరకు|కి|కు)(?=[\s\p{P}]|$)/gu, '$1 $2'],
+        [/(హాస్పిటల్|ఆఫీస్|కాలేజ్|యూనివర్సిటీ|పార్లమెంట్|అసెంబ్లీ|పోలీస్)(లో|పై|తో|నుంచి|నుండి|వరకు|కి|కు)(?=[\s\p{P}]|$)/gu, '$1 $2'],
+        [/(స్కూల్|హాల్|మాల్)(?:్లో|లో|పై|తో|కి|కు)(?=[\s\p{P}]|$)/gu, '$1 లో']
+    ];
+    for (const [pattern, replacement] of loanUWords) {
+        s = s.replace(pattern, replacement);
+    }
+    // Clean any double spaces
+    return s.replace(/[ \t]+/g, ' ').trim();
+}
+exports.fixTeluguWordClumps = fixTeluguWordClumps;
+/**
  * Sanitizes Telugu text by converting any bled Kannada Unicode characters (0x0C80-0x0CFF)
  * and Devanagari/Hindi Unicode characters (0x0900-0x097F) to Telugu, removing orphaned matras,
- * broken placeholder glyphs, and zero-width spaces, ensuring 100% pure Telugu script purity.
+ * broken placeholder glyphs, zero-width spaces, and resolving unnatural English/loan word clumps.
  */
 function sanitizeTeluguText(text) {
     if (!text)
         return "";
-    return text
+    const cleaned = text
         // 0. Decode and eliminate HTML entities & zero-width non-joiners
         .replace(/&zwnj;/gi, '')
         .replace(/&zwj;/gi, '')
@@ -307,6 +380,7 @@ function sanitizeTeluguText(text) {
         // 6. Fix spaces before Telugu combining vowel marks / virama
         .replace(/\s+([\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63])/g, '$1')
         .trim();
+    return fixTeluguWordClumps(cleaned);
 }
 exports.sanitizeTeluguText = sanitizeTeluguText;
 /**

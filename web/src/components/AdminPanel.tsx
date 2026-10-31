@@ -3,6 +3,7 @@ import { User, UserRole, Language, NewsPost } from '../types';
 import PostNewsPage from './PostNewsPage';
 import UserManagementPage from './UserManagementPage';
 import ReporterManagementPage from './ReporterManagementPage';
+import AppInstallsPage from './AppInstallsPage';
 import ManagePostsPage from './ManagePostsPage';
 import UserProfilePage from './UserProfilePage';
 import AdminNotificationsPage from './AdminNotificationsPage';
@@ -53,9 +54,17 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   onLogout,
   onLoginRequest,
   unreadMessagesCount = 0,
-  initialPage = 'profile'
+  initialPage
 }) => {
-  const [activePage, setActivePage] = useState(initialPage);
+  const getDefaultPage = () => {
+    if (initialPage && initialPage !== 'profile') return initialPage;
+    if (user.role === UserRole.ADMIN || user.role === UserRole.REGIONAL_INCHARGE || user.role === UserRole.STAFF_REPORTER || user.role === UserRole.REPORTER) {
+      return 'manage';
+    }
+    return 'profile';
+  };
+
+  const [activePage, setActivePage] = useState<string>(() => getDefaultPage());
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [editingPost, setEditingPost] = useState<NewsPost | null>(null);
   const [chatTargetReporterId, setChatTargetReporterId] = useState<string | null>(null);
@@ -81,6 +90,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       title: 'రిపోర్టర్లు & యూజర్లు (Reporters & Users)',
       items: [
         { id: 'reporterManagement', label: 'రిపోర్టర్ల నిర్వహణ (Reporters)', icon: '🪪', roles: [UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN] },
+        { id: 'appInstalls', label: 'యాప్ ఇన్‌స్టాల్స్ & రెఫరల్స్ (App Installs)', icon: '📱', badge: 'NEW', roles: [UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN] },
         { id: 'messages', label: 'రిపోర్టర్ డెస్క్ చాట్ (Reporter Chat)', icon: '💬', roles: [UserRole.GUEST, UserRole.SUBSCRIBER, UserRole.REPORTER, UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN] },
         { id: 'manageUsers', label: 'వినియోగదారుల నిర్వహణ (Users)', icon: '👥', roles: [UserRole.STAFF_REPORTER, UserRole.REGIONAL_INCHARGE, UserRole.ADMIN] },
       ]
@@ -193,6 +203,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
         );
       case 'reporterManagement':
         return <ReporterManagementPage currentUser={user} />;
+      case 'appInstalls':
+        return <AppInstallsPage currentUser={user} />;
       case 'messages':
         return (
           <AdminReporterMessagingPage
@@ -236,7 +248,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   return (
-    <div className="absolute inset-0 bg-white z-50 flex font-mallanna text-black overflow-hidden">
+    <div className="w-full h-full bg-white flex font-mallanna text-black overflow-hidden relative">
       {/* Sidebar Navigation */}
       <div
         className={`absolute inset-y-0 left-0 bg-gray-900 text-white w-72 md:w-80 transform ${
@@ -273,7 +285,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
             return (
               <div key={sIdx} className="space-y-1">
-                <div className="px-3 text-[11px] font-black tracking-wider uppercase text-gray-500 mb-1">
+                <div className="px-3 text-[11px] font-ramabhadra tracking-wider uppercase text-gray-400 mb-1">
                   {section.title}
                 </div>
                 {accessibleSectionItems.map(item => {
@@ -285,9 +297,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                     <button
                       key={item.id}
                       onClick={() => handleMenuClick(item.id)}
-                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-base font-semibold transition-all flex items-center justify-between ${
+                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-base font-ramabhadra transition-all flex items-center justify-between ${
                         isActive
-                          ? 'bg-red-600 text-white font-bold shadow-md'
+                          ? 'bg-red-600 text-white shadow-md'
                           : 'text-gray-300 hover:bg-gray-800 hover:text-white'
                       }`}
                     >
@@ -347,14 +359,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="bg-gray-100 text-gray-800 px-4 py-2 rounded-xl font-bold hover:bg-gray-200 transition-colors shadow-sm text-sm"
+            className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-4 py-2 rounded-xl font-ramabhadra font-bold transition-all shadow-sm text-sm flex items-center gap-1.5"
+            title="పోర్టల్‌కి తిరిగి వెళ్లండి"
           >
-            మూసివేయి (Close)
+            <span>← పోర్టల్ / వెబ్‌సైట్</span>
           </button>
         </header>
 
-        <main className={`flex-1 min-h-0 flex flex-col ${activePage === 'messages' ? 'overflow-hidden p-2 md:p-3 bg-gray-100/70' : 'overflow-y-auto p-2 md:p-4 pb-16 bg-gray-50'}`}>
-          <div className={activePage === 'reporterManagement' || activePage === 'dailyReport' || activePage === 'messages' || activePage === 'manage' ? 'w-full h-full flex flex-col min-h-0' : 'max-w-6xl w-full mx-auto'}>
+        <main className={`flex-1 min-h-0 flex flex-col ${activePage === 'messages' ? 'overflow-hidden p-2 md:p-3 bg-gray-100/70' : 'overflow-y-auto p-2 md:p-6 pb-20 bg-gray-50'}`}>
+          <div className="w-full h-full flex flex-col min-h-0">
             {renderActivePage()}
           </div>
         </main>

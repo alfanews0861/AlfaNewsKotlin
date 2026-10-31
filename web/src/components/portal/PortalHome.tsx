@@ -23,7 +23,26 @@ import {
 import { updatePageSeo, updateHomeSeo, updateCategorySeo, updateDistrictSeo } from '../../utils/seoManager';
 import { useAppRoute, navigateTo, getCategorySlug, getNewsUrl } from '../../utils/router';
 
-const { collection, query, where, orderBy, limit, getDocs, Timestamp, doc, getDoc } = _firestore as any;
+const { collection, query, where, orderBy, limit, getDocs, Timestamp, doc, getDoc, startAfter } = _firestore as any;
+
+const CATEGORY_QUERY_MAP: Record<string, string[]> = {
+  'రాజకీయం': ['Politics', 'రాజకీయం'],
+  'రాజకీయాలు': ['Politics', 'రాజకీయం'],
+  'సినిమా': ['Cinema', 'సినిమా', 'వినోదం'],
+  'వినోదం': ['Cinema', 'సినిమా', 'వినోదం'],
+  'క్రీడలు': ['Sports', 'క్రీడలు'],
+  'స్పోర్ట్స్': ['Sports', 'క్రీడలు'],
+  'క్రైమ్': ['Crime', 'క్రైమ్'],
+  'వ్యాపారం': ['Business', 'వ్యాపారం'],
+  'బిజినెస్': ['Business', 'వ్యాపారం'],
+  'జాతీయం': ['National', 'జాతీయం'],
+  'అంతర్జాతీయం': ['International', 'అంతర్జాతీయం'],
+  'టెక్నాలజీ': ['Technology', 'టెక్నాలజీ'],
+  'వ్యవసాయం': ['Agriculture', 'వ్యవసాయం'],
+  'ఆరోగ్యం': ['Health', 'ఆరోగ్యం'],
+  'విద్య': ['Education', 'విద్య'],
+  'భక్తి': ['Devotional', 'భక్తి'],
+};
 
 interface PortalHomeProps {
   currentUser: User | null;
@@ -52,6 +71,11 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [districtTab, setDistrictTab] = useState<'AP' | 'TS'>('AP');
 
+  const [hasMoreCategory, setHasMoreCategory] = useState<boolean>(true);
+  const [loadingMoreCategory, setLoadingMoreCategory] = useState<boolean>(false);
+  const [hasMoreHome, setHasMoreHome] = useState<boolean>(true);
+  const [loadingMoreHome, setLoadingMoreHome] = useState<boolean>(false);
+
   const getTs = (data: any) => {
     if (!data.timestamp) return Date.now();
     if (data.timestamp instanceof Timestamp) return data.timestamp.toMillis();
@@ -77,54 +101,64 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
 
         const targetId = initialPostId || (currentRoute.type === 'news' ? currentRoute.id : null);
 
-        // ⚡ Cache check: 3-minute sessionStorage prevents re-fetching on back button or refresh
-        const cached = sessionStorage.getItem('portal_home_posts');
-        const cachedTime = Number(sessionStorage.getItem('portal_home_posts_time') || 0);
-        if (cached && Date.now() - cachedTime < 3 * 60 * 1000) {
-          try {
-            const parsed = JSON.parse(cached);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              setAllPosts(parsed);
-              if (targetId) {
-                const matched = parsed.find((p: any) => p.id === targetId);
-                if (matched) setSelectedPost(matched);
-              }
+        // 🛡️ Web Session Cache (3-minute TTL): Prevents search bots, crawlers, and rapid tab/back navigation from re-querying 75+ Firestore reads
+        const CACHE_KEY = 'portal_home_posts_v5';
+        const CACHE_TIME_KEY = 'portal_home_posts_time_v5';
+        const CACHE_TTL = 3 * 60 * 1000; // 3 minutes fresh cache
+
+        try {
+          const cachedJson = sessionStorage.getItem(CACHE_KEY);
+          const cachedTime = Number(sessionStorage.getItem(CACHE_TIME_KEY) || 0);
+          if (cachedJson && (Date.now() - cachedTime < CACHE_TTL)) {
+            const cachedPosts: NewsPost[] = JSON.parse(cachedJson);
+            if (Array.isArray(cachedPosts) && cachedPosts.length > 0) {
+              setAllPosts(cachedPosts);
               setLoading(false);
+              if (targetId) {
+                const matched = cachedPosts.find((p) => p.id === targetId);
+                if (matched) {
+                  setSelectedPost(matched);
+                  const targetUrl = getNewsUrl(matched);
+                  if (typeof window !== 'undefined' && window.location.pathname !== targetUrl && !window.location.pathname.endsWith(`--${targetId}`)) {
+                    window.history.replaceState(null, '', targetUrl);
+                  }
+                }
+              }
               return;
             }
-          } catch (_) {}
-        }
+          }
+        } catch (_) {}
 
         const newsRef = collection(db, 'news');
-        // Fetch top 50 recent approved news for fast in-memory browsing
-        const q = query(
-          newsRef,
-          where('approved', '==', true),
-          orderBy('timestamp', 'desc'),
-          limit(50)
+        // ⚡ SERVER FAST PATH (<300ms): Fetch top 25 latest approved news and render IMMEDIATELY
+        const genSnap = await getDocs(
+          query(newsRef, where('approved', '==', true), orderBy('timestamp', 'desc'), limit(25))
         );
 
-        const snap = await getDocs(q);
         if (!isMounted) return;
 
-        const postsList: NewsPost[] = snap.docs.map((d: any) => {
-          const data = d.data();
-          return {
-            id: d.id,
-            ...data,
-            timestamp: getTs(data),
-          } as NewsPost;
-        });
+        const combinedDocs: NewsPost[] = [];
+        const seenIds = new Set<string>();
 
-        setAllPosts(postsList);
-        try {
-          sessionStorage.setItem('portal_home_posts', JSON.stringify(postsList));
-          sessionStorage.setItem('portal_home_posts_time', String(Date.now()));
-        } catch (_) {}
+        if (genSnap && !genSnap.empty) {
+          genSnap.docs.forEach((d: any) => {
+            if (!seenIds.has(d.id)) {
+              seenIds.add(d.id);
+              combinedDocs.push({
+                id: d.id,
+                ...d.data(),
+                timestamp: getTs(d.data()),
+              } as NewsPost);
+            }
+          });
+          setAllPosts([...combinedDocs]);
+          // ⚡ Dismiss loading spinner immediately in <300ms!
+          setLoading(false);
+        }
 
         // Check if targetId was requested
         if (targetId) {
-          const matched = postsList.find((p) => p.id === targetId);
+          const matched = combinedDocs.find((p) => p.id === targetId);
           if (matched) {
             setSelectedPost(matched);
             const targetUrl = getNewsUrl(matched);
@@ -132,24 +166,59 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
               window.history.replaceState(null, '', targetUrl);
             }
           } else {
-            try {
-              const directDoc = await getDoc(doc(db, 'news', targetId));
-              if (directDoc.exists()) {
+            getDoc(doc(db, 'news', targetId)).then((directDoc: any) => {
+              if (directDoc.exists() && isMounted) {
                 const fetched = {
                   id: directDoc.id,
                   ...directDoc.data(),
                   timestamp: getTs(directDoc.data()),
                 } as NewsPost;
                 setSelectedPost(fetched);
-                setAllPosts((prev) => [fetched, ...prev]);
+                setAllPosts((prev) => [fetched, ...prev.filter(p => p.id !== fetched.id)]);
                 const targetUrl = getNewsUrl(fetched);
                 if (typeof window !== 'undefined' && window.location.pathname !== targetUrl && !window.location.pathname.endsWith(`--${targetId}`)) {
                   window.history.replaceState(null, '', targetUrl);
                 }
               }
-            } catch (_) {}
+            }).catch(() => {});
           }
         }
+
+        // 🚀 Background category blending (non-blocking)
+        Promise.allSettled([
+          getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Politics'), orderBy('timestamp', 'desc'), limit(10))),
+          getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Cinema'), orderBy('timestamp', 'desc'), limit(10))),
+          getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Sports'), orderBy('timestamp', 'desc'), limit(10))),
+          getDocs(query(newsRef, where('state', 'in', ['AP', 'Andhra Pradesh', 'Andhra']), orderBy('timestamp', 'desc'), limit(10))),
+          getDocs(query(newsRef, where('state', 'in', ['TS', 'Telangana', 'TG']), orderBy('timestamp', 'desc'), limit(10))),
+        ]).then((results) => {
+          if (!isMounted) return;
+          let added = false;
+          results.forEach((res) => {
+            if (res.status === 'fulfilled' && res.value && !res.value.empty) {
+              res.value.docs.forEach((d: any) => {
+                if (!seenIds.has(d.id)) {
+                  seenIds.add(d.id);
+                  combinedDocs.push({
+                    id: d.id,
+                    ...d.data(),
+                    timestamp: getTs(d.data()),
+                  } as NewsPost);
+                  added = true;
+                }
+              });
+            }
+          });
+
+          if (added) {
+            combinedDocs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+            setAllPosts([...combinedDocs]);
+          }
+          try {
+            sessionStorage.setItem(CACHE_KEY, JSON.stringify(combinedDocs.slice(0, 100)));
+            sessionStorage.setItem(CACHE_TIME_KEY, Date.now().toString());
+          } catch (_) {}
+        }).catch(() => {});
       } catch (err) {
         console.error('Failed to load portal news:', err);
       } finally {
@@ -287,30 +356,59 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
         const isTs = selectedCategory === 'తెలంగాణ' || selectedCategory === 'ts';
         const isDistGroup = selectedCategory === 'జిల్లా వార్తలు' || selectedCategory === 'districts_menu';
         const matchedDist = ALL_DISTRICTS.find((d) => isDistrictMatch(d, selectedCategory));
+        const catTags = CATEGORY_QUERY_MAP[selectedCategory];
 
         if (isAp) {
-          q = query(
-            newsRef,
-            where('approved', '==', true),
-            where('state', '==', 'AP'),
-            orderBy('timestamp', 'desc'),
-            limit(50)
-          );
+          try {
+            const snapAp = await getDocs(
+              query(
+                newsRef,
+                where('approved', '==', true),
+                where('state', 'in', ['AP', 'Andhra Pradesh', 'Andhra']),
+                orderBy('timestamp', 'desc'),
+                limit(20)
+              )
+            );
+            if (isMounted && snapAp && !snapAp.empty) {
+              const fetched: NewsPost[] = snapAp.docs.map((d: any) => ({
+                id: d.id,
+                ...d.data(),
+                timestamp: getTs(d.data()),
+              } as NewsPost));
+              mergePosts(fetched);
+            }
+          } catch (err) {
+            console.warn('AP query fallback:', err);
+          }
         } else if (isTs) {
-          q = query(
-            newsRef,
-            where('approved', '==', true),
-            where('state', '==', 'TS'),
-            orderBy('timestamp', 'desc'),
-            limit(50)
-          );
+          try {
+            const snapTs = await getDocs(
+              query(
+                newsRef,
+                where('approved', '==', true),
+                where('state', 'in', ['TS', 'Telangana', 'TG']),
+                orderBy('timestamp', 'desc'),
+                limit(20)
+              )
+            );
+            if (isMounted && snapTs && !snapTs.empty) {
+              const fetched: NewsPost[] = snapTs.docs.map((d: any) => ({
+                id: d.id,
+                ...d.data(),
+                timestamp: getTs(d.data()),
+              } as NewsPost));
+              mergePosts(fetched);
+            }
+          } catch (err) {
+            console.warn('TS query fallback:', err);
+          }
         } else if (matchedDist) {
           q = query(
             newsRef,
             where('approved', '==', true),
             where('district', '==', matchedDist),
             orderBy('timestamp', 'desc'),
-            limit(50)
+            limit(20)
           );
         } else if (isDistGroup) {
           q = query(
@@ -318,8 +416,34 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
             where('approved', '==', true),
             where('state', '==', districtTab),
             orderBy('timestamp', 'desc'),
-            limit(50)
+            limit(20)
           );
+        } else if (catTags && catTags.length > 0) {
+          const results = await Promise.allSettled(
+            catTags.map((tag) =>
+              getDocs(
+                query(
+                  newsRef,
+                  where('approved', '==', true),
+                  where('categories', 'array-contains', tag),
+                  orderBy('timestamp', 'desc'),
+                  limit(20)
+                )
+              )
+            )
+          );
+          if (isMounted) {
+            results.forEach((res) => {
+              if (res.status === 'fulfilled' && res.value && !res.value.empty) {
+                const fetched: NewsPost[] = res.value.docs.map((d: any) => ({
+                  id: d.id,
+                  ...d.data(),
+                  timestamp: getTs(d.data()),
+                } as NewsPost));
+                mergePosts(fetched);
+              }
+            });
+          }
         }
 
         if (q) {
@@ -354,6 +478,136 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
     return filterPostsByCategory(allPosts, selectedCategory);
   }, [allPosts, selectedCategory]);
 
+  // Load More handler for Category View (Pagination through database)
+  const handleLoadMoreCategory = useCallback(async () => {
+    if (loadingMoreCategory || !hasMoreCategory || !categoryPosts.length) return;
+    setLoadingMoreCategory(true);
+    try {
+      const oldestPost = categoryPosts[categoryPosts.length - 1];
+      const oldestTs = oldestPost?.timestamp || Date.now();
+      const newsRef = collection(db, 'news');
+
+      const isAp = selectedCategory === 'ఆంధ్రప్రదేశ్' || selectedCategory === 'ap';
+      const isTs = selectedCategory === 'తెలంగాణ' || selectedCategory === 'ts';
+      const matchedDist = ALL_DISTRICTS.find((d) => isDistrictMatch(d, selectedCategory));
+      const catTags = CATEGORY_QUERY_MAP[selectedCategory];
+
+      let fetched: NewsPost[] = [];
+
+      if (isAp) {
+        const snap = await getDocs(
+          query(
+            newsRef,
+            where('approved', '==', true),
+            where('state', 'in', ['AP', 'Andhra Pradesh', 'Andhra']),
+            where('timestamp', '<', oldestTs),
+            orderBy('timestamp', 'desc'),
+            limit(30)
+          )
+        );
+        fetched = snap.docs.map((d: any) => ({ id: d.id, ...d.data(), timestamp: getTs(d.data()) } as NewsPost));
+      } else if (isTs) {
+        const snap = await getDocs(
+          query(
+            newsRef,
+            where('approved', '==', true),
+            where('state', 'in', ['TS', 'Telangana', 'TG']),
+            where('timestamp', '<', oldestTs),
+            orderBy('timestamp', 'desc'),
+            limit(30)
+          )
+        );
+        fetched = snap.docs.map((d: any) => ({ id: d.id, ...d.data(), timestamp: getTs(d.data()) } as NewsPost));
+      } else if (matchedDist) {
+        const snap = await getDocs(
+          query(
+            newsRef,
+            where('approved', '==', true),
+            where('district', '==', matchedDist),
+            where('timestamp', '<', oldestTs),
+            orderBy('timestamp', 'desc'),
+            limit(30)
+          )
+        );
+        fetched = snap.docs.map((d: any) => ({ id: d.id, ...d.data(), timestamp: getTs(d.data()) } as NewsPost));
+      } else if (catTags && catTags.length > 0) {
+        const primaryTag = catTags[0];
+        const snap = await getDocs(
+          query(
+            newsRef,
+            where('approved', '==', true),
+            where('categories', 'array-contains', primaryTag),
+            where('timestamp', '<', oldestTs),
+            orderBy('timestamp', 'desc'),
+            limit(30)
+          )
+        );
+        fetched = snap.docs.map((d: any) => ({ id: d.id, ...d.data(), timestamp: getTs(d.data()) } as NewsPost));
+      } else {
+        const snap = await getDocs(
+          query(
+            newsRef,
+            where('approved', '==', true),
+            where('timestamp', '<', oldestTs),
+            orderBy('timestamp', 'desc'),
+            limit(30)
+          )
+        );
+        fetched = snap.docs.map((d: any) => ({ id: d.id, ...d.data(), timestamp: getTs(d.data()) } as NewsPost));
+      }
+
+      if (fetched.length > 0) {
+        mergePosts(fetched);
+        if (fetched.length < 30) setHasMoreCategory(false);
+      } else {
+        setHasMoreCategory(false);
+      }
+    } catch (err) {
+      console.error('Failed to load more category posts:', err);
+      setHasMoreCategory(false);
+    } finally {
+      setLoadingMoreCategory(false);
+    }
+  }, [categoryPosts, hasMoreCategory, loadingMoreCategory, mergePosts, selectedCategory]);
+
+  // Load More handler for Homepage Feed (Pagination through database)
+  const handleLoadMoreHome = useCallback(async () => {
+    if (loadingMoreHome || !hasMoreHome || !allPosts.length) return;
+    setLoadingMoreHome(true);
+    try {
+      const oldestPost = allPosts[allPosts.length - 1];
+      const oldestTs = oldestPost?.timestamp || Date.now();
+      const newsRef = collection(db, 'news');
+
+      const snap = await getDocs(
+        query(
+          newsRef,
+          where('approved', '==', true),
+          where('timestamp', '<', oldestTs),
+          orderBy('timestamp', 'desc'),
+          limit(50)
+        )
+      );
+
+      if (!snap.empty) {
+        const fetched: NewsPost[] = snap.docs.map((d: any) => ({
+          id: d.id,
+          ...d.data(),
+          timestamp: getTs(d.data()),
+        } as NewsPost));
+        mergePosts(fetched);
+        if (snap.docs.length < 50) setHasMoreHome(false);
+      } else {
+        setHasMoreHome(false);
+      }
+    } catch (err) {
+      console.error('Failed to load more home posts:', err);
+      setHasMoreHome(false);
+    } finally {
+      setLoadingMoreHome(false);
+    }
+  }, [allPosts, hasMoreHome, loadingMoreHome, mergePosts]);
+
   // Identify if in district mode
   const isDistrictCategory = selectedCategory === 'జిల్లా వార్తలు' || selectedCategory === 'districts_menu';
 
@@ -373,10 +627,23 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
       if (isMandalNews) return false;
 
       const isBreaking = pAny.isBreaking === true || pAny.isFlash === true;
-      const isStateOrNational = p.state === 'AP' || p.state === 'TS' || p.category === 'జాతీయం' || p.category === 'రాజకీయం';
+      const isUniversal =
+        p.state === 'AP' ||
+        p.state === 'TS' ||
+        p.state === 'Andhra Pradesh' ||
+        p.state === 'Telangana' ||
+        p.category === 'జాతీయం' ||
+        p.category === 'రాజకీయం' ||
+        p.category === 'సినిమా' ||
+        p.category === 'Politics' ||
+        p.category === 'National' ||
+        p.category === 'Cinema' ||
+        p.category === 'Crime' ||
+        p.category === 'Sports' ||
+        p.category === 'Business';
       const isSpecial = p.isSpecialStory === true || p.category === 'స్పెషల్ స్టోరీస్';
 
-      return isBreaking || isStateOrNational || isSpecial;
+      return isBreaking || isUniversal || isSpecial;
     });
 
     return topPosts.length >= 3 ? topPosts.slice(0, 8) : allPosts.slice(0, 8);
@@ -565,7 +832,8 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               <div className="lg:col-span-8">
                 {categoryPosts.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
                     {categoryPosts.slice(categoryPosts.length >= 3 ? 7 : 0).map((post) => {
                       const hLine = post.headline?.telugu || post.headline?.english || '';
                       const img = post.mediaUrl || post.mediaUrls?.[0] || FALLBACK_NEWS_IMAGE;
@@ -618,6 +886,28 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                       );
                     })}
                   </div>
+
+                    {categoryPosts.length > 0 && hasMoreCategory && (
+                      <div className="mt-8 text-center">
+                        <button
+                          onClick={handleLoadMoreCategory}
+                          disabled={loadingMoreCategory}
+                          className="inline-flex items-center gap-2 bg-white hover:bg-red-50 text-red-600 hover:text-red-700 font-ramabhadra px-7 py-3 rounded-2xl border border-red-200 shadow-sm hover:shadow transition-all text-sm active:scale-95 disabled:opacity-60"
+                        >
+                          {loadingMoreCategory ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin text-red-600" />
+                              డేటాబేస్ నుండి మరిన్ని వార్తలు లోడ్ అవుతున్నాయి...
+                            </>
+                          ) : (
+                            <>
+                              మరిన్ని వార్తలు చూడండి (Load More News) ↓
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="py-16 text-center text-gray-500 bg-white rounded-2xl border border-gray-200">
                     {categoryLoading ? (
@@ -714,6 +1004,27 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                   onSelectPost={handleSelectPost}
                   onViewMore={handleSelectCategory}
                 />
+
+                {hasMoreHome && (
+                  <div className="pt-4 text-center">
+                    <button
+                      onClick={handleLoadMoreHome}
+                      disabled={loadingMoreHome}
+                      className="inline-flex items-center gap-2 bg-white hover:bg-red-50 text-red-600 font-ramabhadra px-7 py-3 rounded-2xl border border-red-200 shadow-sm hover:shadow transition-all text-sm active:scale-95 disabled:opacity-60"
+                    >
+                      {loadingMoreHome ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin text-red-600" />
+                          మరిన్ని తాజా వార్తలను లోడ్ చేస్తున్నాం...
+                        </>
+                      ) : (
+                        <>
+                          మరిన్ని తాజా వార్తలను లోడ్ చేయండి (Load More News) ↓
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* RIGHT COLUMN: Sidebar (Weather, Cartoons, Poll, Trending) (4 Cols) */}

@@ -3,6 +3,7 @@ import { ALL_DISTRICTS, isDistrictMatch } from './newsFilter';
 
 export type AppRoute =
   | { type: 'home' }
+  | { type: 'admin' }
   | { type: 'news'; id: string }
   | { type: 'category'; category: string; slug: string }
   | { type: 'district'; district: string }
@@ -144,6 +145,8 @@ export function parsePath(pathname: string, hash: string): AppRoute {
       return { type: 'category', category: teluguCat, slug: rawCat };
     } else if (hashRoute === 'classifieds') {
       return { type: 'classifieds' };
+    } else if (hashRoute === 'admin') {
+      return { type: 'admin' };
     } else if (POLICY_ROUTES.includes(hashRoute.toLowerCase())) {
       return { type: 'policy', policy: hashRoute.toLowerCase() };
     }
@@ -189,6 +192,11 @@ export function parsePath(pathname: string, hash: string): AppRoute {
   // 5. Classifieds
   if (cleanPath === '/classifieds') {
     return { type: 'classifieds' };
+  }
+
+  // 5b. Admin Panel
+  if (cleanPath === '/admin') {
+    return { type: 'admin' };
   }
 
   // 6. Reporter Profile
@@ -245,6 +253,7 @@ export function useAppRoute(): AppRoute {
         else if (parsed.type === 'category') targetPath = `/category/${getCategorySlug(parsed.category)}`;
         else if (parsed.type === 'district') targetPath = `/district/${encodeURIComponent(parsed.district)}`;
         else if (parsed.type === 'classifieds') targetPath = '/classifieds';
+        else if (parsed.type === 'admin') targetPath = '/admin';
         else if (parsed.type === 'policy') targetPath = `/${parsed.policy}`;
         else if (parsed.type === 'reporter') targetPath = `/reporter/${parsed.reporterId}`;
         

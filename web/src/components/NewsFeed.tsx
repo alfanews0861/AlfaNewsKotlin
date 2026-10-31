@@ -135,28 +135,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
     const cacheKey = `alfa_news_cache_${userDistrict || 'global'}_${implicitCategory || 'none'}`;
 
     try {
-        if (isInitial) {
-            const cachedStr = sessionStorage.getItem(cacheKey);
-            if (cachedStr) {
-                try {
-                    const cached = JSON.parse(cachedStr);
-                    // 3-minute TTL for cache to ensure freshness while saving reads
-                    if (Date.now() - cached.timestamp < 3 * 60 * 1000) {
-                        setNews(cached.news);
-                        prefCursor.current = cached.cursors.pref;
-                        localCursor.current = cached.cursors.local;
-                        globalCursor.current = cached.cursors.global;
-                        greetingCursor.current = cached.cursors.greeting;
-                        setLoading(false);
-                        fetchingRef.current = false;
-                        if (onLoadComplete) onLoadComplete();
-                        return; // Skip fetching from server
-                    }
-                } catch (e) {
-                    console.error("Cache parse error", e);
-                }
-            }
-        }
+        // Direct server news: Zero disk cache
 
         // 40/30/30 MIXING LOGIC:
         let prefPromise = Promise.resolve({posts:[], cursor:null, count:0});
@@ -204,18 +183,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
             const finalNews = isInitial ? rankedNewPosts : [...prev, ...rankedNewPosts];
             
             // Save to cache if it's the initial load
-            if (isInitial) {
-                sessionStorage.setItem(cacheKey, JSON.stringify({
-                    timestamp: Date.now(),
-                    news: finalNews,
-                    cursors: {
-                        pref: prefCursor.current,
-                        local: localCursor.current,
-                        global: globalCursor.current,
-                        greeting: greetingCursor.current
-                    }
-                }));
-            }
+            // Direct server news: Zero disk cache
             
             return finalNews;
         });

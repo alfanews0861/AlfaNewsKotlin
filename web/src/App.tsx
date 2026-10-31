@@ -54,8 +54,16 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // ⚡ Fast timeout guarantee: never block news website loading
+    const timeout = setTimeout(() => {
+      setAuthChecked(true);
+    }, 1000);
+
     let userUnsub: any = null;
     const authUnsub = onAuthStateChanged(auth, async (firebaseUser: any) => {
+      setAuthChecked(true);
+      clearTimeout(timeout);
+
       if (firebaseUser) {
         const userRef = doc(db, 'users', firebaseUser.uid);
         const userSnap = await getDoc(userRef);
@@ -217,11 +225,12 @@ const App: React.FC = () => {
     }
   }
 
-  if (!authChecked) {
+  // Only block with a loader if the user is explicitly navigating to the Admin Panel
+  if (route.type === 'admin' && !authChecked) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900 text-white font-mallanna">
         <Loader2 className="w-10 h-10 text-red-500 animate-spin mb-4" />
-        <p className="text-xl font-ramabhadra">ఆల్ఫా న్యూస్ లోడ్ అవుతోంది...</p>
+        <p className="text-xl font-ramabhadra">అడ్మిన్ ప్యానెల్ లోడ్ అవుతోంది...</p>
       </div>
     );
   }
@@ -272,7 +281,10 @@ const App: React.FC = () => {
         <PortalHome
           currentUser={currentUser}
           onLoginClick={() => setShowLogin(true)}
-          onAdminClick={() => setShowAdmin(true)}
+          onAdminClick={() => {
+            setShowAdmin(true);
+            navigateTo('/admin');
+          }}
           onOpenClassifieds={() => navigateTo('/classifieds')}
           onOpenPolicyPage={(policyRoute) => {
             navigateTo(`/${policyRoute}`);
@@ -281,38 +293,29 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* ADMIN / REPORTER PROFILE PANEL MODAL */}
-      {showAdmin && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex justify-center p-0 sm:p-4 animate-fade-in text-gray-900">
-          <div className="bg-white w-full max-w-5xl h-full sm:h-[90vh] sm:my-auto rounded-none sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between px-6 py-3.5 bg-slate-900 text-white shrink-0">
-              <span className="font-ramabhadra text-lg font-bold">
-                యూజర్ ప్రొఫైల్ & అడ్మిన్ ప్యానెల్
-              </span>
-              <button
-                onClick={() => setShowAdmin(false)}
-                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              <AdminPanel
-                user={currentUser || guestUser}
-                onClose={() => setShowAdmin(false)}
-                language={language}
-                setLanguage={setLanguage}
-                onLogout={() => {
-                  signOut(auth);
-                  setShowAdmin(false);
-                }}
-                onLoginRequest={() => {
-                  setShowAdmin(false);
-                  setShowLogin(true);
-                }}
-              />
-            </div>
-          </div>
+      {/* ADMIN / REPORTER PANEL: 100% FULL SCREEN / FULL WINDOW */}
+      {(showAdmin || route.type === 'admin') && (
+        <div className="fixed inset-0 z-50 bg-white w-screen h-screen overflow-hidden flex flex-col font-mallanna animate-fade-in text-gray-900">
+          <AdminPanel
+            user={currentUser || guestUser}
+            onClose={() => {
+              setShowAdmin(false);
+              if (route.type === 'admin') {
+                navigateTo('/');
+              }
+            }}
+            language={language}
+            setLanguage={setLanguage}
+            onLogout={() => {
+              signOut(auth);
+              setShowAdmin(false);
+              navigateTo('/');
+            }}
+            onLoginRequest={() => {
+              setShowAdmin(false);
+              setShowLogin(true);
+            }}
+          />
         </div>
       )}
 

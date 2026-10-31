@@ -166,13 +166,7 @@ const LocalNewsFeed: React.FC<LocalNewsFeedProps> = ({ language, onProfileClick,
                 
                 const finalNews = isInitial ? uniqueNew : [...prev, ...uniqueNew];
                 
-                if (isInitial) {
-                    sessionStorage.setItem(cacheKey, JSON.stringify({
-                        timestamp: Date.now(),
-                        news: finalNews,
-                        cursor: lastVisible.current
-                    }));
-                }
+                // Direct server news: Zero disk cache
                 
                 return finalNews;
             });

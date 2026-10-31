@@ -113,6 +113,19 @@ class ProxyManager {
         return proxy;
     }
 
+    markBadProxy(proxyUrl) {
+        if (!proxyUrl) return;
+        const initialCount = this.proxies.length;
+        this.proxies = this.proxies.filter(p => p !== proxyUrl);
+        if (this.proxies.length < initialCount) {
+            const clean = proxyUrl.includes('@') ? proxyUrl.split('@')[1] : proxyUrl;
+            console.warn(`[PROXY] 🚫 Quarantined bad proxy ${clean}. Remaining active proxies: ${this.proxies.length}`);
+            if (this.currentIndex >= this.proxies.length) {
+                this.currentIndex = 0;
+            }
+        }
+    }
+
     getProxyCount() {
         return this.proxies.length;
     }
@@ -196,18 +209,18 @@ const GENERIC_IMAGE_PATTERNS = [
     'placeholder', 'default-image', 'default_image', 'no-image', 'noimage',
     'masthead', 'site-logo', 'sitelogo', 'site_logo', 'channel_logo', 'brand_logo', 'news_logo',
     'app-logo', 'header_logo', 'header-logo', 'footer_logo', 'footer-logo', 'favicon',
-    'dummy', 'share_image', 'og_default', 'fb_share', 'twitter_share',
+    'dummy.jpg', 'dummy.png', 'share_image', 'og_default', 'fb_share', 'twitter_share',
     'header_sun', 'eenadu_sun', 'eenadu_header', 'eenadu_red', 'eenadu_logo',
     'toi_logo', 'toi-logo', 'timesofindia_logo', 'sakshi_logo', 'sakshi-logo',
     'aj_logo', 'ntnews_logo', 'tv9_logo', 'v6_logo', 'abp_logo', 'abp_live',
-    'etv', 'etvbharat', 'etv-bharat', 'etv_bharat', 'etv_logo', 'bharat_logo',
-    'hmtv', 'mahaa', '10tv', 'ap7am', 'telugustop', 'tv5', 'ntv_logo', 'aajtak', 'news18',
-    'greatandhra', 'gulte', 'thehindu', 'deccanchronicle', 'watermark', 'banner_logo',
+    'etv_logo', 'bharat_logo', 'hmtv_logo', 'mahaa_logo', '10tv_logo', 'ap7am_logo',
+    'telugustop_logo', 'tv5_logo', 'ntv_logo', 'aajtak_logo', 'news18_logo',
+    'greatandhra_logo', 'gulte_logo', 'thehindu_logo', 'deccanchronicle_logo', 'watermark', 'banner_logo',
     'static.toiimg.com/photo/108381831', 'static.toiimg.com/photo/4752938',
     'scorecardresearch.com', 'google-analytics', 'facebook.com/tr',
     'assets/_images/logos/', 'e-paper.webp', 'bell-icon.webp', 'gg-pref.gif',
     'andhra-pradesh-logo.webp', 'telangana-logo.webp', 'eenadu.webp',
-    'assets/images/logos/'
+    'assets/images/logos/', 'assets/images/logo.webp', 'assets/avif_logos/'
 ];
 
 /**
@@ -224,25 +237,31 @@ function isGenericImage(url) {
         return true;
     }
 
-    // Vector icons or animations are never news photos
-    if (lowerUrl.endsWith('.svg') || lowerUrl.endsWith('.gif') || lowerUrl.includes('.svg?') || lowerUrl.includes('.gif?')) {
+    // Vector icons, animations, tracking pixels, or favicons
+    if (lowerUrl.endsWith('.svg') || lowerUrl.endsWith('.gif') || lowerUrl.endsWith('.ico') || 
+        lowerUrl.includes('.svg?') || lowerUrl.includes('.gif?') || lowerUrl.includes('.ico?') ||
+        lowerUrl.includes('favicon') || lowerUrl.includes('tracking') || lowerUrl.includes('1x1') || lowerUrl.includes('blank.png')) {
         return true;
     }
 
     // Exact or partial logo file name match
-    if (/(?:logo|brand|masthead|watermark|banner_logo)[-_a-z0-9]*\.(?:png|jpg|jpeg|webp)/i.test(lowerUrl)) {
+    if (/(?:logo|brand_logo|masthead|watermark|banner_logo|site_logo|sitelogo|header_logo|header-logo|footer_logo|footer-logo|app_logo|app-logo)[-_a-z0-9]*\.(?:png|jpg|jpeg|webp|avif)/i.test(lowerUrl)) {
         return true;
     }
 
     // Directory-level logo assets
-    if (/\/(?:logos|branding|placeholders|watermarks|brand_assets)\//i.test(lowerUrl)) {
+    if (/\/(?:logos|branding|placeholders|watermarks|brand_assets|avif_logos|site_logos)\//i.test(lowerUrl)) {
         return true;
     }
 
-    // ETV / ETV Bharat specifics (channel logos, default mastheads)
-    if (lowerUrl.includes('etvbharat') || lowerUrl.includes('etv.co.in') || lowerUrl.includes('etv-bharat') || lowerUrl.includes('etv_bharat')) {
-        if (lowerUrl.includes('logo') || lowerUrl.includes('default') || lowerUrl.includes('placeholder') || lowerUrl.includes('brand') || lowerUrl.includes('channel') || lowerUrl.includes('bharat_logo') || lowerUrl.includes('etv_logo')) {
+    // ETV / ETV Bharat specifics: reject known logo/banner assets, but accept all article media
+    if (lowerUrl.includes('etvbharat') || lowerUrl.includes('etv.co.in')) {
+        if (lowerUrl.includes('/logo') || lowerUrl.includes('_logo') || lowerUrl.includes('-logo') || lowerUrl.includes('default_image') || lowerUrl.includes('placeholder')) {
             return true;
+        }
+        // Genuine ETV Bharat article media
+        if (lowerUrl.includes('/prod-images/') || lowerUrl.includes('/article/') || lowerUrl.includes('/photos/') || lowerUrl.includes('/news/')) {
+            return false;
         }
     }
 
@@ -282,7 +301,9 @@ function isGenericImage(url) {
         if (lowerUrl.includes('article_images/') || 
             lowerUrl.includes('article_multiple_images/') || 
             lowerUrl.includes('/uploads/') || 
-            lowerUrl.includes('/featureimages/')) {
+            lowerUrl.includes('/featureimages/') ||
+            lowerUrl.includes('/prod-images/') ||
+            lowerUrl.includes('/photogallery/')) {
             return false;
         }
         return true;
@@ -329,7 +350,19 @@ function sanitizeTeluguText(text) {
         // 6. Fix any accidental spaces before valid Telugu combining marks
         .replace(/\s+([\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63])/g, '$1')
         
-        // 7. Normalize multi-spaces
+        // 7. Fix compound English words that lost spacing/virama (e.g. క్లాస్రూమ్ -> క్లాస్ రూమ్)
+        .replace(/క్లాస్రూ/g, 'క్లాస్ రూ')
+        .replace(/బెడ్రూ/g, 'బెడ్ రూ')
+        .replace(/లివింగ్రూ/g, 'లివింగ్ రూ')
+        .replace(/షోరూ/g, 'షో రూ')
+        .replace(/బంజారాహిల్స్/g, 'బంజారా హిల్స్')
+        .replace(/జూబ్లీహిల్స్/g, 'జూబ్లీ హిల్స్')
+
+        // 8. Fix English loanwords ending in virama (్) glued directly to postpositions (లో, పై, తో, కు, కి, వద్ద, నుండి, లోని, తోని)
+        // e.g. న్పై -> న్ పై (స్క్రీన్ పై), ల్స్లో -> ల్స్ లో (హిల్స్ లో), మ్లో -> మ్ లో (రూమ్ లో), డ్పై -> డ్ పై (రోడ్ పై)
+        .replace(/([\u0C15-\u0C39]\u0C4D)(లో|పై|తో|కు|కి|వద్ద|నుండి|లోని|తోని)(?=[\s.,:;!?\n\"\'”’)]|$)/g, '$1 $2')
+
+        // 9. Normalize multi-spaces
         .replace(/[ \t]+/g, ' ')
         .trim();
 }
@@ -721,8 +754,9 @@ function extractArticleData(html, articleUrl) {
                     if (item.image && !jsonLdImage) {
                         if (typeof item.image === 'string') jsonLdImage = item.image;
                         else if (item.image.url) jsonLdImage = item.image.url;
+                        else if (item.image.contentUrl) jsonLdImage = item.image.contentUrl;
                         else if (Array.isArray(item.image) && item.image.length > 0) {
-                            jsonLdImage = typeof item.image[0] === 'string' ? item.image[0] : (item.image[0]?.url || '');
+                            jsonLdImage = typeof item.image[0] === 'string' ? item.image[0] : (item.image[0]?.url || item.image[0]?.contentUrl || '');
                         }
                     }
                     if (item.datePublished && !jsonLdDate) {
@@ -803,9 +837,12 @@ function extractArticleData(html, articleUrl) {
 
     if (!candidateImage) {
         const metaImg = $('meta[property="og:image"]').attr('content') || 
+                       $('meta[property="og:image:secure_url"]').attr('content') ||
+                       $('meta[property="og:image:url"]').attr('content') ||
                        $('meta[name="twitter:image"]').attr('content') ||
                        $('meta[name="twitter:image:src"]').attr('content') ||
                        $('meta[property="twitter:image"]').attr('content') ||
+                       $('meta[itemprop="image"]').attr('content') ||
                        $('link[rel="image_src"]').attr('href');
         if (metaImg && !isGenericImage(metaImg)) {
             candidateImage = metaImg;
@@ -813,8 +850,8 @@ function extractArticleData(html, articleUrl) {
     }
 
     if (!candidateImage) {
-        $('article img, main img, figure img, picture source, picture img, .news-story-body img, .detailBody img, .category_desc img, .ArticleBodyCont img, ._article_body img, .story-details img').each((_, el) => {
-            const raw = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-original') || $(el).attr('data-lazy-src') || $(el).attr('data-hi-res-src') || $(el).attr('srcset');
+        $('article img, main img, figure img, picture source, picture img, .news-story-body img, .detailBody img, .category_desc img, .ArticleBodyCont img, ._article_body img, .story-details img, .article-image img, .article-page__img-cmpnt, .story-image img').each((_, el) => {
+            const raw = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-original') || $(el).attr('data-lazy-src') || $(el).attr('data-hi-res-src') || $(el).attr('data-url') || $(el).attr('srcset');
             if (raw && typeof raw === 'string') {
                 let clean = raw.trim();
                 if (clean.includes(',')) {
@@ -1269,6 +1306,15 @@ try {
 }
 
 const db = admin.firestore();
+try {
+    db.settings({
+        preferRest: true,
+        ignoreUndefinedProperties: true
+    });
+    console.log("[FIRESTORE] Configured with preferRest: true (Eliminates gRPC DEADLINE_EXCEEDED).");
+} catch (e) {
+    console.warn("[FIRESTORE] Could not set db.settings:", e.message);
+}
 
 // ============================================================================
 // IN-MEMORY CACHE FOR FIRESTORE READ OPTIMIZATION & FAST DEDUPLICATION
@@ -1292,7 +1338,7 @@ async function prewarmScraperCache() {
             if (data.url) scannedUrlMemoryCache.add(normalizeUrl(data.url));
         });
 
-        // 2. Load recent published news (last 2000 ordered by timestamp DESC for accurate today/yesterday dedup)
+        // 2. Load recent published news (last 2000 ordered by timestamp DESC for accurate today/yesterday dedup at 500+ posts/day scale)
         const recentNewsSnap = await db.collection('news')
             .orderBy('timestamp', 'desc')
             .limit(2000)
@@ -2157,10 +2203,15 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
    - కన్నడ, హిందీ/దేవనాగరి, ఉర్దూ, తమిళం లేదా మలయాళం అక్షరాలు ఎట్టిపరిస్థితుల్లోనూ రానివ్వకూడదు.
    - హిందీ/ఇతర భాషల పేర్లను స్వచ్ఛమైన తెలుగులోకి లిప్యంతరీకరించాలి (ఉదా: 'నరేంద్ర మోదీ', 'రాహుల్ గాంధీ', 'ఒవైసీ', 'వక్ఫ్').
 
-11. చిత్రాలు & లోగోల పరిశీలన (IMAGE & LOGO HANDLING):
+10.1 సరైన తెలుగు పదాల విభజన & విభక్తుల స్పేసింగ్ నిబంధన (PROPER WORD SPACING & NO UGLY WORD CLUMPING):
+   - ఆంగ్ల/ఇతర భాషా పదాలు లేదా హలంత (పొల్లు/హల్లుతో ముగిసే) నామవాచకాలకు విభక్తులు (లో, పై, తో, కు, కి, వద్ద, నుండి, లోని) చేర్చినప్పుడు వాటిని వికృతంగా కలిపి ఒకే ముద్దగా రాయరాదు! తప్పనిసరిగా స్పేస్ ఇవ్వాలి:
+   - ❌ తప్పు (అసహజ కలయిక): "క్లాస్రూమ్లో", "స్క్రీన్పై", "బంజారాహిల్స్లో", "రోడ్పై", "ఫోన్లో", "ఫ్లైట్తో", "ప్రాజెక్ట్కు"
+   - ✅ ఒప్పు (సరైన స్పేసింగ్): "క్లాస్ రూమ్ లో", "స్క్రీన్ పై", "బంజారా హిల్స్ లో", "రోడ్ పై", "ఫోన్ లో", "ఫ్లైట్ తో", "ప్రాజెక్ట్ కు"
+
+11. చిత్రాలు & లోగోల కఠిన పరిశీలన (AI STRICT ZERO-LOGO & ZERO-WATERMARK DETECTION):
    - చిత్రం: ${extracted.image || 'None'}.
-   - కేవలం ఛానల్ లోగోలు, వెబ్‌సైట్ బ్రాండ్ ఐకాన్లు (ఉదా: కేవలం ETV/Eenadu/Sakshi లోగో ఐకాన్ మాత్రమే ఉన్నవి), ఖాళీ ప్లేస్‌హోల్డర్లు లేదా డిజిటల్ టైటిల్ కార్డ్ గ్రాఫిక్స్ మాత్రమే ఉన్న చిత్రాలనైతే "hasLogo": true, "mediaUrl": "" అని తిరస్కరించాలి.
-   - వార్తకు సంబంధించిన అసలైన వాస్తవ ఫోటో (వ్యక్తుల ఫోటోలు, సంఘటనలు, సమావేశాలు, క్రీడలు, సభలు, ప్రెస్ మీట్లు, నేర స్థలాలు మొదలైనవి) అయితే తప్పనిసరిగా "hasLogo": false, "mediaUrl": "${extracted.image || ''}" ఇవ్వాలి. (మూలలో చిన్న న్యూస్ వాటర్‌మార్క్ ఉన్నప్పటికీ అసలైన వార్తా చిత్రమైతే నిరభ్యంతరంగా ఆమోదించాలి).
+   - 🛑 అత్యంత కఠిన నిబంధన: ఫోటోపై ఎక్కడైనా సరే (మూలలోనైనా, మధ్యలోనైనా, పైనైనా, కిందైనా) టీవీ ఛానల్ లోగో, వెబ్‌సైట్ వాటర్‌మార్క్, న్యూస్ ఛానల్ మైక్ లోగో లేదా బ్రాండ్ టెక్స్ట్/గ్రాఫిక్స్ ఉంటే ఖచ్చితంగా "hasLogo": true, "mediaUrl": "" అని తిరస్కరించాలి! ఫోటో ఎంత బాగున్నా లోగో ఉంటే అస్సలు వాడరాదు!
+   - ✅ ఏ విధమైన లోగోలు, వాటర్‌మార్కులు, బ్రాండింగ్ రాతలు లేని 100% క్లీన్ ఫోటో (Clean unbranded real photograph) అయితే మాత్రమే "hasLogo": false, "mediaUrl": "${extracted.image || ''}" ఇవ్వాలి.
 
 12. లొకేషన్ & వర్గీకరణ:
    - location: తెలంగాణ/ఆంధ్రప్రదేశ్‌లోని జిల్లా పేరు (లేదా మండలం).
@@ -2265,10 +2316,14 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
 
                     // Media URL handling: Strict Logo Rejection & Smart Fallback
                     let chosenMediaUrl = null;
-                    if (parsed.hasLogo !== true && parsed.mediaUrl && parsed.mediaUrl.startsWith('http') && !parsed.mediaUrl.includes('"') && parsed.mediaUrl !== 'url' && !isGenericImage(parsed.mediaUrl)) {
-                        chosenMediaUrl = parsed.mediaUrl;
-                    } else if (extracted.image && extracted.image.startsWith('http') && !isGenericImage(extracted.image) && parsed.hasLogo !== true) {
-                        chosenMediaUrl = extracted.image;
+                    if (parsed.hasLogo !== true) {
+                        if (parsed.mediaUrl && parsed.mediaUrl.startsWith('http') && !parsed.mediaUrl.includes('"') && parsed.mediaUrl !== 'url' && !isGenericImage(parsed.mediaUrl)) {
+                            chosenMediaUrl = parsed.mediaUrl;
+                        } else if (extracted.image && extracted.image.startsWith('http') && !isGenericImage(extracted.image)) {
+                            chosenMediaUrl = extracted.image;
+                        }
+                    } else {
+                        console.log(`[IMAGE] 🛑 AI detected a logo/watermark on image for "${parsed.headline}". Rejecting image.`);
                     }
 
                     let finalMediaUrl = ALFA_NEWS_LOGO;
@@ -2395,33 +2450,42 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
         }
 
         if (batchCount > 0) {
-            await batch.commit();
+            await Promise.race([
+                batch.commit(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Batch commit timeout (15s)')), 15000))
+            ]);
             console.log(`[WEB] Committed ${batchCount} articles successfully for ${source.siteName}`);
         }
 
         // Update scraping_sources with metrics
-        await doc.ref.update(sanitizeFirestoreData({
-            lastStatus: 'active',
-            lastError: null,
-            lastFetchTime: admin.firestore.FieldValue.serverTimestamp(),
-            lastProcessedCount: processedCount,
-            lastFailedCount: failedCount,
-            processed24h: admin.firestore.FieldValue.increment(processedCount),
-            failed24h: admin.firestore.FieldValue.increment(failedCount),
-            totalProcessedCount: admin.firestore.FieldValue.increment(processedCount),
-            totalFailedCount: admin.firestore.FieldValue.increment(failedCount)
-        }));
+        await Promise.race([
+            doc.ref.update(sanitizeFirestoreData({
+                lastStatus: 'active',
+                lastError: null,
+                lastFetchTime: admin.firestore.FieldValue.serverTimestamp(),
+                lastProcessedCount: processedCount,
+                lastFailedCount: failedCount,
+                processed24h: admin.firestore.FieldValue.increment(processedCount),
+                failed24h: admin.firestore.FieldValue.increment(failedCount),
+                totalProcessedCount: admin.firestore.FieldValue.increment(processedCount),
+                totalFailedCount: admin.firestore.FieldValue.increment(failedCount)
+            })),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Update source stats timeout (10s)')), 10000))
+        ]).catch(err => console.warn(`Could not update stats for ${source.siteName}:`, err.message));
     } catch (error) {
         lastError = error.message;
         console.error(`Error processing ${source.siteName}:`, error.message);
         try {
-            await doc.ref.update(sanitizeFirestoreData({
-                lastStatus: 'error',
-                lastError: error.message,
-                lastFetchTime: admin.firestore.FieldValue.serverTimestamp(),
-                lastFailedCount: admin.firestore.FieldValue.increment(1),
-                failed24h: admin.firestore.FieldValue.increment(1)
-            }));
+            await Promise.race([
+                doc.ref.update(sanitizeFirestoreData({
+                    lastStatus: 'error',
+                    lastError: error.message,
+                    lastFetchTime: admin.firestore.FieldValue.serverTimestamp(),
+                    lastFailedCount: admin.firestore.FieldValue.increment(1),
+                    failed24h: admin.firestore.FieldValue.increment(1)
+                })),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Update source error stats timeout (10s)')), 10000))
+            ]).catch(() => {});
         } catch (e) {}
     }
 }
@@ -2459,6 +2523,11 @@ async function fetchTweetsSyndication(handle) {
             }
 
             const res = await axios.get(timelineUrl, config);
+            if (res.status === 407) {
+                console.warn(`[PROXY] ❌ Proxy Authentication Required (407). Quarantining proxy...`);
+                if (proxyUrl) proxyManager.markBadProxy(proxyUrl);
+                continue;
+            }
             if (res.status === 429) {
                 console.warn(`[X-SYNDICATION] Rate limit (429) on @${handle} ${proxyUrl ? 'via proxy' : 'direct'} (attempt ${attempt + 1}/${maxAttempts}). Rotating proxy...`);
                 await new Promise(r => setTimeout(r, 350));
@@ -2573,6 +2642,9 @@ async function fetchTweetsSyndication(handle) {
             console.log(`[X-SYNDICATION] Successfully extracted ${parsedTweets.length} live tweets for @${handle} ${proxyUrl ? `(via proxy)` : ''}`);
             return parsedTweets;
         } catch (e) {
+            if (proxyUrl && (e.message.includes('407') || e.message.includes('ECONNREFUSED') || e.message.includes('ETIMEDOUT'))) {
+                proxyManager.markBadProxy(proxyUrl);
+            }
             console.error(`[X-SYNDICATION] Attempt ${attempt + 1} failed for @${handle}:`, e.message);
             if (attempt === maxAttempts - 1) return [];
         }
@@ -3171,8 +3243,14 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
    - కన్నడ, హిందీ/దేవనాగరి, ఉర్దూ, తమిళం లేదా మలయాళం అక్షరాలు రాకూడదు.
    - ఇతర భాషల పేర్లను స్వచ్ఛమైన తెలుగులోకి లిప్యంతరీకరించాలి (ఉదా: 'నరేంద్ర మోదీ', 'రాహుల్ గాంధీ', 'నారా లోకేష్', 'ఒవైసీ', 'వక్ఫ్').
 
-13. మీడియా & లోగోల తిరస్కరణ:
-   - మీడియా కేవలం లోగో, ఛానల్ చిహ్నం లేదా బ్రాండ్ కార్డ్ అయితే mediaUrl ని "" గా ఉంచాలి.
+12.1 సరైన తెలుగు పదాల విభజన & విభక్తుల స్పేసింగ్ నిబంధన (PROPER WORD SPACING & NO UGLY WORD CLUMPING):
+   - ఆంగ్ల/ఇతర భాషా పదాలు లేదా హలంత (పొల్లు/హల్లుతో ముగిసే) నామవాచకాలకు విభక్తులు (లో, పై, తో, కు, కి, వద్ద, నుండి, లోని) చేర్చినప్పుడు వాటిని వికృతంగా కలిపి ఒకే ముద్దగా రాయరాదు! తప్పనిసరిగా స్పేస్ ఇవ్వాలి:
+   - ❌ తప్పు (అసహజ కలయిక): "క్లాస్రూమ్లో", "స్క్రీన్పై", "బంజారాహిల్స్లో", "రోడ్పై", "ఫోన్లో", "ఫ్లైట్తో", "ప్రాజెక్ట్కు"
+   - ✅ ఒప్పు (సరైన స్పేసింగ్): "క్లాస్ రూమ్ లో", "స్క్రీన్ పై", "బంజారా హిల్స్ లో", "రోడ్ పై", "ఫోన్ లో", "ఫ్లైట్ తో", "ప్రాజెక్ట్ కు"
+
+13. మీడియా & లోగోల కఠిన పరిశీలన (AI STRICT ZERO-LOGO & ZERO-WATERMARK DETECTION):
+   - 🛑 అత్యంత కఠిన నిబంధన: ఫోటోపై ఎక్కడైనా సరే (మూలలోనైనా, మధ్యలోనైనా, పైనైనా, కిందైనా) టీవీ ఛానల్ లోగో, వెబ్‌సైట్ వాటర్‌మార్క్, న్యూస్ మైక్ లోగో లేదా బ్రాండ్ టెక్స్ట్/గ్రాఫిక్స్ ఉంటే ఖచ్చితంగా "hasLogo": true, "mediaUrl": "" అని తిరస్కరించాలి! ఫోటో ఎంత బాగున్నా లోగో ఉంటే అస్సలు వాడరాదు!
+   - ✅ ఏ విధమైన లోగోలు, వాటర్‌మార్కులు, బ్రాండింగ్ రాతలు లేని 100% క్లీన్ ఫోటో (Clean unbranded real photograph) అయితే మాత్రమే mediaUrl ఇవ్వాలి.
 
 14. అవుట్‌పుట్ ఫార్మాట్ (Strict JSON only):
 {"isRelevant": true|false, "headline": "దశ 1: స్వచ్ఛమైన తెలుగు శీర్షిక (కచ్చితంగా తెలుగులో, 8-10 పదాలు, పదునైన జర్నలిస్టిక్ పంచ్ శైలి, అవసరమైతే ఏకైక కోలన్ హుక్ separator అనుమతి)", "contentTe": "దశ 1: స్వచ్ఛమైన తెలుగు సారాంశం (ఇన్‌పుట్ ఏ భాషలో ఉన్నా సరే ఇక్కడ 100% తెలుగు లిపిలోనే, 52-60 పదాలు, కనీసం 52 పదాలు, ఒకే పేరాగ్రాఫ్, ఆపాదింపుతో)", "fullStoryTe": "${hasSubstantialTweet ? "పూర్తి వార్త - సీనియర్ ఎడిటర్ కథనం (3-4 విడివిడి పేరాగ్రాఫ్‌లు \\\\n\\\\n తో, ఆపాదింపుతో)" : ""}", "headlineEn": "దశ 2: English Headline translated from Telugu headline (8-10 words)", "contentEn": "దశ 2: English Summary translated from contentTe (50-60 words)", "fullStoryEn": "${hasSubstantialTweet ? "English Full Story in 2-4 paragraphs separated by \\\\n\\\\n" : ""}", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "url", "mediaType": "image", "isWide": false}`;
@@ -3419,25 +3497,34 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
             }
 
             if (batchCount > 0) {
-                await batch.commit();
+                await Promise.race([
+                    batch.commit(),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Batch commit timeout (15s)')), 15000))
+                ]);
                 console.log(`[TWITTER] Committed ${batchCount} tweets for @${handle}`);
             }
         }
-        await doc.ref.update({
-            lastFetchTime: admin.firestore.FieldValue.serverTimestamp(),
-            lastStatus: 'active',
-            lastError: null,
-            totalProcessedCount: admin.firestore.FieldValue.increment(batchCount),
-            todayProcessedCount: admin.firestore.FieldValue.increment(batchCount)
-        }).catch(err => console.warn(`Could not update stats for @${handle}:`, err.message));
+        await Promise.race([
+            doc.ref.update({
+                lastFetchTime: admin.firestore.FieldValue.serverTimestamp(),
+                lastStatus: 'active',
+                lastError: null,
+                totalProcessedCount: admin.firestore.FieldValue.increment(batchCount),
+                todayProcessedCount: admin.firestore.FieldValue.increment(batchCount)
+            }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Update stats timeout (10s)')), 10000))
+        ]).catch(err => console.warn(`Could not update stats for @${handle}:`, err.message));
     } catch (error) {
         console.error(`Error processing Twitter @${handle}:`, error.message);
-        await doc.ref.update({
-            lastFetchTime: admin.firestore.FieldValue.serverTimestamp(),
-            lastStatus: 'error',
-            lastError: error.message,
-            totalFailedCount: admin.firestore.FieldValue.increment(1)
-        }).catch(() => {});
+        await Promise.race([
+            doc.ref.update({
+                lastFetchTime: admin.firestore.FieldValue.serverTimestamp(),
+                lastStatus: 'error',
+                lastError: error.message,
+                totalFailedCount: admin.firestore.FieldValue.increment(1)
+            }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Update error stats timeout (10s)')), 10000))
+        ]).catch(() => {});
     }
 }
 
@@ -3517,8 +3604,8 @@ async function runScraperQueue() {
         await resetDailyCountersIfNeeded();
         await prewarmScraperCache();
         
-        const webSnapshot = await db.collection('scraping_sources').where('isPaused', '==', false).get();
-        const webDocs = [...webSnapshot.docs];
+        const webSnapshot = await db.collection('scraping_sources').get();
+        const webDocs = webSnapshot.docs.filter(doc => doc.data().isPaused !== true);
 
         const twitterSnapshot = await db.collection('social_feeds').get();
         const twitterDocs = twitterSnapshot.docs.filter(doc => {

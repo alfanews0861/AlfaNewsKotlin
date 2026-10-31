@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { User } from '../../types';
 import { Search, Flame, User as UserIcon, LogIn, Menu, X, Smartphone, ChevronDown, MapPin } from 'lucide-react';
 import { AP_DISTRICTS, TS_DISTRICTS } from '../../utils/newsFilter';
@@ -52,6 +52,19 @@ export const PortalHeader: React.FC<PortalHeaderProps> = ({
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const navCategories = useMemo(() => {
+    const adminLabel = currentUser?.role === 'ADMIN'
+      ? 'అడ్మిన్'
+      : (currentUser?.role && ['STAFF_REPORTER', 'REGIONAL_INCHARGE', 'REPORTER'].includes(currentUser.role))
+        ? 'రిపోర్టర్ డెస్క్'
+        : 'అడ్మిన్';
+
+    return [
+      ...CATEGORIES,
+      { id: 'admin', label: adminLabel },
+    ];
+  }, [currentUser]);
+
   useEffect(() => {
     const days = ['ఆదివారం', 'సోమవారం', 'మంగళవారం', 'బుధవారం', 'గురువారం', 'శుక్రవారం', 'శనివారం'];
     const months = ['జనవరి', 'ఫిబ్రవరి', 'మార్చి', 'ఏప్రిల్', 'మే', 'జూన్', 'జూలై', 'ఆగస్టు', 'సెప్టెంబర్', 'అక్టోబర్', 'నవంబర్', 'డిసెంబర్'];
@@ -75,6 +88,12 @@ export const PortalHeader: React.FC<PortalHeaderProps> = ({
   }, []);
 
   const handleCategoryClick = (catId: string) => {
+    if (catId === 'admin') {
+      onAdminClick();
+      setDistrictDropdownOpen(false);
+      setMobileMenuOpen(false);
+      return;
+    }
     if (catId === 'classifieds') {
       onSelectCategory('classifieds');
     } else if (catId === 'జిల్లా వార్తలు' || catId === 'districts_menu') {
@@ -238,7 +257,7 @@ export const PortalHeader: React.FC<PortalHeaderProps> = ({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between">
           {/* Categories List */}
           <div className="flex items-center space-x-1 sm:space-x-1.5 overflow-x-auto no-scrollbar py-1">
-            {CATEGORIES.map((cat) => {
+            {navCategories.map((cat) => {
               const isSelected = selectedCategory === cat.id || (cat.hasDropdown && (AP_DISTRICTS.includes(selectedCategory) || TS_DISTRICTS.includes(selectedCategory)));
               
               if (cat.hasDropdown) {
@@ -400,7 +419,7 @@ export const PortalHeader: React.FC<PortalHeaderProps> = ({
 
           {/* Mobile Categories Grid */}
           <div className="space-y-2 font-ramabhadra text-sm">
-            {CATEGORIES.map((cat) => {
+            {navCategories.map((cat) => {
               if (cat.hasDropdown) {
                 return (
                   <div key={cat.id} className="border border-slate-800 rounded-xl overflow-hidden">

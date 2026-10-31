@@ -52,7 +52,7 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
 
             if (shouldFetchAll) {
                 // 🚀 ADMIN VIEW: తాజా గ్లోబల్ వార్తలు (Live latest news from all reporters ordered by timestamp desc)
-                const q = query(newsCollectionRef, orderBy('timestamp', 'desc'), limit(100));
+                const q = query(newsCollectionRef, orderBy('timestamp', 'desc'), limit(50));
                 const snap = await getDocs(q);
                 const fetchedPosts = snap.docs.map((docItem: any) => {
                     const data = docItem.data();
@@ -82,11 +82,11 @@ const ManagePostsPage: React.FC<ManagePostsPageProps> = ({ onEditPost, currentUs
 
                 const fetchWithFallback = async (field: string, value: string) => {
                     try {
-                        const qOrdered = query(newsCollectionRef, where(field, '==', value), orderBy('timestamp', 'desc'), limit(100));
+                        const qOrdered = query(newsCollectionRef, where(field, '==', value), orderBy('timestamp', 'desc'), limit(50));
                         return await getDocs(qOrdered);
                     } catch (e) {
                         try {
-                            const qSimple = query(newsCollectionRef, where(field, '==', value), limit(100));
+                            const qSimple = query(newsCollectionRef, where(field, '==', value), limit(50));
                             return await getDocs(qSimple);
                         } catch (err) {
                             return { docs: [] };
