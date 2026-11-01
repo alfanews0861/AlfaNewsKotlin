@@ -9,9 +9,10 @@ import SpecialStoriesSection from './SpecialStoriesSection';
 import CategorySection from './CategorySection';
 import Sidebar from './Sidebar';
 import ArticleViewPage from './ArticleViewPage';
+import PortalAdBanner from './PortalAdBanner';
 import PortalFooter from './PortalFooter';
 import Classifieds from '../Classifieds';
-import { Search, Loader2, MapPin, ArrowLeft } from 'lucide-react';
+import { Search, Loader2, MapPin, ArrowLeft, Hash } from 'lucide-react';
 import { formatRelativeTimeTelugu, FALLBACK_NEWS_IMAGE } from './portalUtils';
 import {
   filterPostsByCategory,
@@ -279,6 +280,20 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
           console.warn('Error fetching deep-linked post:', err);
         });
       }
+    } else if (currentRoute.type === 'topic') {
+      if (selectedPost) setSelectedPost(null);
+      setSelectedCategory(currentRoute.topic);
+      updatePageSeo({
+        title: `${currentRoute.topic} తాజా వార్తలు, కథనాలు`,
+        description: `${currentRoute.topic} కు సంబంధించిన సమగ్ర తాజా వార్తలు, బ్రేకింగ్ అప్‌డేట్స్ మరియు విశ్లేషణలు - ఆల్ఫా న్యూస్ తెలుగు.`,
+        url: `https://alfanews.app/topic/${encodeURIComponent(currentRoute.topic)}`,
+        type: 'website',
+        category: currentRoute.topic,
+        breadcrumbs: [
+          { name: 'హోమ్', url: 'https://alfanews.app/' },
+          { name: `#${currentRoute.topic}`, url: `https://alfanews.app/topic/${encodeURIComponent(currentRoute.topic)}` },
+        ],
+      });
     } else if (currentRoute.type === 'category') {
       if (selectedPost) setSelectedPost(null);
       setSelectedCategory(currentRoute.category);
@@ -753,7 +768,7 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2 text-xs text-red-600 font-ramabhadra">
-                    <span>వర్గం</span>
+                    <span>{currentRoute.type === 'topic' ? 'టాపిక్ / ట్యాగ్ వార్తలు' : 'వర్గం'}</span>
                     {(districtState || isDistrictCategory) && (
                       <>
                         <span>•</span>
@@ -762,8 +777,12 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                     )}
                   </div>
                   <h1 className="font-ramabhadra text-2xl sm:text-3xl text-gray-950 mt-1 flex items-center gap-2">
-                    {(districtState || isDistrictCategory) && <MapPin className="w-6 h-6 text-red-600" />}
-                    <span>{selectedCategory}</span>
+                    {currentRoute.type === 'topic' ? (
+                      <Hash className="w-6 h-6 text-red-600 shrink-0" />
+                    ) : (
+                      (districtState || isDistrictCategory) && <MapPin className="w-6 h-6 text-red-600" />
+                    )}
+                    <span>{currentRoute.type === 'topic' ? `#${selectedCategory}` : selectedCategory}</span>
                   </h1>
                   <p className="text-xs text-gray-500 mt-1">
                     మొత్తం {categoryPosts.length} వార్తలు అందుబాటులో ఉన్నాయి.
@@ -887,6 +906,15 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                     })}
                   </div>
 
+                    {categoryPosts.length > 0 && (
+                      <PortalAdBanner
+                        slot="7964147976"
+                        format="auto"
+                        variant="in-feed"
+                        className="my-6"
+                      />
+                    )}
+
                     {categoryPosts.length > 0 && hasMoreCategory && (
                       <div className="mt-8 text-center">
                         <button
@@ -917,7 +945,11 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                       </div>
                     ) : (
                       <>
-                        <p className="font-ramabhadra text-base">ఈ వర్గంలో వార్తలు ఏవీ లేవు.</p>
+                        <p className="font-ramabhadra text-base">
+                          {currentRoute.type === 'topic'
+                            ? `'#${selectedCategory}' టాపిక్‌కు సంబంధించి ప్రస్తుతానికి వార్తలు అందుబాటులో లేవు.`
+                            : 'ఈ వర్గంలో వార్తలు ఏవీ లేవు.'}
+                        </p>
                         <button
                           onClick={handleGoHome}
                           className="mt-3 text-sm text-red-600 font-ramabhadra hover:underline"
@@ -976,6 +1008,14 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
                   posts={tsPosts}
                   onSelectPost={handleSelectPost}
                   onViewMore={handleSelectCategory}
+                />
+
+                {/* Homepage In-Feed Responsive AdSense Banner */}
+                <PortalAdBanner
+                  slot="7964147976"
+                  format="auto"
+                  variant="in-feed"
+                  className="my-4"
                 />
 
                 {/* రాజకీయం & జాతీయం */}

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { NewsPost } from '../../types';
 import { ChevronLeft, ChevronRight, Clock, MapPin, Sparkles } from 'lucide-react';
 import { formatRelativeTimeTelugu, FALLBACK_NEWS_IMAGE } from './portalUtils';
+import PortalAdBanner from './PortalAdBanner';
 
 interface HeadlinesSliderProps {
   posts: NewsPost[];
@@ -48,13 +49,14 @@ export const HeadlinesSlider: React.FC<HeadlinesSliderProps> = ({ posts, onSelec
   return (
     <div className="w-full mb-8">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* LEFT / MAIN: Top Headlines Slider (8 Cols on Desktop) */}
-        <div 
-          className="lg:col-span-8 relative bg-slate-900 rounded-2xl overflow-hidden shadow-lg group cursor-pointer aspect-[16/10] sm:aspect-[16/9] flex flex-col justify-end"
-          onMouseEnter={() => setIsPaused(true)}
-          onMouseLeave={() => setIsPaused(false)}
-          onClick={() => onSelectPost(currentSlide)}
-        >
+        {/* LEFT / MAIN: Top Headlines Slider & Under-Slider Ad (8 Cols on Desktop) */}
+        <div className="lg:col-span-8 flex flex-col justify-between gap-4">
+          <div 
+            className="relative bg-slate-900 rounded-2xl overflow-hidden shadow-lg group cursor-pointer aspect-[16/10] sm:aspect-[16/9] flex flex-col justify-end w-full"
+            onMouseEnter={() => setIsPaused(true)}
+            onMouseLeave={() => setIsPaused(false)}
+            onClick={() => onSelectPost(currentSlide)}
+          >
           {/* Slide Background Image */}
           <div className="absolute inset-0">
             <img
@@ -132,6 +134,14 @@ export const HeadlinesSlider: React.FC<HeadlinesSliderProps> = ({ posts, onSelec
             </div>
           </div>
         </div>
+
+        {/* AdSense Ad Banner Directly Under Top Slider */}
+        <PortalAdBanner
+          slot="7964147976"
+          format="auto"
+          variant="under-slider"
+        />
+      </div>
 
         {/* RIGHT: Top Stories / Side Cards (4 Cols on Desktop) */}
         <div className="lg:col-span-4 flex flex-col gap-4">

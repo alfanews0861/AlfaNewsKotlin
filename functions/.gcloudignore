@@ -13,3 +13,4 @@ firebase-debug*
 .git
 .cache
 assets/*.mp4
+**/*.mp4

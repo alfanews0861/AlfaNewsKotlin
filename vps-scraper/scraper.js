@@ -2218,8 +2218,14 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
    - refinedCategory: Exactly one of [Politics, Crime, Sports, Cinema, Business, Health, Education, Technology, Agriculture, Local, National, International].
    - storyFingerprint: EXACTLY 3-4 words joined by hyphens in English (e.g. jagan-fires-alliance-govt).
 
+12.1 కఠిన జర్నలిస్టిక్ నాణ్యత & ప్రజా ప్రాముఖ్యత స్కోర్ (STRICT AI EDITORIAL QUALITY SCORE: 0 to 10):
+   - "qualityScore": 0.0 నుండి 10.0 వరకు కఠినమైన జర్నలిస్టిక్ విలువను కేటాయించండి:
+     * 9.0 - 10.0 (హై ఇంపాక్ట్ / మోస్ట్ ఇంపార్టెంట్): భారీ ప్రజా ప్రభావం ఉన్న ప్రభుత్వ పాలసీలు, చారిత్రక తీర్పులు, కీలక పరీక్షలు/ఉద్యోగాలు, పెద్ద విపత్తులు/ప్రమాదాలు, ప్రముఖ జాతీయ/అంతర్జాతీయ పరిణామాలు, సంచలన పరిశోధనాత్మక కథనాలు, మెగా సినిమా మైలురాళ్లు.
+     * 6.0 - 8.0 (ప్రామాణిక వార్త): సాధారణ మంత్రుల/అధికారుల ప్రకటనలు, నియోజకవర్గ అభివృద్ధి పనులు, సాధారణ స్పోర్ట్స్ మ్యాచ్ రిజల్ట్స్, మంచి వ్యక్తిగత సాధనలు/ఇంటర్వ్యూలు.
+     * 1.0 - 4.0 (ఫిల్లర్ / గాసిప్ / తక్కువ విలువైన సమాచారం): రొటీన్ ఫోటో షూట్లు, సోషల్ మీడియా చిల్లర గొడవలు, సినిమా పుకార్లు/గాసిప్పులు, తక్కువ ప్రాముఖ్యత ఉన్న ఫిల్లర్ కంటెంట్.
+
 13. అవుట్‌పుట్ ఫార్మాట్ (Strict JSON only):
-{"isRelevant": true|false, "headline": "దశ 1: స్వచ్ఛమైన తెలుగు శీర్షిక (కచ్చితంగా తెలుగులో, 8-10 పదాలు, పదునైన జర్నలిస్టిక్ పంచ్ శైలి, అవసరమైతే ఏకైక కోలన్ హుక్ separator అనుమతి)", "contentTe": "దశ 1: స్వచ్ఛమైన తెలుగు సారాంశం (ఇన్‌పుట్ ఏ భాషలో ఉన్నా సరే ఇక్కడ 100% తెలుగు లిపిలోనే, 52-60 పదాలు, కనీసం 52 పదాలు, ఒకే పేరాగ్రాఫ్, మొదటి వాక్యంలో ఆపాదింపుతో)", "fullStoryTe": "${hasSubstantialSource ? "పూర్తి వార్త - సీనియర్ ఎడిటర్ కథనం (3-4 విడివిడి పేరాగ్రాఫ్‌లు \\\\n\\\\n తో)" : ""}", "headlineEn": "దశ 2: English Headline translated from Telugu headline (8-10 words)", "contentEn": "దశ 2: English Summary translated from contentTe (50-60 words)", "fullStoryEn": "${hasSubstantialSource ? "English Full Story in 3-4 paragraphs separated by \\\\n\\\\n" : ""}", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "hasLogo": false, "mediaUrl": "${extracted.image || ''}", "mediaType": "image|video", "isWide": true|false}`;
+{"isRelevant": true|false, "qualityScore": 8.5, "headline": "దశ 1: స్వచ్ఛమైన తెలుగు శీర్షిక (కచ్చితంగా తెలుగులో, 8-10 పదాలు, పదునైన జర్నలిస్టిక్ పంచ్ శైలి, అవసరమైతే ఏకైక కోలన్ హుక్ separator అనుమతి)", "contentTe": "దశ 1: స్వచ్ఛమైన తెలుగు సారాంశం (ఇన్‌పుట్ ఏ భాషలో ఉన్నా సరే ఇక్కడ 100% తెలుగు లిపిలోనే, 52-60 పదాలు, కనీసం 52 పదాలు, ఒకే పేరాగ్రాఫ్, మొదటి వాక్యంలో ఆపాదింపుతో)", "fullStoryTe": "${hasSubstantialSource ? "పూర్తి వార్త - సీనియర్ ఎడిటర్ కథనం (3-4 విడివిడి పేరాగ్రాఫ్‌లు \\\\n\\\\n తో)" : ""}", "headlineEn": "దశ 2: English Headline translated from Telugu headline (8-10 words)", "contentEn": "దశ 2: English Summary translated from contentTe (50-60 words)", "fullStoryEn": "${hasSubstantialSource ? "English Full Story in 3-4 paragraphs separated by \\\\n\\\\n" : ""}", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "hasLogo": false, "mediaUrl": "${extracted.image || ''}", "mediaType": "image|video", "isWide": true|false}`;
 
                 const aiResult = await processWithGemini(extracted.body, prompt, extracted.image);
                 if (!aiResult) {
@@ -2414,6 +2420,7 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
                         createdAt: admin.firestore.FieldValue.serverTimestamp(),
                         status: 'published',
                         approved: true,
+                        qualityScore: (typeof parsed.qualityScore === 'number' && !isNaN(parsed.qualityScore)) ? Math.max(0, Math.min(10, Math.round(parsed.qualityScore * 10) / 10)) : 5.0,
                         viewCount: 0,
                         likes: Math.floor(Math.random() * 150) + 50,
                         comments: 0,
@@ -3252,8 +3259,14 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
    - 🛑 అత్యంత కఠిన నిబంధన: ఫోటోపై ఎక్కడైనా సరే (మూలలోనైనా, మధ్యలోనైనా, పైనైనా, కిందైనా) టీవీ ఛానల్ లోగో, వెబ్‌సైట్ వాటర్‌మార్క్, న్యూస్ మైక్ లోగో లేదా బ్రాండ్ టెక్స్ట్/గ్రాఫిక్స్ ఉంటే ఖచ్చితంగా "hasLogo": true, "mediaUrl": "" అని తిరస్కరించాలి! ఫోటో ఎంత బాగున్నా లోగో ఉంటే అస్సలు వాడరాదు!
    - ✅ ఏ విధమైన లోగోలు, వాటర్‌మార్కులు, బ్రాండింగ్ రాతలు లేని 100% క్లీన్ ఫోటో (Clean unbranded real photograph) అయితే మాత్రమే mediaUrl ఇవ్వాలి.
 
+13.1 కఠిన జర్నలిస్టిక్ నాణ్యత & ప్రజా ప్రాముఖ్యత స్కోర్ (STRICT AI EDITORIAL QUALITY SCORE: 0 to 10):
+   - "qualityScore": 0.0 నుండి 10.0 వరకు కఠినమైన జర్నలిస్టిక్ విలువను కేటాయించండి:
+     * 9.0 - 10.0 (హై ఇంపాక్ట్ / మోస్ట్ ఇంపార్టెంట్): కీలక ప్రభుత్వ పాలసీలు, చారిత్రక తీర్పులు, కీలక పరీక్షలు/ఉద్యోగాలు, పెద్ద విపత్తులు/ప్రమాదాలు, ప్రముఖ జాతీయ/అంతర్జాతీయ పరిణామాలు, సంచలన రాజకీయ లేదా పరిశోధనాత్మక ప్రకటనలు.
+     * 6.0 - 8.0 (ప్రామాణిక వార్త): సాధారణ మంత్రుల/నేతల ప్రకటనలు, నియోజకవర్గ సమస్యలపై స్పందనలు, సాధారణ మ్యాచ్ అప్‌డేట్స్, మంచి వివరణలు.
+     * 1.0 - 4.0 (ఫిల్లర్ / గాసిప్ / తక్కువ విలువైన సమాచారం): రొటీన్ పొలిటికల్ ట్రోలింగ్, సోషల్ మీడియా చిల్లర గొడవలు, సినిమా పుకార్లు/గాసిప్పులు, తక్కువ ప్రాముఖ్యత ఉన్న ఫిల్లర్ కంటెంట్.
+
 14. అవుట్‌పుట్ ఫార్మాట్ (Strict JSON only):
-{"isRelevant": true|false, "headline": "దశ 1: స్వచ్ఛమైన తెలుగు శీర్షిక (కచ్చితంగా తెలుగులో, 8-10 పదాలు, పదునైన జర్నలిస్టిక్ పంచ్ శైలి, అవసరమైతే ఏకైక కోలన్ హుక్ separator అనుమతి)", "contentTe": "దశ 1: స్వచ్ఛమైన తెలుగు సారాంశం (ఇన్‌పుట్ ఏ భాషలో ఉన్నా సరే ఇక్కడ 100% తెలుగు లిపిలోనే, 52-60 పదాలు, కనీసం 52 పదాలు, ఒకే పేరాగ్రాఫ్, ఆపాదింపుతో)", "fullStoryTe": "${hasSubstantialTweet ? "పూర్తి వార్త - సీనియర్ ఎడిటర్ కథనం (3-4 విడివిడి పేరాగ్రాఫ్‌లు \\\\n\\\\n తో, ఆపాదింపుతో)" : ""}", "headlineEn": "దశ 2: English Headline translated from Telugu headline (8-10 words)", "contentEn": "దశ 2: English Summary translated from contentTe (50-60 words)", "fullStoryEn": "${hasSubstantialTweet ? "English Full Story in 2-4 paragraphs separated by \\\\n\\\\n" : ""}", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "url", "mediaType": "image", "isWide": false}`;
+{"isRelevant": true|false, "qualityScore": 8.5, "headline": "దశ 1: స్వచ్ఛమైన తెలుగు శీర్షిక (కచ్చితంగా తెలుగులో, 8-10 పదాలు, పదునైన జర్నలిస్టిక్ పంచ్ శైలి, అవసరమైతే ఏకైక కోలన్ హుక్ separator అనుమతి)", "contentTe": "దశ 1: స్వచ్ఛమైన తెలుగు సారాంశం (ఇన్‌పుట్ ఏ భాషలో ఉన్నా సరే ఇక్కడ 100% తెలుగు లిపిలోనే, 52-60 పదాలు, కనీసం 52 పదాలు, ఒకే పేరాగ్రాఫ్, ఆపాదింపుతో)", "fullStoryTe": "${hasSubstantialTweet ? "పూర్తి వార్త - సీనియర్ ఎడిటర్ కథనం (3-4 విడివిడి పేరాగ్రాఫ్‌లు \\\\n\\\\n తో, ఆపాదింపుతో)" : ""}", "headlineEn": "దశ 2: English Headline translated from Telugu headline (8-10 words)", "contentEn": "దశ 2: English Summary translated from contentTe (50-60 words)", "fullStoryEn": "${hasSubstantialTweet ? "English Full Story in 2-4 paragraphs separated by \\\\n\\\\n" : ""}", "location": "Location", "storyFingerprint": "subject-action-words", "refinedCategory": "Category", "tags": [], "entities": {"people":[], "organizations":[], "locations":[]}, "mediaUrl": "url", "mediaType": "image", "isWide": false}`;
 
                 const markItemUrls = async (tItem) => {
                     const urls = tItem.allUrls && tItem.allUrls.length > 0 ? tItem.allUrls : [tItem.url];
@@ -3466,6 +3479,7 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
                         createdAt: admin.firestore.FieldValue.serverTimestamp(),
                         status: 'published',
                         approved: true,
+                        qualityScore: (typeof parsed.qualityScore === 'number' && !isNaN(parsed.qualityScore)) ? Math.max(0, Math.min(10, Math.round(parsed.qualityScore * 10) / 10)) : 5.0,
                         viewCount: 0,
                         likes: Math.floor(Math.random() * 150) + 50,
                         comments: 0,

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { NewsPost } from '../../types';
 import { CloudSun, Wind, Droplets, Image as ImageIcon, Flame, Smartphone, Share2, ThumbsUp, CheckCircle, ExternalLink, HelpCircle } from 'lucide-react';
 import { formatRelativeTimeTelugu } from './portalUtils';
+import PortalAdBanner from './PortalAdBanner';
 
 interface SidebarProps {
   posts: NewsPost[];
@@ -351,24 +352,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ posts, onSelectPost }) => {
         </a>
       </div>
 
-      {/* 6. SIDEBAR SPONSORED AD (300x250) */}
-      <div className="w-full h-[250px] bg-gray-50 border border-gray-200 rounded-2xl flex flex-col items-center justify-center p-4 text-center text-gray-400">
-        <span className="text-[10px] font-poppins uppercase tracking-widest text-gray-400 border border-gray-300 px-2 py-0.5 rounded mb-2">
-          SPONSORED
-        </span>
-        <p className="font-ramabhadra text-sm text-gray-700">
-          మీ వ్యాపారాన్ని అభివృద్ధి చేసుకోండి
-        </p>
-        <p className="font-mallanna text-xs text-gray-500 mt-1 mb-3">
-          ఆల్ఫా న్యూస్ లో ప్రకటనల కోసం నేడే సంప్రదించండి.
-        </p>
-        <a
-          href="mailto:contact@alfanews.app?subject=Sidebar%20Advertisement%20Enquiry"
-          className="text-xs bg-red-600 hover:bg-red-700 text-white font-ramabhadra px-3 py-1.5 rounded-lg shadow"
-        >
-          ప్రకటన ఇవ్వండి
-        </a>
-      </div>
+      {/* 6. SIDEBAR ADSENSE AD (300x250) */}
+      <PortalAdBanner
+        slot="9154425628"
+        format="rectangle"
+        variant="sidebar"
+      />
 
       {/* CARTOON FULL LIGHTBOX MODAL */}
       {cartoonModalOpen && (

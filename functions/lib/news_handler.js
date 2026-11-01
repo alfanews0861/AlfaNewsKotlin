@@ -457,6 +457,15 @@ function normalizeSingleStory(aiRes, actualPostData) {
         ])).filter(c => !!c && c !== "OTHER");
     }
     const isPersonalPraise = aiRes.qualitySignals?.isPersonalPraise === true;
+    let qualityScore = 5.0;
+    if (typeof aiRes.qualityScore === "number" && !isNaN(aiRes.qualityScore)) {
+        qualityScore = Math.max(0, Math.min(10, Math.round(aiRes.qualityScore * 10) / 10));
+    }
+    else if (aiRes.qualitySignals?.publicInterestScore !== undefined) {
+        const pub = Number(aiRes.qualitySignals.publicInterestScore) || 0.5;
+        const inv = Number(aiRes.qualitySignals.investigativeScore) || 0.0;
+        qualityScore = Math.max(0, Math.min(10, Math.round((pub * 6 + inv * 2 + 2) * 10) / 10));
+    }
     return {
         headline: { telugu: finalHeadline || "", english: finalHeadlineEn || "" },
         content: { telugu: finalContent || "", english: finalContentEn || "" },
@@ -475,6 +484,7 @@ function normalizeSingleStory(aiRes, actualPostData) {
         tone: isPersonalPraise ? "SOFT" : (aiRes.tone || "NORMAL"),
         vocalContent: aiRes.vocalContent || finalContent || "",
         qualitySignals: aiRes.qualitySignals || { biasScore: 0.5, publicInterestScore: 0.5, investigativeScore: 0, isPersonalPraise: false },
+        qualityScore: qualityScore,
         storyFingerprint: aiRes.storyFingerprint || `gen_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         isBreaking: !isPersonalPraise && aiRes.isBreaking === true,
         notificationWorthy: !isPersonalPraise && aiRes.notificationWorthy === true,
@@ -666,6 +676,7 @@ async function performAIProcessing(headline, content, actualPostData, recentStor
                             vocalContent: content,
                             qualitySignals: { biasScore: 0.5, publicInterestScore: 0.5, investigativeScore: 0, isPersonalPraise: false },
                             storyFingerprint: `dup_${recent.id}`,
+                            qualityScore: 5.0,
                             isBreaking: false,
                             notificationWorthy: false,
                             isGraphicOrBloody: false,
@@ -706,6 +717,7 @@ async function performAIProcessing(headline, content, actualPostData, recentStor
             tags: { type: genai_1.Type.ARRAY, items: { type: genai_1.Type.STRING } },
             isBreaking: { type: genai_1.Type.BOOLEAN },
             notificationWorthy: { type: genai_1.Type.BOOLEAN },
+            qualityScore: { type: genai_1.Type.NUMBER, description: "Strict journalistic quality score from 0.0 to 10.0 based on public impact and substance." },
             qualitySignals: {
                 type: genai_1.Type.OBJECT,
                 properties: {
@@ -842,6 +854,10 @@ NOTIFICATION INSTRUCTIONS (CRITICAL - STRICT RELEVANCE & URGENCY):
   * If isBreaking is true: Generate a crisp, urgent, 100% FACTUAL Telugu title stating WHAT happened and WHERE (strictly 6-9 words as ONE continuous flowing sentence without colons or double dots). NEVER use clickbait questions or mystery teasers for tragic/breaking news!
   * If notificationWorthy is true (and NOT breaking): Generate an engaging, intriguing Telugu curiosity hook title (strictly 6-9 words as ONE continuous flowing sentence without colons or double dots).
   * If neither, leave as empty string "".
+- qualityScore: Assign a strict journalistic quality score between 0.0 and 10.0:
+  * 9.0 - 10.0: Major public impact, key policy/budget decision, major emergency/disaster, exclusive investigative report.
+  * 6.0 - 8.0: Standard civic/regional updates, administrative works, legitimate local community matters.
+  * 1.0 - 4.0: Routine photo-ops, personal flattery/praise, low-substance filler, minor trivial disputes.
 - tone options: BREAKING | URGENT | IMPORTANT | NORMAL | SOFT
   * BREAKING: Only for genuine high-magnitude breaking news matching isBreaking above.
   * URGENT: Only for time-sensitive public alerts (e.g. disaster warning, exam deadline).

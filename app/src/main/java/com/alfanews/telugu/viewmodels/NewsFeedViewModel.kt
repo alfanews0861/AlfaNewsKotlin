@@ -311,6 +311,90 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
         // 4. Non-district news (General, National, International, Cinema, Sports, Politics, Business, Education, Tech, Crime, Health, Devotional, Lifestyle, etc.)
         return true
+    }
+
+    /**
+     * 🏷️ CATEGORY NORMALIZATION FOR ANTI-CLUSTERING:
+     * Maps diverse raw category strings (both Telugu & English) into standardized keys.
+     */
+    private fun normalizeCategoryKey(raw: String?): String {
+        if (raw.isNullOrBlank()) return "general"
+        val s = raw.trim().lowercase()
+        return when {
+            s.contains("క్రీడలు") || s.contains("స్పోర్ట్స్") || s.contains("sports") || s.contains("cricket") || s.contains("క్రికెట్") -> "sports"
+            s.contains("సినిమా") || s.contains("వినోదం") || s.contains("cinema") || s.contains("entertainment") || s.contains("movies") || s.contains("ఓటీటీ") || s.contains("ott") -> "cinema"
+            s.contains("రాజకీయం") || s.contains("రాజకీయాలు") || s.contains("politics") || s.contains("political") -> "politics"
+            s.contains("క్రైమ్") || s.contains("నేరాలు") || s.contains("crime") || s.contains("పోలీస్") || s.contains("police") -> "crime"
+            s.contains("వ్యాపారం") || s.contains("బిజినెస్") || s.contains("business") || s.contains("మార్కెట్") || s.contains("బంగారం") -> "business"
+            s.contains("టెక్నాలజీ") || s.contains("technology") || s.contains("tech") -> "technology"
+            s.contains("ఆరోగ్యం") || s.contains("health") -> "health"
+            s.contains("విద్య") || s.contains("education") || s.contains("ఉద్యోగాలు") || s.contains("jobs") -> "education"
+            s.contains("భక్తి") || s.contains("ఆధ్యాత్మికం") || s.contains("devotional") -> "devotional"
+            s.contains("వ్యవసాయం") || s.contains("agriculture") -> "agriculture"
+            s.contains("జాతీయం") || s.contains("national") || s.contains("భారతదేశం") -> "national"
+            s.contains("అంతర్జాతీయం") || s.contains("international") || s.contains("ప్రపంచం") || s.contains("world") -> "international"
+            s.contains("జీవనశైలి") || s.contains("లైఫ్‌స్టైల్") || s.contains("lifestyle") -> "lifestyle"
+            s.contains("జిల్లా") || s.contains("స్థానిక") || s.contains("local") -> "local"
+            else -> s
+        }
+    }
+
+    private fun getPostCategoryTag(post: NewsPost): String {
+        if (post.type == "greeting" || post.type == "history" || post.type == "cartoon" || post.type == "survey") {
+            return post.type ?: "special"
+        }
+        val postDist = post.district?.trim()
+        val hasLocalCategory = post.category?.trim() == "జిల్లా వార్త" || 
+                               post.category?.trim() == "స్థానిక" || 
+                               post.categories.any { it.trim() == "జిల్లా వార్త" || it.trim() == "Local" || it.trim() == "స్థానిక" }
+        val isSpecificDistrict = !postDist.isNullOrBlank() && Constants.isSpecificDistrict(postDist)
+        if (hasLocalCategory || isSpecificDistrict) {
+            return "local_district"
+        }
+        val rawCategory = AnalyticsService.extractPrimaryCategory(post)
+        return normalizeCategoryKey(rawCategory)
+    }
+
+    /**
+     * 🛡️ IN-MEMORY CATEGORY DIVERSITY / ANTI-CLUSTERING (< 0.1ms):
+     * Re-orders posts in memory so that no single category appears more than
+     * [maxConsecutive] times back-to-back. If the limit is reached, it looks ahead for the
+     * next post with a different category to interleave it, ensuring a rich, diverse reading experience.
+     */
+    private fun applyCategoryDiversity(posts: List<NewsPost>, maxConsecutive: Int = 1): List<NewsPost> {
+        if (posts.size <= 2) return posts
+
+        val remaining = posts.toMutableList()
+        val result = ArrayList<NewsPost>(posts.size)
+        var lastCategory = ""
+        var consecutiveCount = 0
+
+        while (remaining.isNotEmpty()) {
+            var candidateIdx = -1
+            for (i in 0 until remaining.size) {
+                val cat = getPostCategoryTag(remaining[i])
+                if (cat.isBlank() || cat != lastCategory || consecutiveCount < maxConsecutive) {
+                    candidateIdx = i
+                    break
+                }
+            }
+
+            if (candidateIdx == -1) {
+                candidateIdx = 0
+            }
+
+            val chosen = remaining.removeAt(candidateIdx)
+            val chosenCat = getPostCategoryTag(chosen)
+            if (chosenCat.isNotBlank() && chosenCat == lastCategory) {
+                consecutiveCount++
+            } else {
+                lastCategory = chosenCat
+                consecutiveCount = 1
+            }
+            result.add(chosen)
+        }
+
+        return result
     } 
 
     fun loadNews(
@@ -384,24 +468,26 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
                 val newsRef = FirebaseService.db.collection("news")
 
-                // ⚡ SERVER FAST PATH (< 300ms direct query): Top 5 fresh approved news on screen instantly without cache
+                // ⚡ SERVER FAST PATH (< 300ms direct query): Top 3 fresh approved news on screen instantly without cache
                 // Runs on cold start (_news empty) AND on stale resume/forceRefresh so fresh news hits screen in < 300ms
                 if (_news.value.isEmpty() || forceRefresh) {
                     try {
                         val fastSnap = withTimeoutOrNull(3500L) {
                             newsRef.whereEqualTo("approved", true)
                                 .orderBy("timestamp", Query.Direction.DESCENDING)
-                                .limit(8)
+                                .limit(10)
                                 .get().await()
                         }
                         if (fastSnap != null && !fastSnap.isEmpty) {
                             val fastPosts = withContext(Dispatchers.Default) {
-                                fastSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
+                                val allowed = fastSnap.documents.mapNotNull { mapDocumentToNewsPost(it) }
                                     .filter { isPostAllowedForHomeFeed(it, district, userState) }
+                                    .sortedWith(compareByDescending<NewsPost> { it.qualityScore }.thenByDescending { it.timestamp })
+                                applyCategoryDiversity(allowed, maxConsecutive = 1)
                             }
                             if (fastPosts.isNotEmpty()) {
                                 val pin = pinnedPost ?: initialTargetPost
-                                val targetAndFast = (listOfNotNull(pin) + fastPosts.take(5)).distinctBy { it.id }
+                                val targetAndFast = (listOfNotNull(pin) + fastPosts.take(3)).distinctBy { it.id }
                                 val currentTopId = _news.value.firstOrNull()?.id
                                 val newTopId = targetAndFast.firstOrNull()?.id
                                 if (_news.value.isEmpty() || currentTopId != newTopId) {
@@ -768,36 +854,62 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
 
         val preferredCategories = try { AnalyticsService.getUserPreferredCategories().toSet() } catch (e: Exception) { emptySet() }
 
-        // 1. Separate "Fresh" (General) and Local news
-        val generalFreshNews = normalNews.filter { post ->
-            !post.categories.contains("జిల్లా వార్త") && post.category != "జిల్లా వార్త"
-        }
+        // 1. Separate Local District News and General Fresh News
+        val localDistrictNews = normalNews.filter { post ->
+            post.categories.contains("జిల్లా వార్త") || post.category == "జిల్లా వార్త"
+        }.sortedWith(compareByDescending<NewsPost> { it.qualityScore }.thenByDescending { it.timestamp })
 
-        // 2. Slots 2-6 (Index 1-5): Top 5 General Fresh News (Preferred categories prioritized)
-        val preferredGeneral = generalFreshNews.filter { post -> post.categories.any { it in preferredCategories } }
-            .sortedByDescending { it.timestamp }
-        val otherGeneral = generalFreshNews.filter { it !in preferredGeneral }
-            .sortedByDescending { it.timestamp }
+        val generalNews = normalNews.filter { it !in localDistrictNews }
 
-        val top5Fresh = (preferredGeneral + otherGeneral).take(5)
-        val top5Ids = top5Fresh.map { it.id }.toSet()
+        // 2. Top 3 Fresh General News (Prioritizing high quality and user preferences)
+        val preferredGeneral = generalNews.filter { post -> post.categories.any { it in preferredCategories } }
+            .sortedWith(compareByDescending<NewsPost> { try { AnalyticsService.calculateRelevanceScore(it) } catch (e: Exception) { 0.0 } }.thenByDescending { it.timestamp })
+        val otherGeneral = generalNews.filter { it !in preferredGeneral }
+            .sortedWith(compareByDescending<NewsPost> { try { AnalyticsService.calculateRelevanceScore(it) } catch (e: Exception) { 0.0 } }.thenByDescending { it.timestamp })
 
-        // 3. Process remaining news for the rest of the feed
-        val remainingNormal = normalNews.filter { it.id !in top5Ids }
-        val freshCountAdjusted = if (freshCount > 5) freshCount - 5 else 0
+        val topFreshRaw = (preferredGeneral + otherGeneral)
+        val top3Fresh = applyCategoryDiversity(topFreshRaw, maxConsecutive = 1).take(3)
+        val top3Ids = top3Fresh.map { it.id }.toSet()
 
-        val freshNewsRemaining = remainingNormal.sortedByDescending { it.timestamp }.take(freshCountAdjusted)
-        val freshIdsTotal = (top5Ids + freshNewsRemaining.map { it.id }).toSet()
-
-        val scoredNews = remainingNormal.filter { it.id !in freshIdsTotal }.map { post ->
+        // 3. Personalized News (Scored based on user preferences, engagement & qualityScore)
+        val remainingGeneral = generalNews.filter { it.id !in top3Ids }
+        val scoredNews = remainingGeneral.map { post ->
             post to (try { AnalyticsService.calculateRelevanceScore(post) } catch (e: Exception) { 0.0 })
-        }.sortedByDescending { it.second }.take(personalizedCount).map { it.first }.sortedByDescending { it.timestamp }
-        val personalizedIds = scoredNews.map { it.id }.toSet()
+        }.sortedByDescending { it.second }.map { it.first }
+        val scoredIds = scoredNews.map { it.id }.toSet()
 
-        val discoveryNews = remainingNormal.filter { it.id !in freshIdsTotal && it.id !in personalizedIds }
-            .filter { post -> post.categories.none { it in preferredCategories } }.sortedByDescending { it.timestamp }.take(discoveryCount)
+        // 4. Remaining Fresh & Discovery news
+        val freshRemaining = remainingGeneral.filter { it.id !in scoredIds }
+            .sortedByDescending { it.timestamp }
+        val discoveryNews = remainingGeneral.filter { post -> post.categories.none { it in preferredCategories } }
+            .sortedByDescending { it.timestamp }
 
-        val blendedNews = (top5Fresh + freshNewsRemaining + scoredNews + discoveryNews).toMutableList()
+        // 5. Dynamic 40/30/30 Interleaving (Never cluster all fresh news in a single block!)
+        val interleaved = mutableListOf<NewsPost>()
+        val freshPool = (top3Fresh + freshRemaining).toMutableList()
+        val prefPool = scoredNews.toMutableList()
+        val localPool = localDistrictNews.toMutableList()
+        val discPool = discoveryNews.toMutableList()
+
+        val maxIter = maxOf(freshPool.size, prefPool.size, localPool.size, discPool.size)
+        for (i in 0 until maxIter) {
+            // Fresh General News (40%)
+            if (freshPool.isNotEmpty()) interleaved.add(freshPool.removeAt(0))
+            // Personalized User Interest News (30%)
+            if (prefPool.isNotEmpty()) interleaved.add(prefPool.removeAt(0))
+            // Local District News (30%)
+            if (localPool.isNotEmpty()) interleaved.add(localPool.removeAt(0))
+            // Alternate Fresh or Discovery
+            if (freshPool.isNotEmpty()) interleaved.add(freshPool.removeAt(0))
+            if (discPool.isNotEmpty()) interleaved.add(discPool.removeAt(0))
+        }
+        interleaved.addAll(freshPool)
+        interleaved.addAll(prefPool)
+        interleaved.addAll(localPool)
+        interleaved.addAll(discPool)
+
+        val rawBlended = interleaved.distinctBy { it.id }
+        val blendedNews = applyCategoryDiversity(rawBlended, maxConsecutive = 1).toMutableList()
 
         if (isFirstPage) {
             // 🚀 PARALLEL ACTIVE SURVEY: Provided via parameter from parallel deferred query (zero serial lag)
@@ -1054,6 +1166,8 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
                 approved = data["approved"] as? Boolean ?: false,
                 aiProcessed = data["aiProcessed"] as? Boolean ?: false,
                 isGlobal = data["isGlobal"] as? Boolean ?: false,
+                isSpecialStory = data["isSpecialStory"] as? Boolean ?: false,
+                qualityScore = (data["qualityScore"] as? Number)?.toDouble() ?: 5.0,
                 isReporter = data["isReporter"] as? Boolean ?: (data["processingType"]?.toString() == "REPORTER_SUBMISSION"),
                 surveyQuestions = surveyQuestionsList,
                 isMultiPage = isMultiPageVal,

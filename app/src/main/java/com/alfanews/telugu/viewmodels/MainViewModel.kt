@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.Settings
 import android.util.Log
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.alfanews.telugu.models.*
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import java.util.Date
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -1340,6 +1342,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
 
                 if (mandal.isNotBlank()) {
+                    if (district.isNotBlank()) {
+                        val occupiedSnap = FirebaseService.db.collection("users")
+                            .whereEqualTo("district", district.trim())
+                            .whereEqualTo("assignedMandal", mandal.trim())
+                            .get().await()
+                        val occupantDoc = occupiedSnap.documents.firstOrNull { 
+                            it.id != user.id && 
+                            it.getBoolean("suspended") != true && 
+                            it.getBoolean("previouslyDowngraded") != true &&
+                            it.getString("role")?.uppercase() !in listOf("SUBSCRIBER", "GUEST", "1", "0")
+                        }
+                        if (occupantDoc != null) {
+                            val occName = occupantDoc.getString("name") ?: "విలేకరి"
+                            val occPhone = occupantDoc.getString("phone") ?: ""
+                            val occStr = if (occPhone.isNotBlank()) "$occName ($occPhone)" else occName
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(getApplication(), "ఈ మండలానికి ఇప్పటికే విలేకరి ($occStr) ఉన్నారు! దయచేసి వేరే మండలాన్ని ఎంచుకోండి.", Toast.LENGTH_LONG).show()
+                            }
+                            _isLoading.value = false
+                            return@launch
+                        }
+                    }
                     updates["assignedMandal"] = mandal
                     updates["mandal"] = mandal
                 }

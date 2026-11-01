@@ -108,6 +108,7 @@ data class NewsPost(
     val isDuplicate: Boolean = false,
     val webOnly: Boolean = false,
     val isSpecialStory: Boolean = false,
+    val qualityScore: Double = 5.0,
     val originalReporterId: String? = null,
 
     // Survey & Poll fields
@@ -405,6 +406,7 @@ fun mapMapToNewsPost(id: String, data: Map<String, Any?>, language: Language = L
         isDuplicate = data["isDuplicate"] as? Boolean ?: false,
         webOnly = (data["webOnly"] as? Boolean) == true,
         isSpecialStory = (data["isSpecialStory"] as? Boolean) == true,
+        qualityScore = (data["qualityScore"] as? Number)?.toDouble() ?: 5.0,
         originalReporterId = originalReporterId ?: finalReporterId.takeIf { it.isNotBlank() }
     )
 }

@@ -76,6 +76,7 @@ export interface NewsPost {
   isCitizen?: boolean;
   isReporter?: boolean;
   isSpecialStory?: boolean;
+  qualityScore?: number;
   webOnly?: boolean;
   surveyQuestions?: SurveyQuestion[];
   isMultiPage?: boolean;

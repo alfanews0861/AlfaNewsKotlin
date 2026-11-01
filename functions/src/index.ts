@@ -718,7 +718,11 @@ export const shareNews = onRequest(async (req, res) => {
 
     const pathSegments = req.path.split('/').filter(Boolean);
     const isAd = pathSegments.includes('ad');
-    const id = pathSegments.pop();
+    let rawId = pathSegments.pop() || '';
+    if (rawId.includes('--')) {
+        rawId = rawId.split('--').pop() || rawId;
+    }
+    const id = rawId;
 
     if (!id || id === 'news' || id === 'ad') {
         res.redirect("https://alfanews.app/");
@@ -752,6 +756,8 @@ export const shareNews = onRequest(async (req, res) => {
 
         const data = doc.data() || {};
         const titleRaw = data.headline?.telugu || data.headline?.english || data.title || data.businessName || "Alfa News Telugu";
+        const reporterName = data.reporter?.name || data.reporterName || "ఆల్ఫా న్యూస్ డెస్క్";
+        const location = data.location || data.district || "ఆంధ్రప్రదేశ్";
         
         // Always prioritize the high-resolution branded news card for WhatsApp rich preview!
         const directImageUrl = `https://alfanews.app/news-card/${doc.id}.jpg`;
@@ -771,7 +777,9 @@ export const shareNews = onRequest(async (req, res) => {
         const playStoreUrl = `https://play.google.com/store/apps/details?id=com.alfanews.telugu&referrer=${referrerParam}`;
 
         const userAgent = (req.headers['user-agent'] as string) || '';
-        const isCrawler = /facebookexternalhit|WhatsApp|Twitterbot|TelegramBot|LinkedInBot|Googlebot|bingbot|Baiduspider|DuckDuckBot|YandexBot/i.test(userAgent);
+        const isSearchEngine = /Googlebot|Google-InspectionTool|Mediapartners-Google|AdsBot-Google|Feedfetcher-Google|Chrome-Lighthouse|bingbot|DuckDuckBot|Baiduspider|YandexBot|Applebot/i.test(userAgent);
+        const isSocialBot = /facebookexternalhit|WhatsApp|Twitterbot|TelegramBot|LinkedInBot|Discordbot|Slackbot|SkypeUriPreview/i.test(userAgent);
+        const isCrawler = isSearchEngine || isSocialBot;
 
         // If human mobile browser user (not a crawler), and app wasn't installed to catch the App Link:
         // Seamlessly redirect to Google Play Store to download the app!
@@ -783,8 +791,16 @@ export const shareNews = onRequest(async (req, res) => {
             }
         }
 
-        // If desktop user (not a crawler), serve the full web app with injected SEO meta tags!
-        if (!isCrawler) {
+        let publishedIso = new Date().toISOString();
+        if (data.timestamp) {
+            const ms = data.timestamp.toMillis ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
+            publishedIso = new Date(ms).toISOString();
+        }
+        const category = data.category || (Array.isArray(data.categories) ? data.categories[0] : 'వార్తలు') || 'వార్తలు';
+
+        // For Search Engines (Googlebot, Bing) and Desktop Users:
+        // Serve the full web app with injected SEO meta tags, NewsArticle JSON-LD, and pre-rendered semantic HTML
+        if (isSearchEngine || !isCrawler) {
             const baseHtml = await fetchBaseWebHtml();
             if (baseHtml) {
                 let hydratedHtml = baseHtml;
@@ -805,17 +821,53 @@ export const shareNews = onRequest(async (req, res) => {
                     },
                     headline: titleRaw,
                     image: [safeImage],
-                    datePublished: new Date().toISOString(),
+                    datePublished: publishedIso,
+                    dateModified: publishedIso,
+                    author: {
+                        '@type': 'Person',
+                        name: reporterName || 'ఆల్ఫా న్యూస్ డెస్క్'
+                    },
                     publisher: {
                         '@type': 'NewsMediaOrganization',
                         name: 'Alfa News Telugu',
                         url: 'https://alfanews.app',
-                        logo: 'https://alfanews.app/app_icon.png'
+                        logo: {
+                            '@type': 'ImageObject',
+                            url: 'https://alfanews.app/app_icon.png',
+                            width: 512,
+                            height: 512
+                        }
                     },
                     description: descRaw,
+                    articleSection: category,
                     inLanguage: 'te-IN'
                 });
                 hydratedHtml = hydratedHtml.replace('</head>', `<script type="application/ld+json">${schemaJson}</script></head>`);
+
+                // Pre-render semantic article content inside <div id="root">
+                // Search engines (Googlebot, Bing) index the full article text immediately without waiting for JS execution!
+                const bodyParagraphs = fullDesc.split(/\r?\n\r?\n|\n/).map((p: string) => p.trim()).filter(Boolean);
+                const bodyParagraphsHtml = bodyParagraphs.length > 0
+                    ? bodyParagraphs.map((p: string) => `<p style="margin-bottom: 16px; font-size: 18px; line-height: 1.8;">${escapeHtml(p)}</p>`).join('\n')
+                    : `<p style="margin-bottom: 16px; font-size: 18px; line-height: 1.8;">${safeDesc}</p>`;
+
+                const preRenderedArticle = `<div id="root"><article style="max-width: 800px; margin: 0 auto; padding: 24px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b;">
+    <nav style="font-size: 14px; margin-bottom: 16px; color: #64748b;">
+      <a href="https://alfanews.app/" style="color: #dc2626; text-decoration: none; font-weight: 600;">హోమ్</a> &gt; 
+      <a href="https://alfanews.app/category/${encodeURIComponent(category)}" style="color: #dc2626; text-decoration: none; font-weight: 600;">${escapeHtml(category)}</a>
+    </nav>
+    <h1 style="font-size: 28px; line-height: 1.35; margin-bottom: 14px; color: #0f172a; font-weight: 700;">${safeTitle}</h1>
+    <div style="font-size: 14px; color: #64748b; margin-bottom: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; display: flex; flex-wrap: wrap; gap: 12px;">
+      <span>రిపోర్టర్: <strong>${escapeHtml(reporterName)}</strong></span>
+      <span>స్థలం: <strong>${escapeHtml(location)}</strong></span>
+      <time datetime="${publishedIso}">${publishedIso.split('T')[0]}</time>
+    </div>
+    <div style="font-size: 18px; color: #334155;">
+      ${bodyParagraphsHtml}
+    </div>
+</article></div>`;
+
+                hydratedHtml = hydratedHtml.replace('<div id="root"></div>', preRenderedArticle);
 
                 res.set('Cache-Control', 'public, max-age=300, s-maxage=1800, stale-while-revalidate=600');
                 res.status(200).send(hydratedHtml);
@@ -898,10 +950,12 @@ export const shareNews = onRequest(async (req, res) => {
     }
 });
 
-// Dynamic SEO Sitemap Generator for Search Engines (Google, Bing)
+// Dynamic SEO & Google News Sitemap Generator for Search Engines (Google, Bing)
 export const serveSitemap = onRequest(async (req, res) => {
     try {
         const baseUrl = "https://alfanews.app";
+        const isNewsSitemap = req.path.includes('news-sitemap');
+
         const staticRoutes = [
             { path: "", changefreq: "always", priority: "1.0" },
             { path: "category/andhra-pradesh", changefreq: "hourly", priority: "0.9" },
@@ -928,31 +982,51 @@ export const serveSitemap = onRequest(async (req, res) => {
 
         let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">\n';
 
-        for (const route of staticRoutes) {
-            const loc = route.path ? `${baseUrl}/${route.path}` : baseUrl;
-            xml += `  <url>\n    <loc>${loc}</loc>\n    <changefreq>${route.changefreq}</changefreq>\n    <priority>${route.priority}</priority>\n  </url>\n`;
+        if (!isNewsSitemap) {
+            for (const route of staticRoutes) {
+                const loc = route.path ? `${baseUrl}/${route.path}` : baseUrl;
+                xml += `  <url>\n    <loc>${loc}</loc>\n    <changefreq>${route.changefreq}</changefreq>\n    <priority>${route.priority}</priority>\n  </url>\n`;
+            }
         }
 
+        const limitCount = isNewsSitemap ? 500 : 300;
         const snap = await db.collection("news")
             .where("approved", "==", true)
             .orderBy("timestamp", "desc")
-            .limit(300)
+            .limit(limitCount)
             .get();
+
+        const twoDaysAgo = Date.now() - (48 * 60 * 60 * 1000);
 
         for (const d of snap.docs) {
             const data = d.data();
             let dateStr = new Date().toISOString();
+            let timestampMs = Date.now();
             if (data.timestamp) {
-                const ms = data.timestamp.toMillis ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
-                dateStr = new Date(ms).toISOString();
+                timestampMs = data.timestamp.toMillis ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
+                dateStr = new Date(timestampMs).toISOString();
             }
-            xml += `  <url>\n    <loc>${baseUrl}/news/${d.id}</loc>\n    <lastmod>${dateStr}</lastmod>\n    <changefreq>daily</changefreq>\n    <priority>0.8</priority>\n  </url>\n`;
+
+            const titleRaw = data.headline?.telugu || data.headline?.english || data.title || "Alfa News Telugu";
+            const safeTitleXml = escapeHtml(titleRaw);
+
+            // Google News guidelines: include <news:news> for news articles within last 48 hours
+            const isFreshNews = timestampMs >= twoDaysAgo || isNewsSitemap;
+
+            xml += `  <url>\n    <loc>${baseUrl}/news/${d.id}</loc>\n    <lastmod>${dateStr}</lastmod>\n`;
+            if (!isNewsSitemap) {
+                xml += `    <changefreq>daily</changefreq>\n    <priority>0.8</priority>\n`;
+            }
+            if (isFreshNews) {
+                xml += `    <news:news>\n      <news:publication>\n        <news:name>Alfa News Telugu</news:name>\n        <news:language>te</news:language>\n      </news:publication>\n      <news:publication_date>${dateStr}</news:publication_date>\n      <news:title>${safeTitleXml}</news:title>\n    </news:news>\n`;
+            }
+            xml += `  </url>\n`;
         }
 
         xml += '</urlset>';
 
         res.set("Content-Type", "application/xml; charset=utf-8");
-        res.set("Cache-Control", "public, max-age=3600, s-maxage=7200");
+        res.set("Cache-Control", "public, max-age=1800, s-maxage=3600");
         res.status(200).send(xml);
     } catch (e) {
         console.error("Error generating sitemap:", e);

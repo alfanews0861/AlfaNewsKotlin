@@ -16,12 +16,15 @@
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+    <meta name="theme-color" content="#dc2626" />
     <title>ఆల్ఫా న్యూస్ తెలుగు | Alfa News Telugu - తాజా తెలుగు వార్తలు</title>
     <meta name="description" content="ఆల్ఫా న్యూస్ తెలుగు - ఆంధ్రప్రదేశ్, తెలంగాణ మరియు సమగ్ర జిల్లా వార్తలు, బ్రేకింగ్ న్యూస్, ప్రత్యక్ష ప్రసారం, రాజకీయాలు, సినిమా, వినోదం మరియు ప్రత్యేక కథనాలు.">
     <meta name="keywords" content="telugu vaarthalu, alfa news, alfa news telugu, jilla vaarthalu, andhra pradesh news, telangana news, breaking news telugu, hyderabad news, amaravati news, short news, telugu news portal, తెలుగు వార్తలు, తాజా వార్తలు, జిల్లా వార్తలు, ఆంధ్రప్రదేశ్, తెలంగాణ">
     <meta name="author" content="Alfa News Telugu">
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
     <link rel="canonical" href="https://alfanews.app/">
+    <link rel="alternate" hreflang="te" href="https://alfanews.app/">
+    <link rel="alternate" hreflang="x-default" href="https://alfanews.app/">
 
     <!-- Open Graph (Social Sharing) -->
     <meta property="og:site_name" content="Alfa News Telugu">
@@ -30,6 +33,9 @@
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://alfanews.app/">
     <meta property="og:image" content="https://alfanews.app/app_icon.png">
+    <meta property="og:image:width" content="512">
+    <meta property="og:image:height" content="512">
+    <meta property="og:image:alt" content="Alfa News Telugu Logo">
     <meta property="og:locale" content="te_IN">
 
     <!-- Twitter Card -->
@@ -47,14 +53,102 @@
     <!-- Smart App Banner and Play Store association -->
     <meta name="google-play-app" content="app-id=com.alfanews.telugu">
 
-    <!-- Fonts -->
+    <!-- Performance & Preconnect -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="dns-prefetch" href="https://firestore.googleapis.com">
+    <link rel="dns-prefetch" href="https://firebasestorage.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Inter:wght@400;500;600&family=Lato:wght@400;700&family=Mallanna&family=Poppins:wght@600;700&family=Ramabhadra&display=swap" rel="stylesheet">
+
+    <!-- Structured Data (Schema.org JSON-LD for Search Engines) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "https://alfanews.app/#website",
+          "url": "https://alfanews.app/",
+          "name": "Alfa News Telugu",
+          "alternateName": "ఆల్ఫా న్యూస్ తెలుగు",
+          "description": "ఆల్ఫా న్యూస్ తెలుగు - ఆంధ్రప్రదేశ్, తెలంగాణ మరియు సమగ్ర జిల్లా వార్తలు, బ్రేకింగ్ న్యూస్, రాజకీయాలు, సినిమా, వినోదం మరియు ప్రత్యేక కథనాలు.",
+          "inLanguage": "te-IN",
+          "publisher": {
+            "@id": "https://alfanews.app/#organization"
+          },
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": "https://alfanews.app/?q={search_term_string}",
+            "query-input": "required name=search_term_string"
+          }
+        },
+        {
+          "@type": "NewsMediaOrganization",
+          "@id": "https://alfanews.app/#organization",
+          "name": "Alfa News Telugu",
+          "alternateName": "ఆల్ఫా న్యూస్ తెలుగు",
+          "url": "https://alfanews.app/",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://alfanews.app/app_icon.png",
+            "width": 512,
+            "height": 512
+          },
+          "sameAs": [
+            "https://play.google.com/store/apps/details?id=com.alfanews.telugu"
+          ],
+          "contactPoint": {
+            "@type": "ContactPoint",
+            "email": "alfanews0861@gmail.com",
+            "contactType": "editorial",
+            "areaServed": ["IN-AP", "IN-TG", "IN"],
+            "availableLanguage": ["te", "en"]
+          },
+          "publishingPrinciples": "https://alfanews.app/content-policy"
+        },
+        {
+          "@type": "SiteNavigationElement",
+          "@id": "https://alfanews.app/#navigation",
+          "name": "Alfa News Categories",
+          "hasPart": [
+            { "@type": "WebPage", "name": "ఆంధ్రప్రదేశ్ వార్తలు", "url": "https://alfanews.app/category/andhra-pradesh" },
+            { "@type": "WebPage", "name": "తెలంగాణ వార్తలు", "url": "https://alfanews.app/category/telangana" },
+            { "@type": "WebPage", "name": "జిల్లా వార్తలు", "url": "https://alfanews.app/category/districts" },
+            { "@type": "WebPage", "name": "రాజకీయం", "url": "https://alfanews.app/category/politics" },
+            { "@type": "WebPage", "name": "సినిమా", "url": "https://alfanews.app/category/cinema" },
+            { "@type": "WebPage", "name": "క్రీడలు", "url": "https://alfanews.app/category/sports" },
+            { "@type": "WebPage", "name": "క్రైమ్", "url": "https://alfanews.app/category/crime" },
+            { "@type": "WebPage", "name": "వ్యాపారం", "url": "https://alfanews.app/category/business" },
+            { "@type": "WebPage", "name": "టెక్నాలజీ", "url": "https://alfanews.app/category/technology" },
+            { "@type": "WebPage", "name": "స్పెషల్ స్టోరీస్", "url": "https://alfanews.app/category/special" }
+          ]
+        }
+      ]
+    }
+    </script>
 
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5787901991150360" crossorigin="anonymous"></script>
   </head>
   <body>
+    <noscript>
+      <div style="padding: 24px; font-family: sans-serif; background: #fff; color: #111; max-width: 800px; margin: 0 auto; line-height: 1.6;">
+        <h1 style="color: #dc2626; font-size: 26px; margin-bottom: 12px;">ఆల్ఫా న్యూస్ తెలుగు | Alfa News Telugu</h1>
+        <p style="font-size: 16px; margin-bottom: 16px;">ఆంధ్రప్రదేశ్, తెలంగాణ మరియు సమగ్ర జిల్లా వార్తలు, బ్రేకింగ్ న్యూస్, ప్రత్యక్ష ప్రసారం, రాజకీయాలు, సినిమా, వినోదం మరియు ప్రత్యేక కథనాలు.</p>
+        <h2 style="font-size: 20px; margin-top: 20px; margin-bottom: 8px;">ప్రధాన విభాగాలు</h2>
+        <ul style="list-style-type: disc; padding-left: 20px;">
+          <li><a href="/category/andhra-pradesh" style="color: #dc2626; text-decoration: none;">ఆంధ్రప్రదేశ్ వార్తలు</a></li>
+          <li><a href="/category/telangana" style="color: #dc2626; text-decoration: none;">తెలంగాణ వార్తలు</a></li>
+          <li><a href="/category/districts" style="color: #dc2626; text-decoration: none;">జిల్లా వార్తలు</a></li>
+          <li><a href="/category/politics" style="color: #dc2626; text-decoration: none;">రాజకీయం</a></li>
+          <li><a href="/category/cinema" style="color: #dc2626; text-decoration: none;">సినిమా వార్తలు</a></li>
+          <li><a href="/category/sports" style="color: #dc2626; text-decoration: none;">క్రీడలు</a></li>
+          <li><a href="/category/crime" style="color: #dc2626; text-decoration: none;">క్రైమ్</a></li>
+          <li><a href="/category/business" style="color: #dc2626; text-decoration: none;">వ్యాపారం</a></li>
+          <li><a href="/classifieds" style="color: #dc2626; text-decoration: none;">క్లాసిఫైడ్స్ (Classifieds)</a></li>
+        </ul>
+        <p style="margin-top: 20px; font-size: 14px; color: #666;">పూర్తి అనుభవం కోసం దయచేసి మీ బ్రౌజర్‌లో JavaScript ను ఎనేబుల్ చేయండి లేదా Google Play Store నుండి Alfa News యాప్‌ను డౌన్‌లోడ్ చేసుకోండి.</p>
+      </div>
+    </noscript>
     <div id="root"></div>
     <script type="module" src="/src/index.tsx"></script>
     <script>

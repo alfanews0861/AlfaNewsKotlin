@@ -16,8 +16,9 @@
         ".git",
         "firebase-debug.log",
         "firebase-debug.*.log",
+        "*.log",
         "scratch",
-        "assets/*.mp4"
+        "**/*.mp4"
       ]
     }
   ],
@@ -67,6 +68,13 @@
       },
       {
         "source": "/sitemap.xml",
+        "function": {
+          "functionId": "serveSitemap",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/news-sitemap.xml",
         "function": {
           "functionId": "serveSitemap",
           "region": "asia-south1"

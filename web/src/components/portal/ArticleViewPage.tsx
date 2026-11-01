@@ -7,7 +7,9 @@ import CommentSection from '../CommentSection';
 import { VerifiedBadge } from '../VerifiedBadge';
 import { isReporterVerified } from '../../services/reporterVerification';
 import { updatePageSeo } from '../../utils/seoManager';
-import { getNewsUrl } from '../../utils/router';
+import { getNewsUrl, navigateTo, getTopicUrl } from '../../utils/router';
+import { ALL_DISTRICTS, isDistrictMatch } from '../../utils/newsFilter';
+import PortalAdBanner from './PortalAdBanner';
 
 interface ArticleViewPageProps {
   post: NewsPost;
@@ -330,12 +332,22 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
           </div>
         )}
 
-        {/* Full Story Paragraphs */}
+        {/* Full Story Paragraphs with In-Article Ad */}
         <div itemProp="articleBody" className="text-gray-800 text-base sm:text-lg leading-loose space-y-5 font-mallanna">
           {paragraphs.map((p, idx) => (
-            <p key={idx} className="leading-loose text-justify text-gray-800">
-              {p}
-            </p>
+            <React.Fragment key={idx}>
+              <p className="leading-loose text-justify text-gray-800">
+                {p}
+              </p>
+              {/* Mid-Article AdSense Banner after paragraph 2 */}
+              {idx === 1 && paragraphs.length > 2 && (
+                <PortalAdBanner
+                  slot="7964147976"
+                  format="auto"
+                  variant="in-article"
+                />
+              )}
+            </React.Fragment>
           ))}
         </div>
 
@@ -350,12 +362,18 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
                   <span>హ్యాష్ ట్యాగ్‌లు:</span>
                 </span>
                 {cleanTags.map((tag, idx) => (
-                  <span
+                  <a
                     key={idx}
-                    className="inline-flex items-center text-xs sm:text-sm font-mallanna px-2.5 py-0.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-100 transition-colors"
+                    href={getTopicUrl(tag)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigateTo(getTopicUrl(tag));
+                    }}
+                    className="inline-flex items-center text-xs sm:text-sm font-mallanna px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 active:bg-red-200 text-red-700 hover:text-red-900 border border-red-200/80 transition-all hover:scale-105 active:scale-95 shadow-2xs cursor-pointer font-medium"
+                    title={`#${tag} సంబంధిత వార్తలన్నీ చూడండి`}
                   >
                     #{tag}
-                  </span>
+                  </a>
                 ))}
               </div>
             )}
@@ -368,15 +386,21 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
                   <span>వార్తలోని వ్యక్తులు:</span>
                 </span>
                 {cleanPeople.map((person, idx) => (
-                  <span
+                  <a
                     key={idx}
+                    href={getTopicUrl(person)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigateTo(getTopicUrl(person));
+                    }}
                     itemProp="about"
                     itemScope
                     itemType="https://schema.org/Person"
-                    className="inline-flex items-center text-xs sm:text-sm font-mallanna px-2.5 py-0.5 rounded-lg bg-blue-50 text-blue-800 border border-blue-100 font-medium"
+                    className="inline-flex items-center text-xs sm:text-sm font-mallanna px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-800 hover:text-blue-950 border border-blue-200/80 font-medium transition-all hover:scale-105 active:scale-95 shadow-2xs cursor-pointer"
+                    title={`${person} సంబంధిత వార్తలన్నీ చూడండి`}
                   >
                     <span itemProp="name">{person}</span>
-                  </span>
+                  </a>
                 ))}
               </div>
             )}
@@ -388,17 +412,27 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
                   <MapPin className="w-3.5 h-3.5 text-emerald-600" />
                   <span>సంబంధిత ప్రాంతాలు:</span>
                 </span>
-                {cleanLocations.map((loc, idx) => (
-                  <span
-                    key={idx}
-                    itemProp="contentLocation"
-                    itemScope
-                    itemType="https://schema.org/Place"
-                    className="inline-flex items-center text-xs sm:text-sm font-mallanna px-2.5 py-0.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-100"
-                  >
-                    <span itemProp="name">{loc}</span>
-                  </span>
-                ))}
+                {cleanLocations.map((loc, idx) => {
+                  const matchedDist = ALL_DISTRICTS.find((d) => isDistrictMatch(d, loc));
+                  const locUrl = matchedDist ? `/district/${encodeURIComponent(matchedDist)}` : getTopicUrl(loc);
+                  return (
+                    <a
+                      key={idx}
+                      href={locUrl}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        navigateTo(locUrl);
+                      }}
+                      itemProp="contentLocation"
+                      itemScope
+                      itemType="https://schema.org/Place"
+                      className="inline-flex items-center text-xs sm:text-sm font-mallanna px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-800 hover:text-emerald-950 border border-emerald-200/80 font-medium transition-all hover:scale-105 active:scale-95 shadow-2xs cursor-pointer"
+                      title={`${loc} ప్రాంతానికి సంబంధించిన వార్తలు చూడండి`}
+                    >
+                      <span itemProp="name">{loc}</span>
+                    </a>
+                  );
+                })}
               </div>
             )}
 
@@ -410,15 +444,21 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
                   <span>సంస్థలు / పార్టీలు:</span>
                 </span>
                 {cleanOrgs.map((org, idx) => (
-                  <span
+                  <a
                     key={idx}
+                    href={getTopicUrl(org)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigateTo(getTopicUrl(org));
+                    }}
                     itemProp="about"
                     itemScope
                     itemType="https://schema.org/Organization"
-                    className="inline-flex items-center text-xs sm:text-sm font-mallanna px-2.5 py-0.5 rounded-lg bg-purple-50 text-purple-800 border border-purple-100"
+                    className="inline-flex items-center text-xs sm:text-sm font-mallanna px-2.5 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 active:bg-purple-200 text-purple-800 hover:text-purple-950 border border-purple-200/80 font-medium transition-all hover:scale-105 active:scale-95 shadow-2xs cursor-pointer"
+                    title={`${org} సంస్థ/పార్టీకి సంబంధించిన వార్తలు చూడండి`}
                   >
                     <span itemProp="name">{org}</span>
-                  </span>
+                  </a>
                 ))}
               </div>
             )}
@@ -494,6 +534,14 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
           />
         )}
       </div>
+
+      {/* Pre-Related Stories Responsive Ad Banner */}
+      <PortalAdBanner
+        slot="7964147976"
+        format="auto"
+        variant="in-feed"
+        className="mb-8"
+      />
 
       {/* 3. Related Stories Section */}
       {relatedPosts.length > 0 && (

@@ -103,6 +103,35 @@ fun EditProfilePageView(
         }
     }
 
+    LaunchedEffect(editDistrict) {
+        if (editDistrict.isBlank()) return@LaunchedEffect
+        try {
+            val distSnap = FirebaseService.db.collection("users")
+                .whereEqualTo("district", editDistrict.trim())
+                .get().await()
+            val occMap = occupiedMandalsMap.toMutableMap()
+            val occIdMap = occupiedReporterIds.toMutableMap()
+            for (uDoc in distSnap.documents) {
+                val isSuspended = uDoc.getBoolean("suspended") == true || uDoc.getBoolean("previouslyDowngraded") == true
+                val roleStr = uDoc.get("role")?.toString()?.uppercase() ?: ""
+                if (isSuspended || roleStr == "SUBSCRIBER" || roleStr == "GUEST" || roleStr == "1" || roleStr == "1.0") continue
+
+                val dist = (uDoc.getString("district") ?: uDoc.getString("state_district") ?: "").trim()
+                val mandal = (uDoc.getString("assignedMandal") ?: uDoc.getString("mandal") ?: uDoc.getString("mandalam") ?: uDoc.getString("selectedMandal") ?: "").trim()
+                val name = uDoc.getString("name") ?: "విలేకరి"
+                val phone = uDoc.getString("phone") ?: ""
+                if (dist.isNotEmpty() && mandal.isNotEmpty()) {
+                    val occupantInfo = if (phone.isNotBlank()) "$name ($phone)" else name
+                    val key = "$dist|$mandal"
+                    occMap[key] = occupantInfo
+                    occIdMap[key] = uDoc.id
+                }
+            }
+            occupiedMandalsMap = occMap
+            occupiedReporterIds = occIdMap
+        } catch (_: Exception) {}
+    }
+
     fun checkOccupant(dist: String, mndl: String): String? {
         if (dist.isBlank() || mndl.isBlank()) return null
         val key = "${dist.trim()}|${mndl.trim()}"
@@ -313,15 +342,15 @@ fun EditProfilePageView(
                                                 }
                                             },
                                             onClick = {
-                                                editMandal = mandalName
-                                                mandalExpanded = false
                                                 if (isOccupied) {
-                                                    val msg = "ఇప్పటికే ఈ మండలానికి విలేకరి ఉన్నారు: $occupant"
+                                                    val msg = "ఈ మండలానికి ఇప్పటికే విలేకరి ($occupant) ఉన్నారు! దయచేసి వేరే మండలాన్ని ఎంచుకోండి."
                                                     conflictMessage = msg
-                                                    Toast.makeText(context, "ఇప్పటికే ఈ మండలానికి విలేకరి వున్నారు ($occupant)", Toast.LENGTH_LONG).show()
+                                                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                                 } else {
+                                                    editMandal = mandalName
                                                     conflictMessage = null
                                                 }
+                                                mandalExpanded = false
                                             },
                                             contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
                                         )

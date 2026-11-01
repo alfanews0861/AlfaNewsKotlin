@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { User } from '../../types';
 import { Search, Flame, User as UserIcon, LogIn, Menu, X, Smartphone, ChevronDown, MapPin } from 'lucide-react';
 import { AP_DISTRICTS, TS_DISTRICTS } from '../../utils/newsFilter';
+import PortalAdBanner from './PortalAdBanner';
 
 interface PortalHeaderProps {
   currentUser: User | null;
@@ -222,34 +223,12 @@ export const PortalHeader: React.FC<PortalHeaderProps> = ({
           </div>
         </div>
 
-        {/* TOP AD BANNER (728x90 desktop / responsive) */}
-        <div className="hidden md:flex flex-1 max-w-[640px] lg:max-w-[728px] h-[76px] bg-gradient-to-r from-amber-50 via-rose-50 to-orange-50 border border-amber-200 rounded-xl items-center justify-between px-5 shadow-sm relative overflow-hidden group">
-          <div className="flex items-center gap-3.5 z-10">
-            <div className="w-10 h-10 rounded-full bg-red-600 text-white flex items-center justify-center text-lg shadow-sm">
-              📢
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded font-poppins uppercase">
-                  AD SPACE
-                </span>
-                <p className="font-ramabhadra text-sm text-gray-900 leading-tight">
-                  మీ వ్యాపార ప్రకటనల కోసం ఆల్ఫా న్యూస్ ఎంచుకోండి!
-                </p>
-              </div>
-              <p className="font-mallanna text-xs text-gray-600 mt-0.5">
-                లక్షలాది తెలుగు పాఠకులకు చేరువవ్వండి • ప్రకటనల కోసం: <a href="mailto:contact@alfanews.app" className="text-red-600 font-poppins hover:underline">contact@alfanews.app</a>
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => window.location.href = 'mailto:contact@alfanews.app?subject=Advertisement%20Enquiry'}
-            className="z-10 bg-red-600 hover:bg-red-700 text-white text-xs font-ramabhadra px-3.5 py-2 rounded-lg shadow transition-all hover:scale-105 shrink-0"
-          >
-            సంప్రదించండి
-          </button>
-          <div className="absolute right-0 top-0 bottom-0 w-32 bg-gradient-to-l from-yellow-200/40 to-transparent pointer-events-none"></div>
-        </div>
+        {/* TOP HEADER ADSENSE BANNER (728x90 Leaderboard / Responsive) */}
+        <PortalAdBanner
+          slot="7964147976"
+          format="horizontal"
+          variant="header"
+        />
       </div>
 
       {/* 3. TOP MENU BAR (Category navigation & District Dropdown) */}

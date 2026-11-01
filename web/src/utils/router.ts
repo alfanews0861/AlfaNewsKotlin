@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ALL_DISTRICTS, isDistrictMatch } from './newsFilter';
+import { ALL_DISTRICTS, isDistrictMatch } from './newsFilter.ts';
 
 export type AppRoute =
   | { type: 'home' }
@@ -7,6 +7,7 @@ export type AppRoute =
   | { type: 'news'; id: string }
   | { type: 'category'; category: string; slug: string }
   | { type: 'district'; district: string }
+  | { type: 'topic'; topic: string }
   | { type: 'classifieds' }
   | { type: 'reporter'; reporterId: string }
   | { type: 'policy'; policy: string };
@@ -139,6 +140,14 @@ export function parsePath(pathname: string, hash: string): AppRoute {
       const sId = hashRoute.replace('s/', '').split('?')[0];
       const id = extractNewsId(sId);
       if (id) return { type: 'news', id };
+    } else if (hashRoute.startsWith('topic/') || hashRoute.startsWith('tag/')) {
+      const raw = hashRoute.replace(/^(topic|tag)\//, '').split('?')[0];
+      let decoded = raw;
+      try {
+        decoded = decodeURIComponent(raw);
+      } catch (_) {}
+      const clean = decoded.trim().replace(/^#/, '');
+      if (clean) return { type: 'topic', topic: clean };
     } else if (hashRoute.startsWith('category/')) {
       const rawCat = decodeURIComponent(hashRoute.replace('category/', '').split('?')[0]);
       const teluguCat = CATEGORY_SLUG_MAP[rawCat.toLowerCase()] || rawCat;
@@ -189,6 +198,19 @@ export function parsePath(pathname: string, hash: string): AppRoute {
     return { type: 'district', district: matched };
   }
 
+  // 4b. Topic / Tag / Entity Navigation
+  if (cleanPath.startsWith('/topic/') || cleanPath.startsWith('/tag/')) {
+    const rawTopic = cleanPath.replace(/^\/(topic|tag)\//, '').split('/')[0].split('?')[0];
+    let decodedTopic = rawTopic;
+    try {
+      decodedTopic = decodeURIComponent(rawTopic);
+    } catch (_) {}
+    const cleanTopic = decodedTopic.trim().replace(/^#/, '');
+    if (cleanTopic) {
+      return { type: 'topic', topic: cleanTopic };
+    }
+  }
+
   // 5. Classifieds
   if (cleanPath === '/classifieds') {
     return { type: 'classifieds' };
@@ -215,8 +237,27 @@ export function parsePath(pathname: string, hash: string): AppRoute {
     return { type: 'policy', policy: potentialPolicy };
   }
 
+  // 8. Query String for Search / Topic on Root
+  if (cleanPath === '' || cleanPath === '/') {
+    try {
+      if (typeof window !== 'undefined' && window.location.search) {
+        const params = new URLSearchParams(window.location.search);
+        const qParam = params.get('q') || params.get('topic') || params.get('tag');
+        if (qParam && qParam.trim()) {
+          return { type: 'topic', topic: qParam.trim().replace(/^#/, '') };
+        }
+      }
+    } catch (_) {}
+  }
+
   // Default: Homepage
   return { type: 'home' };
+}
+
+export function getTopicUrl(topic: string): string {
+  if (!topic) return '/';
+  const clean = topic.trim().replace(/^#/, '');
+  return `/topic/${encodeURIComponent(clean)}`;
 }
 
 export function navigateTo(url: string, options?: { replace?: boolean }) {

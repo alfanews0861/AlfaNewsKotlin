@@ -22,6 +22,13 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
 
   const leadPost = posts[0];
   const sidePosts = posts.slice(1, 5);
+  const leadStoryText = (
+    leadPost?.fullStory?.telugu ||
+    leadPost?.content?.telugu ||
+    leadPost?.content?.english ||
+    ''
+  ).replace(/<[^>]*>/g, '').trim();
+  const isShortStory = leadStoryText.length < 180;
 
   return (
     <div className="w-full mb-10">
@@ -85,9 +92,31 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
                   {leadPost.headline?.telugu || leadPost.headline?.english}
                 </h3>
 
-                <p className="font-mallanna text-sm text-gray-600 line-clamp-3 leading-relaxed">
-                  {leadPost.fullStory?.telugu || leadPost.content?.telugu || leadPost.content?.english || ''}
+                <p className="font-mallanna text-sm sm:text-[15px] text-gray-600 line-clamp-5 md:line-clamp-7 lg:line-clamp-8 leading-relaxed">
+                  {leadStoryText}
                 </p>
+
+                {isShortStory && (
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      window.location.href = 'mailto:contact@alfanews.app?subject=Portal%20Advertisement%20Enquiry';
+                    }}
+                    className="mt-3.5 p-2.5 bg-gradient-to-r from-red-50 via-amber-50/70 to-red-50 border border-red-200/80 rounded-xl flex items-center justify-between text-xs hover:border-red-400 transition-all shadow-2xs group/ad"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[10px] font-ramabhadra bg-red-600 text-white px-2 py-0.5 rounded uppercase tracking-wider shrink-0">
+                        ప్రకటన
+                      </span>
+                      <span className="font-mallanna text-xs sm:text-[13px] text-gray-800 truncate">
+                        మీ వ్యాపార ప్రకటనల కోసం ఆల్ఫా న్యూస్‌ను ఎంచుకోండి
+                      </span>
+                    </div>
+                    <span className="text-red-600 font-ramabhadra text-xs shrink-0 font-medium ml-2 group-hover/ad:underline">
+                      సంప్రదించండి →
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 

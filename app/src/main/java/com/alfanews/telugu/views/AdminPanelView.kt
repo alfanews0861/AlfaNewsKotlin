@@ -183,6 +183,28 @@ fun AdminPanelView(
                     }
                 }
 
+                // Prevent overwriting if mandal is already occupied by another reporter
+                if (mandal.isNotBlank() && district.isNotBlank()) {
+                    val occupiedSnap = FirebaseService.db.collection("users")
+                        .whereEqualTo("district", district.trim())
+                        .whereEqualTo("assignedMandal", mandal.trim())
+                        .get().await()
+                    val occupantDoc = occupiedSnap.documents.firstOrNull { 
+                        it.id != user.id && 
+                        it.getBoolean("suspended") != true && 
+                        it.getBoolean("previouslyDowngraded") != true &&
+                        it.getString("role")?.uppercase() !in listOf("SUBSCRIBER", "GUEST", "1", "0")
+                    }
+                    if (occupantDoc != null) {
+                        val occName = occupantDoc.getString("name") ?: "విలేకరి"
+                        val occPhone = occupantDoc.getString("phone") ?: ""
+                        val occStr = if (occPhone.isNotBlank()) "$occName ($occPhone)" else occName
+                        Toast.makeText(context, "ఈ మండలానికి ఇప్పటికే విలేకరి ($occStr) ఉన్నారు! దయచేసి వేరే మండలాన్ని ఎంచుకోండి.", Toast.LENGTH_LONG).show()
+                        savingProfile = false
+                        return@launch
+                    }
+                }
+
                 val updates = mutableMapOf<String, Any>(
                     "name" to name,
                     "phone" to phone,

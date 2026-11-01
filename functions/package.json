@@ -1,6 +1,7 @@
 {
   "name": "functions",
   "scripts": {
+    "test": "jest --runInBand",
     "build": "node build.js",
     "serve": "npm run build && firebase emulators:start --only functions",
     "shell": "npm run build && firebase functions:shell",

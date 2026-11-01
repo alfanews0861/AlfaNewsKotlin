@@ -826,6 +826,19 @@ object AnalyticsService {
             score += (locationScores[loc] ?: 0) * 1.2
         }
 
+        // 7. 🔥 POPULARITY & EDITORIAL QUALITY BOOST:
+        // Likes, shares, comments, and special story flags give high-quality articles a competitive boost
+        // so a blockbuster article loved by readers isn't buried under trivial filler news.
+        val engagementBoost = (post.likes * 2.0) + (post.shares * 3.0) + (post.comments * 1.5) + (if (post.isSpecialStory) 25.0 else 0.0)
+        score += engagementBoost
+
+        // 8. 🌟 AI EDITORIAL QUALITY & IMPORTANCE SCORE (0 - 10 scale):
+        // Strict journalistic evaluation: 8-10 gives a massive boost (+12 to +20),
+        // while 1-4 receives a sharp penalty (-4 to -16).
+        val qualityScoreVal = post.qualityScore.coerceIn(0.0, 10.0)
+        val qualityWeight = (qualityScoreVal - 5.0) * 4.0
+        score += qualityWeight
+
         // తాజా వార్తలకు ప్రాధాన్యత (Recency Decay) - 30 hours half-life
         val hoursOld = maxOf(0.0, (System.currentTimeMillis() - post.timestamp) / (1000.0 * 60 * 60))
         val recencyMultiplier = Math.exp(-hoursOld / 30.0)

@@ -88,7 +88,7 @@ service cloud.firestore {
           isEditorOrAdmin() ||
           (request.auth.uid == userId &&
            !request.resource.data.diff(resource.data).affectedKeys()
-             .hasAny(['role', 'points', 'badges', 'assignedDistricts', 'assignedMandal', 'warningLevel', 'inProbation', 'suspended', 'previouslyDowngraded']))
+             .hasAny(['role', 'points', 'badges', 'assignedDistricts', 'warningLevel', 'inProbation', 'suspended', 'previouslyDowngraded']))
         );
 
       allow delete: if isAdmin() || isSuperAdminAuth();

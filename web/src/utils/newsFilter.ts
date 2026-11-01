@@ -1,4 +1,4 @@
-import { NewsPost } from '../types';
+import type { NewsPost } from '../types';
 
 export const AP_DISTRICTS: string[] = [
   'అల్లూరి సీతారామరాజు', 'అనకాపల్లి', 'అనంతపురం', 'అన్నమయ్య', 'బాపట్ల', 'చిత్తూరు', 'కోనసీమ',
@@ -236,12 +236,32 @@ export function filterPostsByCategory(posts: NewsPost[], selectedKey: string): N
     const pCat = (p.category || '').toLowerCase();
     const pCats = (p.categories || []).map((c) => c.toLowerCase());
     const hLine = `${p.headline?.telugu || ''} ${p.headline?.english || ''}`.toLowerCase();
+    const cLine = `${p.content?.telugu || ''} ${p.content?.english || ''} ${p.fullStory?.telugu || ''}`.toLowerCase();
+    const pTags = (Array.isArray(p.tags) ? p.tags : []).map((t) => String(t).replace(/^#/, '').toLowerCase());
+    const pKeywords = (Array.isArray(p.keywords) ? p.keywords : []).map((k) => String(k).replace(/^#/, '').toLowerCase());
+    const pPeople = (Array.isArray(p.entities?.people) ? p.entities.people : []).map((peep) => String(peep).toLowerCase());
+    const pLocs = (Array.isArray(p.entities?.locations) ? p.entities.locations : []).map((loc) => String(loc).toLowerCase());
+    const pOrgs = (Array.isArray(p.entities?.organizations) ? p.entities.organizations : []).map((org) => String(org).toLowerCase());
+    const dist = (p.district || '').toLowerCase();
+    const loc = (p.location || '').toLowerCase();
+    const mandal = (p.mandal || '').toLowerCase();
 
-    return matchedKeywords.some(
-      (kw) =>
-        pCat.includes(kw.toLowerCase()) ||
-        pCats.some((c) => c.includes(kw.toLowerCase())) ||
-        hLine.includes(kw.toLowerCase())
-    );
+    return matchedKeywords.some((kw) => {
+      const lower = kw.toLowerCase().trim();
+      return (
+        pCat.includes(lower) ||
+        pCats.some((c) => c.includes(lower)) ||
+        hLine.includes(lower) ||
+        cLine.includes(lower) ||
+        pTags.some((t) => t.includes(lower) || lower.includes(t)) ||
+        pKeywords.some((k) => k.includes(lower) || lower.includes(k)) ||
+        pPeople.some((peep) => peep.includes(lower) || lower.includes(peep)) ||
+        pLocs.some((l) => l.includes(lower) || lower.includes(l)) ||
+        pOrgs.some((o) => o.includes(lower) || lower.includes(o)) ||
+        dist.includes(lower) ||
+        loc.includes(lower) ||
+        mandal.includes(lower)
+      );
+    });
   });
 }
