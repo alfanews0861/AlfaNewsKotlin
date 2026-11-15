@@ -286,10 +286,10 @@ async function runReporterActivityScan() {
 exports.runReporterActivityScan = runReporterActivityScan;
 /**
  * Scheduled function to monitor reporter activity.
- * Runs daily at 00:00 IST (18:30 UTC previous day).
+ * Runs daily at 10:00 AM IST (business hours, prevents midnight disturbance).
  */
 exports.monitorReporterActivity = (0, scheduler_1.onSchedule)({
-    schedule: "0 0 * * *",
+    schedule: "0 10 * * *",
     timeZone: "Asia/Kolkata",
     memory: "512MiB",
     timeoutSeconds: 540

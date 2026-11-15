@@ -81,6 +81,20 @@
         }
       },
       {
+        "source": "/sitemaps/**",
+        "function": {
+          "functionId": "serveSitemap",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/sitemap-*.xml",
+        "function": {
+          "functionId": "serveSitemap",
+          "region": "asia-south1"
+        }
+      },
+      {
         "source": "/ads.txt",
         "destination": "/ads.txt"
       },

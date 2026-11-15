@@ -359,8 +359,28 @@ function sanitizeTeluguText(text) {
         .replace(/జూబ్లీహిల్స్/g, 'జూబ్లీ హిల్స్')
 
         // 8. Fix English loanwords ending in virama (్) glued directly to postpositions (లో, పై, తో, కు, కి, వద్ద, నుండి, లోని, తోని)
-        // e.g. న్పై -> న్ పై (స్క్రీన్ పై), ల్స్లో -> ల్స్ లో (హిల్స్ లో), మ్లో -> మ్ లో (రూమ్ లో), డ్పై -> డ్ పై (రోడ్ పై)
-        .replace(/([\u0C15-\u0C39]\u0C4D)(లో|పై|తో|కు|కి|వద్ద|నుండి|లోని|తోని)(?=[\s.,:;!?\n\"\'”’)]|$)/g, '$1 $2')
+        // Loan consonants EXCLUDE 'ల' (\u0C32) to prevent breaking native Telugu plurals like 'పాత్రల్లో' into 'పాత్రల్ లో'
+        .replace(/([\u0C38\u0C28\u0C2E\u0C2A\u0C1C\u0C21\u0C2C\u0C15\u0C1F]\u0C4D)(లో|పై|తో|కు|కి|వద్ద|నుండి|లోని|తోని)(?=[\s\p{P}]|$)/gu, '$1 $2')
+        .replace(/([\u0C15-\u0C39]\u0C4D)(పై|నుంచి|నుండి|వరకు)(?=[\s\p{P}]|$)/gu, '$1 $2')
+
+        // 8.1 Rejoin unnatural splits of Telugu plural locative 'ల్లో' (e.g. 'పాత్రల్ లో' -> 'పాత్రల్లో', 'సినిమాల్ లో' -> 'సినిమాల్లో', 'గ్రామాల్ లో' -> 'గ్రామాల్లో')
+        .replace(/ల్\s+లో(?=[\s\p{P}]|$)/gu, 'ల్లో')
+
+        // 8.2 Rejoin native Telugu words unnaturally split with 'ట్ లో' (e.g. 'ఇంట్ లో' -> 'ఇంట్లో', 'నోట్ లో' -> 'నోట్లో', 'కంట్ లో' -> 'కంట్లో')
+        .replace(/(ఇం|కం|నో|ఒం|గొం|పుం|తుం|పెం)ట్\s+లో(?=[\s\p{P}]|$)/gu, '$1ట్లో')
+
+        // 8.3 Fix numbers & currencies glued to words (e.g. 'రూ.100కోట్లు' -> 'రూ. 100 కోట్లు', '10వేల' -> '10 వేల', '5మంది' -> '5 మంది')
+        .replace(/(రూ\.|రూ)(?=\d)/gu, 'రూ. ')
+        .replace(/(\d+)(కోట్లు|కోట్ల|లక్షలు|లక్షల|వేలు|వేల|మంది|శాతం|శాతానికి|కిలోమీటర్ల?|గంటల?|రోజుల?|నెలల?|సంవత్సరాల?|ఏళ్ల|మందికి|మందితో)(?=[\s\p{P}]|$)/gu, '$1 $2')
+
+        // 8.4 Fix punctuation glued to Telugu words without space (e.g. 'జరిగింది.దీనిపై' -> 'జరిగింది. దీనిపై')
+        .replace(/([\u0C00-\u0C7F])([.,:;!?])([\u0C00-\u0C7F])/gu, '$1$2 $3')
+
+        // 8.5 Fix unnatural literal translations and conflicting collocations in Telugu news
+        .replace(/తీవ్రంగా\s+స్పందిస్తూ(?=\s+(?:[^\s.,;]+\s+){0,4}(?:అభినంది|ప్రశంసి|హర్షం|స్వాగతి|మురిసి|జైకొ|మెచ్చుకు))/gu, 'ప్రశంసల వర్షం కురిపిస్తూ')
+        .replace(/తీవ్రంగా\s+స్పందించి(?=\s+(?:[^\s.,;]+\s+){0,4}(?:అభినంది|ప్రశంసి|హర్షం|స్వాగతి|మురిసి|జైకొ|మెచ్చుకు))/gu, 'ప్రశంసల వర్షం కురిపించి')
+        .replace(/తీవ్రంగా\s+స్పందించిన(?=\s+(?:[^\s.,;]+\s+){0,4}(?:అభినంది|ప్రశంసి|హర్షం|స్వాగతి|మురిసి|జైకొ|మెచ్చుకు))/gu, 'హర్షం వ్యక్తం చేసిన')
+        .replace(/తీవ్రంగా\s+స్పందించారు(?=\s+[.,;]?\s*(?:అభినంది|ప్రశంసి|హర్షం|స్వాగతి))/gu, 'హర్షం వ్యక్తం చేశారు')
 
         // 9. Normalize multi-spaces
         .replace(/[ \t]+/g, ' ')
@@ -497,6 +517,154 @@ function isEditorialVerdictOrFlattery(headline, text = '', authorName = '') {
     }
 
     return false;
+}
+
+/**
+ * 🏛️ TOP TELUGU LEADERS (AP & TS CMs and Opposition Leaders)
+ * Statements made directly by them or quoting them MUST DEFINITELY be BREAKING NEWS.
+ * Leaders: Chandrababu Naidu, Revanth Reddy, Y.S. Jagan Mohan Reddy, KCR, Pawan Kalyan, Nara Lokesh, KTR
+ */
+const TOP_TELUGU_LEADERS = [
+    {
+        id: "cbn",
+        nameTe: "చంద్రబాబు నాయుడు",
+        nameEn: "Chandrababu Naidu",
+        patterns: [
+            /(?:చంద్రబాబు\s*నాయుడు|నారా\s*చంద్రబాబు|చంద్రబాబునాయుడు|సీఎం\s*చంద్రబాబు|సిఎం\s*చంద్రబాబు|ముఖ్యమంత్రి\s*చంద్రబాబు|చంద్రబాబు)/i,
+            /(?:chandrababu|cbn|nara\s*chandrababu)/i
+        ],
+        handles: [/ncbn/i]
+    },
+    {
+        id: "revanth",
+        nameTe: "రేవంత్ రెడ్డి",
+        nameEn: "Revanth Reddy",
+        patterns: [
+            /(?:రేవంత్\s*రెడ్డి|రేవంత్‌రెడ్డి|అనుముల\s*రేవంత్|సీఎం\s*రేవంత్|సిఎం\s*రేవంత్|ముఖ్యమంత్రి\s*రేవంత్)/i,
+            /(?:revanth\s*reddy|revanthreddy|cm\s*revanth)/i
+        ],
+        handles: [/revanth_anumula/i]
+    },
+    {
+        id: "jagan",
+        nameTe: "వైఎస్ జగన్ మోహన్ రెడ్డి",
+        nameEn: "YS Jagan Mohan Reddy",
+        patterns: [
+            /(?:జగన్\s*మోహన్\s*రెడ్డి|జగన్‌మోహన్‌రెడ్డి|వైఎస్\s*జగన్|వైఎస్సార్సీపీ\s*అధినేత|మాజీ\s*సీఎం\s*జగన్)/i,
+            /(?:jagan\s*mohan\s*reddy|jaganmohan\s*reddy|ys\s*jagan|ysjagan)/i
+        ],
+        handles: [/ysjagan/i]
+    },
+    {
+        id: "kcr",
+        nameTe: "కేసీఆర్",
+        nameEn: "K. Chandrashekar Rao (KCR)",
+        patterns: [
+            /(?:కేసీఆర్|కేసిఆర్|చంద్రశేఖర్\s*రావు|చంద్రశేఖరరావు|కల్వకుంట్ల\s*చంద్రశేఖర్|బిఆర్ఎస్\s*అధినేత\s*కేసీఆర్|బీఆర్ఎస్\s*అధినేత\s*కేసీఆర్|మాజీ\s*సీఎం\s*కేసీఆర్)/i,
+            /(?:kcr|k\.\s*chandrashekar\s*rao|chandrasekhar\s*rao|kalvakuntla\s*chandrashekar)/i
+        ],
+        handles: [/kcrbrspresident/i]
+    },
+    {
+        id: "pawan",
+        nameTe: "పవన్ కళ్యాణ్",
+        nameEn: "Pawan Kalyan",
+        patterns: [
+            /(?:పవన్\s*కళ్యాణ్|పవన్\s*కల్యాణ్|పవన్‌కళ్యాణ్|డిప్యూటీ\s*సీఎం\s*పవన్|ఉప\s*ముఖ్యమంత్రి\s*పవన్|జనసేనాని|జనసేన\s*అధినేత)/i,
+            /(?:pawan\s*kalyan|pawankalyan|deputy\s*cm\s*pawan|janasenani)/i
+        ],
+        handles: [/pawankalyan/i]
+    },
+    {
+        id: "lokesh",
+        nameTe: "నారా లోకేష్",
+        nameEn: "Nara Lokesh",
+        patterns: [
+            /(?:నారా\s*లోకేష్|నారా\s*లోకేశ్|మంత్రి\s*లోకేష్|మంత్రి\s*లోకేశ్)/i,
+            /(?:nara\s*lokesh|minister\s*lokesh)/i
+        ],
+        handles: [/naralokesh/i]
+    },
+    {
+        id: "ktr",
+        nameTe: "కేటీఆర్",
+        nameEn: "K.T. Rama Rao (KTR)",
+        patterns: [
+            /(?:కేటీఆర్|కేటిఆర్|తారక\s*రామారావు|తారకరామారావు|కల్వకుంట్ల\s*తారక|బిఆర్ఎస్\s*వర్కింగ్\s*ప్రెసిడెంట్|బీఆర్ఎస్\s*వర్కింగ్\s*ప్రెసిడెంట్)/i,
+            /(?:ktr|kt\s*rama\s*rao|taraka\s*rama\s*rao)/i
+        ],
+        handles: [/ktrbrs/i]
+    }
+];
+
+const ROUTINE_GREETING_INDICATORS = [
+    "శుభాకాంక్షలు", "దినోత్సవ", "పుట్టినరోజు", "వర్ధంతి", "జయంతి", "నివాళులు", "సంతాపం",
+    "గ్రీటింగ్స్", "హ్యాపీ", "wishes", "greetings", "condolences", "tribute", "birth anniversary", "death anniversary"
+];
+
+const STATEMENT_AND_QUOTE_INDICATORS = [
+    "ప్రకటన", "ప్రకటించ", "వ్యాఖ్య", "వ్యాఖ్యానించ", "అన్నారు", "అని అన్నారు", "అంటూ",
+    "తెలిపారు", "స్పష్టం", "స్పందించ", "వెల్లడించ", "ధ్వజమెత్త", "నిలదీశ", "డిమాండ్",
+    "విమర్శించ", "హెచ్చరించ", "ఫైర్", "కౌంటర్", "సవాల్", "ఆగ్రహం", "పిలుపు", "హామీ",
+    "నిర్ణయం", "ఆదేశించ", "ట్వీట్", "పోస్ట్", "ప్రెస్‌మీట్", "సమావేశం", "ప్రసంగం",
+    "ఉటంకిస్తూ", "మాటల్లో", "పేర్కొన్న", "చెప్పిన", "వివరించిన", "స్పష్టత", "ప్రశ్నించ",
+    "ఆరోపణ", "నిప్పులు", "తీవ్రంగా", "విరుచుకుపడ్డ", "మండిపడ్డ",
+    "said", "remarked", "stated", "declared", "slammed", "lashed out", "demanded",
+    "warned", "criticized", "tweeted", "posted", "announced", "reacted", "press meet",
+    "speech", "quoted", "urged", "countered", "alleged", "clarified"
+];
+
+function isTopTeluguLeaderStatement(text = '', headline = '', authorOrSource = '') {
+    const res = detectTopTeluguLeader(headline, text, authorOrSource);
+    return res.isTopLeaderNews;
+}
+
+function detectTopTeluguLeader(headline = '', content = '', authorOrSource = '') {
+    const h = (headline || '').trim();
+    const c = (content || '').trim();
+    const a = (authorOrSource || '').trim();
+    const combined = `${h} ${c} ${a}`.toLowerCase();
+
+    // 🛑 Exclude routine greetings, wishes, condolences
+    const isRoutineGreeting = ROUTINE_GREETING_INDICATORS.some(g => h.toLowerCase().includes(g.toLowerCase()));
+    if (isRoutineGreeting) {
+        return {
+            isTopLeaderNews: false,
+            leaderName: '',
+            isAuthor: false,
+            inHeadline: false,
+            isQuotedOrStatement: false
+        };
+    }
+
+    for (const leader of TOP_TELUGU_LEADERS) {
+        const isAuthor = leader.handles.some(rgx => rgx.test(a) || rgx.test(combined)) ||
+                         leader.patterns.some(rgx => rgx.test(a));
+        const inHeadline = leader.patterns.some(rgx => rgx.test(h));
+        const inText = leader.patterns.some(rgx => rgx.test(combined));
+        const hasStatementIndicator = STATEMENT_AND_QUOTE_INDICATORS.some(ind => {
+            const indLower = ind.toLowerCase();
+            return h.toLowerCase().includes(indLower) || c.toLowerCase().includes(indLower);
+        });
+
+        if (isAuthor || inHeadline || (inText && hasStatementIndicator)) {
+            return {
+                isTopLeaderNews: true,
+                leaderName: leader.nameTe,
+                isAuthor,
+                inHeadline,
+                isQuotedOrStatement: isAuthor || hasStatementIndicator
+            };
+        }
+    }
+
+    return {
+        isTopLeaderNews: false,
+        leaderName: '',
+        isAuthor: false,
+        inHeadline: false,
+        isQuotedOrStatement: false
+    };
 }
 
 /**
@@ -672,6 +840,9 @@ function extractArticleLinks(html, sourceUrl) {
         return clean.length > 2 && !genericSegments.includes(clean);
     });
 
+    const specificLinks = [];
+    const genericLinks = [];
+
     $('a').each((i, el) => {
         const href = $(el).attr('href');
         if (!href) return;
@@ -683,16 +854,19 @@ function extractArticleLinks(html, sourceUrl) {
                 if (specificKeyword) {
                     const cleanKeyword = specificKeyword.replace(/\.html|\.php/g, '').toLowerCase();
                     if (absoluteUrl.toLowerCase().includes(cleanKeyword)) {
-                        links.push(absoluteUrl);
+                        specificLinks.push(absoluteUrl);
                         return;
                     }
                 }
-                links.push(absoluteUrl);
+                genericLinks.push(absoluteUrl);
             }
         } catch (e) {}
     });
 
-    return [...new Set(links)];
+    const combined = (specificKeyword && specificLinks.length > 0)
+        ? [...new Set([...specificLinks, ...genericLinks])]
+        : [...new Set(genericLinks)];
+    return combined;
 }
 
 // ============================================================================
@@ -1990,6 +2164,107 @@ const GLOBAL_CATEGORIES = [
     "AndhraPradesh", "Telangana"
 ];
 
+// Pure universal/global categories that must NEVER be tagged as a local district news
+const PURE_GLOBAL_CATEGORIES = [
+    "Sports", "Cinema", "National", "International"
+];
+
+const DISTRICT_MAPPING = [
+    // --- ANDHRA PRADESH DISTRICTS ---
+    { canonical: "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు", state: "AP", keywords: ["nellore", "నెల్లూరు", "spsr", "కావలి", "kavali", "కోవూరు", "kovur", "కందుకూరు", "kandukur", "గూడూరు", "gudur", "ఆత్మకూరు", "atmakur", "ఉదయగిరి", "udayagiri", "బుచ్చిరెడ్డిపాలెం", "వెంకటాచలం"] },
+    { canonical: "అల్లూరి సీతారామరాజు", state: "AP", keywords: ["alluri", "asr district", "అల్లూరి", "సీతారామరాజు", "పాడేరు", "paderu", "అరకు", "araku", "రంపచోడవరం", "rampachodavaram", "చింతపల్లి"] },
+    { canonical: "అనకాపల్లి", state: "AP", keywords: ["anakapalli", "anakapalle", "అనకాపల్లి", "నర్సీపట్నం", "narsipatnam", "చోడవరం", "chodavaram", "దేవరాపల్లి", "బుచ్చయ్యపేట"] },
+    { canonical: "అనంతపురం", state: "AP", keywords: ["anantapur", "ananthapur", "anantapuramu", "అనంతపురం", "అనంతపురము", "రాప్తాడు", "raptadu", "గుంతకల్లు", "guntakal", "తాడిపత్రి", "tadipatri"] },
+    { canonical: "అన్నమయ్య", state: "AP", keywords: ["annamayya", "అన్నమయ్య", "రాయచోటి", "rayachoti", "రాజంపేట", "rajampet", "పీలేరు", "pileru", "మదనపల్లె"] },
+    { canonical: "బాపట్ల", state: "AP", keywords: ["bapatla", "బాపట్ల", "చీరాల", "chirala", "రేపల్లె", "repalle", "అద్దంకి", "addanki", "వేమూరు"] },
+    { canonical: "చిత్తూరు", state: "AP", keywords: ["chittoor", "చిత్తూరు", "కుప్పం", "kuppam", "పలమనేరు", "palamaner", "పుంగనూరు", "punganur", "నగరి", "nagari", "గంగాధర నెల్లూరు"] },
+    { canonical: "డాక్టర్ బి.ఆర్. అంబేద్కర్ కోనసీమ", state: "AP", keywords: ["konaseema", "కోనసీమ", "అమలాపురం", "amalapuram", "రాజోలు", "razole", "రావులపాలెం", "ravulapalem", "రామచంద్రపురం", "ముమ్మిడివరం"] },
+    { canonical: "తూర్పు గోదావరి", state: "AP", keywords: ["east godavari", "తూర్పు గోదావరి", "తూర్పుగోదావరి", "రాజమండ్రి", "rajahmundry", "రాజమహేంద్రవరం", "కొవ్వూరు", "kovvur", "నిడదవోలు", "అనపర్తి"] },
+    { canonical: "ఏలూరు", state: "AP", keywords: ["eluru", "ఏలూరు", "కైకలూరు", "kaikaluru", "నూజివీడు", "nuzvid", "జీలుగుమిల్లి", "jeelugumilli", "జంగారెడ్డిగూడెం", "jangareddigudem", "చింతలపూడి", "పోలవరం"] },
+    { canonical: "గుంటూరు", state: "AP", keywords: ["guntur", "గుంటూరు", "తెనాలి", "tenali", "మంగళగిరి", "mangalagiri", "పొన్నూరు", "ponnur", "ప్రత్తిపాడు", "తాడికొండ"] },
+    { canonical: "కాకినాడ", state: "AP", keywords: ["kakinada", "కాకినాడ", "పిఠాపురం", "pithapuram", "తుని", "tuni", "పెద్దాపురం", "peddapuram", "సామర్లకోట", "ప్రత్తిపాడు-కాకినాడ", "జగ్గంపేట"] },
+    { canonical: "కృష్ణా", state: "AP", keywords: ["krishna", "కృష్ణా", "మచిలీపట్నం", "machilipatnam", "గుడివాడ", "gudiwada", "ఉయ్యూరు", "uyyuru", "పెడన", "పామర్రు", "అవనిగడ్డ"] },
+    { canonical: "కర్నూలు", state: "AP", keywords: ["kurnool", "కర్నూలు", "ఆదోని", "adoni", "ఎమ్మిగనూరు", "yemmiganur", "ఆలూరు", "alur", "పత్తికొండ", "pattikonda", "కోడుమూరు", "మంత్రాలయం"] },
+    { canonical: "నంద్యాల", state: "AP", keywords: ["nandyal", "నంద్యాల", "ఆళ్లగడ్డ", "allagadda", "డోన్", "dhone", "బనగానపల్లె", "banaganapalle", "నందికొట్కూరు", "శ్రీశైలం"] },
+    { canonical: "ఎన్టీఆర్", state: "AP", keywords: ["ntr", "ఎన్టీఆర్", "విజయవాడ", "vijayawada", "జగ్గయ్యపేట", "jaggayyapet", "నందిగామ", "nandigama", "మైలవరం", "mylavaram", "తిరువూరు"] },
+    { canonical: "పల్నాడు", state: "AP", keywords: ["palnadu", "పల్నాడు", "నరసరావుపేట", "narasaraopet", "సత్తెనపల్లి", "sattenapalli", "గురజాల", "gurazala", "మాచర్ల", "macherla", "వినుకొండ", "vinukonda", "చిలకలూరిపేట"] },
+    { canonical: "పార్వతీపురం మన్యం", state: "AP", keywords: ["parvathipuram", "manyam", "పార్వతీపురం", "మన్యం", "పాలకొండ", "palakonda", "సాలూరు", "salur", "కురుపాం"] },
+    { canonical: "ప్రకాశం", state: "AP", keywords: ["prakasam", "ప్రకాశం", "ఒంగోలు", "ongole", "చీమకుర్తి", "దర్శి", "కనిగిరి", "యర్రగొండపాలెం", "గిద్దలూరు", "మార్కాపురం"] },
+    { canonical: "శ్రీ సత్యసాయి", state: "AP", keywords: ["sri sathya sai", "sathyasai", "శ్రీ సత్యసాయి", "సత్యసాయి", "పుట్టపర్తి", "puttaparthi", "ధర్మవరం", "dharmavaram", "కదిరి", "kadiri", "పెనుకొండ", "penukonda", "హిందూపురం", "hindupur", "మడకశిర"] },
+    { canonical: "శ్రీకాకుళం", state: "AP", keywords: ["srikakulam", "శ్రీకాకుళం", "పలాస", "palasa", "టెక్కలి", "tekkali", "ఇచ్ఛాపురం", "ichchapuram", "ఆమదాలవలస", "amadalavalasa", "నరసన్నపేట", "రణస్థలం", "సోంపేట"] },
+    { canonical: "తిరుపతి", state: "AP", keywords: ["tirupati", "తిరుపతి", "తిరుమల", "tirumala", "శ్రీకాళహస్తి", "srikalahasti", "చంద్రగిరి", "chandragiri", "సూళ్లూరుపేట", "sullurpeta", "వెంకటగిరి", "నాయుడుపేట", "గూడూరు-తిరుపతి"] },
+    { canonical: "విశాఖపట్నం", state: "AP", keywords: ["visakhapatnam", "vizag", "విశాఖపట్నం", "వైజాగ్", "విశాఖ", "గాజువాక", "gajuwaka", "భీమిలి", "bheemili", "పెందుర్తి"] },
+    { canonical: "విజయనగరం", state: "AP", keywords: ["vizianagaram", "విజయనగరం", "బొబ్బిలి", "bobbili", "చీపురుపల్లి", "cheepurupalli", "గజపతినగరం", "శృంగవరపుకోట", "నెల్లిమర్ల"] },
+    { canonical: "పశ్చిమ గోదావరి", state: "AP", keywords: ["west godavari", "పశ్చిమ గోదావరి", "పశ్చిమగోదావరి", "భీమవరం", "bhimavaram", "తాడేపల్లిగూడెం", "tadepalligudem", "పాలకొల్లు", "palakollu", "నరసాపురం", "narasapuram", "తణుకు", "tanuku", "ఆకివీడు"] },
+    { canonical: "వైఎస్ఆర్ కడప", state: "AP", keywords: ["kadapa", "కడప", "ysr kadapa", "వైఎస్ఆర్ కడప", "వైఎస్సార్ కడప", "ప్రొద్దుటూరు", "proddatur", "పులివెందుల", "pulivendula", "జమ్మలమడుగు", "బద్వేలు", "కమలాపురం"] },
+
+    // --- TELANGANA DISTRICTS ---
+    { canonical: "ఆదిలాబాద్", state: "TS", keywords: ["adilabad", "ఆదిలాబాద్", "బోథ్", "బేల", "ఉట్నూరు"] },
+    { canonical: "భద్రాద్రి కొత్తగూడెం", state: "TS", keywords: ["bhadradri", "kothagudem", "భద్రాద్రి", "కొత్తగూడెం", "భద్రాచలం", "bhadrachalam", "ఇల్లందు", "మణుగూరు", "పాల్వంచ"] },
+    { canonical: "హన్మకొండ", state: "TS", keywords: ["hanumakonda", "hanmakonda", "హన్మకొండ", "హనుమకొండ", "వరంగల్ అర్బన్", "కాజీపేట", "kazipet"] },
+    { canonical: "హైదరాబాద్", state: "TS", keywords: ["hyderabad", "హైదరాబాద్", "సైబరాబాద్", "cyberabad", "సికింద్రాబాద్", "secunderabad", "చార్మినార్", "బంజారాహిల్స్", "జూబ్లీహిల్స్"] },
+    { canonical: "జగిత్యాల", state: "TS", keywords: ["jagtial", "జగిత్యాల", "కోరుట్ల", "korutla", "మెట్‌పల్లి", "metpally", "ధర్మపురి"] },
+    { canonical: "జనగాం", state: "TS", keywords: ["jangaon", "జనగాం", "స్టేషన్ ఘన్‌పూర్", "పాలకుర్తి"] },
+    { canonical: "జయశంకర్ భూపాలపల్లి", state: "TS", keywords: ["bhupalpally", "భూపాలపల్లి", "జయశంకర్"] },
+    { canonical: "జోగులాంబ గద్వాల", state: "TS", keywords: ["gadwal", "గద్వాల", "జోగులాంబ", "అలంపూర్", "alampur"] },
+    { canonical: "కామారెడ్డి", state: "TS", keywords: ["kamareddy", "కామారెడ్డి", "బాన్సువాడ", "banswada", "ఎల్లారెడ్డి"] },
+    { canonical: "కరీంనగర్", state: "TS", keywords: ["karimnagar", "కరీంనగర్", "హుజూరాబాద్", "huzurabad", "చొప్పదండి", "మానాకొండూరు", "తిమ్మాపూర్"] },
+    { canonical: "ఖమ్మం", state: "TS", keywords: ["khammam", "ఖమ్మం", "సత్తుపల్లి", "sathupalli", "మధిర", "madhira", "వైరా", "wyra", "పాలేరు"] },
+    { canonical: "కుమ్రం భీమ్ ఆసిఫాబాద్", state: "TS", keywords: ["asifabad", "ఆసిఫాబాద్", "కుమ్రం భీమ్", "కాగజ్‌నగర్", "kagaznagar", "సిర్పూర్"] },
+    { canonical: "మహబూబాబాద్", state: "TS", keywords: ["mahabubabad", "మహబూబాబాద్", "మానూకోట", "తొర్రూరు", "డోర్నకల్"] },
+    { canonical: "మహబూబ్ నగర్", state: "TS", keywords: ["mahabubnagar", "మహబూబ్ నగర్", "మహబూబ్‌నగర్", "జడ్చర్ల", "jadcherla", "దేవరకద్ర"] },
+    { canonical: "మంచిర్యాల", state: "TS", keywords: ["mancherial", "మంచిర్యాల", "బెల్లంపల్లి", "bellampalli", "మందమర్రి", "mandamarri", "చెన్నూర్", "chennur", "జన్నారం"] },
+    { canonical: "మెదక్", state: "TS", keywords: ["medak", "మెదక్", "తూప్రాన్", "నర్సాపూర్"] },
+    { canonical: "మేడ్చల్ మల్కాజిగిరి", state: "TS", keywords: ["medchal", "malkajgiri", "మేడ్చల్", "మల్కాజిగిరి", "ఉప్పల్", "కూకట్‌పల్లి", "కుత్బుల్లాపూర్", "ఘట్‌కేసర్"] },
+    { canonical: "ములుగు", state: "TS", keywords: ["mulugu", "ములుగు", "మేడారం", "medaram", "తాడ్వాయి", "ఏటూరునాగారం"] },
+    { canonical: "నాగర్ కర్నూల్", state: "TS", keywords: ["nagarkurnool", "నాగర్ కర్నూల్", "కల్వకుర్తి", "kalwakurthy", "అచ్చంపేట", "కొల్లాపూర్"] },
+    { canonical: "నల్గొండ", state: "TS", keywords: ["nalgonda", "నల్గొండ", "మిర్యాలగూడ", "miryalaguda", "దేవరకొండ", "నాగార్జునసాగర్", "నకిరేకల్"] },
+    { canonical: "నారాయణపేట", state: "TS", keywords: ["narayanpet", "నారాయణపేట", "మక్తల్", "makthal", "మద్దూరు"] },
+    { canonical: "నిర్మల్", state: "TS", keywords: ["nirmal", "నిర్మల్", "భైంసా", "bhainsa", "ఖానాపూర్", "కడెం"] },
+    { canonical: "నిజామాబాద్", state: "TS", keywords: ["nizamabad", "నిజామాబాద్", "బోధన్", "bodhan", "ఆర్మూర్", "armoor", "బాల్కొండ"] },
+    { canonical: "పెద్దపల్లి", state: "TS", keywords: ["peddapalli", "పెద్దపల్లి", "రామగుండం", "ramagundam", "గోదావరిఖని", "godavarikhani", "సుల్తానాబాద్", "మంథని"] },
+    { canonical: "రాజన్న సిరిసిల్ల", state: "TS", keywords: ["sircilla", "సిరిసిల్ల", "రాజన్న సిరిసిల్ల", "వేములవాడ", "vemulawada"] },
+    { canonical: "రంగారెడ్డి", state: "TS", keywords: ["rangareddy", "రంగారెడ్డి", "శంషాబాద్", "shamshabad", "ఇబ్రహీంపట్నం", "రాజేంద్రనగర్", "మహేశ్వరం", "చేవెళ్ల", "షాద్‌నగర్"] },
+    { canonical: "సంగారెడ్డి", state: "TS", keywords: ["sangareddy", "సంగారెడ్డి", "పటాన్‌చెరు", "patancheru", "జహీరాబాద్", "zaheerabad", "ఆందోల్", "నారాయణఖేడ్"] },
+    { canonical: "సిద్దిపేట", state: "TS", keywords: ["siddipet", "సిద్దిపేట", "గజ్వేల్", "gajwel", "దుబ్బాక", "dubbaka", "హుస్నాబాద్"] },
+    { canonical: "సూర్యాపేట", state: "TS", keywords: ["suryapet", "సూర్యాపేట", "కోదాడ", "kodad", "హుజూర్‌నగర్", "huzurnagar", "తుంగతుర్తి"] },
+    { canonical: "వికారాబాద్", state: "TS", keywords: ["vikarabad", "వికారాబాద్", "తాండూరు", "tandur", "పరిగి", "parigi", "కొడంగల్"] },
+    { canonical: "వనపర్తి", state: "TS", keywords: ["wanaparthy", "వనపర్తి", "పెబ్బేరు", "కొత్తకోట", "ఆత్మకూరు-వనపర్తి"] },
+    { canonical: "వరంగల్", state: "TS", keywords: ["warangal", "వరంగల్", "నర్సంపేట", "narsampet", "వర్ధన్నపేట", "రాయపర్తి", "వరంగల్ రూరల్"] },
+    { canonical: "యాదాద్రి భువనగిరి", state: "TS", keywords: ["yadadri", "bhuvanagiri", "bhongir", "యాదాద్రి", "భువనగిరి", "చౌటుప్పల్", "choutuppal", "ఆలేరు", "aler", "మోత్కూరు", "యాదగిరిగుట్ట"] },
+
+    // --- STATE / CAPITAL / REGIONAL ---
+    { canonical: "AndhraPradesh", state: "AP", keywords: ["amaravati", "అమరావతి", "andhra pradesh", "andhrapradesh", "ఆంధ్రప్రదేశ్", "ఆంధ్ర ప్రదేశ్", "ఆంధ్ర", "ap news", "ap state"] },
+    { canonical: "Telangana", state: "TS", keywords: ["telangana", "telangana state", "తెలంగాణ", "తెలంగాణా", "ts news", "tg news"] }
+];
+
+function detectDistrict(location, text) {
+    const loc = (location || '').toLowerCase().trim();
+    if (loc && loc !== 'general' && loc !== 'none') {
+        for (const item of DISTRICT_MAPPING) {
+            if (item.keywords.some(k => {
+                const kl = k.toLowerCase();
+                return loc === kl || loc.includes(kl) || kl.includes(loc);
+            })) {
+                return item;
+            }
+        }
+    }
+    const body = (text || '').toLowerCase();
+    if (body.length > 5) {
+        for (const item of DISTRICT_MAPPING) {
+            if (item.keywords.some(k => {
+                const kl = k.toLowerCase();
+                if (kl.length < 4) return false;
+                return body.includes(kl);
+            })) {
+                return item;
+            }
+        }
+    }
+    return null;
+}
+
 // ============================================================================
 // SCRAPING LOGIC: WEB SOURCES
 // ============================================================================
@@ -2144,6 +2419,9 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
      * కరాఖండి నిర్ణయాలు/హెచ్చరికలు: "తేల్చిచెప్పారు", "హెచ్చరించారు", "స్పష్టం చేశారు", "సవాల్ విసిరారు", "ఖరాఖండీగా ప్రకటించారు".
      * రైతాంగం/బాధితుల వేదన: "ఆవేదన వ్యక్తం చేశారు", "కన్నీటిపర్యంతమయ్యారు", "గోడు వెళ్లబోసుకున్నారు", "వాపోయారు".
      * అధికారిక వివరణలు/రక్షణ: "స్పందించారు", "వివరణ ఇచ్చారు", "సమర్థించుకున్నారు", "స్పష్టతనిచ్చారు", "హామీ ఇచ్చారు".
+     * ప్రశంసలు / అభినందనలు / సానుకూల పరిణామాలు (PRAISE, CONGRATULATIONS & POSITIVE SENTIMENT):
+       - "ప్రశంసల వర్షం కురిపించారు", "హర్షం వ్యక్తం చేశారు", "ముక్తకంఠంతో అభినందించారు", "విశేషంగా స్పందించారు", "స్వాగతించారు", "జైకొట్టారు".
+       - 🛑 కఠిన నిషేధం (NO "తీవ్రంగా స్పందించారు" IN POSITIVE CONTEXT): ప్రశంసలు, అభినందనలు, విజయాలు, శుభపరిణామాల వార్తల్లో 'తీవ్రంగా స్పందిస్తూ' లేదా 'తీవ్రంగా స్పందించారు' అని ఎట్టిపరిస్థితుల్లోనూ రాయరాదు! తెలుగులో 'తీవ్రంగా స్పందించడం' అనేది కేవలం కోపం, నిరసన, ఆగ్రహం, ఖండన లేదా వివాదాస్పద ఘర్షణల సందర్భంలో మాత్రమే వాడాలి.
 
 8. ⚠️ ఆపాదింపు నిబంధన - కథనం బాడీలోనే తప్పనిసరి (MANDATORY ATTRIBUTION IN BODY - ZERO EDITORIAL VERDICTS):
    - ఆల్ఫా న్యూస్ నిష్పాక్షిక వార్తా సంస్థ. ఏ రాజకీయ నాయకుడిపై ప్రశంసలను గానీ, విమర్శలను గానీ మన ఛానెల్ స్వయంగా ఇచ్చినట్లు, ధ్రువీకరించినట్లు లేదా తీర్పు ఇచ్చినట్లు ఎప్పుడూ రాయరాదు!
@@ -2203,10 +2481,14 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
    - కన్నడ, హిందీ/దేవనాగరి, ఉర్దూ, తమిళం లేదా మలయాళం అక్షరాలు ఎట్టిపరిస్థితుల్లోనూ రానివ్వకూడదు.
    - హిందీ/ఇతర భాషల పేర్లను స్వచ్ఛమైన తెలుగులోకి లిప్యంతరీకరించాలి (ఉదా: 'నరేంద్ర మోదీ', 'రాహుల్ గాంధీ', 'ఒవైసీ', 'వక్ఫ్').
 
-10.1 సరైన తెలుగు పదాల విభజన & విభక్తుల స్పేసింగ్ నిబంధన (PROPER WORD SPACING & NO UGLY WORD CLUMPING):
-   - ఆంగ్ల/ఇతర భాషా పదాలు లేదా హలంత (పొల్లు/హల్లుతో ముగిసే) నామవాచకాలకు విభక్తులు (లో, పై, తో, కు, కి, వద్ద, నుండి, లోని) చేర్చినప్పుడు వాటిని వికృతంగా కలిపి ఒకే ముద్దగా రాయరాదు! తప్పనిసరిగా స్పేస్ ఇవ్వాలి:
-   - ❌ తప్పు (అసహజ కలయిక): "క్లాస్రూమ్లో", "స్క్రీన్పై", "బంజారాహిల్స్లో", "రోడ్పై", "ఫోన్లో", "ఫ్లైట్తో", "ప్రాజెక్ట్కు"
-   - ✅ ఒప్పు (సరైన స్పేసింగ్): "క్లాస్ రూమ్ లో", "స్క్రీన్ పై", "బంజారా హిల్స్ లో", "రోడ్ పై", "ఫోన్ లో", "ఫ్లైట్ తో", "ప్రాజెక్ట్ కు"
+10.1 పదాల ముద్ద కలయిక & అసహజ విచ్ఛేదన సంపూర్ణ నిషేధం (NO WORD CLUMPING & NO UNNATURAL SPLITTING):
+   - పదాల ముద్ద కలయిక నిషేధం (STRICT NO CLUMPING):
+     * ఆంగ్ల/ఇతర భాషా పదాలకు విభక్తులు కలిపి రాయరాదు: "క్లాస్ రూమ్ లో", "స్క్రీన్ పై", "బంజారా హిల్స్ లో", "రోడ్ పై", "ఫోన్ లో", "ఫ్లైట్ తో", "ప్రాజెక్ట్ కు" అని స్పేస్ ఇవ్వాలి.
+     * హోదాలు-పేర్లు (ముఖ్యమంత్రి చంద్రబాబు), సంఖ్యలు-కొలతలు (రూ. 100 కోట్లు, 10 వేల మంది) కలిపి రాయరాదు.
+     * విరామ చిహ్నాలు (.,) తర్వాత తప్పక స్పేస్ ఉండాలి.
+   - తెలుగు పదాల అసహజ విచ్ఛేదన సంపూర్ణ నిషేధం (STRICT NO UNNATURAL SPLITTING):
+     * 🛑 అత్యంత కఠిన నిబంధన: తెలుగు సహజ బహువచన ప్రత్యయం "ల్లో" (ఉదా: 'పాత్రల్లో', 'సినిమాల్లో', 'గ్రామాల్లో', 'ఎన్నికల్లో', 'కేసుల్లో', 'ప్రజల్లో', 'రోజుల్లో', 'చేతుల్లో', 'కళ్లల్లో', 'మాటల్లో', 'రంగాల్లో', 'పాఠశాలల్లో') ను ఎట్టిపరిస్థితుల్లోనూ 'పాత్రల్ లో', 'సినిమాల్ లో', 'గ్రామాల్ లో', 'ఎన్నికల్ లో' అని విడదీసి రాయరాదు! ఖచ్చితంగా "ల్లో" కలిపే రాయాలి.
+     * సహజ తెలుగు పదాలైన 'ఇంట్లో', 'నోట్లో', 'కంట్లో' లను 'ఇంట్ లో', 'నోట్ లో' అని విడదీయరాదు.
 
 11. చిత్రాలు & లోగోల కఠిన పరిశీలన (AI STRICT ZERO-LOGO & ZERO-WATERMARK DETECTION):
    - చిత్రం: ${extracted.image || 'None'}.
@@ -2309,8 +2591,20 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
                         category = TELUGU_CATEGORY_MAP[source.category] || source.category || 'Local';
                     }
 
+                    // 🎯 SMART DISTRICT RESOLUTION:
+                    // When scanning district pages, if sports, cinema, national or another district's news appears,
+                    // do NOT tag it with the source's district! Assign its actual location/district or General.
+                    const detected = detectDistrict(parsed.location, (parsed.headline || '') + ' ' + (extracted.body || ''));
+
                     let finalDistrict = "General";
-                    if (source.district) {
+                    let finalState = source.state || null;
+
+                    if (PURE_GLOBAL_CATEGORIES.includes(category)) {
+                        finalDistrict = "General";
+                    } else if (detected) {
+                        finalDistrict = detected.canonical;
+                        if (detected.state) finalState = detected.state;
+                    } else if (source.district) {
                         finalDistrict = source.district;
                     }
 
@@ -2391,6 +2685,12 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
                         }
                     }
 
+                    const leaderDetect = detectTopTeluguLeader(cleanedHeadline, `${cleanedHeadline} ${cleanedContent}`, source.siteName);
+                    const isTopLeaderNews = leaderDetect.isTopLeaderNews;
+                    if (isTopLeaderNews) {
+                        console.log(`[SCRAPER_TOP_LEADER] Detected statement/quote for ${leaderDetect.leaderName}: "${cleanedHeadline}". Flagging BREAKING!`);
+                    }
+
                     const docRef = db.collection('news').doc();
                     const newsPayload = sanitizeFirestoreData({
                         headline: { telugu: cleanedHeadline, english: parsed.headlineEn || '' },
@@ -2404,9 +2704,9 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
                         tags: parsed.tags || [],
                         entities: parsed.entities || { people: [], organizations: [], locations: [] },
                         district: finalDistrict,
-                        state: source.state || null,
-                        mandal: source.mandal || null,
-                        location: parsed.location || source.district || 'General',
+                        state: finalState,
+                        mandal: (finalDistrict === source.district ? (source.mandal || null) : null),
+                        location: parsed.location || (finalDistrict !== 'General' ? finalDistrict : (source.district || 'General')),
                         storyFingerprint: parsed.storyFingerprint || '',
                         mediaUrl: finalMediaUrl,
                         mediaType: mediaType,
@@ -2415,12 +2715,17 @@ ${hasSubstantialSource ? `   - 'fullStoryTe': మూల కథనంలో త�
                         isReporter: true,
                         isCitizen: false,
                         aiProcessed: true,
+                        tone: isTopLeaderNews ? 'BREAKING' : 'NORMAL',
+                        isBreaking: isTopLeaderNews,
+                        notificationWorthy: isTopLeaderNews,
+                        notificationTitle: isTopLeaderNews ? cleanedHeadline : '',
+                        isGlobal: isTopLeaderNews || (finalDistrict === 'General'),
                         timestamp: admin.firestore.FieldValue.serverTimestamp(),
                         publishedAt: admin.firestore.FieldValue.serverTimestamp(),
                         createdAt: admin.firestore.FieldValue.serverTimestamp(),
                         status: 'published',
                         approved: true,
-                        qualityScore: (typeof parsed.qualityScore === 'number' && !isNaN(parsed.qualityScore)) ? Math.max(0, Math.min(10, Math.round(parsed.qualityScore * 10) / 10)) : 5.0,
+                        qualityScore: isTopLeaderNews ? 9.5 : ((typeof parsed.qualityScore === 'number' && !isNaN(parsed.qualityScore)) ? Math.max(0, Math.min(10, Math.round(parsed.qualityScore * 10) / 10)) : 5.0),
                         viewCount: 0,
                         likes: Math.floor(Math.random() * 150) + 50,
                         comments: 0,
@@ -3170,6 +3475,9 @@ async function processSingleTwitterFeed(doc) {
      * కరాఖండి నిర్ణయాలు/హెచ్చరికలు: "తేల్చిచెప్పారు", "హెచ్చరించారు", "స్పష్టం చేశారు", "సవాల్ విసిరారు", "ఖరాఖండీగా ప్రకటించారు".
      * రైతాంగం/బాధితుల వేదన: "ఆవేదన వ్యక్తం చేశారు", "కన్నీటిపర్యంతమయ్యారు", "గోడు వెళ్లబోసుకున్నారు", "వాపోయారు".
      * అధికారిక వివరణలు/రక్షణ: "స్పందించారు", "వివరణ ఇచ్చారు", "సమర్థించుకున్నారు", "స్పష్టతనిచ్చారు", "హామీ ఇచ్చారు".
+     * ప్రశంసలు / అభినందనలు / సానుకూల పరిణామాలు (PRAISE, CONGRATULATIONS & POSITIVE SENTIMENT):
+       - "ప్రశంసల వర్షం కురిపించారు", "హర్షం వ్యక్తం చేశారు", "ముక్తకంఠంతో అభినందించారు", "విశేషంగా స్పందించారు", "స్వాగతించారు", "జైకొట్టారు".
+       - 🛑 కఠిన నిషేధం (NO "తీవ్రంగా స్పందించారు" IN POSITIVE CONTEXT): ప్రశంసలు, అభినందనలు, విజయాలు, శుభపరిణామాల వార్తల్లో 'తీవ్రంగా స్పందిస్తూ' లేదా 'తీవ్రంగా స్పందించారు' అని ఎట్టిపరిస్థితుల్లోనూ రాయరాదు! తెలుగులో 'తీవ్రంగా స్పందించడం' అనేది కేవలం కోపం, నిరసన, ఆగ్రహం, ఖండన లేదా వివాదాస్పద ఘర్షణల సందర్భంలో మాత్రమే వాడాలి.
 
 8. 🏆 అత్యున్నత ప్రాధాన్యత: సందర్భానుసార శీర్షిక & పవర్ వర్డ్స్ నిబంధన (CONTEXT-AWARE HEADLINES, JOURNALISTIC POWER WORDS & PUNCH - ABSOLUTE FIRST PRIORITY):
    హెడ్‌లైన్ పాఠకుడిని వెంటనే ఆకట్టుకునేలా, జర్నలిస్టిక్ విలువలతో, పదునైన పంచ్ శైలిలో ఉండాలి. వార్తలోని మూల స్వభావానికి (Context) తగినట్లుగా శీర్షిక ఉండాలి:
@@ -3250,10 +3558,14 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
    - కన్నడ, హిందీ/దేవనాగరి, ఉర్దూ, తమిళం లేదా మలయాళం అక్షరాలు రాకూడదు.
    - ఇతర భాషల పేర్లను స్వచ్ఛమైన తెలుగులోకి లిప్యంతరీకరించాలి (ఉదా: 'నరేంద్ర మోదీ', 'రాహుల్ గాంధీ', 'నారా లోకేష్', 'ఒవైసీ', 'వక్ఫ్').
 
-12.1 సరైన తెలుగు పదాల విభజన & విభక్తుల స్పేసింగ్ నిబంధన (PROPER WORD SPACING & NO UGLY WORD CLUMPING):
-   - ఆంగ్ల/ఇతర భాషా పదాలు లేదా హలంత (పొల్లు/హల్లుతో ముగిసే) నామవాచకాలకు విభక్తులు (లో, పై, తో, కు, కి, వద్ద, నుండి, లోని) చేర్చినప్పుడు వాటిని వికృతంగా కలిపి ఒకే ముద్దగా రాయరాదు! తప్పనిసరిగా స్పేస్ ఇవ్వాలి:
-   - ❌ తప్పు (అసహజ కలయిక): "క్లాస్రూమ్లో", "స్క్రీన్పై", "బంజారాహిల్స్లో", "రోడ్పై", "ఫోన్లో", "ఫ్లైట్తో", "ప్రాజెక్ట్కు"
-   - ✅ ఒప్పు (సరైన స్పేసింగ్): "క్లాస్ రూమ్ లో", "స్క్రీన్ పై", "బంజారా హిల్స్ లో", "రోడ్ పై", "ఫోన్ లో", "ఫ్లైట్ తో", "ప్రాజెక్ట్ కు"
+12.1 పదాల ముద్ద కలయిక & అసహజ విచ్ఛేదన సంపూర్ణ నిషేధం (NO WORD CLUMPING & NO UNNATURAL SPLITTING):
+   - పదాల ముద్ద కలయిక నిషేధం (STRICT NO CLUMPING):
+     * ఆంగ్ల/ఇతర భాషా పదాలకు విభక్తులు కలిపి రాయరాదు: "క్లాస్ రూమ్ లో", "స్క్రీన్ పై", "బంజారా హిల్స్ లో", "రోడ్ పై", "ఫోన్ లో", "ఫ్లైట్ తో", "ప్రాజెక్ట్ కు" అని స్పేస్ ఇవ్వాలి.
+     * హోదాలు-పేర్లు (ముఖ్యమంత్రి చంద్రబాబు), సంఖ్యలు-కొలతలు (రూ. 100 కోట్లు, 10 వేల మంది) కలిపి రాయరాదు.
+     * విరామ చిహ్నాలు (.,) తర్వాత తప్పక స్పేస్ ఉండాలి.
+   - తెలుగు పదాల అసహజ విచ్ఛేదన సంపూర్ణ నిషేధం (STRICT NO UNNATURAL SPLITTING):
+     * 🛑 అత్యంత కఠిన నిబంధన: తెలుగు సహజ బహువచన ప్రత్యయం "ల్లో" (ఉదా: 'పాత్రల్లో', 'సినిమాల్లో', 'గ్రామాల్లో', 'ఎన్నికల్లో', 'కేసుల్లో', 'ప్రజల్లో', 'రోజుల్లో', 'చేతుల్లో', 'కళ్లల్లో', 'మాటల్లో', 'రంగాల్లో', 'పాఠశాలల్లో') ను ఎట్టిపరిస్థితుల్లోనూ 'పాత్రల్ లో', 'సినిమాల్ లో', 'గ్రామాల్ లో', 'ఎన్నికల్ లో' అని విడదీసి రాయరాదు! ఖచ్చితంగా "ల్లో" కలిపే రాయాలి.
+     * సహజ తెలుగు పదాలైన 'ఇంట్లో', 'నోట్లో', 'కంట్లో' లను 'ఇంట్ లో', 'నోట్ లో' అని విడదీయరాదు.
 
 13. మీడియా & లోగోల కఠిన పరిశీలన (AI STRICT ZERO-LOGO & ZERO-WATERMARK DETECTION):
    - 🛑 అత్యంత కఠిన నిబంధన: ఫోటోపై ఎక్కడైనా సరే (మూలలోనైనా, మధ్యలోనైనా, పైనైనా, కిందైనా) టీవీ ఛానల్ లోగో, వెబ్‌సైట్ వాటర్‌మార్క్, న్యూస్ మైక్ లోగో లేదా బ్రాండ్ టెక్స్ట్/గ్రాఫిక్స్ ఉంటే ఖచ్చితంగా "hasLogo": true, "mediaUrl": "" అని తిరస్కరించాలి! ఫోటో ఎంత బాగున్నా లోగో ఉంటే అస్సలు వాడరాదు!
@@ -3363,8 +3675,17 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
 
                     const reporter = getRandomReporter();
                     const category = parsed.refinedCategory || feed.category || 'Politics';
+                    const detected = detectDistrict(parsed.location, (parsed.headline || '') + ' ' + (item.text || ''));
+
                     let finalDistrict = "General";
-                    if (feed.district) {
+                    let finalState = feed.state || null;
+
+                    if (PURE_GLOBAL_CATEGORIES.includes(category)) {
+                        finalDistrict = "General";
+                    } else if (detected) {
+                        finalDistrict = detected.canonical;
+                        if (detected.state) finalState = detected.state;
+                    } else if (feed.district) {
                         finalDistrict = feed.district;
                     }
 
@@ -3441,6 +3762,12 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
                         postFormat = '1:1';
                     }
 
+                    const leaderDetect = detectTopTeluguLeader(cleanedHeadline, `${cleanedHeadline} ${cleanedContent}`, feed.sourceName || handle);
+                    const isTopLeaderNews = leaderDetect.isTopLeaderNews;
+                    if (isTopLeaderNews) {
+                        console.log(`[SCRAPER_TOP_LEADER] Detected statement/quote for ${leaderDetect.leaderName} in tweet @${handle}: "${cleanedHeadline}". Flagging BREAKING!`);
+                    }
+
                     const docRef = db.collection('news').doc();
                     const newsPayload = sanitizeFirestoreData({
                         headline: { telugu: cleanedHeadline, english: parsed.headlineEn || '' },
@@ -3456,14 +3783,14 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
                             "Social", 
                             "రాజకీయం", 
                             "ముఖ్యాంశాలు",
-                            ...(feed.district ? ["Local", feed.district] : [])
+                            ...(finalDistrict !== "General" && !GLOBAL_CATEGORIES.includes(finalDistrict) ? ["Local", finalDistrict] : [])
                         ])].filter(Boolean),
                         tags: cleanedTags,
                         entities: finalEntities,
                         district: finalDistrict || "General",
-                        state: feed.state || null,
-                        mandal: feed.mandal || null,
-                        location: feed.district || parsed.location || 'General',
+                        state: finalState,
+                        mandal: (finalDistrict === feed.district ? (feed.mandal || null) : null),
+                        location: parsed.location || (finalDistrict !== 'General' ? finalDistrict : (feed.district || 'General')),
                         storyFingerprint: parsed.storyFingerprint || '',
                         mediaUrl: finalMediaUrl,
                         mediaType: finalMediaType,
@@ -3474,12 +3801,16 @@ ${hasSubstantialTweet ? `   - 'fullStoryTe': మూల ట్వీట్/పో
                         isReporter: true,
                         isCitizen: false,
                         aiProcessed: true,
+                        tone: isTopLeaderNews ? 'BREAKING' : 'NORMAL',
+                        isBreaking: isTopLeaderNews,
+                        notificationWorthy: isTopLeaderNews,
+                        notificationTitle: isTopLeaderNews ? cleanedHeadline : '',
                         timestamp: admin.firestore.FieldValue.serverTimestamp(),
                         publishedAt: admin.firestore.FieldValue.serverTimestamp(),
                         createdAt: admin.firestore.FieldValue.serverTimestamp(),
                         status: 'published',
                         approved: true,
-                        qualityScore: (typeof parsed.qualityScore === 'number' && !isNaN(parsed.qualityScore)) ? Math.max(0, Math.min(10, Math.round(parsed.qualityScore * 10) / 10)) : 5.0,
+                        qualityScore: isTopLeaderNews ? 9.5 : ((typeof parsed.qualityScore === 'number' && !isNaN(parsed.qualityScore)) ? Math.max(0, Math.min(10, Math.round(parsed.qualityScore * 10) / 10)) : 5.0),
                         viewCount: 0,
                         likes: Math.floor(Math.random() * 150) + 50,
                         comments: 0,

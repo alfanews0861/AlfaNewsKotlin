@@ -719,15 +719,84 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         refreshIfStale(language, currentUser)
     }
 
+    /**
+     * ⚡ LIGHTWEIGHT DELTA REFRESH:
+     * Fetches only top 5 fresh approved posts for the active district.
+     * Prepends only brand new posts to in-memory feed without wiping or re-querying everything.
+     */
+    fun refreshFeedDelta(language: Language, currentUser: User?) {
+        if (isFetching) return
+        val currentPosts = _news.value
+        if (currentPosts.isEmpty()) {
+            loadNews(language, currentUser, forceRefresh = true, isExplicitScrollToTop = false)
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        lastRefreshTimeLong = now
+        _lastRefreshTime.value = now
+
+        val district = _activeDistrict.value ?: prefs.selectedDistrict ?: prefs.detectedDistrict ?: "శ్రీ పొట్టి శ్రీరాములు నెల్లూరు"
+        val districtAliases = getDistrictAliases(district)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        val primaryAliases = if (districtAliases.isNotEmpty()) districtAliases.take(10) else listOf(district)
+
+        viewModelScope.launch {
+            try {
+                if (!com.alfanews.telugu.utils.NetworkUtils.isOnline(getApplication())) return@launch
+                val newsRef = FirebaseService.db.collection("news")
+                val deltaSnap = withTimeoutOrNull(3000L) {
+                    val q = if (primaryAliases.size > 1) {
+                        newsRef.whereEqualTo("approved", true)
+                            .whereIn("district", primaryAliases)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(5)
+                    } else {
+                        newsRef.whereEqualTo("approved", true)
+                            .whereEqualTo("district", primaryAliases.firstOrNull() ?: district)
+                            .orderBy("timestamp", Query.Direction.DESCENDING)
+                            .limit(5)
+                    }
+                    q.get().await()
+                }
+
+                if (deltaSnap != null && !deltaSnap.isEmpty) {
+                    val freshAllowed = withContext(Dispatchers.Default) {
+                        deltaSnap.documents.mapNotNull { doc -> convertToNewsPost(doc.id, doc.data ?: emptyMap()) }
+                            .filter { isNormalLocalNews(it) && isStateMatch(it, district) }
+                    }
+                    val existingIds = _news.value.map { it.id }.toSet()
+                    val brandNew = freshAllowed.filter { it.id !in existingIds }
+
+                    if (brandNew.isNotEmpty()) {
+                        Log.d("LocalNewsFeedVM", "⚡ Delta refresh prepending ${brandNew.size} new local posts")
+                        val rankedNew = rankLocalNews(brandNew, district, currentUser)
+                        val currentList = _news.value
+                        _news.value = (rankedNew + currentList).distinctBy { it.id }
+                    } else {
+                        Log.d("LocalNewsFeedVM", "⚡ Delta refresh: local feed is already up-to-date (0 new posts)")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("LocalNewsFeedVM", "Local delta refresh failed silently: ${e.message}")
+            }
+        }
+    }
+
     fun refreshIfStale(language: Language, currentUser: User?) {
         val now = System.currentTimeMillis()
         val isEmpty = _news.value.isEmpty()
         val isStale = (now - lastRefreshTimeLong > 300000L)
-        if (isEmpty || isStale) {
-            if (!isFetching || (isEmpty && now - lastFetchStartTime > 3500L)) {
+        if (isEmpty) {
+            if (!isFetching || (now - lastFetchStartTime > 3500L)) {
                 _isOnline.value = true
-                loadNews(language, currentUser, forceRefresh = isEmpty, isExplicitScrollToTop = false)
+                loadNews(language, currentUser, forceRefresh = true, isExplicitScrollToTop = false)
             }
+        } else if (isStale && !isFetching) {
+            _isOnline.value = true
+            refreshFeedDelta(language, currentUser)
         }
     }
 

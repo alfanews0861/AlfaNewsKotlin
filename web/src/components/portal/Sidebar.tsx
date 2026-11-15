@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { NewsPost } from '../../types';
 import { CloudSun, Wind, Droplets, Image as ImageIcon, Flame, Smartphone, Share2, ThumbsUp, CheckCircle, ExternalLink, HelpCircle } from 'lucide-react';
 import { formatRelativeTimeTelugu } from './portalUtils';
+import { getPreferredPlayStoreUrl, openNativePlayStore } from '../../utils/playStoreHelper';
 import PortalAdBanner from './PortalAdBanner';
 
 interface SidebarProps {
@@ -342,10 +343,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ posts, onSelectPost }) => {
           ఆల్ఫా న్యూస్ ఆండ్రాయిడ్ యాప్‌ను డౌన్‌లోడ్ చేసుకోండి. వేగవంతమైన నోటిఫికేషన్లు పొందండి.
         </p>
         <a
-          href="https://play.google.com/store/apps/details?id=com.alfanews.telugu"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 bg-white text-red-700 hover:bg-yellow-300 hover:text-red-900 font-ramabhadra text-xs px-4 py-2.5 rounded-xl shadow transition-transform hover:scale-105"
+          href={getPreferredPlayStoreUrl()}
+          onClick={(e) => {
+            e.preventDefault();
+            openNativePlayStore();
+          }}
+          className="inline-flex items-center gap-2 bg-white text-red-700 hover:bg-yellow-300 hover:text-red-900 font-ramabhadra text-xs px-4 py-2.5 rounded-xl shadow transition-transform hover:scale-105 cursor-pointer"
         >
           <span>గూగుల్ ప్లే స్టోర్‌లో పొందండి</span>
           <ExternalLink className="w-3.5 h-3.5" />

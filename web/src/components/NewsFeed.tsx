@@ -13,18 +13,25 @@ import PreferencesModal from './PreferencesModal';
 const { collection, query, where, orderBy, limit, getDocs, Timestamp, startAfter, doc, getDoc } = _firestore as any;
 
 const rankPosts = (posts: NewsPost[], interests: UserInterest | undefined) => {
-    if (!interests || Object.keys(interests).length === 0) return posts;
-    
     // 1 point of interest equals +4 hours of effective "freshness"
     const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
 
-    return posts.sort((a, b) => {
+    return [...posts].sort((a, b) => {
         const getScore = (post: NewsPost) => {
             let score = 0;
             const features = [...(post.categories || []), ...(post.tags || []), ...(post.keywords || [])];
-            features.forEach(feature => {
-                score += (interests[feature.toLowerCase()] || 0);
-            });
+            if (interests) {
+                features.forEach(feature => {
+                    score += (interests[feature.toLowerCase()] || 0);
+                });
+            }
+            // 🎯 Category Priority: Politics #1 (+10 pts = +40 hrs), Cinema #2 (+6 pts = +24 hrs)
+            const allText = [post.category, ...(post.categories || []), ...(post.tags || [])].join(' ').toLowerCase();
+            if (allText.includes('రాజకీయం') || allText.includes('రాజకీయాలు') || allText.includes('రాజకీయ') || allText.includes('politics') || allText.includes('political')) {
+                score += 10;
+            } else if (allText.includes('సినిమా') || allText.includes('వినోదం') || allText.includes('cinema') || allText.includes('entertainment') || allText.includes('movies') || allText.includes('ఓటీటీ') || allText.includes('ott') || allText.includes('చిత్రసీమ') || allText.includes('టాలీవుడ్')) {
+                score += 6;
+            }
             return score;
         };
         

@@ -764,6 +764,39 @@ object AnalyticsService {
      * మధ్యాహ్నం (11 AM-5 PM): రాజకీయం, జిల్లా/స్థానిక సమస్యలు, క్రైమ్ (1.4x)
      * సాయంత్రం/రాత్రి (5-11 PM): సినిమా, వినోదం, క్రీడలు, వైరల్, లైఫ్‌స్టైల్ (1.6x)
      */
+    // 🎯 కేటగిరీ ప్రాధాన్యత బోనస్ పాయింట్లు (Blending & Scoring Priority)
+    // 1st Priority: రాజకీయం / Politics (+45.0 points)
+    // 2nd Priority: సినిమా / Cinema (+28.0 points)
+    const val BONUS_POLITICS_POINTS = 45.0
+    const val BONUS_CINEMA_POINTS = 28.0
+
+    /**
+     * వార్తా పోస్ట్ యొక్క కేటగిరీ ఆధారంగా ప్రాధాన్యత బోనస్ పాయింట్లను లెక్కిస్తుంది.
+     * రాజకీయం -> మొదటి ప్రాధాన్యత (45 పాయింట్లు)
+     * సినిమా/వినోదం -> రెండవ ప్రాధాన్యత (28 పాయింట్లు)
+     */
+    fun getCategoryPriorityBonus(post: NewsPost): Double {
+        val allCats = (post.categories + listOfNotNull(post.category) + post.tags)
+            .map { it.trim().lowercase() }
+
+        // 1st Priority: రాజకీయం / Politics
+        val isPolitics = allCats.any {
+            it.contains("రాజకీయం") || it.contains("రాజకీయాలు") || it.contains("రాజకీయ") ||
+            it.contains("politics") || it.contains("political")
+        } || (post.category?.contains("రాజకీయం") == true)
+        if (isPolitics) return BONUS_POLITICS_POINTS
+
+        // 2nd Priority: సినిమా / వినోదం / Cinema
+        val isCinema = allCats.any {
+            it.contains("సినిమా") || it.contains("వినోదం") || it.contains("cinema") ||
+            it.contains("entertainment") || it.contains("movies") || it.contains("ఓటీటీ") ||
+            it.contains("ott") || it.contains("చిత్రసీమ") || it.contains("టాలీవుడ్") || it.contains("tollywood")
+        } || (post.category?.contains("సినిమా") == true) || (post.category?.contains("వినోదం") == true)
+        if (isCinema) return BONUS_CINEMA_POINTS
+
+        return 0.0
+    }
+
     fun getTimeOfDayMultiplier(post: NewsPost): Double {
         val calendar = java.util.Calendar.getInstance()
         val hour = calendar.get(java.util.Calendar.HOUR_OF_DAY) // 0 - 23
@@ -772,7 +805,7 @@ object AnalyticsService {
 
         return when (hour) {
             in 5..10 -> { // ఉదయం: భక్తి, రాశిఫలాలు, బంగారం/వ్యాపారం, తాజా ముఖ్యాంశాలు
-                val morningKeywords = listOf("భక్తి", "ఆధ్యాత్మికం", "రాశిఫలాలు", "వ్యాపారం", "మార్కెట్", "బంగారం", "గోల్డ్", "జాతీయం", "బ్రేకింగ్", "తాజా")
+                val morningKeywords = listOf("రాజకీయం", "రాజకీయాలు", "రాజకీయ", "భక్తి", "ఆధ్యాత్మికం", "రాశిఫలాలు", "వ్యాపారం", "మార్కెట్", "బంగారం", "గోల్డ్", "జాతీయం", "బ్రేకింగ్", "తాజా")
                 if (morningKeywords.any { allCategoriesText.contains(it, ignoreCase = true) }) 1.5 else 1.0
             }
             in 11..16 -> { // మధ్యాహ్నం: రాజకీయం, స్థానిక జిల్లా, సమస్యలు, క్రైమ్
@@ -800,6 +833,9 @@ object AnalyticsService {
         cleanCats.forEach { cat ->
             score += (categoryScores[cat] ?: 0) * 1.0
         }
+
+        // 🎯 1b. కేటగిరీ ప్రాధాన్యత బోనస్ పాయింట్లు: రాజకీయం #1 (+45 pts), సినిమా #2 (+28 pts)
+        score += getCategoryPriorityBonus(post)
 
         // 2. రిపోర్టర్ ఆధారంగా స్కోర్
         if (post.reporter.id.isNotBlank()) {
@@ -900,6 +936,15 @@ object AnalyticsService {
         loadMap(KEY_PEOPLE_SCORES, peopleScores)
         loadMap(KEY_ORGANIZATION_SCORES, organizationScores)
         loadMap(KEY_LOCATION_SCORES, locationScores)
+
+        // Seed default baseline category priorities if empty (new install/guest)
+        if (categoryScores.isEmpty()) {
+            categoryScores["రాజకీయం"] = 45
+            categoryScores["సినిమా"] = 28
+            categoryScores["వినోదం"] = 28
+            categoryScores["politics"] = 45
+            categoryScores["cinema"] = 28
+        }
 
         if (prefs.contains(KEY_LAST_NOTIF_PERMISSION)) {
             lastNotifPermissionStatus = prefs.getBoolean(KEY_LAST_NOTIF_PERMISSION, false)

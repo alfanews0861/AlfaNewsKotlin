@@ -2,7 +2,7 @@ import * as admin from 'firebase-admin';
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { logger } from "firebase-functions/v2";
-import { getTopicName, slugify, createAndSaveThumbnail, REGION } from './utils';
+import { getTopicName, slugify, createAndSaveThumbnail, REGION, isTopTeluguLeaderStatement } from './utils';
 
 // ==========================================
 // DESIGN PHILOSOPHY
@@ -213,7 +213,7 @@ function buildNewsMessage(
     const body = (headline + "").substring(0, 150);
     const { plainTitle, htmlTitle } = formatWay2NewsStyleTitle(title);
 
-    // 🛡️ 100% Zero-Cost Rich Notification Architecture:
+    // 🛡️ 100% Zero-Cost Way2News Rich Notification Architecture:
     // 1. External CDN (Eenadu, Sakshi, YouTube, TV9) -> 0 Firebase egress cost.
     // 2. Firebase Storage -> Route through Cloudflare-backed free edge cache proxy (wsrv.nl).
     //    All 10,000+ devices download from Cloudflare CDN edge cache (CF-Cache: HIT) at ~25KB WebP.
@@ -232,22 +232,19 @@ function buildNewsMessage(
         }
     }
 
+    // 🌟 HIGH PRIORITY DATA-ONLY NOTIFICATION (Way2News / Inshorts Architecture):
+    // When FCM messages omit top-level 'notification', Android OS ALWAYS delivers the payload
+    // to MyFirebaseMessagingService.onMessageReceived() in both FOREGROUND and BACKGROUND.
+    // This unlocks:
+    //  - Way2News style red highlight on hook with Ramabhadra Telugu font
+    //  - NotificationCompat.BigPictureStyle with full-width rich hero images
+    //  - Action buttons: "చదవండి" (Read) & "షేర్ చేయండి" (Share)
+    //  - Strict client-side District Gatekeeper check to drop mismatched districts
     return {
-        notification: {
-            title: plainTitle,
-            body,
-            ...(safeDrawerImageUrl ? { imageUrl: safeDrawerImageUrl } : {})
-        },
         android: {
             priority: isSilent ? 'normal' : 'high',
             ttl: ttlMs,
             directBootOk: true,
-            notification: {
-                channelId,
-                ...(safeDrawerImageUrl ? { imageUrl: safeDrawerImageUrl } : {}),
-                defaultSound: !isSilent,
-                priority: isSilent ? 'low' : 'high'
-            }
         },
         data: {
             actionUrl: `alfanews://news/${news.id}`,
@@ -300,7 +297,23 @@ function isMainNews(n: any): boolean {
 // Purely local mandal/district breaking news is routed to that specific district topic.
 // ==========================================
 function isStatewideOrBroadBreaking(n: any): boolean {
-    if (n.isGlobal === true) return true;
+    const fullText = `${n.headline?.telugu || ""} ${n.headline?.english || ""} ${n.headline || ""} ${n.content?.telugu || ""} ${n.content || ""} ${n.body?.telugu || ""}`;
+    const headline = n.headline?.telugu || n.headline?.english || n.headline || "";
+    const authorOrSource = n.sourceName || n.socialAuthorName || n.reporter?.name || "";
+    const isLeader = isTopTeluguLeaderStatement(fullText, headline, authorOrSource);
+
+    // Pure local district/mandal news must NEVER leak to all_users unless genuinely a top Telugu leader statement
+    if ((n.category === "జిల్లా వార్త" || n.category === "స్థానిక వార్తలు") && !isLeader) {
+        return false;
+    }
+
+    if (n.isGlobal === true && n.category !== "జిల్లా వార్త" && n.category !== "స్థానిక వార్తలు") return true;
+
+    // 🏛️ Top Telugu Leaders statements/quotes are always statewide breaking news
+    if (isLeader) {
+        return true;
+    }
+
     const broadDistricts = ["State", "National", "International", "తెలంగాణ", "ఆంధ్రప్రదేశ్", "భారతదేశం", "ప్రపంచం", "General", "AP", "TS"];
     if (n.district && broadDistricts.some(d => d.toLowerCase() === (n.district + "").toLowerCase())) {
         return true;
@@ -309,17 +322,20 @@ function isStatewideOrBroadBreaking(n: any): boolean {
     if (mainCategories.includes(n.category) && n.category !== "జిల్లా వార్త" && (n.score ?? 0) >= 70) {
         return true;
     }
-    const fullText = `${n.headline?.telugu || ""} ${n.content?.telugu || ""}`;
     if (fullText.includes("ముఖ్యమంత్రి") || fullText.includes("ప్రధానమంత్రి") || fullText.includes("కేబినెట్") || fullText.includes("బడ్జెట్") || fullText.includes("ఆర్డినెన్స్") || fullText.includes("హైకోర్టు") || fullText.includes("సుప్రీంకోర్టు") || fullText.includes("ఎన్నికల")) {
-        return true;
+        if (n.category !== "జిల్లా వార్త" && n.category !== "స్థానిక వార్తలు") {
+            return true;
+        }
     }
     return false;
 }
 
 // ==========================================
-// ATOMIC DAILY LIMIT CHECK FOR BREAKING NEWS
+// DAILY BREAKING NOTIFICATION ATOMIC LIMITER
+// Caps statewide breaking alerts to max 6/day (and district breaking to 3/day)
+// to prevent notification flooding while keeping users informed of critical updates.
 // ==========================================
-async function checkAndIncrementLimitAtomic(db: admin.firestore.Firestore, docName: string, limit: number): Promise<boolean> {
+async function checkAndIncrementLimitAtomic(db: admin.firestore.Firestore, docName: string, maxLimit: number): Promise<boolean> {
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
     const docRef = db.collection('settings').doc(docName);
     
@@ -332,13 +348,15 @@ async function checkAndIncrementLimitAtomic(db: admin.firestore.Firestore, docNa
             currentCount = data.count || 0;
         }
         
-        if (currentCount >= limit) {
+        if (currentCount >= maxLimit) {
             return false;
         }
-        
+
+        const nextCount = currentCount + 1;
         transaction.set(docRef, {
             date: today,
-            count: currentCount + 1
+            count: nextCount,
+            lastSentAt: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
         
         return true;
@@ -371,6 +389,18 @@ function calculateTrendingScore(n: any): number {
     // (views * 1.5 + aiScore * 5) / (ageHours + 1.5)^1.15
     const rawStrength = (views * 1.5) + (aiScore * 5);
     return (rawStrength / Math.pow(ageHours + 1.5, 1.15)) * imageMultiplier;
+}
+
+// ==========================================
+// DYNAMIC TTL PER SCHEDULED SLOT
+// Avoids notifications lingering past their relevant time window or waking users at midnight
+// ==========================================
+function getScheduledTTL(hour: number): number {
+    if (hour === 8)  return 4 * 60 * 60 * 1000;   // 4h (valid till 12 PM)
+    if (hour === 13) return 4 * 60 * 60 * 1000;   // 4h (valid till 5 PM)
+    if (hour === 18) return 2.5 * 60 * 60 * 1000; // 2.5h (valid till 8:30 PM)
+    if (hour === 21) return 1.5 * 60 * 60 * 1000; // 1.5h (valid till 10:30 PM, strictly expires before sleep hours!)
+    return 2 * 60 * 60 * 1000;
 }
 
 // ==========================================
@@ -414,23 +444,40 @@ export const sendPersonalizedNotification = onSchedule({
 
     logger.log(`[NOTIF] Scheduled run started at IST Hour: ${istHour}`);
 
+    // 🛡️ NIGHT-TIME SHIELD (10 PM to 7 AM IST):
+    // Never send scheduled notifications during sleep hours under any circumstance!
+    if (istHour >= 22 || istHour < 7) {
+        logger.log(`[NOTIF] Night-time guard active (IST ${istHour}h). Skipping scheduled run to avoid disturbing users.`);
+        return;
+    }
+
+    // Only allow designated slots (8 AM, 1 PM, 6 PM, 9 PM)
+    if (istHour !== 8 && istHour !== 13 && istHour !== 18 && istHour !== 21) {
+        logger.log(`[NOTIF] Off-schedule hour: ${istHour}. Skipping run.`);
+        return;
+    }
+
     const windowMillis = 24 * 60 * 60 * 1000;
     const sinceTime = new Date(Date.now() - windowMillis);
 
-    // 1. Fetch news: notificationWorthy=true వార్తలు
+    // 1. Fetch news: notificationWorthy=true వార్తలు (Capped at 100 to guarantee zero read-bill spikes)
     let allNews: any[] = [];
     const newsSnapshot = await db.collection('news')
         .where('approved', '==', true)
         .where('notificationWorthy', '==', true)
         .where('timestamp', '>', sinceTime)
+        .orderBy('timestamp', 'desc')
+        .limit(100)
         .get();
 
     if (newsSnapshot.empty) {
-        // Fallback: If AI hasn't explicitly set notificationWorthy=true, check approved news in last 24h
+        // Fallback: If AI hasn't explicitly set notificationWorthy=true, check approved news in last 24h (capped at 100 docs)
         logger.log(`[NOTIF] No explicit notificationWorthy=true news. Checking fallback approved news...`);
         const fallbackSnapshot = await db.collection('news')
             .where('approved', '==', true)
             .where('timestamp', '>', sinceTime)
+            .orderBy('timestamp', 'desc')
+            .limit(100)
             .get();
 
         const validDocs = fallbackSnapshot.docs.filter(d => d.data().notificationWorthy !== false);
@@ -458,8 +505,8 @@ export const sendPersonalizedNotification = onSchedule({
     // 21 PM -> General Night Roundup (all_users) ONLY (రాత్రి ముఖ్యాంశాల సమీక్ష)
     // =========================================================================
 
-    // --- 1. General Notification — 8 AM & 21 PM Slots ONLY (or fallback on manual runs) ---
-    const isGeneralSlot = istHour === 8 || istHour === 21 || (istHour !== 13 && istHour !== 18);
+    // --- 1. General Notification — 8 AM & 21 PM Slots ONLY ---
+    const isGeneralSlot = istHour === 8 || istHour === 21;
     let topNews: any = null;
 
     if (isGeneralSlot) {
@@ -484,7 +531,7 @@ export const sendPersonalizedNotification = onSchedule({
                     getTitleForHour(istHour, headline, curiosityTitle),
                     "general_news_v2",
                     imageUrl,
-                    21600000, // 6 hour TTL (better delivery for offline/doze devices)
+                    getScheduledTTL(istHour),
                     { topic: 'all_users' }
                 );
 
@@ -530,7 +577,7 @@ export const sendPersonalizedNotification = onSchedule({
                     `📍 ${district}: ${shortTitle}`,
                     "local_news_v2",
                     imageUrl,
-                    21600000, // 6 hour TTL
+                    getScheduledTTL(istHour),
                     { topic: topicName }
                 );
 
@@ -568,7 +615,7 @@ export const sendPersonalizedNotification = onSchedule({
                     `📌 ${teluguCat}: ${shortTitle}`,
                     "general_news_v2",
                     imageUrl,
-                    21600000, // 6 hour TTL
+                    getScheduledTTL(istHour),
                     { topic: topicName }
                 );
                 await admin.messaging().send(message);
@@ -598,11 +645,14 @@ export const sendPersonalizedNotification = onSchedule({
 
 // ==========================================
 // BREAKING / IMPORTANT NEWS INSTANT TRIGGER
-// isBreaking=true లేదా tone=BREAKING/URGENT/IMPORTANT అయిన వెంటనే notification (గరిష్టంగా 5/రోజు)
+// isBreaking=true లేదా tone=BREAKING/URGENT/IMPORTANT లేదా టాప్ లీడర్ల ప్రకటనలు అయిన వెంటనే instant notification (పరిమితి లేదు - NO LIMIT)
 // ==========================================
 export const onNewsPostApprovedNotify = onDocumentWritten({
     document: "news/{postId}",
     region: REGION,
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    maxInstances: 5
 }, async (event) => {
     const before = event.data?.before?.data();
     const after  = event.data?.after?.data();
@@ -617,7 +667,8 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
 
     // 🛡️ Global Kill-switch for Breaking/Important Push Notifications (settings/notifications)
     const db = admin.firestore();
-    const settingsDoc = await db.collection('settings').doc('notifications').get().catch(() => null);
+    const settingsRef = db.collection('settings').doc('notifications');
+    const settingsDoc = await settingsRef.get().catch(() => null);
     const settingsData = settingsDoc?.exists ? settingsDoc.data() : {};
 
     if (settingsData?.breakingNotificationsEnabled === false) {
@@ -632,15 +683,22 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
     }
 
     // Trigger: isBreaking=true OR tone=BREAKING/URGENT OR tone=IMPORTANT (with notificationWorthy or high score)
+    // OR 🏛️ Top Telugu Leaders (AP & TS CMs and Opposition Leaders) statements/quotes:
+    // (Chandrababu Naidu, Revanth Reddy, YS Jagan Mohan Reddy, KCR, Pawan Kalyan, Nara Lokesh, KTR)
+    const fullText = `${after.headline?.telugu || ""} ${after.headline?.english || ""} ${after.headline || ""} ${after.content?.telugu || ""} ${after.content || ""} ${after.body?.telugu || ""}`;
+    const headline = after.headline?.telugu || after.headline?.english || after.headline || "";
+    const authorOrSource = after.sourceName || after.socialAuthorName || after.reporter?.name || "";
+    const isLeaderBreaking = isTopTeluguLeaderStatement(fullText, headline, authorOrSource);
+
     const tone = (after.tone || "").toUpperCase();
-    const isBreakingOrUrgent = after.isBreaking === true || tone === 'BREAKING' || tone === 'URGENT';
+    const isBreakingOrUrgent = after.isBreaking === true || tone === 'BREAKING' || tone === 'URGENT' || isLeaderBreaking;
     const isImportantNews = tone === 'IMPORTANT' && (after.notificationWorthy === true || (after.score ?? 0) >= 70);
 
     if (!isBreakingOrUrgent && !isImportantNews) {
-        logger.log(`[BREAKING] Not breaking/urgent/important: ${postId} (tone=${after.tone}, isBreaking=${after.isBreaking})`);
+        logger.log(`[BREAKING] Not breaking/urgent/important: ${postId} (tone=${after.tone}, isBreaking=${after.isBreaking}, isLeader=${isLeaderBreaking})`);
         return;
     }
-    logger.log(`[BREAKING] Triggered: ${postId} (tone=${after.tone}, isBreaking=${after.isBreaking}, important=${isImportantNews})`);
+    logger.log(`[BREAKING] Triggered: ${postId} (tone=${after.tone}, isBreaking=${after.isBreaking}, important=${isImportantNews}, isLeader=${isLeaderBreaking})`);
 
     // Age check — 6 గంటల కంటే పాత news కి breaking send వద్దు
     const ts = after.timestamp;
@@ -666,16 +724,38 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
         ? 'all_users'
         : (isLocalDistrictBreaking ? getTopicName("district", canonicalDistrict!) : 'all_users');
 
-    // Daily limit check - atomic to prevent race conditions
-    // For statewide (all_users): max 5 per day across app
-    // For local district: max 3 breaking alerts per day for that specific district
+    // ⚡ Sensible Daily Limit & Spam Protection:
+    // Statewide breaking: max 6/day to protect users from alert fatigue.
+    // Local district breaking: max 3/day.
     const limitDocName = isStatewide ? 'notif_daily_breaking' : `notif_daily_breaking_${slugify(canonicalDistrict || 'district')}`;
-    const maxLimit = isStatewide ? 5 : 3;
-    const canSend = await checkAndIncrementLimitAtomic(db, limitDocName, maxLimit);
-    if (!canSend) {
-        logger.log(`[BREAKING] Daily limit reached (${limitDocName}, max ${maxLimit}). Skipping ${postId}`);
+    const maxLimit = isStatewide ? 6 : 3;
+
+    // 🛡️ 45-Minute Smart Cooldown Protection:
+    // Prevent user phones from buzzing continuously in quick succession.
+    // Must have at least 45 minutes between breaking alerts, unless it's a life-threatening disaster.
+    const lowerFullText = fullText.toLowerCase();
+    const isLifeThreatening = [
+        "భూకంపం", "తుఫాను", "వరదలు", "సునామి", "భారీ విపత్తు",
+        "సైరన్", "ఎమర్జెన్సీ", "తీవ్ర ప్రమాదం", "కుప్పకూలిన",
+        "విష వాయువు", "గ్యాస్ లీక్", "ఉగ్రవాద"
+    ].some(k => lowerFullText.includes(k));
+
+    const lastBreakingMillis = settingsData?.lastBreakingAt
+        ? (settingsData.lastBreakingAt.toMillis ? settingsData.lastBreakingAt.toMillis() : new Date(settingsData.lastBreakingAt).getTime())
+        : 0;
+    const elapsedMinutes = (Date.now() - lastBreakingMillis) / (60 * 1000);
+
+    if (lastBreakingMillis > 0 && elapsedMinutes < 45 && !isLifeThreatening) {
+        logger.log(`[BREAKING] Cooldown active (${elapsedMinutes.toFixed(1)}m < 45m). Suppressing ${postId} to protect user phones.`);
         return;
     }
+
+    const canSend = await checkAndIncrementLimitAtomic(db, limitDocName, maxLimit);
+    if (!canSend && !isLifeThreatening) {
+        logger.log(`[BREAKING] Daily cap reached (${limitDocName}, max ${maxLimit}). Suppressing ${postId}`);
+        return;
+    }
+    logger.log(`[BREAKING] Dispatching breaking alert (${limitDocName}, maxLimit=${maxLimit}, newsId=${postId})`);
 
     // Duplicate check
     const lastSentMap = settingsData?.lastSentNewsIdMap || {};
@@ -690,7 +770,7 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
     const shortBreaking = notifTitle.length > 70 ? notifTitle.substring(0, 70).trim() + "..." : notifTitle;
     const imageUrl = after.thumbnailUrl || after.mediaUrl || "";
 
-    const breakingTitle = (tone === 'BREAKING' || after.isBreaking === true)
+    const breakingTitle = (tone === 'BREAKING' || after.isBreaking === true || isLeaderBreaking)
         ? `🔴 Breaking: ${shortBreaking}`
         : (tone === 'URGENT')
             ? `⚡ అత్యవసరం: ${shortBreaking}`
@@ -705,16 +785,10 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
     }).format(new Date()));
 
     const isQuietHour = istHour >= 23 || istHour < 6;
-    const fullText = `${after.headline?.telugu || ""} ${after.body?.telugu || ""} ${after.headline || ""}`.toLowerCase();
-    const isLifeThreatening = [
-        "భూకంపం", "తుఫాను", "వరదలు", "సునామి", "భారీ విపత్తు",
-        "సైరన్", "ఎమర్జెన్సీ", "తీవ్ర ప్రమాదం", "కుప్పకూలిన",
-        "విష వాయువు", "గ్యాస్ లీక్", "ఉగ్రవాద"
-    ].some(k => fullText.includes(k));
 
-    const isSilentDelivery = isQuietHour && !isLifeThreatening;
-    if (isSilentDelivery) {
-        logger.log(`[BREAKING] Quiet hours active (IST ${istHour}h). Delivering silently without loud chime: ${postId}`);
+    if (isQuietHour && !isLifeThreatening) {
+        logger.log(`[BREAKING] Quiet hours active (IST ${istHour}h). Suppressed non-emergency notification for ${postId} to protect user sleep.`);
+        return;
     }
 
     try {
@@ -728,7 +802,7 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
             imageUrl,
             1800000, // 30 min TTL
             { topic: targetTopic },
-            { silent: isSilentDelivery }
+            { silent: false }
         );
         await admin.messaging().send(message);
 

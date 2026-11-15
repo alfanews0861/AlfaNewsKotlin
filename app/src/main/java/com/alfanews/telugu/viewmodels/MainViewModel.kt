@@ -788,9 +788,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         ).contains(user.role)
         val isReporter = user.role == UserRole.REPORTER || user.role == UserRole.NEWS_DESK
 
+        // 🛡️ ఆటోమేటెడ్ లేదా తప్పుడు రిపోర్టర్ రద్దు/తొలగింపు మెసేజ్‌లను క్లీన్ చేసి డిలీట్ చేయి
+        if (isReporter || !user.assignedMandal.isNullOrBlank()) {
+            cleanFalseInactivityMessages(user.id)
+        }
+
         fun updateNoticesAndBadge() {
             val allNotices = (reporterNoticesList + userNoticesList)
                 .distinctBy { it.id }
+                .filterNot { isFalseInactivityNotice(it.title, it.text, it.type) }
                 .sortedByDescending { it.timestamp }
             _unreadAdminNotices.value = allNotices
             _unreadMessagesCount.value = unreadConvCount + unreadUserMsgCount
@@ -831,10 +837,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     reporterNoticesList = snapshot.documents.mapNotNull { doc ->
                         try {
                             val data = doc.data ?: return@mapNotNull null
-                            if (!isManualAdminMessage(data)) return@mapNotNull null
-
                             val rawType = (data["type"] as? String ?: "NOTICE").trim().uppercase()
                             val fullText = data["text"] as? String ?: ""
+                            val titleFromData = data["title"] as? String ?: ""
+
+                            // 🛡️ తప్పుడు ఇనాక్టివిటీ / తొలగింపు మెసేజ్‌లను ఫైర్‌స్టోర్ నుండి వెంటనే డిలీట్ చేయి & పాపప్ కాకుండా ఆపు
+                            if (isFalseInactivityNotice(titleFromData, fullText, rawType)) {
+                                try { doc.reference.delete() } catch (_: Exception) {}
+                                return@mapNotNull null
+                            }
+
+                            if (!isManualAdminMessage(data)) return@mapNotNull null
                             if (fullText.isBlank()) return@mapNotNull null
 
                             val senderName = data["senderName"] as? String ?: "ఆల్ఫా న్యూస్ ఎడిటోరియల్ డెస్క్"
@@ -888,11 +901,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     userNoticesList = unreadDocs.mapNotNull { doc ->
                         try {
                             val data = doc.data ?: return@mapNotNull null
-                            if (!isManualAdminMessage(data)) return@mapNotNull null
-
                             val rawType = (data["type"] as? String ?: "NOTICE").trim().uppercase()
                             val title = data["title"] as? String ?: "ముఖ్య గమనిక"
                             val body = data["body"] as? String ?: (data["text"] as? String ?: "")
+
+                            // 🛡️ తప్పుడు ఇనాక్టివిటీ / తొలగింపు మెసేజ్‌లను ఫైర్‌స్టోర్ నుండి వెంటనే డిలీట్ చేయి & పాపప్ కాకుండా ఆపు
+                            if (isFalseInactivityNotice(title, body, rawType)) {
+                                try { doc.reference.delete() } catch (_: Exception) {}
+                                return@mapNotNull null
+                            }
+
+                            if (!isManualAdminMessage(data)) return@mapNotNull null
                             if (body.isBlank() && title.isBlank()) return@mapNotNull null
 
                             val senderName = data["senderName"] as? String ?: "ఆల్ఫా న్యూస్"
@@ -927,18 +946,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun isManualAdminMessage(data: Map<String, Any?>): Boolean {
         val rawType = (data["type"] as? String ?: "CHAT").trim().uppercase()
+        val text = (data["text"] as? String ?: (data["body"] as? String ?: "")).trim()
+        val title = (data["title"] as? String ?: "").trim()
+
+        // 🛡️ ZERO FALSE INACTIVITY POPUPS:
+        // వార్తలు పెట్టనందువలన రిపోర్టర్‌గా తొలగించాము, హోదా రద్దు, షోకాజ్, మొదలైన తప్పుడు/ఆటోమేటెడ్ మెసేజ్‌లు ఎట్టి పరిస్థితుల్లోనూ పాపప్ కాకూడదు!
+        if (isFalseInactivityNotice(title, text, rawType)) {
+            return false
+        }
+
         val importance = (data["importance"] as? String ?: "").trim().uppercase()
         val isExplicitWarning = (data["isWarning"] as? Boolean ?: false) ||
                 rawType == "WARNING" ||
-                rawType == "INACTIVITY_WARNING" ||
-                rawType == "ZERO_POSTS_WARNING" ||
-                rawType == "MANDAL_REVOCATION" ||
                 importance == "HIGH" ||
                 importance == "CRITICAL"
 
         // 1. WARNING సందేశాలు తప్పనిసరిగా పాపప్ అవ్వాలి (Warning messages must always popup)
         if (isExplicitWarning) {
-            val text = (data["text"] as? String ?: (data["body"] as? String ?: "")).trim()
             // సాధారణ డూప్లికేట్ లేదా ఆర్టికల్-లెవల్ ఎడిటోరియల్ ఫీడ్‌బ్యాక్ డెస్క్ చాట్‌లోనే ఉండాలి, పాపప్ అవ్వకూడదు
             if (text.contains("మీరు పంపిన వార్త:") && text.contains("ఎడిటోరియల్ డెస్క్ పరిశీలన:")) {
                 return false
@@ -1066,6 +1090,108 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _unreadAdminNotices.value = emptyList()
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Error marking admin messages read: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * 🛡️ రిపోర్టర్‌గా కొనసాగుతున్నప్పటికీ గతంలో ఆటోమేటెడ్ లేదా పొరపాటున వచ్చిన
+     * "వార్తలు పెట్టనందువలన రిపోర్టర్‌గా తొలగించాము/హోదా రద్దు" వంటి తప్పుడు సందేశాలను
+     * Firestore నుండి శాశ్వతంగా డిలీట్ చేసి క్లీన్ చేస్తుంది.
+     */
+    fun cleanFalseInactivityMessages(userId: String) {
+        if (userId.isBlank() || userId == "guest") return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // 1. Check and clean reporter_conversations/{userId}/messages
+                val convMessagesRef = FirebaseService.db.collection("reporter_conversations")
+                    .document(userId)
+                    .collection("messages")
+
+                val convSnap = try {
+                    convMessagesRef.get().await()
+                } catch (e: Exception) {
+                    null
+                }
+
+                var deletedCount = 0
+                if (convSnap != null && !convSnap.isEmpty) {
+                    val batch = FirebaseService.db.batch()
+                    for (doc in convSnap.documents) {
+                        val data = doc.data ?: continue
+                        val title = data["title"] as? String ?: ""
+                        val text = data["text"] as? String ?: (data["body"] as? String ?: "")
+                        val type = (data["type"] as? String ?: "").uppercase()
+                        if (isFalseInactivityNotice(title, text, type)) {
+                            batch.delete(doc.reference)
+                            deletedCount++
+                        }
+                    }
+                    if (deletedCount > 0) {
+                        try {
+                            batch.commit().await()
+                            Log.i("MainViewModel", "🛡️ Deleted $deletedCount false inactivity messages from reporter_conversations for $userId")
+                        } catch (e: Exception) {
+                            Log.w("MainViewModel", "Failed to commit delete batch in reporter_conversations: ${e.message}")
+                        }
+                    }
+                }
+
+                // 2. Check and clean users/{userId}/messages
+                val userMessagesRef = FirebaseService.db.collection("users")
+                    .document(userId)
+                    .collection("messages")
+
+                val userSnap = try {
+                    userMessagesRef.get().await()
+                } catch (e: Exception) {
+                    null
+                }
+
+                if (userSnap != null && !userSnap.isEmpty) {
+                    val batch = FirebaseService.db.batch()
+                    var userMsgDeleted = 0
+                    for (doc in userSnap.documents) {
+                        val data = doc.data ?: continue
+                        val title = data["title"] as? String ?: ""
+                        val text = data["body"] as? String ?: (data["text"] as? String ?: "")
+                        val type = (data["type"] as? String ?: "").uppercase()
+                        if (isFalseInactivityNotice(title, text, type)) {
+                            batch.delete(doc.reference)
+                            userMsgDeleted++
+                        }
+                    }
+                    if (userMsgDeleted > 0) {
+                        try {
+                            batch.commit().await()
+                            deletedCount += userMsgDeleted
+                            Log.i("MainViewModel", "🛡️ Deleted $userMsgDeleted false inactivity messages from users/messages for $userId")
+                        } catch (e: Exception) {
+                            Log.w("MainViewModel", "Failed to commit delete batch in users/messages: ${e.message}")
+                        }
+                    }
+                }
+
+                // 3. Reset reporter_conversations/{userId} summary if lastMessage had false removal text
+                try {
+                    val convDocRef = FirebaseService.db.collection("reporter_conversations").document(userId)
+                    val convDoc = convDocRef.get().await()
+                    if (convDoc.exists()) {
+                        val lastMsg = convDoc.getString("lastMessage") ?: ""
+                        if (isFalseInactivityNotice("", lastMsg, "")) {
+                            convDocRef.update(
+                                mapOf(
+                                    "lastMessage" to "ఆల్ఫా న్యూస్ ఎడిటోరియల్ డెస్క్",
+                                    "unreadCountForReporter" to 0
+                                )
+                            ).await()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("MainViewModel", "Failed to update conv doc header: ${e.message}")
+                }
+            } catch (e: Exception) {
+                Log.w("MainViewModel", "cleanFalseInactivityMessages error: ${e.message}")
             }
         }
     }
@@ -1539,6 +1665,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     companion object {
+        /**
+         * 🛡️ రిపోర్టర్‌గా కొనసాగుతున్నప్పుడు "వార్తలు పెట్టనందున మిమ్మల్ని తొలగించాము/హోదా రద్దు"
+         * వంటి తప్పుడు సందేశాలను గుర్తించే యూనివర్సల్ హెల్పర్.
+         */
+        fun isFalseInactivityNotice(title: String?, text: String?, rawType: String?): Boolean {
+            val typeUpper = (rawType ?: "").trim().uppercase()
+            val falseTypes = setOf(
+                "INACTIVITY_WARNING",
+                "ZERO_POSTS_WARNING",
+                "MANDAL_REVOCATION",
+                "REPORTER_INACTIVITY_NOTICE",
+                "REPORTER_DEMOTION"
+            )
+            if (typeUpper in falseTypes) return true
+
+            val t = title ?: ""
+            val b = text ?: ""
+            val teluguCombined = "$t $b"
+            val combinedLower = teluguCombined.lowercase()
+
+            val falsePhrases = listOf(
+                "హోదా తొలగించబడింది",
+                "హోదా తొలగించ",
+                "హోదా నుండి తొలగించి",
+                "రిపోర్టర్‌గా తొలగించాము",
+                "రిపోర్టర్‌గా తొలగించ",
+                "రిపోర్టర్ హోదా తొలగించు",
+                "సబ్‌స్క్రైబర్‌గా మార్చాము",
+                "సబ్‌స్క్రైబర్‌గా మార్చడం జరిగింది",
+                "సబ్‌స్క్రైబర్‌గా మార్చ",
+                "వార్తలు పంపనందున",
+                "వార్తలు పెట్టనందువలన",
+                "వార్తలు పంపడం లేదు",
+                "వార్తలు పెట్టడం లేదు",
+                "హోదా రద్దు చేయబడుతుంది",
+                "హోదా రద్దు ప్రమాదం",
+                "హోదా రద్దు",
+                "తుది హెచ్చరిక",
+                "షోకాజ్ నోటీసు",
+                "Final Warning",
+                "Show Cause Notice"
+            )
+
+            return falsePhrases.any { teluguCombined.contains(it) || combinedLower.contains(it.lowercase()) }
+        }
+
         val categoryTopicMap: Map<String, String> = mapOf(
             "రాజకీయం"    to "cat_politics",
             "వినోదం"     to "cat_cinema",

@@ -41,8 +41,19 @@ fun AdminNoticePopupDialog(
 ) {
     if (notices.isEmpty()) return
 
+    // 🛡️ Filter out false inactivity removal/demotion notices
+    val validNotices = remember(notices) {
+        notices.filterNot { n ->
+            com.alfanews.telugu.viewmodels.MainViewModel.isFalseInactivityNotice(n.title, n.text, n.type)
+        }
+    }
+    if (validNotices.isEmpty()) {
+        LaunchedEffect(Unit) { onDismiss() }
+        return
+    }
+
     var currentIndex by remember { mutableIntStateOf(0) }
-    val currentNotice = notices.getOrElse(currentIndex.coerceIn(0, notices.size - 1)) { notices.first() }
+    val currentNotice = validNotices.getOrElse(currentIndex.coerceIn(0, validNotices.size - 1)) { validNotices.first() }
 
     // సందేశ రకాన్ని బట్టి బ్యానర్ వివరాలు (WARNING, BROADCAST, NOTICE, CHAT/ADMIN_MESSAGE)
     val (headerBg, headerIcon, headerTitle) = when (currentNotice.type) {
@@ -150,7 +161,7 @@ fun AdminNoticePopupDialog(
                 }
 
                 // Sub-header / Notice Pager if multiple notices exist
-                if (notices.size > 1) {
+                if (validNotices.size > 1) {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                         modifier = Modifier.fillMaxWidth()
@@ -163,7 +174,7 @@ fun AdminNoticePopupDialog(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "చదవని సందేశాలు: ${currentIndex + 1} / ${notices.size}",
+                                text = "చదవని సందేశాలు: ${currentIndex + 1} / ${validNotices.size}",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -182,14 +193,14 @@ fun AdminNoticePopupDialog(
                                     )
                                 }
                                 IconButton(
-                                    onClick = { if (currentIndex < notices.size - 1) currentIndex++ },
-                                    enabled = currentIndex < notices.size - 1,
+                                    onClick = { if (currentIndex < validNotices.size - 1) currentIndex++ },
+                                    enabled = currentIndex < validNotices.size - 1,
                                     modifier = Modifier.size(28.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.ChevronRight,
                                         contentDescription = "Next",
-                                        tint = if (currentIndex < notices.size - 1) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.4f)
+                                        tint = if (currentIndex < validNotices.size - 1) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.4f)
                                     )
                                 }
                             }

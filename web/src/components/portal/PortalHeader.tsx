@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { User } from '../../types';
 import { Search, Flame, User as UserIcon, LogIn, Menu, X, Smartphone, ChevronDown, MapPin } from 'lucide-react';
 import { AP_DISTRICTS, TS_DISTRICTS } from '../../utils/newsFilter';
+import { getPreferredPlayStoreUrl, openNativePlayStore } from '../../utils/playStoreHelper';
 import PortalAdBanner from './PortalAdBanner';
 
 interface PortalHeaderProps {
@@ -156,10 +157,12 @@ export const PortalHeader: React.FC<PortalHeaderProps> = ({
             </div>
 
             <a
-              href="https://play.google.com/store/apps/details?id=com.alfanews.telugu"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white px-2.5 py-0.5 rounded text-xs transition-colors"
+              href={getPreferredPlayStoreUrl()}
+              onClick={(e) => {
+                e.preventDefault();
+                openNativePlayStore();
+              }}
+              className="inline-flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white px-2.5 py-0.5 rounded text-xs transition-colors cursor-pointer"
             >
               <Smartphone className="w-3 h-3" />
               <span>ఆల్ఫా యాప్</span>

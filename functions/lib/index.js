@@ -766,19 +766,14 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
         const refParam = cleanRef ? `&ref_${encodeURIComponent(cleanRef)}&referrer_uid=${encodeURIComponent(cleanRef)}&utm_campaign=referral_${encodeURIComponent(cleanRef)}` : '';
         const referrerParam = encodeURIComponent(`news_id=${doc.id}${refParam}`);
         const playStoreUrl = `https://play.google.com/store/apps/details?id=com.alfanews.telugu&referrer=${referrerParam}`;
+        const playStoreIntentUrl = `intent://details?id=com.alfanews.telugu&referrer=${referrerParam}#Intent;scheme=market;package=com.android.vending;end`;
         const userAgent = req.headers['user-agent'] || '';
-        const isSearchEngine = /Googlebot|Google-InspectionTool|Mediapartners-Google|AdsBot-Google|Feedfetcher-Google|Chrome-Lighthouse|bingbot|DuckDuckBot|Baiduspider|YandexBot|Applebot/i.test(userAgent);
+        const isSearchEngine = /Googlebot|Google-InspectionTool|Mediapartners-Google|AdsBot-Google|Feedfetcher-Google|Chrome-Lighthouse|bingbot|DuckDuckBot|Baiduspider|YandexBot|Applebot|Bytespider|PetalBot|AhrefsBot|SemrushBot|DotBot|MJ12bot|CCBot|GPTBot|ChatGPT-User|ClaudeBot|anthropic-ai|PerplexityBot|TurnitinBot|DataForSeoBot|bot|crawler|spider|slurp|headless|phantom|puppeteer/i.test(userAgent);
         const isSocialBot = /facebookexternalhit|WhatsApp|Twitterbot|TelegramBot|LinkedInBot|Discordbot|Slackbot|SkypeUriPreview/i.test(userAgent);
         const isCrawler = isSearchEngine || isSocialBot;
-        // If human mobile browser user (not a crawler), and app wasn't installed to catch the App Link:
-        // Seamlessly redirect to Google Play Store to download the app!
-        if (!isCrawler) {
-            const isMobile = /Android|iPhone|iPad|iPod/i.test(userAgent);
-            if (isMobile) {
-                res.redirect(302, playStoreUrl);
-                return;
-            }
-        }
+        // Note: We do NOT force redirect mobile users to Play Store anymore.
+        // Instead, users without the app land directly on the web page to read the news article.
+        // Once reading, an attractive in-page prompt and CTA buttons allow them to open the native Play Store app via Android Intent!
         let publishedIso = new Date().toISOString();
         if (data.timestamp) {
             const ms = data.timestamp.toMillis ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
@@ -849,9 +844,19 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
     <div style="font-size: 18px; color: #334155;">
       ${bodyParagraphsHtml}
     </div>
+    <div style="margin-top: 28px; padding: 20px; background: linear-gradient(135deg, #fff1f2, #ffe4e6); border: 1px solid #fecdd3; border-radius: 16px; text-align: center;">
+      <h3 style="font-size: 18px; color: #9f1239; margin-bottom: 8px; font-weight: 700;">మరిన్ని మీ ప్రాంత స్థానిక వార్తల కోసం</h3>
+      <p style="font-size: 14px; color: #64748b; margin-bottom: 16px;">మన Alfa News యాప్‌ను ఇప్పుడే డౌన్‌లోడ్ చేసుకోండి!</p>
+      <a href="${playStoreIntentUrl}" style="display: inline-block; background: #dc2626; color: white; padding: 12px 24px; border-radius: 12px; font-size: 15px; font-weight: 700; text-decoration: none; box-shadow: 0 4px 10px rgba(220, 38, 38, 0.3);">📲 ప్లే స్టోర్ నుండి యాప్ డౌన్‌లోడ్ చేసుకోండి</a>
+    </div>
 </article></div>`;
                 hydratedHtml = hydratedHtml.replace('<div id="root"></div>', preRenderedArticle);
-                res.set('Cache-Control', 'public, max-age=300, s-maxage=1800, stale-while-revalidate=600');
+                if (isSearchEngine) {
+                    // Search engines (Googlebot, Bingbot) ONLY need the semantic HTML and JSON-LD structured data.
+                    // Strip client-side module scripts so headless crawlers do not execute React hydration and blast millions of Firestore reads!
+                    hydratedHtml = hydratedHtml.replace(/<script\b(?![^>]*application\/ld\+json)[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+                }
+                res.set('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400');
                 res.status(200).send(hydratedHtml);
                 return;
             }
@@ -916,7 +921,7 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
             <p>${safeDesc}</p>
             <a href="${postUrl}" class="btn-primary">🌐 వెబ్‌లో చదవండి (Read on Web)</a>
             <a id="openAppBtn" href="${intentScheme}" class="btn-secondary">📲 యాప్‌లో తెరవండి (Open in App)</a>
-            <a href="${playStoreUrl}" class="btn-secondary">Google Play Store డౌన్‌లోడ్</a>
+            <a href="${playStoreIntentUrl}" class="btn-secondary">📲 Google Play Store డౌన్‌లోడ్</a>
             <div class="footer-note">Alfa News - వేగవంతమైన తెలుగు వార్తలు</div>
         </div>
     </div>
@@ -931,76 +936,152 @@ exports.shareNews = (0, https_1.onRequest)(async (req, res) => {
     }
 });
 // Dynamic SEO & Google News Sitemap Generator for Search Engines (Google, Bing)
+// Cost-optimized, loop-free, and partitioned to handle 100,000+ news articles cleanly.
 exports.serveSitemap = (0, https_1.onRequest)(async (req, res) => {
     try {
         const baseUrl = "https://alfanews.app";
-        const isNewsSitemap = req.path.includes('news-sitemap');
-        const staticRoutes = [
-            { path: "", changefreq: "always", priority: "1.0" },
-            { path: "category/andhra-pradesh", changefreq: "hourly", priority: "0.9" },
-            { path: "category/telangana", changefreq: "hourly", priority: "0.9" },
-            { path: "category/districts", changefreq: "hourly", priority: "0.9" },
-            { path: "category/politics", changefreq: "hourly", priority: "0.8" },
-            { path: "category/cinema", changefreq: "hourly", priority: "0.8" },
-            { path: "category/sports", changefreq: "hourly", priority: "0.8" },
-            { path: "category/crime", changefreq: "hourly", priority: "0.7" },
-            { path: "category/business", changefreq: "hourly", priority: "0.7" },
-            { path: "category/national", changefreq: "hourly", priority: "0.7" },
-            { path: "category/international", changefreq: "hourly", priority: "0.7" },
-            { path: "category/special", changefreq: "hourly", priority: "0.7" },
-            { path: "classifieds", changefreq: "daily", priority: "0.7" },
-            { path: "about", changefreq: "monthly", priority: "0.5" },
-            { path: "contact", changefreq: "monthly", priority: "0.5" },
-            { path: "privacy-policy", changefreq: "monthly", priority: "0.4" },
-            { path: "terms", changefreq: "monthly", priority: "0.4" },
-            { path: "content-policy", changefreq: "monthly", priority: "0.4" },
-            { path: "disclaimer", changefreq: "monthly", priority: "0.4" },
-            { path: "ad-policy", changefreq: "monthly", priority: "0.4" },
-            { path: "data-collection", changefreq: "monthly", priority: "0.4" }
+        const path = (req.path || "").toLowerCase();
+        // 10 Deterministic non-overlapping character ranges covering 100% of auto-generated Firestore document IDs [0-9, A-Z, a-z]
+        const CHUNK_RANGES = [
+            { id: 1, start: '0', end: '4\uffff' },
+            { id: 2, start: '5', end: '9\uffff' },
+            { id: 3, start: 'A', end: 'F\uffff' },
+            { id: 4, start: 'G', end: 'M\uffff' },
+            { id: 5, start: 'N', end: 'S\uffff' },
+            { id: 6, start: 'T', end: 'Z\uffff' },
+            { id: 7, start: 'a', end: 'f\uffff' },
+            { id: 8, start: 'g', end: 'm\uffff' },
+            { id: 9, start: 'n', end: 's\uffff' },
+            { id: 10, start: 't', end: 'z\uffff' }
         ];
-        let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">\n';
-        if (!isNewsSitemap) {
+        // -------------------------------------------------------------
+        // Case 1: Google News Sitemap (/news-sitemap.xml)
+        // Only returns breaking/fresh news from the last 48 hours (<news:news> schema).
+        // Minimal Firestore reads (capped at 200 docs), cached 1 hour on CDN.
+        // -------------------------------------------------------------
+        if (path.includes('news-sitemap')) {
+            const twoDaysAgo = Date.now() - (48 * 60 * 60 * 1000);
+            const snap = await db.collection("news")
+                .where("approved", "==", true)
+                .orderBy("timestamp", "desc")
+                .limit(200)
+                .select("timestamp", "headline", "title")
+                .get();
+            let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">\n';
+            for (const d of snap.docs) {
+                const data = d.data();
+                let timestampMs = Date.now();
+                if (data.timestamp) {
+                    timestampMs = data.timestamp.toMillis ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
+                }
+                if (timestampMs < twoDaysAgo)
+                    continue;
+                const dateStr = new Date(timestampMs).toISOString();
+                const titleRaw = data.headline?.telugu || data.headline?.english || data.title || "Alfa News Telugu";
+                const safeTitleXml = escapeHtml(titleRaw);
+                xml += `  <url>\n    <loc>${baseUrl}/news/${d.id}</loc>\n    <news:news>\n      <news:publication>\n        <news:name>Alfa News Telugu</news:name>\n        <news:language>te</news:language>\n      </news:publication>\n      <news:publication_date>${dateStr}</news:publication_date>\n      <news:title>${safeTitleXml}</news:title>\n    </news:news>\n  </url>\n`;
+            }
+            xml += '</urlset>';
+            res.set("Content-Type", "application/xml; charset=utf-8");
+            res.set("Cache-Control", "public, max-age=1800, s-maxage=3600");
+            res.status(200).send(xml);
+            return;
+        }
+        // -------------------------------------------------------------
+        // Case 2: Static & Category Pages (/sitemaps/pages.xml)
+        // All categories & static site routes. ZERO Firestore reads!
+        // -------------------------------------------------------------
+        if (path.includes('pages')) {
+            const staticRoutes = [
+                { path: "", changefreq: "always", priority: "1.0" },
+                { path: "category/andhra-pradesh", changefreq: "hourly", priority: "0.9" },
+                { path: "category/telangana", changefreq: "hourly", priority: "0.9" },
+                { path: "category/districts", changefreq: "hourly", priority: "0.9" },
+                { path: "category/politics", changefreq: "hourly", priority: "0.8" },
+                { path: "category/cinema", changefreq: "hourly", priority: "0.8" },
+                { path: "category/sports", changefreq: "hourly", priority: "0.8" },
+                { path: "category/crime", changefreq: "hourly", priority: "0.7" },
+                { path: "category/business", changefreq: "hourly", priority: "0.7" },
+                { path: "category/national", changefreq: "hourly", priority: "0.7" },
+                { path: "category/international", changefreq: "hourly", priority: "0.7" },
+                { path: "category/special", changefreq: "hourly", priority: "0.7" },
+                { path: "classifieds", changefreq: "daily", priority: "0.7" },
+                { path: "about", changefreq: "monthly", priority: "0.5" },
+                { path: "contact", changefreq: "monthly", priority: "0.5" },
+                { path: "privacy-policy", changefreq: "monthly", priority: "0.4" },
+                { path: "terms", changefreq: "monthly", priority: "0.4" },
+                { path: "content-policy", changefreq: "monthly", priority: "0.4" },
+                { path: "disclaimer", changefreq: "monthly", priority: "0.4" },
+                { path: "ad-policy", changefreq: "monthly", priority: "0.4" },
+                { path: "data-collection", changefreq: "monthly", priority: "0.4" }
+            ];
+            let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
             for (const route of staticRoutes) {
                 const loc = route.path ? `${baseUrl}/${route.path}` : baseUrl;
                 xml += `  <url>\n    <loc>${loc}</loc>\n    <changefreq>${route.changefreq}</changefreq>\n    <priority>${route.priority}</priority>\n  </url>\n`;
             }
+            xml += '</urlset>';
+            res.set("Content-Type", "application/xml; charset=utf-8");
+            res.set("Cache-Control", "public, max-age=86400, s-maxage=604800");
+            res.status(200).send(xml);
+            return;
         }
-        const limitCount = isNewsSitemap ? 500 : 300;
-        const snap = await db.collection("news")
-            .where("approved", "==", true)
-            .orderBy("timestamp", "desc")
-            .limit(limitCount)
-            .get();
-        const twoDaysAgo = Date.now() - (48 * 60 * 60 * 1000);
-        for (const d of snap.docs) {
-            const data = d.data();
-            let dateStr = new Date().toISOString();
-            let timestampMs = Date.now();
-            if (data.timestamp) {
-                timestampMs = data.timestamp.toMillis ? data.timestamp.toMillis() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now());
-                dateStr = new Date(timestampMs).toISOString();
+        // -------------------------------------------------------------
+        // Case 3: Archive News Chunks (/sitemaps/news-1.xml .. news-10.xml)
+        // Uses fast FieldPath.documentId() bounding without offset costs.
+        // Selects ONLY 'timestamp' to minimize bandwidth and memory.
+        // Cached on Cloud CDN for 7 days so repeated Googlebot crawls cost $0.
+        // -------------------------------------------------------------
+        const chunkMatch = path.match(/news-(\d+)\.xml/);
+        if (chunkMatch) {
+            const chunkId = parseInt(chunkMatch[1], 10);
+            const chunk = CHUNK_RANGES.find(c => c.id === chunkId);
+            if (!chunk) {
+                res.status(404).set("Content-Type", "application/xml; charset=utf-8").send('<?xml version="1.0" encoding="UTF-8"?><error>Sitemap chunk not found</error>');
+                return;
             }
-            const titleRaw = data.headline?.telugu || data.headline?.english || data.title || "Alfa News Telugu";
-            const safeTitleXml = escapeHtml(titleRaw);
-            // Google News guidelines: include <news:news> for news articles within last 48 hours
-            const isFreshNews = timestampMs >= twoDaysAgo || isNewsSitemap;
-            xml += `  <url>\n    <loc>${baseUrl}/news/${d.id}</loc>\n    <lastmod>${dateStr}</lastmod>\n`;
-            if (!isNewsSitemap) {
-                xml += `    <changefreq>daily</changefreq>\n    <priority>0.8</priority>\n`;
+            const snap = await db.collection("news")
+                .where("approved", "==", true)
+                .where(admin.firestore.FieldPath.documentId(), ">=", chunk.start)
+                .where(admin.firestore.FieldPath.documentId(), "<=", chunk.end)
+                .select("timestamp")
+                .get();
+            let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+            for (const d of snap.docs) {
+                const t = d.data()?.timestamp;
+                let dateStr = new Date().toISOString();
+                if (t?.toDate) {
+                    dateStr = t.toDate().toISOString();
+                }
+                else if (typeof t === 'number') {
+                    dateStr = new Date(t).toISOString();
+                }
+                xml += `  <url>\n    <loc>${baseUrl}/news/${d.id}</loc>\n    <lastmod>${dateStr}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.7</priority>\n  </url>\n`;
             }
-            if (isFreshNews) {
-                xml += `    <news:news>\n      <news:publication>\n        <news:name>Alfa News Telugu</news:name>\n        <news:language>te</news:language>\n      </news:publication>\n      <news:publication_date>${dateStr}</news:publication_date>\n      <news:title>${safeTitleXml}</news:title>\n    </news:news>\n`;
-            }
-            xml += `  </url>\n`;
+            xml += '</urlset>';
+            res.set("Content-Type", "application/xml; charset=utf-8");
+            res.set("Cache-Control", "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400");
+            res.status(200).send(xml);
+            return;
         }
-        xml += '</urlset>';
+        // -------------------------------------------------------------
+        // Case 4: Default / Master Sitemap Index (/sitemap.xml)
+        // Returns the clean master index linking only to fresh breaking news (last 48h) and active category pages.
+        // Drops legacy 100,000 archive chunks to permanently stop crawlers from making millions of dead document queries.
+        // -------------------------------------------------------------
+        let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+        xml += `  <sitemap>\n    <loc>${baseUrl}/news-sitemap.xml</loc>\n    <lastmod>${new Date().toISOString()}</lastmod>\n  </sitemap>\n`;
+        xml += `  <sitemap>\n    <loc>${baseUrl}/sitemaps/pages.xml</loc>\n  </sitemap>\n`;
+        xml += '</sitemapindex>';
         res.set("Content-Type", "application/xml; charset=utf-8");
-        res.set("Cache-Control", "public, max-age=1800, s-maxage=3600");
+        res.set("Cache-Control", "public, max-age=86400, s-maxage=86400");
         res.status(200).send(xml);
+        return;
     }
     catch (e) {
         console.error("Error generating sitemap:", e);
-        res.status(500).send("Error generating sitemap");
+        res.set("Content-Type", "application/xml; charset=utf-8");
+        res.status(500).send('<?xml version="1.0" encoding="UTF-8"?><error>Error generating sitemap</error>');
     }
 });
 exports.youtubeAuthStart = (0, https_1.onRequest)({ secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"] }, (req, res) => {

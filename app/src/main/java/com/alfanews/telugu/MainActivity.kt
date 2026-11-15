@@ -36,6 +36,11 @@ import com.alfanews.telugu.viewmodels.MainViewModel
 import com.alfanews.telugu.viewmodels.NewsFeedViewModel
 import com.alfanews.telugu.views.MainScreen
 import com.alfanews.telugu.views.SplashScreenView
+import com.google.android.play.core.appupdate.AppUpdateManager
+import com.google.android.play.core.appupdate.AppUpdateManagerFactory
+import com.google.android.play.core.appupdate.AppUpdateOptions
+import com.google.android.play.core.install.model.AppUpdateType
+import com.google.android.play.core.install.model.UpdateAvailability
 
 import com.google.firebase.dynamiclinks.FirebaseDynamicLinks
 import android.provider.Settings
@@ -64,6 +69,15 @@ class MainActivity : ComponentActivity() {
 
     private var showAnimatedSplash by mutableStateOf(true)
 
+    private lateinit var appUpdateManager: AppUpdateManager
+    private val immediateUpdateLauncher = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode != RESULT_OK) {
+            Log.d("MainActivity", "Immediate update flow cancelled or failed: ${result.resultCode}")
+            checkImmediateAppUpdate()
+        }
+    }
 
     private val mainViewModel: MainViewModel by viewModels { ViewModelFactory(application) }
     private val newsFeedViewModel: NewsFeedViewModel by viewModels { ViewModelFactory(application) }
@@ -108,6 +122,13 @@ class MainActivity : ComponentActivity() {
         }
         setTheme(R.style.Theme_AlfaNews)
         super.onCreate(savedInstanceState)
+
+        try {
+            appUpdateManager = AppUpdateManagerFactory.create(this)
+            checkImmediateAppUpdate()
+        } catch (e: Throwable) {
+            Log.e("MainActivity", "AppUpdateManager init error: ${e.message}")
+        }
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
@@ -362,9 +383,58 @@ class MainActivity : ComponentActivity() {
         startActivity(intent)
     }
 
+    private fun checkImmediateAppUpdate() {
+        try {
+            if (!::appUpdateManager.isInitialized) return
+            val appUpdateInfoTask = appUpdateManager.appUpdateInfo
+            appUpdateInfoTask.addOnSuccessListener { appUpdateInfo ->
+                if (isFinishing || isDestroyed) return@addOnSuccessListener
+                if (appUpdateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
+                    appUpdateInfo.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)
+                ) {
+                    try {
+                        appUpdateManager.startUpdateFlowForResult(
+                            appUpdateInfo,
+                            immediateUpdateLauncher,
+                            AppUpdateOptions.newBuilder(AppUpdateType.IMMEDIATE).build()
+                        )
+                    } catch (e: Throwable) {
+                        Log.w("MainActivity", "startUpdateFlowForResult error: ${e.message}")
+                    }
+                }
+            }.addOnFailureListener { e ->
+                Log.w("MainActivity", "AppUpdateInfo check failed: ${e.message}")
+            }
+        } catch (e: Throwable) {
+            Log.e("MainActivity", "Error in checkImmediateAppUpdate", e)
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         
+        try {
+            if (::appUpdateManager.isInitialized) {
+                appUpdateManager.appUpdateInfo.addOnSuccessListener { appUpdateInfo ->
+                    if (isFinishing || isDestroyed) return@addOnSuccessListener
+                    if (appUpdateInfo.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS ||
+                        (appUpdateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
+                         appUpdateInfo.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE))
+                    ) {
+                        try {
+                            appUpdateManager.startUpdateFlowForResult(
+                                appUpdateInfo,
+                                immediateUpdateLauncher,
+                                AppUpdateOptions.newBuilder(AppUpdateType.IMMEDIATE).build()
+                            )
+                        } catch (e: Throwable) {
+                            Log.w("MainActivity", "startUpdateFlowForResult onResume error: ${e.message}")
+                        }
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+
         // 🚀 WAKE UP FIRESTORE SOCKETS:
         // When app returns to foreground from Doze mode / background sleep,
         // explicitly invoke enableNetwork() to reset exponential backoff and restore connection instantly.

@@ -513,7 +513,29 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         // NetworkOnMainThreadException వల్ల notification అస్సలు రాకపోవడం fix అవుతుంది.
         serviceScope.launch {
             try {
-                val notificationId = (System.currentTimeMillis() and 0x7fffffffL).toInt()
+                // 🌙 Client-side Quiet Hours Guard (11:00 PM - 6:00 AM IST):
+                // Secondary safeguard: If any delayed/queued network notification arrives on device at night,
+                // suppress presentation completely unless it is a life-threatening disaster or admin notice.
+                val currentHour = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Kolkata")).get(java.util.Calendar.HOUR_OF_DAY)
+                val isQuietHours = currentHour >= 23 || currentHour < 6
+                val isEmergency = channelId == AppNotificationChannel.BREAKING.id &&
+                    listOf("భూకంపం", "తుఫాను", "వరదలు", "సునామి", "భారీ విపత్తు", "ఎమర్జెన్సీ").any { title.contains(it) || messageBody.contains(it) }
+
+                if (isQuietHours && !isEmergency && channelId != AppNotificationChannel.ADMIN.id) {
+                    Log.d("MyFirebaseMsgService", "Quiet hours active (hour $currentHour). Suppressing late-night notification presentation.")
+                    return@launch
+                }
+
+                // 🛡️ ZERO-FLOODING STABLE NOTIFICATION IDs (Way2News Slot Architecture):
+                // Using stable IDs per channel updates the existing slot cleanly in the user's notification bar.
+                // Prevents old notifications from stacking into a massive cluster/heap ("గుట్టగా రావడం")!
+                val notificationId = when (channelId) {
+                    AppNotificationChannel.BREAKING.id -> 1001
+                    AppNotificationChannel.LOCAL.id -> 1002
+                    AppNotificationChannel.WEATHER.id -> 1003
+                    AppNotificationChannel.ADMIN.id -> (System.currentTimeMillis() and 0x7fffffffL).toInt()
+                    else -> 1000 // General news slot (8 AM, 6 PM, 9 PM updates in place)
+                }
                 val newsId = Uri.parse(actionUrl ?: "").lastPathSegment ?: ""
 
                 val styledTitle = formatHtmlNotificationText(title, isTitle = true)
@@ -565,11 +587,11 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
-                // 🖼️ Rich Notification: ఫోటో ఉంటే Coil 3 ద్వారా Safe గా లోడ్ చేసి చూపిస్తాం (4s Timeout + Disk Cache)
+                // 🖼️ Rich Notification: ఫోటో ఉంటే Coil 3 ద్వారా Safe గా లోడ్ చేసి చూపిస్తాం (6s Timeout + Disk Cache)
                 var bitmap: Bitmap? = null
                 if (!imageUrl.isNullOrBlank()) {
                     try {
-                        withTimeoutOrNull(4000L) { // Max 4 seconds timeout so slow connections never hang notifications
+                        withTimeoutOrNull(6000L) { // 6 seconds timeout so cellular connections reliably download hero images
                             val request = ImageRequest.Builder(this@MyFirebaseMessagingService)
                                 .data(imageUrl)
                                 .size(1024, 512)
@@ -619,6 +641,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     notificationBuilder.setStyle(
                         NotificationCompat.BigPictureStyle()
                             .bigPicture(bitmap)
+                            .bigLargeIcon(null as Bitmap?) // In Way2News style, hides thumbnail when expanded for full-width hero image
                             .setBigContentTitle(styledTitle)
                             .setSummaryText(styledBody)
                     )

@@ -102,6 +102,14 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
 
         const targetId = initialPostId || (currentRoute.type === 'news' ? currentRoute.id : null);
 
+        // 🛡️ BOT & CRAWLER PROTECTION: Headless search bots (Bytespider, Petalbot, Bing, etc.) must NEVER query Firestore directly
+        const isBot = typeof navigator !== 'undefined' && 
+          /bot|google|crawler|spider|robot|crawling|slurp|headless|puppeteer|bytespider|petalbot|semrush|ahrefs/i.test(navigator.userAgent || '');
+        if (isBot) {
+          setLoading(false);
+          return;
+        }
+
         // 🛡️ Web Session Cache (3-minute TTL): Prevents search bots, crawlers, and rapid tab/back navigation from re-querying 75+ Firestore reads
         const CACHE_KEY = 'portal_home_posts_v5';
         const CACHE_TIME_KEY = 'portal_home_posts_time_v5';
@@ -185,41 +193,44 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
           }
         }
 
-        // 🚀 Background category blending (non-blocking)
-        Promise.allSettled([
-          getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Politics'), orderBy('timestamp', 'desc'), limit(10))),
-          getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Cinema'), orderBy('timestamp', 'desc'), limit(10))),
-          getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Sports'), orderBy('timestamp', 'desc'), limit(10))),
-          getDocs(query(newsRef, where('state', 'in', ['AP', 'Andhra Pradesh', 'Andhra']), orderBy('timestamp', 'desc'), limit(10))),
-          getDocs(query(newsRef, where('state', 'in', ['TS', 'Telangana', 'TG']), orderBy('timestamp', 'desc'), limit(10))),
-        ]).then((results) => {
-          if (!isMounted) return;
-          let added = false;
-          results.forEach((res) => {
-            if (res.status === 'fulfilled' && res.value && !res.value.empty) {
-              res.value.docs.forEach((d: any) => {
-                if (!seenIds.has(d.id)) {
-                  seenIds.add(d.id);
-                  combinedDocs.push({
-                    id: d.id,
-                    ...d.data(),
-                    timestamp: getTs(d.data()),
-                  } as NewsPost);
-                  added = true;
-                }
-              });
-            }
-          });
+        // 🚀 Background category blending (non-blocking) - Only fetch on homepage when no specific post is targeted, and not a crawler bot!
+        const isCrawlerBot = typeof navigator !== 'undefined' && /bot|google|crawler|spider|robot|crawling/i.test(navigator.userAgent || '');
+        if (!targetId && !isCrawlerBot) {
+          Promise.allSettled([
+            getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Politics'), orderBy('timestamp', 'desc'), limit(10))),
+            getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Cinema'), orderBy('timestamp', 'desc'), limit(10))),
+            getDocs(query(newsRef, where('approved', '==', true), where('categories', 'array-contains', 'Sports'), orderBy('timestamp', 'desc'), limit(10))),
+            getDocs(query(newsRef, where('state', 'in', ['AP', 'Andhra Pradesh', 'Andhra']), orderBy('timestamp', 'desc'), limit(10))),
+            getDocs(query(newsRef, where('state', 'in', ['TS', 'Telangana', 'TG']), orderBy('timestamp', 'desc'), limit(10))),
+          ]).then((results) => {
+            if (!isMounted) return;
+            let added = false;
+            results.forEach((res) => {
+              if (res.status === 'fulfilled' && res.value && !res.value.empty) {
+                res.value.docs.forEach((d: any) => {
+                  if (!seenIds.has(d.id)) {
+                    seenIds.add(d.id);
+                    combinedDocs.push({
+                      id: d.id,
+                      ...d.data(),
+                      timestamp: getTs(d.data()),
+                    } as NewsPost);
+                    added = true;
+                  }
+                });
+              }
+            });
 
-          if (added) {
-            combinedDocs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-            setAllPosts([...combinedDocs]);
-          }
-          try {
-            sessionStorage.setItem(CACHE_KEY, JSON.stringify(combinedDocs.slice(0, 100)));
-            sessionStorage.setItem(CACHE_TIME_KEY, Date.now().toString());
-          } catch (_) {}
-        }).catch(() => {});
+            if (added) {
+              combinedDocs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+              setAllPosts([...combinedDocs]);
+            }
+            try {
+              sessionStorage.setItem(CACHE_KEY, JSON.stringify(combinedDocs.slice(0, 100)));
+              sessionStorage.setItem(CACHE_TIME_KEY, Date.now().toString());
+            } catch (_) {}
+          }).catch(() => {});
+        }
       } catch (err) {
         console.error('Failed to load portal news:', err);
       } finally {
@@ -363,6 +374,12 @@ export const PortalHome: React.FC<PortalHomeProps> = ({
     let isMounted = true;
     async function fetchCategorySpecificNews() {
       try {
+        const isBot = typeof navigator !== 'undefined' && 
+          /bot|google|crawler|spider|robot|crawling|slurp|headless|puppeteer|bytespider|petalbot|semrush|ahrefs/i.test(navigator.userAgent || '');
+        if (isBot) {
+          return;
+        }
+
         setCategoryLoading(true);
         const newsRef = collection(db, 'news');
         let q: any = null;

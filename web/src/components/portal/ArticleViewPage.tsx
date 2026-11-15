@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { NewsPost, User, UserRole } from '../../types';
-import { Clock, MapPin, Share2, Volume2, VolumeX, Heart, Check, Bookmark, ArrowLeft, User as UserIcon, MessageSquare, ExternalLink, Hash, Building2 } from 'lucide-react';
+import { Clock, MapPin, Share2, Volume2, VolumeX, Heart, Check, Bookmark, ArrowLeft, User as UserIcon, MessageSquare, ExternalLink, Hash, Building2, X, Smartphone, Sparkles } from 'lucide-react';
 import { formatRelativeTimeTelugu, FALLBACK_NEWS_IMAGE } from './portalUtils';
 import { extractYoutubeVideoId } from '../NewsCard';
 import CommentSection from '../CommentSection';
@@ -9,6 +9,7 @@ import { isReporterVerified } from '../../services/reporterVerification';
 import { updatePageSeo } from '../../utils/seoManager';
 import { getNewsUrl, navigateTo, getTopicUrl } from '../../utils/router';
 import { ALL_DISTRICTS, isDistrictMatch } from '../../utils/newsFilter';
+import { getPreferredPlayStoreUrl, openNativePlayStore } from '../../utils/playStoreHelper';
 import PortalAdBanner from './PortalAdBanner';
 
 interface ArticleViewPageProps {
@@ -73,13 +74,59 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
   const refQuery = activeRef ? `?ref=${encodeURIComponent(activeRef)}` : '';
   const articleUrl = `https://alfanews.app${getNewsUrl(post)}${refQuery}`;
 
-  // Direct Play Store download URL with deferred post link and reporter referral ID
-  const playStoreDownloadUrl = useMemo(() => {
-    const referrerParam = activeRef
-      ? `news_id%3D${encodeURIComponent(post.id)}%26ref_${encodeURIComponent(activeRef)}`
-      : `news_id%3D${encodeURIComponent(post.id)}`;
-    return `https://play.google.com/store/apps/details?id=com.alfanews.telugu&referrer=${referrerParam}`;
+  // App download URL with Android Intent support and referrer preservation
+  const preferredPlayStoreUrl = useMemo(() => {
+    return getPreferredPlayStoreUrl(post.id, activeRef);
   }, [post.id, activeRef]);
+
+  // Attractive in-page App Download Popup after completing article reading
+  const [showAppDownloadPopup, setShowAppDownloadPopup] = useState(false);
+  const [popupDismissed, setPopupDismissed] = useState(false);
+
+  useEffect(() => {
+    // Check if dismissed previously in this session
+    try {
+      if (sessionStorage.getItem('alfa_app_popup_dismissed') === 'true') {
+        setPopupDismissed(true);
+        return;
+      }
+    } catch (_) {}
+
+    let triggered = false;
+    const handleScroll = () => {
+      if (triggered || popupDismissed) return;
+      const scrollPos = window.scrollY + window.innerHeight;
+      const totalHeight = document.documentElement.scrollHeight;
+      // Trigger when user has scrolled past 60% of the page (finishing reading the story)
+      if (totalHeight > 600 && scrollPos / totalHeight >= 0.6) {
+        triggered = true;
+        setShowAppDownloadPopup(true);
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
+    // Fallback: If user has been reading on the page for 10 seconds and has scrolled
+    const timer = setTimeout(() => {
+      if (!triggered && !popupDismissed && window.scrollY > 150) {
+        triggered = true;
+        setShowAppDownloadPopup(true);
+      }
+    }, 10000);
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      clearTimeout(timer);
+    };
+  }, [popupDismissed]);
+
+  const handleClosePopup = () => {
+    setShowAppDownloadPopup(false);
+    setPopupDismissed(true);
+    try {
+      sessionStorage.setItem('alfa_app_popup_dismissed', 'true');
+    } catch (_) {}
+  };
 
   // Clean and deduplicate SEO entity data
   const cleanTags = Array.from(new Set([
@@ -332,7 +379,7 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
           </div>
         )}
 
-        {/* Full Story Paragraphs with In-Article Ad */}
+        {/* Full Story Paragraphs with In-Article Ad & Mid-Article App Download CTA */}
         <div itemProp="articleBody" className="text-gray-800 text-base sm:text-lg leading-loose space-y-5 font-mallanna">
           {paragraphs.map((p, idx) => (
             <React.Fragment key={idx}>
@@ -346,6 +393,33 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
                   format="auto"
                   variant="in-article"
                 />
+              )}
+              {/* Mid-Article App Download CTA after paragraph 3 (or short story) */}
+              {(idx === 2 || (paragraphs.length <= 2 && idx === paragraphs.length - 1)) && (
+                <div className="my-6 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white shadow-md border border-white/20 flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <img src="/app_icon.png" alt="Alfa News" className="w-12 h-12 rounded-xl object-cover shadow-sm shrink-0 border border-white/30" />
+                    <div>
+                      <h4 className="font-ramabhadra text-sm sm:text-base font-bold text-white">
+                        మరిన్ని మీ ప్రాంత స్థానిక వార్తల కోసం Alfa News యాప్‌ను చూడండి
+                      </h4>
+                      <p className="font-mallanna text-xs sm:text-sm text-red-100 mt-0.5">
+                        మీ గ్రామం, మండలం, జిల్లా తాజా అప్‌డేట్స్ & రాజకీయ విశ్లేషణలు క్షణాల్లో మీ ఫోన్‌లో!
+                      </p>
+                    </div>
+                  </div>
+                  <a
+                    href={preferredPlayStoreUrl}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      openNativePlayStore(post.id, activeRef);
+                    }}
+                    className="w-full sm:w-auto text-center px-4 py-2.5 rounded-xl bg-white text-red-700 hover:bg-yellow-300 hover:text-red-900 font-ramabhadra text-xs font-bold shadow transition-all shrink-0 active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <Smartphone className="w-3.5 h-3.5" />
+                    <span>యాప్‌లో తెరవండి</span>
+                  </a>
+                </div>
               )}
             </React.Fragment>
           ))}
@@ -512,10 +586,12 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
             </div>
           </div>
           <a
-            href={playStoreDownloadUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="bg-red-600 hover:bg-red-700 text-white font-ramabhadra text-xs px-4 py-2.5 rounded-xl shrink-0 shadow transition-colors flex items-center gap-1.5"
+            href={preferredPlayStoreUrl}
+            onClick={(e) => {
+              e.preventDefault();
+              openNativePlayStore(post.id, activeRef);
+            }}
+            className="bg-red-600 hover:bg-red-700 text-white font-ramabhadra text-xs px-4 py-2.5 rounded-xl shrink-0 shadow transition-colors flex items-center gap-1.5 cursor-pointer"
           >
             <span>ప్లే స్టోర్ నుండి డౌన్‌లోడ్</span>
             <ExternalLink className="w-3.5 h-3.5" />
@@ -598,6 +674,106 @@ export const ArticleViewPage: React.FC<ArticleViewPageProps> = ({
             })}
           </div>
         </section>
+      )}
+
+      {/* 4. ATTRACTIVE POST-READING APP DOWNLOAD MODAL / DIALOG */}
+      {showAppDownloadPopup && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in"
+          onClick={handleClosePopup}
+        >
+          <div
+            className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden transform transition-all"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Top decorative gradient header */}
+            <div className="relative bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 p-6 text-white text-center pb-8">
+              <button
+                onClick={handleClosePopup}
+                className="absolute top-3.5 right-3.5 w-8 h-8 rounded-full bg-black/20 hover:bg-black/40 text-white flex items-center justify-center transition-colors cursor-pointer"
+                title="మూసివేయండి"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 text-white text-[11px] font-ramabhadra mb-3 backdrop-blur-xs">
+                <Sparkles className="w-3 h-3 text-yellow-300" />
+                <span>ఆల్ఫా న్యూస్ స్పెషల్</span>
+              </div>
+
+              <img
+                src="/app_icon.png"
+                alt="Alfa News App"
+                className="w-16 h-16 rounded-2xl mx-auto shadow-lg object-cover border-2 border-white/40 mb-3"
+              />
+
+              <h3 className="font-ramabhadra text-lg sm:text-xl text-white leading-snug px-2">
+                మరిన్ని మీ ప్రాంత స్థానిక వార్తలకు, రాజకీయ విశ్లేషణలకు మన Alfa News యాప్‌ను ఇప్పుడే డౌన్‌లోడ్ చేసుకోండి!
+              </h3>
+            </div>
+
+            {/* Feature Highlights */}
+            <div className="p-6 pt-5 bg-white">
+              <div className="space-y-3 mb-6">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0 mt-0.5 font-bold">
+                    ⚡
+                  </div>
+                  <div>
+                    <h5 className="font-ramabhadra text-xs sm:text-sm text-gray-900 font-semibold">
+                      మీ గ్రామం, మండలం, జిల్లా వార్తలు
+                    </h5>
+                    <p className="font-mallanna text-xs text-gray-500">
+                      స్థానిక సమస్యలు, అభివృద్ధి పనులు, బ్రేకింగ్ అప్‌డేట్స్ తక్షణమే పొందండి.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 mt-0.5 font-bold">
+                    🗳️
+                  </div>
+                  <div>
+                    <h5 className="font-ramabhadra text-xs sm:text-sm text-gray-900 font-semibold">
+                      నిష్పాక్షిక రాజకీయ విశ్లేషణలు
+                    </h5>
+                    <p className="font-mallanna text-xs text-gray-500">
+                      ఆంధ్రప్రదేశ్, తెలంగాణ రాజకీయ పరిణామాలపై ప్రత్యేక పరిశోధనాత్మక కథనాలు.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 mt-0.5 font-bold">
+                    🔔
+                  </div>
+                  <div>
+                    <h5 className="font-ramabhadra text-xs sm:text-sm text-gray-900 font-semibold">
+                      వేగవంతమైన లైవ్ అలర్ట్స్
+                    </h5>
+                    <p className="font-mallanna text-xs text-gray-500">
+                      అతి తక్కువ డేటాతో తేలికగా, వేగంగా పనిచేసే మొబైల్ అనుభవం.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Primary Call-to-Action with Android Intent */}
+              <a
+                href={preferredPlayStoreUrl}
+                onClick={(e) => {
+                  e.preventDefault();
+                  openNativePlayStore(post.id, activeRef);
+                }}
+                className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-2xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white font-ramabhadra text-sm font-bold shadow-lg shadow-red-500/25 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+              >
+                <Smartphone className="w-4 h-4" />
+                <span>📲 ప్లే స్టోర్ నుండి యాప్ డౌన్‌లోడ్ చేసుకోండి</span>
+              </a>
+            </div>
+          </div>
+        </div>
       )}
     </article>
   );

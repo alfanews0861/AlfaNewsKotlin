@@ -19,10 +19,11 @@ import {
     scanVideoSafetyWithGeminiAI,
     FLASH_MODEL,
     REGION,
-    createAndSaveThumbnail
+    createAndSaveThumbnail,
+    detectTopTeluguLeader
 } from "./utils";
 import { normalizeCategory, normalizeCategories, getCategorySystemInstruction } from './categories';
-import { refineHeadlineWithPaidAI } from "./geminiService";
+import { refineHeadlineWithPaidAI, refineVocalScriptWithPaidAI } from "./geminiService";
 import { notifyReporter, awardPointsToReporter, getAssignedReporter } from "./reporter_handler";
 import { areMandalsMatching } from "./location_data";
 
@@ -469,6 +470,17 @@ function normalizeSingleStory(aiRes: any, actualPostData: any): any {
 
     const isPersonalPraise = aiRes.qualitySignals?.isPersonalPraise === true;
 
+    // 🏛️ MANDATORY BREAKING NEWS: Top Telugu State Leaders (AP & TS CMs and Opposition Leaders)
+    // Direct statements or quotes from: Chandrababu Naidu, Revanth Reddy, YS Jagan Mohan Reddy, KCR, Pawan Kalyan, Nara Lokesh, KTR
+    const leaderCheckText = `${finalHeadline} ${finalContent} ${finalFullStoryTe}`;
+    const authorName = actualPostData?.socialAuthorName || actualPostData?.reporter?.name || actualPostData?.sourceName || "";
+    const leaderMatch = detectTopTeluguLeader(finalHeadline, leaderCheckText, authorName);
+    const isTopLeaderNews = leaderMatch.isTopLeaderNews;
+
+    if (isTopLeaderNews) {
+        console.log(`[TOP_LEADER_BREAKING] Detected statement/quote for ${leaderMatch.leaderName} in "${finalHeadline}". Elevating to BREAKING!`);
+    }
+
     let qualityScore = 5.0;
     if (typeof aiRes.qualityScore === "number" && !isNaN(aiRes.qualityScore)) {
         qualityScore = Math.max(0, Math.min(10, Math.round(aiRes.qualityScore * 10) / 10));
@@ -477,12 +489,20 @@ function normalizeSingleStory(aiRes: any, actualPostData: any): any {
         const inv = Number(aiRes.qualitySignals.investigativeScore) || 0.0;
         qualityScore = Math.max(0, Math.min(10, Math.round((pub * 6 + inv * 2 + 2) * 10) / 10));
     }
+    if (isTopLeaderNews) {
+        qualityScore = Math.max(qualityScore, 9.0);
+    }
+
+    const finalTone = isTopLeaderNews ? "BREAKING" : (isPersonalPraise ? "SOFT" : (aiRes.tone || "NORMAL"));
+    const finalIsBreaking = isTopLeaderNews || (!isPersonalPraise && aiRes.isBreaking === true);
+    const finalNotificationWorthy = isTopLeaderNews || (!isPersonalPraise && aiRes.notificationWorthy === true);
+    const finalNotificationTitleValue = finalNotificationTitle || (isTopLeaderNews ? finalHeadline : "");
 
     return {
         headline: { telugu: finalHeadline || "", english: finalHeadlineEn || "" },
         content: { telugu: finalContent || "", english: finalContentEn || "" },
         fullStory: { telugu: finalFullStoryTe || "", english: finalFullStoryEn || "" },
-        notificationTitle: finalNotificationTitle,
+        notificationTitle: finalNotificationTitleValue,
         location: aiRes.location || actualPostData?.location || "",
         category: primaryCategory,
         categories: finalCategories,
@@ -493,13 +513,14 @@ function normalizeSingleStory(aiRes: any, actualPostData: any): any {
         rejectionReason: rejectionReason,
         isDuplicate: isDuplicate,
         duplicateOfPostId: aiRes.duplicateOfPostId || null,
-        tone: isPersonalPraise ? "SOFT" : (aiRes.tone || "NORMAL"),
+        tone: finalTone,
         vocalContent: aiRes.vocalContent || finalContent || "",
         qualitySignals: aiRes.qualitySignals || { biasScore: 0.5, publicInterestScore: 0.5, investigativeScore: 0, isPersonalPraise: false },
         qualityScore: qualityScore,
         storyFingerprint: aiRes.storyFingerprint || `gen_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        isBreaking: !isPersonalPraise && aiRes.isBreaking === true,
-        notificationWorthy: !isPersonalPraise && aiRes.notificationWorthy === true,
+        isBreaking: finalIsBreaking,
+        notificationWorthy: finalNotificationWorthy,
+        isGlobal: isTopLeaderNews || isGlobal,
         isGraphicOrBloody: aiRes.isGraphicOrBloody === true,
         isSensitiveVictimOrMinor: aiRes.isSensitiveVictimOrMinor === true,
         aiProcessed: true,
@@ -871,32 +892,48 @@ PROACTIVE MULTI-STORY BUNDLE DETECTION (CRITICAL):
 - Assign 'matchedImageIndex' (0, 1, 2) matching which attached photo corresponds to each story.
 
 NOTIFICATION INSTRUCTIONS (CRITICAL - STRICT RELEVANCE & URGENCY):
-- isBreaking: MUST be true ONLY for genuine high-magnitude, urgent, time-sensitive emergencies of broad regional/state/national impact:
+- isBreaking: MUST be true for:
+  * 🏛️ TOP LEADER STATEMENTS & ANNOUNCEMENTS (MANDATORY BREAKING): Any statement, press meet, speech, tweet, reaction, allegation, or decision made DIRECTLY by or QUOTING the Chief Ministers and key opposition leaders of Andhra Pradesh & Telangana:
+    1. Chandrababu Naidu (చంద్రబాబు నాయుడు / CBN)
+    2. Revanth Reddy (రేవంత్ రెడ్డి / అనుముల రేవంత్ రెడ్డి)
+    3. Y.S. Jagan Mohan Reddy (వైఎస్ జగన్ మోహన్ రెడ్డి / జగన్)
+    4. KCR / K. Chandrashekar Rao (కేసీఆర్ / చంద్రశేఖర్ రావు)
+    5. Pawan Kalyan (పవన్ కళ్యాణ్ / పవన్)
+    6. Nara Lokesh (నారా లోకేష్ / లోకేష్)
+    7. KTR / K.T. Rama Rao (కేటీఆర్ / తారక రామారావు)
+    Whenever any of these 7 leaders make a direct statement or are quoted in the news, isBreaking MUST BE TRUE, tone MUST BE "BREAKING", and notificationWorthy MUST BE TRUE!
   * Major disasters or fatal accidents with multiple casualties (బస్సు/రైలు ప్రమాదాలు, 2+ మరణాలు లేదా తీవ్ర విషాదాలు).
   * Extreme weather / disaster red alerts (తీవ్ర తుఫాను, ఆకస్మిక వరదలు, పిడుగుపాటు హెచ్చరికలు, భారీ అగ్నిప్రమాదాలు, గ్యాస్ లీక్).
   * Major government/state policy shifts or emergency announcements (ముఖ్యమంత్రి/ప్రభుత్వ కీలక నిర్ణయాలు, ఎన్నికల ఫలితాలు, బడ్జెట్, అత్యవసర సెలవులు).
   * High-profile crimes/manhunts affecting general public safety.
   * STRICTLY FALSE for: Single minor vehicle skids/minor injuries (ఒకరిద్దరికి స్వల్ప గాయాలు), petty local thefts, routine ward disputes, local party fights, ordinary local meetings.
-- notificationWorthy: Set true ONLY for stories with genuine broad public relevance and high public interest:
+- notificationWorthy: Set true for:
+  * Statements by or quoting the 7 top state leaders (Chandrababu, Revanth, Jagan, KCR, Pawan, Lokesh, KTR).
   * Major welfare schemes / financial benefits impacting many citizens (రైతు భరోసా, పింఛన్లు, ఫీజు రీయింబర్స్‌మెంట్, కొత్త పథకాలు).
   * Important public utility/safety alerts (విద్యుత్/నీటి సరఫరా నిలిపివేత, ప్రధాన రహదారుల మూసివేత, పరీక్షల షెడ్యూల్, ఉద్యోగ నోటిఫికేషన్లు).
   * Inspiring human achievements, significant regional or state developments.
-  * STRICTLY FALSE for: Routine political statement battles ("నాయకుడి విమర్శలు-ప్రతివిమర్శలు"), routine photo-ops, birthday celebrations, shawl felicitations, personal praise/flattery (భజన వార్తలు), small ward drainage/street light complaints.
+  * STRICTLY FALSE ONLY for: Routine low-level ward/mandal level party cadre fights, routine photo-ops, birthday celebrations, shawl felicitations, personal praise/flattery (భజన వార్తలు), small ward drainage/street light complaints. (Top 7 state leaders are EXEMPT from this restriction and MUST always be breaking/worthy).
 - notificationTitle:
   * If isBreaking is true: Generate a crisp, urgent, 100% FACTUAL Telugu title stating WHAT happened and WHERE (strictly 6-9 words as ONE continuous flowing sentence without colons or double dots). NEVER use clickbait questions or mystery teasers for tragic/breaking news!
   * If notificationWorthy is true (and NOT breaking): Generate an engaging, intriguing Telugu curiosity hook title (strictly 6-9 words as ONE continuous flowing sentence without colons or double dots).
   * If neither, leave as empty string "".
 - qualityScore: Assign a strict journalistic quality score between 0.0 and 10.0:
-  * 9.0 - 10.0: Major public impact, key policy/budget decision, major emergency/disaster, exclusive investigative report.
+  * 9.0 - 10.0: Top 7 leader statements/quotes, major public impact, key policy/budget decision, major emergency/disaster, exclusive investigative report.
   * 6.0 - 8.0: Standard civic/regional updates, administrative works, legitimate local community matters.
   * 1.0 - 4.0: Routine photo-ops, personal flattery/praise, low-substance filler, minor trivial disputes.
 - tone options: BREAKING | URGENT | IMPORTANT | NORMAL | SOFT
-  * BREAKING: Only for genuine high-magnitude breaking news matching isBreaking above.
+  * BREAKING: For top 7 leader statements/quotes, and genuine high-magnitude breaking news matching isBreaking above.
   * URGENT: Only for time-sensitive public alerts (e.g. disaster warning, exam deadline).
   * IMPORTANT: For significant district/state developments without immediate emergency.
   * NORMAL: For standard everyday news stories.
   * SOFT: For human interest, lifestyle, devotional, or minor routine events.
 `;
+
+    // 🆓 Metadata, categorization, safety scan & full news story (YouTube description): FREE TIER KEYS (gemini-3.5-flash-lite)
+    const metadataModels = [
+        "gemini-3.5-flash-lite",   // Primary Free Tier (1,500 RPD, 30 RPM)
+        "gemini-3.1-flash-lite"
+    ];
 
     return await runWithAIFallback(async (ai, modelName) => {
         const result = await ai.models.generateContent({
@@ -943,14 +980,15 @@ NOTIFICATION INSTRUCTIONS (CRITICAL - STRICT RELEVANCE & URGENCY):
             return normalized;
         });
 
-        // 🌟 Paid AI Headline Enhancement (Gemini 3.7 Flash):
-        // Refine headline using PAID_GEMINI_API_KEY if available and story is approved/valid
+        // 🌟 Strict Token Optimization: Use PAID KEY (Gemini 3.8 Flash) ONLY for Heading & Voiceover Script
         for (const story of normalizedStories) {
             const isRejected = (story.rejectionReason && story.rejectionReason.length > 0) || story.isDuplicate;
             if (!isRejected && story.content?.telugu && story.headline?.telugu) {
+                const authorName = story.reporter?.name || actualPostData?.socialAuthorName || actualPostData?.reporter?.name;
+                const richContext = story.fullStory?.telugu || actualPostData?.content?.telugu || actualPostData?.content || content || "";
+
+                // 1. Heading Refinement: Uses PAID_GEMINI_API_KEY with Gemini 3.8 Flash (6-9 words power punch headline)
                 try {
-                    const authorName = story.reporter?.name || actualPostData?.socialAuthorName || actualPostData?.reporter?.name;
-                    const richContext = story.fullStory?.telugu || actualPostData?.content?.telugu || actualPostData?.content || content || "";
                     const refined = await refineHeadlineWithPaidAI(
                         story.content.telugu,
                         story.headline.telugu,
@@ -967,11 +1005,25 @@ NOTIFICATION INSTRUCTIONS (CRITICAL - STRICT RELEVANCE & URGENCY):
                 } catch (e: any) {
                     console.warn(`[PAID_HEADLINE_WARN] Failed to refine headline for story: ${e?.message || e}`);
                 }
+
+                // 2. Voiceover Script Refinement: Uses PAID_GEMINI_API_KEY with Gemini 3.8 Flash (ONLY the 60-90 words spoken anchor text)
+                try {
+                    const paidVocal = await refineVocalScriptWithPaidAI(
+                        story.headline.telugu,
+                        story.content.telugu,
+                        story.vocalContent
+                    );
+                    if (paidVocal) {
+                        story.vocalContent = paidVocal;
+                    }
+                } catch (e: any) {
+                    console.warn(`[PAID_VOCAL_WARN] Failed to refine vocal script: ${e?.message || e}`);
+                }
             }
         }
 
         return normalizedStories;
-    });
+    }, metadataModels, false); // preferPaidKey: false (Strictly FREE keys for ~250-word description/article)
 }
 
 /**
@@ -1167,15 +1219,15 @@ export const onNewsPostCreated = onDocumentWritten({
         passiveFields.includes(key) || JSON.stringify(data[key]) === JSON.stringify(beforeData[key])
     );
 
-    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "PROCESSING_VIDEO_START", "FAILED", "REJECTED", "PUBLISHED", "ARCHIVED", "FAILED_YOUTUBE_UPLOAD", "PENDING_YOUTUBE_RETRY"];
+    const LOCKED_STATUSES = ["REVIEWING_CONTENT", "FAILED", "REJECTED", "PUBLISHED", "ARCHIVED", "FAILED_YOUTUBE_UPLOAD", "PENDING_YOUTUBE_RETRY"];
 
     if (LOCKED_STATUSES.includes(status) && !data.forceReprocess) {
         // If it's already locked and not a forced reprocess, skip immediately without reading DB again
         return;
     }
 
-    if (isPassiveUpdate && status !== "PENDING" && !data.forceReprocess) {
-        // console.log(`[TRIGGER_SKIPPED] Passive update for ${postId}`);
+    if (isPassiveUpdate && !data.forceReprocess) {
+        // Skip re-processing for passive field updates (views, comments, editorialStatus changes)
         return;
     }
     // 2. FETCH LATEST: Only now we fetch to handle race conditions for actual content changes
@@ -1281,9 +1333,6 @@ export const onNewsPostCreated = onDocumentWritten({
             const recentMandalNews = await fetchRecentMandalNews(latestData, postId);
             const processedStories = await performAIProcessing(headline, content, latestData, recentMandalNews);
             console.log(`[AI_SPLIT] Post ${postId} processed into ${processedStories.length} distinct stories.`);
-            await db.collection('news').doc(postId).update({
-                editorialStatus: "ఎడిటింగ్ జరుగుతుంది..."
-            }).catch(() => {});
 
             const availableMediaUrls: string[] = latestData.mediaUrls && latestData.mediaUrls.length > 0
                 ? latestData.mediaUrls
@@ -1433,9 +1482,6 @@ export const onNewsPostCreated = onDocumentWritten({
                 let isPostRejected = isRejected;
 
                 if (storyMediaUrl && !hasVideo) {
-                    await db.collection('news').doc(postId).update({
-                        editorialStatus: "ఫోటో పరిశీలన మరియు ఎడిటింగ్ జరుగుతోంది..."
-                    }).catch(() => {});
                     try {
                         const optResult = await processAndOptimizeNewsImage(
                             storyMediaUrl,
@@ -1474,11 +1520,6 @@ export const onNewsPostCreated = onDocumentWritten({
                 if (isPostRejected) console.log(`[AI_REJECTED] ${targetPostId} Reason: ${updatePayload.rejectionReason || aiProcessedData.rejectionReason}`);
 
                 if (i === 0) {
-                    if (!isPostRejected) {
-                        await db.collection('news').doc(postId).update({
-                            editorialStatus: "పబ్లిష్ అవుతుంది..."
-                        }).catch(() => {});
-                    }
                     await db.collection('news').doc(postId).update(updatePayload);
                 } else {
                     const splitDocData = {
@@ -1509,7 +1550,8 @@ export const onNewsPostCreated = onDocumentWritten({
                 }
 
                 if ((updatePayload.status || "").toLowerCase() === "published" && !isPostRejected && originalReporterId) {
-                    if (finalIsReporter) {
+                    if (finalIsReporter && !latestData.pointsAwarded && !updatePayload.pointsAwarded) {
+                        updatePayload.pointsAwarded = true;
                         const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
                         await awardPointsToReporter(originalReporterId, points);
                         await db.collection('users').doc(originalReporterId).set({
@@ -1518,6 +1560,7 @@ export const onNewsPostCreated = onDocumentWritten({
                             inProbation: false,
                             lastWarningDate: admin.firestore.FieldValue.delete()
                         }, { merge: true }).catch(() => null);
+                        await db.collection('news').doc(targetPostId).update({ pointsAwarded: true }).catch(() => {});
                     }
                     await notifyReporter(
                         originalReporterId,
@@ -1612,7 +1655,10 @@ export const onNewsPostCreated = onDocumentWritten({
         if (!latestData) return;
 
         const latestStatus = (latestData.status || "").toUpperCase();
-        if ((latestStatus === "PROCESSING_VIDEO_START" && !data.forceReprocess) || latestData.videoProcessed || latestStatus === "FAILED") {
+        const lastUpdatedMs = latestData.lastUpdated?.toMillis ? latestData.lastUpdated.toMillis() : (latestData.createdAt?.toMillis ? latestData.createdAt.toMillis() : Date.now());
+        const isStuckProcessing = latestStatus === "PROCESSING_VIDEO_START" && (Date.now() - lastUpdatedMs > 4 * 60 * 1000);
+
+        if ((latestStatus === "PROCESSING_VIDEO_START" && !data.forceReprocess && !isStuckProcessing) || latestData.videoProcessed || latestStatus === "FAILED") {
             console.log(`[VIDEO_SKIPPED] ${postId} already processing, done, or failed.`);
             return;
         }
@@ -1690,7 +1736,7 @@ export const onNewsPostCreated = onDocumentWritten({
 
             const tempDir = os.tmpdir();
             videoPath = path.join(tempDir, `input_${postId}.mp4`);
-            audioPath = path.join(tempDir, `audio_${postId}.mp3`);
+            audioPath = path.join(tempDir, `audio_${postId}.wav`);
             outputPath = path.join(tempDir, `output_${postId}.mp4`);
 
             // STREAMING DOWNLOAD to save memory and handle large files (reuse local file if already downloaded)
@@ -1801,76 +1847,277 @@ export const onNewsPostCreated = onDocumentWritten({
             let audioBuffer: Buffer | null = null;
             const sarvamApiKey = process.env.SARVAM_API_KEY;
 
-            // --- PRIMARY TTS: Sarvam AI (Simran, Telugu, 1.25x speed, 0.85 temperature, 44.1kHz High Quality Stereo) ---
-            if (sarvamApiKey) {
-                try {
-                    console.log(`[SARVAM_TTS_REQUEST] postId: ${postId}, speaker: simran, pace: 1.25, temp: 0.85, length: ${plainVocalText.length}`);
-                    const sarvamRes = await fetch('https://api.sarvam.ai/text-to-speech', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'api-subscription-key': sarvamApiKey
-                        },
-                        body: JSON.stringify({
-                            inputs: [plainVocalText],
-                            target_language_code: 'te-IN',
-                            speaker: 'simran',
-                            pace: 1.25,
-                            temperature: 0.85,
-                            model: 'bulbul:v3',
-                            speech_sample_rate: 44100
-                        }),
-                        signal: AbortSignal.timeout(25000)
-                    });
+            // --- 🎙️ STATE-OF-THE-ART TTS ENGINE (Gemini 3.8 Flash TTS & Sarvam Bulbul V4) ---
+            // 1. Primary: Gemini 3.8 Flash TTS ('Kore' / authoritative Telugu news broadcast anchor)
+            // 2. Secondary: Sarvam AI Bulbul V4 Flash ('pooja_te_conversation' / 'kavitha_te_narration')
+            // 3. Emergency: Google Cloud Chirp 3 HD ('te-IN-Chirp3-HD-Kore')
 
-                    if (sarvamRes.ok) {
-                        const sarvamData: any = await sarvamRes.json();
-                        if (sarvamData.audios && Array.isArray(sarvamData.audios) && sarvamData.audios.length > 0 && sarvamData.audios[0]) {
-                            audioBuffer = Buffer.from(sarvamData.audios[0], 'base64');
-                            console.log(`[SARVAM_TTS_SUCCESS] Generated voiceover using Sarvam AI for post ${postId} (Bytes: ${audioBuffer.length})`);
-                        } else {
-                            console.warn(`[SARVAM_TTS_WARNING] Sarvam AI returned OK but no audio content:`, JSON.stringify(sarvamData));
-                        }
+            const primaryProvider = (process.env.PRIMARY_TTS_PROVIDER || "gemini").toLowerCase();
+
+            // 🇮🇳 2. Sarvam AI Bulbul V4 Flash (Indic-first Native Telugu Narration Engine - Secondary Fallback)
+            // Sarvam AI strictly enforces a max character length of 500 characters per string in `inputs`.
+            // Split long vocal scripts into sentence-bounded chunks of <= 450 characters.
+            const splitTextForSarvam = (text: string, maxLen = 450): string[] => {
+                const trimmed = text.trim();
+                if (trimmed.length <= maxLen) return [trimmed];
+
+                const sentences = trimmed.match(/[^.!?\n]+[.!?\n]+/g) || [trimmed];
+                const chunks: string[] = [];
+                let currentChunk = "";
+
+                for (const sentence of sentences) {
+                    if ((currentChunk + " " + sentence).trim().length <= maxLen) {
+                        currentChunk = (currentChunk + " " + sentence).trim();
                     } else {
-                        const errText = await sarvamRes.text().catch(() => '');
-                        console.warn(`[SARVAM_TTS_WARNING] Sarvam AI HTTP error ${sarvamRes.status}: ${errText}`);
+                        if (currentChunk.trim().length > 0) {
+                            chunks.push(currentChunk.trim());
+                        }
+                        if (sentence.trim().length <= maxLen) {
+                            currentChunk = sentence.trim();
+                        } else {
+                            const words = sentence.split(/\s+/);
+                            currentChunk = "";
+                            for (const word of words) {
+                                if ((currentChunk + " " + word).trim().length <= maxLen) {
+                                    currentChunk = (currentChunk + " " + word).trim();
+                                } else {
+                                    if (currentChunk.length > 0) chunks.push(currentChunk);
+                                    currentChunk = word;
+                                }
+                            }
+                        }
                     }
-                } catch (sarvamErr: any) {
-                    console.warn(`[SARVAM_TTS_ERROR] Sarvam AI request failed: ${sarvamErr.message}`);
                 }
-            } else {
-                console.log(`[SARVAM_TTS_INFO] SARVAM_API_KEY not configured in environment. Routing directly to Chirp 3 HD.`);
-            }
+                if (currentChunk.trim().length > 0) {
+                    chunks.push(currentChunk.trim());
+                }
+                return chunks.length > 0 ? chunks : [trimmed.substring(0, maxLen)];
+            };
 
-            // --- FALLBACK TTS: Google Cloud Text-to-Speech (Chirp 3 HD -> Neural2 -> Standard) ---
-            if (!audioBuffer) {
-                console.log(`[TTS_FALLBACK] Falling back to Google Cloud Chirp 3 HD for post ${postId}...`);
+            const synthesizeWithSarvam = async (): Promise<Buffer | null> => {
+                if (!sarvamApiKey) {
+                    console.log(`[SARVAM_TTS_INFO] SARVAM_API_KEY not configured in environment.`);
+                    return null;
+                }
 
+                const sarvamInputs = splitTextForSarvam(plainVocalText, 450);
+                console.log(`[SARVAM_TTS_CHUNKS] postId: ${postId}, totalLength: ${plainVocalText.length}, chunksCount: ${sarvamInputs.length}`);
+
+                // In bulbul:v4-flash: enhanced speed (1.25 pace) & expressive Telugu personas ('pooja_te_conversation' / 'kavitha_te_narration')
+                const sarvamPace = Number(process.env.SARVAM_PACE) || 1.25;
+                const defaultSarvamSpeaker = process.env.SARVAM_V4_SPEAKER || 'pooja_te_conversation';
+
+                const configurations = [
+                    { model: 'bulbul:v4-flash', speaker: defaultSarvamSpeaker, pace: sarvamPace, temp: 0.6, rate: 24000 },
+                    { model: 'bulbul:v4-flash', speaker: 'kavitha_te_narration', pace: sarvamPace, temp: 0.6, rate: 24000 },
+                    { model: 'bulbul:v4-flash', speaker: 'kavitha_te_conversation', pace: sarvamPace, temp: 0.6, rate: 24000 },
+                    { model: 'bulbul:v4-flash', speaker: 'tarun_te_narration', pace: sarvamPace, temp: 0.6, rate: 24000 },
+                    { model: 'bulbul:v3', speaker: process.env.SARVAM_V3_SPEAKER || 'priya', pace: sarvamPace, temp: 0.6, rate: 24000 }
+                ];
+                
+                for (const cfg of configurations) {
+                    try {
+                        console.log(`[SARVAM_TTS_REQUEST] postId: ${postId}, model: ${cfg.model}, speaker: ${cfg.speaker}, pace: ${cfg.pace}, temp: ${cfg.temp}, rate: ${cfg.rate}`);
+                        const sarvamRes = await fetch('https://api.sarvam.ai/text-to-speech', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'api-subscription-key': sarvamApiKey
+                            },
+                            body: JSON.stringify({
+                                inputs: sarvamInputs,
+                                target_language_code: 'te-IN',
+                                speaker: cfg.speaker,
+                                pace: cfg.pace,
+                                temperature: cfg.temp,
+                                model: cfg.model,
+                                speech_sample_rate: cfg.rate
+                            }),
+                            signal: AbortSignal.timeout(25000)
+                        });
+
+                        if (sarvamRes.ok) {
+                            const sarvamData: any = await sarvamRes.json();
+                            if (sarvamData.audios && Array.isArray(sarvamData.audios) && sarvamData.audios.length > 0) {
+                                let buf: Buffer;
+                                if (sarvamData.audios.length === 1) {
+                                    buf = Buffer.from(sarvamData.audios[0], 'base64');
+                                } else {
+                                    const buffers: Buffer[] = sarvamData.audios.map((a: string) => Buffer.from(a, 'base64'));
+                                    if (buffers.every((b: Buffer) => b.length > 44 && b.subarray(0, 4).toString() === 'RIFF')) {
+                                        const header = Buffer.from(buffers[0].subarray(0, 44));
+                                        const dataChunks = buffers.map((b: Buffer) => b.subarray(44));
+                                        const totalDataLen = dataChunks.reduce((acc: number, c: Buffer) => acc + c.length, 0);
+                                        header.writeUInt32LE(totalDataLen + 36, 4);
+                                        header.writeUInt32LE(totalDataLen, 40);
+                                        buf = Buffer.concat([header, ...dataChunks]);
+                                    } else {
+                                        buf = Buffer.concat(buffers);
+                                    }
+                                }
+                                console.log(`[SARVAM_TTS_SUCCESS] Generated voiceover using Sarvam AI (${cfg.model}, speaker: ${cfg.speaker}) for post ${postId} (Bytes: ${buf.length})`);
+                                return buf;
+                            } else {
+                                console.warn(`[SARVAM_TTS_WARNING] Sarvam AI (${cfg.model}) returned OK but no audio content:`, JSON.stringify(sarvamData));
+                            }
+                        } else {
+                            const errText = await sarvamRes.text().catch(() => '');
+                            console.warn(`[SARVAM_TTS_WARNING] Sarvam AI (${cfg.model}) HTTP error ${sarvamRes.status}: ${errText}`);
+                        }
+                    } catch (sarvamErr: any) {
+                        console.warn(`[SARVAM_TTS_ERROR] Sarvam AI (${cfg.model}) request failed: ${sarvamErr.message}`);
+                    }
+                }
+                return null;
+            };
+
+            // 🌟 1. Native Gemini 3.8 Flash TTS (Primary Studio Audio Generation)
+            const synthesizeWithGemini38TTS = async (): Promise<Buffer | null> => {
+                console.log(`[TTS_GEMINI_38] Synthesizing studio voiceover with Gemini 3.8 Flash TTS for post ${postId}...`);
+                const ttsModels = ["gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"];
+                const voice = process.env.GEMINI_TTS_VOICE || "Kore"; // "Kore" = Authoritative news anchor, "Aoede" = Deep clear natural tone
+                const geminiSpeed = Number(process.env.GEMINI_TTS_SPEED) || 1.15; // 15% speed boost for brisk news presenter pace
+                const geminiVolume = Number(process.env.GEMINI_TTS_VOLUME) || 1.35; // 35% volume boost for clear commanding projection
+
+                const speedUpAndBoostAudio = (inputBuf: Buffer): Buffer => {
+                    try {
+                        const tempRaw = path.join(os.tmpdir(), `gemini_raw_${postId}_${Date.now()}.wav`);
+                        const tempOut = path.join(os.tmpdir(), `gemini_opt_${postId}_${Date.now()}.wav`);
+                        fs.writeFileSync(tempRaw, inputBuf);
+                        const { execSync } = require('child_process');
+                        execSync(`"${ffmpegPath}" -y -i "${tempRaw}" -filter:a "atempo=${geminiSpeed},volume=${geminiVolume}" "${tempOut}"`, { stdio: 'pipe' });
+                        if (fs.existsSync(tempOut) && fs.statSync(tempOut).size > 1000) {
+                            const optBuf = fs.readFileSync(tempOut);
+                            try { fs.unlinkSync(tempRaw); } catch (e) {}
+                            try { fs.unlinkSync(tempOut); } catch (e) {}
+                            return optBuf;
+                        }
+                        try { fs.unlinkSync(tempRaw); } catch (e) {}
+                    } catch (optErr: any) {
+                        console.warn(`[TTS_GEMINI_POST_WARN] Post-processing tempo/volume failed, using raw buffer: ${optErr.message}`);
+                    }
+                    return inputBuf;
+                };
+
+                const callGeminiTTS = async (textChunk: string): Promise<Buffer> => {
+                    return await runWithAIFallback(async (ai, modelName) => {
+                        const response = await ai.models.generateContent({
+                            model: modelName,
+                            contents: [
+                                {
+                                    role: "user",
+                                    parts: [
+                                        {
+                                            text: textChunk,
+                                            speechMetadata: {
+                                                style: "authoritative, professional Telugu news anchor, high emotional depth, serious and engaging broadcast journalism tone, brisk and fast-paced delivery, clear and loud projected voice"
+                                            }
+                                        }
+                                    ]
+                                }
+                            ],
+                            config: {
+                                responseModalities: ["AUDIO"],
+                                speechConfig: {
+                                    languageCode: "te-IN",
+                                    voiceConfig: {
+                                        prebuiltVoiceConfig: {
+                                            voiceName: voice
+                                        }
+                                    }
+                                }
+                            }
+                        });
+
+                        // Check output_audio helper
+                        if ((response as any).output_audio?.data) {
+                            return Buffer.from((response as any).output_audio.data, 'base64');
+                        }
+
+                        // Check candidate parts inlineData
+                        const candidate = response.candidates?.[0];
+                        if (candidate?.content?.parts) {
+                            for (const part of candidate.content.parts) {
+                                if (part.inlineData?.data) {
+                                    return Buffer.from(part.inlineData.data, 'base64');
+                                }
+                            }
+                        }
+
+                        throw new Error(`Model ${modelName} returned no audio data`);
+                    }, ttsModels, true); // preferPaidKey: true for maximum audio generation fidelity
+                };
+
+                try {
+                    // For typical news stories (<= 1500 chars), synthesize directly in one call for seamless intonation
+                    if (plainVocalText.length <= 1500) {
+                        const audioBufferResult = await callGeminiTTS(plainVocalText);
+                        if (audioBufferResult && audioBufferResult.length > 1000) {
+                            const optimizedBuffer = speedUpAndBoostAudio(audioBufferResult);
+                            console.log(`[TTS_GEMINI_38_SUCCESS] Generated voiceover using Gemini 3.8 Flash TTS (${voice}, speed: ${geminiSpeed}x, vol: ${geminiVolume}x) for post ${postId} (Bytes: ${optimizedBuffer.length})`);
+                            return optimizedBuffer;
+                        }
+                    }
+
+                    // For long scripts (> 1500 chars), split into sentence chunks and stitch WAV buffers
+                    const chunks = splitTextForSarvam(plainVocalText, 1000);
+                    console.log(`[TTS_GEMINI_38_CHUNKS] postId: ${postId}, totalLength: ${plainVocalText.length}, chunksCount: ${chunks.length}`);
+                    const chunkBuffers: Buffer[] = [];
+                    for (const chunk of chunks) {
+                        const cBuf = await callGeminiTTS(chunk);
+                        if (!cBuf || cBuf.length < 100) throw new Error("Chunk audio generation returned empty buffer");
+                        chunkBuffers.push(cBuf);
+                    }
+
+                    let finalBuffer: Buffer;
+                    if (chunkBuffers.length === 1) {
+                        finalBuffer = chunkBuffers[0];
+                    } else if (chunkBuffers.every((b: Buffer) => b.length > 44 && b.subarray(0, 4).toString() === 'RIFF')) {
+                        const header = Buffer.from(chunkBuffers[0].subarray(0, 44));
+                        const dataChunks = chunkBuffers.map((b: Buffer) => b.subarray(44));
+                        const totalDataLen = dataChunks.reduce((acc: number, c: Buffer) => acc + c.length, 0);
+                        header.writeUInt32LE(totalDataLen + 36, 4);
+                        header.writeUInt32LE(totalDataLen, 40);
+                        finalBuffer = Buffer.concat([header, ...dataChunks]);
+                    } else {
+                        finalBuffer = Buffer.concat(chunkBuffers);
+                    }
+
+                    const optimizedBuffer = speedUpAndBoostAudio(finalBuffer);
+                    console.log(`[TTS_GEMINI_38_SUCCESS] Generated stitched voiceover using Gemini 3.8 Flash TTS (${voice}, speed: ${geminiSpeed}x, vol: ${geminiVolume}x) for post ${postId} (Bytes: ${optimizedBuffer.length})`);
+                    return optimizedBuffer;
+                } catch (geminiErr: any) {
+                    console.warn(`[TTS_GEMINI_38_WARNING] Gemini 3.8 Flash TTS failed: ${geminiErr.message}`);
+                }
+                return null;
+            };
+
+            // 🛡️ 3. Google Cloud Text-to-Speech (Chirp 3 HD Studio Safety Net)
+            const synthesizeWithGoogleCloudTTS = async (): Promise<Buffer | null> => {
+                console.log(`[TTS_CHIRP3] Synthesizing safety fallback with Google Cloud Chirp 3 HD for post ${postId}...`);
                 const { GoogleAuth } = require('google-auth-library');
                 const ttsAuth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
                 const authClient = await ttsAuth.getClient();
                 const accessToken = (await authClient.getAccessToken()).token;
 
-                // 3. SANITIZE: Escape XML special characters properly
+                // Sanitize XML characters
                 let xmlText = baseText.replace(/&/g, '&amp;')
                                       .replace(/</g, '&lt;')
                                       .replace(/>/g, '&gt;')
                                       .replace(/"/g, '&quot;')
                                       .replace(/'/g, '&apos;');
 
-                // 4. INJECT SSML: Clean markup for Studio (Chirp) voices
-                let processedText = xmlText;
-                processedText = processedText.replace(/,\s*,+/g, ',');
-                processedText = processedText.replace(/,\s*\./g, '.');
-                processedText = processedText.replace(/,\s*/g, ', ');
-                processedText = processedText.replace(/\.\s*/g, '. ');
-                processedText = processedText.replace(/\[\[STRESS\]\](.*?)\[\[\/STRESS\]\]/g, '$1');
+                let processedText = xmlText.replace(/,\s*,+/g, ',')
+                                           .replace(/,\s*\./g, '.')
+                                           .replace(/,\s*/g, ', ')
+                                           .replace(/\.\s*/g, '. ')
+                                           .replace(/\[\[STRESS\]\](.*?)\[\[\/STRESS\]\]/g, '$1');
 
-                // Pitch shift (-1.8st) gives a deep, serious, authoritative news-anchor tone (గంభీరత్వం)
+                // Pitch shift (-1.8st), rate 1.30, volume +6dB for authoritative news tone
                 let selectedVoice = data.voiceModel || 'te-IN-Chirp3-HD-Kore';
                 const ssml = `<speak><prosody rate="1.30" pitch="-1.8st" volume="+6dB">${processedText}</prosody></speak>`;
 
-                console.log(`[TTS_REQUEST] postId: ${postId}, voice: ${selectedVoice}, ssml: ${ssml.substring(0, 500)}`);
+                console.log(`[TTS_CHIRP_REQUEST] postId: ${postId}, voice: ${selectedVoice}`);
 
                 let ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
                     method: 'POST',
@@ -1884,10 +2131,10 @@ export const onNewsPostCreated = onDocumentWritten({
 
                 let ttsData: any = await ttsRes.json();
 
-                // FALLBACK LOGIC: Try Neural2-B (Deep Male Voice) or Wavenet-B / Standard-A if primary fails
+                // Fallback to Neural2 Female (te-IN-Neural2-A)
                 if (!ttsData.audioContent) {
-                    console.warn(`[TTS_WARNING] Primary voice ${selectedVoice} failed. Trying Neural2 Male fallback.`);
-                    selectedVoice = 'te-IN-Neural2-B';
+                    console.warn(`[TTS_WARNING] Voice ${selectedVoice} failed. Trying Neural2 Female (te-IN-Neural2-A)...`);
+                    selectedVoice = 'te-IN-Neural2-A';
                     ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
@@ -1901,8 +2148,8 @@ export const onNewsPostCreated = onDocumentWritten({
                 }
 
                 if (!ttsData.audioContent) {
-                    console.warn(`[TTS_WARNING] Neural2-B failed. Falling back to Standard-B.`);
-                    selectedVoice = 'te-IN-Standard-B';
+                    console.warn(`[TTS_WARNING] Neural2-A failed. Trying Standard Female (te-IN-Standard-A)...`);
+                    selectedVoice = 'te-IN-Standard-A';
                     ttsRes = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` },
@@ -1915,18 +2162,71 @@ export const onNewsPostCreated = onDocumentWritten({
                     ttsData = await ttsRes.json();
                 }
 
-                if (!ttsData.audioContent) throw new Error(`TTS failed even after fallback: ${ttsData.error?.message || 'No audio'}`);
+                if (ttsData.audioContent) {
+                    console.log(`[TTS_CHIRP_SUCCESS] Generated voiceover using Google Chirp/Neural2 (${selectedVoice}) for post ${postId}`);
+                    return Buffer.from(ttsData.audioContent, 'base64');
+                }
+                return null;
+            };
 
-                audioBuffer = Buffer.from(ttsData.audioContent, 'base64');
+            // Order of Execution:
+            if (primaryProvider === "sarvam") {
+                audioBuffer = await synthesizeWithSarvam();
+                if (!audioBuffer) {
+                    console.log(`[TTS_CASCADE] Sarvam AI failed. Cascading to Gemini 3.8 Flash TTS...`);
+                    audioBuffer = await synthesizeWithGemini38TTS();
+                }
+                if (!audioBuffer) {
+                    console.log(`[TTS_CASCADE] Gemini 3.8 Flash TTS failed. Cascading to Google Cloud Chirp 3 HD...`);
+                    audioBuffer = await synthesizeWithGoogleCloudTTS();
+                }
+            } else {
+                // Default: Gemini 3.8 Flash TTS as Primary
+                audioBuffer = await synthesizeWithGemini38TTS();
+                if (!audioBuffer) {
+                    console.log(`[TTS_CASCADE] Gemini 3.8 Flash TTS failed. Cascading to Sarvam AI Bulbul V4...`);
+                    audioBuffer = await synthesizeWithSarvam();
+                }
+                if (!audioBuffer) {
+                    console.log(`[TTS_CASCADE] Sarvam AI failed. Cascading to Google Cloud Chirp 3 HD...`);
+                    audioBuffer = await synthesizeWithGoogleCloudTTS();
+                }
             }
+
+            if (!audioBuffer) throw new Error(`TTS failed across all engines (Gemini 3.8 TTS, Sarvam Bulbul V4, Chirp 3 HD) for post ${postId}`);
 
             fs.writeFileSync(audioPath, audioBuffer);
 
             const logoPath = path.join(process.cwd(), 'assets', 'logo.png');
             const hasLogo = fs.existsSync(logoPath);
 
+            const ensureVideoTemplate = async (fileName: string): Promise<string | null> => {
+                const localPath = path.join(process.cwd(), 'assets', fileName);
+                if (fs.existsSync(localPath) && fs.statSync(localPath).size > 0) {
+                    return localPath;
+                }
+                const tmpDir = path.join(os.tmpdir(), 'assets');
+                if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+                const tmpPath = path.join(tmpDir, fileName);
+                if (fs.existsSync(tmpPath) && fs.statSync(tmpPath).size > 0) {
+                    return tmpPath;
+                }
+                try {
+                    console.log(`[VIDEO_TEMPLATE] Downloading ${fileName} from Storage assets/templates/...`);
+                    const bucket = admin.storage().bucket();
+                    await bucket.file(`assets/templates/${fileName}`).download({ destination: tmpPath });
+                    if (fs.existsSync(tmpPath) && fs.statSync(tmpPath).size > 0) {
+                        console.log(`[VIDEO_TEMPLATE] Successfully downloaded & cached ${fileName} (${(fs.statSync(tmpPath).size / 1024 / 1024).toFixed(2)} MB)`);
+                        return tmpPath;
+                    }
+                } catch (err: any) {
+                    console.warn(`[VIDEO_TEMPLATE_WARN] Could not fetch ${fileName} from Storage:`, err.message);
+                }
+                return null;
+            };
+
             const renderVideoWithFFmpeg = async () => {
-                const runPass = (isSimpleFallback: boolean) => new Promise((resolve, reject) => {
+                const runPass = (isSimpleFallback: boolean) => new Promise(async (resolve, reject) => {
                     let logoWidth = 99;
                     let hasAudioStream = false;
                     let audioChannels = 2;
@@ -1995,10 +2295,12 @@ export const onNewsPostCreated = onDocumentWritten({
                     const introFileName = isVertical ? 'YouTube_intro_BBC_style_9_16.mp4' : 'YouTube_channel_intro_16_9.mp4';
                     const outroFileName = isVertical ? 'alfanews_outro_like_share_9_16.mp4' : 'alfanews_outro_like_share_16_9.mp4';
 
-                    const introPath = path.join(process.cwd(), 'assets', introFileName);
-                    const outroPath = path.join(process.cwd(), 'assets', outroFileName);
-                    const hasIntro = fs.existsSync(introPath);
-                    const hasOutro = fs.existsSync(outroPath);
+                    const [introPath, outroPath] = await Promise.all([
+                        ensureVideoTemplate(introFileName),
+                        ensureVideoTemplate(outroFileName)
+                    ]);
+                    const hasIntro = !!introPath && fs.existsSync(introPath);
+                    const hasOutro = !!outroPath && fs.existsSync(outroPath);
 
                     console.log(`[VIDEO_PROC] Res: ${videoWidth}x${videoHeight}, Vertical: ${isVertical}, HasIntro: ${hasIntro}, HasOutro: ${hasOutro}`);
 
@@ -2011,11 +2313,11 @@ export const onNewsPostCreated = onDocumentWritten({
                         cmd.input(logoPath);
                         logoInputIdx = currentIdx++;
                     }
-                    if (hasIntro) {
+                    if (hasIntro && introPath) {
                         cmd.input(introPath);
                         introInputIdx = currentIdx++;
                     }
-                    if (hasOutro) {
+                    if (hasOutro && outroPath) {
                         cmd.input(outroPath);
                         outroInputIdx = currentIdx++;
                     }
@@ -2294,8 +2596,8 @@ export async function runReprocessFailedAndUnprocessedNews(hoursLookback: number
             // If already processed by AI successfully and approved, do NOT retry!
             if (d.approved === true && d.aiProcessed === true) return false;
 
-            // 1. Loop prevention: Never retry if reprocessCount >= 3
-            if ((d.reprocessCount || 0) >= 3) return false;
+            // 1. Loop prevention: Never retry if reprocessCount >= 2
+            if ((d.reprocessCount || 0) >= 2) return false;
 
             // 2. Filter real policy rejections and verified duplicates
             const isRealPolicyRejection = status === "REJECTED" && !d.isDuplicate && !isApprovalRemark(d.rejectionReason);
@@ -2356,10 +2658,10 @@ export async function runReprocessFailedAndUnprocessedNews(hoursLookback: number
 }
 
 export const scheduleReprocessFailedReporterNews = onSchedule({
-    schedule: "*/30 * * * *",
+    schedule: "0 12,18,21 * * *",
     timeZone: "Asia/Kolkata",
-    memory: "1GiB",
-    timeoutSeconds: 540,
+    memory: "256MiB",
+    timeoutSeconds: 180,
     region: REGION,
     secrets: ["YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"]
 }, async (event) => {

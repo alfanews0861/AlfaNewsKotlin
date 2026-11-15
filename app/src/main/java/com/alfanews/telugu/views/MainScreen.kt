@@ -28,6 +28,8 @@ import com.alfanews.telugu.models.WeatherAlert
 import com.alfanews.telugu.models.ThemeMode
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
+import com.alfanews.telugu.BuildConfig
+import com.alfanews.telugu.ui.theme.Mandali
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.viewmodels.MainViewModel
 import com.alfanews.telugu.viewmodels.NewsFeedViewModel
@@ -836,6 +838,77 @@ fun MainScreen(
                 dismissButton = {
                     TextButton(onClick = { mainViewModel.dismissRatingDialog() }) {
                         Text(stringResource(R.string.later))
+                    }
+                }
+            )
+        }
+
+        val minVersionCode by mainViewModel.minVersionCode.collectAsStateWithLifecycle()
+        if (minVersionCode > BuildConfig.VERSION_CODE) {
+            AlertDialog(
+                onDismissRequest = { /* Non-dismissible: Must update */ },
+                properties = androidx.compose.ui.window.DialogProperties(
+                    dismissOnBackPress = false,
+                    dismissOnClickOutside = false
+                ),
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.SystemUpdate,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(52.dp)
+                    )
+                },
+                title = {
+                    Text(
+                        text = "యాప్ అప్‌డేట్ తప్పనిసరి",
+                        fontFamily = Ramabhadra,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                },
+                text = {
+                    Text(
+                        text = "ఆల్ఫా న్యూస్ యాప్‌లో సరికొత్త ఫీచర్లు, అత్యంత వేగవంతమైన పనితీరు మరియు తాజా లైవ్ వార్తల కోసం దయచేసి యాప్‌ను వెంటనే గూగుల్ ప్లే స్టోర్ నుండి అప్‌డేట్ చేసుకోండి. అప్‌డేట్ చేసుకున్న తర్వాతే యాప్ పనిచేస్తుంది.",
+                        fontFamily = Mandali,
+                        fontSize = 16.sp,
+                        lineHeight = 24.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val packageName = context.packageName
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName")).apply {
+                                    setPackage("com.android.vending")
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            } catch (_: Exception) {
+                                try {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$packageName")).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                    )
+                                } catch (ex: Exception) {
+                                    android.util.Log.e("MainScreen", "Could not open Play Store for update", ex)
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Text(
+                            text = "ఇప్పుడే ప్లే స్టోర్‌లో అప్‌డేట్ చేసుకోండి",
+                            fontFamily = Ramabhadra,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = Color.White
+                        )
                     }
                 }
             )

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Smartphone, Mail, Phone, MapPin, Globe, ExternalLink, Heart } from 'lucide-react';
+import { getPreferredPlayStoreUrl, openNativePlayStore } from '../../utils/playStoreHelper';
 
 interface PortalFooterProps {
   onSelectCategory: (category: string) => void;
@@ -42,10 +43,12 @@ export const PortalFooter: React.FC<PortalFooterProps> = ({
             {/* Mobile App Download Card */}
             <div className="pt-2">
               <a
-                href="https://play.google.com/store/apps/details?id=com.alfanews.telugu"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-white px-3.5 py-2 rounded-xl transition-all hover:scale-105 group"
+                href={getPreferredPlayStoreUrl()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  openNativePlayStore();
+                }}
+                className="inline-flex items-center gap-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-white px-3.5 py-2 rounded-xl transition-all hover:scale-105 group cursor-pointer"
               >
                 <Smartphone className="w-5 h-5 text-red-500" />
                 <div className="text-left font-poppins">

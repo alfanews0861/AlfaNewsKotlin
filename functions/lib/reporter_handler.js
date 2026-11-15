@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.recordAppInstallReferral = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.getAssignedReporter = exports.verifyReporter = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.executeReactivateFalselyDemotedReporters = exports.syncUserRoleUpgrade = exports.onNewsPostApproved = exports.runAutoApprovePendingBackfill = exports.cleanupExpiredReporterApplications = exports.executeCleanupExpiredApplications = exports.cleanDuplicateApplications = exports.executeCleanDuplicateApplications = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.submitReporterApplication = exports.sendReporterApplicationEmail = exports.promoteUserToReporter = exports.sendAdminPerformanceAlert = exports.alertExistingReporterOfChallenger = exports.auditExistingReporterPerformance = exports.notifyApplicantOfConflict = exports.isMandalVacant = exports.checkMandalVacancy = exports.processReporterSubmission = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.restoreAllDowngradedReporters = exports.performRestoreAllReporters = exports.awardPointsToReporter = exports.notifyReporter = void 0;
+exports.recordAppInstallReferral = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.getAssignedReporter = exports.verifyReporter = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.executeReactivateFalselyDemotedReporters = exports.syncUserRoleUpgrade = exports.onNewsPostApproved = exports.runAutoApprovePendingBackfill = exports.cleanupExpiredReporterApplications = exports.executeCleanupExpiredApplications = exports.cleanDuplicateApplications = exports.executeCleanDuplicateApplications = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.submitReporterApplication = exports.sendReporterApplicationEmail = exports.promoteUserToReporter = exports.sendAdminPerformanceAlert = exports.alertExistingReporterOfChallenger = exports.auditExistingReporterPerformance = exports.notifyApplicantOfConflict = exports.isMandalVacant = exports.checkMandalVacancy = exports.processReporterSubmission = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.restoreAllDowngradedReporters = exports.performRestoreAllReporters = exports.cleanFalseInactivityMessagesForUser = exports.awardPointsToReporter = exports.notifyReporter = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -327,6 +327,70 @@ exports.awardPointsToReporter = awardPointsToReporter;
  * Automatically restores and upgrades all mistakenly downgraded/inactive reporters
  * and recalculates their lifetime points, news count, badges, and mandal assignment.
  */
+/**
+ * 🛡️ రిపోర్టర్‌గా కొనసాగుతున్నప్పటికీ గతంలో ఆటోమేటెడ్ లేదా పొరపాటున వచ్చిన
+ * "వార్తలు పెట్టనందువలన రిపోర్టర్‌గా తొలగించాము/హోదా రద్దు" వంటి తప్పుడు సందేశాలను
+ * Firestore నుండి శాశ్వతంగా డిలీట్ చేసి క్లీన్ చేస్తుంది.
+ */
+async function cleanFalseInactivityMessagesForUser(userId) {
+    if (!userId)
+        return;
+    try {
+        const falsePhrases = [
+            'హోదా తొలగించ', 'హోదా నుండి తొలగించి', 'రిపోర్టర్‌గా తొలగించాము',
+            'రిపోర్టర్‌గా తొలగించ', 'రిపోర్టర్ హోదా తొలగించు', 'సబ్‌స్క్రైబర్‌గా మార్చ',
+            'వార్తలు పంపనందున', 'వార్తలు పెట్టనందువలన', 'వార్తలు పంపడం లేదు',
+            'వార్తలు పెట్టడం లేదు', 'హోదా రద్దు', 'తుది హెచ్చరిక', 'షోకాజ్ నోటీసు'
+        ];
+        const falseTypes = ['INACTIVITY_WARNING', 'ZERO_POSTS_WARNING', 'MANDAL_REVOCATION', 'REPORTER_INACTIVITY_NOTICE', 'REPORTER_DEMOTION'];
+        const isFalse = (data) => {
+            const rawType = String(data?.type || '').toUpperCase();
+            if (falseTypes.includes(rawType))
+                return true;
+            const combined = String(data?.title || '') + ' ' + String(data?.text || '') + ' ' + String(data?.body || '');
+            return falsePhrases.some(phrase => combined.includes(phrase));
+        };
+        const batch = db.batch();
+        let deleted = 0;
+        const convSnap = await db.collection('reporter_conversations').doc(userId).collection('messages').get().catch(() => null);
+        if (convSnap) {
+            for (const doc of convSnap.docs) {
+                if (isFalse(doc.data())) {
+                    batch.delete(doc.ref);
+                    deleted++;
+                }
+            }
+        }
+        const userMsgSnap = await db.collection('users').doc(userId).collection('messages').get().catch(() => null);
+        if (userMsgSnap) {
+            for (const doc of userMsgSnap.docs) {
+                if (isFalse(doc.data())) {
+                    batch.delete(doc.ref);
+                    deleted++;
+                }
+            }
+        }
+        if (deleted > 0) {
+            await batch.commit();
+            console.log("[CLEAN_FALSE_MSGS] Cleaned " + deleted + " false messages for user " + userId);
+        }
+        // Clean conversation header if lastMessage had false text
+        const convDoc = await db.collection('reporter_conversations').doc(userId).get().catch(() => null);
+        if (convDoc && convDoc.exists) {
+            const lastMsg = convDoc.data()?.lastMessage || '';
+            if (falsePhrases.some(p => lastMsg.includes(p))) {
+                await convDoc.ref.update({
+                    lastMessage: 'ఆల్ఫా న్యూస్ ఎడిటోరియల్ డెస్క్',
+                    unreadCountForReporter: 0
+                }).catch(() => { });
+            }
+        }
+    }
+    catch (e) {
+        console.warn("[CLEAN_FALSE_MSGS_ERR] for " + userId + ":", e.message);
+    }
+}
+exports.cleanFalseInactivityMessagesForUser = cleanFalseInactivityMessagesForUser;
 async function performRestoreAllReporters() {
     console.log(`[RESTORE_REPORTERS] 🚀 Starting system-wide reporter restoration...`);
     const candidateUserIds = new Set();
@@ -620,6 +684,7 @@ async function performRestoreAllReporters() {
                 userUpdates.district = appDistrict;
             }
             await db.collection('users').doc(userId).set(userUpdates, { merge: true });
+            await cleanFalseInactivityMessagesForUser(userId);
             // Sync Monthly Leaderboard
             for (const [monthId, pts] of Object.entries(monthlyPointsMap)) {
                 const monthlyRef = db.collection('monthly_leaderboard').doc(monthId)
@@ -688,10 +753,16 @@ exports.backfillReporterPoints = (0, https_1.onCall)(async (request) => {
 exports.onNewsViewCountUpdated = (0, firestore_1.onDocumentWritten)({
     document: "news/{postId}",
     region: utils_1.REGION,
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    maxInstances: 5
 }, async (event) => {
     const before = event.data?.before.data();
     const after = event.data?.after.data();
     if (!after || !after.isReporter)
+        return;
+    // Instant short-circuit: If longViews was not modified, exit immediately
+    if (before && before.longViews === after.longViews)
         return;
     const viewsBefore = before?.longViews || 0;
     const viewsAfter = after.longViews || 0;
@@ -2255,6 +2326,9 @@ async function executeJuly25ApprovalAndCleanup(dryRun = false) {
 exports.onNewsPostApproved = (0, firestore_1.onDocumentWritten)({
     document: "news/{postId}",
     region: utils_1.REGION,
+    memory: "256MiB",
+    timeoutSeconds: 30,
+    maxInstances: 5
 }, async (event) => {
     const before = event.data?.before.data();
     const after = event.data?.after.data();
@@ -2423,6 +2497,8 @@ async function executeReactivateFalselyDemotedReporters(dryRun = false) {
                 rejoinedAt: admin.firestore.FieldValue.serverTimestamp(),
                 promotedBy: u.promotedBy || "SYSTEM_RESTORE"
             }, { merge: true });
+            // Clean false inactivity warning/demotion messages
+            await cleanFalseInactivityMessagesForUser(userId);
             // 2. Update matching reporter_applications
             for (const app of userApps) {
                 await db.collection('reporter_applications').doc(app.id).update({

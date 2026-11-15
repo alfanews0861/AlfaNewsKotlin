@@ -113,6 +113,16 @@ fun ReporterDeskChatView(
                 val items = snapshot.documents.mapNotNull { doc ->
                     try {
                         val data = doc.data ?: return@mapNotNull null
+                        val rawText = data["text"] as? String ?: ""
+                        val msgType = data["type"] as? String ?: "CHAT"
+                        val title = data["title"] as? String ?: ""
+
+                        // 🛡️ తప్పుడు ఇనాక్టివిటీ / తొలగింపు మెసేజ్‌లను డెస్క్ చాట్ నుండి కూడా తొలగించి క్లీన్ చేయి
+                        if (com.alfanews.telugu.viewmodels.MainViewModel.isFalseInactivityNotice(title, rawText, msgType)) {
+                            try { doc.reference.delete() } catch (_: Exception) {}
+                            return@mapNotNull null
+                        }
+
                         val ts = when (val t = data["timestamp"]) {
                             is Timestamp -> t.toDate().time
                             is Number -> t.toLong()

@@ -258,11 +258,12 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
             const startOfLastWeekMs = startOfLastWeek.getTime();
 
             // Single fast query for today's approved news (replaces 474 separate queries!)
+            const startOfTodayTs = Timestamp ? Timestamp.fromDate(startOfToday) : startOfToday;
             const todayNewsSnap = await getDocs(
                 query(
                     collection(db, 'news'),
                     where('approved', '==', true),
-                    where('timestamp', '>=', startOfToday),
+                    where('timestamp', '>=', startOfTodayTs),
                     limit(500)
                 )
             ).catch(() => null);
@@ -376,103 +377,6 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
         fetchRegisteredReporters();
     }, [fetchRegisteredReporters]);
 
-    // 2. Fetch Posts for Selected Day
-    const fetchPostsForDay = useCallback(async (targetDate: string) => {
-        setLoading(true);
-        setError('');
-        
-        const startOfDay = new Date(targetDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        const startMs = startOfDay.getTime();
-
-        const endOfDay = new Date(targetDate);
-        endOfDay.setHours(23, 59, 59, 999);
-        const endMs = endOfDay.getTime();
-        
-        try {
-            const newsCollectionRef = collection(db, 'news');
-            let fetched: NewsPost[] = [];
-
-            // Try 1: Timestamp range query
-            if (Timestamp) {
-                try {
-                    const startTimestamp = Timestamp.fromMillis(startMs);
-                    const endTimestamp = Timestamp.fromMillis(endMs);
-                    const qTimestamp = query(
-                        newsCollectionRef,
-                        where('timestamp', '>=', startTimestamp),
-                        where('timestamp', '<=', endTimestamp),
-                        orderBy('timestamp', 'desc')
-                    );
-                    const querySnapshot = await getDocs(qTimestamp);
-                    fetched = querySnapshot.docs.map((doc: any) => ({
-                        id: doc.id,
-                        ...doc.data(),
-                        timestamp: getMsFromTimestamp(doc.data().timestamp)
-                    } as NewsPost));
-                } catch (e) {
-                    console.warn("Timestamp range query fallback:", e);
-                }
-            }
-
-            // Try 2: If 0 posts, try number range query
-            if (fetched.length === 0) {
-                try {
-                    const qNum = query(
-                        newsCollectionRef,
-                        where('timestamp', '>=', startMs),
-                        where('timestamp', '<=', endMs),
-                        orderBy('timestamp', 'desc')
-                    );
-                    const querySnapshot = await getDocs(qNum);
-                    fetched = querySnapshot.docs.map((doc: any) => ({
-                        id: doc.id,
-                        ...doc.data(),
-                        timestamp: getMsFromTimestamp(doc.data().timestamp)
-                    } as NewsPost));
-                } catch (e) {
-                    console.warn("Number range query fallback:", e);
-                }
-            }
-
-            // Try 3: Supplement with latest 1000 items in-memory filter
-            if (fetched.length === 0) {
-                const qLatest = query(
-                    newsCollectionRef,
-                    orderBy('timestamp', 'desc'),
-                    limit(1000)
-                );
-                const querySnapshot = await getDocs(qLatest);
-                const allFetched = querySnapshot.docs.map((doc: any) => ({
-                    id: doc.id,
-                    ...doc.data(),
-                    timestamp: getMsFromTimestamp(doc.data().timestamp)
-                } as NewsPost));
-                
-                fetched = allFetched.filter((post: NewsPost) => {
-                    const postDateStr = getPostLocalDateString(post.timestamp);
-                    return postDateStr === targetDate;
-                });
-            } else {
-                fetched = fetched.filter((post: NewsPost) => {
-                    const postDateStr = getPostLocalDateString(post.timestamp);
-                    return postDateStr === targetDate;
-                });
-            }
-
-            setPosts(fetched);
-        } catch (e: any) {
-            console.error("Critical error loading report:", e);
-            setError("వార్తలు లోడ్ చేయడం విఫలమైంది: " + e.message);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchPostsForDay(selectedDate);
-    }, [selectedDate, fetchPostsForDay]);
-
     // Helper to calculate target day bounds in Asia/Kolkata (IST) timezone
     const getTargetDayRange = useCallback((dateStr: string) => {
         const startOfDay = new Date(`${dateStr}T00:00:00+05:30`);
@@ -490,6 +394,106 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
         }
         return { startMs, endMs };
     }, []);
+
+    // 2. Fetch Posts for Selected Day (Ultra-fast direct server query)
+    const fetchPostsForDay = useCallback(async (targetDate: string) => {
+        setLoading(true);
+        setError('');
+        
+        const { startMs, endMs } = getTargetDayRange(targetDate);
+        
+        try {
+            const newsCollectionRef = collection(db, 'news');
+            let fetched: NewsPost[] = [];
+
+            // Try 1: Timestamp range query (no orderBy in Firestore query to avoid composite index errors)
+            if (Timestamp) {
+                try {
+                    const startTimestamp = Timestamp.fromMillis(startMs);
+                    const endTimestamp = Timestamp.fromMillis(endMs);
+                    const qTimestamp = query(
+                        newsCollectionRef,
+                        where('timestamp', '>=', startTimestamp),
+                        where('timestamp', '<=', endTimestamp)
+                    );
+                    const querySnapshot = await getDocs(qTimestamp);
+                    if (!querySnapshot.empty) {
+                        fetched = querySnapshot.docs.map((doc: any) => ({
+                            id: doc.id,
+                            ...doc.data(),
+                            timestamp: getMsFromTimestamp(doc.data().timestamp)
+                        } as NewsPost));
+                    }
+                } catch (e) {
+                    console.warn("Timestamp range query fallback:", e);
+                }
+            }
+
+            // Try 2: If 0 posts, try number range query (for documents stored with numeric timestamp)
+            if (fetched.length === 0) {
+                try {
+                    const qNum = query(
+                        newsCollectionRef,
+                        where('timestamp', '>=', startMs),
+                        where('timestamp', '<=', endMs)
+                    );
+                    const querySnapshot = await getDocs(qNum);
+                    if (!querySnapshot.empty) {
+                        fetched = querySnapshot.docs.map((doc: any) => ({
+                            id: doc.id,
+                            ...doc.data(),
+                            timestamp: getMsFromTimestamp(doc.data().timestamp)
+                        } as NewsPost));
+                    }
+                } catch (e) {
+                    console.warn("Number range query fallback:", e);
+                }
+            }
+
+            // Try 3: Supplement with latest 250 items in-memory filter (optimized from 1000 for rapid response)
+            if (fetched.length === 0) {
+                try {
+                    const qLatest = query(
+                        newsCollectionRef,
+                        orderBy('timestamp', 'desc'),
+                        limit(250)
+                    );
+                    const querySnapshot = await getDocs(qLatest);
+                    const allFetched = querySnapshot.docs.map((doc: any) => ({
+                        id: doc.id,
+                        ...doc.data(),
+                        timestamp: getMsFromTimestamp(doc.data().timestamp)
+                    } as NewsPost));
+                    
+                    fetched = allFetched.filter((post: NewsPost) => {
+                        const postDateStr = getPostLocalDateString(post.timestamp);
+                        return postDateStr === targetDate;
+                    });
+                } catch (e) {
+                    console.warn("Latest fallback query failed:", e);
+                }
+            } else {
+                fetched = fetched.filter((post: NewsPost) => {
+                    const postDateStr = getPostLocalDateString(post.timestamp);
+                    return postDateStr === targetDate;
+                });
+            }
+
+            // Sort descending in memory (instant <1ms, zero index overhead)
+            fetched.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+            setPosts(fetched);
+        } catch (e: any) {
+            console.error("Critical error loading report:", e);
+            setError("వార్తలు లోడ్ చేయడం విఫలమైంది: " + e.message);
+        } finally {
+            setLoading(false);
+        }
+    }, [getTargetDayRange]);
+
+    useEffect(() => {
+        fetchPostsForDay(selectedDate);
+    }, [selectedDate, fetchPostsForDay]);
 
     // Fetch Guest, Subscriber, and New User activity counts for selected date
     const fetchAppUsageStats = useCallback(async (targetDate: string) => {
@@ -572,55 +576,29 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
             }
             setNewUsersCount(newUsers);
 
-            // 3. Fetch Active Subscribers Count
+            // 3. Fetch Active Subscribers Count (Batched parallel execution for maximum speed)
             let subscribers = 0;
             try {
                 const usersRef = collection(db, 'users');
                 const activeUserDocs = new Map<string, any>();
 
-                // Query lastActive as Timestamp
+                // Run candidate queries concurrently via Promise.allSettled instead of sequential roundtrips
+                const queries: Promise<any>[] = [];
                 if (startTs && endTs) {
-                    try {
-                        const qActiveTs = query(usersRef, where('lastActive', '>=', startTs), where('lastActive', '<=', endTs), limit(500));
-                        const snap = await getDocs(qActiveTs);
-                        snap.docs.forEach((d: any) => activeUserDocs.set(d.id, d.data()));
-                    } catch (e) { }
+                    queries.push(getDocs(query(usersRef, where('lastActive', '>=', startTs), where('lastActive', '<=', endTs), limit(300))));
+                    queries.push(getDocs(query(usersRef, where('lastLogin', '>=', startTs), where('lastLogin', '<=', endTs), limit(300))));
+                    queries.push(getDocs(query(usersRef, where('createdAt', '>=', startTs), where('createdAt', '<=', endTs), limit(300))));
                 }
+                queries.push(getDocs(query(usersRef, where('lastActive', '>=', startMs), where('lastActive', '<=', endMs), limit(300))));
+                queries.push(getDocs(query(usersRef, where('lastLogin', '>=', startMs), where('lastLogin', '<=', endMs), limit(300))));
+                queries.push(getDocs(query(usersRef, where('createdAt', '>=', startMs), where('createdAt', '<=', endMs), limit(300))));
 
-                // Query lastActive as number
-                try {
-                    const qActiveNum = query(usersRef, where('lastActive', '>=', startMs), where('lastActive', '<=', endMs), limit(500));
-                    const snap = await getDocs(qActiveNum);
-                    snap.docs.forEach((d: any) => activeUserDocs.set(d.id, d.data()));
-                } catch (e) { }
-
-                // Query lastLogin as Timestamp or number
-                if (startTs && endTs) {
-                    try {
-                        const qLoginTs = query(usersRef, where('lastLogin', '>=', startTs), where('lastLogin', '<=', endTs), limit(500));
-                        const snap = await getDocs(qLoginTs);
-                        snap.docs.forEach((d: any) => activeUserDocs.set(d.id, d.data()));
-                    } catch (e) { }
-                }
-                try {
-                    const qLoginNum = query(usersRef, where('lastLogin', '>=', startMs), where('lastLogin', '<=', endMs), limit(500));
-                    const snap = await getDocs(qLoginNum);
-                    snap.docs.forEach((d: any) => activeUserDocs.set(d.id, d.data()));
-                } catch (e) { }
-
-                // Also check createdAt on target date - any subscriber created on target date was active!
-                if (startTs && endTs) {
-                    try {
-                        const qCreatedTs = query(usersRef, where('createdAt', '>=', startTs), where('createdAt', '<=', endTs), limit(500));
-                        const snap = await getDocs(qCreatedTs);
-                        snap.docs.forEach((d: any) => activeUserDocs.set(d.id, d.data()));
-                    } catch (e) { }
-                }
-                try {
-                    const qCreatedNum = query(usersRef, where('createdAt', '>=', startMs), where('createdAt', '<=', endMs), limit(500));
-                    const snap = await getDocs(qCreatedNum);
-                    snap.docs.forEach((d: any) => activeUserDocs.set(d.id, d.data()));
-                } catch (e) { }
+                const results = await Promise.allSettled(queries);
+                results.forEach((res) => {
+                    if (res.status === 'fulfilled' && res.value?.docs) {
+                        res.value.docs.forEach((d: any) => activeUserDocs.set(d.id, d.data()));
+                    }
+                });
 
                 // Filter to only normal subscribers/citizens (exclude reporters, admins, staff)
                 activeUserDocs.forEach((uData) => {
@@ -658,7 +636,11 @@ const DailyReportPage: React.FC<DailyReportPageProps> = ({ onEditPost, currentUs
     }, [getTargetDayRange]);
 
     useEffect(() => {
-        fetchAppUsageStats(selectedDate);
+        // Defer app usage stats load slightly so daily news report loads instantly with zero network contention
+        const timer = setTimeout(() => {
+            fetchAppUsageStats(selectedDate);
+        }, 150);
+        return () => clearTimeout(timer);
     }, [selectedDate, fetchAppUsageStats]);
 
     // Handle single post delete from both database and local state

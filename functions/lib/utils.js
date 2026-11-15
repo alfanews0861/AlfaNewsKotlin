@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateImageWithRetry = exports.createAndSaveThumbnail = exports.processAndOptimizeNewsImage = exports.scanVideoSafetyWithGeminiAI = exports.extractVideoStoryboardMosaic = exports.extractVideoKeyFrames = exports.scanImageSafetyWithGeminiAI = exports.calculateBlurRanges = exports.calculateSmartCrop16x9 = exports.detectFacesWithGeminiAI = exports.saveImageLocally = exports.saveBufferToStorage = exports.formatIntoParagraphs = exports.isEditorialVerdictOrFlattery = exports.cleanTeluguHeadline = exports.sanitizeTeluguText = exports.fixTeluguWordClumps = exports.isTeluguScript = exports.parseAIJson = exports.getISTDateString = exports.getAIInstance = exports.runWithAIFallback = exports.getTopicName = exports.slugify = exports.IMAGEN_FAST_MODEL = exports.IMAGEN_MODEL = exports.FLASH_MODEL = exports.PRO_MODEL = exports.SCHEDULED_MODEL = exports.REGION = void 0;
+exports.generateImageWithRetry = exports.createAndSaveThumbnail = exports.processAndOptimizeNewsImage = exports.scanVideoSafetyWithGeminiAI = exports.extractVideoStoryboardMosaic = exports.extractVideoKeyFrames = exports.scanImageSafetyWithGeminiAI = exports.calculateBlurRanges = exports.calculateSmartCrop16x9 = exports.detectFacesWithGeminiAI = exports.saveImageLocally = exports.saveBufferToStorage = exports.formatIntoParagraphs = exports.detectTopTeluguLeader = exports.isTopTeluguLeaderStatement = exports.STATEMENT_AND_QUOTE_INDICATORS = exports.ROUTINE_GREETING_INDICATORS = exports.TOP_TELUGU_LEADERS = exports.isEditorialVerdictOrFlattery = exports.cleanTeluguHeadline = exports.fixTeluguCollocations = exports.sanitizeTeluguText = exports.fixTeluguWordClumps = exports.isTeluguScript = exports.parseAIJson = exports.getISTDateString = exports.getAIInstance = exports.runWithAIFallback = exports.getTopicName = exports.slugify = exports.IMAGEN_FAST_MODEL = exports.IMAGEN_MODEL = exports.FLASH_MODEL = exports.PRO_MODEL = exports.SCHEDULED_MODEL = exports.REGION = void 0;
 const admin = __importStar(require("firebase-admin"));
 const genai_1 = require("@google/genai");
 const buffer_1 = require("buffer");
@@ -66,10 +66,8 @@ exports.getTopicName = getTopicName;
 const TEXT_MODELS = [
     "gemini-3.5-flash-lite", // 1. Primary Free Tier - Maximum Quota (1,500 RPD, 30 RPM)
     "gemini-3.1-flash-lite", // 2. High-throughput stable fallback (verified active)
-    "gemini-3.6-flash", // 3. High-speed safety net
-    "gemini-3.7-flash", // 4. Quality Fallback
-    "gemini-2.5-flash", // 5. Stable Flash fallback
-    "gemini-3.5-flash" // 6. Backup
+    "gemini-3.8-flash", // 3. Fast high quality fallback
+    "gemini-3.5-flash" // 4. Backup
 ];
 const IMAGE_ANALYSIS_MODELS = [
     "gemini-3.5-flash-lite", // 1. Primary for Vision/Scan: 1,500 RPD, 30 RPM, super fast image parsing
@@ -137,6 +135,8 @@ function extractErrorStatus(err) {
         return 500;
     if (fullSearch.includes("504") || fullSearch.includes("deadline") || fullSearch.includes("timeout"))
         return 504;
+    if (fullSearch.includes("401") || fullSearch.includes("unauthenticated") || fullSearch.includes("api key not valid"))
+        return 401;
     if (fullSearch.includes("403") || fullSearch.includes("permission") || fullSearch.includes("forbidden"))
         return 403;
     return 0;
@@ -147,25 +147,22 @@ function extractErrorStatus(err) {
  * - If a model fails or hits quota (429/404), immediately switch to the next model.
  * - Total attempts capped at MAX_TOTAL_ATTEMPTS (3) to prevent loops and excess quota usage.
  */
-async function runWithAIFallback(operation, customModels) {
+async function runWithAIFallback(operation, customModels, preferPaidKey = false) {
     const modelsToTry = customModels || TEXT_MODELS;
     const isImageOperation = modelsToTry.some(m => m.includes("image"));
     const apiKeys = getApiKeys();
     let keysToTry = apiKeys.length > 0 ? [...apiKeys] : [process.env.GEMINI_API_KEY || process.env.API_KEY || ""];
-    if (isImageOperation) {
-        const paidKeyClean = (process.env.PAID_GEMINI_API_KEY || '').replace(/^["']|["']$/g, '').trim();
-        if (paidKeyClean) {
-            keysToTry = [paidKeyClean, ...keysToTry.filter(k => k !== paidKeyClean)];
-        }
+    const paidKeyClean = (process.env.PAID_GEMINI_API_KEY || '').replace(/^["']|["']$/g, '').trim();
+    if ((isImageOperation || preferPaidKey) && paidKeyClean) {
+        keysToTry = [paidKeyClean, ...keysToTry.filter(k => k !== paidKeyClean)];
     }
-    const MAX_TOTAL_ATTEMPTS = Math.max(keysToTry.length * 3, 24);
+    const MAX_TOTAL_ATTEMPTS = Math.min(keysToTry.length * 3, 6);
     let totalAttempts = 0;
     let lastError = null;
     for (let k = 0; k < keysToTry.length; k++) {
         const currentKey = keysToTry[k];
-        const paidKeyClean = (process.env.PAID_GEMINI_API_KEY || '').replace(/^["']|["']$/g, '').trim();
         const isPaidKey = !!paidKeyClean && currentKey === paidKeyClean;
-        if (isPaidKey && !isPaidFallbackEnabled()) {
+        if (isPaidKey && !isPaidFallbackEnabled() && !preferPaidKey) {
             console.warn(`[AI-SKIP] Paid key detected but PAID_FALLBACK_ENABLED is false. Skipping.`);
             continue;
         }
@@ -190,8 +187,8 @@ async function runWithAIFallback(operation, customModels) {
                 const status = extractErrorStatus(err);
                 const errMsg = String(err.message || "Unknown error");
                 console.warn(`[AI-FAIL] Model ${currentModelName} (${keyLabel}) failed (Status: ${status || 'N/A'}, Attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS}): ${errMsg.substring(0, 120)}`);
-                // If key is totally unauthorized (403) or depleted credits (402), jump to next key immediately
-                if (status === 403 || status === 402) {
+                // If key is totally unauthorized/invalid (401/403) or depleted credits (402), jump to next key immediately
+                if (status === 401 || status === 403 || status === 402) {
                     console.warn(`[KEY-EXHAUSTED] Key ${keyLabel} invalid or depleted (Status: ${status}). Moving to next key.`);
                     break;
                 }
@@ -332,11 +329,21 @@ function fixTeluguWordClumps(text) {
     const loanUWords = [
         [/(రోడ్డు|బోర్డు|వార్డు|గ్రౌండు|స్టాండు|ఫీల్డు|కోర్టు|సీటు|గేటు|ప్లేటు|ఫ్లాటు|నెట్టు|బెడ్)(పై|లో|తో|నుంచి|నుండి|వరకు|కి|కు)(?=[\s\p{P}]|$)/gu, '$1 $2'],
         [/(హాస్పిటల్|ఆఫీస్|కాలేజ్|యూనివర్సిటీ|పార్లమెంట్|అసెంబ్లీ|పోలీస్)(లో|పై|తో|నుంచి|నుండి|వరకు|కి|కు)(?=[\s\p{P}]|$)/gu, '$1 $2'],
-        [/(స్కూల్|హాల్|మాల్)(?:్లో|లో|పై|తో|కి|కు)(?=[\s\p{P}]|$)/gu, '$1 లో']
+        [/(స్కూల్|హాల్|మాల్)(?:్లో|లో)(?=[\s\p{P}]|$)/gu, '$1 లో'],
+        [/(స్కూల్|హాల్|మాల్)(పై|తో|కి|కు)(?=[\s\p{P}]|$)/gu, '$1 $2']
     ];
     for (const [pattern, replacement] of loanUWords) {
         s = s.replace(pattern, replacement);
     }
+    // 4. Rejoin unnatural splitting of Telugu plural locative 'ల్లో' (e.g. 'పాత్రల్ లో' -> 'పాత్రల్లో', 'సినిమాల్ లో' -> 'సినిమాల్లో', 'గ్రామాల్ లో' -> 'గ్రామాల్లో')
+    s = s.replace(/ల్\s+లో(?=[\s\p{P}]|$)/gu, 'ల్లో');
+    // 5. Rejoin native Telugu words unnaturally split with 'ట్ లో' (e.g. 'ఇంట్ లో' -> 'ఇంట్లో', 'నోట్ లో' -> 'నోట్లో', 'కంట్ లో' -> 'కంట్లో')
+    s = s.replace(/(ఇం|కం|నో|ఒం|గొం|పుం|తుం|పెం)ట్\s+లో(?=[\s\p{P}]|$)/gu, '$1ట్లో');
+    // 6. Fix numbers & currencies glued to words (e.g. 'రూ.100కోట్లు' -> 'రూ. 100 కోట్లు', '10వేల' -> '10 వేల', '5మంది' -> '5 మంది')
+    s = s.replace(/(రూ\.|రూ)(?=\d)/gu, 'రూ. ');
+    s = s.replace(/(\d+)(కోట్లు|కోట్ల|లక్షలు|లక్షల|వేలు|వేల|మంది|శాతం|శాతానికి|కిలోమీటర్ల?|గంటల?|రోజుల?|నెలల?|సంవత్సరాల?|ఏళ్ల|మందికి|మందితో)(?=[\s\p{P}]|$)/gu, '$1 $2');
+    // 7. Fix punctuation glued to Telugu words without space (e.g. 'జరిగింది.దీనిపై' -> 'జరిగింది. దీనిపై', 'తెలిపారు,ఈ' -> 'తెలిపారు, ఈ')
+    s = s.replace(/([\u0C00-\u0C7F])([.,:;!?])([\u0C00-\u0C7F])/gu, '$1$2 $3');
     // Clean any double spaces
     return s.replace(/[ \t]+/g, ' ').trim();
 }
@@ -380,9 +387,24 @@ function sanitizeTeluguText(text) {
         // 6. Fix spaces before Telugu combining vowel marks / virama
         .replace(/\s+([\u0C01-\u0C03\u0C3E-\u0C4D\u0C55\u0C56\u0C62\u0C63])/g, '$1')
         .trim();
-    return fixTeluguWordClumps(cleaned);
+    const withWordClumpsFixed = fixTeluguWordClumps(cleaned);
+    return fixTeluguCollocations(withWordClumpsFixed);
 }
 exports.sanitizeTeluguText = sanitizeTeluguText;
+/**
+ * Fixes unnatural literal translations and conflicting collocations in Telugu news.
+ * e.g., "తీవ్రంగా స్పందిస్తూ ... అభినందిస్తున్నారు" (negative reaction word mistakenly used with praise).
+ */
+function fixTeluguCollocations(s) {
+    if (!s)
+        return "";
+    return s
+        .replace(/తీవ్రంగా\s+స్పందిస్తూ(?=\s+(?:[^\s.,;]+\s+){0,4}(?:అభినంది|ప్రశంసి|హర్షం|స్వాగతి|మురిసి|జైకొ|మెచ్చుకు))/gu, 'ప్రశంసల వర్షం కురిపిస్తూ')
+        .replace(/తీవ్రంగా\s+స్పందించి(?=\s+(?:[^\s.,;]+\s+){0,4}(?:అభినంది|ప్రశంసి|హర్షం|స్వాగతి|మురిసి|జైకొ|మెచ్చుకు))/gu, 'ప్రశంసల వర్షం కురిపించి')
+        .replace(/తీవ్రంగా\s+స్పందించిన(?=\s+(?:[^\s.,;]+\s+){0,4}(?:అభినంది|ప్రశంసి|హర్షం|స్వాగతి|మురిసి|జైకొ|మెచ్చుకు))/gu, 'హర్షం వ్యక్తం చేసిన')
+        .replace(/తీవ్రంగా\s+స్పందించారు(?=\s+[.,;]?\s*(?:అభినంది|ప్రశంసి|హర్షం|స్వాగతి))/gu, 'హర్షం వ్యక్తం చేశారు');
+}
+exports.fixTeluguCollocations = fixTeluguCollocations;
 /**
  * Sanitizes and formats Telugu headlines:
  * 1. Strictly eliminates all inverted commas / quotes ('...', "...", ‘...’, “...”).
@@ -464,6 +486,147 @@ function isEditorialVerdictOrFlattery(headline, text = '', authorName = '') {
     return false;
 }
 exports.isEditorialVerdictOrFlattery = isEditorialVerdictOrFlattery;
+exports.TOP_TELUGU_LEADERS = [
+    {
+        id: "cbn",
+        nameTe: "చంద్రబాబు నాయుడు",
+        nameEn: "Chandrababu Naidu",
+        patterns: [
+            /(?:చంద్రబాబు\s*నాయుడు|నారా\s*చంద్రబాబు|చంద్రబాబునాయుడు|సీఎం\s*చంద్రబాబు|సిఎం\s*చంద్రబాబు|ముఖ్యమంత్రి\s*చంద్రబాబు|చంద్రబాబు)/i,
+            /(?:chandrababu|cbn|nara\s*chandrababu)/i
+        ],
+        handles: [/ncbn/i]
+    },
+    {
+        id: "revanth",
+        nameTe: "రేవంత్ రెడ్డి",
+        nameEn: "Revanth Reddy",
+        patterns: [
+            /(?:రేవంత్\s*రెడ్డి|రేవంత్‌రెడ్డి|అనుముల\s*రేవంత్|సీఎం\s*రేవంత్|సిఎం\s*రేవంత్|ముఖ్యమంత్రి\s*రేవంత్)/i,
+            /(?:revanth\s*reddy|revanthreddy|cm\s*revanth)/i
+        ],
+        handles: [/revanth_anumula/i]
+    },
+    {
+        id: "jagan",
+        nameTe: "వైఎస్ జగన్ మోహన్ రెడ్డి",
+        nameEn: "YS Jagan Mohan Reddy",
+        patterns: [
+            /(?:జగన్\s*మోహన్\s*రెడ్డి|జగన్‌మోహన్‌రెడ్డి|వైఎస్\s*జగన్|వైఎస్సార్సీపీ\s*అధినేత|మాజీ\s*సీఎం\s*జగన్)/i,
+            /(?:jagan\s*mohan\s*reddy|jaganmohan\s*reddy|ys\s*jagan|ysjagan)/i
+        ],
+        handles: [/ysjagan/i]
+    },
+    {
+        id: "kcr",
+        nameTe: "కేసీఆర్",
+        nameEn: "K. Chandrashekar Rao (KCR)",
+        patterns: [
+            /(?:కేసీఆర్|కేసిఆర్|చంద్రశేఖర్\s*రావు|చంద్రశేఖరరావు|కల్వకుంట్ల\s*చంద్రశేఖర్|బిఆర్ఎస్\s*అధినేత\s*కేసీఆర్|బీఆర్ఎస్\s*అధినేత\s*కేసీఆర్|మాజీ\s*సీఎం\s*కేసీఆర్)/i,
+            /(?:kcr|k\.\s*chandrashekar\s*rao|chandrasekhar\s*rao|kalvakuntla\s*chandrashekar)/i
+        ],
+        handles: [/kcrbrspresident/i]
+    },
+    {
+        id: "pawan",
+        nameTe: "పవన్ కళ్యాణ్",
+        nameEn: "Pawan Kalyan",
+        patterns: [
+            /(?:పవన్\s*కళ్యాణ్|పవన్\s*కల్యాణ్|పవన్‌కళ్యాణ్|డిప్యూటీ\s*సీఎం\s*పవన్|ఉప\s*ముఖ్యమంత్రి\s*పవన్|జనసేనాని|జనసేన\s*అధినేత)/i,
+            /(?:pawan\s*kalyan|pawankalyan|deputy\s*cm\s*pawan|janasenani)/i
+        ],
+        handles: [/pawankalyan/i]
+    },
+    {
+        id: "lokesh",
+        nameTe: "నారా లోకేష్",
+        nameEn: "Nara Lokesh",
+        patterns: [
+            /(?:నారా\s*లోకేష్|నారా\s*లోకేశ్|మంత్రి\s*లోకేష్|మంత్రి\s*లోకేశ్)/i,
+            /(?:nara\s*lokesh|minister\s*lokesh)/i
+        ],
+        handles: [/naralokesh/i]
+    },
+    {
+        id: "ktr",
+        nameTe: "కేటీఆర్",
+        nameEn: "K.T. Rama Rao (KTR)",
+        patterns: [
+            /(?:కేటీఆర్|కేటిఆర్|తారక\s*రామారావు|తారకరామారావు|కల్వకుంట్ల\s*తారక|బిఆర్ఎస్\s*వర్కింగ్\s*ప్రెసిడెంట్|బీఆర్ఎస్\s*వర్కింగ్\s*ప్రెసిడెంట్)/i,
+            /(?:ktr|kt\s*rama\s*rao|taraka\s*rama\s*rao)/i
+        ],
+        handles: [/ktrbrs/i]
+    }
+];
+exports.ROUTINE_GREETING_INDICATORS = [
+    "శుభాకాంక్షలు", "దినోత్సవ", "పుట్టినరోజు", "వర్ధంతి", "జయంతి", "నివాళులు", "సంతాపం",
+    "గ్రీటింగ్స్", "హ్యాపీ", "wishes", "greetings", "condolences", "tribute", "birth anniversary", "death anniversary"
+];
+exports.STATEMENT_AND_QUOTE_INDICATORS = [
+    "ప్రకటన", "ప్రకటించ", "వ్యాఖ్య", "వ్యాఖ్యానించ", "అన్నారు", "అని అన్నారు", "అంటూ",
+    "తెలిపారు", "స్పష్టం", "స్పందించ", "వెల్లడించ", "ధ్వజమెత్త", "నిలదీశ", "డిమాండ్",
+    "విమర్శించ", "హెచ్చరించ", "ఫైర్", "కౌంటర్", "సవాల్", "ఆగ్రహం", "పిలుపు", "హామీ",
+    "నిర్ణయం", "ఆదేశించ", "ట్వీట్", "పోస్ట్", "ప్రెస్‌మీట్", "సమావేశం", "ప్రసంగం",
+    "ఉటంకిస్తూ", "మాటల్లో", "పేర్కొన్న", "చెప్పిన", "వివరించిన", "స్పష్టత", "ప్రశ్నించ",
+    "ఆరోపణ", "నిప్పులు", "తీవ్రంగా", "విరుచుకుపడ్డ", "మండిపడ్డ",
+    "said", "remarked", "stated", "declared", "slammed", "lashed out", "demanded",
+    "warned", "criticized", "tweeted", "posted", "announced", "reacted", "press meet",
+    "speech", "quoted", "urged", "countered", "alleged", "clarified"
+];
+function isTopTeluguLeaderStatement(text = '', headline = '', authorOrSource = '') {
+    const res = detectTopTeluguLeader(headline, text, authorOrSource);
+    return res.isTopLeaderNews;
+}
+exports.isTopTeluguLeaderStatement = isTopTeluguLeaderStatement;
+function detectTopTeluguLeader(headline = '', content = '', authorOrSource = '') {
+    const h = (headline || '').trim();
+    const c = (content || '').trim();
+    const a = (authorOrSource || '').trim();
+    const combined = `${h} ${c} ${a}`.toLowerCase();
+    // 🛑 Exclude routine greetings, wishes, condolences (పుట్టినరోజు, దినోత్సవ శుభాకాంక్షలు etc. are NOT breaking news)
+    const isRoutineGreeting = exports.ROUTINE_GREETING_INDICATORS.some(g => h.toLowerCase().includes(g.toLowerCase()));
+    if (isRoutineGreeting) {
+        return {
+            isTopLeaderNews: false,
+            leaderName: '',
+            isAuthor: false,
+            inHeadline: false,
+            isQuotedOrStatement: false
+        };
+    }
+    for (const leader of exports.TOP_TELUGU_LEADERS) {
+        // 1. Author / Social Handle match: Leader directly posted
+        const isAuthor = leader.handles.some(rgx => rgx.test(a) || rgx.test(combined)) ||
+            leader.patterns.some(rgx => rgx.test(a));
+        // 2. Headline match: Leader prominently in headline
+        const inHeadline = leader.patterns.some(rgx => rgx.test(h));
+        // 3. Leader mentioned in text
+        const inText = leader.patterns.some(rgx => rgx.test(combined));
+        // 4. Statement / Quote indicator in headline or content
+        const hasStatementIndicator = exports.STATEMENT_AND_QUOTE_INDICATORS.some(ind => {
+            const indLower = ind.toLowerCase();
+            return h.toLowerCase().includes(indLower) || c.toLowerCase().includes(indLower);
+        });
+        // If author or in headline or (in text with statement/quote):
+        if (isAuthor || inHeadline || (inText && hasStatementIndicator)) {
+            return {
+                isTopLeaderNews: true,
+                leaderName: leader.nameTe,
+                isAuthor,
+                inHeadline,
+                isQuotedOrStatement: isAuthor || hasStatementIndicator
+            };
+        }
+    }
+    return {
+        isTopLeaderNews: false,
+        leaderName: '',
+        isAuthor: false,
+        inHeadline: false,
+        isQuotedOrStatement: false
+    };
+}
+exports.detectTopTeluguLeader = detectTopTeluguLeader;
 /**
  * Formats a story text into strictly 3 to 4 distinct paragraphs separated by \n\n.
  * If already separated by paragraphs, preserves them.

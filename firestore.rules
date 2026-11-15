@@ -67,7 +67,7 @@ service cloud.firestore {
     // User Profiles & Subcollections (Messages, Notifications)
     match /users/{userId} {
       // Allow read if user is authenticated or if querying public staff/reporters
-      allow read: if isAuthed() || (resource.data.role in ['REPORTER', 'reporter', 'STAFF_REPORTER', 'REGIONAL_INCHARGE', 'EDITOR', 'ADMIN', 2, 3, 4, 5, 6, 7, '2', '3', '4', '5', '6', '7']);
+      allow read: if isAuthed() || (('role' in resource.data) && (resource.data.role in ['REPORTER', 'reporter', 'STAFF_REPORTER', 'REGIONAL_INCHARGE', 'EDITOR', 'ADMIN', 2, 3, 4, 5, 6, 7, '2', '3', '4', '5', '6', '7']));
       // Allow create if creating own doc (as standard SUBSCRIBER/GUEST only) or if Admin/Editor or Super Admin
       allow create: if isAuthed() && (
         isSuperAdminAuth() ||
@@ -77,12 +77,13 @@ service cloud.firestore {
          (!('assignedDistricts' in request.resource.data) || request.resource.data.assignedDistricts.size() == 0))
       );
 
-      // Normal users cannot modify protected fields (role, points, badges, assignments, warnings, lastActive)
-      // 🛡️ RECURSIVE LOOP KILL-SWITCH:
-      // Blocking 'lastActive' across ALL client updates (including Admin/Editor/SuperAdmin client apps)
-      // kills the recursive write-loop on all installed client APKs globally and immediately.
+      // Normal users cannot modify protected fields (role, points, badges, assignments, warnings)
+      // 🛡️ RECURSIVE LOOP GUARD:
+      // Allows normal heartbeat / FCM token sync while throttling 'lastActive' to at most once per 15 minutes,
+      // preventing recursive write-loops while eliminating UPDATE (DENY) retry storms from legacy APKs.
       allow update: if isAuthed() &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['lastActive']) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['lastActive']) ||
+         (!('lastActive' in resource.data) || !(resource.data.lastActive is timestamp) || request.time > resource.data.lastActive + duration.value(15, 'm'))) &&
         (
           isSuperAdminAuth() ||
           isEditorOrAdmin() ||

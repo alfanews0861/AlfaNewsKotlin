@@ -103,6 +103,18 @@ private var prefCursor: DocumentSnapshot? = null  // Tracks pagination state
      - **Strict Memory Filtering (`isPostAllowedForHomeFeed`)**: OTHER districts' reporter/local news must NEVER enter the Home feed.
      - **Fallback & Cache Protection**: Fallback lists, local disk cache, and `loadMore` MUST ALL strictly pass through `isPostAllowedForHomeFeed`. NEVER bypass the filter or dump raw unfiltered news (`allRaw` / `emergencyList`) into `_news.value`.
 
+- **PROJECT-WIDE ZERO EGRESS & DATA SURGE PREVENTION POLICY (ప్రాజెక్ట్‌వ్యాప్త ఎగ్రెస్ నిరోధక & డేటా రక్షణ విధానం — కేవలం నోటిఫికేషన్లకే కాదు, ఏ పని చేసినా డేటా పెరగకూడదు)**:
+  1. **Universal Zero Egress & Edge Cache Proxy (నోటిఫికేషన్లు, వెబ్, మొబైల్, సోషల్ షేరింగ్ ఎక్కడా నేరుగా స్టోరేజ్ వాడరాదు)**:
+     నోటిఫికేషన్లు, వెబ్ ఫీడ్లు, సోషల్ మీడియా ప్రివ్యూ కార్డ్స్ (`/news-card/**`), ఓపెన్‌గ్రాఫ్ మెటా ఇమేజ్‌లు, లేదా యూజర్ ఫీడ్‌లు — ఏ సందర్భంలోనూ Firebase Storage పబ్లిక్ డౌన్‌లోడ్ URLలను క్లయింట్‌లకు నేరుగా సర్వ్ చేయరాదు! ప్రతీ ఇమేజ్ URL తప్పనిసరిగా Cloudflare-backed Edge Cache Proxy (`https://wsrv.nl/?url=...&w=640&output=webp&q=75`) లేదా ఎక్స్‌టర్నల్ న్యూస్ CDN ద్వారా మాత్రమే రూట్ అవ్వాలి. దీనివల్ల లక్షల మంది యూజర్లు ఒకేసారి చూసినా Firebase Storage నుండి కేవలం 1 సారి (~25KB WebP) మాత్రమే సర్వ్ అవుతుంది; మిగిలిన 100% రిక్వెస్ట్‌లు Cloudflare Edge Cache నుండి ఉచితంగా అందుతాయి. Firebase Egress బిల్లు ఎల్లప్పుడూ ₹0.
+  2. **Immediate Storage Purge (రా వీడియోల తక్షణ తొలగింపు — సైజుతో సంబంధం లేకుండా 100% డిలీట్)**:
+     రిపోర్టర్లు అప్‌లోడ్ చేసే వీడియో ఎంత సైజు ఉన్నా సరే (1MB అయినా, 10MB అయినా, 100MB అయినా — సైజుతో సంబంధం లేకుండా ప్రతీ వీడియో), YouTube లో పబ్లిష్ అయిన వెంటనే లేదా ప్రాసెసింగ్ ఫెయిలైన వెంటనే Firebase Storage లోని ఆ రా ఫైల్‌ను తక్షణమే డిలీట్ చేయాలి (`file.delete()`). Firebase Storage లో ఏ ఒక్క వీడియో ఫైల్ కూడా మిగిలి ఉండరాదు.
+  3. **Strict Firestore Read Bounds & Mandatory Pagination (అన్‌బౌండెడ్ క్వెరీలు పూర్తిగా నిషిద్ధం)**:
+     ఏ ఫంక్షన్, వెబ్ API, లేదా క్లయింట్ స్క్రీన్ అయినా సరే Firestore లో `collection('...').get()` ను `.limit()` లేకుండా ఎట్టి పరిస్థితుల్లోనూ వాడరాదు! ఫీడ్లు, లిస్టింగ్‌లు ఎల్లప్పుడూ కర్సర్ పేజీనేషన్‌తోనే లోడ్ కావాలి. షెడ్యూల్డ్ జాబ్‌లలో గరిష్టంగా 100 డాక్యుమెంట్లకు మించి చదవకూడదు (`.limit(100)`). అనవసరమైన డాక్యుమెంట్ రీడ్స్ వల్ల ఫైర్‌స్టోర్ బిల్ పెరగకుండా సిస్టమ్ కచ్చితమైన హద్దుల్లోనే ఉండాలి.
+  4. **Runaway Loop & Infinite Trigger Defense (రైట్ లూప్‌లు & అనంతమైన ట్రిగ్గర్ల నిరోధం)**:
+     Firestore `onDocumentWritten` లేదా `onDocumentUpdated` ట్రిగ్గర్లు తమను తాము మళ్లీ మళ్లీ ట్రిగ్గర్ చేసుకునే ఇన్ఫినిట్ లూప్‌లను నిరోధించడానికి కచ్చితమైన `before/after` ఫీల్డ్ చెక్‌లు ఉండాలి (ఉదా: `if (before.approved === after.approved) return;`). పాసివ్ ఫీల్డ్స్ (views, likes, comments) అప్‌డేట్ అయినప్పుడు భారీ ప్రాసెసింగ్ లేదా AI కాల్స్ ట్రిగ్గర్ అవ్వకూడదు.
+  5. **Zero Bill Shock & Night Quiet Hours (భారీ బిల్లుల రక్షణ & నిశ్శబ్ద రాత్రి)**:
+     FCM పుష్ డెలివరీ గూగుల్ ద్వారా 100% ఉచితం. Cloud Functions ఇన్వొకేషన్లు నెలకు ~150 మాత్రమే (20 లక్షల ఉచిత పరిమితిలో 0.01%). అర్ధరాత్రి నిద్ర వేళల్లో (11 PM - 6 AM IST) ప్రాణాపాయ విపత్తులు మినహా బ్రేకింగ్/షెడ్యూల్డ్ నోటిఫికేషన్లు పూర్తిగా నిషిద్ధం. ఎటువంటి పరిస్థితుల్లోనూ భారీ బిల్లులు పెరిగే ఆస్కారం లేకుండా ప్రాజెక్ట్ సంపూర్ణంగా లాక్ చేయబడింది.
+
 ---
 
 ## STRICT CHANGE CONTROL — ZERO REGRESSION POLICY
