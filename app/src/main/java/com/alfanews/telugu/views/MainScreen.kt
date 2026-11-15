@@ -29,7 +29,7 @@ import com.alfanews.telugu.models.ThemeMode
 import com.alfanews.telugu.models.User
 import com.alfanews.telugu.models.UserRole
 import com.alfanews.telugu.BuildConfig
-import com.alfanews.telugu.ui.theme.Mandali
+import com.alfanews.telugu.ui.theme.Mallanna
 import com.alfanews.telugu.ui.theme.Ramabhadra
 import com.alfanews.telugu.viewmodels.MainViewModel
 import com.alfanews.telugu.viewmodels.NewsFeedViewModel
@@ -871,7 +871,7 @@ fun MainScreen(
                 text = {
                     Text(
                         text = "ఆల్ఫా న్యూస్ యాప్‌లో సరికొత్త ఫీచర్లు, అత్యంత వేగవంతమైన పనితీరు మరియు తాజా లైవ్ వార్తల కోసం దయచేసి యాప్‌ను వెంటనే గూగుల్ ప్లే స్టోర్ నుండి అప్‌డేట్ చేసుకోండి. అప్‌డేట్ చేసుకున్న తర్వాతే యాప్ పనిచేస్తుంది.",
-                        fontFamily = Mandali,
+                        fontFamily = Mallanna,
                         fontSize = 16.sp,
                         lineHeight = 24.sp,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center

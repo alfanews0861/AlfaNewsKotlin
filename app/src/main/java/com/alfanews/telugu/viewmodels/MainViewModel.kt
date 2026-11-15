@@ -1015,7 +1015,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // 6. Automated text heuristics to prevent legacy auto rejection/approval notifications from popping up
-        val text = (data["text"] as? String ?: (data["body"] as? String ?: "")).trim()
         if (text.contains("మీరు పంపిన వార్త:") && text.contains("ఎడిటోరియల్ డెస్క్ పరిశీలన:")) return false
         if (text.contains("వార్త ప్రచురణ సమాచారం") && text.contains("అంతరాయం ఏర్పడింది")) return false
         if (text.contains("రిథమ్ రిమైండర్") || text.contains("దరఖాస్తు అడ్మిన్ ప్రత్యేక పరిశీలనకు")) return false
