@@ -2,55 +2,53 @@ import React from 'react';
 
 const AdPolicyPage: React.FC = () => {
   return (
-    <div className="bg-white p-6 md:p-8 rounded-lg shadow-lg text-xl leading-relaxed text-gray-800">
-      <h1 className="font-ramabhadra text-3xl md:text-4xl text-gray-900 border-b-2 border-red-200 pb-2 mb-6">
-        ప్రకటనల విధానం (Advertising Policy)
+    <div className="bg-white p-6 md:p-8 rounded-lg shadow-lg text-lg leading-relaxed text-gray-800 max-w-4xl mx-auto font-mallanna">
+      <h1 className="font-ramabhadra text-2xl md:text-3xl text-gray-900 border-b-2 border-red-500 pb-2 mb-6">
+        ప్రకటనల విధానం (Advertising & AdSense Policy)
       </h1>
 
       <div className="space-y-6">
         <p>
-          Alfa News Telugu సేవలను మా వినియోగదారులకు ఉచితంగా అందించడానికి, మేము మా అప్లికేషన్ మరియు వెబ్‌సైట్‌లో ప్రకటనలను ప్రదర్శిస్తాము. ఈ ప్రకటనల విధానం మా ప్లాట్‌ఫారమ్‌పై ప్రకటనలు ఎలా పనిచేస్తాయో వివరిస్తుంది.
+          Alfa News Telugu (<a href="https://alfanews.app/" className="text-red-600 hover:underline">https://alfanews.app/</a>) సేవలను మా వినియోగదారులకు ఉచితంగా అందించడానికి, మేము మా వెబ్‌సైట్ మరియు మొబైల్ అప్లికేషన్‌లో ప్రకటనలను ప్రదర్శిస్తాము. ఈ విధానం మా ప్లాట్‌ఫారమ్‌పై ప్రకటనలు ఎలా పనిచేస్తాయో స్పష్టంగా వివరిస్తుంది.
         </p>
 
-        <h2 className="font-ramabhadra text-2xl text-red-700 pt-4">
-          ప్రకటనల ప్రయోజనం
+        <h2 className="font-ramabhadra text-xl text-red-700 pt-2">
+          ప్రకటనల భాగస్వాములు & గూగుల్ అడ్సెన్స్ (Google AdSense & AdMob Partners)
         </h2>
         <p>
-          ప్రకటనల ద్వారా వచ్చే ఆదాయం మాకు కింది వాటికి సహాయపడుతుంది:
-        </p>
-        <ul className="list-disc list-inside space-y-3 pl-4">
-          <li>జర్నలిస్టులు మరియు సిబ్బందికి చెల్లింపులు చేయడానికి.</li>
-          <li>సర్వర్లు, నిర్వహణ మరియు సాంకేతిక మౌలిక సదుపాయాల ఖర్చులను భరించడానికి.</li>
-          <li>మా సేవలను నిరంతరం మెరుగుపరచడానికి మరియు కొత్త ఫీచర్లను అభివృద్ధి చేయడానికి.</li>
-        </ul>
-
-        <h2 className="font-ramabhadra text-2xl text-red-700 pt-4">
-          ప్రకటనల భాగస్వాములు
-        </h2>
-        <p>
-          మేము Google AdMob వంటి మూడవ-పక్ష ప్రకటనల నెట్‌వర్క్‌లతో కలిసి పనిచేస్తాము. ఈ భాగస్వాములు మీకు మరింత సంబంధిత ప్రకటనలను చూపించడానికి కుక్కీలు, వెబ్ బీకాన్‌లు మరియు ఇతర సాంకేతికతలను ఉపయోగించి మీ వినియోగ నమూనాలపై అజ్ఞాత (non-personally identifiable) సమాచారాన్ని సేకరించవచ్చు.
-        </p>
-        <p>
-          ఉదాహరణకు, మీరు క్రీడల వార్తలను ఎక్కువగా చదివితే, మీకు క్రీడా సంబంధిత ఉత్పత్తుల ప్రకటనలు కనిపించవచ్చు. మేము మీ వ్యక్తిగత గుర్తింపు సమాచారాన్ని (పేరు, ఇమెయిల్ వంటివి) మీ అనుమతి లేకుండా ప్రకటనదారులతో పంచుకోము.
+          మేము <strong>Google AdSense</strong> మరియు <strong>Google AdMob</strong> వంటి అంతర్జాతీయ ప్రమాణాలు కలిగిన మూడవ పక్ష ప్రకటనల నెట్‌వర్క్‌లతో కలిసి పనిచేస్తాము (Publisher ID: <code>pub-5787901991150360</code>). ఈ భాగస్వాములు పాఠకులకు అత్యంత సంబంధిత ప్రకటనలను చూపించడానికి కుక్కీలు, వెబ్ బీకాన్‌లు మరియు సాంకేతికతలను ఉపయోగిస్తారు.
         </p>
 
-        <h2 className="font-ramabhadra text-2xl text-red-700 pt-4">
-          ప్రకటనల రకాలు
+        <h2 className="font-ramabhadra text-xl text-red-700 pt-2">
+          కంటెంట్ మరియు ప్రకటనల విభజన (Editorial Independence)
         </h2>
         <p>
-          మా ప్లాట్‌ఫారమ్‌పై మీరు బ్యానర్ ప్రకటనలు, ఇంటర్‌స్టీషియల్ (పూర్తి స్క్రీన్) ప్రకటనలు మరియు స్థానిక (నేటివ్) ప్రకటనలు వంటి వివిధ రకాల ప్రకటనలను చూడవచ్చు. మేము ప్రకటనలు మా కంటెంట్ యొక్క వినియోగానికి ఎక్కువగా ఆటంకం కలిగించకుండా ఉండేలా జాగ్రత్తలు తీసుకుంటాము.
+          Alfa News Telugu సంపాదకీయ సమగ్రతకు ప్రాధాన్యతనిస్తుంది. మా వార్తా కథనాలు, విశ్లేషణలు మరియు రిపోర్టింగ్‌లు ప్రకటనదారుల ప్రభావానికి గురికావు. ప్రాయోజిత (Sponsored) కథనాలు లేదా వాణిజ్య ప్రకటనలు స్పష్టమైన 'ప్రకటన / Ad / Sponsored' లేబుల్‌తో మాత్రమే ప్రదర్శించబడతాయి.
         </p>
 
-        <h2 className="font-ramabhadra text-2xl text-red-700 pt-4">
-          వినియోగదారు ఎంపికలు
+        <h2 className="font-ramabhadra text-xl text-red-700 pt-2">
+          యూజర్ ఎంపికలు & ప్రకటనల సెట్టింగ్‌లు (Ad Settings & Opt-Out)
         </h2>
         <p>
-          వ్యక్తిగతీకరించిన ప్రకటనలను నియంత్రించడానికి మీకు కొన్ని ఎంపికలు ఉన్నాయి. మీరు మీ మొబైల్ పరికరం యొక్క సెట్టింగ్‌లలో ప్రకటనల ట్రాకింగ్‌ను పరిమితం చేయవచ్చు. Google యొక్క ప్రకటనల విధానాలు మరియు ఎంపికల గురించి మరింత తెలుసుకోవడానికి, దయచేసి వారి <a href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">ప్రకటనల గోప్యతా విధానాన్ని</a> సందర్శించండి.
+          గూగుల్ ప్రకటనల నెట్‌వర్క్ ద్వారా మీ ప్రాధాన్యతలకు తగినట్లు వచ్చే ప్రకటనలను నియంత్రించడానికి మీరు గూగుల్ అధికారిక ప్రకటన సెట్టింగ్‌లను సందర్శించవచ్చు:{' '}
+          <a 
+            href="https://adssettings.google.com/" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="text-red-600 font-bold hover:underline"
+          >
+            Google Ads Settings
+          </a>.
         </p>
-        
-        <p className="pt-4 border-t border-gray-200">
-          మా సేవలను ఉపయోగించడం ద్వారా, ఈ ప్రకటనల విధానాన్ని మీరు అర్థం చేసుకుని అంగీకరించినట్లుగా మేము భావిస్తాము.
-        </p>
+
+        <div className="pt-4 border-t border-gray-200">
+          <p className="text-gray-600 text-sm">
+            ప్రకటనల విధానం గురించి ఏవైనా ప్రశ్నలు ఉంటే దయచేసి మమ్మల్ని సంప్రదించండి:{' '}
+            <a href="mailto:alfanews0861@gmail.com" className="text-red-600 font-bold hover:underline">
+              alfanews0861@gmail.com
+            </a>
+          </p>
+        </div>
       </div>
     </div>
   );

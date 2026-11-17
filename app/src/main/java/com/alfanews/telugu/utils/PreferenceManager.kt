@@ -821,6 +821,14 @@ class PreferenceManager(context: Context) {
         return null
     }
 
+    /**
+     * 🛡️ రిమోట్ ఫైర్‌స్టోర్ (settings/android_config.min_version_code) నుండి వచ్చిన
+     * కనీస వెర్షన్ కోడ్. యాప్ స్టార్ట్ అయిన మిల్లీసెకను నుండే ఫోర్స్ అప్‌డేట్ గుర్తించడానికి క్యాష్ చేయబడుతుంది.
+     */
+    var cachedMinVersionCode: Int
+        get() = prefs.getInt("cached_min_version_code", 0)
+        set(value) = prefs.edit().putInt("cached_min_version_code", value).apply()
+
     private fun saveMandalScores(district: String, scores: Map<String, Int>) {
         val obj = org.json.JSONObject()
         scores.forEach { (k, v) -> obj.put(k, v) }

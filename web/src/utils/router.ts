@@ -237,11 +237,16 @@ export function parsePath(pathname: string, hash: string): AppRoute {
     return { type: 'policy', policy: potentialPolicy };
   }
 
-  // 8. Query String for Search / Topic on Root
-  if (cleanPath === '' || cleanPath === '/') {
+  // 8. Query String for Shared News ID or Search / Topic on Root
+  if (cleanPath === '' || cleanPath === '/' || cleanPath.startsWith('/?')) {
     try {
       if (typeof window !== 'undefined' && window.location.search) {
         const params = new URLSearchParams(window.location.search);
+        const sharedId = params.get('id') || params.get('postId') || params.get('news_id') || params.get('news');
+        if (sharedId && sharedId.trim()) {
+          const id = extractNewsId(sharedId.trim());
+          if (id) return { type: 'news', id };
+        }
         const qParam = params.get('q') || params.get('topic') || params.get('tag');
         if (qParam && qParam.trim()) {
           return { type: 'topic', topic: qParam.trim().replace(/^#/, '') };

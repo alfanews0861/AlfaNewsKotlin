@@ -17,6 +17,7 @@ import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.PreferenceManager
 import com.alfanews.telugu.utils.Constants
+import com.alfanews.telugu.BuildConfig
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.firestore.DocumentSnapshot
@@ -80,6 +81,7 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun loadLocalAds(district: String?) {
+        if (prefs.cachedMinVersionCode > BuildConfig.VERSION_CODE) return
         viewModelScope.launch {
             try {
                 val now = System.currentTimeMillis()
@@ -411,6 +413,11 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
         forceRefresh: Boolean = false,
         isExplicitScrollToTop: Boolean = false
     ) {
+        if (prefs.cachedMinVersionCode > BuildConfig.VERSION_CODE) {
+            Log.w("NewsFeedVM", "Force update required (cachedMinVersionCode: ${prefs.cachedMinVersionCode} > ${BuildConfig.VERSION_CODE}). Skipping loadNews to avoid egress.")
+            _loading.value = false
+            return
+        }
         currentLanguage = language
         val now = System.currentTimeMillis()
         // 🛡️ DEBOUNCE DOUBLE-RESUME: If a fetch was already triggered within the last 3.5 seconds and is running,
@@ -674,6 +681,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun loadMore(language: Language, currentUser: User?) {
+        if (prefs.cachedMinVersionCode > BuildConfig.VERSION_CODE) {
+            _hasMore.value = false
+            return
+        }
         currentLanguage = language
         if (isFetching || !_hasMore.value) return
         viewModelScope.launch {
@@ -1259,6 +1270,10 @@ class NewsFeedViewModel(application: Application) : AndroidViewModel(application
      * Preserves scroll position and existing posts, saving 95%+ server reads!
      */
     fun refreshFeedDelta(language: Language, currentUser: User?) {
+        if (prefs.cachedMinVersionCode > BuildConfig.VERSION_CODE) {
+            _isRefreshing.value = false
+            return
+        }
         if (isFetching) return
         val currentPosts = _news.value
         if (currentPosts.isEmpty()) {

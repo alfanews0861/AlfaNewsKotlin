@@ -14,6 +14,7 @@ import com.alfanews.telugu.services.AnalyticsService
 import com.alfanews.telugu.services.FirebaseService
 import com.alfanews.telugu.utils.PreferenceManager
 import com.alfanews.telugu.utils.Constants
+import com.alfanews.telugu.BuildConfig
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.firebase.firestore.DocumentSnapshot
@@ -365,6 +366,11 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         isExplicitScrollToTop: Boolean = false,
         initialPost: NewsPost? = null
     ) {
+        if (prefs.cachedMinVersionCode > BuildConfig.VERSION_CODE) {
+            Log.w("LocalNewsFeedVM", "Force update required (cachedMinVersionCode: ${prefs.cachedMinVersionCode} > ${BuildConfig.VERSION_CODE}). Skipping loadNews to avoid egress.")
+            _loading.value = false
+            return
+        }
         currentLanguage = language
         if (initialPost != null) {
             pinnedPost = initialPost
@@ -617,8 +623,12 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
-        fun loadMore(language: Language, currentUser: User?) {
-         currentLanguage = language
+    fun loadMore(language: Language, currentUser: User?) {
+        if (prefs.cachedMinVersionCode > BuildConfig.VERSION_CODE) {
+            _hasMore.value = false
+            return
+        }
+        currentLanguage = language
          val district = _activeDistrict.value ?: return
          val currentLastDoc = lastDocument
          if (!_hasMore.value || isFetching || currentLastDoc == null) return
@@ -725,6 +735,10 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
      * Prepends only brand new posts to in-memory feed without wiping or re-querying everything.
      */
     fun refreshFeedDelta(language: Language, currentUser: User?) {
+        if (prefs.cachedMinVersionCode > BuildConfig.VERSION_CODE) {
+            _isRefreshing.value = false
+            return
+        }
         if (isFetching) return
         val currentPosts = _news.value
         if (currentPosts.isEmpty()) {

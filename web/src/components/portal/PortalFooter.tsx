@@ -163,60 +163,67 @@ export const PortalFooter: React.FC<PortalFooterProps> = ({
             </h3>
             <ul className="space-y-2 text-sm">
               <li>
-                <button
-                  onClick={() => onOpenPolicyPage('about')}
-                  className="hover:text-red-400 transition-colors text-left"
+                <a
+                  href="/about"
+                  onClick={(e) => { e.preventDefault(); onOpenPolicyPage('about'); }}
+                  className="hover:text-red-400 transition-colors block"
                 >
                   • మా గురించి (About Us)
-                </button>
+                </a>
               </li>
               <li>
-                <button
-                  onClick={() => onOpenPolicyPage('contact')}
-                  className="hover:text-red-400 transition-colors text-left"
+                <a
+                  href="/contact"
+                  onClick={(e) => { e.preventDefault(); onOpenPolicyPage('contact'); }}
+                  className="hover:text-red-400 transition-colors block"
                 >
                   • సంప్రదించండి (Contact Us)
-                </button>
+                </a>
               </li>
               <li>
-                <button
-                  onClick={() => onOpenPolicyPage('privacy-policy')}
-                  className="hover:text-red-400 transition-colors text-left"
+                <a
+                  href="/privacy-policy"
+                  onClick={(e) => { e.preventDefault(); onOpenPolicyPage('privacy-policy'); }}
+                  className="hover:text-red-400 transition-colors block"
                 >
                   • ప్రైవసీ పాలసీ (Privacy Policy)
-                </button>
+                </a>
               </li>
               <li>
-                <button
-                  onClick={() => onOpenPolicyPage('terms')}
-                  className="hover:text-red-400 transition-colors text-left"
+                <a
+                  href="/terms"
+                  onClick={(e) => { e.preventDefault(); onOpenPolicyPage('terms'); }}
+                  className="hover:text-red-400 transition-colors block"
                 >
                   • నిబంధనలు (Terms & Conditions)
-                </button>
+                </a>
               </li>
               <li>
-                <button
-                  onClick={() => onOpenPolicyPage('disclaimer')}
-                  className="hover:text-red-400 transition-colors text-left"
+                <a
+                  href="/disclaimer"
+                  onClick={(e) => { e.preventDefault(); onOpenPolicyPage('disclaimer'); }}
+                  className="hover:text-red-400 transition-colors block"
                 >
                   • డిస్క్లైమర్ (Disclaimer)
-                </button>
+                </a>
               </li>
               <li>
-                <button
-                  onClick={() => onOpenPolicyPage('ad-policy')}
-                  className="hover:text-red-400 transition-colors text-left"
+                <a
+                  href="/ad-policy"
+                  onClick={(e) => { e.preventDefault(); onOpenPolicyPage('ad-policy'); }}
+                  className="hover:text-red-400 transition-colors block"
                 >
                   • ప్రకటనల విధానం (Ad Policy)
-                </button>
+                </a>
               </li>
               <li>
-                <button
-                  onClick={() => onOpenPolicyPage('content-policy')}
-                  className="hover:text-red-400 transition-colors text-left"
+                <a
+                  href="/content-policy"
+                  onClick={(e) => { e.preventDefault(); onOpenPolicyPage('content-policy'); }}
+                  className="hover:text-red-400 transition-colors block"
                 >
                   • కంటెంట్ పాలసీ (Content Policy)
-                </button>
+                </a>
               </li>
             </ul>
           </div>

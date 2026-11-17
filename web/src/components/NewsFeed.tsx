@@ -1,8 +1,10 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import NewsCard from './NewsCard';
-import AdCard from './AdCard';
-import AppDownloadModal from './AppDownloadModal';
+import AdMobCard from './AdMobCard';
+import AppDownloadPopup from './AppDownloadPopup';
+import SwipeHintOverlay from './SwipeHintOverlay';
+import { preloadImages } from '../utils/imageHelper';
 import { NewsPost, Language, User, UserInterest } from '../types';
 import { db } from '../services/firebase';
 import { getUserPreferredCategory } from '../services/analyticsService';
@@ -52,6 +54,7 @@ interface NewsFeedProps {
   onLoadComplete?: () => void;
   onReporterClick?: (id: string) => void;
   initialPostId?: string | null;
+  hideHeader?: boolean;
 }
 
 const strictlyGlobalKeywords = [
@@ -77,13 +80,51 @@ const isGlobalPost = (post: NewsPost): boolean => {
   return false;
 };
 
-const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUser, onLoadComplete, onReporterClick, initialPostId }) => {
+const NewsFeed: React.FC<NewsFeedProps> = ({
+  language,
+  onProfileClick,
+  currentUser,
+  onLoadComplete,
+  onReporterClick,
+  initialPostId,
+  hideHeader = false,
+}) => {
   const hasMoreRef = useRef(true);
   
   const [news, setNews] = useState<NewsPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
   const [showPreferences, setShowPreferences] = useState(false);
+  const [showDownloadPopup, setShowDownloadPopup] = useState(false);
+  const seenPostsCountRef = useRef<Set<string>>(new Set());
+
+  // 🎯 3-News Dismissible App Download Popup Trigger:
+  useEffect(() => {
+    if (!news || news.length === 0) return;
+    const mediaUrls = news.slice(0, 8).map(p => p.mediaUrl);
+    preloadImages(mediaUrls, 640);
+  }, [news]);
+
+  useEffect(() => {
+    const checkSeenCount = (postId?: string) => {
+      if (postId) {
+        seenPostsCountRef.current.add(postId);
+      }
+      if (seenPostsCountRef.current.size >= 3) {
+        const dismissed = sessionStorage.getItem('alfa_app_popup_dismissed');
+        if (!dismissed) {
+          setShowDownloadPopup(true);
+        }
+      }
+    };
+
+    const handleReadEvent = (e: any) => {
+      checkSeenCount(e.detail);
+    };
+
+    window.addEventListener('alfa_read_news_updated', handleReadEvent);
+    return () => window.removeEventListener('alfa_read_news_updated', handleReadEvent);
+  }, []);
 
   // Sync ref with state
   useEffect(() => {
@@ -187,11 +228,13 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
             const newPosts = Array.from(uniqueMap.values());
             const rankedNewPosts = rankPosts(newPosts, userPrefs.interests);
             
+            // 🎯 Ensure shared post (initialPostId) stays at index 0 on home feed
+            const initialInPrev = initialPostId ? prev.find(p => p.id === initialPostId) : null;
+            if (initialInPrev) {
+                return [initialInPrev, ...rankedNewPosts.filter(p => p.id !== initialPostId)];
+            }
+
             const finalNews = isInitial ? rankedNewPosts : [...prev, ...rankedNewPosts];
-            
-            // Save to cache if it's the initial load
-            // Direct server news: Zero disk cache
-            
             return finalNews;
         });
 
@@ -205,9 +248,11 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
         fetchingRef.current = false;
         if (isInitial && onLoadComplete) onLoadComplete();
     }
-  }, [userPrefs, currentUser?.district, onLoadComplete]);
+  }, [userPrefs, currentUser?.district, onLoadComplete, initialPostId]);
 
   useEffect(() => {
+    let isCancelled = false;
+
     const init = async () => {
         setLoading(true);
         setNews([]);
@@ -216,18 +261,32 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
         globalCursor.current = null;
         greetingCursor.current = null;
         setHasMore(true);
-        await loadMixedFeed(true);
+
+        // ⚡ Fast-path for shared link: fetch shared article immediately so it opens instantly on home page
         if (initialPostId) {
             try {
                 const docSnap = await getDoc(doc(db, 'news', initialPostId));
-                if (docSnap.exists()) {
+                if (!isCancelled && docSnap.exists()) {
                     const deepPost = { id: docSnap.id, ...docSnap.data(), timestamp: getTs(docSnap.data()) } as NewsPost;
-                    setNews(prev => [deepPost, ...prev.filter(p => p.id !== initialPostId)]);
+                    setNews([deepPost]);
+                    setLoading(false);
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.warn("Shared link fast-load error:", e);
+            }
+        }
+
+        await loadMixedFeed(true);
+
+        if (!isCancelled && feedRef.current) {
+            feedRef.current.scrollTop = 0;
         }
     };
     init();
+
+    return () => {
+        isCancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPostId]); // Intentionally omitting loadMixedFeed to prevent feed reset on interest updates
 
@@ -246,18 +305,20 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
 
   return (
     <div className="relative h-full w-full bg-black overflow-hidden flex flex-col">
-      <div className="absolute top-0 left-0 right-0 p-3 z-30 flex items-center justify-between drop-shadow-md bg-gradient-to-b from-black/60 to-transparent">
-          <div className="flex items-center pointer-events-none whitespace-nowrap shrink-0">
-              <span className="font-poppins font-bold text-2xl text-white">alfa</span>
-              <span className="font-poppins font-semibold text-2xl text-red-600">news</span>
-          </div>
-          <button 
-              onClick={() => setShowPreferences(true)}
-              className="p-2 bg-white/10 backdrop-blur-md rounded-full border border-white/20 text-white shadow-lg active:scale-95 transition-transform"
-          >
-              <Settings2 className="w-5 h-5" />
-          </button>
-      </div>
+      {!hideHeader && (
+        <div className="absolute top-0 left-0 right-0 p-3 z-30 flex items-center justify-between drop-shadow-md bg-gradient-to-b from-black/60 to-transparent">
+            <div className="flex items-center pointer-events-none whitespace-nowrap shrink-0">
+                <span className="font-poppins font-bold text-2xl text-white">alfa</span>
+                <span className="font-poppins font-semibold text-2xl text-red-600">news</span>
+            </div>
+            <button 
+                onClick={() => setShowPreferences(true)}
+                className="p-2 bg-white/10 backdrop-blur-md rounded-full border border-white/20 text-white shadow-lg active:scale-95 transition-transform"
+            >
+                <Settings2 className="w-5 h-5" />
+            </button>
+        </div>
+      )}
       {loading && news.length === 0 && (
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black">
               <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin mb-4"></div>
@@ -279,10 +340,11 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
                 </div>
             ];
             
+            // 🎯 Every 5 news articles: Render full-screen Ad Card matching Android App
             if ((index + 1) % 5 === 0) {
                 elements.push(
-                    <div key={`modal-${post.id}`} className="w-full h-full snap-start snap-always shrink-0 bg-black">
-                        <AppDownloadModal />
+                    <div key={`ad-${post.id}-${index}`} className="w-full h-full snap-start snap-always shrink-0 bg-black">
+                        <AdMobCard />
                     </div>
                 );
             }
@@ -299,6 +361,20 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ language, onProfileClick, currentUs
             ) : null}
         </div>
       </div>
+
+      {/* 🎯 Animated Swipe Up Hint for New Users */}
+      <SwipeHintOverlay />
+
+      {/* 🎯 3-News Dismissible App Download Popup */}
+      {showDownloadPopup && (
+        <AppDownloadPopup
+          postId={news[2]?.id || news[0]?.id || null}
+          onClose={() => {
+            setShowDownloadPopup(false);
+            sessionStorage.setItem('alfa_app_popup_dismissed', 'true');
+          }}
+        />
+      )}
 
       {showPreferences && (
           <PreferencesModal 

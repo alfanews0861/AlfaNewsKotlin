@@ -20,6 +20,8 @@ import DataCollectionPolicyPage from './components/policy/DataCollectionPolicyPa
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { useAppRoute, navigateTo } from './utils/router';
 import { updatePageSeo } from './utils/seoManager';
+import { useIsMobile } from './utils/useIsMobile';
+import MobileAppView from './components/MobileAppView';
 
 const { onAuthStateChanged, signOut } = _auth as any;
 const { doc, getDoc, setDoc, serverTimestamp, onSnapshot, collection, query, where, getDocs } = _firestore as any;
@@ -35,6 +37,7 @@ const App: React.FC = () => {
 
   const [authChecked, setAuthChecked] = useState(false);
   const route = useAppRoute();
+  const isMobile = useIsMobile();
 
   const guestUser: User = {
     id: 'guest-user',
@@ -276,8 +279,25 @@ const App: React.FC = () => {
             />
           </div>
         </div>
+      ) : isMobile ? (
+        /* 2. MOBILE WEB APP (Android App Layout) */
+        <MobileAppView
+          currentUser={currentUser}
+          language={language}
+          setLanguage={setLanguage}
+          onLoginClick={() => setShowLogin(true)}
+          onAdminClick={() => {
+            setShowAdmin(true);
+            navigateTo('/admin');
+          }}
+          initialPostId={route.type === 'news' ? route.id : null}
+          initialTab={route.type === 'classifieds' ? 'classifieds' : 'home'}
+          onOpenPolicyPage={(policyRoute) => {
+            navigateTo(`/${policyRoute}`);
+          }}
+        />
       ) : (
-        /* 2. MAIN FULL NEWS WEBSITE PORTAL */
+        /* 3. MAIN FULL NEWS WEBSITE PORTAL (Desktop) */
         <PortalHome
           currentUser={currentUser}
           onLoginClick={() => setShowLogin(true)}

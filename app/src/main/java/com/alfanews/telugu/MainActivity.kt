@@ -36,6 +36,8 @@ import com.alfanews.telugu.viewmodels.MainViewModel
 import com.alfanews.telugu.viewmodels.NewsFeedViewModel
 import com.alfanews.telugu.views.MainScreen
 import com.alfanews.telugu.views.SplashScreenView
+import com.alfanews.telugu.views.MandatoryUpdateScreen
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.appupdate.AppUpdateOptions
@@ -199,13 +201,23 @@ class MainActivity : ComponentActivity() {
                 mainViewModel.setActiveTab("home")
                 AnalyticsService.logNotificationOpened(postId = initialPostId, actionUrl = intent?.getStringExtra("actionUrl"))
             }
-            val language = mainViewModel.language.value
-            val currentUser = mainViewModel.currentUser.value
-            newsFeedViewModel.loadNews(language, currentUser, initialPostId = initialPostId)
-            // Preload local news with slight delay (300ms) so Home Feed gets initial priority
-            lifecycleScope.launch {
-                kotlinx.coroutines.delay(300L)
-                localNewsFeedViewModel.loadNews(language, currentUser)
+
+            // 🛡️ ZERO-EGRESS FORCE UPDATE GUARD:
+            // If cached minimum required version is greater than this installed app version,
+            // DO NOT fetch news or local ads from Firestore! Save 100% bandwidth & egress.
+            val cachedMinVersion = PreferenceManager.getInstance(this).cachedMinVersionCode
+            val isUpdateMandatory = cachedMinVersion > BuildConfig.VERSION_CODE
+            if (!isUpdateMandatory) {
+                val language = mainViewModel.language.value
+                val currentUser = mainViewModel.currentUser.value
+                newsFeedViewModel.loadNews(language, currentUser, initialPostId = initialPostId)
+                // Preload local news with slight delay (300ms) so Home Feed gets initial priority
+                lifecycleScope.launch {
+                    kotlinx.coroutines.delay(300L)
+                    localNewsFeedViewModel.loadNews(language, currentUser)
+                }
+            } else {
+                Log.w("MainActivity", "Cold start blocked news loading: cachedMinVersionCode ($cachedMinVersion) > BuildConfig.VERSION_CODE (${BuildConfig.VERSION_CODE})")
             }
         } catch (e: Throwable) {
             Log.e("MainActivity", "Initial news load error: ${e.message}", e)
@@ -250,6 +262,9 @@ class MainActivity : ComponentActivity() {
         // Regular HTTPS links will be handled above via FirebaseDynamicLinks
 
         setContent {
+            val minVersionCode by mainViewModel.minVersionCode.collectAsStateWithLifecycle()
+            val isForceUpdateMandatory = minVersionCode > BuildConfig.VERSION_CODE
+
             val themeMode by mainViewModel.themeMode.collectAsState()
             val isDarkTheme = when (themeMode) {
                 ThemeMode.LIGHT -> false
@@ -258,7 +273,12 @@ class MainActivity : ComponentActivity() {
             }
 
             AlfaNewsTheme(darkTheme = isDarkTheme) {
-                if (showAnimatedSplash) {
+                if (isForceUpdateMandatory) {
+                    MandatoryUpdateScreen(
+                        currentVersionName = BuildConfig.VERSION_NAME,
+                        onUpdateClick = { launchPlayStoreUpdate() }
+                    )
+                } else if (showAnimatedSplash) {
                 val newsLoaded by newsFeedViewModel.news.collectAsState()
                 val localNewsLoaded by localNewsFeedViewModel.news.collectAsState()
                 val isLoading by newsFeedViewModel.loading.collectAsState()
@@ -755,6 +775,30 @@ class MainActivity : ComponentActivity() {
         }
         
         return null
+    }
+
+    /**
+     * 🚀 Launch Google Play Store directly to the Alfa News app update listing.
+     */
+    fun launchPlayStoreUpdate() {
+        val pkgName = packageName
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkgName")).apply {
+                setPackage("com.android.vending")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+            try {
+                startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$pkgName")).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                )
+            } catch (ex: Exception) {
+                Log.e("MainActivity", "Could not open Play Store for update", ex)
+            }
+        }
     }
 }
 

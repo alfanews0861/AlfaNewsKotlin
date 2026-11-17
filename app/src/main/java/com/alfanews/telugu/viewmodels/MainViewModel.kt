@@ -66,7 +66,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isUpdateDownloaded = MutableStateFlow(false)
     val isUpdateDownloaded: StateFlow<Boolean> = _isUpdateDownloaded.asStateFlow()
 
-    private val _minVersionCode = MutableStateFlow(0)
+    private val _minVersionCode = MutableStateFlow(prefs.cachedMinVersionCode)
     val minVersionCode: StateFlow<Int> = _minVersionCode.asStateFlow()
 
     private val _notificationsGranted = MutableStateFlow(true)
@@ -615,6 +615,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
                 
                 val minCode = (snapshot.get("min_version_code") as? Number)?.toInt() ?: 0
+                if (minCode > 0) {
+                    prefs.cachedMinVersionCode = minCode
+                }
                 _minVersionCode.value = minCode
             }
     }

@@ -9,6 +9,7 @@ import { Heart, MessageCircle, Share2, BookOpen, ChevronDown, ChevronUp, X, Chec
 import { VerifiedBadge } from './VerifiedBadge';
 import { isReporterVerified } from '../services/reporterVerification';
 import SurveyCard from './SurveyCard';
+import { getOptimizedImageUrl } from '../utils/imageHelper';
 
 export const getReadNewsIds = (): Set<string> => {
   try {
@@ -112,10 +113,10 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
   // కేవలం పేరాలుగా విడదీసినా ఒకే టెక్స్ట్ అయితే బటన్ ఎట్టి పరిస్థితుల్లోనూ చూపించకూడదు.
   const hasSubstantialFullStory = Boolean(
     fullStoryText.trim() &&
-    fullStoryWords >= 90 &&
+    fullStoryWords >= 60 &&
     fullStoryText.replace(/\s+/g, ' ').trim() !== content.replace(/\s+/g, ' ').trim() &&
-    fullStoryWords >= (contentWords + 30) &&
-    fullStoryText.length >= (content.length + 100)
+    fullStoryWords >= (contentWords + 15) &&
+    fullStoryText.length >= (content.length + 60)
   );
 
   const storyScrollRef = useRef<HTMLDivElement>(null);
@@ -437,23 +438,16 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
 
   const sourceDisplay = post.originalUrl ? getSourceDisplay(post.originalUrl) : null;
 
-  const getOptimizedImageUrl = (url: string) => {
-    const DEFAULT_IMAGE = "https://firebasestorage.googleapis.com/v0/b/alfa-news-31bf7.firebasestorage.app/o/news-media%2Fbg.png?alt=media&token=70bb37fd-c13d-4f97-84e1-11fb6c0d1061";
-    if (!url || url.trim() === '') return DEFAULT_IMAGE;
-    if (url.includes('wsrv.nl')) return url;
-    return `https://wsrv.nl/?url=${encodeURIComponent(url)}&output=webp`;
-  };
-
   if (post.type === 'greeting') {
     return (
       <>
         <div ref={cardRef} className="w-full h-full snap-start snap-always shrink-0 overflow-hidden text-white bg-black flex flex-col relative">
           <div className="absolute inset-0 w-full h-full">
             <img 
-              src={getOptimizedImageUrl(post.mediaUrl)} 
+              src={getOptimizedImageUrl(post.mediaUrl, 640)} 
               alt="Greeting" 
               className="w-full h-full object-cover object-top" 
-              loading="lazy" 
+              decoding="async" 
               referrerPolicy="no-referrer" 
             />
           </div>
@@ -480,15 +474,8 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
             </button>
           </div>
 
-          {/* Bottom Info with Read Status */}
+          {/* Bottom Info */}
           <div className="absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-black/80 via-black/50 to-transparent pt-16 pb-8 px-6">
-            <div className="flex items-center gap-2 mb-1">
-              {isRead ? (
-                <span className="bg-white/20 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-sm">✓ చదివారు</span>
-              ) : (
-                <span className="bg-red-600/90 text-white text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-sm">కొత్తది</span>
-              )}
-            </div>
             <h2 className="text-2xl text-white font-ramabhadra leading-tight">
               {headline}
             </h2>
@@ -526,29 +513,26 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
         <div ref={cardRef} className="w-full h-full snap-start snap-always shrink-0 overflow-hidden text-white bg-black flex flex-col relative border-b border-white/5">
           <div className="h-[45%] w-full relative shrink-0 overflow-hidden bg-zinc-950 flex items-center justify-center">
             <img 
-              src={getOptimizedImageUrl(post.mediaUrl)} 
+              src={getOptimizedImageUrl(post.mediaUrl, 100)} 
               alt="" 
               aria-hidden="true" 
               className="absolute inset-0 w-full h-full object-cover blur-xl opacity-30 pointer-events-none scale-110" 
-              loading="lazy" 
+              decoding="async" 
               referrerPolicy="no-referrer" 
             />
             <img 
-              src={getOptimizedImageUrl(post.mediaUrl)} 
+              src={getOptimizedImageUrl(post.mediaUrl, 640)} 
               alt="History" 
               className="w-full h-full object-cover object-[50%_28%] relative z-0" 
-              loading="lazy" 
+              decoding="async" 
               referrerPolicy="no-referrer" 
             />
             <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/80 to-transparent pointer-events-none z-10"></div>
           </div>
           <div className="flex-1 flex flex-col p-6 relative bg-black">
-            <div className="flex items-center gap-2 mb-1">
-              {isRead && <span className="bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-md">✓ చదివారు</span>}
-            </div>
             <h1 className="font-ramabhadra text-2xl leading-tight mb-2 text-white">{headline}</h1>
             <p className="text-sm text-red-500 font-bold mb-4">{date}</p>
-            <p className="font-mallanna text-lg leading-[1.6] text-gray-300">{description}</p>
+            <p className="font-mallanna text-lg leading-[1.6] text-white">{description}</p>
           </div>
         </div>
       </>
@@ -591,18 +575,18 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
           ) : (
             <>
               <img 
-                src={getOptimizedImageUrl(post.mediaUrl)} 
+                src={getOptimizedImageUrl(post.mediaUrl, 100)} 
                 alt="" 
                 aria-hidden="true" 
                 className="absolute inset-0 w-full h-full object-cover blur-xl opacity-30 pointer-events-none scale-110" 
-                loading="lazy" 
+                decoding="async" 
                 referrerPolicy="no-referrer" 
               />
               <img 
-                src={getOptimizedImageUrl(post.mediaUrl)} 
+                src={getOptimizedImageUrl(post.mediaUrl, 640)} 
                 alt="News" 
                 className="w-full h-full object-cover object-[50%_28%] relative z-0" 
-                loading="lazy" 
+                decoding="async" 
                 referrerPolicy="no-referrer" 
               />
             </>
@@ -625,24 +609,13 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
         <div className="flex-1 flex flex-col p-4 relative overflow-hidden bg-black">
           <div className="flex h-full gap-4">
             <div className="flex-1 flex flex-col animate-slide-up overflow-hidden">
-              {/* Headline with Read Distinction */}
-              <h1 className={`font-ramabhadra text-xl md:text-2xl leading-tight mb-2 font-medium transition-colors ${isRead ? 'text-gray-300' : 'text-white'}`}>
+              {/* Headline */}
+              <h1 className="font-ramabhadra text-xl md:text-2xl leading-tight mb-2 font-medium text-white">
                 {headline}
               </h1>
               
               {/* Meta Section with Dotted Borders */}
-              <div className="py-1.5 border-y border-dotted border-white/20 mb-3 flex flex-wrap items-center gap-x-2 text-[10px] font-mallanna text-gray-400">
-                {/* Clear Read Indicator Badge */}
-                {isRead ? (
-                  <span className="bg-emerald-950/90 text-emerald-400 border border-emerald-800/80 font-bold px-1.5 py-0.5 rounded text-[9px]">
-                    ✓ చదివారు
-                  </span>
-                ) : (
-                  <span className="bg-red-600/90 text-white font-bold px-1.5 py-0.5 rounded text-[9px]">
-                    కొత్తది
-                  </span>
-                )}
-
+              <div className="py-1.5 border-y border-dotted border-white/20 mb-3 flex flex-wrap items-center gap-x-2 text-[10px] font-mallanna text-white/80">
                 {post.isCitizen || post.reporter?.name === 'సిటిజెన్ పోస్ట్' ? (
                   <span className="text-red-500 font-bold">
                     {language === 'te' ? 'సిటిజెన్ పోస్ట్' : 'Citizen Post'}
@@ -677,9 +650,9 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
               <div 
                 ref={contentRef}
                 onScroll={handleScroll}
-                className="flex-1 overflow-y-auto no-scrollbar pr-1 pb-24"
+                className="flex-1 overflow-y-auto no-scrollbar pr-1 pb-1"
               >
-                <p className={`font-mallanna text-base md:text-lg leading-[1.4] whitespace-pre-wrap mb-3 transition-colors ${isRead ? 'text-gray-400' : 'text-gray-200'}`}>
+                <p className="font-mallanna text-base md:text-lg leading-[1.4] whitespace-pre-wrap mb-2 text-white">
                   {content}
                 </p>
 
@@ -691,77 +664,35 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
                       e.stopPropagation();
                       setShowFullStory(true);
                     }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 mb-4 rounded-full bg-red-600/10 hover:bg-red-600/20 border border-red-500/30 text-red-400 text-xs font-bold transition-all cursor-pointer shadow-sm"
+                    className="inline-flex items-center gap-1.5 px-3 py-1 mb-1.5 rounded-full bg-red-600/10 hover:bg-red-600/20 border border-red-500/30 text-red-400 text-xs font-bold transition-all cursor-pointer shadow-sm"
                   >
                     <BookOpen className="w-3.5 h-3.5" />
                     <span>{language === Language.TELUGU ? "పూర్తి వార్త చదవండి" : "Read Full Story"}</span>
                     <ChevronDown className="w-3.5 h-3.5" />
                   </button>
                 )}
-                
-                {/* Tags & Entities Section */}
-                {(post.tags?.length || post.entities?.people?.length || post.entities?.organizations?.length) && (
-                  <div className="mt-4 space-y-3 pb-6">
-                    {/* Tags */}
-                    {post.tags && post.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {post.tags.map((tag, idx) => (
-                          <span key={idx} className="px-2 py-0.5 bg-white/10 rounded-full text-[10px] font-mallanna text-gray-300">
-                            #{tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    
-                    {/* Entities */}
-                    {post.entities && (
-                      <div className="space-y-2">
-                        {post.entities.people && post.entities.people.length > 0 && (
-                          <div className="flex flex-wrap gap-x-2 items-center">
-                            <span className="text-[10px] font-bold text-red-500 uppercase tracking-wider">వ్యక్తులు:</span>
-                            {post.entities.people.map((p, idx) => (
-                              <span key={idx} className="text-[11px] font-mallanna text-gray-400">
-                                {p}{idx < post.entities!.people.length - 1 ? ',' : ''}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        {post.entities.organizations && post.entities.organizations.length > 0 && (
-                          <div className="flex flex-wrap gap-x-2 items-center">
-                            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">సంస్థలు:</span>
-                            {post.entities.organizations.map((o, idx) => (
-                              <span key={idx} className="text-[11px] font-mallanna text-gray-400">
-                                {o}{idx < post.entities!.organizations.length - 1 ? ',' : ''}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
 
             {/* Right Action Bar */}
-            <div className="flex flex-col items-center gap-5 justify-end pb-12 shrink-0">
+            <div className="flex flex-col items-center gap-5 justify-end pb-1 shrink-0">
               <button onClick={handleLike} className="flex flex-col items-center gap-1 group">
                 <div className="p-1.5 rounded-full bg-white/5 group-active:scale-90 transition-transform">
                   <LikeIcon filled={isLiked} />
                 </div>
-                <span className="text-[10px] font-bold text-gray-400">{likeCount}</span>
+                <span className="text-[10px] font-bold text-white">{likeCount}</span>
               </button>
               <button onClick={() => setShowComments(true)} className="flex flex-col items-center gap-1 group">
                 <div className="p-1.5 rounded-full bg-white/5 group-active:scale-90 transition-transform">
                   <CommentIcon />
                 </div>
-                <span className="text-[10px] font-bold text-gray-400">{commentCount}</span>
+                <span className="text-[10px] font-bold text-white">{commentCount}</span>
               </button>
               <button onClick={handleShare} className="flex flex-col items-center gap-1 group">
                 <div className="p-1.5 rounded-full bg-white/5 group-active:scale-90 transition-transform">
                   {isSharing ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <ShareIcon />}
                 </div>
-                <span className="text-[10px] font-bold text-gray-400">{shareCount}</span>
+                <span className="text-[10px] font-bold text-white">{shareCount}</span>
               </button>
             </div>
           </div>
@@ -828,12 +759,12 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
               ref={storyScrollRef}
               onTouchStart={handleStoryTouchStart}
               onTouchEnd={handleStoryTouchEnd}
-              className="flex-1 overflow-y-auto p-5 text-gray-100 no-scrollbar"
+              className="flex-1 overflow-y-auto p-5 text-white no-scrollbar"
             >
               <h1 className="font-ramabhadra text-xl md:text-2xl leading-tight mb-3 text-white">
                 {headline}
               </h1>
-              <div className="flex items-center gap-2 text-xs text-gray-400 pb-3 mb-3 border-b border-white/10 font-mallanna">
+              <div className="flex items-center gap-2 text-xs text-white/80 pb-3 mb-3 border-b border-white/10 font-mallanna">
                 <span className="text-red-400 font-bold flex items-center gap-1">
                   <span>{post.reporter?.name || "Alfa News Desk"}</span>
                   {isReporterVerified(post.reporter?.id, post.reporter?.name) && <VerifiedBadge size={13} />}
@@ -875,13 +806,13 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
               ) : null}
 
               {/* Full Story Paragraphs (3-4 paragraphs) */}
-              <div className="font-mallanna text-base md:text-lg leading-[1.7] space-y-4 text-gray-200">
+              <div className="font-mallanna text-base md:text-lg leading-[1.7] space-y-4 text-white">
                 {getStoryParagraphs(
                   post.fullStory && ((language === Language.TELUGU ? post.fullStory.telugu : post.fullStory.english) || '').trim().length > 0
                     ? (language === Language.TELUGU ? post.fullStory.telugu : post.fullStory.english)
                     : content
                 ).map((para, idx) => (
-                  <p key={idx} className="leading-relaxed">
+                  <p key={idx} className="leading-relaxed text-white">
                     {para}
                   </p>
                 ))}
@@ -889,7 +820,7 @@ const NewsCard: React.FC<NewsCardProps> = ({ post, language, onProfileClick, cur
 
               {/* Verified Editorial Badge - Only shown when there is genuine full story */}
               {hasSubstantialFullStory && (
-                <div className="mt-8 p-3 rounded-lg bg-white/5 border border-white/10 flex items-center gap-2 text-xs text-gray-400">
+                <div className="mt-8 p-3 rounded-lg bg-white/5 border border-white/10 flex items-center gap-2 text-xs text-white/80">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                   <span>{language === Language.TELUGU ? "ఆల్ఫా న్యూస్ ఎడిటోరియల్ సమగ్ర కథనం" : "Alfa News Verified Comprehensive Story"}</span>
                 </div>

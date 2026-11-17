@@ -66,6 +66,13 @@ test('Router Path Parser - parsePath with Topics & Entities', () => {
   const directNewsRoute = parsePath('/news/post_999', '');
   assert.deepEqual(directNewsRoute, { type: 'news', id: 'post_999' });
 
+  // Shared Link via Query Param
+  (globalThis as any).window = { location: { search: '?id=post_888' } };
+  assert.deepEqual(parsePath('/', ''), { type: 'news', id: 'post_888' });
+  (globalThis as any).window = { location: { search: '?news_id=post_777' } };
+  assert.deepEqual(parsePath('/', ''), { type: 'news', id: 'post_777' });
+  delete (globalThis as any).window;
+
   // Category URL
   const catRoute = parsePath('/category/politics', '');
   assert.deepEqual(catRoute, { type: 'category', category: 'రాజకీయం', slug: 'politics' });
