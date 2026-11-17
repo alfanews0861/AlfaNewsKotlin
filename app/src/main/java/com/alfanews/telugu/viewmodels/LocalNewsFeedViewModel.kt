@@ -736,7 +736,6 @@ class LocalNewsFeedViewModel(application: Application) : AndroidViewModel(applic
      */
     fun refreshFeedDelta(language: Language, currentUser: User?) {
         if (prefs.cachedMinVersionCode > BuildConfig.VERSION_CODE) {
-            _isRefreshing.value = false
             return
         }
         if (isFetching) return
