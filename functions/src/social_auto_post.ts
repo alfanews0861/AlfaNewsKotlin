@@ -557,24 +557,11 @@ export async function executeSocialPostForNews(
 
 
 /**
- * 1. Firestore Trigger: Trigger auto-posting when a news post is published/approved
+ * Helper to dispatch social auto post directly (callable from onNewsPostCreated or standalone trigger)
  */
-export const onNewsPostSocialAutoPost = onDocumentWritten({
-    document: "news/{postId}",
-    region: REGION,
-    timeoutSeconds: 300,
-    memory: "512MiB",
-    maxInstances: 5
-}, async (event) => {
-    const afterSnap = event.data?.after;
-    if (!afterSnap || !afterSnap.exists) return;
-
-    const beforeData: any = event.data?.before?.exists ? event.data.before.data() : null;
-    const data: any = afterSnap.data();
-    const postId = event.params.postId;
-
+export async function dispatchSocialAutoPost(postId: string, data: any, beforeData?: any): Promise<void> {
     // 1. Guard (Loop Prevention): Bail immediately if already posted in either before or after snapshot
-    if (beforeData?.socialAutoPosted === true || data.socialAutoPosted === true) {
+    if (beforeData?.socialAutoPosted === true || data?.socialAutoPosted === true) {
         return;
     }
 
@@ -668,6 +655,31 @@ export const onNewsPostSocialAutoPost = onDocumentWritten({
     } catch (execErr: any) {
         console.error(`[SOCIAL_AUTO_POST_FATAL] Error executing social post for ${postId}:`, execErr.message);
     }
+}
+
+/**
+ * 1. Firestore Trigger: Trigger auto-posting when a news post is published/approved
+ */
+export const onNewsPostSocialAutoPost = onDocumentWritten({
+    document: "news/{postId}",
+    region: REGION,
+    timeoutSeconds: 300,
+    memory: "512MiB",
+    maxInstances: 5
+}, async (event) => {
+    const afterSnap = event.data?.after;
+    if (!afterSnap || !afterSnap.exists) return;
+
+    const data: any = afterSnap.data();
+    const postId = event.params.postId;
+
+    // Fast bypass if already handled by direct pipeline or already posted
+    if (data?.pipelineHandled === true || data?.socialAutoPosted === true) {
+        return;
+    }
+
+    const beforeData: any = event.data?.before?.exists ? event.data.before.data() : null;
+    await dispatchSocialAutoPost(postId, data, beforeData);
 });
 
 

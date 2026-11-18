@@ -40,6 +40,8 @@ const categories_1 = require("./categories");
 const geminiService_1 = require("./geminiService");
 const reporter_handler_1 = require("./reporter_handler");
 const location_data_1 = require("./location_data");
+const notification_engine_1 = require("./notification_engine");
+const social_auto_post_1 = require("./social_auto_post");
 const db = admin.firestore();
 /**
  * Helper: Extract storage path from Firebase Storage URL
@@ -1457,20 +1459,37 @@ exports.onNewsPostCreated = (0, firestore_1.onDocumentWritten)({
                     const specificReason = updatePayload.rejectionReason || aiProcessedData.rejectionReason || "";
                     await (0, reporter_handler_1.notifyReporter)(originalReporterId, targetPostId, aiProcessedData.headline?.telugu || latestData.headline?.telugu || "", notifyType, "", specificReason);
                 }
-                if ((updatePayload.status || "").toLowerCase() === "published" && !isPostRejected && originalReporterId) {
-                    if (finalIsReporter && !latestData.pointsAwarded && !updatePayload.pointsAwarded) {
-                        updatePayload.pointsAwarded = true;
-                        const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
-                        await (0, reporter_handler_1.awardPointsToReporter)(originalReporterId, points);
-                        await db.collection('users').doc(originalReporterId).set({
-                            lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
-                            warningLevel: 0,
-                            inProbation: false,
-                            lastWarningDate: admin.firestore.FieldValue.delete()
-                        }, { merge: true }).catch(() => null);
-                        await db.collection('news').doc(targetPostId).update({ pointsAwarded: true }).catch(() => { });
+                if ((updatePayload.status || "").toLowerCase() === "published" && !isPostRejected) {
+                    if (originalReporterId) {
+                        if (finalIsReporter && !latestData.pointsAwarded && !updatePayload.pointsAwarded) {
+                            updatePayload.pointsAwarded = true;
+                            const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
+                            await (0, reporter_handler_1.awardPointsToReporter)(originalReporterId, points);
+                            await db.collection('users').doc(originalReporterId).set({
+                                lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
+                                warningLevel: 0,
+                                inProbation: false,
+                                lastWarningDate: admin.firestore.FieldValue.delete()
+                            }, { merge: true }).catch(() => null);
+                            await db.collection('news').doc(targetPostId).update({ pointsAwarded: true }).catch(() => { });
+                        }
+                        await (0, reporter_handler_1.notifyReporter)(originalReporterId, targetPostId, updatePayload.headline?.telugu || aiProcessedData.headline?.telugu || "", 'SUCCESS', updatePayload.mediaUrl || storyMediaUrl);
                     }
-                    await (0, reporter_handler_1.notifyReporter)(originalReporterId, targetPostId, updatePayload.headline?.telugu || aiProcessedData.headline?.telugu || "", 'SUCCESS', updatePayload.mediaUrl || storyMediaUrl);
+                    // 🚀 Integrated Pipeline: Handle Breaking Notification & Social Auto-Post directly inside onNewsPostCreated
+                    try {
+                        updatePayload.pipelineHandled = true;
+                        updatePayload.notificationHandled = true;
+                        await (0, notification_engine_1.dispatchBreakingNotification)(targetPostId, updatePayload);
+                    }
+                    catch (notifErr) {
+                        console.warn(`[PIPELINE_NOTIF_WARN] Direct breaking notification skipped/failed for ${targetPostId}:`, notifErr?.message || notifErr);
+                    }
+                    try {
+                        await (0, social_auto_post_1.dispatchSocialAutoPost)(targetPostId, updatePayload);
+                    }
+                    catch (socErr) {
+                        console.warn(`[PIPELINE_SOCIAL_WARN] Direct social auto-post skipped/failed for ${targetPostId}:`, socErr?.message || socErr);
+                    }
                 }
             }
             return;

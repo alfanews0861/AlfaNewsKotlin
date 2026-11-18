@@ -28,8 +28,7 @@ export {
     scheduleHistoryOfTheDay,
     generateDailyCartoon,
     checkSevereWeatherAlerts,
-    cleanupOldNews,
-    runOneTimeReporterReactivation
+    cleanupOldNews
 } from "./auto_content_handler";
 
 export {
@@ -57,12 +56,8 @@ export {
     cleanupExpiredReporterApplications
 } from "./reporter_handler";
 
-// 2b. Export Reporter Operating Rhythm
+// 2b. Export Reporter Operating Rhythm (Manual Admin Trigger only)
 export {
-    morningReporterBeatNotification,
-    middayReporterReminder,
-    eveningReporterRoundup,
-    nightReporterLeaderboardAnnouncement,
     triggerOperatingRhythmBeat
 } from "./reporter_operating_rhythm";
 
@@ -1058,42 +1053,15 @@ export const serveSitemap = onRequest(async (req, res) => {
 
         // -------------------------------------------------------------
         // Case 3: Archive News Chunks (/sitemaps/news-1.xml .. news-10.xml)
-        // Uses fast FieldPath.documentId() bounding without offset costs.
-        // Selects ONLY 'timestamp' to minimize bandwidth and memory.
-        // Cached on Cloud CDN for 7 days so repeated Googlebot crawls cost $0.
+        // Permanently disabled live Firestore scans (saving millions of reads).
+        // Returns an empty urlset cached on Cloud CDN for 7 days so crawlers cost 0 Firestore reads.
         // -------------------------------------------------------------
         const chunkMatch = path.match(/news-(\d+)\.xml/);
         if (chunkMatch) {
-            const chunkId = parseInt(chunkMatch[1], 10);
-            const chunk = CHUNK_RANGES.find(c => c.id === chunkId);
-            if (!chunk) {
-                res.status(404).set("Content-Type", "application/xml; charset=utf-8").send('<?xml version="1.0" encoding="UTF-8"?><error>Sitemap chunk not found</error>');
-                return;
-            }
-
-            const snap = await db.collection("news")
-                .where("approved", "==", true)
-                .where(admin.firestore.FieldPath.documentId(), ">=", chunk.start)
-                .where(admin.firestore.FieldPath.documentId(), "<=", chunk.end)
-                .select("timestamp")
-                .get();
-
-            let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
-            for (const d of snap.docs) {
-                const t = d.data()?.timestamp;
-                let dateStr = new Date().toISOString();
-                if (t?.toDate) {
-                    dateStr = t.toDate().toISOString();
-                } else if (typeof t === 'number') {
-                    dateStr = new Date(t).toISOString();
-                }
-                xml += `  <url>\n    <loc>${baseUrl}/news/${d.id}</loc>\n    <lastmod>${dateStr}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.7</priority>\n  </url>\n`;
-            }
-            xml += '</urlset>';
-
+            const emptyXml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n</urlset>';
             res.set("Content-Type", "application/xml; charset=utf-8");
             res.set("Cache-Control", "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400");
-            res.status(200).send(xml);
+            res.status(200).send(emptyXml);
             return;
         }
 

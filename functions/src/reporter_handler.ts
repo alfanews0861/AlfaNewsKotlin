@@ -2639,6 +2639,9 @@ export const onNewsPostApproved = onDocumentWritten({
     // Trigger only if status changes to published or approved becomes true
     if (!after || after.approved !== true || before?.approved === true) return;
 
+    // Fast bypass if already handled by direct onNewsPostCreated pipeline to prevent duplicate DB writes
+    if (after.pipelineHandled === true || after.pointsAwarded === true) return;
+
     const assignedReporterId = (typeof after.reporter === 'string' ? after.reporter : after.reporter?.id) || after.reporterId;
     const originalReporterId = after.originalReporterId;
 

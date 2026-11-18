@@ -26,8 +26,8 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.unsubscribeFromNewsTopic = exports.subscribeToNewsTopic = exports.triggerPushBroadcast = exports.handleTelephonyWebhook = exports.simulateVoiceConversation = exports.triggerVoiceCampaign = exports.triggerReporterVoiceCheck = exports.exchangeForPermanentToken = exports.initializeDistrictSocialConfigs = exports.manuallyTriggerSocialPost = exports.testDistrictSocialPost = exports.onNewsPostSocialAutoPost = exports.reportNewsPost = exports.broadcastToAllReporters = exports.sendAdminReporterMessage = exports.reprocessUnprocessedNewsHttp = exports.recoverFalselyRejectedNewsHttp = exports.scheduleReprocessFailedReporterNews = exports.onNewsPostCreated = exports.processNewsPost = exports.triggerOperatingRhythmBeat = exports.nightReporterLeaderboardAnnouncement = exports.eveningReporterRoundup = exports.middayReporterReminder = exports.morningReporterBeatNotification = exports.cleanupExpiredReporterApplications = exports.cleanDuplicateApplications = exports.restoreAllDowngradedReporters = exports.recordAppInstallReferral = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.runAutoApprovePendingBackfill = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.runOneTimeReporterReactivation = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
-exports.youtubeAuthCallback = exports.youtubeAuthStart = exports.serveSitemap = exports.shareNews = exports.getNewsCardImage = exports.sendContactEmail = void 0;
+exports.youtubeAuthStart = exports.serveSitemap = exports.shareNews = exports.getNewsCardImage = exports.sendContactEmail = exports.unsubscribeFromNewsTopic = exports.subscribeToNewsTopic = exports.triggerPushBroadcast = exports.handleTelephonyWebhook = exports.simulateVoiceConversation = exports.triggerVoiceCampaign = exports.triggerReporterVoiceCheck = exports.exchangeForPermanentToken = exports.initializeDistrictSocialConfigs = exports.manuallyTriggerSocialPost = exports.testDistrictSocialPost = exports.onNewsPostSocialAutoPost = exports.reportNewsPost = exports.broadcastToAllReporters = exports.sendAdminReporterMessage = exports.reprocessUnprocessedNewsHttp = exports.recoverFalselyRejectedNewsHttp = exports.scheduleReprocessFailedReporterNews = exports.onNewsPostCreated = exports.processNewsPost = exports.triggerOperatingRhythmBeat = exports.cleanupExpiredReporterApplications = exports.cleanDuplicateApplications = exports.restoreAllDowngradedReporters = exports.recordAppInstallReferral = exports.runReactivateDemotedReportersHttp = exports.reactivateFalselyDemotedReporters = exports.runAutoApprovePendingBackfill = exports.autoApproveAllPendingApplications = exports.onReporterApplicationCreated = exports.onAnonymousDeviceCreated = exports.onUserCreated = exports.verifyReporter = exports.onNewsPostApproved = exports.onNewsViewCountUpdated = exports.backfillReporterPoints = exports.submitReporterApplication = exports.processReporterSubmission = exports.scheduleDailyAffiliateDeals = exports.cleanupOldNews = exports.checkSevereWeatherAlerts = exports.generateDailyCartoon = exports.scheduleHistoryOfTheDay = exports.scheduleQuoteOfTheDay = exports.scheduleFestivalGreeting = void 0;
+exports.youtubeAuthCallback = void 0;
 /**
  * Alfa News - Cloud Functions v18.0 (Refactored & Modular)
  */
@@ -56,7 +56,6 @@ Object.defineProperty(exports, "scheduleHistoryOfTheDay", { enumerable: true, ge
 Object.defineProperty(exports, "generateDailyCartoon", { enumerable: true, get: function () { return auto_content_handler_1.generateDailyCartoon; } });
 Object.defineProperty(exports, "checkSevereWeatherAlerts", { enumerable: true, get: function () { return auto_content_handler_1.checkSevereWeatherAlerts; } });
 Object.defineProperty(exports, "cleanupOldNews", { enumerable: true, get: function () { return auto_content_handler_1.cleanupOldNews; } });
-Object.defineProperty(exports, "runOneTimeReporterReactivation", { enumerable: true, get: function () { return auto_content_handler_1.runOneTimeReporterReactivation; } });
 var affiliate_handler_1 = require("./affiliate_handler");
 Object.defineProperty(exports, "scheduleDailyAffiliateDeals", { enumerable: true, get: function () { return affiliate_handler_1.scheduleDailyAffiliateDeals; } });
 // 2. Export Reporter Functions
@@ -78,12 +77,8 @@ Object.defineProperty(exports, "recordAppInstallReferral", { enumerable: true, g
 Object.defineProperty(exports, "restoreAllDowngradedReporters", { enumerable: true, get: function () { return reporter_handler_1.restoreAllDowngradedReporters; } });
 Object.defineProperty(exports, "cleanDuplicateApplications", { enumerable: true, get: function () { return reporter_handler_1.cleanDuplicateApplications; } });
 Object.defineProperty(exports, "cleanupExpiredReporterApplications", { enumerable: true, get: function () { return reporter_handler_1.cleanupExpiredReporterApplications; } });
-// 2b. Export Reporter Operating Rhythm
+// 2b. Export Reporter Operating Rhythm (Manual Admin Trigger only)
 var reporter_operating_rhythm_1 = require("./reporter_operating_rhythm");
-Object.defineProperty(exports, "morningReporterBeatNotification", { enumerable: true, get: function () { return reporter_operating_rhythm_1.morningReporterBeatNotification; } });
-Object.defineProperty(exports, "middayReporterReminder", { enumerable: true, get: function () { return reporter_operating_rhythm_1.middayReporterReminder; } });
-Object.defineProperty(exports, "eveningReporterRoundup", { enumerable: true, get: function () { return reporter_operating_rhythm_1.eveningReporterRoundup; } });
-Object.defineProperty(exports, "nightReporterLeaderboardAnnouncement", { enumerable: true, get: function () { return reporter_operating_rhythm_1.nightReporterLeaderboardAnnouncement; } });
 Object.defineProperty(exports, "triggerOperatingRhythmBeat", { enumerable: true, get: function () { return reporter_operating_rhythm_1.triggerOperatingRhythmBeat; } });
 // 3. Export Main News Functions
 var news_handler_1 = require("./news_handler");
@@ -1028,40 +1023,15 @@ exports.serveSitemap = (0, https_1.onRequest)(async (req, res) => {
         }
         // -------------------------------------------------------------
         // Case 3: Archive News Chunks (/sitemaps/news-1.xml .. news-10.xml)
-        // Uses fast FieldPath.documentId() bounding without offset costs.
-        // Selects ONLY 'timestamp' to minimize bandwidth and memory.
-        // Cached on Cloud CDN for 7 days so repeated Googlebot crawls cost $0.
+        // Permanently disabled live Firestore scans (saving millions of reads).
+        // Returns an empty urlset cached on Cloud CDN for 7 days so crawlers cost 0 Firestore reads.
         // -------------------------------------------------------------
         const chunkMatch = path.match(/news-(\d+)\.xml/);
         if (chunkMatch) {
-            const chunkId = parseInt(chunkMatch[1], 10);
-            const chunk = CHUNK_RANGES.find(c => c.id === chunkId);
-            if (!chunk) {
-                res.status(404).set("Content-Type", "application/xml; charset=utf-8").send('<?xml version="1.0" encoding="UTF-8"?><error>Sitemap chunk not found</error>');
-                return;
-            }
-            const snap = await db.collection("news")
-                .where("approved", "==", true)
-                .where(admin.firestore.FieldPath.documentId(), ">=", chunk.start)
-                .where(admin.firestore.FieldPath.documentId(), "<=", chunk.end)
-                .select("timestamp")
-                .get();
-            let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
-            for (const d of snap.docs) {
-                const t = d.data()?.timestamp;
-                let dateStr = new Date().toISOString();
-                if (t?.toDate) {
-                    dateStr = t.toDate().toISOString();
-                }
-                else if (typeof t === 'number') {
-                    dateStr = new Date(t).toISOString();
-                }
-                xml += `  <url>\n    <loc>${baseUrl}/news/${d.id}</loc>\n    <lastmod>${dateStr}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.7</priority>\n  </url>\n`;
-            }
-            xml += '</urlset>';
+            const emptyXml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n</urlset>';
             res.set("Content-Type", "application/xml; charset=utf-8");
             res.set("Cache-Control", "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400");
-            res.status(200).send(xml);
+            res.status(200).send(emptyXml);
             return;
         }
         // -------------------------------------------------------------

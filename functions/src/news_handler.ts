@@ -26,6 +26,8 @@ import { normalizeCategory, normalizeCategories, getCategorySystemInstruction } 
 import { refineHeadlineWithPaidAI, refineVocalScriptWithPaidAI } from "./geminiService";
 import { notifyReporter, awardPointsToReporter, getAssignedReporter } from "./reporter_handler";
 import { areMandalsMatching } from "./location_data";
+import { dispatchBreakingNotification } from "./notification_engine";
+import { dispatchSocialAutoPost } from "./social_auto_post";
 
 const db = admin.firestore();
 
@@ -1549,26 +1551,43 @@ export const onNewsPostCreated = onDocumentWritten({
                     );
                 }
 
-                if ((updatePayload.status || "").toLowerCase() === "published" && !isPostRejected && originalReporterId) {
-                    if (finalIsReporter && !latestData.pointsAwarded && !updatePayload.pointsAwarded) {
-                        updatePayload.pointsAwarded = true;
-                        const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
-                        await awardPointsToReporter(originalReporterId, points);
-                        await db.collection('users').doc(originalReporterId).set({
-                            lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
-                            warningLevel: 0,
-                            inProbation: false,
-                            lastWarningDate: admin.firestore.FieldValue.delete()
-                        }, { merge: true }).catch(() => null);
-                        await db.collection('news').doc(targetPostId).update({ pointsAwarded: true }).catch(() => {});
+                if ((updatePayload.status || "").toLowerCase() === "published" && !isPostRejected) {
+                    if (originalReporterId) {
+                        if (finalIsReporter && !latestData.pointsAwarded && !updatePayload.pointsAwarded) {
+                            updatePayload.pointsAwarded = true;
+                            const points = calculateIncentivePoints(false, updatePayload.qualitySignals);
+                            await awardPointsToReporter(originalReporterId, points);
+                            await db.collection('users').doc(originalReporterId).set({
+                                lastPostTimestamp: admin.firestore.FieldValue.serverTimestamp(),
+                                warningLevel: 0,
+                                inProbation: false,
+                                lastWarningDate: admin.firestore.FieldValue.delete()
+                            }, { merge: true }).catch(() => null);
+                            await db.collection('news').doc(targetPostId).update({ pointsAwarded: true }).catch(() => {});
+                        }
+                        await notifyReporter(
+                            originalReporterId,
+                            targetPostId,
+                            updatePayload.headline?.telugu || aiProcessedData.headline?.telugu || "",
+                            'SUCCESS',
+                            updatePayload.mediaUrl || storyMediaUrl
+                        );
                     }
-                    await notifyReporter(
-                        originalReporterId,
-                        targetPostId,
-                        updatePayload.headline?.telugu || aiProcessedData.headline?.telugu || "",
-                        'SUCCESS',
-                        updatePayload.mediaUrl || storyMediaUrl
-                    );
+
+                    // 🚀 Integrated Pipeline: Handle Breaking Notification & Social Auto-Post directly inside onNewsPostCreated
+                    try {
+                        updatePayload.pipelineHandled = true;
+                        updatePayload.notificationHandled = true;
+                        await dispatchBreakingNotification(targetPostId, updatePayload);
+                    } catch (notifErr: any) {
+                        console.warn(`[PIPELINE_NOTIF_WARN] Direct breaking notification skipped/failed for ${targetPostId}:`, notifErr?.message || notifErr);
+                    }
+
+                    try {
+                        await dispatchSocialAutoPost(targetPostId, updatePayload);
+                    } catch (socErr: any) {
+                        console.warn(`[PIPELINE_SOCIAL_WARN] Direct social auto-post skipped/failed for ${targetPostId}:`, socErr?.message || socErr);
+                    }
                 }
             }
             return;

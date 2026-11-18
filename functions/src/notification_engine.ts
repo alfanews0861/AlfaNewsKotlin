@@ -647,24 +647,7 @@ export const sendPersonalizedNotification = onSchedule({
 // BREAKING / IMPORTANT NEWS INSTANT TRIGGER
 // isBreaking=true లేదా tone=BREAKING/URGENT/IMPORTANT లేదా టాప్ లీడర్ల ప్రకటనలు అయిన వెంటనే instant notification (పరిమితి లేదు - NO LIMIT)
 // ==========================================
-export const onNewsPostApprovedNotify = onDocumentWritten({
-    document: "news/{postId}",
-    region: REGION,
-    memory: "256MiB",
-    timeoutSeconds: 60,
-    maxInstances: 5
-}, async (event) => {
-    const before = event.data?.before?.data();
-    const after  = event.data?.after?.data();
-    if (!after) return;
-
-    const postId = event.params.postId;
-
-    // Only fire when approved changes false → true
-    const wasApproved = before?.approved === true;
-    const isNowApproved = after.approved === true;
-    if (wasApproved || !isNowApproved) return;
-
+export async function dispatchBreakingNotification(postId: string, after: any, before?: any): Promise<boolean> {
     // 🛡️ Global Kill-switch for Breaking/Important Push Notifications (settings/notifications)
     const db = admin.firestore();
     const settingsRef = db.collection('settings').doc('notifications');
@@ -673,13 +656,13 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
 
     if (settingsData?.breakingNotificationsEnabled === false) {
         logger.log(`[BREAKING] Breaking notifications globally disabled via settings/notifications. Skipping ${postId}`);
-        return;
+        return false;
     }
     const pauseBreakingUntil = Number(settingsData?.pauseBreakingUntil || 0);
     if (Date.now() < pauseBreakingUntil) {
         const remainingHours = ((pauseBreakingUntil - Date.now()) / (1000 * 60 * 60)).toFixed(1);
         logger.log(`[BREAKING] Breaking notifications paused for next ${remainingHours}h via pauseBreakingUntil. Skipping ${postId}`);
-        return;
+        return false;
     }
 
     // Trigger: isBreaking=true OR tone=BREAKING/URGENT OR tone=IMPORTANT (with notificationWorthy or high score)
@@ -696,7 +679,7 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
 
     if (!isBreakingOrUrgent && !isImportantNews) {
         logger.log(`[BREAKING] Not breaking/urgent/important: ${postId} (tone=${after.tone}, isBreaking=${after.isBreaking}, isLeader=${isLeaderBreaking})`);
-        return;
+        return false;
     }
     logger.log(`[BREAKING] Triggered: ${postId} (tone=${after.tone}, isBreaking=${after.isBreaking}, important=${isImportantNews}, isLeader=${isLeaderBreaking})`);
 
@@ -710,7 +693,7 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
     }
     if (ageHours > 6) {
         logger.log(`[BREAKING] Too old (${ageHours.toFixed(1)}h): ${postId}`);
-        return;
+        return false;
     }
 
     // Smart Scope Routing:
@@ -747,13 +730,13 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
 
     if (lastBreakingMillis > 0 && elapsedMinutes < 45 && !isLifeThreatening) {
         logger.log(`[BREAKING] Cooldown active (${elapsedMinutes.toFixed(1)}m < 45m). Suppressing ${postId} to protect user phones.`);
-        return;
+        return false;
     }
 
     const canSend = await checkAndIncrementLimitAtomic(db, limitDocName, maxLimit);
     if (!canSend && !isLifeThreatening) {
         logger.log(`[BREAKING] Daily cap reached (${limitDocName}, max ${maxLimit}). Suppressing ${postId}`);
-        return;
+        return false;
     }
     logger.log(`[BREAKING] Dispatching breaking alert (${limitDocName}, maxLimit=${maxLimit}, newsId=${postId})`);
 
@@ -763,7 +746,7 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
 
     if (lastSentMap['general'] === postId || lastSentMap[targetTopic] === postId || recentGeneralIds.includes(postId)) {
         logger.log(`[BREAKING] Already sent: ${postId} (topic: ${targetTopic})`);
-        return;
+        return false;
     }
 
     const notifTitle = after.notificationTitle || after.headline?.telugu || after.headline?.english || after.headline || "తాజా వార్త";
@@ -788,7 +771,7 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
 
     if (isQuietHour && !isLifeThreatening) {
         logger.log(`[BREAKING] Quiet hours active (IST ${istHour}h). Suppressed non-emergency notification for ${postId} to protect user sleep.`);
-        return;
+        return false;
     }
 
     try {
@@ -831,9 +814,35 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
         }, { merge: true });
 
         logger.log(`[BREAKING] ✅ Sent to ${targetTopic} for ${postId} (isStatewide=${isStatewide}, tone=${after.tone}, age=${ageHours.toFixed(1)}h)`);
+        return true;
     } catch (err: any) {
         logger.error(`[BREAKING_ERR] ${postId}:`, err.message);
+        return false;
     }
+}
+
+export const onNewsPostApprovedNotify = onDocumentWritten({
+    document: "news/{postId}",
+    region: REGION,
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    maxInstances: 5
+}, async (event) => {
+    const before = event.data?.before?.data();
+    const after  = event.data?.after?.data();
+    if (!after) return;
+
+    // Instant guard: if already handled directly by onNewsPostCreated pipeline, skip to avoid duplicate executions
+    if (after.pipelineHandled === true || after.notificationHandled === true) return;
+
+    const postId = event.params.postId;
+
+    // Only fire when approved changes false → true
+    const wasApproved = before?.approved === true;
+    const isNowApproved = after.approved === true;
+    if (wasApproved || !isNowApproved) return;
+
+    await dispatchBreakingNotification(postId, after, before);
 });
 
 // ==========================================

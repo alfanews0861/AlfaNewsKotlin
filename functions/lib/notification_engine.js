@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onNewsPostApprovedNotify = exports.sendPersonalizedNotification = exports.getCanonicalDistrict = void 0;
+exports.onNewsPostApprovedNotify = exports.dispatchBreakingNotification = exports.sendPersonalizedNotification = exports.getCanonicalDistrict = void 0;
 const admin = __importStar(require("firebase-admin"));
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -607,23 +607,7 @@ exports.sendPersonalizedNotification = (0, scheduler_1.onSchedule)({
 // BREAKING / IMPORTANT NEWS INSTANT TRIGGER
 // isBreaking=true లేదా tone=BREAKING/URGENT/IMPORTANT లేదా టాప్ లీడర్ల ప్రకటనలు అయిన వెంటనే instant notification (పరిమితి లేదు - NO LIMIT)
 // ==========================================
-exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
-    document: "news/{postId}",
-    region: utils_1.REGION,
-    memory: "256MiB",
-    timeoutSeconds: 60,
-    maxInstances: 5
-}, async (event) => {
-    const before = event.data?.before?.data();
-    const after = event.data?.after?.data();
-    if (!after)
-        return;
-    const postId = event.params.postId;
-    // Only fire when approved changes false → true
-    const wasApproved = before?.approved === true;
-    const isNowApproved = after.approved === true;
-    if (wasApproved || !isNowApproved)
-        return;
+async function dispatchBreakingNotification(postId, after, before) {
     // 🛡️ Global Kill-switch for Breaking/Important Push Notifications (settings/notifications)
     const db = admin.firestore();
     const settingsRef = db.collection('settings').doc('notifications');
@@ -631,13 +615,13 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
     const settingsData = settingsDoc?.exists ? settingsDoc.data() : {};
     if (settingsData?.breakingNotificationsEnabled === false) {
         v2_1.logger.log(`[BREAKING] Breaking notifications globally disabled via settings/notifications. Skipping ${postId}`);
-        return;
+        return false;
     }
     const pauseBreakingUntil = Number(settingsData?.pauseBreakingUntil || 0);
     if (Date.now() < pauseBreakingUntil) {
         const remainingHours = ((pauseBreakingUntil - Date.now()) / (1000 * 60 * 60)).toFixed(1);
         v2_1.logger.log(`[BREAKING] Breaking notifications paused for next ${remainingHours}h via pauseBreakingUntil. Skipping ${postId}`);
-        return;
+        return false;
     }
     // Trigger: isBreaking=true OR tone=BREAKING/URGENT OR tone=IMPORTANT (with notificationWorthy or high score)
     // OR 🏛️ Top Telugu Leaders (AP & TS CMs and Opposition Leaders) statements/quotes:
@@ -651,7 +635,7 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
     const isImportantNews = tone === 'IMPORTANT' && (after.notificationWorthy === true || (after.score ?? 0) >= 70);
     if (!isBreakingOrUrgent && !isImportantNews) {
         v2_1.logger.log(`[BREAKING] Not breaking/urgent/important: ${postId} (tone=${after.tone}, isBreaking=${after.isBreaking}, isLeader=${isLeaderBreaking})`);
-        return;
+        return false;
     }
     v2_1.logger.log(`[BREAKING] Triggered: ${postId} (tone=${after.tone}, isBreaking=${after.isBreaking}, important=${isImportantNews}, isLeader=${isLeaderBreaking})`);
     // Age check — 6 గంటల కంటే పాత news కి breaking send వద్దు
@@ -665,7 +649,7 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
     }
     if (ageHours > 6) {
         v2_1.logger.log(`[BREAKING] Too old (${ageHours.toFixed(1)}h): ${postId}`);
-        return;
+        return false;
     }
     // Smart Scope Routing:
     // Determine whether this breaking news has broad statewide/national impact (all_users)
@@ -696,12 +680,12 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
     const elapsedMinutes = (Date.now() - lastBreakingMillis) / (60 * 1000);
     if (lastBreakingMillis > 0 && elapsedMinutes < 45 && !isLifeThreatening) {
         v2_1.logger.log(`[BREAKING] Cooldown active (${elapsedMinutes.toFixed(1)}m < 45m). Suppressing ${postId} to protect user phones.`);
-        return;
+        return false;
     }
     const canSend = await checkAndIncrementLimitAtomic(db, limitDocName, maxLimit);
     if (!canSend && !isLifeThreatening) {
         v2_1.logger.log(`[BREAKING] Daily cap reached (${limitDocName}, max ${maxLimit}). Suppressing ${postId}`);
-        return;
+        return false;
     }
     v2_1.logger.log(`[BREAKING] Dispatching breaking alert (${limitDocName}, maxLimit=${maxLimit}, newsId=${postId})`);
     // Duplicate check
@@ -709,7 +693,7 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
     const recentGeneralIds = Array.isArray(settingsData?.recentGeneralIds) ? settingsData.recentGeneralIds : [];
     if (lastSentMap['general'] === postId || lastSentMap[targetTopic] === postId || recentGeneralIds.includes(postId)) {
         v2_1.logger.log(`[BREAKING] Already sent: ${postId} (topic: ${targetTopic})`);
-        return;
+        return false;
     }
     const notifTitle = after.notificationTitle || after.headline?.telugu || after.headline?.english || after.headline || "తాజా వార్త";
     const shortBreaking = notifTitle.length > 70 ? notifTitle.substring(0, 70).trim() + "..." : notifTitle;
@@ -729,7 +713,7 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
     const isQuietHour = istHour >= 23 || istHour < 6;
     if (isQuietHour && !isLifeThreatening) {
         v2_1.logger.log(`[BREAKING] Quiet hours active (IST ${istHour}h). Suppressed non-emergency notification for ${postId} to protect user sleep.`);
-        return;
+        return false;
     }
     try {
         const news = { id: postId, ...after };
@@ -758,10 +742,35 @@ exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
             lastBreakingAt: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
         v2_1.logger.log(`[BREAKING] ✅ Sent to ${targetTopic} for ${postId} (isStatewide=${isStatewide}, tone=${after.tone}, age=${ageHours.toFixed(1)}h)`);
+        return true;
     }
     catch (err) {
         v2_1.logger.error(`[BREAKING_ERR] ${postId}:`, err.message);
+        return false;
     }
+}
+exports.dispatchBreakingNotification = dispatchBreakingNotification;
+exports.onNewsPostApprovedNotify = (0, firestore_1.onDocumentWritten)({
+    document: "news/{postId}",
+    region: utils_1.REGION,
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    maxInstances: 5
+}, async (event) => {
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    if (!after)
+        return;
+    // Instant guard: if already handled directly by onNewsPostCreated pipeline, skip to avoid duplicate executions
+    if (after.pipelineHandled === true || after.notificationHandled === true)
+        return;
+    const postId = event.params.postId;
+    // Only fire when approved changes false → true
+    const wasApproved = before?.approved === true;
+    const isNowApproved = after.approved === true;
+    if (wasApproved || !isNowApproved)
+        return;
+    await dispatchBreakingNotification(postId, after, before);
 });
 // ==========================================
 // CATEGORY TOPIC NAME HELPER
