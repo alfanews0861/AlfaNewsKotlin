@@ -6,6 +6,7 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const cheerio = require('cheerio');
 const Parser = require('rss-parser');
 const axios = require('axios');
+const { classifyScraperNotification } = require('./notificationClassifier');
 let HttpsProxyAgent = null;
 try {
     HttpsProxyAgent = require('https-proxy-agent').HttpsProxyAgent;
@@ -107,7 +108,7 @@ class ProxyManager {
         }
     }
 
-    getNextProxy() {
+    getNextProxy({ onlyHealthy = false } = {}) {
         if (this.proxies.length === 0) return null;
         const now = Date.now();
         const total = this.proxies.length;
@@ -124,6 +125,8 @@ class ProxyManager {
             }
         }
 
+        if (onlyHealthy) return null;
+
         // All proxies are cooling down: pick the one expiring soonest instead of permanently emptying pool
         let bestIdx = 0;
         let earliestExpiry = Infinity;
@@ -136,6 +139,18 @@ class ProxyManager {
         }
         this.currentIndex = (bestIdx + 1) % total;
         return this.proxies[bestIdx];
+    }
+
+    getEarliestCooldownWaitMs() {
+        if (this.proxies.length === 0) return 0;
+        const now = Date.now();
+        let earliestExpiry = Infinity;
+        for (const p of this.proxies) {
+            const exp = this.cooldowns.get(p) || 0;
+            if (exp <= now) return 0;
+            if (exp < earliestExpiry) earliestExpiry = exp;
+        }
+        return earliestExpiry === Infinity ? 0 : Math.max(0, earliestExpiry - now);
     }
 
     markCooldownProxy(proxyUrl, durationMs = 5 * 60 * 1000, reason = 'rate-limit') {
@@ -761,10 +776,15 @@ function detectTopTeluguLeader(headline = '', content = '', authorOrSource = '')
     const h = (headline || '').trim();
     const c = (content || '').trim();
     const a = (authorOrSource || '').trim();
+    const hLower = h.toLowerCase();
+    const cLower = c.toLowerCase();
     const combined = `${h} ${c} ${a}`.toLowerCase();
 
     // 🛑 Exclude routine greetings, wishes, condolences
-    const isRoutineGreeting = ROUTINE_GREETING_INDICATORS.some(g => h.toLowerCase().includes(g.toLowerCase()));
+    const isRoutineGreeting = ROUTINE_GREETING_INDICATORS.some(g => {
+        const gLower = g.toLowerCase();
+        return hLower.includes(gLower) || cLower.slice(0, 180).includes(gLower);
+    });
     if (isRoutineGreeting) {
         return {
             isTopLeaderNews: false,
@@ -782,10 +802,10 @@ function detectTopTeluguLeader(headline = '', content = '', authorOrSource = '')
         const inText = leader.patterns.some(rgx => rgx.test(combined));
         const hasStatementIndicator = STATEMENT_AND_QUOTE_INDICATORS.some(ind => {
             const indLower = ind.toLowerCase();
-            return h.toLowerCase().includes(indLower) || c.toLowerCase().includes(indLower);
+            return hLower.includes(indLower) || cLower.includes(indLower);
         });
 
-        if (isAuthor || inHeadline || (inText && hasStatementIndicator)) {
+        if (isAuthor || ((inHeadline || inText) && hasStatementIndicator)) {
             return {
                 isTopLeaderNews: true,
                 leaderName: leader.nameTe,
@@ -1801,7 +1821,9 @@ async function uploadMediaToStorage(url, folder = 'news-media', preFetched = nul
 // SINGLETON PUPPETEER BROWSER POOL (Memory & Speed Optimized)
 // ============================================================================
 let sharedBrowser = null;
+let browserLaunchPromise = null;
 let browserPageCount = 0;
+let activeBrowserPages = 0;
 const MAX_PAGES_BEFORE_BROWSER_RESTART = 40;
 
 function findInstalledChrome() {
@@ -1884,69 +1906,93 @@ function findInstalledChrome() {
 }
 
 async function getSharedBrowser() {
+    // Wait for any in-flight launch to prevent spawning multiple Chrome instances simultaneously
+    if (browserLaunchPromise) {
+        return await browserLaunchPromise;
+    }
+
     if (sharedBrowser && sharedBrowser.isConnected()) {
-        if (browserPageCount >= MAX_PAGES_BEFORE_BROWSER_RESTART) {
+        // Only recycle when no other tab is actively using the shared browser
+        if (browserPageCount >= MAX_PAGES_BEFORE_BROWSER_RESTART && activeBrowserPages === 0) {
             console.log("[PUPPETEER] Recycling browser instance to release memory...");
-            try {
-                await sharedBrowser.close();
-            } catch (e) {}
+            const oldBrowser = sharedBrowser;
             sharedBrowser = null;
             browserPageCount = 0;
+            try {
+                await oldBrowser.close();
+            } catch (e) {}
         } else {
             return sharedBrowser;
         }
     }
 
-    try {
-        const systemChrome = findInstalledChrome();
-        const launchOptions = {
-            headless: 'new',
-            args: [
-                '--no-sandbox', 
-                '--disable-setuid-sandbox', 
-                '--disable-dev-shm-usage', 
-                '--disable-gpu', 
-                '--disable-software-rasterizer',
-                '--disable-extensions',
-                '--disable-background-networking',
-                '--disable-default-apps',
-                '--disable-sync',
-                '--disable-translate',
-                '--mute-audio',
-                '--no-first-run'
-            ],
-            timeout: 45000,
-            protocolTimeout: 60000
-        };
-
-        if (systemChrome) {
-            console.log(`[PUPPETEER] Launching browser using executable: ${systemChrome}`);
-            launchOptions.executablePath = systemChrome;
-        } else {
-            console.warn("[PUPPETEER] No system Chrome path detected, falling back to bundled Puppeteer cache...");
-        }
-
-        sharedBrowser = await puppeteerExtra.launch(launchOptions);
-        browserPageCount = 0;
-        return sharedBrowser;
-    } catch (err) {
-        console.error("[PUPPETEER] Failed to launch browser:", err.message);
-        sharedBrowser = null;
-        return null;
-    }
-}
-
-async function closeSharedBrowser() {
-    if (sharedBrowser) {
+    browserLaunchPromise = (async () => {
         try {
-            await sharedBrowser.close();
-        } catch (e) {}
-        sharedBrowser = null;
-        browserPageCount = 0;
+            const systemChrome = findInstalledChrome();
+            const launchOptions = {
+                headless: 'new',
+                args: [
+                    '--no-sandbox', 
+                    '--disable-setuid-sandbox', 
+                    '--disable-dev-shm-usage', 
+                    '--disable-gpu', 
+                    '--disable-software-rasterizer',
+                    '--disable-extensions',
+                    '--disable-background-networking',
+                    '--disable-default-apps',
+                    '--disable-sync',
+                    '--disable-translate',
+                    '--mute-audio',
+                    '--no-first-run'
+                ],
+                timeout: 45000,
+                protocolTimeout: 60000
+            };
+
+            if (systemChrome) {
+                console.log(`[PUPPETEER] Launching browser using executable: ${systemChrome}`);
+                launchOptions.executablePath = systemChrome;
+            } else {
+                console.warn("[PUPPETEER] No system Chrome path detected, falling back to bundled Puppeteer cache...");
+            }
+
+            sharedBrowser = await puppeteerExtra.launch(launchOptions);
+            browserPageCount = 0;
+            return sharedBrowser;
+        } catch (err) {
+            console.error("[PUPPETEER] Failed to launch browser:", err.message);
+            sharedBrowser = null;
+            return null;
+        }
+    })();
+
+    try {
+        return await browserLaunchPromise;
+    } finally {
+        browserLaunchPromise = null;
     }
 }
 
-async function fetchHtmlOptimized(url) {
+async function closeSharedBrowser(force = false) {
+    if (browserLaunchPromise) {
+        try { await browserLaunchPromise; } catch (e) {}
+    }
+    if (!force && activeBrowserPages > 0) {
+        return;
+    }
+    if (sharedBrowser) {
+        const oldBrowser = sharedBrowser;
+        sharedBrowser = null;
+        browserPageCount = 0;
+        try {
+            await oldBrowser.close();
+        } catch (e) {}
+    }
+}
+
+async function fetchHtmlOptimized(url, signal = null, { isListingPage = false } = {}) {
+    if (signal?.aborted) return null;
+
     // 1. First try fast HTTP fetch via axios (handles brotli/gzip, 10x faster than browser)
     try {
         const response = await axios.get(url, {
@@ -1957,23 +2003,44 @@ async function fetchHtmlOptimized(url) {
                 'Referer': 'https://www.google.com/'
             },
             timeout: 12000,
-            maxRedirects: 5
+            maxRedirects: 5,
+            signal: signal || undefined
         });
 
         if (response.status === 200 && response.data && typeof response.data === 'string' && response.data.length > 500) {
-            return response.data;
+            // Skip Cloudflare / JS interstitial challenge pages on axios so Puppeteer can render them
+            const lowerHtml = response.data.substring(0, 4000).toLowerCase();
+            const isChallengePage = lowerHtml.includes('just a moment...') || lowerHtml.includes('cf-browser-verification') || lowerHtml.includes('enable javascript and cookies to continue');
+            if (!isChallengePage) {
+                return response.data;
+            }
         }
     } catch (e) {
+        if (signal?.aborted) return null;
         // Fall through to Puppeteer
     }
 
-    // 2. Fallback to Singleton Puppeteer instance
-    let page = null;
-    try {
-        const browser = await getSharedBrowser();
-        if (!browser) return null;
+    if (signal?.aborted) return null;
 
-        page = await browser.newPage();
+    // 2. Fallback to Singleton Puppeteer instance (with safe active-page tracking and one-shot Target.createTarget recovery)
+    let page = null;
+    activeBrowserPages++;
+    try {
+        let browser = await getSharedBrowser();
+        if (!browser || signal?.aborted) return null;
+
+        try {
+            page = await browser.newPage();
+        } catch (tabErr) {
+            if (signal?.aborted) return null;
+            // Recover once if browser died/recycled just before newPage()
+            if (activeBrowserPages <= 1) {
+                await closeSharedBrowser(true);
+            }
+            browser = await getSharedBrowser();
+            if (!browser || signal?.aborted) return null;
+            page = await browser.newPage();
+        }
         browserPageCount++;
 
         // Aggressively block images, fonts, media, stylesheets, and ad/tracking domains to prevent page timeouts
@@ -1992,21 +2059,37 @@ async function fetchHtmlOptimized(url) {
                 reqUrl.includes('criteo') ||
                 reqUrl.includes('facebook') ||
                 reqUrl.includes('adsystem')) {
-                req.abort();
+                req.abort().catch(() => {});
             } else {
-                req.continue();
+                req.continue().catch(() => {});
             }
         });
 
         await page.setUserAgent(getRandomUserAgent());
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
+        if (signal?.aborted) return null;
+
+        // On JS-hydrated news listing pages (e.g. Sakshi), give client scripts a short window to populate article links
+        if (isListingPage) {
+            await page.waitForFunction(
+                () => document.querySelectorAll('a[href]').length >= 25,
+                { timeout: 6000 }
+            ).catch(() => {});
+        }
+
         const html = await page.content();
         return html;
     } catch (err) {
-        console.error(`[PUPPETEER] Fetch failed for ${url}: ${err.message}`);
-        // If target closed or connection severed, recycle shared browser immediately so subsequent pages don't cascade fail
-        if (err.message.includes('Target closed') || err.message.includes('Protocol error') || err.message.includes('timeout')) {
-            await closeSharedBrowser();
+        if (!signal?.aborted) {
+            console.error(`[PUPPETEER] Fetch failed for ${url}: ${err.message}`);
+        }
+        // Only recycle shared browser on true CDP/connection failures (not simple per-page navigation timeouts)
+        const isBrowserBroken = err.message.includes('Target closed') ||
+                                err.message.includes('Protocol error') ||
+                                err.message.includes('Session closed') ||
+                                err.message.includes('Connection closed');
+        if (isBrowserBroken && activeBrowserPages <= 1) {
+            await closeSharedBrowser(true);
         }
         return null;
     } finally {
@@ -2015,6 +2098,7 @@ async function fetchHtmlOptimized(url) {
                 await page.close();
             } catch (e) {}
         }
+        activeBrowserPages = Math.max(0, activeBrowserPages - 1);
     }
 }
 
@@ -2090,6 +2174,50 @@ JSON అవుట్‌పుట్ (Strict JSON only):
 {"isRelevant": true, "qualityScore": 8.0, "headline": "6-10 పదాల నిర్దిష్టమైన సహజ తెలుగు శీర్షిక", "contentTe": "50-65 పదాల తెలుగు వార్త (మొదటి వాక్యంలోనే ప్రధాన వార్త, ఒకే పేరా)", "fullStoryTe": "${hasSubstantialSource ? "2-4 పేరాగ్రాఫ్‌ల పూర్తి తెలుగు వార్త (\\\\n\\\\n తో, రిపీట్ లేకుండా)" : ""}", "headlineEn": "6-10 word English headline", "contentEn": "50-65 word English summary", "fullStoryEn": "${hasSubstantialSource ? "2-4 paragraph English full story (\\\\n\\\\n)" : ""}", "location": "Location", "storyFingerprint": "short-english-slug", "refinedCategory": "Category", "tags": [], "entities": {"people": [], "organizations": [], "locations": []}, "hasLogo": false, "mediaUrl": "${imageUrl}", "mediaType": "image", "isWide": false}`;
 }
 
+function repairMalformedJson(raw) {
+    if (!raw || typeof raw !== 'string') return raw;
+    // 1. Escape unescaped raw control characters inside JSON string literals
+    let out = '';
+    let inString = false;
+    let escaped = false;
+    for (let i = 0; i < raw.length; i++) {
+        const ch = raw[i];
+        if (inString) {
+            if (escaped) {
+                out += ch;
+                escaped = false;
+            } else if (ch === '\\') {
+                out += ch;
+                escaped = true;
+            } else if (ch === '"') {
+                out += ch;
+                inString = false;
+            } else if (ch === '\n') {
+                out += '\\n';
+            } else if (ch === '\r') {
+                out += '\\r';
+            } else if (ch === '\t') {
+                out += '\\t';
+            } else if (ch.charCodeAt(0) < 0x20) {
+                out += ' ';
+            } else {
+                out += ch;
+            }
+        } else {
+            if (ch === '"') {
+                inString = true;
+            }
+            out += ch;
+        }
+    }
+
+    // 2. Fix bare minus signs in value positions (e.g. "qualityScore": -, -> "qualityScore": 0,)
+    out = out.replace(/(:\s*)-(?=\s*[,}\]])/g, '$10');
+    // 3. Remove trailing commas before closing object/array braces
+    out = out.replace(/,\s*([}\]])/g, '$1');
+    return out;
+}
+
 function parseAIJson(text) {
     if (!text || typeof text !== 'string') {
         throw new Error('Empty AI JSON response');
@@ -2113,20 +2241,35 @@ function parseAIJson(text) {
         cleanText = cleanText.substring(firstBrace, lastBrace + 1);
     }
 
-    return JSON.parse(cleanText);
+    try {
+        return JSON.parse(cleanText);
+    } catch (firstErr) {
+        try {
+            const repaired = repairMalformedJson(cleanText);
+            return JSON.parse(repaired);
+        } catch (secondErr) {
+            const posMatch = String(firstErr.message || '').match(/position\s+(\d+)/i);
+            if (posMatch) {
+                const pos = parseInt(posMatch[1], 10);
+                const snippet = cleanText.substring(Math.max(0, pos - 30), Math.min(cleanText.length, pos + 30)).replace(/\s+/g, ' ');
+                throw new Error(`${firstErr.message} (near: "${snippet}")`);
+            }
+            throw firstErr;
+        }
+    }
 }
 
-async function checkImageCleanWithGemini(imageUrl) {
-    if (!imageUrl || geminiKeys.length === 0) return { ok: false, hasLogo: true, fetched: null };
+async function checkImageCleanWithGemini(imageUrl, signal = null) {
+    if (!imageUrl || geminiKeys.length === 0 || signal?.aborted) return { ok: false, hasLogo: true, fetched: null };
     const fetched = await fetchValidatedImageBuffer(imageUrl, { maxWidth: 1024, timeout: 10000 });
-    if (!fetched) return { ok: false, hasLogo: false, fetched: null };
+    if (!fetched || signal?.aborted) return { ok: false, hasLogo: false, fetched: null };
 
     const checkPrompt = `Inspect this photograph strictly for overlaid media branding or edited graphics.
 Return JSON only: {"hasLogo": true|false, "isWide": true|false}
 - Set hasLogo = true ONLY if there is an overlaid TV channel logo, website URL/credit watermark (e.g. "Source: ...", ".com", TV9, NTV, Samayam, Eenadu, Sakshi, ABN, Telugu Scribe), TV news ticker bar, or edited red circle/arrow/text banner overlay.
 - Set hasLogo = false for a clean real photograph (do NOT reject natural real-world signs or stage banners in the background).`;
 
-    const result = await processWithGemini("Check image", checkPrompt, null, 2, fetched);
+    const result = await processWithGemini("Check image", checkPrompt, null, 2, fetched, { signal });
     if (!result) return { ok: true, hasLogo: false, fetched };
     try {
         const parsed = parseAIJson(result);
@@ -2136,7 +2279,26 @@ Return JSON only: {"hasLogo": true|false, "isWide": true|false}
     }
 }
 
-async function processWithGemini(text, prompt, imageUrl = null, retries = 4, preFetchedImage = null) {
+async function sleepWithAbort(ms, signal = null) {
+    if (!ms || ms <= 0 || signal?.aborted) return;
+    await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+            if (signal) signal.removeEventListener('abort', onAbort);
+            resolve();
+        }, ms);
+        const onAbort = () => {
+            clearTimeout(timer);
+            resolve();
+        };
+        if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    });
+}
+
+async function processWithGemini(text, prompt, imageUrl = null, retries = 4, preFetchedImage = null, options = {}) {
+    const signal = options?.signal || null;
+    const temperature = typeof options?.temperature === 'number' ? options.temperature : 0.35;
+
+    if (signal?.aborted) return null;
     if (geminiKeys.length === 0) {
         console.error("No Gemini API keys configured. Cannot process.");
         return null;
@@ -2155,6 +2317,7 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 4, pre
         };
     } else if (imageUrl && !isGenericImage(imageUrl)) {
         const fetched = await fetchValidatedImageBuffer(imageUrl, { maxWidth: 1024, timeout: 12000 });
+        if (signal?.aborted) return null;
         if (fetched) {
             imagePart = {
                 inlineData: {
@@ -2169,8 +2332,12 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 4, pre
         ? "\n[IMAGE ATTACHED: Visually inspect the attached image for overlaid logos, website URLs/watermarks like 'Source: ...', red arrows/circles, or news banners and set hasLogo accurately.]"
         : "\n[NO IMAGE ATTACHED: Set hasLogo to false.]";
 
-    const maxAttempts = Math.max(geminiKeys.length * 2, 6);
+    const maxAttempts = Math.min(Math.max(geminiKeys.length + 2, 4), 8);
+    const maxTransientRetries = Math.min(Math.max(retries || 3, 2), 4);
+    let transientErrorCount = 0;
+
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        if (signal?.aborted) return null;
         try {
             if (requestCountForCurrentKey >= MAX_REQUESTS_PER_KEY_PER_DAY) {
                 console.log(`[GEMINI] Key ${currentGeminiKeyIndex + 1} reached limit. Rotating.`);
@@ -2183,7 +2350,8 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 4, pre
             const timeSinceLast = now - lastGeminiRequestTime;
             if (timeSinceLast < MIN_DELAY_BETWEEN_GEMINI_REQUESTS) {
                 const sleepTime = MIN_DELAY_BETWEEN_GEMINI_REQUESTS - timeSinceLast;
-                await new Promise(r => setTimeout(r, sleepTime));
+                await sleepWithAbort(sleepTime, signal);
+                if (signal?.aborted) return null;
             }
             lastGeminiRequestTime = Date.now();
             requestCountForCurrentKey++;
@@ -2199,25 +2367,29 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 4, pre
             const payload = {
                 contents: [{ parts }],
                 generationConfig: {
-                    temperature: 0.35,
+                    temperature,
                     responseMimeType: "application/json"
                 }
             };
 
-            const response = await axios.post(url, payload, { timeout: 45000 });
+            const response = await axios.post(url, payload, { timeout: 35000, signal: signal || undefined });
             
             if (response.data && response.data.candidates && response.data.candidates.length > 0) {
                 return response.data.candidates[0].content.parts[0].text.trim();
             }
             return null;
         } catch (error) {
+            if (signal?.aborted || error.code === 'ERR_CANCELED' || error.name === 'CanceledError') {
+                return null;
+            }
             const errorMsg = (error.response?.data?.error?.message || error.message || "").toUpperCase();
             const status = error.response?.status;
+            const activeModel = GEMINI_MODELS[currentModelIndex % GEMINI_MODELS.length];
             
             // If model not found or deprecated, switch model
             if (errorMsg.includes('NOT_FOUND') || errorMsg.includes('IS NOT SUPPORTED') || errorMsg.includes('NO LONGER AVAILABLE')) {
-                console.log(`[GEMINI] Model ${GEMINI_MODELS[currentModelIndex % GEMINI_MODELS.length]} not supported. Falling back to next model.`);
-                currentModelIndex++;
+                console.log(`[GEMINI] Model ${activeModel} not supported. Falling back to next model.`);
+                currentModelIndex = (currentModelIndex + 1) % GEMINI_MODELS.length;
                 continue;
             }
 
@@ -2240,20 +2412,30 @@ async function processWithGemini(text, prompt, imageUrl = null, retries = 4, pre
                 continue;
             }
 
-            const isRetryable = errorMsg.includes('503') || 
+            const isRetryable = status === 503 ||
+                               status === 502 ||
+                               status === 504 ||
+                               errorMsg.includes('503') || 
                                errorMsg.includes('OVERLOADED') || 
                                errorMsg.includes('HIGH DEMAND') || 
                                errorMsg.includes('UNAVAILABLE') || 
                                errorMsg.includes('TIMEOUT') || 
                                errorMsg.includes('ECONNRESET');
 
-            if (isRetryable && attempt < maxAttempts - 1) {
-                const delay = 3000 + (Math.random() * 2000); 
-                console.log(`[GEMINI] Temporary service issue, retrying in ${Math.round(delay/1000)}s...`);
-                await new Promise(resolve => setTimeout(resolve, delay));
+            if (isRetryable && transientErrorCount < maxTransientRetries && attempt < maxAttempts - 1) {
+                transientErrorCount++;
+                // After 2 consecutive transient failures on one model, rotate to the fallback Lite model
+                if (transientErrorCount === 2 && GEMINI_MODELS.length > 1) {
+                    currentModelIndex = (currentModelIndex + 1) % GEMINI_MODELS.length;
+                    console.warn(`[GEMINI] Switching to fallback model ${GEMINI_MODELS[currentModelIndex]} after repeated transient errors on ${activeModel}.`);
+                }
+                const delay = 1500 + (Math.random() * 1500);
+                const reasonLabel = status ? `HTTP ${status}` : errorMsg.substring(0, 45);
+                console.log(`[GEMINI] Temporary service issue on ${activeModel} (${reasonLabel}), retrying in ${Math.round(delay/1000)}s...`);
+                await sleepWithAbort(delay, signal);
                 continue;
             }
-            console.error("Gemini API Error:", errorMsg);
+            console.error(`Gemini API Error (${activeModel}):`, errorMsg);
             // Move to next key for the next call so we don't get stuck on the failing key
             currentGeminiKeyIndex = (currentGeminiKeyIndex + 1) % geminiKeys.length;
             return null;
@@ -2498,7 +2680,7 @@ function detectDistrict(location, text) {
 // ============================================================================
 // SCRAPING LOGIC: WEB SOURCES
 // ============================================================================
-async function processSingleWebSource(doc) {
+async function processSingleWebSource(doc, signal = null) {
     const source = doc.data();
     console.log(`[WEB] Processing Source: ${source.siteName} (${source.url})`);
     
@@ -2522,14 +2704,19 @@ async function processSingleWebSource(doc) {
             }
         }
 
+        if (signal?.aborted) return;
+
         // HTML link extraction fallback
         if (uniqueLinks.length === 0) {
-            const html = await fetchHtmlOptimized(source.url);
+            const html = await fetchHtmlOptimized(source.url, signal, { isListingPage: true });
+            if (signal?.aborted) return;
             if (!html) {
                 throw new Error(`Failed to load landing page HTML for ${source.siteName}`);
             }
             uniqueLinks = extractArticleLinks(html, source.url);
         }
+
+        if (signal?.aborted) return;
 
         const existingUrls = await isUrlAlreadyScanned(uniqueLinks);
         const newLinks = uniqueLinks.filter(link => !existingUrls.has(link));
@@ -2542,10 +2729,17 @@ async function processSingleWebSource(doc) {
         const staleThreshold = Date.now() - (24 * 60 * 60 * 1000); // 24 hours
 
         for (const link of linksToProcess) {
-            if (batchCount >= 5) break;
+            if (batchCount >= 5 || signal?.aborted) break;
+
+            const articleController = new AbortController();
+            const onSourceAbort = () => articleController.abort();
+            if (signal) signal.addEventListener('abort', onSourceAbort, { once: true });
+            const articleSignal = articleController.signal;
 
             const articlePromise = async () => {
-                const articleHtml = await fetchHtmlOptimized(link);
+                if (articleSignal.aborted) return;
+                const articleHtml = await fetchHtmlOptimized(link, articleSignal);
+                if (articleSignal.aborted) return;
                 if (!articleHtml) {
                     await markUrlAsProcessed(link);
                     failedCount++;
@@ -2577,6 +2771,7 @@ async function processSingleWebSource(doc) {
                     ? extracted.images
                     : (extracted.image ? [extracted.image] : []);
                 for (const imgCandidate of primaryImageCandidates.slice(0, 3)) {
+                    if (articleSignal.aborted) return;
                     if (!imgCandidate || isGenericImage(imgCandidate)) continue;
                     const fetched = await fetchValidatedImageBuffer(imgCandidate, { maxWidth: 1024, timeout: 12000 });
                     if (fetched) {
@@ -2585,6 +2780,8 @@ async function processSingleWebSource(doc) {
                         break;
                     }
                 }
+
+                if (articleSignal.aborted) return;
 
                 const prompt = buildEditorialPrompt({
                     mode: 'web',
@@ -2596,14 +2793,23 @@ async function processSingleWebSource(doc) {
                 const webInputText = extracted.headline
                     ? `Title: ${extracted.headline}\n\nArticle:\n${extracted.body}`
                     : extracted.body;
-                const aiResult = await processWithGemini(webInputText, prompt, activePrimaryImageUrl, 4, preFetchedPrimaryImage);
-                if (!aiResult) {
-                    failedCount++;
+                let aiResult = await processWithGemini(webInputText, prompt, activePrimaryImageUrl, 4, preFetchedPrimaryImage, { signal: articleSignal });
+                if (!aiResult || articleSignal.aborted) {
+                    if (!articleSignal.aborted) failedCount++;
                     return;
                 }
 
                 try {
-                    const parsed = parseAIJson(aiResult);
+                    let parsed;
+                    try {
+                        parsed = parseAIJson(aiResult);
+                    } catch (initialParseErr) {
+                        if (articleSignal.aborted) return;
+                        console.warn(`[WEB] Malformed JSON on first attempt (${initialParseErr.message}). Retrying once at low temperature...`);
+                        const retryResult = await processWithGemini(webInputText, prompt, activePrimaryImageUrl, 2, preFetchedPrimaryImage, { signal: articleSignal, temperature: 0.1 });
+                        if (!retryResult || articleSignal.aborted) throw initialParseErr;
+                        parsed = parseAIJson(retryResult);
+                    }
                     const validContent = parsed.contentTe || parsed.content || '';
                     if (!parsed.isRelevant || !parsed.headline || !validContent) {
                         await markUrlAsProcessed(link);
@@ -2719,7 +2925,8 @@ async function processSingleWebSource(doc) {
                         console.log(`[IMAGE] 🛑 AI detected a logo/watermark on primary image for "${parsed.headline}". Checking fallback candidates...`);
                         const fallbackCandidates = (extracted.images || []).filter(u => u && u !== activePrimaryImageUrl && !isGenericImage(u)).slice(0, 2);
                         for (const candidateUrl of fallbackCandidates) {
-                            const checkRes = await checkImageCleanWithGemini(candidateUrl);
+                            if (articleSignal.aborted) return;
+                            const checkRes = await checkImageCleanWithGemini(candidateUrl, articleSignal);
                             if (checkRes.ok && !checkRes.hasLogo) {
                                 chosenMediaUrl = candidateUrl;
                                 preFetchedImageForUpload = checkRes.fetched || null;
@@ -2805,6 +3012,13 @@ async function processSingleWebSource(doc) {
                         console.log(`[SCRAPER_TOP_LEADER] Detected statement/quote for ${leaderDetect.leaderName}: "${cleanedHeadline}". Flagging BREAKING!`);
                     }
 
+                    const notifMeta = classifyScraperNotification({
+                        parsed,
+                        cleanedHeadline,
+                        cleanedContent,
+                        isTopLeaderNews,
+                    });
+
                     const docRef = db.collection('news').doc();
                     const newsPayload = sanitizeFirestoreData({
                         headline: { telugu: cleanedHeadline, english: parsed.headlineEn || '' },
@@ -2829,17 +3043,17 @@ async function processSingleWebSource(doc) {
                         isReporter: true,
                         isCitizen: false,
                         aiProcessed: true,
-                        tone: isTopLeaderNews ? 'BREAKING' : 'NORMAL',
-                        isBreaking: isTopLeaderNews,
-                        notificationWorthy: isTopLeaderNews,
-                        notificationTitle: isTopLeaderNews ? cleanedHeadline : '',
+                        tone: notifMeta.tone,
+                        isBreaking: notifMeta.isBreaking,
+                        notificationWorthy: notifMeta.notificationWorthy,
+                        notificationTitle: notifMeta.notificationTitle,
                         isGlobal: isTopLeaderNews || (finalDistrict === 'General'),
                         timestamp: admin.firestore.FieldValue.serverTimestamp(),
                         publishedAt: admin.firestore.FieldValue.serverTimestamp(),
                         createdAt: admin.firestore.FieldValue.serverTimestamp(),
                         status: 'published',
                         approved: true,
-                        qualityScore: isTopLeaderNews ? 9.5 : ((typeof parsed.qualityScore === 'number' && !isNaN(parsed.qualityScore)) ? Math.max(0, Math.min(10, Math.round(parsed.qualityScore * 10) / 10)) : 5.0),
+                        qualityScore: notifMeta.qualityScore,
                         viewCount: 0,
                         likes: Math.floor(Math.random() * 150) + 50,
                         comments: 0,
@@ -2864,14 +3078,25 @@ async function processSingleWebSource(doc) {
                 }
             };
 
+            let articleTimer = null;
             try {
                 await Promise.race([
                     articlePromise(),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Article Processing Timeout')), 180000))
+                    new Promise((_, reject) => {
+                        articleTimer = setTimeout(() => {
+                            articleController.abort();
+                            reject(new Error('Article Processing Timeout'));
+                        }, 55000);
+                    })
                 ]);
             } catch (timeoutErr) {
-                console.error(`[WEB] Timeout processing article: ${link}`);
-                failedCount++;
+                if (!signal?.aborted) {
+                    console.error(`[WEB] Timeout processing article: ${link}`);
+                    failedCount++;
+                }
+            } finally {
+                if (articleTimer) clearTimeout(articleTimer);
+                if (signal) signal.removeEventListener('abort', onSourceAbort);
             }
         }
 
@@ -2880,8 +3105,9 @@ async function processSingleWebSource(doc) {
                 batch.commit(),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('Batch commit timeout (15s)')), 15000))
             ]);
-            console.log(`[WEB] Committed ${batchCount} articles successfully for ${source.siteName}`);
+            console.log(`[WEB] Committed ${batchCount} articles successfully for ${source.siteName}${signal?.aborted ? ' (before source timeout)' : ''}`);
         }
+        if (signal?.aborted) return;
 
         // Update scraping_sources with metrics
         await Promise.race([
@@ -2919,14 +3145,29 @@ async function processSingleWebSource(doc) {
 // ============================================================================
 // TWITTER / X SYNDICATION API (Zero Browser, Zero Cost, 100% Reliable & Fast)
 // ============================================================================
-async function fetchTweetsSyndication(handle) {
+async function fetchTweetsSyndication(handle, signal = null) {
     const timelineUrl = `https://syndication.twitter.com/srv/timeline-profile/screen-name/${handle}`;
     const userAgent = getRandomUserAgent();
     const proxyCount = proxyManager.getProxyCount();
-    const maxAttempts = proxyCount > 0 ? Math.min(Math.max(proxyCount, 2), 8) : 2;
+    let maxAttempts = proxyCount > 0 ? Math.min(Math.max(proxyCount, 2), 6) : 2;
     let lastError = 'Unknown syndication error';
 
+    if (signal?.aborted) return { ok: false, tweets: [], error: 'Aborted' };
+
+    // Protect proxy pool when all proxies are already cooling down from 429s
+    if (proxyCount > 0 && proxyManager.getHealthyProxyCount() === 0) {
+        const waitMs = proxyManager.getEarliestCooldownWaitMs();
+        if (waitMs > 0 && waitMs <= 12000) {
+            console.log(`[PROXY] ⏳ All proxies cooling down; waiting ${Math.ceil(waitMs / 1000)}s for next proxy recovery before @${handle}...`);
+            await sleepWithAbort(waitMs + 300, signal);
+        } else {
+            // Avoid hammering already-cooled proxies 6-8 times and re-extending their 300s cooldowns
+            maxAttempts = 2;
+        }
+    }
+
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        if (signal?.aborted) return { ok: false, tweets: [], error: 'Aborted' };
         const proxyUrl = proxyManager.getNextProxy();
         try {
             const config = {
@@ -2937,6 +3178,7 @@ async function fetchTweetsSyndication(handle) {
                     'Accept-Language': 'en-US,en;q=0.9,te;q=0.8'
                 },
                 timeout: 12000,
+                signal: signal || undefined,
                 validateStatus: (status) => status < 500
             };
 
@@ -2966,14 +3208,24 @@ async function fetchTweetsSyndication(handle) {
                 if (proxyUrl) {
                     proxyManager.markCooldownProxy(proxyUrl, 5 * 60 * 1000, '429');
                 }
-                console.warn(`[X-SYNDICATION] Rate limit (429) on @${handle} ${proxyUrl ? 'via proxy' : 'direct'} (attempt ${attempt + 1}/${maxAttempts}). Rotating...`);
-                await new Promise(r => setTimeout(r, 800 + (attempt * 450)));
+                const healthyLeft = proxyManager.getHealthyProxyCount();
+                console.warn(`[X-SYNDICATION] Rate limit (429) on @${handle} ${proxyUrl ? 'via proxy' : 'direct'} (attempt ${attempt + 1}/${maxAttempts}). ${healthyLeft > 0 ? 'Rotating...' : 'No healthy proxies left.'}`);
+                if (proxyCount > 0 && healthyLeft === 0) {
+                    const nextWaitMs = proxyManager.getEarliestCooldownWaitMs();
+                    if (nextWaitMs > 0 && nextWaitMs <= 10000 && attempt < maxAttempts - 1) {
+                        await sleepWithAbort(nextWaitMs + 300, signal);
+                        continue;
+                    }
+                    // Stop burning through cooling proxies so their 300s timers aren't endlessly reset
+                    return { ok: false, tweets: [], error: lastError };
+                }
+                await sleepWithAbort(800 + (attempt * 450), signal);
                 continue;
             }
             if (res.status !== 200 || !res.data) {
                 lastError = `HTTP ${res.status || 'empty'} response`;
                 if (attempt === maxAttempts - 1) return { ok: false, tweets: [], error: lastError };
-                await new Promise(r => setTimeout(r, 500));
+                await sleepWithAbort(500, signal);
                 continue;
             }
 
@@ -3136,11 +3388,13 @@ async function fetchFullTweetTextFromStatus(page, tweetUrl) {
 // ============================================================================
 let directStealthFailuresInCurrentCycle = 0;
 
-async function fetchTweetsDirectStealth(handle) {
+async function fetchTweetsDirectStealth(handle, signal = null) {
+    if (signal?.aborted) return { ok: false, tweets: [], error: 'Aborted' };
     let page = null;
+    activeBrowserPages++;
     try {
         const browser = await getSharedBrowser();
-        if (!browser) return { ok: false, tweets: [], error: 'Browser unavailable' };
+        if (!browser || signal?.aborted) return { ok: false, tweets: [], error: 'Browser unavailable' };
 
         page = await browser.newPage();
         browserPageCount++;
@@ -3346,16 +3600,22 @@ async function fetchTweetsDirectStealth(handle) {
         }
         return { ok: true, tweets: parsedTweets, error: null };
     } catch (e) {
-        console.error(`[X-DIRECT] Direct stealth crawl failed for @${handle}:`, e.message);
-        // If target closed or connection severed, recycle shared browser immediately so subsequent pages don't cascade fail
-        if (e.message.includes('Target closed') || e.message.includes('Protocol error') || e.message.includes('timeout')) {
-            await closeSharedBrowser();
+        if (!signal?.aborted) {
+            console.error(`[X-DIRECT] Direct stealth crawl failed for @${handle}:`, e.message);
+        }
+        // Only recycle shared browser on true CDP/connection failures when no other tab is active
+        const isBrowserBroken = e.message.includes('Target closed') ||
+                                e.message.includes('Protocol error') ||
+                                e.message.includes('Session closed');
+        if (isBrowserBroken && activeBrowserPages <= 1) {
+            await closeSharedBrowser(true);
         }
         return { ok: false, tweets: [], error: e.message };
     } finally {
         if (page) {
             try { await page.close(); } catch (e) {}
         }
+        activeBrowserPages = Math.max(0, activeBrowserPages - 1);
     }
 }
 
@@ -3447,7 +3707,7 @@ async function fetchTweetsFromRapidAPI(handle) {
 // ============================================================================
 // SCRAPING LOGIC: TWITTER / SOCIAL FEEDS
 // ============================================================================
-async function processSingleTwitterFeed(doc) {
+async function processSingleTwitterFeed(doc, signal = null) {
     const feed = doc.data();
     if (feed.isPaused === true) return;
 
@@ -3468,7 +3728,8 @@ async function processSingleTwitterFeed(doc) {
         let lastFetchError = null;
 
         // 1. Primary Method: Twitter Syndication (Zero browser, Zero RAM, ultra fast & reliable with rotating proxies)
-        const synRes = await fetchTweetsSyndication(handle);
+        const synRes = await fetchTweetsSyndication(handle, signal);
+        if (signal?.aborted) return;
         let fetchedItems = synRes.tweets || [];
         if (synRes.ok) {
             anyFetchSucceeded = true;
@@ -3476,9 +3737,9 @@ async function processSingleTwitterFeed(doc) {
             lastFetchError = synRes.error;
         }
 
-        // 2. Secondary Fallback: Direct Stealth Puppeteer (if syndication failed or returned 0 items)
-        if (fetchedItems.length === 0 && directStealthFailuresInCurrentCycle < 3) {
-            const stealthRes = await fetchTweetsDirectStealth(handle);
+        // 2. Secondary Fallback: Direct Stealth Puppeteer ONLY when syndication actually failed (not when syndication succeeded with 0 original tweets)
+        if (!synRes.ok && fetchedItems.length === 0 && directStealthFailuresInCurrentCycle < 3 && !signal?.aborted) {
+            const stealthRes = await fetchTweetsDirectStealth(handle, signal);
             if (stealthRes.ok && stealthRes.tweets.length > 0) {
                 fetchedItems = stealthRes.tweets;
                 anyFetchSucceeded = true;
@@ -3535,7 +3796,7 @@ async function processSingleTwitterFeed(doc) {
             const batch = db.batch();
 
             for (const item of fetchedItems) {
-                if (batchCount >= 3) break;
+                if (batchCount >= 3 || signal?.aborted) break;
                 // If main URL or all thread parts were already scanned, skip
                 if (seenUrls.has(item.url) || (item.allUrls && item.allUrls.every(u => seenUrls.has(u)))) continue;
 
@@ -3590,11 +3851,20 @@ async function processSingleTwitterFeed(doc) {
                     !item.mediaUrl.includes('profile_images')
                 );
                 const imageToProcess = hasGenuineTweetPhoto ? item.mediaUrl : null;
-                const aiResult = await processWithGemini(postInputText, prompt, imageToProcess);
-                if (!aiResult) continue;
+                const aiResult = await processWithGemini(postInputText, prompt, imageToProcess, 4, null, { signal });
+                if (!aiResult || signal?.aborted) continue;
 
                 try {
-                    const parsed = parseAIJson(aiResult);
+                    let parsed;
+                    try {
+                        parsed = parseAIJson(aiResult);
+                    } catch (initialParseErr) {
+                        if (signal?.aborted) break;
+                        console.warn(`[TWITTER] Malformed JSON for @${handle} (${initialParseErr.message}). Retrying once at low temperature...`);
+                        const retryResult = await processWithGemini(postInputText, prompt, imageToProcess, 2, null, { signal, temperature: 0.1 });
+                        if (!retryResult || signal?.aborted) throw initialParseErr;
+                        parsed = parseAIJson(retryResult);
+                    }
                     const validContent = parsed.contentTe || parsed.content || '';
                     if (!parsed.isRelevant || !parsed.headline || !validContent) {
                         console.log(`[TWITTER] ⏭️ Filtered out non-news/satirical post for @${handle}: "${(item.text || '').substring(0, 45).replace(/\n/g, ' ')}..."`);
@@ -3798,6 +4068,12 @@ async function processSingleTwitterFeed(doc) {
                     }
 
                     const isPoliticalCategory = category === 'Politics' || category === 'రాజకీయం' || feed.category === 'Politics' || feed.category === 'రాజకీయం';
+                    const socialNotifMeta = classifyScraperNotification({
+                        parsed,
+                        cleanedHeadline,
+                        cleanedContent,
+                        isTopLeaderNews,
+                    });
 
                     const docRef = db.collection('news').doc();
                     const newsPayload = sanitizeFirestoreData({
@@ -3832,16 +4108,16 @@ async function processSingleTwitterFeed(doc) {
                         isReporter: true,
                         isCitizen: false,
                         aiProcessed: true,
-                        tone: isTopLeaderNews ? 'BREAKING' : 'NORMAL',
-                        isBreaking: isTopLeaderNews,
-                        notificationWorthy: isTopLeaderNews,
-                        notificationTitle: isTopLeaderNews ? cleanedHeadline : '',
+                        tone: socialNotifMeta.tone,
+                        isBreaking: socialNotifMeta.isBreaking,
+                        notificationWorthy: socialNotifMeta.notificationWorthy,
+                        notificationTitle: socialNotifMeta.notificationTitle,
                         timestamp: admin.firestore.FieldValue.serverTimestamp(),
                         publishedAt: admin.firestore.FieldValue.serverTimestamp(),
                         createdAt: admin.firestore.FieldValue.serverTimestamp(),
                         status: 'published',
                         approved: true,
-                        qualityScore: isTopLeaderNews ? 9.5 : ((typeof parsed.qualityScore === 'number' && !isNaN(parsed.qualityScore)) ? Math.max(0, Math.min(10, Math.round(parsed.qualityScore * 10) / 10)) : 5.0),
+                        qualityScore: socialNotifMeta.qualityScore,
                         viewCount: 0,
                         likes: Math.floor(Math.random() * 150) + 50,
                         comments: 0,
@@ -3980,7 +4256,7 @@ async function runScraperQueue() {
     if (isScraping) {
         if (Date.now() - lastScrapeStartTime > 45 * 60 * 1000) {
             console.warn("[QUEUE] ⚠️ Scraping stuck for over 45 mins. Closing browsers and force resetting lock...");
-            await closeSharedBrowser().catch(() => {});
+            await closeSharedBrowser(true).catch(() => {});
             isScraping = false;
         } else {
             console.log("[QUEUE] Scraping cycle already in progress. Skipping this cycle.");
@@ -4033,21 +4309,31 @@ async function runScraperQueue() {
             // Process 1 Twitter feed
             if (cycleTwitterDocs.length > 0) {
                 const tDoc = cycleTwitterDocs.shift();
+                const tController = new AbortController();
+                let tTimer = null;
                 try {
                     await Promise.race([
-                        processSingleTwitterFeed(tDoc),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Twitter Timeout')), 90000))
+                        processSingleTwitterFeed(tDoc, tController.signal),
+                        new Promise((_, reject) => {
+                            tTimer = setTimeout(() => {
+                                tController.abort();
+                                reject(new Error('Twitter Timeout'));
+                            }, 90000);
+                        })
                     ]);
                 } catch (e) {
                     console.error(`Error processing twitter ${tDoc.id}:`, e.message);
+                } finally {
+                    if (tTimer) clearTimeout(tTimer);
                 }
 
                 // Option C: Smart Jitter Delay between Twitter feeds
                 // If there are no web sources left to interleave (or between consecutive feeds),
-                // wait a polite 2 to 4 seconds random delay so Twitter/X never detects a burst pattern
+                // wait a polite delay so Twitter/X never detects a burst pattern; extend slightly when proxies are low
                 if (webDocs.length === 0 && cycleTwitterDocs.length > 0) {
-                    const minDelay = parseInt(process.env.TWITTER_DELAY_MIN_MS, 10) || 2000;
-                    const maxDelay = parseInt(process.env.TWITTER_DELAY_MAX_MS, 10) || 4000;
+                    const lowProxies = proxyManager.getProxyCount() > 0 && proxyManager.getHealthyProxyCount() <= 2;
+                    const minDelay = lowProxies ? 4000 : (parseInt(process.env.TWITTER_DELAY_MIN_MS, 10) || 2000);
+                    const maxDelay = lowProxies ? 6500 : (parseInt(process.env.TWITTER_DELAY_MAX_MS, 10) || 4000);
                     const jitterMs = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
                     await new Promise(resolve => setTimeout(resolve, jitterMs));
                 }
@@ -4063,13 +4349,22 @@ async function runScraperQueue() {
                 }
 
                 const wDoc = webDocs.shift();
+                const wController = new AbortController();
+                let wTimer = null;
                 try {
                     await Promise.race([
-                        processSingleWebSource(wDoc),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Web Timeout')), 90000))
+                        processSingleWebSource(wDoc, wController.signal),
+                        new Promise((_, reject) => {
+                            wTimer = setTimeout(() => {
+                                wController.abort();
+                                reject(new Error('Web Timeout'));
+                            }, 120000);
+                        })
                     ]);
                 } catch (e) {
                     console.error(`Error processing web source ${wDoc.id}:`, e.message);
+                } finally {
+                    if (wTimer) clearTimeout(wTimer);
                 }
             }
         }
@@ -4080,7 +4375,7 @@ async function runScraperQueue() {
     } finally {
         isScraping = false;
         // Clean up any idle shared browser to release memory
-        await closeSharedBrowser().catch(() => {});
+        await closeSharedBrowser(true).catch(() => {});
     }
 }
 

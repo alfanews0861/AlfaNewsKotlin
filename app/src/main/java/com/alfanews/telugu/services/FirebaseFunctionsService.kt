@@ -30,7 +30,9 @@ object FirebaseFunctionsService {
         topic: String = "all_users",
         silent: Boolean = false,
         channelId: String? = null,
-        imageUrl: String? = null
+        imageUrl: String? = null,
+        newsId: String? = null,
+        district: String? = null
     ): Result<Map<String, Any>> {
         val data = mutableMapOf<String, Any>(
             "title" to title,
@@ -41,6 +43,8 @@ object FirebaseFunctionsService {
         )
         channelId?.let { data["channelId"] = it }
         imageUrl?.let { data["imageUrl"] = it }
+        newsId?.takeIf { it.isNotBlank() }?.let { data["newsId"] = it }
+        district?.takeIf { it.isNotBlank() }?.let { data["district"] = it }
         return callFunction("triggerPushBroadcast", data)
     }
 

@@ -197,69 +197,177 @@ function formatWay2NewsStyleTitle(rawTitle: string): { plainTitle: string; htmlT
 }
 
 // ==========================================
-// SHARED: Build FCM message with notification & data payloads
+// EDGE CACHE PROXY HELPER (ZERO FIREBASE EGRESS)
+// Routes Firebase Storage URLs via Cloudflare wsrv.nl edge cache (~25KB WebP).
+// External news CDNs (Eenadu, Sakshi, YouTube, TV9) pass through untouched at ₹0 cost.
 // ==========================================
-function buildNewsMessage(
+export function getEdgeProxiedImageUrl(imageUrl?: string | null): string | undefined {
+    if (!imageUrl || typeof imageUrl !== 'string') return undefined;
+    const trimmed = imageUrl.trim();
+    if (!trimmed) return undefined;
+    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) return undefined;
+
+    const isFirebaseStorage = trimmed.includes('firebasestorage.googleapis.com') ||
+                              trimmed.includes('firebasestorage.app') ||
+                              trimmed.includes('storage.googleapis.com');
+    if (isFirebaseStorage) {
+        return `https://wsrv.nl/?url=${encodeURIComponent(trimmed)}&w=640&output=webp&q=75`;
+    }
+    return trimmed;
+}
+
+// ==========================================
+// STABLE NOTIFICATION TAG GENERATOR
+// Replaces stale notifications in the same logical slot cleanly instead of piling clutter.
+// ==========================================
+export function getSlotNotificationTag(
+    channelId: string,
+    topicOrToken: { topic: string } | { token: string },
+    explicitTag?: string
+): string {
+    if (explicitTag && explicitTag.trim()) return explicitTag.trim();
+    const topic = 'topic' in topicOrToken ? (topicOrToken.topic || '') : '';
+    if (channelId === 'breaking_news') {
+        return topic.startsWith('district_') ? `alfa_breaking_${topic}` : 'alfa_breaking_state';
+    }
+    if (topic.startsWith('district_')) {
+        return `alfa_local_${topic}`;
+    }
+    if (topic.startsWith('cat_')) {
+        return `alfa_${topic}`;
+    }
+    return 'alfa_general_slot';
+}
+
+// ==========================================
+// PAUSE WINDOW CHECKER (AUTO-EXPIRES CLEANLY)
+// ==========================================
+export function isPauseActive(pauseUntil: unknown, nowMs: number = Date.now()): boolean {
+    const ts = Number(pauseUntil || 0);
+    return Number.isFinite(ts) && ts > 0 && nowMs < ts;
+}
+
+// ==========================================
+// SHARED: Build HYBRID FCM message (Android System Tray + Foreground Data + WebPush)
+// ==========================================
+export function buildNewsMessage(
     news: any,
     title: string,
     channelId: string,
     imageUrl: string,
     ttlMs: number,
     topicOrToken: { topic: string } | { token: string },
-    options: { silent?: boolean } = {}
+    options: { silent?: boolean; slotTag?: string } = {}
 ): admin.messaging.Message {
     const isSilent = !!options.silent;
     const headline = news.headline?.telugu || news.headline?.english || news.headline || "";
-    const body = (headline + "").substring(0, 150);
+    const body = String(headline).trim().substring(0, 150) || "ఆల్ఫా న్యూస్ తాజా వార్త";
     const { plainTitle, htmlTitle } = formatWay2NewsStyleTitle(title);
 
-    // 🛡️ 100% Zero-Cost Way2News Rich Notification Architecture:
-    // 1. External CDN (Eenadu, Sakshi, YouTube, TV9) -> 0 Firebase egress cost.
-    // 2. Firebase Storage -> Route through Cloudflare-backed free edge cache proxy (wsrv.nl).
-    //    All 10,000+ devices download from Cloudflare CDN edge cache (CF-Cache: HIT) at ~25KB WebP.
-    //    Result: Rich BigPicture notifications on 100% of devices + EXACTLY ₹0 Firebase Storage egress bill!
-    let safeDrawerImageUrl: string | undefined = undefined;
-    if (imageUrl && imageUrl.trim()) {
-        const isFirebaseStorage = imageUrl.includes('firebasestorage.googleapis.com') || 
-                                  imageUrl.includes('firebasestorage.app') ||
-                                  imageUrl.includes('storage.googleapis.com');
-        if (!isFirebaseStorage && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
-            // External CDN: 100% Safe, ₹0 Firebase Cost
-            safeDrawerImageUrl = imageUrl;
-        } else if (isFirebaseStorage) {
-            // Cloudflare Edge Cache Proxy — 1 Firebase request, unlimited cached edge downloads
-            safeDrawerImageUrl = `https://wsrv.nl/?url=${encodeURIComponent(imageUrl)}&w=640&output=webp&q=75`;
-        }
-    }
+    // 🛡️ 100% Zero-Cost Rich Notification Architecture via Cloudflare Edge Proxy
+    const safeDrawerImageUrl = getEdgeProxiedImageUrl(imageUrl);
+    const topic = 'topic' in topicOrToken ? (topicOrToken.topic || '') : '';
+    const isDistrictTopic = topic.startsWith("district_");
+    const canonicalDistrict = getCanonicalDistrict(news.district) || "";
+    const slotTag = getSlotNotificationTag(channelId, topicOrToken, options.slotTag);
+    const webLink = `https://alfanews.app/news/${news.id}`;
+    const ttlSeconds = Math.max(60, Math.floor(ttlMs / 1000));
 
-    // 🌟 HIGH PRIORITY DATA-ONLY NOTIFICATION (Way2News / Inshorts Architecture):
-    // When FCM messages omit top-level 'notification', Android OS ALWAYS delivers the payload
-    // to MyFirebaseMessagingService.onMessageReceived() in both FOREGROUND and BACKGROUND.
-    // This unlocks:
-    //  - Way2News style red highlight on hook with Ramabhadra Telugu font
-    //  - NotificationCompat.BigPictureStyle with full-width rich hero images
-    //  - Action buttons: "చదవండి" (Read) & "షేర్ చేయండి" (Share)
-    //  - Strict client-side District Gatekeeper check to drop mismatched districts
+    // 🌟 HYBRID FCM ARCHITECTURE (100% Delivery on Xiaomi/Vivo/Oppo/Realme + Rich BigPicture):
+    // - Background / Killed / Doze: Android Google Play Services displays `notification` + `android.notification`
+    //   reliably with rich BigPicture image and stable tag, even when OEM battery savers block background wakes.
+    // - Foreground: MyFirebaseMessagingService.onMessageReceived() renders Way2News Ramabhadra HTML styling
+    //   and Read/Share actions using the rich `data` payload.
+    // - Web: `webpush` delivers native browser notification with `/app_icon.png`, BigPicture image, and direct link.
     return {
+        notification: {
+            title: plainTitle,
+            body,
+            ...(safeDrawerImageUrl ? { imageUrl: safeDrawerImageUrl } : {})
+        },
         android: {
             priority: isSilent ? 'normal' : 'high',
             ttl: ttlMs,
             directBootOk: true,
+            notification: {
+                channelId,
+                tag: slotTag,
+                title: plainTitle,
+                body,
+                priority: isSilent ? 'low' : 'high',
+                defaultSound: !isSilent,
+                ...(safeDrawerImageUrl ? { imageUrl: safeDrawerImageUrl } : {})
+            }
+        },
+        webpush: {
+            headers: {
+                Urgency: isSilent ? 'normal' : 'high',
+                TTL: String(ttlSeconds)
+            },
+            notification: {
+                title: plainTitle,
+                body,
+                icon: 'https://alfanews.app/app_icon.png',
+                badge: 'https://alfanews.app/app_icon.png',
+                tag: slotTag,
+                renotify: !isSilent,
+                ...(safeDrawerImageUrl ? { image: safeDrawerImageUrl } : {})
+            },
+            fcmOptions: {
+                link: webLink
+            }
         },
         data: {
             actionUrl: `alfanews://news/${news.id}`,
-            newsId:    news.id,
+            webUrl: webLink,
+            newsId: String(news.id || ""),
             channelId,
-            imageUrl:  safeDrawerImageUrl || imageUrl || "",
-            title:     plainTitle,
-            htmlTitle: htmlTitle,
+            imageUrl: safeDrawerImageUrl || "",
+            title: plainTitle,
+            htmlTitle,
             body,
-            silent:    isSilent ? "true" : "false",
-            district:  news.district || "",
-            newsType:  ('topic' in topicOrToken && topicOrToken.topic?.startsWith("district_")) ? "DISTRICT" : "MAIN",
+            silent: isSilent ? "true" : "false",
+            // Always send canonical district name so Android District Gatekeeper never mismatches aliases
+            district: canonicalDistrict,
+            rawDistrict: String(news.district || ""),
+            newsType: isDistrictTopic ? "DISTRICT" : "MAIN",
+            slotTag,
         },
         ...topicOrToken,
     };
+}
+
+// ==========================================
+// UNIFIED QUALITY & ENGAGEMENT HELPERS
+// Bridges `qualityScore` (0-10) written by news_handler & vps-scraper with legacy `score` (0-100),
+// and reads engagement across `longViews`, `views`, and `viewCount`.
+// ==========================================
+export function getNormalizedQualityScore(n: any): number {
+    if (!n || typeof n !== 'object') return 50;
+
+    if (typeof n.qualityScore === 'number' && !isNaN(n.qualityScore)) {
+        const scaled = n.qualityScore <= 10 ? n.qualityScore * 10 : n.qualityScore;
+        return Math.max(0, Math.min(100, scaled));
+    }
+    if (typeof n.score === 'number' && !isNaN(n.score)) {
+        const scaled = n.score <= 10 ? n.score * 10 : n.score;
+        return Math.max(0, Math.min(100, scaled));
+    }
+    if (n.qualitySignals?.publicInterestScore !== undefined) {
+        const pub = Number(n.qualitySignals.publicInterestScore) || 0.5;
+        const inv = Number(n.qualitySignals.investigativeScore) || 0.0;
+        return Math.max(0, Math.min(100, (pub * 6 + inv * 2 + 2) * 10));
+    }
+    return 50;
+}
+
+export function getEngagementViews(n: any): number {
+    if (!n || typeof n !== 'object') return 0;
+    return Math.max(
+        Number(n.longViews) || 0,
+        Number(n.views) || 0,
+        Number(n.viewCount) || 0
+    );
 }
 
 // ==========================================
@@ -267,19 +375,22 @@ function buildNewsMessage(
 // Ensures only state, national, global, breaking or high-impact news goes to all_users
 // Single-mandal or purely local district stories are excluded from all_users
 // ==========================================
-function isMainNews(n: any): boolean {
+export function isMainNews(n: any): boolean {
+    const category = n.category || "";
+    if (category === "జిల్లా వార్త" || category === "స్థానిక వార్తలు") {
+        return false;
+    }
+
     if (n.isGlobal === true) return true;
     const tone = (n.tone || "").toUpperCase();
     if (n.isBreaking === true || tone === 'BREAKING' || tone === 'URGENT' || tone === 'IMPORTANT') return true;
-    if ((n.score ?? 0) >= 75) return true;
+    if (getNormalizedQualityScore(n) >= 75) return true;
 
-    const category = n.category || "";
     const mainCategories = [
         "రాజకీయం", "జాతీయం", "ప్రపంచం", "క్రీడలు", "వినోదం",
         "వ్యాపారం", "టెక్నాలజీ", "ఆరోగ్యం", "విద్య", "వ్యవసాయం"
     ];
     if (mainCategories.includes(category)) {
-        if (category === "జిల్లా వార్త") return false;
         return true;
     }
 
@@ -296,7 +407,7 @@ function isMainNews(n: any): boolean {
 // Only state, national, global, or high-magnitude news goes to all_users.
 // Purely local mandal/district breaking news is routed to that specific district topic.
 // ==========================================
-function isStatewideOrBroadBreaking(n: any): boolean {
+export function isStatewideOrBroadBreaking(n: any): boolean {
     const fullText = `${n.headline?.telugu || ""} ${n.headline?.english || ""} ${n.headline || ""} ${n.content?.telugu || ""} ${n.content || ""} ${n.body?.telugu || ""}`;
     const headline = n.headline?.telugu || n.headline?.english || n.headline || "";
     const authorOrSource = n.sourceName || n.socialAuthorName || n.reporter?.name || "";
@@ -309,7 +420,7 @@ function isStatewideOrBroadBreaking(n: any): boolean {
 
     if (n.isGlobal === true && n.category !== "జిల్లా వార్త" && n.category !== "స్థానిక వార్తలు") return true;
 
-    // 🏛️ Top Telugu Leaders statements/quotes are always statewide breaking news
+    // 🏛️ Top Telugu Leaders direct statements/announcements are statewide breaking news
     if (isLeader) {
         return true;
     }
@@ -318,8 +429,8 @@ function isStatewideOrBroadBreaking(n: any): boolean {
     if (n.district && broadDistricts.some(d => d.toLowerCase() === (n.district + "").toLowerCase())) {
         return true;
     }
-    const mainCategories = ["రాజకీయం", "జాతీయం", "ప్రపంచం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ"];
-    if (mainCategories.includes(n.category) && n.category !== "జిల్లా వార్త" && (n.score ?? 0) >= 70) {
+    const mainCategories = ["రాజకీయం", "జాతీయం", "ప్రపంచం", "క్రీడలు", "వ్యాపారం", "టెక్నాలజీ", "వినోదం", "విద్య", "ఆరోగ్యం"];
+    if (mainCategories.includes(n.category) && n.category !== "జిల్లా వార్త" && getNormalizedQualityScore(n) >= 70) {
         return true;
     }
     if (fullText.includes("ముఖ్యమంత్రి") || fullText.includes("ప్రధానమంత్రి") || fullText.includes("కేబినెట్") || fullText.includes("బడ్జెట్") || fullText.includes("ఆర్డినెన్స్") || fullText.includes("హైకోర్టు") || fullText.includes("సుప్రీంకోర్టు") || fullText.includes("ఎన్నికల")) {
@@ -331,23 +442,23 @@ function isStatewideOrBroadBreaking(n: any): boolean {
 }
 
 // ==========================================
-// DAILY BREAKING NOTIFICATION ATOMIC LIMITER
+// DAILY BREAKING NOTIFICATION ATOMIC LIMITER + ROLLBACK
 // Caps statewide breaking alerts to max 6/day (and district breaking to 3/day)
-// to prevent notification flooding while keeping users informed of critical updates.
+// Incremented ONLY after all gates (Quiet Hours, Duplicate, Cooldown) pass!
 // ==========================================
 async function checkAndIncrementLimitAtomic(db: admin.firestore.Firestore, docName: string, maxLimit: number): Promise<boolean> {
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
     const docRef = db.collection('settings').doc(docName);
-    
+
     return await db.runTransaction(async (transaction) => {
         const doc = await transaction.get(docRef);
         const data = doc.data();
-        
+
         let currentCount = 0;
         if (doc.exists && data && data.date === today) {
-            currentCount = data.count || 0;
+            currentCount = Number(data.count || 0);
         }
-        
+
         if (currentCount >= maxLimit) {
             return false;
         }
@@ -358,44 +469,65 @@ async function checkAndIncrementLimitAtomic(db: admin.firestore.Firestore, docNa
             count: nextCount,
             lastSentAt: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
-        
+
         return true;
     });
 }
 
+async function decrementLimitAtomic(db: admin.firestore.Firestore, docName: string): Promise<void> {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    const docRef = db.collection('settings').doc(docName);
+
+    await db.runTransaction(async (transaction) => {
+        const doc = await transaction.get(docRef);
+        const data = doc.data();
+        if (doc.exists && data && data.date === today && Number(data.count || 0) > 0) {
+            transaction.set(docRef, {
+                date: today,
+                count: Number(data.count) - 1
+            }, { merge: true });
+        }
+    }).catch(() => {});
+}
+
 // ==========================================
-// TRENDING SCORE ALGORITHM (Freshness Decay + AI Score + Views + Image Quality)
-// - Freshness decay: Fresh breaking news (<3h) scores higher than 20h old news with accumulated views.
-// - Image Bonus: 25% boost if the article has an image to maximize CTR on BigPictureStyle notifications.
-// - AI Score: High quality journalistic pieces get prioritized.
+// TRENDING SCORE ALGORITHM (Quality-First + Real Engagement + Gentle Freshness Decay + Image Bonus)
+// Guarantees a high-quality, engaging story (e.g. 3h old, qualityScore 9.0) cleanly beats 5m-old low-quality filler.
 // ==========================================
-function calculateTrendingScore(n: any): number {
-    const views = n.longViews || n.views || 0;
-    const aiScore = typeof n.score === 'number' ? n.score : 50;
+export function calculateTrendingScore(n: any, nowMs: number = Date.now()): number {
+    const views = getEngagementViews(n);
+    const qualityScore100 = getNormalizedQualityScore(n);
 
     let ageHours = 1;
     const ts = n.timestamp;
     if (ts && typeof ts.toDate === 'function') {
-        ageHours = Math.max(0.2, (Date.now() - ts.toDate().getTime()) / (1000 * 60 * 60));
-    } else if (ts && ts._seconds) {
-        ageHours = Math.max(0.2, (Date.now() - ts._seconds * 1000) / (1000 * 60 * 60));
+        ageHours = Math.max(0.2, (nowMs - ts.toDate().getTime()) / (1000 * 60 * 60));
+    } else if (ts && typeof ts._seconds === 'number') {
+        ageHours = Math.max(0.2, (nowMs - ts._seconds * 1000) / (1000 * 60 * 60));
+    } else if (typeof ts === 'number' && ts > 0) {
+        ageHours = Math.max(0.2, (nowMs - ts) / (1000 * 60 * 60));
     }
 
-    // Rich notification bonus: Articles with images get 25% ranking boost
+    // Rich notification bonus: Articles with images get 20% ranking boost for BigPicture CTR
     const hasImage = !!(n.thumbnailUrl || n.mediaUrl);
-    const imageMultiplier = hasImage ? 1.25 : 1.0;
+    const imageMultiplier = hasImage ? 1.2 : 1.0;
 
-    // Freshness decay formula:
-    // (views * 1.5 + aiScore * 5) / (ageHours + 1.5)^1.15
-    const rawStrength = (views * 1.5) + (aiScore * 5);
-    return (rawStrength / Math.pow(ageHours + 1.5, 1.15)) * imageMultiplier;
+    // Penalize low-quality or personal-praise filler stories so they never win over real journalism
+    const isLowQualityOrPraise = qualityScore100 < 60 || n.qualitySignals?.isPersonalPraise === true;
+    const qualityPenalty = isLowQualityOrPraise ? 0.65 : 1.0;
+
+    // Quality-First + Engagement formula with gentle freshness decay:
+    // (qualityScore100 * 6 + min(views * 1.5, 450)) / (ageHours + 2.5)^0.85
+    const cappedEngagement = Math.min(views * 1.5, 450);
+    const rawStrength = (qualityScore100 * 6) + cappedEngagement;
+    return (rawStrength / Math.pow(ageHours + 2.5, 0.85)) * imageMultiplier * qualityPenalty;
 }
 
 // ==========================================
 // DYNAMIC TTL PER SCHEDULED SLOT
 // Avoids notifications lingering past their relevant time window or waking users at midnight
 // ==========================================
-function getScheduledTTL(hour: number): number {
+export function getScheduledTTL(hour: number): number {
     if (hour === 8)  return 4 * 60 * 60 * 1000;   // 4h (valid till 12 PM)
     if (hour === 13) return 4 * 60 * 60 * 1000;   // 4h (valid till 5 PM)
     if (hour === 18) return 2.5 * 60 * 60 * 1000; // 2.5h (valid till 8:30 PM)
@@ -404,15 +536,201 @@ function getScheduledTTL(hour: number): number {
 }
 
 // ==========================================
+// TIMESTAMP NORMALIZER FOR COOLDOWNS
+// ==========================================
+function toEpochMillis(val: any): number {
+    if (!val) return 0;
+    if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
+    if (typeof val.toMillis === 'function') return val.toMillis();
+    if (typeof val.toDate === 'function') return val.toDate().getTime();
+    if (typeof val._seconds === 'number') return val._seconds * 1000;
+    const parsed = new Date(val).getTime();
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+// ==========================================
+// PURE BREAKING GATE EVALUATOR (Testable without Firestore)
+// Enforces exact gate ordering BEFORE any daily quota is consumed:
+//   1. Global enabled / auto-expiring pause
+//   2. Eligibility + quality floor + age <= 6h
+//   3. Quiet Hours (11 PM - 6 AM IST, unless life-threatening)
+//   4. Duplicate postId & storyFingerprint
+//   5. Independent Per-Scope Cooldown (Statewide 45m, District 30m)
+// ==========================================
+export interface BreakingGateContext {
+    postId: string;
+    after: any;
+    settingsData: any;
+    nowMs?: number;
+    istHour?: number;
+}
+
+export interface BreakingGateResult {
+    allowed: boolean;
+    reason?: string;
+    isStatewide: boolean;
+    canonicalDistrict: string | null;
+    targetTopic: string;
+    limitDocName: string;
+    maxLimit: number;
+    isLifeThreatening: boolean;
+    isLeaderBreaking: boolean;
+    tone: string;
+    ageHours: number;
+    districtSlug: string;
+}
+
+export function evaluateBreakingGate(ctx: BreakingGateContext): BreakingGateResult {
+    const nowMs = ctx.nowMs ?? Date.now();
+    const istHour = ctx.istHour ?? parseInt(new Intl.DateTimeFormat('en-GB', {
+        hour: 'numeric',
+        hour12: false,
+        timeZone: 'Asia/Kolkata'
+    }).format(new Date(nowMs)));
+
+    const { postId, after, settingsData = {} } = ctx;
+    const baseFail = (reason: string, extra: Partial<BreakingGateResult> = {}): BreakingGateResult => ({
+        allowed: false,
+        reason,
+        isStatewide: true,
+        canonicalDistrict: null,
+        targetTopic: 'all_users',
+        limitDocName: 'notif_daily_breaking',
+        maxLimit: 6,
+        isLifeThreatening: false,
+        isLeaderBreaking: false,
+        tone: String(after?.tone || '').toUpperCase(),
+        ageHours: 0,
+        districtSlug: '',
+        ...extra
+    });
+
+    // 1. Kill-switch & auto-expiring pause
+    if (settingsData?.breakingNotificationsEnabled === false) {
+        return baseFail('globally_disabled');
+    }
+    if (isPauseActive(settingsData?.pauseBreakingUntil, nowMs)) {
+        return baseFail('paused_temporarily');
+    }
+
+    // 2. Eligibility, quality floor & age
+    const fullText = `${after?.headline?.telugu || ""} ${after?.headline?.english || ""} ${after?.headline || ""} ${after?.content?.telugu || ""} ${after?.content || ""} ${after?.body?.telugu || ""}`;
+    const headline = after?.headline?.telugu || after?.headline?.english || after?.headline || "";
+    const authorOrSource = after?.sourceName || after?.socialAuthorName || after?.reporter?.name || "";
+    const isLeaderBreaking = isTopTeluguLeaderStatement(fullText, headline, authorOrSource);
+
+    const lowerFullText = fullText.toLowerCase();
+    const isLifeThreatening = [
+        "భూకంపం", "తుఫాను", "వరదలు", "సునామి", "భారీ విపత్తు",
+        "సైరన్", "ఎమర్జెన్సీ", "తీవ్ర ప్రమాదం", "కుప్పకూలిన",
+        "విష వాయువు", "గ్యాస్ లీక్", "ఉగ్రవాద"
+    ].some(k => lowerFullText.includes(k));
+
+    const quality100 = getNormalizedQualityScore(after);
+    const tone = String(after?.tone || "").toUpperCase();
+    const isExplicitBreaking = after?.isBreaking === true || tone === 'BREAKING' || tone === 'URGENT';
+    const isImportantNews = tone === 'IMPORTANT' && (after?.notificationWorthy === true || quality100 >= 75);
+
+    if (!isExplicitBreaking && !isLeaderBreaking && !isImportantNews) {
+        return baseFail('not_breaking_eligible', { isLeaderBreaking, tone });
+    }
+
+    // Quality floor for breaking: protect users from low-quality spam tagged IMPORTANT/leader
+    if (!isLifeThreatening && after?.isBreaking !== true && quality100 < 70) {
+        return baseFail('below_breaking_quality_floor', { isLeaderBreaking, tone });
+    }
+
+    // Age check — 6 గంటల కంటే పాత news కి breaking send వద్దు
+    const tsMillis = toEpochMillis(after?.timestamp);
+    const ageHours = tsMillis > 0 ? Math.max(0, (nowMs - tsMillis) / (1000 * 60 * 60)) : 0;
+    if (ageHours > 6) {
+        return baseFail('too_old', { ageHours, isLeaderBreaking, tone });
+    }
+
+    // Scope resolution
+    const isStatewide = isStatewideOrBroadBreaking(after);
+    const canonicalDistrict = getCanonicalDistrict(after?.district);
+    const isLocalDistrictBreaking = !isStatewide && !!canonicalDistrict;
+    const districtSlug = canonicalDistrict ? slugify(canonicalDistrict) : 'district';
+
+    const targetTopic = isStatewide
+        ? 'all_users'
+        : (isLocalDistrictBreaking ? getTopicName("district", canonicalDistrict!) : 'all_users');
+    const limitDocName = isStatewide ? 'notif_daily_breaking' : `notif_daily_breaking_${districtSlug}`;
+    const maxLimit = isStatewide ? 6 : 3;
+
+    const scopeInfo = {
+        isStatewide,
+        canonicalDistrict,
+        targetTopic,
+        limitDocName,
+        maxLimit,
+        isLifeThreatening,
+        isLeaderBreaking,
+        tone,
+        ageHours,
+        districtSlug
+    };
+
+    // 3. 🌙 QUIET HOURS (11:00 PM – 6:00 AM IST) — checked BEFORE quota increment!
+    const isQuietHour = istHour >= 23 || istHour < 6;
+    if (isQuietHour && !isLifeThreatening) {
+        return baseFail('quiet_hours', scopeInfo);
+    }
+
+    // 4. Duplicate ID & Story Fingerprint check — checked BEFORE quota increment!
+    const lastSentMap = settingsData?.lastSentNewsIdMap || {};
+    const recentGeneralIds: string[] = Array.isArray(settingsData?.recentGeneralIds) ? settingsData.recentGeneralIds : [];
+    const recentFingerprints: string[] = Array.isArray(settingsData?.recentFingerprints) ? settingsData.recentFingerprints : [];
+    const fp = typeof after?.storyFingerprint === 'string' && !after.storyFingerprint.startsWith('gen_')
+        ? after.storyFingerprint.trim()
+        : '';
+
+    if (
+        lastSentMap['general'] === postId ||
+        lastSentMap[targetTopic] === postId ||
+        recentGeneralIds.includes(postId) ||
+        (fp && recentFingerprints.includes(fp))
+    ) {
+        return baseFail('duplicate_or_fingerprint', scopeInfo);
+    }
+
+    // 5. Independent Per-Scope Cooldown — checked BEFORE quota increment!
+    // Statewide breaking: 45 min cooldown (`lastStateBreakingAt`, fallback `lastBreakingAt`)
+    // District breaking: 30 min cooldown per district (`lastDistrictBreakingAt[districtSlug]`)
+    if (!isLifeThreatening) {
+        if (isStatewide) {
+            const lastStateMs = toEpochMillis(settingsData?.lastStateBreakingAt) || toEpochMillis(settingsData?.lastBreakingAt);
+            const elapsedMin = (nowMs - lastStateMs) / (60 * 1000);
+            if (lastStateMs > 0 && elapsedMin < 45) {
+                return baseFail('state_cooldown_active', scopeInfo);
+            }
+        } else {
+            const distMap = settingsData?.lastDistrictBreakingAt || {};
+            const lastDistMs = toEpochMillis(distMap[districtSlug]);
+            const elapsedMin = (nowMs - lastDistMs) / (60 * 1000);
+            if (lastDistMs > 0 && elapsedMin < 30) {
+                return baseFail('district_cooldown_active', scopeInfo);
+            }
+        }
+    }
+
+    return {
+        allowed: true,
+        ...scopeInfo
+    };
+}
+
+// ==========================================
 // SCHEDULED NOTIFICATIONS — 4 times/day (8 AM, 1 PM, 6 PM, 9 PM IST)
-// Ranking: Trending Score (Freshness + AI Score + Views + Image Bonus)
+// Ranking: Quality-First Trending Score (QualityScore + Real Views + Gentle Freshness + Image Bonus)
 // ==========================================
 export const sendPersonalizedNotification = onSchedule({
     schedule: "0 8,13,18,21 * * *",
     timeZone: "Asia/Kolkata",
     timeoutSeconds: 540,
     memory: "1GiB"
-}, async (event) => {
+}, async () => {
     const db = admin.firestore();
 
     const settingsRef = db.collection('settings').doc('notifications');
@@ -423,17 +741,19 @@ export const sendPersonalizedNotification = onSchedule({
         logger.log(`[NOTIF] Scheduled notifications globally disabled in settings/notifications. Skipping run.`);
         return;
     }
-    const pauseScheduledUntil = Number(settingsData?.pauseScheduledUntil || 0);
-    if (Date.now() < pauseScheduledUntil) {
-        const remainingHours = ((pauseScheduledUntil - Date.now()) / (1000 * 60 * 60)).toFixed(1);
+    if (isPauseActive(settingsData?.pauseScheduledUntil)) {
+        const remainingHours = ((Number(settingsData?.pauseScheduledUntil) - Date.now()) / (1000 * 60 * 60)).toFixed(1);
         logger.log(`[NOTIF] Scheduled notifications paused for next ${remainingHours}h via pauseScheduledUntil. Skipping run.`);
         return;
     }
 
     const lastSentMap = settingsData?.lastSentNewsIdMap || {};
     const recentGeneralIds: string[] = Array.isArray(settingsData?.recentGeneralIds)
-        ? settingsData.recentGeneralIds
+        ? [...settingsData.recentGeneralIds]
         : (lastSentMap['general'] ? [lastSentMap['general']] : []);
+    const recentFingerprints: string[] = Array.isArray(settingsData?.recentFingerprints)
+        ? [...settingsData.recentFingerprints]
+        : [];
     const updatedMap = { ...lastSentMap };
 
     const istHour = parseInt(new Intl.DateTimeFormat('en-GB', {
@@ -445,9 +765,8 @@ export const sendPersonalizedNotification = onSchedule({
     logger.log(`[NOTIF] Scheduled run started at IST Hour: ${istHour}`);
 
     // 🛡️ NIGHT-TIME SHIELD (10 PM to 7 AM IST):
-    // Never send scheduled notifications during sleep hours under any circumstance!
     if (istHour >= 22 || istHour < 7) {
-        logger.log(`[NOTIF] Night-time guard active (IST ${istHour}h). Skipping scheduled run to avoid disturbing users.`);
+        logger.log(`[NOTIF] Night-time guard active (IST ${istHour}h). Skipping scheduled run.`);
         return;
     }
 
@@ -460,8 +779,8 @@ export const sendPersonalizedNotification = onSchedule({
     const windowMillis = 24 * 60 * 60 * 1000;
     const sinceTime = new Date(Date.now() - windowMillis);
 
-    // 1. Fetch news: notificationWorthy=true వార్తలు (Capped at 100 to guarantee zero read-bill spikes)
-    let allNews: any[] = [];
+    // 1. Fetch news: notificationWorthy=true వార్తలు (Strictly bounded to 100 reads)
+    const newsMap = new Map<string, any>();
     const newsSnapshot = await db.collection('news')
         .where('approved', '==', true)
         .where('notificationWorthy', '==', true)
@@ -470,9 +789,13 @@ export const sendPersonalizedNotification = onSchedule({
         .limit(100)
         .get();
 
-    if (newsSnapshot.empty) {
-        // Fallback: If AI hasn't explicitly set notificationWorthy=true, check approved news in last 24h (capped at 100 docs)
-        logger.log(`[NOTIF] No explicit notificationWorthy=true news. Checking fallback approved news...`);
+    for (const doc of newsSnapshot.docs) {
+        newsMap.set(doc.id, { id: doc.id, ...doc.data() });
+    }
+
+    // Fallback if explicit notificationWorthy pool is sparse (<15)
+    if (newsMap.size < 15) {
+        logger.log(`[NOTIF] Worthy pool has ${newsMap.size} docs. Augmenting with bounded approved news (limit 100)...`);
         const fallbackSnapshot = await db.collection('news')
             .where('approved', '==', true)
             .where('timestamp', '>', sinceTime)
@@ -480,41 +803,87 @@ export const sendPersonalizedNotification = onSchedule({
             .limit(100)
             .get();
 
-        const validDocs = fallbackSnapshot.docs.filter(d => d.data().notificationWorthy !== false);
-        allNews = validDocs.map(doc => ({ id: doc.id, ...doc.data() }));
-    } else {
-        allNews = newsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        for (const doc of fallbackSnapshot.docs) {
+            const d = doc.data();
+            if (d.notificationWorthy !== false && !newsMap.has(doc.id)) {
+                newsMap.set(doc.id, { id: doc.id, ...d });
+            }
+        }
     }
 
+    // At 1 PM District Slot, also fetch bounded local district news (limit 100) so AP & TS districts aren't starved
+    if (istHour === 13) {
+        try {
+            const districtSnapshot = await db.collection('news')
+                .where('approved', '==', true)
+                .where('category', '==', 'జిల్లా వార్త')
+                .where('timestamp', '>', sinceTime)
+                .orderBy('timestamp', 'desc')
+                .limit(100)
+                .get();
+
+            for (const doc of districtSnapshot.docs) {
+                const d = doc.data();
+                if (d.notificationWorthy !== false && !newsMap.has(doc.id)) {
+                    newsMap.set(doc.id, { id: doc.id, ...d });
+                }
+            }
+        } catch (distQueryErr: any) {
+            logger.warn(`[NOTIF] 1 PM supplemental district query skipped (index/fallback): ${distQueryErr.message}`);
+        }
+    }
+
+    const allNews = Array.from(newsMap.values());
     if (allNews.length === 0) {
         logger.log(`[NOTIF] No approved news found in last 24h. Exiting.`);
         return;
     }
 
-    // Ranking: Trending Score (Engagement + AI Score + Freshness Decay + Image Bonus)
+    // Ranking: Quality-First Trending Score
     allNews.sort((a: any, b: any) => calculateTrendingScore(b) - calculateTrendingScore(a));
 
-    const mainNewsList = allNews.filter(isMainNews);
-    const candidateMainNews = mainNewsList.length > 0 ? mainNewsList : allNews;
+    // Apply quality floor (>= 60 on 0-100 scale) for scheduled notifications, with graceful fallback
+    const qualityFiltered = allNews.filter((n: any) => getNormalizedQualityScore(n) >= 60);
+    const rankedPool = qualityFiltered.length > 0 ? qualityFiltered : allNews;
+
+    const mainNewsList = rankedPool.filter(isMainNews);
+    const candidateMainNews = mainNewsList.length > 0 ? mainNewsList : rankedPool;
+
+    const isFreshFingerprint = (n: any) => {
+        const fp = typeof n?.storyFingerprint === 'string' && !n.storyFingerprint.startsWith('gen_')
+            ? n.storyFingerprint.trim()
+            : '';
+        return !fp || !recentFingerprints.includes(fp);
+    };
+    const recordFingerprint = (n: any) => {
+        const fp = typeof n?.storyFingerprint === 'string' && !n.storyFingerprint.startsWith('gen_')
+            ? n.storyFingerprint.trim()
+            : '';
+        if (fp && !recentFingerprints.includes(fp)) {
+            recentFingerprints.unshift(fp);
+        }
+    };
+
+    let sentTopicsCount = 0;
+    let lastSentHeadline = "";
+    let lastSentNewsId = "";
 
     // =========================================================================
-    // 🛡️ ZERO NOTIFICATION FLOODING (Single Dedicated Purpose Per Slot):
-    // 8 AM  -> General Morning News (all_users) ONLY (శుభోదయం: ముఖ్యాంశాలు)
-    // 13 PM -> District Local News (district_*) ONLY (మధ్యాహ్న స్థానిక జిల్లా వార్తలు)
-    // 18 PM -> Category News (cat_*) ONLY (సాయంత్రం విరామం: సినిమా/రాజకీయం/క్రీడలు)
-    // 21 PM -> General Night Roundup (all_users) ONLY (రాత్రి ముఖ్యాంశాల సమీక్ష)
+    // 🛡️ SINGLE DEDICATED PURPOSE PER SLOT (Zero Flooding):
+    // 8 AM  -> General Morning News (all_users)
+    // 13 PM -> District Local News (district_*)
+    // 18 PM -> Category News (cat_*)
+    // 21 PM -> General Night Roundup (all_users)
     // =========================================================================
 
     // --- 1. General Notification — 8 AM & 21 PM Slots ONLY ---
     const isGeneralSlot = istHour === 8 || istHour === 21;
-    let topNews: any = null;
-
     if (isGeneralSlot) {
-        // 1) గత 24 గంటల రీసెంట్ లిస్ట్ లో లేని సరికొత్త ప్రధాన వార్త
-        topNews = candidateMainNews.find((n: any) => !recentGeneralIds.includes(n.id));
+        let topNews = candidateMainNews.find((n: any) => !recentGeneralIds.includes(n.id) && isFreshFingerprint(n));
         if (!topNews) {
-            // 2) Fallback: రీసెంట్ లిస్ట్ లో ఉన్నప్పటికీ, వెంటనే మునుపటి రన్‌లో పంపని అత్యుత్తమ ప్రధాన వార్త
-            topNews = candidateMainNews.find((n: any) => lastSentMap['general'] !== n.id) || candidateMainNews[0];
+            topNews = candidateMainNews.find((n: any) => !recentGeneralIds.includes(n.id))
+                || candidateMainNews.find((n: any) => lastSentMap['general'] !== n.id)
+                || candidateMainNews[0];
         }
 
         if (topNews) {
@@ -532,32 +901,38 @@ export const sendPersonalizedNotification = onSchedule({
                     "general_news_v2",
                     imageUrl,
                     getScheduledTTL(istHour),
-                    { topic: 'all_users' }
+                    { topic: 'all_users' },
+                    { slotTag: istHour === 8 ? 'alfa_morning_slot' : 'alfa_night_slot' }
                 );
 
                 await admin.messaging().send(message);
                 updatedMap['general'] = topNews.id;
                 recentGeneralIds.unshift(topNews.id);
-                logger.log(`[NOTIF] Pradhaana Vaartha (General) sent: newsId=${topNews.id}, category=${topNews.category}, views=${topNews.longViews || 0}, hour=${istHour}`);
+                recordFingerprint(topNews);
+                sentTopicsCount++;
+                lastSentHeadline = String(headline).substring(0, 120);
+                lastSentNewsId = topNews.id;
+                logger.log(`[NOTIF] Pradhaana Vaartha (General) sent: newsId=${topNews.id}, quality=${getNormalizedQualityScore(topNews)}, views=${getEngagementViews(topNews)}, hour=${istHour}`);
             } catch (e: any) {
                 logger.error(`[NOTIF] General send failed:`, e.message);
             }
-        } else {
-            logger.log(`[NOTIF] General skipped — no candidate news found.`);
         }
     }
 
-    // --- 2. District Notification — 13 PM (మధ్యాహ్న భోజన సమయం) స్లాట్ కి మాత్రమే district push ---
+    // --- 2. District Notification — 13 PM Slot ONLY ---
     if (istHour === 13) {
         for (const district of DISTRICTS) {
-            // ఆ జిల్లాకు చెందిన వార్త మాత్రమే ఎంపిక చేస్తాం (క్యానానికల్ జిల్లా మ్యాపింగ్ ద్వారా రాజమండ్రి, విజయవాడ లాంటి పేర్లతోనూ మ్యాచ్ అవుతుంది)
-            const districtNews = allNews.find((n: any) => {
+            const districtNews = rankedPool.find((n: any) => {
                 const canonicalDist = getCanonicalDistrict(n.district);
                 const isCatMatch = n.category === "జిల్లా వార్త" && Array.isArray(n.categories) &&
                     n.categories.some((c: string) => getCanonicalDistrict(c) === district);
                 return (canonicalDist === district || isCatMatch) &&
                        lastSentMap[district] !== n.id &&
-                       lastSentMap['general'] !== n.id;
+                       lastSentMap['general'] !== n.id &&
+                       isFreshFingerprint(n);
+            }) || allNews.find((n: any) => {
+                const canonicalDist = getCanonicalDistrict(n.district);
+                return canonicalDist === district && lastSentMap[district] !== n.id && lastSentMap['general'] !== n.id;
             });
 
             if (!districtNews) continue;
@@ -573,7 +948,7 @@ export const sendPersonalizedNotification = onSchedule({
 
             try {
                 const message = buildNewsMessage(
-                    districtNews,
+                    { ...districtNews, district },
                     `📍 ${district}: ${shortTitle}`,
                     "local_news_v2",
                     imageUrl,
@@ -583,24 +958,30 @@ export const sendPersonalizedNotification = onSchedule({
 
                 await admin.messaging().send(message);
                 updatedMap[district] = districtNews.id;
-                logger.log(`[NOTIF] District ${district}: newsId=${districtNews.id}, views=${districtNews.longViews || 0}`);
+                recordFingerprint(districtNews);
+                sentTopicsCount++;
+                if (!lastSentHeadline) {
+                    lastSentHeadline = `${district}: ${shortTitle}`;
+                    lastSentNewsId = districtNews.id;
+                }
+                logger.log(`[NOTIF] District ${district}: newsId=${districtNews.id}, quality=${getNormalizedQualityScore(districtNews)}, views=${getEngagementViews(districtNews)}`);
             } catch (e: any) {
                 logger.error(`[NOTIF] Error in district topic ${topicName}:`, e.message);
             }
         }
     }
 
-    // --- 3. Category Notification — 18 PM (సాయంత్రం విరామం) స్లాట్ కి మాత్రమే category-wise push ---
+    // --- 3. Category Notification — 18 PM Slot ONLY ---
     if (istHour === 18) {
         for (const [teluguCat, topicName] of Object.entries(CATEGORY_TOPICS)) {
             const catKey = topicName;
 
-            // ఆ category లో ఇంతకుముందు general గాని category గాని పంపని best news కనుక్కోవడం
-            const catNews = allNews.find((n: any) => {
+            const catNews = rankedPool.find((n: any) => {
                 const isCat = n.category === teluguCat || (Array.isArray(n.categories) && n.categories.includes(teluguCat));
                 return isCat &&
                        lastSentMap['general'] !== n.id &&
-                       lastSentMap[catKey] !== n.id;
+                       lastSentMap[catKey] !== n.id &&
+                       isFreshFingerprint(n);
             });
 
             if (!catNews) continue;
@@ -620,6 +1001,12 @@ export const sendPersonalizedNotification = onSchedule({
                 );
                 await admin.messaging().send(message);
                 updatedMap[catKey] = catNews.id;
+                recordFingerprint(catNews);
+                sentTopicsCount++;
+                if (!lastSentHeadline) {
+                    lastSentHeadline = `${teluguCat}: ${shortTitle}`;
+                    lastSentNewsId = catNews.id;
+                }
                 logger.log(`[NOTIF] Category ${teluguCat}: newsId=${catNews.id}, topic=${topicName}`);
             } catch (e: any) {
                 logger.error(`[NOTIF] Error in category topic ${topicName}:`, e.message);
@@ -627,11 +1014,22 @@ export const sendPersonalizedNotification = onSchedule({
         }
     }
 
-    const updatedRecentGeneral = recentGeneralIds.slice(0, 30);
+    const updatedRecentGeneral = Array.from(new Set(recentGeneralIds)).slice(0, 30);
+    const updatedRecentFingerprints = Array.from(new Set(recentFingerprints)).slice(0, 30);
+
     await settingsRef.set({
         lastSentNewsIdMap: updatedMap,
         recentGeneralIds: updatedRecentGeneral,
-        lastRunAt: admin.firestore.FieldValue.serverTimestamp()
+        recentFingerprints: updatedRecentFingerprints,
+        lastRunAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastScheduledSummary: {
+            slotHour: istHour,
+            sentTopicsCount,
+            candidateCount: allNews.length,
+            headline: lastSentHeadline,
+            newsId: lastSentNewsId,
+            sentAt: admin.firestore.FieldValue.serverTimestamp()
+        }
     }, { merge: true });
 
     // Update scheduled run record for monitoring
@@ -639,113 +1037,33 @@ export const sendPersonalizedNotification = onSchedule({
     await db.collection('settings').doc('notif_daily_scheduled').set({
         date: today,
         lastRunHour: istHour,
+        sentTopicsCount,
         lastRunAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true }).catch(() => {});
 });
 
 // ==========================================
 // BREAKING / IMPORTANT NEWS INSTANT TRIGGER
-// isBreaking=true లేదా tone=BREAKING/URGENT/IMPORTANT లేదా టాప్ లీడర్ల ప్రకటనలు అయిన వెంటనే instant notification (పరిమితి లేదు - NO LIMIT)
+// Statewide max 6/day (45m cooldown) | District max 3/day (30m per-district cooldown)
+// Quiet Hours, Duplicates & Cooldowns are strictly validated BEFORE consuming daily quota!
 // ==========================================
-export async function dispatchBreakingNotification(postId: string, after: any, before?: any): Promise<boolean> {
-    // 🛡️ Global Kill-switch for Breaking/Important Push Notifications (settings/notifications)
+export async function dispatchBreakingNotification(postId: string, after: any, _before?: any): Promise<boolean> {
     const db = admin.firestore();
     const settingsRef = db.collection('settings').doc('notifications');
     const settingsDoc = await settingsRef.get().catch(() => null);
     const settingsData = settingsDoc?.exists ? settingsDoc.data() : {};
 
-    if (settingsData?.breakingNotificationsEnabled === false) {
-        logger.log(`[BREAKING] Breaking notifications globally disabled via settings/notifications. Skipping ${postId}`);
-        return false;
-    }
-    const pauseBreakingUntil = Number(settingsData?.pauseBreakingUntil || 0);
-    if (Date.now() < pauseBreakingUntil) {
-        const remainingHours = ((pauseBreakingUntil - Date.now()) / (1000 * 60 * 60)).toFixed(1);
-        logger.log(`[BREAKING] Breaking notifications paused for next ${remainingHours}h via pauseBreakingUntil. Skipping ${postId}`);
+    const gate = evaluateBreakingGate({ postId, after, settingsData });
+    if (!gate.allowed) {
+        logger.log(`[BREAKING] Suppressed ${postId}: reason=${gate.reason} (topic=${gate.targetTopic}, age=${gate.ageHours.toFixed(1)}h)`);
         return false;
     }
 
-    // Trigger: isBreaking=true OR tone=BREAKING/URGENT OR tone=IMPORTANT (with notificationWorthy or high score)
-    // OR 🏛️ Top Telugu Leaders (AP & TS CMs and Opposition Leaders) statements/quotes:
-    // (Chandrababu Naidu, Revanth Reddy, YS Jagan Mohan Reddy, KCR, Pawan Kalyan, Nara Lokesh, KTR)
-    const fullText = `${after.headline?.telugu || ""} ${after.headline?.english || ""} ${after.headline || ""} ${after.content?.telugu || ""} ${after.content || ""} ${after.body?.telugu || ""}`;
-    const headline = after.headline?.telugu || after.headline?.english || after.headline || "";
-    const authorOrSource = after.sourceName || after.socialAuthorName || after.reporter?.name || "";
-    const isLeaderBreaking = isTopTeluguLeaderStatement(fullText, headline, authorOrSource);
-
-    const tone = (after.tone || "").toUpperCase();
-    const isBreakingOrUrgent = after.isBreaking === true || tone === 'BREAKING' || tone === 'URGENT' || isLeaderBreaking;
-    const isImportantNews = tone === 'IMPORTANT' && (after.notificationWorthy === true || (after.score ?? 0) >= 70);
-
-    if (!isBreakingOrUrgent && !isImportantNews) {
-        logger.log(`[BREAKING] Not breaking/urgent/important: ${postId} (tone=${after.tone}, isBreaking=${after.isBreaking}, isLeader=${isLeaderBreaking})`);
-        return false;
-    }
-    logger.log(`[BREAKING] Triggered: ${postId} (tone=${after.tone}, isBreaking=${after.isBreaking}, important=${isImportantNews}, isLeader=${isLeaderBreaking})`);
-
-    // Age check — 6 గంటల కంటే పాత news కి breaking send వద్దు
-    const ts = after.timestamp;
-    let ageHours = 0;
-    if (ts && typeof ts.toDate === 'function') {
-        ageHours = (Date.now() - ts.toDate().getTime()) / (1000 * 60 * 60);
-    } else if (ts && ts._seconds) {
-        ageHours = (Date.now() - ts._seconds * 1000) / (1000 * 60 * 60);
-    }
-    if (ageHours > 6) {
-        logger.log(`[BREAKING] Too old (${ageHours.toFixed(1)}h): ${postId}`);
-        return false;
-    }
-
-    // Smart Scope Routing:
-    // Determine whether this breaking news has broad statewide/national impact (all_users)
-    // or is a local incident that should be pushed to that specific district topic.
-    const isStatewide = isStatewideOrBroadBreaking(after);
-    const canonicalDistrict = getCanonicalDistrict(after.district);
-    const isLocalDistrictBreaking = !isStatewide && !!canonicalDistrict;
-
-    const targetTopic = isStatewide
-        ? 'all_users'
-        : (isLocalDistrictBreaking ? getTopicName("district", canonicalDistrict!) : 'all_users');
-
-    // ⚡ Sensible Daily Limit & Spam Protection:
-    // Statewide breaking: max 6/day to protect users from alert fatigue.
-    // Local district breaking: max 3/day.
-    const limitDocName = isStatewide ? 'notif_daily_breaking' : `notif_daily_breaking_${slugify(canonicalDistrict || 'district')}`;
-    const maxLimit = isStatewide ? 6 : 3;
-
-    // 🛡️ 45-Minute Smart Cooldown Protection:
-    // Prevent user phones from buzzing continuously in quick succession.
-    // Must have at least 45 minutes between breaking alerts, unless it's a life-threatening disaster.
-    const lowerFullText = fullText.toLowerCase();
-    const isLifeThreatening = [
-        "భూకంపం", "తుఫాను", "వరదలు", "సునామి", "భారీ విపత్తు",
-        "సైరన్", "ఎమర్జెన్సీ", "తీవ్ర ప్రమాదం", "కుప్పకూలిన",
-        "విష వాయువు", "గ్యాస్ లీక్", "ఉగ్రవాద"
-    ].some(k => lowerFullText.includes(k));
-
-    const lastBreakingMillis = settingsData?.lastBreakingAt
-        ? (settingsData.lastBreakingAt.toMillis ? settingsData.lastBreakingAt.toMillis() : new Date(settingsData.lastBreakingAt).getTime())
-        : 0;
-    const elapsedMinutes = (Date.now() - lastBreakingMillis) / (60 * 1000);
-
-    if (lastBreakingMillis > 0 && elapsedMinutes < 45 && !isLifeThreatening) {
-        logger.log(`[BREAKING] Cooldown active (${elapsedMinutes.toFixed(1)}m < 45m). Suppressing ${postId} to protect user phones.`);
-        return false;
-    }
-
-    const canSend = await checkAndIncrementLimitAtomic(db, limitDocName, maxLimit);
-    if (!canSend && !isLifeThreatening) {
-        logger.log(`[BREAKING] Daily cap reached (${limitDocName}, max ${maxLimit}). Suppressing ${postId}`);
-        return false;
-    }
-    logger.log(`[BREAKING] Dispatching breaking alert (${limitDocName}, maxLimit=${maxLimit}, newsId=${postId})`);
-
-    // Duplicate check
-    const lastSentMap = settingsData?.lastSentNewsIdMap || {};
-    const recentGeneralIds: string[] = Array.isArray(settingsData?.recentGeneralIds) ? settingsData.recentGeneralIds : [];
-
-    if (lastSentMap['general'] === postId || lastSentMap[targetTopic] === postId || recentGeneralIds.includes(postId)) {
-        logger.log(`[BREAKING] Already sent: ${postId} (topic: ${targetTopic})`);
+    // All non-quota gates passed (Enabled, Eligible, Quality, Age, Quiet Hours, Duplicate, Per-Scope Cooldown).
+    // Now atomically reserve daily quota slot — rollback if FCM send fails!
+    const quotaReserved = await checkAndIncrementLimitAtomic(db, gate.limitDocName, gate.maxLimit);
+    if (!quotaReserved && !gate.isLifeThreatening) {
+        logger.log(`[BREAKING] Daily cap reached (${gate.limitDocName}, max ${gate.maxLimit}). Suppressing ${postId}`);
         return false;
     }
 
@@ -753,69 +1071,91 @@ export async function dispatchBreakingNotification(postId: string, after: any, b
     const shortBreaking = notifTitle.length > 70 ? notifTitle.substring(0, 70).trim() + "..." : notifTitle;
     const imageUrl = after.thumbnailUrl || after.mediaUrl || "";
 
-    const breakingTitle = (tone === 'BREAKING' || after.isBreaking === true || isLeaderBreaking)
+    const breakingTitle = (gate.tone === 'BREAKING' || after.isBreaking === true || gate.isLeaderBreaking)
         ? `🔴 Breaking: ${shortBreaking}`
-        : (tone === 'URGENT')
+        : (gate.tone === 'URGENT')
             ? `⚡ అత్యవసరం: ${shortBreaking}`
             : `📌 ముఖ్యాంశం: ${shortBreaking}`;
 
-    // 🌙 QUIET HOURS (11:00 PM – 6:00 AM IST)
-    // Avoid waking sleeping users with loud sounds, unless it's a catastrophic life-safety disaster.
-    const istHour = parseInt(new Intl.DateTimeFormat('en-GB', {
-        hour: 'numeric',
-        hour12: false,
-        timeZone: 'Asia/Kolkata'
-    }).format(new Date()));
-
-    const isQuietHour = istHour >= 23 || istHour < 6;
-
-    if (isQuietHour && !isLifeThreatening) {
-        logger.log(`[BREAKING] Quiet hours active (IST ${istHour}h). Suppressed non-emergency notification for ${postId} to protect user sleep.`);
-        return false;
-    }
-
     try {
-        const news = { id: postId, ...after };
+        const news = {
+            id: postId,
+            ...after,
+            district: gate.canonicalDistrict || after.district || ""
+        };
 
-        // Breaking/Important news → targeted topic కి పంపు
         const message = buildNewsMessage(
             news,
             breakingTitle,
             "breaking_news",
             imageUrl,
             1800000, // 30 min TTL
-            { topic: targetTopic },
+            { topic: gate.targetTopic },
             { silent: false }
         );
         await admin.messaging().send(message);
 
+        const lastSentMap = settingsData?.lastSentNewsIdMap || {};
+        const recentGeneralIds: string[] = Array.isArray(settingsData?.recentGeneralIds) ? settingsData.recentGeneralIds : [];
+        const recentFingerprints: string[] = Array.isArray(settingsData?.recentFingerprints) ? settingsData.recentFingerprints : [];
         const category = after.category || after.categories?.[0] || "";
-        const catKey = category ? `cat_${category}` : "";
+        const catKey = getCategoryTopic(category) || (category ? `cat_${category}` : "");
 
         const updatedHistory: any = {
             ...lastSentMap,
-            [targetTopic]: postId
+            [gate.targetTopic]: postId
         };
-        if (isStatewide) {
+        if (gate.isStatewide) {
             updatedHistory['general'] = postId;
         }
         if (catKey) {
             updatedHistory[catKey] = postId;
         }
 
-        const updatedRecentGeneral = isStatewide
+        const updatedRecentGeneral = gate.isStatewide
             ? [postId, ...recentGeneralIds.filter(id => id !== postId)].slice(0, 30)
             : recentGeneralIds;
+
+        const fp = typeof after?.storyFingerprint === 'string' && !after.storyFingerprint.startsWith('gen_')
+            ? after.storyFingerprint.trim()
+            : '';
+        const updatedFingerprints = fp
+            ? [fp, ...recentFingerprints.filter(x => x !== fp)].slice(0, 30)
+            : recentFingerprints;
+
+        const nowMs = Date.now();
+        const cooldownUpdate: Record<string, any> = {
+            lastBreakingAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        if (gate.isStatewide) {
+            cooldownUpdate.lastStateBreakingAt = admin.firestore.FieldValue.serverTimestamp();
+        } else {
+            const existingDistrictCooldowns = { ...(settingsData?.lastDistrictBreakingAt || {}) };
+            existingDistrictCooldowns[gate.districtSlug] = nowMs;
+            cooldownUpdate.lastDistrictBreakingAt = existingDistrictCooldowns;
+        }
 
         await settingsRef.set({
             lastSentNewsIdMap: updatedHistory,
             recentGeneralIds: updatedRecentGeneral,
-            lastBreakingAt: admin.firestore.FieldValue.serverTimestamp()
+            recentFingerprints: updatedFingerprints,
+            ...cooldownUpdate,
+            lastBreakingSummary: {
+                newsId: postId,
+                headline: shortBreaking,
+                topic: gate.targetTopic,
+                isStatewide: gate.isStatewide,
+                district: gate.canonicalDistrict || "",
+                sentAt: admin.firestore.FieldValue.serverTimestamp()
+            }
         }, { merge: true });
 
-        logger.log(`[BREAKING] ✅ Sent to ${targetTopic} for ${postId} (isStatewide=${isStatewide}, tone=${after.tone}, age=${ageHours.toFixed(1)}h)`);
+        logger.log(`[BREAKING] ✅ Sent Hybrid FCM to ${gate.targetTopic} for ${postId} (isStatewide=${gate.isStatewide}, tone=${gate.tone}, age=${gate.ageHours.toFixed(1)}h)`);
         return true;
     } catch (err: any) {
+        if (quotaReserved) {
+            await decrementLimitAtomic(db, gate.limitDocName);
+        }
         logger.error(`[BREAKING_ERR] ${postId}:`, err.message);
         return false;
     }
@@ -848,7 +1188,7 @@ export const onNewsPostApprovedNotify = onDocumentWritten({
 // ==========================================
 // CATEGORY TOPIC NAME HELPER
 // ==========================================
-function getCategoryTopic(category: string): string | null {
+export function getCategoryTopic(category: string): string | null {
     return CATEGORY_TOPICS[category] || null;
 }
 

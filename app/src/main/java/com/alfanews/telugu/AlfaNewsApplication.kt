@@ -107,13 +107,27 @@ class AlfaNewsApplication : Application(), SingletonImageLoader.Factory {
                 Log.e("AlfaNewsApp", "Analytics init error: ${e.message}")
             }
 
-            // పుష్ నోటిఫికేషన్లు (యూజర్ ప్రిఫరెన్స్ ఆధారంగా మాత్రమే)
+            // పుష్ నోటిఫికేషన్లు (ఇన్‌స్టాల్ అయిన ప్రతి ఒక్కరికీ ఆటోమేటిక్‌గా all_users, breaking_news, జిల్లా టాపిక్ సబ్‌స్క్రైబ్)
             try {
+                val messaging = FirebaseMessaging.getInstance()
+                messaging.isAutoInitEnabled = true
                 val prefs = PreferenceManager.getInstance(this)
                 if (prefs.isNotificationsEnabled) {
-                    FirebaseMessaging.getInstance().subscribeToTopic("all_users")
+                    messaging.subscribeToTopic("all_users")
+                    messaging.subscribeToTopic("breaking_news")
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            val district = prefs.getEffectiveDistrict()
+                            if (!district.isNullOrBlank()) {
+                                com.alfanews.telugu.utils.NotificationHelper.syncDistrictTopic(this@AlfaNewsApplication, district)
+                            }
+                        } catch (e: Throwable) {
+                            Log.e("AlfaNewsApp", "Initial district topic sync error: ${e.message}")
+                        }
+                    }
                 } else {
-                    FirebaseMessaging.getInstance().unsubscribeFromTopic("all_users")
+                    messaging.unsubscribeFromTopic("all_users")
+                    messaging.unsubscribeFromTopic("breaking_news")
                 }
             } catch (e: Throwable) {
                 Log.e("AlfaNewsApp", "FCM topic init error: ${e.message}")

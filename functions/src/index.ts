@@ -7,6 +7,7 @@ import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import * as nodemailer from "nodemailer";
 import * as https from "https";
 import { REGION } from "./utils";
+import { getCanonicalDistrict } from "./notification_engine";
 
 if (admin.apps.length === 0) {
     admin.initializeApp();
@@ -121,47 +122,112 @@ export const triggerPushBroadcast = onCall(async (request) => {
 
     const senderDoc = await db.collection('users').doc(auth.uid).get();
     const senderRole = String(senderDoc.data()?.role || '').toUpperCase();
-    const isAdmin = ['ADMIN', 'EDITOR', '5', '5.0', '7', '7.0'].includes(senderRole) || senderDoc.data()?.role === UserRole.ADMIN || senderDoc.data()?.role === UserRole.EDITOR;
+    const userEmail = String(auth.token?.email || '').toLowerCase();
+    const isSuperAdmin = userEmail === 'alfanews0861@gmail.com';
+    const isAdmin = isSuperAdmin || ['ADMIN', 'EDITOR', 'NEWS_DESK', 'SUPER_ADMIN', '4', '4.0', '5', '5.0', '6', '6.0', '7', '7.0'].includes(senderRole) || senderDoc.data()?.role === UserRole.ADMIN || senderDoc.data()?.role === UserRole.EDITOR;
 
     if (!isAdmin) {
         throw new HttpsError('permission-denied', 'పుష్ నోటిఫికేషన్లు పంపే అనుమతి కేవలం అడ్మిన్లకు మాత్రమే ఉంది.');
     }
 
-    const { title, body, actionUrl, topic, imageUrl, newsId, channelId, silent } = request.data;
+    const { title, body, actionUrl, topic, imageUrl, newsId, channelId, silent, district } = request.data;
     if (!title || !body) throw new HttpsError('invalid-argument', 'Title and Body are required.');
 
-    const message: any = {
-        notification: { title, body },
+    const resolvedTopic = (topic && typeof topic === 'string' && topic.trim()) ? topic.trim() : 'all_users';
+    const resolvedChannel = (channelId && typeof channelId === 'string' && channelId.trim()) ? channelId.trim() : 'general_news_v2';
+    const isSilent = !!silent;
+    const resolvedNewsId = (newsId && typeof newsId === 'string') ? newsId.trim() : '';
+    const resolvedActionUrl = resolvedNewsId
+        ? `alfanews://news/${resolvedNewsId}`
+        : (actionUrl && typeof actionUrl === 'string' ? actionUrl.trim() : '');
+    const webLink = resolvedNewsId
+        ? `https://alfanews.app/news/${resolvedNewsId}`
+        : 'https://alfanews.app/';
+    const resolvedDistrict = district ? (getCanonicalDistrict(district) || String(district).trim()) : '';
+
+    let finalImageUrl: string | undefined = undefined;
+    if (imageUrl && typeof imageUrl === 'string' && imageUrl.trim().startsWith('http')) {
+        const trimmedImg = imageUrl.trim();
+        const isStorageUrl = trimmedImg.includes('firebasestorage.googleapis.com') ||
+            trimmedImg.includes('firebasestorage.app') ||
+            trimmedImg.includes('storage.googleapis.com');
+        finalImageUrl = isStorageUrl
+            ? `https://wsrv.nl/?url=${encodeURIComponent(trimmedImg)}&w=640&output=webp&q=75`
+            : trimmedImg;
+    }
+
+    const slotTag = resolvedChannel === 'breaking_news'
+        ? 'alfa_breaking_manual'
+        : (resolvedTopic.startsWith('district_') ? `alfa_district_${resolvedTopic}` : 'alfa_manual_broadcast');
+
+    const message: admin.messaging.Message = {
+        notification: {
+            title,
+            body,
+            ...(finalImageUrl ? { imageUrl: finalImageUrl } : {})
+        },
         android: {
+            priority: isSilent ? 'normal' : 'high',
+            ttl: 2 * 60 * 60 * 1000,
+            directBootOk: true,
             notification: {
-                channelId: channelId || "general_news_v2",
-                priority: silent ? "low" : "high" as any,
-                defaultSound: !silent
+                channelId: resolvedChannel,
+                tag: slotTag,
+                title,
+                body,
+                priority: isSilent ? 'low' : 'high',
+                defaultSound: !isSilent,
+                ...(finalImageUrl ? { imageUrl: finalImageUrl } : {})
+            }
+        },
+        webpush: {
+            headers: {
+                Urgency: isSilent ? 'normal' : 'high',
+                TTL: '7200'
+            },
+            notification: {
+                title,
+                body,
+                icon: 'https://alfanews.app/app_icon.png',
+                badge: 'https://alfanews.app/app_icon.png',
+                tag: slotTag,
+                renotify: !isSilent,
+                ...(finalImageUrl ? { image: finalImageUrl } : {})
+            },
+            fcmOptions: {
+                link: webLink
             }
         },
         data: {
-            actionUrl: actionUrl || "",
-            newsId: newsId || "",
-            channelId: channelId || "general_news_v2",
-            title: title,
-            body: body
+            actionUrl: resolvedActionUrl,
+            webUrl: webLink,
+            newsId: resolvedNewsId,
+            channelId: resolvedChannel,
+            title,
+            body,
+            silent: isSilent ? 'true' : 'false',
+            district: resolvedDistrict,
+            newsType: resolvedTopic.startsWith('district_') ? 'DISTRICT' : 'MAIN',
+            slotTag,
+            ...(finalImageUrl ? { imageUrl: finalImageUrl } : {})
         },
-        topic: topic || 'all_users'
+        topic: resolvedTopic
     };
-
-    if (imageUrl && imageUrl.startsWith('http')) {
-        const isStorageUrl = imageUrl.includes('firebasestorage.googleapis.com') || imageUrl.includes('firebasestorage.app');
-        const finalImageUrl = isStorageUrl
-            ? `https://wsrv.nl/?url=${encodeURIComponent(imageUrl)}&w=640&output=webp&q=75`
-            : imageUrl;
-        message.notification.imageUrl = finalImageUrl;
-        message.android.notification.imageUrl = finalImageUrl;
-        message.data.imageUrl = finalImageUrl;
-    }
 
     try {
         const response = await admin.messaging().send(message);
-        return { success: true, messageId: response };
+        await db.collection('settings').doc('notifications').set({
+            lastManualBroadcastSummary: {
+                title,
+                newsId: resolvedNewsId,
+                topic: resolvedTopic,
+                channelId: resolvedChannel,
+                silent: isSilent,
+                sentAt: admin.firestore.FieldValue.serverTimestamp(),
+                sentBy: auth.uid
+            }
+        }, { merge: true }).catch(() => {});
+        return { success: true, messageId: response, topic: resolvedTopic };
     } catch (error: any) {
         throw new HttpsError('internal', error.message || 'Failed to send notification');
     }
@@ -865,9 +931,10 @@ export const shareNews = onRequest(async (req, res) => {
                 hydratedHtml = hydratedHtml.replace('<div id="root"></div>', preRenderedArticle);
 
                 if (isSearchEngine) {
-                    // Search engines (Googlebot, Bingbot) ONLY need the semantic HTML and JSON-LD structured data.
-                    // Strip client-side module scripts so headless crawlers do not execute React hydration and blast millions of Firestore reads!
-                    hydratedHtml = hydratedHtml.replace(/<script\b(?![^>]*application\/ld\+json)[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+                    // Search engines (Googlebot, Bingbot, Mediapartners-Google, AdsBot-Google) need semantic HTML,
+                    // JSON-LD structured data, and the Google AdSense verification script.
+                    // Strip client-side module/app scripts so headless crawlers do not execute React hydration and blast Firestore reads.
+                    hydratedHtml = hydratedHtml.replace(/<script\b(?![^>]*(?:application\/ld\+json|pagead2\.googlesyndication\.com\/pagead\/js\/adsbygoogle\.js))[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
                 }
 
                 res.set('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400');

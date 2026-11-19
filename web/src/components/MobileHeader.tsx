@@ -1,9 +1,11 @@
 import React from 'react';
 import { MapPin, ChevronDown, Settings2, Monitor } from 'lucide-react';
 import { setManualViewMode } from '../utils/useIsMobile';
+import WebPushBellButton from './WebPushBellButton';
 
 interface MobileHeaderProps {
   district?: string | null;
+  userId?: string | null;
   onDistrictClick: () => void;
   onSettingsClick: () => void;
   showDistrictSelector?: boolean;
@@ -11,6 +13,7 @@ interface MobileHeaderProps {
 
 const MobileHeader: React.FC<MobileHeaderProps> = ({
   district,
+  userId,
   onDistrictClick,
   onSettingsClick,
   showDistrictSelector = true,
@@ -30,7 +33,7 @@ const MobileHeader: React.FC<MobileHeaderProps> = ({
         {showDistrictSelector && (
           <button
             onClick={onDistrictClick}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-white/10 hover:bg-white/15 active:scale-95 border border-white/15 text-white transition-all max-w-[170px]"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-white/10 hover:bg-white/15 active:scale-95 border border-white/15 text-white transition-all max-w-[155px]"
             title="జిల్లా మార్చండి"
           >
             <MapPin className="w-3.5 h-3.5 text-red-500 shrink-0" />
@@ -41,11 +44,15 @@ const MobileHeader: React.FC<MobileHeaderProps> = ({
           </button>
         )}
 
+        {/* Web Push Alerts Bell */}
+        <WebPushBellButton userId={userId} district={district} variant="mobile" />
+
         {/* Preferences / Settings */}
         <button
           onClick={onSettingsClick}
           className="p-2 rounded-full bg-white/10 hover:bg-white/15 active:scale-95 border border-white/15 text-white transition-all"
           title="వర్గాల ప్రాధాన్యతలు (Preferences)"
+          aria-label="వర్గాల ప్రాధాన్యతలు"
         >
           <Settings2 className="w-4 h-4" />
         </button>
@@ -55,6 +62,7 @@ const MobileHeader: React.FC<MobileHeaderProps> = ({
           onClick={() => setManualViewMode('desktop')}
           className="p-2 rounded-full bg-white/5 hover:bg-white/10 active:scale-95 text-gray-400 hover:text-white transition-all hidden xs:flex"
           title="డెస్క్‌టాప్ వెర్షన్ (Desktop View)"
+          aria-label="డెస్క్‌టాప్ వెర్షన్"
         >
           <Monitor className="w-4 h-4" />
         </button>

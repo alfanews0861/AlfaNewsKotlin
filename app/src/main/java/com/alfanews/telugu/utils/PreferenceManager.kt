@@ -44,6 +44,8 @@ class PreferenceManager(context: Context) {
         private const val KEY_RATING_DIALOG_SHOWN_COUNT = "key_rating_dialog_shown_count"
         private const val KEY_LAST_RATING_DIALOG_TIME = "key_last_rating_dialog_time"
         private const val KEY_NOTIFICATIONS_ENABLED = "key_notifications_enabled"
+        private const val KEY_NOTIF_PROMPT_COUNT = "key_notif_prompt_count"
+        private const val KEY_LAST_NOTIF_PROMPT_TIME = "key_last_notif_prompt_time"
         private const val KEY_STORAGE_LIMIT_MB = "key_storage_limit_mb"
         private const val KEY_IS_LEGACY_CACHE_CLEARED = "key_is_legacy_cache_cleared"
         private const val KEY_CACHE_VERSION = "key_cache_version"
@@ -189,6 +191,18 @@ class PreferenceManager(context: Context) {
         get() = prefs.getBoolean(KEY_NOTIFICATIONS_ENABLED, true)
         set(value) {
             prefs.edit().putBoolean(KEY_NOTIFICATIONS_ENABLED, value).apply()
+        }
+
+    var notificationPromptCount: Int
+        get() = prefs.getInt(KEY_NOTIF_PROMPT_COUNT, 0)
+        set(value) {
+            prefs.edit().putInt(KEY_NOTIF_PROMPT_COUNT, value).apply()
+        }
+
+    var lastNotificationPromptTime: Long
+        get() = prefs.getLong(KEY_LAST_NOTIF_PROMPT_TIME, 0L)
+        set(value) {
+            prefs.edit().putLong(KEY_LAST_NOTIF_PROMPT_TIME, value).apply()
         }
 
     /** 

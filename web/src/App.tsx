@@ -22,6 +22,10 @@ import { useAppRoute, navigateTo } from './utils/router';
 import { updatePageSeo } from './utils/seoManager';
 import { useIsMobile } from './utils/useIsMobile';
 import MobileAppView from './components/MobileAppView';
+import {
+  listenForForegroundMessages,
+  requestNotificationPermission,
+} from './services/pushNotificationService';
 
 const { onAuthStateChanged, signOut } = _auth as any;
 const { doc, getDoc, setDoc, serverTimestamp, onSnapshot, collection, query, where, getDocs } = _firestore as any;
@@ -54,6 +58,21 @@ const App: React.FC = () => {
 
   useEffect(() => {
     getGuestId();
+    const unsubForeground = listenForForegroundMessages();
+
+    // Already-granted browsers: silently re-sync token & topics (all_users, breaking_news, district) without prompting
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      const savedDistrict =
+        localStorage.getItem('user_local_district') ||
+        localStorage.getItem('alfa_selected_district') ||
+        localStorage.getItem('selectedDistrict') ||
+        '';
+      void requestNotificationPermission({ userId: null, district: savedDistrict || null }).catch(() => {});
+    }
+
+    return () => {
+      unsubForeground();
+    };
   }, []);
 
   useEffect(() => {

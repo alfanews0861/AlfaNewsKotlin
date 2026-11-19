@@ -108,6 +108,9 @@ web/dist/
 vps-scraper/node_modules/
 .firebase/
 *.txt
+!web/public/ads.txt
+!web/public/app-ads.txt
+!web/public/robots.txt
 functions/scratch/
 functions/src/scratch/
 functions/*.txt

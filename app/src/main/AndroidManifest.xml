@@ -110,6 +110,17 @@
             android:resource="@xml/gma_ad_services_config"
             tools:replace="android:resource" />
 
+        <!-- Firebase Messaging Defaults (Ensures Hybrid FCM tray notifications use High-Importance channel & AlfaNews icon even when app is killed) -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/app_icon_new" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="general_news_v2" />
+        <meta-data
+            android:name="firebase_messaging_auto_init_enabled"
+            android:value="true" />
+
         <!-- Firebase Messaging Service -->
         <!-- directBootAware: phone lock screen state లో కూడా notifications deliver అవుతాయి -->
         <service

@@ -89,6 +89,8 @@ class MainActivity : ComponentActivity() {
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
+        mainViewModel.setNotificationsGranted(isGranted)
+        com.alfanews.telugu.services.AnalyticsService.logNotificationPermissionStatus(isGranted)
         if (isGranted) {
             Log.d("MainActivity", "Notification permission granted")
             mainViewModel.syncUserFcmToken(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
@@ -178,11 +180,13 @@ class MainActivity : ComponentActivity() {
             Log.e("MainActivity", "AdMob init error: ${e.message}")
         }
 
-        // ఆండ్రాయిడ్ 13+ కోసం నోటిఫికేషన్ పర్మిషన్ అడగడం
+        // 🚀 ఇన్‌స్టాల్ అయిన ప్రతి ఒక్కరికీ (Guest లేదా Logged-in, Android 12- లేదా 13+) వెంటనే FCM టోకెన్ & టాపిక్స్ (all_users, breaking_news, జిల్లా) ఆటో-సబ్‌స్క్రైబ్
+        // Note: Android 13+ OS పర్మిషన్ పాప్-అప్ స్ప్లాష్ స్క్రీన్ పూర్తయి లైవ్ వార్తలు కనిపించిన తర్వాతే వస్తుంది (Way2News శైలిలో అధిక ఆప్ట్-ఇన్ కోసం)
         try {
-            askNotificationPermission()
+            mainViewModel.syncUserFcmToken(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
+            mainViewModel.ensureDefaultSubscriptions()
         } catch (e: Throwable) {
-            Log.e("MainActivity", "Notification perm error: ${e.message}")
+            Log.e("MainActivity", "Initial FCM auto-subscription error: ${e.message}")
         }
 
         try {
@@ -357,6 +361,15 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxSize(),
                             color = Color.Transparent
                         ) {
+                            // స్ప్లాష్ స్క్రీన్ పూర్తయి లైవ్ తెలుగు వార్తలు కనిపించిన 1.2 సెకన్ల తర్వాత Android 13+ OS పర్మిషన్ స్మార్ట్‌గా అడగడం
+                            LaunchedEffect(Unit) {
+                                kotlinx.coroutines.delay(1200L)
+                                try {
+                                    askNotificationPermission()
+                                } catch (e: Throwable) {
+                                    Log.e("MainActivity", "Deferred notification perm error: ${e.message}")
+                                }
+                            }
                             MainScreen(
                                 mainViewModel = mainViewModel, 
                                 newsFeedViewModel = newsFeedViewModel,
@@ -370,20 +383,70 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun askNotificationPermission() {
-        // This is only necessary for API level >= 33 (Android 13)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) ==
-                PackageManager.PERMISSION_GRANTED
-            ) {
-                // Permission is already granted
-                mainViewModel.syncUserFcmToken(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
-            } else {
-                // Directly ask for the permission
-                requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-            }
-        } else {
+        val prefs = PreferenceManager.getInstance(this)
+        // Android 12 & below (API < 33): No runtime popup needed — notifications work automatically on install!
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            mainViewModel.setNotificationsGranted(NotificationManagerCompat.from(this).areNotificationsEnabled())
             mainViewModel.syncUserFcmToken(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
+            mainViewModel.ensureDefaultSubscriptions()
+            return
         }
+
+        // Android 13+ (API >= 33):
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            mainViewModel.setNotificationsGranted(true)
+            mainViewModel.syncUserFcmToken(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
+            mainViewModel.ensureDefaultSubscriptions()
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val promptCount = prefs.notificationPromptCount
+        val hoursSinceLastPrompt = (now - prefs.lastNotificationPromptTime) / (1000L * 60L * 60L)
+
+        // Smart Way2News-style timing:
+        // 1st launch (after splash): ask natively once while live headlines are visible.
+        // 2nd chance: only if Android still permits the dialog AND >= 24h have elapsed, so we never burn both chances back-to-back.
+        val shouldAskNow = promptCount == 0 || (
+            promptCount == 1 &&
+                hoursSinceLastPrompt >= 24L &&
+                shouldShowRequestPermissionRationale(android.Manifest.permission.POST_NOTIFICATIONS)
+        )
+
+        if (shouldAskNow) {
+            prefs.notificationPromptCount = promptCount + 1
+            prefs.lastNotificationPromptTime = now
+            requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    /**
+     * 1-tap notification enable helper for UI banners:
+     * Uses native Android 13+ OS popup whenever permitted; falls back to App Notification Settings only if permanently denied.
+     */
+    fun requestOrOpenNotificationPermission() {
+        val prefs = PreferenceManager.getInstance(this)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (granted) {
+                mainViewModel.setNotificationsGranted(true)
+                mainViewModel.syncUserFcmToken(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
+                mainViewModel.ensureDefaultSubscriptions()
+                return
+            }
+            if (prefs.notificationPromptCount == 0 || shouldShowRequestPermissionRationale(android.Manifest.permission.POST_NOTIFICATIONS)) {
+                prefs.notificationPromptCount = prefs.notificationPromptCount + 1
+                prefs.lastNotificationPromptTime = System.currentTimeMillis()
+                requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                return
+            }
+        }
+        openNotificationSettings()
     }
 
     fun openNotificationSettings() {
@@ -468,6 +531,7 @@ class MainActivity : ComponentActivity() {
         com.alfanews.telugu.services.AnalyticsService.logNotificationPermissionStatus(isEnabled)
         if (isEnabled) {
             mainViewModel.syncUserFcmToken(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
+            mainViewModel.ensureDefaultSubscriptions()
         }
         mainViewModel.recordAppOpen(com.alfanews.telugu.services.FirebaseService.auth.currentUser?.uid)
 
@@ -522,8 +586,8 @@ class MainActivity : ComponentActivity() {
             return extraPostId
         }
 
-        // 2. URI check (from data or actionUrl)
-        val fcmActionUrl = intent.getStringExtra("actionUrl")
+        // 2. URI check (from data, actionUrl, or Hybrid webUrl fallback)
+        val fcmActionUrl = intent.getStringExtra("actionUrl") ?: intent.getStringExtra("webUrl")
         val intentData = intent.data
         val uri = intentData ?: fcmActionUrl?.let { Uri.parse(it) } ?: return null
 

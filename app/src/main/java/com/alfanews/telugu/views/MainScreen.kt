@@ -463,7 +463,7 @@ fun MainScreen(
                                          onClick = {
                                              val mainAct = context as? MainActivity
                                              if (mainAct != null) {
-                                                 mainAct.openNotificationSettings()
+                                                 mainAct.requestOrOpenNotificationPermission()
                                              } else {
                                                  try {
                                                      val intent = Intent().apply {
@@ -486,7 +486,7 @@ fun MainScreen(
                                          contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                                      ) {
                                         Text(
-                                            text = if (language == Language.TELUGU) "సెట్టింగ్స్" else "Settings",
+                                            text = if (language == Language.TELUGU) "ఆన్ చేయండి" else "Enable",
                                             color = if (isDark) Color(0xFFFF8A80) else Color(0xFFD32F2F),
                                             style = MaterialTheme.typography.labelLarge
                                         )

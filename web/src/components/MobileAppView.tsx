@@ -14,6 +14,7 @@ import DistrictPickerModal from './DistrictPickerModal';
 import PreferencesModal from './PreferencesModal';
 import { User, Language, UserRole } from '../types';
 import { navigateTo } from '../utils/router';
+import { syncWebDistrictTopic } from '../services/pushNotificationService';
 
 interface MobileAppViewProps {
   currentUser: User | null;
@@ -67,6 +68,7 @@ export const MobileAppView: React.FC<MobileAppViewProps> = ({
     } else {
       localStorage.removeItem('user_local_district');
     }
+    syncWebDistrictTopic(district);
   };
 
   const guestUser: User = {
@@ -85,6 +87,7 @@ export const MobileAppView: React.FC<MobileAppViewProps> = ({
       {/* 1. TOP HEADER (Android LogoHeader clone) */}
       <MobileHeader
         district={activeDistrict}
+        userId={currentUser?.id || null}
         onDistrictClick={() => setShowDistrictModal(true)}
         onSettingsClick={() => setShowPreferencesModal(true)}
         showDistrictSelector={activeTab === 'home' || activeTab === 'local'}

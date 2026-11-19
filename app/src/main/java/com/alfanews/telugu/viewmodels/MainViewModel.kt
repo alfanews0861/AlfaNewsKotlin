@@ -116,6 +116,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             prefs.districtChanges.collectLatest { district ->
                 _activeDistrict.value = district
                 updateActiveWeatherAlert()
+                if (prefs.isNotificationsEnabled && !district.isNullOrBlank()) {
+                    try {
+                        NotificationHelper.syncDistrictTopic(getApplication(), district)
+                    } catch (e: Exception) {
+                        Log.w("MainViewModel", "Auto district topic sync failed: ${e.message}")
+                    }
+                }
             }
         }
 

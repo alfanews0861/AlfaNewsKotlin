@@ -31,6 +31,7 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withTimeoutOrNull
@@ -117,8 +118,22 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
         if (isDistrictNews) {
             val prefs = PreferenceManager.getInstance(applicationContext)
-            val userDistrict = prefs.getEffectiveDistrict() ?: prefs.userDistrict
-            val expectedDistrictTopic = if (!userDistrict.isNullOrBlank()) NotificationHelper.getTopicName("district", userDistrict) else null
+            val rawUserDistrict = prefs.getEffectiveDistrict() ?: prefs.userDistrict
+            val canonicalUserDistrict = if (!rawUserDistrict.isNullOrBlank()) {
+                NotificationHelper.getCanonicalDistrict(rawUserDistrict)
+            } else {
+                null
+            }
+            val canonicalNotifDistrict = if (!notifDistrict.isNullOrBlank()) {
+                NotificationHelper.getCanonicalDistrict(notifDistrict)
+            } else {
+                null
+            }
+            val expectedDistrictTopic = if (!canonicalUserDistrict.isNullOrBlank()) {
+                NotificationHelper.getTopicName("district", canonicalUserDistrict)
+            } else {
+                null
+            }
 
             // Foreign district topic నుండి వస్తే auto-unsubscribe చేసి డ్రాప్ చేస్తాము
             if (fromTopic.startsWith("district_") && expectedDistrictTopic != null && fromTopic != expectedDistrictTopic) {
@@ -129,9 +144,9 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 return
             }
 
-            // పేలోడ్ లోని జిల్లా యూజర్ ప్రస్తుత జిల్లా కాకపోతే డ్రాప్ చేస్తాము
-            if (!notifDistrict.isNullOrBlank() && !userDistrict.isNullOrBlank() && notifDistrict != userDistrict) {
-                Log.w("MyFirebaseMsgService", "Foreign district news dropped: $notifDistrict (user is in $userDistrict)")
+            // క్యానానికల్ జిల్లా పేర్లను పోల్చి (ఉదా: విజయవాడ == ఎన్టీఆర్) వేరే జిల్లా వార్త మాత్రమే డ్రాప్ చేస్తాము
+            if (!canonicalNotifDistrict.isNullOrBlank() && !canonicalUserDistrict.isNullOrBlank() && canonicalNotifDistrict != canonicalUserDistrict) {
+                Log.w("MyFirebaseMsgService", "Foreign district news dropped: $canonicalNotifDistrict (user is in $canonicalUserDistrict)")
                 if (fromTopic.startsWith("district_")) {
                     serviceScope.launch {
                         try { FirebaseMessaging.getInstance().unsubscribeFromTopic(fromTopic).await() } catch (e: Exception) {}
@@ -141,7 +156,9 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             }
         }
 
-        sendNotification(title ?: "Alfa News", body ?: "", channelId, actionUrl, imageUrl, badgeCount, isSilent)
+        val slotTag = remoteMessage.data["slotTag"]
+        val payloadNewsId = remoteMessage.data["newsId"]
+        sendNotification(title ?: "Alfa News", body ?: "", channelId, actionUrl, imageUrl, badgeCount, isSilent, payloadNewsId, slotTag)
     }
 
     /**
@@ -339,7 +356,8 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         fun updateCategorySubscriptions(prefs: PreferenceManager) {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    val topCategories = prefs.getTopCategories(3)
+                    // Single source of truth: Top 2 categories matching MainViewModel (prevents overwrite churn)
+                    val topCategories = prefs.getTopCategories(2)
                     val newTopics = topCategories
                         .mapNotNull { CATEGORY_TOPIC_MAP[it] }
                         .toSet()
@@ -508,14 +526,22 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
      * @param actionUrl నోటిఫికేషన్ క్లిక్ చేసినప్పుడు తెరవవలసిన URL (ఉంటే).
      * @param imageUrl నోటిఫికేషన్‌లో చూపించాల్సిన చిత్రం URL.
      */
-    private fun sendNotification(title: String, messageBody: String, channelId: String, actionUrl: String?, imageUrl: String?, badgeCount: Int = 0, isSilent: Boolean = false) {
-        // ✅ FIX: Image download తప్పనిసరిగా Background thread లో జరగాలి.
-        // NetworkOnMainThreadException వల్ల notification అస్సలు రాకపోవడం fix అవుతుంది.
-        serviceScope.launch {
+    private fun sendNotification(
+        title: String,
+        messageBody: String,
+        channelId: String,
+        actionUrl: String?,
+        imageUrl: String?,
+        badgeCount: Int = 0,
+        isSilent: Boolean = false,
+        payloadNewsId: String? = null,
+        slotTag: String? = null
+    ) {
+        // ✅ FIX: Run synchronously inside onMessageReceived() on IO dispatcher (with strict 2.5s image cap)
+        // so Android OS / OEM Doze kills NEVER terminate the service before notificationManager.notify() fires.
+        runBlocking(Dispatchers.IO) {
             try {
                 // 🌙 Client-side Quiet Hours Guard (11:00 PM - 6:00 AM IST):
-                // Secondary safeguard: If any delayed/queued network notification arrives on device at night,
-                // suppress presentation completely unless it is a life-threatening disaster or admin notice.
                 val currentHour = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Kolkata")).get(java.util.Calendar.HOUR_OF_DAY)
                 val isQuietHours = currentHour >= 23 || currentHour < 6
                 val isEmergency = channelId == AppNotificationChannel.BREAKING.id &&
@@ -523,58 +549,53 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
                 if (isQuietHours && !isEmergency && channelId != AppNotificationChannel.ADMIN.id) {
                     Log.d("MyFirebaseMsgService", "Quiet hours active (hour $currentHour). Suppressing late-night notification presentation.")
-                    return@launch
+                    return@runBlocking
                 }
 
-                // 🛡️ ZERO-FLOODING STABLE NOTIFICATION IDs (Way2News Slot Architecture):
-                // Using stable IDs per channel updates the existing slot cleanly in the user's notification bar.
-                // Prevents old notifications from stacking into a massive cluster/heap ("గుట్టగా రావడం")!
+                // 🛡️ ZERO-FLOODING STABLE NOTIFICATION IDs (Way2News Slot Architecture)
                 val notificationId = when (channelId) {
                     AppNotificationChannel.BREAKING.id -> 1001
                     AppNotificationChannel.LOCAL.id -> 1002
                     AppNotificationChannel.WEATHER.id -> 1003
                     AppNotificationChannel.ADMIN.id -> (System.currentTimeMillis() and 0x7fffffffL).toInt()
-                    else -> 1000 // General news slot (8 AM, 6 PM, 9 PM updates in place)
+                    else -> 1000
                 }
-                val newsId = Uri.parse(actionUrl ?: "").lastPathSegment ?: ""
+                val newsId = payloadNewsId?.takeIf { it.isNotBlank() }
+                    ?: Uri.parse(actionUrl ?: "").lastPathSegment
+                    ?: ""
 
                 val styledTitle = formatHtmlNotificationText(title, isTitle = true)
                 val styledBody = formatHtmlNotificationText(messageBody, isTitle = false)
                 val defaultLargeIcon = getDefaultLargeIcon()
 
                 // 1. ప్రధాన క్లిక్ యాక్షన్: వార్తను చదవడం
-                val intent = if (!actionUrl.isNullOrEmpty()) {
-                    Intent(Intent.ACTION_VIEW, Uri.parse(actionUrl))
-                } else {
-                    Intent(this@MyFirebaseMessagingService, MainActivity::class.java).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                val intent = Intent(this@MyFirebaseMessagingService, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    if (!actionUrl.isNullOrBlank()) {
+                        data = Uri.parse(actionUrl)
+                        putExtra("actionUrl", actionUrl)
+                    }
+                    if (newsId.isNotBlank()) {
+                        putExtra("newsId", newsId)
                     }
                 }
 
-                // ✅ FIX: requestCode unique గా ఉండాలి, లేకపోతే PendingIntent override అవుతుంది
                 val pendingIntent = PendingIntent.getActivity(
                     this@MyFirebaseMessagingService,
                     notificationId,
                     intent,
-                    PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
                 // 2. షేర్ బటన్ యాక్షన్ (Android 12+ Notification Trampoline Safe)
-                val shareUrl = actionUrl ?: "https://play.google.com/store/apps/details?id=com.alfanews.telugu"
-                val plainShareTitle = if (title.contains("<")) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        Html.fromHtml(title, Html.FROM_HTML_MODE_LEGACY).toString().trim()
-                    } else {
-                        @Suppress("DEPRECATION")
-                        Html.fromHtml(title).toString().trim()
-                    }
+                val shareUrl = if (newsId.isNotBlank()) {
+                    "https://alfanews.app/news/$newsId"
                 } else {
-                    title.trim()
+                    actionUrl ?: "https://play.google.com/store/apps/details?id=com.alfanews.telugu"
                 }
-                val shareText = shareUrl
                 val sendIntent = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, shareText)
+                    putExtra(Intent.EXTRA_TEXT, shareUrl)
                     if (newsId.isNotEmpty()) {
                         putExtra("newsId", newsId)
                     }
@@ -582,20 +603,20 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 val chooserIntent = Intent.createChooser(sendIntent, "వార్తను షేర్ చేయండి")
                 val sharePendingIntent = PendingIntent.getActivity(
                     this@MyFirebaseMessagingService,
-                    notificationId + 1, // unique requestCode
+                    notificationId + 1,
                     chooserIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
-                // 🖼️ Rich Notification: ఫోటో ఉంటే Coil 3 ద్వారా Safe గా లోడ్ చేసి చూపిస్తాం (6s Timeout + Disk Cache)
+                // 🖼️ Rich Notification: 2.5s strict timeout so notification posts reliably even on slow cellular
                 var bitmap: Bitmap? = null
                 if (!imageUrl.isNullOrBlank()) {
                     try {
-                        withTimeoutOrNull(6000L) { // 6 seconds timeout so cellular connections reliably download hero images
+                        withTimeoutOrNull(2500L) {
                             val request = ImageRequest.Builder(this@MyFirebaseMessagingService)
                                 .data(imageUrl)
                                 .size(1024, 512)
-                                .allowHardware(false) // Notification view support requires software Bitmaps
+                                .allowHardware(false)
                                 .diskCachePolicy(CachePolicy.ENABLED)
                                 .memoryCachePolicy(CachePolicy.ENABLED)
                                 .build()
@@ -631,7 +652,6 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     notificationBuilder.setNumber(badgeCount)
                 }
 
-                // 🖼️ Way2News Style Large Icon: ఫోటో ఉంటే ఆ ఫోటో లేదా బ్రాండెడ్ లార్జ్ ఐకాన్
                 val largeIconBitmap = bitmap ?: defaultLargeIcon
                 if (largeIconBitmap != null) {
                     notificationBuilder.setLargeIcon(largeIconBitmap)
@@ -641,12 +661,11 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     notificationBuilder.setStyle(
                         NotificationCompat.BigPictureStyle()
                             .bigPicture(bitmap)
-                            .bigLargeIcon(null as Bitmap?) // In Way2News style, hides thumbnail when expanded for full-width hero image
+                            .bigLargeIcon(null as Bitmap?)
                             .setBigContentTitle(styledTitle)
                             .setSummaryText(styledBody)
                     )
                 } else {
-                    // చిత్రం లేకపోయినా BigTextStyle + LargeIcon తో పెద్ద కార్డు రూపంలో కనిపిస్తుంది
                     notificationBuilder.setStyle(
                         NotificationCompat.BigTextStyle()
                             .setBigContentTitle(styledTitle)
@@ -654,7 +673,6 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     )
                 }
 
-                // పాత ఆండ్రాయిడ్ వెర్షన్ల కోసం ప్రయారిటీ సెట్ చేయడం
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
                     val priority = if (channelId == AppNotificationChannel.BREAKING.id) {
                         NotificationCompat.PRIORITY_HIGH
@@ -664,9 +682,10 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                     notificationBuilder.priority = priority
                 }
 
-                // ✅ Main thread లో notify చేయడం (విడివిడిగా ప్రతి నోటిఫికేషన్ స్పష్టంగా కనిపించేలా చేయడం)
-                withContext(Dispatchers.Main) {
-                    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                if (!slotTag.isNullOrBlank()) {
+                    notificationManager.notify(slotTag, notificationId, notificationBuilder.build())
+                } else {
                     notificationManager.notify(notificationId, notificationBuilder.build())
                 }
             } catch (t: Throwable) {

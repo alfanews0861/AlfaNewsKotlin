@@ -567,10 +567,15 @@ export function detectTopTeluguLeader(
     const h = (headline || '').trim();
     const c = (content || '').trim();
     const a = (authorOrSource || '').trim();
+    const hLower = h.toLowerCase();
+    const cLower = c.toLowerCase();
     const combined = `${h} ${c} ${a}`.toLowerCase();
 
-    // 🛑 Exclude routine greetings, wishes, condolences (పుట్టినరోజు, దినోత్సవ శుభాకాంక్షలు etc. are NOT breaking news)
-    const isRoutineGreeting = ROUTINE_GREETING_INDICATORS.some(g => h.toLowerCase().includes(g.toLowerCase()));
+    // 🛑 Exclude routine greetings, wishes, condolences, and trivial mentions
+    const isRoutineGreeting = ROUTINE_GREETING_INDICATORS.some(g => {
+        const gLower = g.toLowerCase();
+        return hLower.includes(gLower) || cLower.slice(0, 180).includes(gLower);
+    });
     if (isRoutineGreeting) {
         return {
             isTopLeaderNews: false,
@@ -592,14 +597,16 @@ export function detectTopTeluguLeader(
         // 3. Leader mentioned in text
         const inText = leader.patterns.some(rgx => rgx.test(combined));
 
-        // 4. Statement / Quote indicator in headline or content
+        // 4. Statement / Quote / Policy-Action indicator in headline or content
         const hasStatementIndicator = STATEMENT_AND_QUOTE_INDICATORS.some(ind => {
             const indLower = ind.toLowerCase();
-            return h.toLowerCase().includes(indLower) || c.toLowerCase().includes(indLower);
+            return hLower.includes(indLower) || cLower.includes(indLower);
         });
 
-        // If author or in headline or (in text with statement/quote):
-        if (isAuthor || inHeadline || (inText && hasStatementIndicator)) {
+        // Require genuine statement/action/decision or direct official post.
+        // A casual headline mention alone (without any statement/quote/decision indicator)
+        // must NOT burn daily breaking notification slots.
+        if (isAuthor || ((inHeadline || inText) && hasStatementIndicator)) {
             return {
                 isTopLeaderNews: true,
                 leaderName: leader.nameTe,

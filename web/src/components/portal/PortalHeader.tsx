@@ -4,6 +4,8 @@ import { Search, Flame, User as UserIcon, LogIn, Menu, X, Smartphone, ChevronDow
 import { AP_DISTRICTS, TS_DISTRICTS } from '../../utils/newsFilter';
 import { getPreferredPlayStoreUrl, openNativePlayStore } from '../../utils/playStoreHelper';
 import PortalAdBanner from './PortalAdBanner';
+import WebPushBellButton from '../WebPushBellButton';
+import { syncWebDistrictTopic } from '../../services/pushNotificationService';
 
 interface PortalHeaderProps {
   currentUser: User | null;
@@ -116,6 +118,7 @@ export const PortalHeader: React.FC<PortalHeaderProps> = ({
     if (onSelectDistrict) {
       onSelectDistrict(district, state);
     }
+    syncWebDistrictTopic(district);
     onSelectCategory(district);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -350,11 +353,19 @@ export const PortalHeader: React.FC<PortalHeaderProps> = ({
 
           {/* Right Action Buttons */}
           <div className="hidden md:flex items-center gap-2 pl-3 border-l border-red-800/60 shrink-0">
+            {/* Web Push Alerts Bell */}
+            <WebPushBellButton
+              userId={currentUser?.id || null}
+              district={selectedDistrict || currentUser?.district || null}
+              variant="desktop"
+            />
+
             {/* Search Button */}
             <button
               onClick={onSearchClick}
               className="p-2 text-white/90 hover:text-white hover:bg-red-800 rounded-lg transition-colors"
               title="వార్తలను వెతకండి"
+              aria-label="వార్తలను వెతకండి"
             >
               <Search className="w-4 h-4" />
             </button>

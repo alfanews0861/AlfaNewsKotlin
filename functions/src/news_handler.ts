@@ -493,7 +493,7 @@ function normalizeSingleStory(aiRes: any, actualPostData: any): any {
 
     const finalTone = isTopLeaderNews ? "BREAKING" : (isPersonalPraise ? "SOFT" : (aiRes.tone || "NORMAL"));
     const finalIsBreaking = isTopLeaderNews || (!isPersonalPraise && aiRes.isBreaking === true);
-    const finalNotificationWorthy = isTopLeaderNews || (!isPersonalPraise && aiRes.notificationWorthy === true);
+    const finalNotificationWorthy = isTopLeaderNews || (!isPersonalPraise && (aiRes.notificationWorthy === true || qualityScore >= 7.5));
     const finalNotificationTitleValue = finalNotificationTitle || (isTopLeaderNews ? finalHeadline : "");
 
     return {
